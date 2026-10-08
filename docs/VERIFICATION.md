@@ -115,4 +115,4 @@ These are host-specific test settings, not global graphics changes. Wayland, med
 
 ## Publication and safety
 
-Existing user installations and services were not changed or restarted. Only owned development processes and scratch fixtures were used. No model downloads or releases were performed. The user authorized committing this verified alpha snapshot and pushing to both configured Git remotes; remote publication/CI is checked separately from these local acceptance results. Windows CI remains configured but not exercised locally. Remaining acceptance items are in `docs/PLAN.md`; full Go feature parity is explicitly incomplete.
+Existing user installations and services were not changed or restarted. Only owned development processes and scratch fixtures were used. No model downloads or releases were performed. GitHub publication/CI is checked separately from these local acceptance results. Windows CI remains configured but not exercised locally. Remaining acceptance items are in `docs/PLAN.md`; full Go feature parity is explicitly incomplete.

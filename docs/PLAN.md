@@ -23,7 +23,7 @@ Current next slice: native-owned verified recipe prerequisites, followed by corr
 
 ### M0 — Repository and architecture
 - [x] Create project directory and local main branch.
-- [x] Configure gitea and github remotes supplied by the owner.
+- [x] Publish the alpha source repository on GitHub.
 - [x] Define frontend, desktop, installer and ComfyUI ownership boundaries.
 - [x] Delegate UI, native shell and adapter/registry work independently.
 - [x] Integrate and independently verify the first implementation.

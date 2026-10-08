@@ -106,9 +106,6 @@ Development does not install models, alter existing ComfyUI environments or stop
 
 See [the milestone plan and acceptance checklist](docs/PLAN.md). Verified outcomes and explicit limitations are recorded in `docs/VERIFICATION.md`.
 
-## Repositories
+## Repository
 
-- Gitea: `ssh://git@gitea.truenas.lan:30009/darksidewalker/DEAS.git`
-- GitHub: https://github.com/darksidewalker/DEAS
-
-Remotes are configured locally. No release or remote publication is implied by this initial project setup.
+Source and collaboration: https://github.com/darksidewalker/DEAS
