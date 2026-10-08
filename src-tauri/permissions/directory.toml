@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-pick-directory"
+description = "Open an OS folder chooser for an existing parent directory; never create files or start installation."
+commands.allow = ["native_pick_directory"]

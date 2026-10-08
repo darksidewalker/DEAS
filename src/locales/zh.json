@@ -1,0 +1,15 @@
+{
+  "app.home": "DEAS 首页",
+  "app.brand": "DEAS",
+  "app.brandCaption": "Dark Engine AI Studio",
+  "app.language": "语言",
+  "app.phase": "基础建设阶段",
+  "app.eyebrow": "本地引擎 / 无限可能",
+  "app.creative": "您的创意",
+  "app.engine": "引擎。",
+  "app.start": "从您的引擎开始。",
+  "app.follow": "沿着连接前行，展开一个想法。",
+  "app.noRun": "未经您的指示，不会运行任何内容。",
+  "app.instrument": "以本地为优先的创作工具",
+  "app.noCloud": "无需云端账号，不发送后台请求。"
+}

@@ -1,0 +1,15 @@
+{
+  "app.home": "DEAS ホーム",
+  "app.brand": "DEAS",
+  "app.brandCaption": "Dark Engine AI Studio",
+  "app.language": "言語",
+  "app.phase": "基盤構築フェーズ",
+  "app.eyebrow": "ローカルエンジン / 広がる可能性",
+  "app.creative": "あなたの創造を動かす",
+  "app.engine": "エンジン。",
+  "app.start": "あなたのエンジンから始めよう。",
+  "app.follow": "つながりをたどり、発想を広げよう。",
+  "app.noRun": "指示するまで、何も実行されません。",
+  "app.instrument": "ローカルを中心にした創作ツール",
+  "app.noCloud": "クラウドアカウント不要。バックグラウンドでのリクエストもありません。"
+}

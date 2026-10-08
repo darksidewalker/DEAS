@@ -1,0 +1,510 @@
+//! Compiled adapters only. URLs from indexes/Link metadata are revalidated, never executed.
+//! References: HF .well-known/openapi.json; GitHub REST contents/users; Civitai REST
+//! api/v1/models (items/modelVersions/files); Ollama GET api/tags (models).
+use super::*;
+use serde_json::Value;
+pub(super) struct Page {
+    pub resources: Vec<Resource>,
+    pub next: Option<Url>,
+    pub warnings: Vec<String>,
+}
+fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
+    v.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Malformed provider response: missing {key}"))
+}
+fn array(v: &Value) -> Result<&Vec<Value>, String> {
+    v.as_array().ok_or_else(|| "Expected provider array".into())
+}
+fn segment(s: &str) -> Result<(), String> {
+    if s.is_empty()
+        || s.len() > 200
+        || s == "."
+        || s == ".."
+        || !s
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
+        Err("Invalid account/repository locator".into())
+    } else {
+        Ok(())
+    }
+}
+fn path(s: &str) -> Result<(), String> {
+    if s.len() > 1024
+        || s.split('/').any(|s| {
+            s.is_empty()
+                || s == "."
+                || s == ".."
+                || s.contains(['\\', '?', '#', '%'])
+                || s.chars().any(char::is_control)
+        })
+    {
+        Err("Invalid repository path".into())
+    } else {
+        Ok(())
+    }
+}
+fn endpoint(p: &Provider, parts: &[&str]) -> Result<Url, String> {
+    let mut u = Url::parse(&format!("{}/", p.origin)).map_err(|_| "Invalid origin")?;
+    {
+        let mut seg = u.path_segments_mut().map_err(|_| "Invalid origin")?;
+        seg.clear();
+        for s in parts {
+            seg.push(s);
+        }
+    }
+    Ok(u)
+}
+pub(super) fn filename(r: &Resource) -> Result<String, String> {
+    let s = r
+        .locator
+        .as_deref()
+        .or(r.url.as_deref())
+        .ok_or("Missing file locator")?;
+    let name = s.rsplit('/').next().ok_or("Missing filename")?;
+    safe_name(name)?;
+    Ok(name.into())
+}
+fn file(
+    id: String,
+    label: String,
+    url: String,
+    size: Option<u64>,
+    hash: Option<String>,
+    license: Option<String>,
+    name: String,
+) -> Result<Resource, String> {
+    safe_name(&name)?;
+    Ok(Resource {
+        id,
+        label,
+        kind: "file".into(),
+        url: Some(url),
+        size,
+        sha256: hash,
+        downloadable: true,
+        locator: Some(name),
+        license,
+    })
+}
+async fn json(
+    client: &reqwest::Client,
+    p: &Provider,
+    u: Url,
+    header: &Option<HeaderValue>,
+) -> Result<(Value, Option<String>), String> {
+    let parsed = validate_url(u.as_str(), p.kind == "ollama", true)?;
+    if parsed.origin().ascii_serialization() != p.origin {
+        return Err("Provider pagination escaped configured origin".into());
+    }
+    let mut q = client
+        .get(parsed)
+        .header(reqwest::header::ACCEPT, "application/json");
+    if let Some(h) = header {
+        q = q.header(reqwest::header::AUTHORIZATION, h.clone());
+    }
+    let mut response = q.send().await.map_err(|_| network_error())?;
+    if response.status() != reqwest::StatusCode::OK {
+        return Err(format!(
+            "Provider HTTP {} (authentication, gating or rate limits may apply)",
+            response.status().as_u16()
+        ));
+    }
+    let link = response
+        .headers()
+        .get(reqwest::header::LINK)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    if response
+        .content_length()
+        .is_some_and(|n| n > MAX_JSON as u64)
+    {
+        return Err("Provider JSON exceeds 2 MiB".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| network_error())? {
+        if bytes.len() + chunk.len() > MAX_JSON {
+            return Err("Provider JSON exceeds 2 MiB".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let v = serde_json::from_slice(&bytes).map_err(|_| "Malformed provider JSON")?;
+    Ok((v, link))
+}
+fn link_next(p: &Provider, u: &Url, link: Option<String>) -> Result<Option<Url>, String> {
+    let Some(link) = link else { return Ok(None) };
+    for item in link.split(',') {
+        if item.contains("rel=\"next\"") || item.contains("rel=next") {
+            let input = item
+                .trim()
+                .split('>')
+                .next()
+                .and_then(|s| s.strip_prefix('<'))
+                .ok_or("Malformed next Link")?;
+            let next = u.join(input).map_err(|_| "Invalid next Link")?;
+            validate_url(next.as_str(), p.kind == "ollama", true)?;
+            if next.origin() != u.origin() || next.path() != u.path() {
+                return Err("Next page escaped adapter endpoint".into());
+            }
+            return Ok(Some(next));
+        }
+    }
+    Ok(None)
+}
+fn hf_locator(s: &str) -> Result<(&str, &str), String> {
+    let (kind, name) = s.split_once(':').unwrap_or(("models", s));
+    if !matches!(kind, "models" | "datasets") {
+        return Err("HF locator uses models: or datasets:".into());
+    }
+    Ok((kind, name))
+}
+pub(super) async fn list(
+    p: &Provider,
+    r: &BrowseRequest,
+    next: Option<Url>,
+    header: Option<HeaderValue>,
+) -> Result<Page, String> {
+    let client = client_for(p.kind == "ollama")?;
+    let mut warnings = vec![];
+    let mut u = match (p.kind.as_str(), r.scope.as_str()) {
+        ("huggingface", "user") => {
+            let (kind, name) = hf_locator(&r.locator)?;
+            segment(name)?;
+            let mut u = endpoint(p, &["api", kind])?;
+            u.query_pairs_mut()
+                .append_pair("author", name)
+                .append_pair("limit", "50");
+            warnings.push(
+                "HF user locator defaults to models; use datasets:USERNAME for datasets".into(),
+            );
+            u
+        }
+        ("huggingface", "repo") => {
+            let (kind, name) = hf_locator(&r.locator)?;
+            path(name)?;
+            let parts: Vec<_> = name.split('/').collect();
+            if parts.len() != 2 {
+                return Err("HF repo locator is [models:|datasets:]OWNER/REPO".into());
+            }
+            let mut u = endpoint(p, &["api", kind, parts[0], parts[1], "tree", "main"])?;
+            u.query_pairs_mut()
+                .append_pair("recursive", "true")
+                .append_pair("limit", "50");
+            warnings.push(
+                "HF tree pinned to main; custom revisions not supported in this slice".into(),
+            );
+            u
+        }
+        ("github", "user") => {
+            segment(&r.locator)?;
+            let mut u = endpoint(p, &["users", &r.locator, "repos"])?;
+            u.query_pairs_mut()
+                .append_pair("per_page", "50")
+                .append_pair("page", "1");
+            u
+        }
+        ("github", "repo") => {
+            path(&r.locator)?;
+            let parts: Vec<_> = r.locator.split('/').collect();
+            if parts.len() < 2 {
+                return Err("GitHub locator is OWNER/REPO[/PATH]".into());
+            }
+            segment(parts[0])?;
+            segment(parts[1])?;
+            let mut parts2 = vec!["repos", parts[0], parts[1], "contents"];
+            parts2.extend_from_slice(&parts[2..]);
+            warnings.push("GitHub contents lists one directory, up to 1000 API entries; only first 50 shown. Browse a narrower directory; Git LFS pointers are not expanded".into());
+            endpoint(p, &parts2)?
+        }
+        ("civitai", "user") => {
+            segment(&r.locator)?;
+            let mut u = endpoint(p, &["api", "v1", "models"])?;
+            u.query_pairs_mut()
+                .append_pair("username", &r.locator)
+                .append_pair("limit", "10")
+                .append_pair("page", "1");
+            u
+        }
+        ("civitai", "model") => {
+            if r.locator.is_empty()
+                || !r.locator.bytes().all(|b| b.is_ascii_digit())
+                || r.locator.len() > 20
+            {
+                return Err("CivitAI model locator must be a numeric ID".into());
+            }
+            endpoint(p, &["api", "v1", "models", &r.locator])?
+        }
+        ("http", "index") => {
+            let direct = r.locator.starts_with("direct:");
+            let locator = r
+                .locator
+                .strip_prefix("direct:")
+                .or_else(|| r.locator.strip_prefix("index:"))
+                .unwrap_or(&r.locator);
+            let u = same_origin_url(p, locator)?;
+            if direct || (!r.locator.starts_with("index:") && !u.path().ends_with(".json")) {
+                let name = u
+                    .path()
+                    .rsplit('/')
+                    .next()
+                    .ok_or("Direct URL requires filename")?
+                    .to_string();
+                safe_name(&name)?;
+                warnings.push("Direct file: size/checksum/license unknown until supplied by a declarative JSON index; .json locators are treated as indexes".into());
+                return Ok(Page {
+                    resources: vec![file(
+                        format!("{}:{}", p.id, r.locator),
+                        name.clone(),
+                        u.to_string(),
+                        None,
+                        None,
+                        None,
+                        name,
+                    )?],
+                    next: None,
+                    warnings,
+                });
+            }
+            u
+        }
+        ("ollama", "backend") => {
+            if r.locator != p.origin {
+                return Err("Ollama locator must exactly match configured local origin".into());
+            }
+            warnings
+                .push("Read-only installed tags; no pull, export or download authorization".into());
+            endpoint(p, &["api", "tags"])?
+        }
+        _ => return Err("Unsupported adapter scope".into()),
+    };
+    if let Some(next) = next {
+        if next.origin() != u.origin() || next.path() != u.path() {
+            return Err("Invalid continuation endpoint".into());
+        }
+        u = next;
+    }
+    let (v, link) = json(&client, p, u.clone(), &header).await?;
+    let mut continuation = link_next(p, &u, link)?;
+    let mut resources = vec![];
+    match p.kind.as_str() {
+        "huggingface" => {
+            let (kind, _) = hf_locator(&r.locator)?;
+            for item in array(&v)?.iter().take(MAX_RESOURCES) {
+                if r.scope == "user" {
+                    let id = text(item, "id")?;
+                    path(id)?;
+                    resources.push(Resource {
+                        id: format!("{}:{id}", p.id),
+                        label: id.into(),
+                        kind: "repo".into(),
+                        url: None,
+                        size: None,
+                        sha256: None,
+                        downloadable: false,
+                        locator: Some(format!("{kind}:{id}")),
+                        license: None,
+                    });
+                } else if item.get("type").and_then(Value::as_str) == Some("file") {
+                    let name = text(item, "path")?;
+                    path(name)?;
+                    let (_, repo) = hf_locator(&r.locator)?;
+                    let prefix = if kind == "datasets" { "datasets/" } else { "" };
+                    let url = format!("{}/{prefix}{repo}/resolve/main/{name}", p.origin);
+                    let hash = item
+                        .pointer("/lfs/oid")
+                        .and_then(Value::as_str)
+                        .map(|s| s.strip_prefix("sha256:").unwrap_or(s).into());
+                    resources.push(file(
+                        format!("{}:{kind}:{repo}:{name}", p.id),
+                        name.rsplit('/').next().unwrap_or(name).into(),
+                        url,
+                        item.pointer("/lfs/size")
+                            .and_then(Value::as_u64)
+                            .or_else(|| item.get("size").and_then(Value::as_u64)),
+                        hash,
+                        None,
+                        name.rsplit('/').next().unwrap_or(name).into(),
+                    )?);
+                }
+            }
+            if array(&v)?.len() > MAX_RESOURCES {
+                warnings
+                    .push("Response exceeded requested page size; only first 50 exposed".into());
+            }
+        }
+        "github" => {
+            if r.scope == "user" {
+                for item in array(&v)?.iter().take(MAX_RESOURCES) {
+                    let name = text(item, "full_name")?;
+                    path(name)?;
+                    resources.push(Resource {
+                        id: format!("github:{name}"),
+                        label: name.into(),
+                        kind: "repo".into(),
+                        url: None,
+                        size: None,
+                        sha256: None,
+                        downloadable: false,
+                        locator: Some(name.into()),
+                        license: item
+                            .pointer("/license/spdx_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                    });
+                }
+            } else {
+                let items = if v.is_array() {
+                    array(&v)?.clone()
+                } else {
+                    vec![v.clone()]
+                };
+                for item in items.iter().take(MAX_RESOURCES) {
+                    let name = text(item, "name")?;
+                    if item.get("type").and_then(Value::as_str) == Some("dir") {
+                        resources.push(Resource {
+                            id: format!("github:{}:{}", r.locator, name),
+                            label: name.into(),
+                            kind: "repo".into(),
+                            url: None,
+                            size: None,
+                            sha256: None,
+                            downloadable: false,
+                            locator: Some(format!("{}/{}", r.locator, name)),
+                            license: None,
+                        });
+                    } else if item.get("type").and_then(Value::as_str) == Some("file")
+                        && item.get("submodule_git_url").is_none()
+                    {
+                        // Use official contents API raw media type, so scoped private-repo auth
+                        // stays on api.github.com rather than leaking into raw/CDN URLs.
+                        let api = text(item, "url")?;
+                        let api = validate_url(api, false, true)?;
+                        if api.origin().ascii_serialization() != p.origin
+                            || !api.path().starts_with("/repos/")
+                        {
+                            return Err("GitHub file URL escaped API".into());
+                        }
+                        let mut api = api;
+                        api.set_query(None); // current default ref only; no secret URLs exposed
+                        resources.push(file(
+                            format!("github:{}:{}", r.locator, text(item, "path")?),
+                            name.into(),
+                            api.to_string(),
+                            item.get("size").and_then(Value::as_u64),
+                            None,
+                            None,
+                            name.into(),
+                        )?);
+                    }
+                }
+            }
+        }
+        "civitai" => {
+            let models = if r.scope == "user" {
+                array(v.get("items").ok_or("Missing CivitAI items")?)?.clone()
+            } else {
+                vec![v.clone()]
+            };
+            if r.scope == "user" {
+                if let Some(input) = v.pointer("/metadata/nextPage").and_then(Value::as_str) {
+                    let next = Url::parse(input).map_err(|_| "Invalid CivitAI pagination")?;
+                    if next.origin() != u.origin() || next.path() != u.path() {
+                        return Err("CivitAI pagination escaped endpoint".into());
+                    }
+                    continuation = Some(next);
+                }
+            }
+            for model in models {
+                if matches!(
+                    model.get("mode").and_then(Value::as_str),
+                    Some("Archived" | "TakenDown")
+                ) {
+                    warnings.push(
+                        "CivitAI moderated/archived model has no downloadable public files".into(),
+                    );
+                    continue;
+                }
+                let modelid = model
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or("Missing CivitAI model ID")?;
+                let versions = array(model.get("modelVersions").ok_or("Missing modelVersions")?)?;
+                for version in versions {
+                    let versionid = version
+                        .get("id")
+                        .and_then(Value::as_u64)
+                        .ok_or("Missing model version ID")?;
+                    for f in array(version.get("files").ok_or("Missing version files")?)? {
+                        if resources.len() >= MAX_RESOURCES {
+                            warnings.push("CivitAI version files truncated at 50; browse a specific model for narrower results".into());
+                            break;
+                        }
+                        let name = text(f, "name")?;
+                        let url = text(f, "downloadUrl")?;
+                        let mut resource = file(
+                            format!(
+                                "civitai:{modelid}:{versionid}:{}",
+                                f.get("id")
+                                    .and_then(Value::as_u64)
+                                    .ok_or("Missing CivitAI file ID")?
+                            ),
+                            name.into(),
+                            url.into(),
+                            None,
+                            f.pointer("/hashes/SHA256")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned),
+                            None,
+                            name.into(),
+                        )?;
+                        resource.kind = "model".into();
+                        resources.push(resource);
+                    }
+                }
+            }
+            warnings.push("CivitAI sizeKB is rounded and not an exact byte checksum; size remains unknown. Creator license permissions require upstream review".into());
+        }
+        "http" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Index {
+                version: u32,
+                resources: Vec<Resource>,
+            }
+            let index: Index = serde_json::from_value(v)
+                .map_err(|_| "Expected strict JSON index {version:1,resources:[Resource]}")?;
+            if index.version != 1 || index.resources.len() > 500 {
+                return Err("Index version/bounds invalid".into());
+            }
+            resources = index.resources.into_iter().take(MAX_RESOURCES).collect();
+            warnings.push("JSON index bounded to first 50 resources; no executable hooks or remote continuation".into());
+        }
+        "ollama" => {
+            for item in array(v.get("models").ok_or("Missing Ollama models")?)?
+                .iter()
+                .take(MAX_RESOURCES)
+            {
+                let name = text(item, "name")?;
+                resources.push(Resource {
+                    id: format!("{}:{name}", p.id),
+                    label: name.into(),
+                    kind: "model".into(),
+                    url: None,
+                    size: item.get("size").and_then(Value::as_u64),
+                    sha256: None,
+                    downloadable: false,
+                    locator: Some(name.into()),
+                    license: None,
+                });
+            }
+            warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());
+        }
+        _ => return Err("Unknown adapter".into()),
+    }
+    Ok(Page {
+        resources,
+        next: continuation,
+        warnings,
+    })
+}

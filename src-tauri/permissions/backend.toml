@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-backend"
+description = "Explicitly start/status/stop only this session's successfully provisioned owned backend; no path, PID, URL or command inputs."
+commands.allow = ["native_backend_start", "native_backend_status", "native_backend_stop"]

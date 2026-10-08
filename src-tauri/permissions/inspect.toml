@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-inspect-backend"
+description = "Allow read-only inspection of a user-selected ComfyUI backend."
+commands.allow = ["inspect_backend"]

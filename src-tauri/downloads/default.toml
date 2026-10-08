@@ -1,0 +1,94 @@
+# Strict data-only v1 catalog. No browse/download happens while reading this file.
+# Extend at runtime with native_download_import_catalog({text}) containing a v1
+# catalog with new providers/entries; duplicate IDs fail closed, never override.
+# HTTP index: index:https://... serves {version:1, resources:[Resource IPC schema]}.
+# direct:https://... treats any URL (including workflow JSON) as a direct file.
+# Without a prefix, .json is an index and other HTTPS URLs are direct files.
+# Query credentials/hooks are not accepted; only safe CivitAI file selectors.
+# Entry-only imports use providers=[] and may reference existing provider IDs.
+version = 1
+
+[[providers]]
+id = "huggingface"
+kind = "huggingface"
+label = "Hugging Face"
+origin = "https://huggingface.co"
+scopes = ["user", "repo"]
+anonymousNotice = "Anonymous public access; gated/private resources require scoped credentials and upstream license approval. Token presence is not entitlement."
+
+[[providers]]
+id = "civitai"
+kind = "civitai"
+label = "CivitAI"
+origin = "https://civitai.com"
+scopes = ["user", "model"]
+anonymousNotice = "Public creator/model listing; access, content restrictions and rate limits are upstream-controlled. Review model permissions."
+
+[[providers]]
+id = "github"
+kind = "github"
+label = "GitHub"
+origin = "https://api.github.com"
+scopes = ["user", "repo"]
+anonymousNotice = "Anonymous public repositories only, subject to API rate limits. Private repositories require an explicitly scoped token."
+
+[[providers]]
+id = "http"
+kind = "http"
+label = "Configured HTTPS files"
+origin = "https://raw.githubusercontent.com"
+scopes = ["index"]
+anonymousNotice = "Anonymous HTTPS files/indexes; custom sources cannot inherit trusted provider credentials. Files remain inert staged data."
+
+[[providers]]
+id = "ollama"
+kind = "ollama"
+label = "Local Ollama tags (read-only)"
+origin = "http://127.0.0.1:11434"
+scopes = ["backend"]
+anonymousNotice = "Only an explicit Browse contacts the configured loopback backend. Installed tags are not downloadable files; no pull or backend start."
+
+[[entries]]
+id = "hf-public-models"
+label = "Browse Hugging Face user models"
+providerId = "huggingface"
+scope = "user"
+locator = "models:Comfy-Org"
+kind = "repo"
+target = "huggingface-models"
+
+[[entries]]
+id = "hf-public-datasets"
+label = "Browse Hugging Face user datasets"
+providerId = "huggingface"
+scope = "user"
+locator = "datasets:huggingface"
+kind = "repo"
+target = "huggingface-datasets"
+
+[[entries]]
+id = "github-public-repos"
+label = "Browse GitHub account repositories"
+providerId = "github"
+scope = "user"
+locator = "Comfy-Org"
+kind = "repo"
+target = "github-files"
+
+[[entries]]
+id = "civitai-creator"
+label = "Browse CivitAI creator (replace username)"
+providerId = "civitai"
+scope = "user"
+locator = "USERNAME"
+kind = "model"
+target = "civitai-models"
+
+[[entries]]
+id = "local-ollama-tags"
+label = "Inspect explicitly configured local Ollama tags"
+providerId = "ollama"
+scope = "backend"
+locator = "http://127.0.0.1:11434"
+kind = "model"
+target = "ollama-tags"

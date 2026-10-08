@@ -1,0 +1,15 @@
+{
+  "app.home": "DEAS ana sayfası",
+  "app.brand": "DEAS",
+  "app.brandCaption": "Dark Engine AI Studio",
+  "app.language": "Dil",
+  "app.phase": "Temel oluşturma aşaması",
+  "app.eyebrow": "YEREL MOTOR / AÇIK OLASILIKLAR",
+  "app.creative": "Yaratıcılığınızın",
+  "app.engine": "motoru.",
+  "app.start": "Motorunuzla başlayın.",
+  "app.follow": "Bir bağlantıyı izleyin. Bir düşünceye kapı açın.",
+  "app.noRun": "Siz istemeden hiçbir şey çalışmaz.",
+  "app.instrument": "Yerel kullanımı esas alan yaratıcı bir araç",
+  "app.noCloud": "Bulut hesabı yok. Arka planda istek yok."
+}

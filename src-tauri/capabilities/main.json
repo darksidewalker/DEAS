@@ -1,0 +1,7 @@
+{
+  "identifier": "main",
+  "description": "Local main window only; read-only backend inspection and confirmed native provisioning.",
+  "local": true,
+  "windows": ["main"],
+  "permissions": ["allow-inspect-backend", "allow-native-negotiate-api", "allow-native-install", "allow-native-pick-directory", "allow-native-detect-hardware", "allow-native-backend", "allow-download-plugins", "allow-auth-plugins"]
+}

@@ -1,0 +1,302 @@
+use super::*;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
+
+#[derive(Clone, Default)]
+struct FakeStore {
+    values: Arc<Mutex<BTreeMap<String, String>>>,
+    fail: Arc<AtomicBool>,
+    calls: Arc<AtomicUsize>,
+}
+impl CredentialStore for FakeStore {
+    fn read(&self, account: &str) -> Result<Option<String>, ()> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(());
+        }
+        Ok(self.values.lock().unwrap().get(account).cloned())
+    }
+    fn write(&self, account: &str, token: &str) -> Result<(), ()> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(());
+        }
+        self.values
+            .lock()
+            .unwrap()
+            .insert(account.into(), token.into());
+        Ok(())
+    }
+    fn delete(&self, account: &str) -> Result<(), ()> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(());
+        }
+        self.values.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+fn fixture() -> (AuthState, FakeStore) {
+    let store = FakeStore::default();
+    (AuthState::with_store(Box::new(store.clone())), store)
+}
+#[test]
+fn session_token_is_scoped_and_metadata_only() {
+    let (state, _) = fixture();
+    assert_eq!(
+        state
+            .credential("huggingface", "https://huggingface.co")
+            .unwrap(),
+        None
+    );
+    let status = state
+        .set("huggingface", "fixture-token".into(), false)
+        .unwrap();
+    assert!(status.configured);
+    assert!(!status.persisted);
+    assert_eq!(
+        state
+            .credential("huggingface", "https://huggingface.co")
+            .unwrap()
+            .as_deref(),
+        Some("fixture-token")
+    );
+    assert!(state
+        .credential("huggingface", "https://evil.example")
+        .is_err());
+    let json = serde_json::to_value(state.status().unwrap()).unwrap();
+    for item in json.as_array().unwrap() {
+        assert_eq!(item.as_object().unwrap().len(), 3);
+        assert!(item.get("providerId").is_some());
+    }
+    assert!(!json.to_string().contains("fixture-token"));
+    state.remove("huggingface").unwrap();
+    assert_eq!(
+        state
+            .credential("huggingface", "https://huggingface.co")
+            .unwrap(),
+        None
+    );
+}
+#[test]
+fn anonymous_defaults_never_access_vault() {
+    let (state, store) = fixture();
+    for (id, origin) in PROVIDERS {
+        assert!(state.credential(id, origin).unwrap().is_none());
+    }
+    assert!(state
+        .status()
+        .unwrap()
+        .iter()
+        .all(|s| !s.configured && !s.persisted));
+    state.set("github", "session-only".into(), false).unwrap();
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    assert!(store.values.lock().unwrap().is_empty());
+    let default = AuthState::default(); // No vault access: only memory methods.
+    assert!(default.status().unwrap().iter().all(|s| !s.configured));
+}
+#[test]
+fn persisted_credentials_require_explicit_restore_and_delete_across_restart() {
+    let (state, store) = fixture();
+    assert!(
+        state
+            .set("github", "saved-fixture".into(), true)
+            .unwrap()
+            .persisted
+    );
+    drop(state);
+    let restarted = AuthState::with_store(Box::new(store.clone()));
+    assert!(restarted
+        .credential("github", "https://api.github.com")
+        .unwrap()
+        .is_none());
+    assert!(restarted.restore("github").unwrap().persisted);
+    assert_eq!(
+        restarted
+            .credential("github", "https://api.github.com")
+            .unwrap()
+            .as_deref(),
+        Some("saved-fixture")
+    );
+    restarted.remove("github").unwrap();
+    assert!(!restarted.restore("github").unwrap().configured);
+    assert!(store.values.lock().unwrap().is_empty());
+    restarted.remove("github").unwrap();
+}
+#[test]
+fn failed_vault_writes_and_removals_preserve_existing_memory() {
+    let (state, store) = fixture();
+    state.set("civitai", "old-fixture".into(), true).unwrap();
+    store.fail.store(true, Ordering::SeqCst);
+    assert!(state.set("civitai", "new-fixture".into(), true).is_err());
+    assert!(state
+        .set("civitai", "session-fixture".into(), false)
+        .is_err());
+    assert!(state.remove("civitai").is_err());
+    assert!(state.restore("civitai").is_err());
+    assert_eq!(
+        state
+            .credential("civitai", "https://civitai.com")
+            .unwrap()
+            .as_deref(),
+        Some("old-fixture")
+    );
+    assert!(
+        state
+            .status()
+            .unwrap()
+            .iter()
+            .find(|s| s.provider_id == "civitai")
+            .unwrap()
+            .persisted
+    );
+}
+#[test]
+fn explicit_downgrade_deletes_saved_credential() {
+    let (state, store) = fixture();
+    state.set("github", "saved-fixture".into(), true).unwrap();
+    assert!(
+        !state
+            .set("github", "session-fixture".into(), false)
+            .unwrap()
+            .persisted
+    );
+    assert!(store.values.lock().unwrap().is_empty());
+}
+#[test]
+fn invalid_input_is_bounded_and_never_echoed() {
+    let (state, store) = fixture();
+    for token in [
+        "".to_owned(),
+        "x".repeat(8193),
+        "secret\nvalue".into(),
+        "secret value".into(),
+        "secret\tvalue".into(),
+        "secreté".into(),
+    ] {
+        let error = state.set("github", token.clone(), true).unwrap_err();
+        if !token.is_empty() {
+            assert!(!error.contains(&token));
+        }
+    }
+    assert!(state
+        .set("unknown-secret-id", "fixture".into(), false)
+        .unwrap_err()
+        .find("unknown-secret-id")
+        .is_none());
+    assert!(state.remove("unknown").is_err());
+    assert!(state.restore("unknown").is_err());
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    state.set("github", "x".repeat(8192), false).unwrap();
+}
+#[test]
+fn exact_origin_excludes_paths_ports_redirects_and_userinfo() {
+    let (state, _) = fixture();
+    state.set("huggingface", "fixture".into(), false).unwrap();
+    for origin in [
+        "https://huggingface.co/",
+        "https://huggingface.co:443",
+        "https://HUGGINGFACE.co",
+        "http://huggingface.co",
+        "https://huggingface.co:8443",
+        "https://huggingface.co/path",
+        "https://huggingface.co.evil",
+        "https://user@huggingface.co",
+    ] {
+        assert!(state.credential("huggingface", origin).is_err());
+    }
+    for target in [
+        "https://evil.example/file",
+        "http://huggingface.co/file",
+        "https://user@huggingface.co/file",
+    ] {
+        assert!(state
+            .authorization("huggingface", &Url::parse(target).unwrap())
+            .unwrap()
+            .is_none());
+    }
+    let header = state
+        .authorization(
+            "huggingface",
+            &Url::parse("https://huggingface.co/file").unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(header.is_sensitive());
+    assert!(!format!("{header:?}").contains("fixture"));
+}
+#[test]
+fn custom_accounts_are_explicit_immutable_and_separate_vault_keys() {
+    let (state, store) = fixture();
+    for origin in [
+        "http://example.com",
+        "https://user@example.com",
+        "https://example.com/",
+        "https://example.com?q=1",
+        " https://example.com",
+        "https://example.com:443",
+        "https://example.com/path",
+        "https://@example.com",
+    ] {
+        assert!(state
+            .register_generic_provider("custom-invalid", origin)
+            .is_err());
+    }
+    assert!(state
+        .register_generic_provider("github", "https://evil.example")
+        .is_err());
+    state
+        .register_generic_provider("custom-ollama", "http://localhost:11434")
+        .unwrap();
+    state
+        .register_generic_provider("custom-ollama", "http://localhost:11434")
+        .unwrap();
+    assert!(state
+        .register_generic_provider("custom-ollama", "http://127.0.0.1:11434")
+        .is_err());
+    state
+        .set("custom-ollama", "fixture-custom".into(), true)
+        .unwrap();
+    let next = AuthState::with_store(Box::new(store));
+    next.register_generic_provider("custom-ollama", "http://127.0.0.1:11434")
+        .unwrap();
+    assert!(!next.restore("custom-ollama").unwrap().configured);
+    assert!(next
+        .credential("custom-ollama", "http://localhost:11434")
+        .is_err());
+}
+#[test]
+fn session_removal_does_not_require_os_vault() {
+    let (state, store) = fixture();
+    state
+        .set("github", "session-fixture".into(), false)
+        .unwrap();
+    store.fail.store(true, Ordering::SeqCst);
+    assert!(!state.remove("github").unwrap().configured);
+    assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+}
+#[test]
+fn restore_missing_entry_clears_stale_persisted_metadata() {
+    let (state, store) = fixture();
+    state.set("github", "saved-fixture".into(), true).unwrap();
+    store.values.lock().unwrap().clear();
+    let status = state.restore("github").unwrap();
+    assert!(!status.configured);
+    assert!(!status.persisted);
+}
+#[test]
+fn invalid_vault_content_never_enters_memory_or_errors() {
+    let (state, store) = fixture();
+    store.values.lock().unwrap().insert(
+        account("github", "https://api.github.com"),
+        "fixture\nsecret".into(),
+    );
+    let error = state.restore("github").unwrap_err();
+    assert!(!error.contains("fixture"));
+    assert!(state
+        .credential("github", "https://api.github.com")
+        .unwrap()
+        .is_none());
+}

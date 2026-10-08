@@ -1,0 +1,17 @@
+.download-module { min-width: 0; max-width: 100%; padding-block: 1rem; }
+.download-controls p { margin: 0; font-size: .8rem; line-height: 1.5; }
+.download-controls label, .download-controls summary { font-size: .8rem; }
+.download-controls .aio-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; }
+.download-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; min-width: 0; overflow-wrap: anywhere; }
+.download-controls label:not(.download-check) { display: grid; gap: .35rem; }
+.download-controls input:not([type=checkbox]), .download-controls select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.download-controls .action-button { white-space: normal; max-width: 100%; }
+.download-check { display: flex; gap: .5rem; align-items: flex-start; }
+.download-check input { flex: none; width: auto; padding: 0; margin-top: .2rem; accent-color: var(--blue); }
+.download-resource, .download-plan { border-inline-start: 2px solid var(--copper); padding-inline-start: .75rem; min-width: 0; }
+.download-identity { font-family: monospace; overflow-wrap: anywhere; }
+.download-identity dd { margin: 0 0 .45rem; }
+.download-identity dt { opacity: .7; font-family: inherit; }
+.download-controls :is(button, input, select, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+@media (max-width: 400px) { .download-controls .aio-actions { flex-direction: column; align-items: stretch; } }
+@media (prefers-reduced-motion: reduce) { .download-module *, .download-module *::before, .download-module *::after { animation: none !important; transition: none !important; } }

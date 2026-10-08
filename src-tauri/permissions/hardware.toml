@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-detect-hardware"
+description = "Read-only bounded NVIDIA discovery for backend preselection; no installation, downloads, environment or service changes."
+commands.allow = ["native_detect_hardware"]

@@ -1,0 +1,569 @@
+use super::*;
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    thread,
+};
+#[cfg(target_os = "linux")]
+fn scratch() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::var_os("TMPDIR").expect("scratch TMPDIR")).unwrap()
+}
+fn request(stream: &mut TcpStream) -> String {
+    let mut b = Vec::new();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    while !b.ends_with(b"\r\n\r\n") {
+        let mut c = [0];
+        stream.read_exact(&mut c).unwrap();
+        b.push(c[0]);
+        assert!(b.len() < 16384);
+    }
+    String::from_utf8(b).unwrap()
+}
+fn fixture(body: Vec<u8>) -> (String, thread::JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let req = request(&mut stream);
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        stream.write_all(&body).unwrap();
+        req
+    });
+    (url, task)
+}
+fn provider(origin: String) -> Provider {
+    Provider {
+        id: "fixture".into(),
+        kind: "http".into(),
+        label: "Fixture".into(),
+        origin,
+        scopes: vec!["index".into()],
+        anonymous_notice: "Fixture only".into(),
+    }
+}
+#[cfg(target_os = "linux")]
+fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
+    Resource {
+        id: "fixture-file".into(),
+        label: "Tiny file".into(),
+        kind: "file".into(),
+        url: Some(format!("{origin}/tiny.bin")),
+        size,
+        sha256: hash,
+        downloadable: true,
+        locator: Some("tiny.bin".into()),
+        license: Some("fixture license".into()),
+    }
+}
+#[cfg(target_os = "linux")]
+fn engine(p: Provider, r: &Resource) -> DownloadEngine {
+    let e = DownloadEngine::default();
+    let mut i = e.inner.lock().unwrap();
+    i.catalog = Ok(Catalog {
+        version: 1,
+        providers: vec![p.clone()],
+        entries: vec![],
+    });
+    i.known
+        .insert((p.id, r.id.clone()), (r.clone(), "tiny.bin".into()));
+    drop(i);
+    e
+}
+#[cfg(target_os = "linux")]
+fn prepare(e: &DownloadEngine, r: Resource, d: &tempfile::TempDir) -> DownloadPlan {
+    e.plan(PlanRequest {
+        provider_id: "fixture".into(),
+        resources: vec![r],
+        parent_path: d.path().to_str().unwrap().into(),
+        folder_name: "stage".into(),
+        authenticated: false,
+    })
+    .unwrap()
+}
+#[cfg(target_os = "linux")]
+fn finished(e: &DownloadEngine) -> DownloadStatus {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let s = e.status().unwrap();
+        if s.state != "running" {
+            return s;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn unsupported_platform_anchor_fails_closed() {
+    assert!(fs::Anchor::open(std::path::Path::new(".")).is_err());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn shared_parent_rejected_before_staging_write() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in [0o720, 0o702, 0o777, 0o1777] {
+        let d = scratch();
+        let anchor = fs::Anchor::open(d.path()).unwrap();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+        assert!(
+            anchor.create("stage").is_err(),
+            "accepted parent mode {mode:o}"
+        );
+        assert!(!d.path().join("stage").exists());
+    }
+}
+
+#[test]
+fn strict_catalog_and_extension() {
+    let e = DownloadEngine::default();
+    let c = e.catalog().unwrap();
+    assert_eq!(c.providers.len(), 5);
+    assert_eq!(
+        serde_json::to_value(&c).unwrap()["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+    for field in ["command='sh'", "token='secret'", "hook='evil'"] {
+        assert!(Catalog::parse(&format!("version=1\nproviders=[]\n{field}")).is_err());
+    }
+    let extra="version=1\n[[providers]]\nid='custom'\nkind='http'\nlabel='Files'\norigin='https://files.example.org'\nscopes=['index']\nanonymousNotice='Anonymous only'";
+    assert_eq!(e.import(extra.into()).unwrap().providers.len(), 6);
+    assert!(e.import(extra.into()).is_err());
+    assert_eq!(e.catalog().unwrap().providers.len(), 6);
+}
+#[test]
+fn catalog_entry_extension_references_existing_provider() {
+    let e = DownloadEngine::default();
+    let text="version=1\nproviders=[]\n[[entries]]\nid='another-repo'\nlabel='Another repo'\nproviderId='github'\nscope='repo'\nlocator='alice/tiny'\nkind='repo'\ntarget='tiny-files'";
+    let c = e.import(text.into()).unwrap();
+    assert_eq!(c.entries.last().unwrap().id, "another-repo");
+    assert!(e.import(text.into()).is_err());
+}
+#[tokio::test]
+async fn direct_json_file_and_index_bounds() {
+    let p = provider("https://files.example.org".into());
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "index".into(),
+        locator: "direct:https://files.example.org/workflow.json".into(),
+        cursor: None,
+        authenticated: false,
+    };
+    let page = providers::list(&p, &r, None, None).await.unwrap();
+    assert_eq!(page.resources[0].locator.as_deref(), Some("workflow.json"));
+    assert!(page.resources[0].downloadable);
+    let (origin, server) = fixture(b"not JSON".to_vec());
+    let p = provider(origin.clone());
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "index".into(),
+        locator: format!("{origin}/index.json"),
+        cursor: None,
+        authenticated: false,
+    };
+    assert!(providers::list(&p, &r, None, None).await.is_err());
+    server.join().unwrap();
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn parent_identity_change_and_existing_target_block_start() {
+    let d = scratch();
+    let parent = d.path().join("parent");
+    std::fs::create_dir(&parent).unwrap();
+    let r = resource("https://files.example.org", None, None);
+    let e = engine(provider("https://files.example.org".into()), &r);
+    let req = PlanRequest {
+        provider_id: "fixture".into(),
+        resources: vec![r],
+        parent_path: parent.to_str().unwrap().into(),
+        folder_name: "stage".into(),
+        authenticated: false,
+    };
+    let p = e.plan(req).unwrap();
+    std::fs::rename(&parent, d.path().join("old")).unwrap();
+    std::fs::create_dir(&parent).unwrap();
+    assert!(e.start(p.id, true, &AuthState::default()).is_err());
+    assert!(!parent.join("stage").exists());
+}
+#[test]
+fn url_path_metadata_and_auth_safety() {
+    for s in ["../x", "x/y", "x\\y", "..", "CON", "x.", "x:"] {
+        assert!(safe_name(s).is_err());
+    }
+    for s in [
+        "https://evil.example/x?token=s",
+        "https://user:pass@evil.example/x",
+        "https://@evil.example/x",
+        "http://example.org/x",
+        "https://192.168.1.1/x",
+    ] {
+        assert!(validate_url(s, false, false).is_err());
+    }
+    for ip in [
+        "127.0.0.1",
+        "10.1.1.1",
+        "169.254.1.1",
+        "100.64.1.1",
+        "::1",
+        "fc00::1",
+        "::ffff:127.0.0.1",
+    ] {
+        assert!(!public_ip(ip.parse().unwrap()));
+    }
+    assert!(public_ip("1.1.1.1".parse().unwrap()));
+    let p = provider("https://files.example.org".into());
+    let auth = AuthState::default();
+    assert!(credential(&auth, &p, true).is_err());
+    assert!(credential(&auth, &p, false).unwrap().is_none());
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn immutable_plan_rejects_frontend_forgery() {
+    let d = scratch();
+    let r = resource("https://files.example.org", None, Some(3));
+    let e = engine(provider("https://files.example.org".into()), &r);
+    let plan = prepare(&e, r.clone(), &d);
+    assert!(!d.path().join("stage").exists());
+    assert_eq!(plan.total_known_bytes, 3);
+    let mut forged = r.clone();
+    forged.size = Some(1);
+    assert!(e
+        .plan(PlanRequest {
+            provider_id: "fixture".into(),
+            resources: vec![forged],
+            parent_path: d.path().to_str().unwrap().into(),
+            folder_name: "bad".into(),
+            authenticated: false
+        })
+        .is_err());
+    assert!(e.start(plan.id, false, &AuthState::default()).is_err());
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn real_stream_digest_bytes_and_status() {
+    let bytes = b"real tiny fixture bytes\n".to_vec();
+    let (origin, server) = fixture(bytes.clone());
+    let r = resource(
+        &origin,
+        Some(format!("{:x}", Sha256::digest(&bytes))),
+        Some(bytes.len() as u64),
+    );
+    let e = engine(provider(origin), &r);
+    let d = scratch();
+    let plan = prepare(&e, r, &d);
+    let initial = e
+        .start(plan.id.clone(), true, &AuthState::default())
+        .unwrap();
+    assert_eq!(initial.state, "running");
+    let status = finished(&e);
+    assert_eq!(status.state, "succeeded", "{:?}", status.error);
+    assert_eq!(status.completed, 1);
+    assert_eq!(status.total, 1);
+    assert_eq!(status.bytes_downloaded, bytes.len() as u64);
+    assert_eq!(
+        std::fs::read(d.path().join("stage/tiny.bin")).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        std::fs::read_dir(d.path().join("stage")).unwrap().count(),
+        2
+    );
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(d.path().join("stage/deas-download-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        manifest["plan"]["resources"][0]["license"],
+        "fixture license"
+    );
+    assert!(manifest["plan"]["resources"][0]["sha256"].is_string());
+    assert!(!server
+        .join()
+        .unwrap()
+        .to_lowercase()
+        .contains("authorization:"));
+    assert!(e.start(plan.id, true, &AuthState::default()).is_err());
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn corrupt_digest_or_size_never_publishes() {
+    for (hash, size) in [(Some("0".repeat(64)), Some(3)), (None, Some(4))] {
+        let (origin, server) = fixture(b"abc".to_vec());
+        let r = resource(&origin, hash, size);
+        let e = engine(provider(origin), &r);
+        let d = scratch();
+        let p = prepare(&e, r, &d);
+        e.start(p.id, true, &AuthState::default()).unwrap();
+        assert_eq!(finished(&e).state, "failed");
+        assert_eq!(
+            std::fs::read_dir(d.path().join("stage")).unwrap().count(),
+            0
+        );
+        server.join().unwrap();
+    }
+}
+#[tokio::test]
+async fn foreign_redirect_strips_credential() {
+    let (dest, server) = fixture(b"abc".to_vec());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let redirect = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let req = request(&mut s);
+        write!(s,"HTTP/1.1 302 Found\r\nLocation: {dest}/tiny.bin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        req
+    });
+    let p = provider(origin.clone());
+    let mut response = fetch(
+        &client().unwrap(),
+        &p,
+        &format!("{origin}/tiny.bin"),
+        Some(HeaderValue::from_static("Bearer fixture-secret")),
+        &AtomicBool::new(false),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.chunk().await.unwrap().unwrap().as_ref(), b"abc");
+    assert!(redirect
+        .join()
+        .unwrap()
+        .to_lowercase()
+        .contains("authorization: bearer fixture-secret"));
+    assert!(!server
+        .join()
+        .unwrap()
+        .to_lowercase()
+        .contains("authorization:"));
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn cancellation_interrupts_stalled_stream_and_cleans_partial() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let task = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        request(&mut s);
+        s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nabc")
+            .unwrap();
+        tx.send(()).unwrap();
+        thread::sleep(Duration::from_millis(700));
+    });
+    let r = resource(&origin, None, None);
+    let e = engine(provider(origin), &r);
+    let d = scratch();
+    let p = prepare(&e, r, &d);
+    e.start(p.id, true, &AuthState::default()).unwrap();
+    rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    e.cancel().unwrap();
+    assert_eq!(finished(&e).state, "cancelled");
+    assert_eq!(
+        std::fs::read_dir(d.path().join("stage")).unwrap().count(),
+        0
+    );
+    task.join().unwrap();
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn anchored_writes_refuse_symlinks_and_overwrites() {
+    use std::os::unix::fs::symlink;
+    let d = scratch();
+    let outside = scratch();
+    symlink(outside.path(), d.path().join("link")).unwrap();
+    assert!(fs::Anchor::open(&d.path().join("link")).is_err());
+    let a = fs::Anchor::open(d.path()).unwrap();
+    let sub = a.create("stage").unwrap();
+    assert!(a.create("stage").is_err());
+    let mut f = sub.partial("part").unwrap();
+    f.write_all(b"real").unwrap();
+    sub.publish("part", "file").unwrap();
+    let mut f = sub.partial("next").unwrap();
+    f.write_all(b"bad").unwrap();
+    assert!(sub.publish("next", "file").is_err());
+    assert_eq!(std::fs::read(d.path().join("stage/file")).unwrap(), b"real");
+}
+#[tokio::test]
+async fn official_adapter_shapes_use_real_fixture_transport() {
+    let cases = vec![
+        (
+            "huggingface",
+            "user",
+            "datasets:alice",
+            serde_json::json!([{"id":"alice/tiny"}]),
+            "/api/datasets?author=alice&limit=50",
+            false,
+        ),
+        (
+            "huggingface",
+            "repo",
+            "datasets:alice/tiny",
+            serde_json::json!([{"type":"file","path":"sub/tiny.bin","size":3,"lfs":{"oid":"0".repeat(64),"size":3}}]),
+            "/api/datasets/alice/tiny/tree/main?recursive=true&limit=50",
+            true,
+        ),
+        (
+            "github",
+            "user",
+            "alice",
+            serde_json::json!([{"full_name":"alice/tiny","license":{"spdx_id":"MIT"}}]),
+            "/users/alice/repos?per_page=50&page=1",
+            false,
+        ),
+        (
+            "civitai",
+            "model",
+            "12",
+            serde_json::json!({"id":12,"modelVersions":[{"id":34,"files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34?type=Model&format=SafeTensor","hashes":{"SHA256":"0".repeat(64)},"sizeKB":0.01}]}]}),
+            "/api/v1/models/12",
+            true,
+        ),
+        (
+            "civitai",
+            "user",
+            "alice",
+            serde_json::json!({"items":[{"id":12,"modelVersions":[{"id":34,"files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34","hashes":{"SHA256":"0".repeat(64)}}]}]}],"metadata":{}}),
+            "/api/v1/models?username=alice&limit=10&page=1",
+            true,
+        ),
+    ];
+    for (kind, scope, locator, body, expected, downloadable) in cases {
+        let (origin, server) = fixture(serde_json::to_vec(&body).unwrap());
+        let mut p = provider(origin);
+        p.kind = kind.into();
+        let r = BrowseRequest {
+            provider_id: p.id.clone(),
+            scope: scope.into(),
+            locator: locator.into(),
+            cursor: None,
+            authenticated: false,
+        };
+        let page = providers::list(&p, &r, None, None).await.unwrap();
+        assert_eq!(page.resources.len(), 1);
+        assert_eq!(page.resources[0].downloadable, downloadable);
+        assert!(server
+            .join()
+            .unwrap()
+            .starts_with(&format!("GET {expected} HTTP/1.1")));
+        if kind == "civitai" {
+            assert!(page.resources[0].size.is_none());
+            assert!(page.resources[0].sha256.is_some());
+        }
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let reply = serde_json::json!([{"type":"file","name":"tiny.bin","path":"dir/tiny.bin","size":3,"url":format!("{origin}/repos/alice/tiny/contents/dir/tiny.bin?ref=main")}]);
+    let task = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let req = request(&mut s);
+        let b = serde_json::to_vec(&reply).unwrap();
+        write!(
+            s,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            b.len()
+        )
+        .unwrap();
+        s.write_all(&b).unwrap();
+        req
+    });
+    let mut p = provider(origin);
+    p.kind = "github".into();
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "repo".into(),
+        locator: "alice/tiny/dir".into(),
+        cursor: None,
+        authenticated: false,
+    };
+    let page = providers::list(&p, &r, None, None).await.unwrap();
+    assert!(page.resources[0]
+        .url
+        .as_deref()
+        .unwrap()
+        .ends_with("/contents/dir/tiny.bin"));
+    assert!(task
+        .join()
+        .unwrap()
+        .starts_with("GET /repos/alice/tiny/contents/dir "));
+}
+#[tokio::test]
+async fn continuation_is_native_opaque_and_bound_to_request() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let origin2 = origin.clone();
+    let task = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        request(&mut s);
+        let body = b"[]";
+        write!(s,"HTTP/1.1 200 OK\r\nLink: <{origin2}/users/alice/repos?per_page=50&page=2>; rel=\"next\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
+        s.write_all(body).unwrap();
+    });
+    let mut p = provider(origin);
+    p.kind = "github".into();
+    p.scopes = vec!["user".into()];
+    let e = DownloadEngine::default();
+    e.inner.lock().unwrap().catalog = Ok(Catalog {
+        version: 1,
+        providers: vec![p.clone()],
+        entries: vec![],
+    });
+    let mut r = BrowseRequest {
+        provider_id: p.id,
+        scope: "user".into(),
+        locator: "alice".into(),
+        cursor: None,
+        authenticated: false,
+    };
+    let page = e.browse(r.clone(), &AuthState::default()).await.unwrap();
+    let cursor = page.next_cursor.unwrap();
+    assert!(uuid::Uuid::parse_str(&cursor).is_ok());
+    task.join().unwrap();
+    r.cursor = Some(cursor);
+    r.locator = "bob".into();
+    assert!(e.browse(r, &AuthState::default()).await.is_err());
+}
+#[tokio::test]
+async fn real_generic_index_and_ollama_non_downloadable() {
+    let index = serde_json::json!({"version":1,"resources":[{"id":"index-file","label":"Fixture file","kind":"file","url":"https://files.example.org/tiny.bin","size":3,"sha256":"0".repeat(64),"downloadable":true,"locator":"tiny.bin","license":"fixture license"}]});
+    let (origin, server) = fixture(serde_json::to_vec(&index).unwrap());
+    let p = provider(origin.clone());
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "index".into(),
+        locator: format!("{origin}/index.json"),
+        cursor: None,
+        authenticated: false,
+    };
+    let page = providers::list(&p, &r, None, None).await.unwrap();
+    assert_eq!(
+        page.resources[0].license.as_deref(),
+        Some("fixture license")
+    );
+    server.join().unwrap();
+    let (origin, server) = fixture(
+        br#"{"models":[{"name":"fixture:tiny","size":3,"digest":"not-file-hash"}]}"#.to_vec(),
+    );
+    let mut p = provider(origin.clone());
+    p.kind = "ollama".into();
+    p.scopes = vec!["backend".into()];
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "backend".into(),
+        locator: origin,
+        cursor: None,
+        authenticated: false,
+    };
+    let page = providers::list(&p, &r, None, None).await.unwrap();
+    assert!(!page.resources[0].downloadable);
+    assert!(page.resources[0].url.is_none());
+    server.join().unwrap();
+}
