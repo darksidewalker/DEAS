@@ -172,16 +172,51 @@ fn changed_launch_file_never_spawns() {
 }
 #[test]
 fn stalled_owned_http_respects_overall_readiness_deadline() {
-    let (_tmp, approved) =
-        fixture(&SERVER.replace("  body=json.dumps", "  time.sleep(60)\n  body=json.dumps"));
+    let (tmp, approved) = fixture(&SERVER.replace(
+        "  body=json.dumps",
+        "  with open('stalled-request.pid','w') as f: f.write(str(os.getpid()))\n  time.sleep(60)\n  body=json.dumps",
+    ));
     let lifecycle = Lifecycle::default();
-    let started = Instant::now();
-    lifecycle
-        .launch(approved, Duration::from_millis(300))
-        .unwrap();
+    let overall_deadline = Duration::from_millis(300);
+    let total_started = Instant::now();
+    let launch_started = Instant::now();
+    lifecycle.launch(approved, overall_deadline).unwrap();
+    let launch_duration = launch_started.elapsed();
+    let terminal_started = Instant::now();
     let status = await_state(&lifecycle, "failed");
-    assert!(started.elapsed() < Duration::from_secs(1), "{status:?}");
-    assert!(!status.generation_ready);
+    let terminal_observation = terminal_started.elapsed();
+    let total_elapsed = total_started.elapsed();
+    let stalled_pid = fs::read_to_string(tmp.path().join("ComfyUI/stalled-request.pid"))
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok());
+    let timing = format!(
+        "caller-observed durations: launch_call={launch_duration:?}, post_launch_terminal_state={terminal_observation:?}, total={total_elapsed:?}"
+    );
+    eprintln!(
+        "stalled readiness diagnostics: {timing}; stalled_request_pid={stalled_pid:?}; terminal_status={status:?}"
+    );
+
+    // Keep the original acceptance threshold while collecting Linux CI
+    // diagnostics. These caller-observed durations do not isolate scheduler,
+    // request-cancellation, termination, or state-observation time.
+    assert!(
+        status
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Overall readiness deadline reached")),
+        "{timing}; {status:?}"
+    );
+    assert!(!status.generation_ready, "{timing}; {status:?}");
+    assert!(status.endpoint.is_none(), "{timing}; {status:?}");
+    assert!(locked(&lifecycle.inner).child.is_none(), "{timing}");
+    assert!(
+        stalled_pid.is_some(),
+        "fixture never recorded entry into the stalled HTTP request; {timing}; {status:?}"
+    );
+    if let Some(pid) = stalled_pid {
+        assert!(!Path::new(&format!("/proc/{pid}")).exists(), "{timing}");
+    }
+    assert!(total_elapsed < Duration::from_secs(1), "{timing}; {status:?}");
 }
 #[test]
 fn running_child_losing_owned_listener_is_failed_not_adopted() {

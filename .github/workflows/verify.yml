@@ -44,5 +44,11 @@ jobs:
       - run: npm run build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - name: Diagnose Linux readiness deadline timing
+        id: readiness_diagnostic
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked stalled_owned_http_respects_overall_readiness_deadline -- --nocapture --test-threads=1
+      - name: Native tests (normal parallel execution)
+        if: ${{ !cancelled() && (success() || steps.readiness_diagnostic.outcome == 'failure') }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked -- --nocapture
       - run: cargo build --manifest-path src-tauri/Cargo.toml --locked
