@@ -216,7 +216,10 @@ fn stalled_owned_http_respects_overall_readiness_deadline() {
     if let Some(pid) = stalled_pid {
         assert!(!Path::new(&format!("/proc/{pid}")).exists(), "{timing}");
     }
-    assert!(total_elapsed < Duration::from_secs(1), "{timing}; {status:?}");
+    assert!(
+        total_elapsed < Duration::from_secs(1),
+        "{timing}; {status:?}"
+    );
 }
 #[test]
 fn running_child_losing_owned_listener_is_failed_not_adopted() {
