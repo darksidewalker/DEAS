@@ -6,7 +6,7 @@ use std::{
 };
 #[cfg(target_os = "linux")]
 fn scratch() -> tempfile::TempDir {
-    tempfile::tempdir_in(std::env::var_os("TMPDIR").expect("scratch TMPDIR")).unwrap()
+    tempfile::tempdir().unwrap()
 }
 fn request(stream: &mut TcpStream) -> String {
     let mut b = Vec::new();

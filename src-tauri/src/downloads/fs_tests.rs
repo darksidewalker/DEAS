@@ -2,7 +2,7 @@ use super::Anchor;
 use std::os::unix::fs::{symlink, PermissionsExt};
 
 fn scratch() -> tempfile::TempDir {
-    tempfile::tempdir_in(std::env::var_os("TMPDIR").expect("scratch TMPDIR")).unwrap()
+    tempfile::tempdir().unwrap()
 }
 
 #[test]

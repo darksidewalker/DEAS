@@ -17,7 +17,7 @@ print('fixture starting',flush=True)
 with socketserver.TCPServer(('127.0.0.1',port),Handler) as server: server.serve_forever()
 "#;
 fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
-    let tmp = tempfile::tempdir_in(std::env::var_os("TMPDIR").unwrap()).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     for name in [
         "runtime/python",

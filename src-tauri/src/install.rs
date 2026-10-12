@@ -917,8 +917,7 @@ async fn provision(
 mod tests {
     use super::*;
     fn scratch() -> tempfile::TempDir {
-        let base = std::env::var_os("TMPDIR").expect("Set TMPDIR to Hermes scratch");
-        tempfile::tempdir_in(base).unwrap()
+        tempfile::tempdir().unwrap()
     }
     fn request(root: &Path) -> Request {
         Request {
@@ -929,6 +928,20 @@ mod tests {
             comfy_ref: "master".into(),
         }
     }
+    fn assert_baseline_platform_support(plan: &Plan) {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert!(plan.can_execute, "{:?}", plan.unsupported_options);
+
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            assert!(!plan.can_execute);
+            assert!(plan
+                .unsupported_options
+                .iter()
+                .any(|option| option.starts_with("platform:")));
+        }
+    }
+    #[cfg(target_os = "linux")]
     #[test]
     fn managed_interpreter_is_copied_not_external_or_symlinked() {
         let tmp = scratch();
@@ -958,7 +971,7 @@ mod tests {
         let tmp = scratch();
         let engine = Engine::default();
         let plan = engine.plan(request(tmp.path())).unwrap();
-        assert!(plan.can_execute);
+        assert_baseline_platform_support(&plan);
         assert!(engine.backend_start().is_err());
         lock(&engine.inner).status.state = "succeeded".into();
         assert!(engine.backend_start().is_err());
@@ -1190,7 +1203,7 @@ mod tests {
         ];
         let original = serde_json::to_value(&r).unwrap();
         let plan = engine.plan(r).unwrap();
-        assert!(plan.can_execute);
+        assert_baseline_platform_support(&plan);
         assert_eq!(serde_json::to_value(&plan.request).unwrap(), original);
         assert_eq!(plan.steps.iter().filter(|s| s.id == "nodes").count(), 1);
         assert!(plan
@@ -1207,6 +1220,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     #[ignore = "Read-only live NVIDIA immutable plan; no installation"]
     fn live_nvidia_plan() {
