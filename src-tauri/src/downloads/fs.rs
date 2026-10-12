@@ -15,7 +15,10 @@ use std::{fs::File, path::Path};
 #[path = "fs_tests.rs"]
 mod tests;
 
+#[cfg(target_os = "linux")]
 pub struct Anchor(File);
+#[cfg(not(target_os = "linux"))]
+pub struct Anchor;
 impl Anchor {
     #[cfg(target_os = "linux")]
     pub fn open(path: &Path) -> Result<Self, String> {

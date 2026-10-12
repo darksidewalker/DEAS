@@ -334,7 +334,7 @@ impl Lifecycle {
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         self.spawn_reserved(approved, timeout, port, Some(listener))
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     fn launch_port(
         &self,
         approved: Approved,

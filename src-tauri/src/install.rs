@@ -501,6 +501,7 @@ async fn run(
     let mut child = command
         .spawn()
         .map_err(|e| format!("Cannot run {}: {e}", program.display()))?;
+    #[cfg(unix)]
     let pid = child.id();
     let stdout = tokio::spawn(capture(
         child.stdout.take().ok_or("Missing stdout")?,
