@@ -8,6 +8,8 @@ pub use downloads::{
 };
 pub mod api;
 pub use api::native_negotiate_api;
+pub mod recipe_prerequisites;
+pub use recipe_prerequisites::native_recipe_prerequisites;
 pub mod backend;
 pub use backend::{native_backend_start, native_backend_status, native_backend_stop};
 pub mod hardware;

@@ -17,7 +17,7 @@ The final product provisions ComfyUI through a native Rust installer ported from
 
 DEAS owns feature selection, inputs/settings, media, validation, queue/progress and output playback/export. ComfyUI only receives and executes dynamically compiled API-format jobs; its internal computational nodes are not the source of DEAS UI controls. No embedded ComfyUI editor, node widget forms or node-side previews. Prefer a verified SDK/API adapter with explicit local endpoint binding; retain a separate classic API adapter when v2 is absent. SDK availability, beta proxy requirements, job/output ownership and safety gates are specified in [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md).
 
-Current next slice: native-owned verified recipe prerequisites, followed by correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No automatic service start, cloud fallback or assumption of generation readiness.
+Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No automatic service start, cloud fallback or assumption of generation readiness.
 
 ## Milestones and acceptance checklist
 
@@ -124,6 +124,12 @@ Current next slice: native-owned verified recipe prerequisites, followed by corr
 - [x] Implement explicit optional OS-keyring persistence/restore without plaintext fallback; injected-vault tests only, real OS-store operation unverified.
 - [x] Exercise final frontend/native build gates and six-language browser rendering down to 320px; rebuilt native initial rendering verified, interactive plugin IPC remains fixture coverage.
 - [ ] Managed-environment placement, resumable transfer, real authenticated provider/vault acceptance and explicitly approved Ollama pulls remain separate work.
+
+### M3a — Diagnostic recipe prerequisites and compile preview (implemented)
+- [x] Explicit native read-only core `object_info` probe on the selected endpoint; bounded transport, no redirects/proxy/cloud fallback and no writes.
+- [x] Extract exact checkpoint, sampler and scheduler identities; report missing built-in nodes and reject malformed or unsafe choice lists without normalizing identifiers.
+- [x] DEAS-owned diagnostic controls compile only against observed prerequisites; missing nodes/models block compilation and endpoint edits discard stale evidence.
+- [x] Verify real HTTP fixture transport, frontend IPC fixtures, six locales and responsive rendering; distinguish compile preview from model architecture/load and generation acceptance.
 
 ### M3 — Director vertical slice
 - [ ] Complete negotiated SDK/v2 and classic execution adapters; explicit endpoint/no cloud defaults, no ComfyUI editor dependency.

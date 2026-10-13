@@ -5,6 +5,7 @@ import { builtinPlugins } from './lib/plugins';
 import { NeuralGraph, type NeuralNode, type NeuralEdge } from './components/neural/NeuralGraph';
 import { AiOSetup } from './components/setup/AiOSetup';
 import { ApiNegotiationPanel } from './features/studio/ApiNegotiationPanel';
+import { RecipePrerequisitesPanel } from './features/studio/RecipePrerequisitesPanel';
 import { DownloadWorkspace } from './features/downloads/DownloadWorkspace';
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
@@ -69,6 +70,7 @@ export default function App(){
      :<div className="panel-content"><div><h3>{t(`studio.hint.${selected.id}`)}</h3><p>{t('studio.roadmap')}</p></div><div className="planned-note"><span className="eyebrow">{t('studio.notConnected')}</span><p>{t('studio.plannedNotice')}</p></div></div>}
      {active==='plugins'&&<DownloadWorkspace/>}
      {active==='engine'&&<ApiNegotiationPanel endpoint={endpoint}/>}
+     {active==='engine'&&<RecipePrerequisitesPanel endpoint={endpoint}/>}
      {active==='engine'&&<div aria-live="polite" aria-busy={inspecting}>{inspecting&&<p className="status-message" role="status">{t('studio.reading')}</p>}{inspectionError&&<p className="status-message error-message" role="alert">{t('studio.technicalError')}: {inspectionError}</p>}
       {snapshot&&<><p className="status-message" role="status">{t('studio.complete',{url:snapshot.baseUrl})}</p><div className="result-summary"><div><strong>{snapshot.nodeCount}</strong><span>{t('studio.availableNodes')}</span></div><div><strong>{snapshot.devices.length}</strong><span>{t('studio.reportedDevices')}</span></div><div><strong>{snapshot.missingRequiredNodes.length}</strong><span>{t('studio.missingDirector')}</span></div></div><div className="inspection-detail"><div><h3>{t('studio.devices')}</h3>{snapshot.devices.length?<ul>{snapshot.devices.map((d,i)=><li key={`${d}-${i}`}>{d}</li>)}</ul>:<p className="empty-note">{t('studio.noDevices')}</p>}</div><div><h3>{t('studio.missingNodes')}</h3>{snapshot.missingRequiredNodes.length?<ul>{snapshot.missingRequiredNodes.map(n=><li key={n}>{n}</li>)}</ul>:<p className="empty-note">{t('studio.allNodes')}</p>}</div><div><h3>{t('studio.capabilities')}</h3>{snapshot.capabilities.length?<ul>{snapshot.capabilities.map(c=><li key={c}>{c}</li>)}</ul>:<p className="empty-note">{t('studio.noCapabilities')}</p>}</div></div></>}
      </div>}

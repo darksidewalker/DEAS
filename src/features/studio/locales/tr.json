@@ -94,5 +94,22 @@
   "studio.plugin.output.name": "Output",
   "studio.plugin.output.description": "Director çıktı çalışma alanı.",
   "studio.plugin.plugins.name": "Eklentiler",
-  "studio.plugin.plugins.description": "Güvenilir yerleşik yetenek kaydı; harici yürütme desteklenmez."
+  "studio.plugin.plugins.description": "Güvenilir yerleşik yetenek kaydı; harici yürütme desteklenmez.",
+  "studio.recipe.title": "Tanısal checkpoint tarifi",
+  "studio.recipe.notice": "API v2 proxy görüşmesinden ayrı, yerel salt okunur core object_info kontrolü. Director veya model mimarisi desteği değildir. Gönderim veya servis başlatma yok; üretim doğrulanmadı.",
+  "studio.recipe.check": "Tarif ön koşullarını kontrol et",
+  "studio.recipe.checking": "Tarif ön koşulları kontrol ediliyor…",
+  "studio.recipe.failed": "Tarif kontrolü başarısız — teknik ayrıntı",
+  "studio.recipe.missingNodes": "Gerekli tanısal düğümler eksik — derleme engellendi",
+  "studio.recipe.noCheckpoints": "Checkpoint gözlenmedi. Derleme engellendi.",
+  "studio.recipe.noEnums": "Desteklenen sampler veya scheduler gözlenmedi. Derleme engellendi.",
+  "studio.recipe.positive": "Pozitif istem",
+  "studio.recipe.negative": "Negatif istem",
+  "studio.recipe.checkpoint": "Gözlenen checkpoint",
+  "studio.recipe.sampler": "Sampler",
+  "studio.recipe.scheduler": "Scheduler",
+  "studio.recipe.parameters": "Sabit tanısal parametreler: genişlik 512, yükseklik 512, adım 20, CFG 7, seed 0; batch 1, çıktı öneki DEAS_diagnostic.",
+  "studio.recipe.compile": "Tanısal önizlemeyi derle",
+  "studio.recipe.compiled": "Değişmez önizleme yerel olarak derlendi. Gönderim yok; üretim doğrulanmadı.",
+  "studio.recipe.details": "Teknik ayrıntılar — değişmez API grafiği"
 }

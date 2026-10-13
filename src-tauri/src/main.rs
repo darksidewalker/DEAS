@@ -26,6 +26,7 @@ fn main() {
             deas::native_download_cancel,
             deas::inspect_backend,
             deas::native_negotiate_api,
+            deas::native_recipe_prerequisites,
             deas::native_pick_directory,
             deas::native_detect_hardware,
             deas::native_install_defaults,

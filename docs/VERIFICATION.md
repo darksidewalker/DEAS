@@ -1,5 +1,13 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Diagnostic recipe prerequisites and compile preview (0.1.2)
+
+The native `native_recipe_prerequisites({baseUrl})` command reads only the selected core ComfyUI `object_info` endpoint. It preserves path prefixes, disables redirects/environment proxies and bounds the response to 16 MiB with a ten-second request timeout. It checks the six diagnostic built-in node identities and extracts exact checkpoint/sampler/scheduler choices. Missing nodes are diagnostics; malformed schemas, unsafe identifiers and duplicate choices fail closed. There is no upstream/proxy following, submission, download or service operation.
+
+The Engine panel exposes an explicit prerequisite check and DEAS-owned diagnostic prompt/model/enum controls. Its pure compiler preview uses observed allowlists and fixed readable defaults (512×512, 20 steps, CFG 7, seed 0). Endpoint edits and unmount discard stale results; missing prerequisites prevent compilation. All six locales are supplied. Reported identities do not establish checkpoint architecture, file validity, model loading, GPU execution or generation readiness.
+
+Independent integration gates passed: 48 core tests, 98 UI tests, 106 Rust tests with nine ignored, typecheck, frontend production build, Clippy and native release build. Thirteen native prerequisite regressions include real local HTTP fixtures; frontend/native IPC responses in browser tests are explicit fixtures. `tools/verify_recipe_prerequisites.py` passed browser-fail-closed and IPC-fixture paths at 1440/1024/768/390/320px across all six locales, with no overflow or unexpected submission. A separate exact-owned-PID release instance rendered the initial native window through XWayland without stderr; only that instance was terminated. Interactive prerequisite IPC in the native webview and live model generation were not exercised.
+
 ## Automatic-first installer (0.1.1)
 
 Opening AiO now enters one editable review rather than the guided question sequence. Native read-only defaults select a compatible NVIDIA backend or an explained CPU recommendation, a new `deas-environment` beside the actual running executable, ComfyUI master, core-only package and optional extensions off. Directory, backend, Director package, all attention/media flags and source ref remain editable. Prepare native plan shows the exact immutable request; final Start install is the explicit authorization. Edits invalidate old plans; mismatched/unsupported requests and duplicate starts are blocked. Older drafts and the optional manual guided/existing-backend paths remain supported.

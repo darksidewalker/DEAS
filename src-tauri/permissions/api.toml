@@ -2,3 +2,8 @@
 identifier = "allow-native-negotiate-api"
 description = "Bounded read-only API negotiation against an explicitly selected HTTP endpoint; no generation, assets or service lifecycle."
 commands.allow = ["native_negotiate_api"]
+
+[[permission]]
+identifier = "allow-native-recipe-prerequisites"
+description = "Bounded read-only core object_info diagnostic recipe prerequisites at an explicitly selected endpoint; no submission, assets, or service lifecycle."
+commands.allow = ["native_recipe_prerequisites"]

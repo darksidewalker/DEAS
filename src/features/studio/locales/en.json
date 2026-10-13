@@ -94,5 +94,22 @@
   "studio.plugin.output.name": "Output",
   "studio.plugin.output.description": "Director output workspace.",
   "studio.plugin.plugins.name": "Plugins",
-  "studio.plugin.plugins.description": "Trusted builtin capability registry; external execution is not supported."
+  "studio.plugin.plugins.description": "Trusted builtin capability registry; external execution is not supported.",
+  "studio.recipe.title": "Diagnostic checkpoint recipe",
+  "studio.recipe.notice": "Native read-only core object_info check, separate from API v2 proxy negotiation. Not Director or model-architecture support. No submission or service start; generation remains unverified.",
+  "studio.recipe.check": "Check recipe prerequisites",
+  "studio.recipe.checking": "Checking recipe prerequisites…",
+  "studio.recipe.failed": "Recipe check failed — technical detail",
+  "studio.recipe.missingNodes": "Missing required diagnostic nodes — compilation blocked",
+  "studio.recipe.noCheckpoints": "No checkpoints observed. Compilation is blocked.",
+  "studio.recipe.noEnums": "No supported sampler or scheduler observed. Compilation is blocked.",
+  "studio.recipe.positive": "Positive prompt",
+  "studio.recipe.negative": "Negative prompt",
+  "studio.recipe.checkpoint": "Observed checkpoint",
+  "studio.recipe.sampler": "Sampler",
+  "studio.recipe.scheduler": "Scheduler",
+  "studio.recipe.parameters": "Fixed diagnostic parameters: width 512, height 512, steps 20, CFG 7, seed 0; batch 1, output prefix DEAS_diagnostic.",
+  "studio.recipe.compile": "Compile diagnostic preview",
+  "studio.recipe.compiled": "Immutable preview compiled locally. Nothing submitted; generation remains unverified.",
+  "studio.recipe.details": "Technical details — immutable API graph"
 }

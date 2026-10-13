@@ -94,5 +94,22 @@
   "studio.plugin.output.name": "Ausgabe",
   "studio.plugin.output.description": "Director-Ausgabebereich.",
   "studio.plugin.plugins.name": "Plugins",
-  "studio.plugin.plugins.description": "Vertrauenswürdiges integriertes Fähigkeitsregister; externe Ausführung wird nicht unterstützt."
+  "studio.plugin.plugins.description": "Vertrauenswürdiges integriertes Fähigkeitsregister; externe Ausführung wird nicht unterstützt.",
+  "studio.recipe.title": "Diagnostisches Checkpoint-Rezept",
+  "studio.recipe.notice": "Native, nur lesende Prüfung von core object_info, getrennt vom API-v2-Proxy. Keine Director- oder Modellarchitektur-Unterstützung. Kein Auftrag oder Dienststart; Generierung bleibt ungeprüft.",
+  "studio.recipe.check": "Rezeptvoraussetzungen prüfen",
+  "studio.recipe.checking": "Rezeptvoraussetzungen werden geprüft…",
+  "studio.recipe.failed": "Rezeptprüfung fehlgeschlagen — technische Details",
+  "studio.recipe.missingNodes": "Fehlende Diagnose-Nodes — Kompilierung blockiert",
+  "studio.recipe.noCheckpoints": "Keine Checkpoints gemeldet. Kompilierung ist blockiert.",
+  "studio.recipe.noEnums": "Kein unterstützter Sampler oder Scheduler gemeldet. Kompilierung ist blockiert.",
+  "studio.recipe.positive": "Positiver Prompt",
+  "studio.recipe.negative": "Negativer Prompt",
+  "studio.recipe.checkpoint": "Gemeldeter Checkpoint",
+  "studio.recipe.sampler": "Sampler",
+  "studio.recipe.scheduler": "Scheduler",
+  "studio.recipe.parameters": "Feste Diagnoseparameter: Breite 512, Höhe 512, Schritte 20, CFG 7, Seed 0; Batch 1, Ausgabepräfix DEAS_diagnostic.",
+  "studio.recipe.compile": "Diagnosevorschau kompilieren",
+  "studio.recipe.compiled": "Unveränderliche Vorschau lokal kompiliert. Nichts übermittelt; Generierung bleibt ungeprüft.",
+  "studio.recipe.details": "Technische Details — unveränderlicher API-Graph"
 }

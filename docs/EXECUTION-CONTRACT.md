@@ -57,7 +57,8 @@ A local process/HTTP fixture proves lifecycle and protocol checks, not a full ne
 - [x] Explicit owned backend lifecycle, localized frontend actions and process/API failure regressions (real local-process/HTTP fixtures plus mocked UI IPC; no full ComfyUI stack acceptance).
 - [x] Read-only native API negotiation with explicit endpoint, real HTTP fixtures and localized desktop action; no cloud default.
 - [x] Pure versioned diagnostic checkpoint text-to-image compiler; supplied capability/model allowlists, strict validation and deterministic immutable graph.
-- [ ] Complete capability-negotiated SDK/classic execution adapters and native recipe-prerequisite discovery.
+- [x] Native read-only diagnostic recipe-prerequisite discovery and DEAS-owned compile preview; HTTP/IPC fixtures verified, not architecture/model-load or generation acceptance.
+- [ ] Complete capability-negotiated SDK/classic execution adapters.
 - [ ] Versioned recipes and dynamic API graph compilation from UX intent.
 - [ ] DEAS-owned input/output assets, job correlation/cancellation and result playback/export.
 - [ ] A real Director recipe accepted on a newly provisioned compatible backend.

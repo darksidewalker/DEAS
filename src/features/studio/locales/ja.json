@@ -94,5 +94,22 @@
   "studio.plugin.output.name": "Output",
   "studio.plugin.output.description": "Director の出力用ワークスペース。",
   "studio.plugin.plugins.name": "プラグイン",
-  "studio.plugin.plugins.description": "信頼済みの組み込み機能レジストリです。外部コードの実行には対応していません。"
+  "studio.plugin.plugins.description": "信頼済みの組み込み機能レジストリです。外部コードの実行には対応していません。",
+  "studio.recipe.title": "チェックポイント診断レシピ",
+  "studio.recipe.notice": "API v2プロキシとは別の、ネイティブのcore object_info読み取り専用確認です。Directorやモデル構造のサポートではありません。送信やサービス起動は行わず、生成は未検証です。",
+  "studio.recipe.check": "レシピの前提条件を確認",
+  "studio.recipe.checking": "レシピの前提条件を確認中…",
+  "studio.recipe.failed": "レシピ確認失敗 — 技術詳細",
+  "studio.recipe.missingNodes": "必要な診断ノードが不足 — コンパイル不可",
+  "studio.recipe.noCheckpoints": "チェックポイントがありません。コンパイルできません。",
+  "studio.recipe.noEnums": "対応するサンプラーまたはスケジューラーがありません。コンパイルできません。",
+  "studio.recipe.positive": "ポジティブプロンプト",
+  "studio.recipe.negative": "ネガティブプロンプト",
+  "studio.recipe.checkpoint": "確認されたチェックポイント",
+  "studio.recipe.sampler": "サンプラー",
+  "studio.recipe.scheduler": "スケジューラー",
+  "studio.recipe.parameters": "固定診断パラメーター：幅512、高さ512、ステップ20、CFG 7、シード0、バッチ1、出力接頭辞DEAS_diagnostic。",
+  "studio.recipe.compile": "診断プレビューをコンパイル",
+  "studio.recipe.compiled": "変更不可のプレビューをローカルでコンパイルしました。送信なし。生成は未検証です。",
+  "studio.recipe.details": "技術詳細 — 変更不可のAPIグラフ"
 }

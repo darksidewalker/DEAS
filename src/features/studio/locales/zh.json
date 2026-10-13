@@ -94,5 +94,22 @@
   "studio.plugin.output.name": "输出",
   "studio.plugin.output.description": "Director 输出工作区。",
   "studio.plugin.plugins.name": "插件",
-  "studio.plugin.plugins.description": "可信的内置能力注册表；不支持执行外部代码。"
+  "studio.plugin.plugins.description": "可信的内置能力注册表；不支持执行外部代码。",
+  "studio.recipe.title": "检查点诊断配方",
+  "studio.recipe.notice": "原生只读 core object_info 检查，与 API v2 代理协商分开。不代表 Director 或模型架构支持。不提交任务或启动服务；生成仍未验证。",
+  "studio.recipe.check": "检查配方前提条件",
+  "studio.recipe.checking": "正在检查配方前提条件…",
+  "studio.recipe.failed": "配方检查失败 — 技术详情",
+  "studio.recipe.missingNodes": "缺少必要诊断节点 — 编译被阻止",
+  "studio.recipe.noCheckpoints": "未发现检查点。编译被阻止。",
+  "studio.recipe.noEnums": "未发现受支持的采样器或调度器。编译被阻止。",
+  "studio.recipe.positive": "正向提示词",
+  "studio.recipe.negative": "负向提示词",
+  "studio.recipe.checkpoint": "已发现的检查点",
+  "studio.recipe.sampler": "采样器",
+  "studio.recipe.scheduler": "调度器",
+  "studio.recipe.parameters": "固定诊断参数：宽512、高512、步数20、CFG 7、种子0；批次1，输出前缀DEAS_diagnostic。",
+  "studio.recipe.compile": "编译诊断预览",
+  "studio.recipe.compiled": "不可变预览已在本地编译。未提交任务；生成仍未验证。",
+  "studio.recipe.details": "技术详情 — 不可变API图"
 }
