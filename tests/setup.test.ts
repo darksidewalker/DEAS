@@ -8,6 +8,17 @@ function through(last:StepId='acceleration') {
  for(const [step,value] of [['route','managed'],['storage','/data/DEAS'],['pack','complete'],['acceleration','cpu']] as const){s=confirm(select(s,step,value),step);if(step===last)break;}
  return s;
 }
+test('automatic review keeps all fields editable without per-step confirmation',()=>{
+ let s=transitionSetup(initialSetupState(),{type:'automatic'});
+ assert.equal(activeSetupStep(s),'review');assert.equal(setupPlan(s),null);
+ s=select(s,'storage','/data/new');s=select(s,'acceleration','cpu');
+ assert.ok(setupPlan(s));
+ s=transitionSetup(s,{type:'option',id:'ffmpeg',enabled:true});
+ s=select(s,'storage','/data/other');
+ assert.equal(s.options.ffmpeg,true);assert.equal(activeSetupStep(s),'review');
+ assert.deepEqual(restoreSetup(serializeSetup(s)),s);
+ s=select(s,'storage','');assert.equal(setupPlan(s),null);
+});
 test('selection requires explicit confirmation before continuing',()=>{
  let s=transitionSetup(initialSetupState(),{type:'open'});s=select(s,'route','managed');
  assert.equal(s.values.route,'managed');assert.equal(activeSetupStep(s),'route');assert.equal(setupPlan(s),null);

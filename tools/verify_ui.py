@@ -66,6 +66,7 @@ with sync_playwright() as p:
         if width==1440:
             page.screenshot(path=str(root/'assets/deas-compact-hover.png'))
         click(page,'setup:aio')
+        page.locator('button[data-setup-mode="guided"]').click()
         assert page.locator('.neural-choice-group').count()==1
         managed=page.locator('[data-choice="setup:route:managed"]').bounding_box()
         existing=page.locator('[data-choice="setup:route:existing"]').bounding_box()
@@ -145,6 +146,7 @@ with sync_playwright() as p:
     page.goto(url,wait_until='networkidle')
     page.locator('.language-control select').select_option('en')
     click(page,'setup:aio')
+    page.locator('button[data-setup-mode="guided"]').click()
     light=page.locator('.neural-road-light').first
     before=light.evaluate('el=>getComputedStyle(el).strokeDashoffset')
     page.wait_for_timeout(250)

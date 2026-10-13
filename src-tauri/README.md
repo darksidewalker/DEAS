@@ -12,7 +12,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo build --manifest-path src-tauri/Cargo.toml
 ```
 
-The native executable is `$CARGO_TARGET_DIR/debug/deas`. A desktop session and WebKitGTK 4.1 are needed on Linux. If a GPU/Wayland stack reports GBM buffer allocation errors, try launching with `WEBKIT_DISABLE_DMABUF_RENDERER=1`; this is an environment-specific diagnostic, not an app-wide rendering override.
+The native executable is `$CARGO_TARGET_DIR/debug/deas`. A desktop session and WebKitGTK 4.1 are needed on Linux. Before GTK/WebKit initialization, the binary supplies process-local defaults `WEBKIT_DISABLE_DMABUF_RENDERER=1` (avoid GBM/DMA-BUF allocation failures) and `GDK_BACKEND=wayland,x11` (try Wayland, then X11). Launch the binary directly; no wrapper or exported variable is needed. Existing explicit overrides are preserved, including `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt into DMA-BUF or `GDK_BACKEND=x11`/`wayland` to force one backend. This does not force software OpenGL, change system settings or replace missing system libraries.
 
 Tauri CLI development uses `http://localhost:1420` and `npm run dev`. Its build hook runs `npm run build` before embedding assets. Direct `cargo build` does not run that hook.
 
@@ -26,7 +26,7 @@ Returns `{ baseUrl, nodeCount, devices, missingRequiredNodes, capabilities }` wi
 
 Only GET requests to `object_info`, `system_stats`, and `features` under the selected base path are sent. `features` 404 means no reported capabilities; other HTTP failures, invalid JSON, and malformed mandatory data return an error. A 3-second connect timeout, 10-second per-request total timeout, and 16 MiB streamed-response cap apply. Redirects and environment proxies are disabled. HTTP/HTTPS URLs only; credentials, queries, and fragments are rejected.
 
-Local `main` window capabilities permit read-only inspection, scoped hardware/folder discovery, the four native installer commands and the three explicit owned-backend commands. Remote-origin IPC, shell/filesystem plugins, and browser-to-backend network access are not granted. CSP restricts scripts and assets to the embedded app and permits only Tauri IPC connections.
+Local `main` window capabilities permit read-only inspection, scoped hardware/folder discovery, the read-only native installer-defaults command, the four native installer commands and the three explicit owned-backend commands. Remote-origin IPC, shell/filesystem plugins, and browser-to-backend network access are not granted. CSP restricts scripts and assets to the embedded app and permits only Tauri IPC connections.
 
 ## Read-only execution API negotiation
 
@@ -41,6 +41,12 @@ Failures reject with `{code,endpoint,message}`: invalidEndpoint, authentication,
 `native_pick_directory({title})` opens the actual platform directory chooser (XDG portal on Linux) and returns an existing absolute directory or `null` on cancellation. Only the local main webview may call it. It does not create a target or start provisioning. The UI selects an existing parent and specifies a new environment subfolder because the installer refuses existing targets. UTF-8 paths are returned exactly; invalid titles/paths fail explicitly. Browser mode has no fabricated native picker.
 
 The Linux portal dialog was independently opened, visually inspected in folder-only mode, and cancelled using the actual dialog close action; the explicit interactive smoke test passed. Tests also verify cancellation, directory/file distinction and no target creation. Windows/macOS runtime dialog acceptance remains unverified.
+
+## Automatic recommendations (read-only)
+
+`invoke('native_install_defaults', {})` returns `{storagePath, backend, hardware, warnings}`. The default target is a new `deas-environment` in the running executable’s parent directory, independent of the shell working directory. Existing targets are reported, not adopted, renamed or changed. Supported NVIDIA hardware/driver profiles recommend `nvidia`; failed or incompatible discovery recommends `cpu` with an explanation, not a claim of detected CPU/AMD/Intel hardware. No files, plans, downloads or services are changed by this command.
+
+Defaults are editable recommendations, not authorization. The final Start install action must use the exact current immutable plan and explicit native confirmation. Basic defaults do not implement the roadmap’s later capability/benchmark/launch-optimization mode.
 
 ## Native provisioning IPC
 

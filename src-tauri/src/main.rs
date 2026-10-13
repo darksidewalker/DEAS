@@ -1,7 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "linux")]
+mod linux_startup;
+
 #[cfg(not(test))]
 fn main() {
+    #[cfg(target_os = "linux")]
+    linux_startup::configure();
+
     tauri::Builder::default()
         .manage(deas::install::Engine::default())
         .manage(deas::auth::AuthState::default())
@@ -22,6 +28,7 @@ fn main() {
             deas::native_negotiate_api,
             deas::native_pick_directory,
             deas::native_detect_hardware,
+            deas::native_install_defaults,
             deas::native_install_plan,
             deas::native_install_start,
             deas::native_install_status,

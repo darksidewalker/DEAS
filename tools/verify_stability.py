@@ -54,6 +54,7 @@ with sync_playwright() as p:
         page.goto('http://127.0.0.1:1420', wait_until='networkidle')
         page.locator('.language-control select').select_option('en')
         button(page, 'setup:aio').click()
+        page.locator('button[data-setup-mode="guided"]').click()
         confirm = page.get_by_role('button', name=STRINGS['setup.confirmStep'], exact=True)
         confirm.evaluate('el=>window.stabilityConfirm=el')
         color = confirm.evaluate('el=>getComputedStyle(el).backgroundColor')

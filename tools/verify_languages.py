@@ -23,6 +23,7 @@ with sync_playwright() as p:
   assert select.locator('option').count()==6
   for locale,name in names.items():assert select.locator(f'option[value="{locale}"]').inner_text()==f'{name} ({locale})'
   select.select_option('en');page.locator('[data-node="setup:aio"] > button').click()
+  page.locator('button[data-setup-mode="guided"]').click()
   page.locator('[data-choice="setup:route:managed"] button').click()
   assert page.locator('[data-choice="setup:route:managed"] button').get_attribute('aria-pressed')=='true'
   for locale in names:

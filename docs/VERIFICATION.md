@@ -1,5 +1,15 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Automatic-first installer (0.1.1)
+
+Opening AiO now enters one editable review rather than the guided question sequence. Native read-only defaults select a compatible NVIDIA backend or an explained CPU recommendation, a new `deas-environment` beside the actual running executable, ComfyUI master, core-only package and optional extensions off. Directory, backend, Director package, all attention/media flags and source ref remain editable. Prepare native plan shows the exact immutable request; final Start install is the explicit authorization. Edits invalidate old plans; mismatched/unsupported requests and duplicate starts are blocked. Older drafts and the optional manual guided/existing-backend paths remain supported.
+
+Independent gates passed: 48 core tests, 86 UI tests, 92 Rust tests (nine ignored by default), typecheck, frontend build, Clippy, formatting and native release build. The explicit read-only native-defaults test returned the actual RTX 5090 and executable-relative path without creating a directory. `tools/verify_automatic.py` passed browser-fail-closed and native-IPC-fixture modes at 1440/1024/768/390/320px across all six locales, including every editable field, stale-plan rejection, unsupported-option blocking, final explicit confirmation, running edit lock and compact checkbox geometry. All seven existing browser suites passed after selecting the optional guided fallback where applicable. Native fixture starts do not install anything.
+
+With Vite stopped, a separate exact-PID release instance was clicked to open AiO and captured in `assets/deas-native-automatic-review.png`: real NVIDIA discovery, `/data/GitHub/DEAS/artifacts/deas-environment` beside the launched artifact, and the actual native editable review are visible. Only the test instance was terminated; no final installation was started, environment created or unrelated service stopped. Browser fixture screenshots are explicitly named `assets/deas-automatic-fixture-{1440,320}.png`.
+
+The later opt-in target-machine capability/optimization scan (launch parameters, memory/offload policy, kernel/codec support and bounded consented benchmarking) is specified in PLAN and PLUGIN-ROADMAP only; basic read-only recommendations do not implement it.
+
 ## Real upstream CPU/NVIDIA installation acceptance
 
 The explicit `real_comfy_cpu_install_and_owned_lifecycle` test passed twice against upstream ComfyUI master in a new temporary environment. It exercised the actual Engine plan/confirmation/start worker, checksum-verified uv, managed Python 3.12, pinned CPU Torch trio, constrained ComfyUI dependencies, framework computation checks, manifest capture, owned backend launch, real API readiness and owned stop. No fixtures replace ComfyUI in this test. The temporary environment is removed afterward; no model weights or user installations/services are touched. API readiness remains distinct from generation acceptance.
@@ -108,15 +118,21 @@ Launch authorization is held only after successful approved provisioning in the 
 
 `artifacts/deas-linux-amd64`
 
-SHA-256: `fd9de91ae32779733b657c74cc58e6e5074683a32d93a864cee5dc940fd86be3`
+SHA-256: `2ea13130c6e3c9fd003477aa89ed664daba70b009b1399fbf3bba556f42c001a`
 
-Locally verified, system-linked Linux x86_64 development artifact. Not a signed portable release. Native capture used:
+Locally verified, system-linked Linux x86_64 development artifact. Not a signed portable release. Launch directly:
 
 ```sh
-env GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./artifacts/deas-linux-amd64
+./artifacts/deas-linux-amd64
 ```
 
-These are host-specific test settings, not global graphics changes. Wayland, media and other target platforms need independent acceptance tests.
+### Built-in Linux startup fallbacks
+
+Before GTK/WebKit initialization, DEAS supplies `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `GDK_BACKEND=wayland,x11` only when each variable is absent. Explicit overrides, including empty values, remain unchanged. The defaults are process-local; no system settings, external services or graphics drivers are modified.
+
+The previous artifact, with both variables removed, exited with `Error 71 (Protokollfehler) dispatching to Wayland display` on this host. The rebuilt artifact started with both variables removed and rendered the native frontend without stderr output. Exact-owned-PID native screenshots were visually checked for both the default Wayland window and automatic X11 fallback through XWayland. The X11 fallback check supplied a nonexistent Wayland socket while leaving `GDK_BACKEND` unset, proving GTK proceeds to X11 when Wayland is unavailable. Only separately launched test instances were terminated. Other compositors and standalone X11 machines were not physically tested.
+
+Verification: frontend production build and native release build passed; Cargo tests reported 93 passed / 9 ignored, including the new defaults/override regression; clippy, fmt and diff whitespace checks passed. The deployed artifact and release build have identical SHA-256 hashes. Media and other target platforms still need independent acceptance tests.
 
 ## Explicit unverified or unsupported areas
 

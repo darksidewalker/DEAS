@@ -11,7 +11,7 @@ See [the all-in-one plugin roadmap](PLUGIN-ROADMAP.md) for the mapping of DaSiWa
 ## Product contract
 A lightweight Rust/Tauri desktop application with a React/TypeScript single-page studio. Neural feature blobs are clickable and connected by meaningful parent-child edges. Selected features expand their controls in the page; no modal maze or conventional dashboard replaces this visual model.
 
-The final product provisions ComfyUI through a native Rust installer ported from the Go DaSiWa installer. No external Go installer application or sidecar is bundled. ComfyUI is the baseline; Director is one explicit package selection including Prompt Forge, RefMods, Continuity and Output. Every setup step needs confirmation before progression; option clicks and hardware preselection never advance on their own. Recommendations use translated badges only, without connection lines or automatic activation. All UX text uses decentralized language resources and data-only language plugins. Python/PyTorch remain the execution engine; existing installations and services are never implicitly modified or stopped.
+The final product provisions ComfyUI through a native Rust installer ported from the Go DaSiWa installer. No external Go installer application or sidecar is bundled. ComfyUI is the baseline; Director is one explicit package selection including Prompt Forge, RefMods, Continuity and Output. The default setup is automatic-first: read-only findings produce conservative editable recommendations and one brief plan summary, with explicit final Start install consent instead of repeated per-step questions. The earlier guided confirmation flow is an optional fallback, not the default. Recommendations use translated badges only, without connection lines or automatic activation. All UX text uses decentralized language resources and data-only language plugins. Python/PyTorch remain the execution engine; existing installations and services are never implicitly modified or stopped.
 
 ## Execution-only backend ownership
 
@@ -78,6 +78,21 @@ Current next slice: native-owned verified recipe prerequisites, followed by corr
 - [x] Verify actual local-fixture API responses, process identity, timeout/failure/shutdown and foreign-service isolation; full ComfyUI stack acceptance remains open.
 - [x] Integrate localized frontend lifecycle actions; retain generationReady:false until recipe acceptance.
 - [x] Rebuild and independently test native/UI/browser gates: 38 core/73 UI/46 Rust, four browser suites down to 320px, release/native rendering.
+
+### Automatic-first setup and later machine optimization
+- [x] Native read-only defaults recommend a compatible backend and a new environment beside the running executable; no writes or downloads. Tests cover failed/incompatible detection and existing-target preservation.
+- [x] Show brief findings and an editable plan; directory, backend, package, attention/media flags and source ref remain editable before final Start install.
+- [x] Any edit invalidates the prepared immutable plan; late discovery cannot overwrite manual/restored values, and final Start install cannot submit a stale request.
+- [x] Preserve old drafts and existing-backend inspection; keep unknown/unsupported hardware and selected-option blockers visible.
+- [x] Verify automatic defaults, no writes before final consent, collisions, native IPC, locales and responsive UI; rebuild the native artifact. Browser native-start checks use IPC fixtures; real native defaults/rendering are separately verified.
+
+### Planned later — machine capability scan and optimization mode
+- [ ] Add a separate opt-in capability/optimization scan for the actual target machine, not the development host.
+- [ ] Record CPU/ISA/core count, RAM, GPU identity/VRAM/driver/compute capability, available storage, supported runtime/attention/codec capabilities and competing resource use. Distinguish measured data, compatibility rules and recommendations.
+- [ ] Propose supported ComfyUI launch parameters, memory/offload policy and optional attention/media choices from a versioned capability profile; keep every proposed value editable.
+- [ ] Offer explicit bounded smoke/benchmark probes only with consent; no automatic model downloads, external-service shutdown, system tuning or unverified hardware support claims.
+- [ ] Persist the accepted profile and exact launch arguments with the immutable plan; invalidate/recheck changed hardware/runtime and provide a conservative fallback.
+- [ ] Verify opt-in scan failures, stale evidence, manual overrides, rollback to conservative defaults and performance benefit on real target hardware. This mode is planned, not implemented by basic read-only default recommendations.
 
 ### M2 — Managed AiO setup
 - [x] Implement native Rust uv/Python/ComfyUI baseline for Linux x86_64 CPU/NVIDIA; Go remains a read-only reference.

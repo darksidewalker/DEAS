@@ -30,6 +30,7 @@ with sync_playwright() as p:
         page.goto('http://127.0.0.1:1420',wait_until='networkidle')
         page.locator('.language-control select').select_option('en')
         page.get_by_role('button',name='AiO installer',exact=True).click()
+        page.locator('button[data-setup-mode="guided"]').click()
         page.mouse.move(1,1)
         assert page.locator('.neural-help:not(.neural-help-reserved)').count()==0
         count=page.locator('.neural-blob').count()

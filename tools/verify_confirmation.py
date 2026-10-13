@@ -34,6 +34,7 @@ with sync_playwright() as p:
         page.goto('http://127.0.0.1:1420',wait_until='networkidle')
         page.locator('.language-control select').select_option('en')
         target(page,'setup:aio').click()
+        page.locator('button[data-setup-mode="guided"]').click()
         target(page,'setup:route:managed').click()
         assert page.get_by_label(STRINGS['setup.storageDirectory'],exact=True).count()==0, 'Route click auto-advanced'
         target(page,'setup:route').click()

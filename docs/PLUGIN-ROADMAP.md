@@ -108,6 +108,12 @@ The ambition is coverage of common image and video model families, not a claim t
 
 Each pack declares compatible backend/node/runtime versions, exact architecture, checkpoints/encoders/VAEs/adapters, resolutions/frame limits, supported generation/editing modes, licenses/gated resources and required acceptance tests. Keep offered, downloaded, installed, discovered, recipe-compatible and actually executed states separate. Add audio/speech/music packs where demand and verified backends justify them, without implying generic audio support from a video adapter.
 
+## Automatic setup and target-machine optimization
+
+Setup should recommend most technical choices automatically and show a short findings/plan summary, not ask for each decision. The default environment is a new `deas-environment` beside the running executable. Before the final Start install action, all chosen values remain editable; native immutable planning, blockers and existing-environment protection still apply.
+
+A later, separate opt-in capability/optimization mode will scan the machine being installed for: CPU/ISA, RAM, GPU/VRAM/driver, storage, supported kernels/codecs and current resource pressure. It will propose versioned, editable ComfyUI launch parameters and memory/offload/attention/media settings. Bounded benchmarks require explicit consent. Detection is not execution verification; never stop unrelated services or silently download models/change system settings. Preserve accepted profiles and exact arguments, invalidate changed evidence and offer conservative defaults. This optimization mode is roadmap-only; ordinary backend/default discovery must not be described as its implementation.
+
 ## Delivery sequence and collaboration
 
 1. **Alpha foundations:** finish current download/auth slice, stabilize installation ownership, local project/asset domain and reopenable feature management.

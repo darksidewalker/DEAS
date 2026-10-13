@@ -4,11 +4,11 @@ DEAS is a Rust/Tauri desktop studio with a single-page neural interface for Comf
 
 ## Desktop preview
 
-![DEAS native desktop](assets/deas-native-api-start.png)
+![DEAS native automatic setup](assets/deas-native-automatic-review.png)
 
 ## Setup path
 
-The first blob is the AiO installer. Clicking it reveals one compact staircase choice group. Earlier choices recede into a returnable translucent stack; active bubbles follow short snake rows. Hover/focus shows help inside reserved space in the existing bubble: no resizing, reflow or extra help bubbles. The green Confirm & continue button follows the current selection/control area at its lower-right edge, including input forms; it is not pinned to the viewport. Every setup step uses **Confirm & continue**: selecting an option, clicking a step heading or detecting a backend never advances by itself. Extra backend options stay visible until confirmation. Managed setup plans storage, explicitly selected optional capabilities and a CPU/GPU backend; the existing-backend route hands an explicit URL to the inspector. Changing an earlier decision clears incompatible later choices. Local plans can be saved/restored or exported as JSON. The native Linux x86_64 baseline installs ComfyUI directly. Full new CPU and NVIDIA installations, framework computation, owned backend start, real API readiness and stop are verified on Linux. AMD/Intel and optional Sage/Radial/Flash/FFmpeg currently block execution explicitly; there is no simulated success.
+The first blob is the AiO installer. Clicking it reveals one compact staircase choice group. Earlier choices recede into a returnable translucent stack; active bubbles follow short snake rows. Hover/focus shows help inside reserved space in the existing bubble: no resizing, reflow or extra help bubbles. The green Confirm & continue button follows the current selection/control area at its lower-right edge, including input forms; it is not pinned to the viewport. The default setup prepares conservative recommendations automatically and presents one short editable summary. Directory, backend, Director package, attention/media options and ComfyUI reference can all be changed before the final **Start install**. The guided **Confirm & continue** flow is an optional fallback, not a sequence of mandatory default questions. Managed setup defaults to a new `deas-environment` directly beside the running executable, selects a compatible NVIDIA profile or an explained conservative CPU recommendation, and leaves optional packages/extensions off; the existing-backend route hands an explicit URL to the inspector. Changing an earlier decision clears incompatible later choices. Local plans can be saved/restored or exported as JSON. The native Linux x86_64 baseline installs ComfyUI directly. Full new CPU and NVIDIA installations, framework computation, owned backend start, real API readiness and stop are verified on Linux. AMD/Intel and optional Sage/Radial/Flash/FFmpeg currently block execution explicitly; there is no simulated success.
 
 Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFeatures` components serve both setup and studio features. Roads offer light, moving cat paws and off modes, with reduced-motion support. See [primitive ownership and references](docs/NEURAL-PRIMITIVES.md).
 
@@ -24,7 +24,7 @@ Most of this is not implemented. The [plugin roadmap](docs/PLUGIN-ROADMAP.md) ma
 
 The first milestone builds the desktop shell, interactive studio, trusted built-in feature registry and read-only ComfyUI discovery. This is **not yet the completed AiO installer or a generation-ready Director replacement**. Unavailable execution functions are identified in the interface rather than simulated.
 
-The intended AiO product ports capabilities from the [DaSiWa ComfyUI Installer](https://github.com/darksidewalker/dasiwa-comfyui-installer) into DEAS's native Rust engine. It does not bundle or launch an external Go installer. ComfyUI is the baseline; Director is one explicitly selected package including Prompt Forge, RefMods, Continuity and Output. Small passive microbubbles show these included parts; they are not separate optional choices. Suggested/Detected are translated badges only, without recommendation connection lines. Hardware preselection still requires step confirmation. UX languages are data-only plugins with decentralized per-module text resources. Python/PyTorch continue to execute workflows; driver compatibility and model licenses remain explicit prerequisites.
+The intended AiO product ports capabilities from the [DaSiWa ComfyUI Installer](https://github.com/darksidewalker/dasiwa-comfyui-installer) into DEAS's native Rust engine. It does not bundle or launch an external Go installer. ComfyUI is the baseline; Director is one explicitly selected package including Prompt Forge, RefMods, Continuity and Output. Small passive microbubbles show these included parts; they are not separate optional choices. Suggested/Detected are translated badges only, without recommendation connection lines. Hardware recommendations remain editable and do not authorize installation; the final Start install action does. UX languages are data-only plugins with decentralized per-module text resources. Python/PyTorch continue to execute workflows; driver compatibility and model licenses remain explicit prerequisites.
 
 ## Execution-only backend
 
@@ -71,11 +71,13 @@ The frontend development server uses port 1420. Engine discovery is an explicit 
 
 ## Local Linux executable
 
-The initial locally verified executable is `artifacts/deas-linux-amd64`. On this host, native rendering was verified with:
+The locally built executable is `artifacts/deas-linux-amd64`. Launch it directly:
 
 ```sh
-env WEBKIT_DISABLE_DMABUF_RENDERER=1 ./artifacts/deas-linux-amd64
+./artifacts/deas-linux-amd64
 ```
+
+Before initializing GTK/WebKit on Linux, DEAS defaults to the compatible non-DMA-BUF renderer and tries Wayland, then X11. No launcher or environment variable is required. Explicit `WEBKIT_DISABLE_DMABUF_RENDERER` and `GDK_BACKEND` overrides are preserved, so users can opt back into DMA-BUF (`0`) or select a specific display backend. These defaults affect only DEAS and its children, not desktop/system settings.
 
 It embeds the frontend and does not require a Vite server. It still requires compatible Linux system/webview libraries; this is not yet a signed portable AiO release. See [verification and limitations](docs/VERIFICATION.md).
 

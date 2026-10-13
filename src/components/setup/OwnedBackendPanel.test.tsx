@@ -93,14 +93,14 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
 async function installFixture(result:'succeeded'|'failed') {
  vi.mocked(invoke).mockImplementation(async command=>{
   if(command==='native_detect_hardware')return {backend:null};
-  if(command==='native_install_plan')return {id:'mock-plan',request:{},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
+  if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};
   return fixture('stopped');
  });
  render(<I18nProvider><AiOSetup onConnectExisting={vi.fn()}/></I18nProvider>);
  const click=(name:RegExp)=>fireEvent.click(screen.getByRole('button',{name}));
  const confirm=()=>click(/^Confirm & continue$/);
- click(/AiO installer/);click(/New app-owned install/);confirm();
+ click(/AiO installer/);click(/Manual step-by-step/);click(/New app-owned install/);confirm();
  fireEvent.change(screen.getByLabelText('Storage directory'),{target:{value:'/data/mock-DEAS'}});confirm();confirm();click(/^CPU/);confirm();
  click(/Prepare native plan/);await screen.findByLabelText(/I confirm this exact plan/);
  fireEvent.click(screen.getByLabelText(/I confirm this exact plan/));click(/Install confirmed plan/);

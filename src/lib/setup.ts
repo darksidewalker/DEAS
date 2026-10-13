@@ -4,7 +4,7 @@ export type StepId = 'route' | 'storage' | 'pack' | 'acceleration' | 'backend' |
 export type FeatureId = 'director' | 'forge' | 'refmods' | 'continuity';
 export type Backend = 'cpu' | 'nvidia' | 'amd' | 'intel';
 export interface InstallOptions { sage: boolean; radial: boolean; flash: boolean; ffmpeg: boolean }
-export interface SetupState { version: 2; opened: boolean; motion: Motion; values: Partial<Record<StepId,string>>; confirmed: Partial<Record<StepId,boolean>>; features: FeatureId[]; options: InstallOptions; comfyRef: string }
+export interface SetupState { mode?: 'automatic'; version: 2; opened: boolean; motion: Motion; values: Partial<Record<StepId,string>>; confirmed: Partial<Record<StepId,boolean>>; features: FeatureId[]; options: InstallOptions; comfyRef: string }
 export interface SetupChoice { included?: {id:string;label:string}[]; suggested?: boolean; detected?: boolean; id: string; label: string; description?: string; status?: string; selected?: boolean; disabled?: boolean; suggests?: string[] }
 export interface SetupNode { included?: {id:string;label:string}[]; suggested?: boolean; detected?: boolean; id: string; label: string; description?: string; status?: string; parentId: string|null; column: number; order: number; selected?: boolean; choices?: SetupChoice[]; selectionMode?: 'single'|'multi' }
 /** Join an existing native-selected parent with a new, single safe child name. */
@@ -45,12 +45,13 @@ export const SETUP_DRAFT_KEY='deas.setup.draft.v1'; // Keep old storage accessib
 export function initialSetupState(): SetupState { return {version:2,opened:false,motion:'light',values:{},confirmed:{},features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'}; }
 export function visibleSetupSteps(state: SetupState): StepId[] {
  if(!state.opened) return [];
+ if(state.mode==='automatic') return ['route','storage','pack','acceleration','review'];
  const visible: StepId[]=[];
  for(const id of routes[state.values.route??'']??['route']) { visible.push(id); if(!state.confirmed[id]) break; }
  return visible;
 }
 export function activeSetupStep(state: SetupState): StepId|null { return visibleSetupSteps(state).at(-1)??null; }
-export type SetupEvent = {type:'open'}|{type:'motion';motion:Motion}|{type:'select';step:StepId;value:string}|{type:'confirm';step:StepId}|{type:'choose';step:StepId;value:string}|{type:'feature';id:FeatureId}|{type:'option';id:keyof InstallOptions;enabled:boolean}|{type:'ref';value:string};
+export type SetupEvent = {type:'open'}|{type:'automatic'}|{type:'motion';motion:Motion}|{type:'select';step:StepId;value:string}|{type:'confirm';step:StepId}|{type:'choose';step:StepId;value:string}|{type:'feature';id:FeatureId}|{type:'option';id:keyof InstallOptions;enabled:boolean}|{type:'ref';value:string};
 /** Edits invalidate this confirmation and later decisions, never silently confirm. */
 function invalidateStep(state: SetupState, step: StepId): SetupState {
  const path=visibleSetupSteps(state), index=path.indexOf(step);
@@ -59,7 +60,15 @@ function invalidateStep(state: SetupState, step: StepId): SetupState {
  return {...state,values,confirmed};
 }
 export function transitionSetup(state: SetupState,event: SetupEvent): SetupState {
+ if(event.type==='automatic') return {...state,mode:'automatic',opened:true,values:{...state.values,route:'managed',pack:'complete'}};
  if(event.type==='open') return {...state,opened:true};
+ if(state.mode==='automatic') {
+  if(event.type==='select'&&event.step==='storage') return {...state,values:{...state.values,storage:event.value}};
+  if(event.type==='select'&&event.step==='acceleration'&&['cpu','nvidia','amd','intel'].includes(event.value)) return {...state,values:{...state.values,acceleration:event.value}};
+  if(event.type==='feature'&&optionalFeatures.includes(event.id)) return {...state,features:state.features.includes(event.id)?state.features.filter(id=>id!==event.id):[...state.features,event.id]};
+  if(event.type==='option'&&event.id in state.options) return {...state,options:{...state.options,[event.id]:event.enabled}};
+  if(event.type==='ref') return {...state,comfyRef:event.value};
+ }
  if(event.type==='motion') return ['light','paws','off'].includes(event.motion)?{...state,motion:event.motion}:state;
  if(event.type==='choose') { // Compatibility only; UI and detection use select/confirm.
   const selected=transitionSetup(state,{type:'select',step:event.step,value:event.value});
@@ -119,6 +128,7 @@ export function setupPresentation(state: SetupState, focusedStep: StepId|null = 
 export function setupGraph(state: SetupState): SetupNode[] {return setupPresentation(state).nodes;}
 /** Included companions have no independent choices or suggestion roads. */
 export function setupSuggestions(_state: SetupState): {id:string;fromId:string;toId:string;kind:'suggested'}[] { return []; }
+export interface NativeInstallDefaults {storagePath:string;backend:'cpu'|'nvidia';hardware:Record<string,unknown>|null;warnings:string[]}
 export interface NativeHardwareDetection {backend: 'nvidia'|null; hardware?:Record<string,unknown>|null; warnings?:string[]}
 export interface NativeInstallRequest {storagePath:string;backend:Backend;features:FeatureId[];options:InstallOptions;comfyRef:string}
 export interface NativeInstallPlan {id:string;request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:{vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string}|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
@@ -126,7 +136,7 @@ export interface NativeInstallStatus {state:'idle'|'running'|'succeeded'|'failed
 export interface NativeBackendStatus {state:'starting'|'running'|'failed'|'stopped';endpoint:string|null;logs:string[];error:string|null;generationReady:false}
 export type SetupPlan = {version:2;provisioningAvailable:false} & ({status:'NOT INSTALLED';route:'managed'} & NativeInstallRequest | {status:'NOT INSPECTED';route:'existing';baseUrl:string});
 export function setupPlan(state: SetupState): SetupPlan|null {
- if(activeSetupStep(state)!=='review') return null;
+ if(activeSetupStep(state)!=='review'||! /^[\w./-]{1,120}$/.test(state.comfyRef)) return null;
  const v=state.values;
  if(v.route==='existing'&&v.backend&&validateBackend(v.backend)) return {version:2,status:'NOT INSPECTED',route:'existing',baseUrl:v.backend,provisioningAvailable:false};
  if(v.route==='managed'&&v.storage&&validateStorage(v.storage)&&v.pack==='complete'&&['cpu','nvidia','amd','intel'].includes(v.acceleration??'')) return {version:2,status:'NOT INSTALLED',route:'managed',storagePath:v.storage,backend:v.acceleration as Backend,features:effectiveSetupFeatures(state.features),options:{...state.options},comfyRef:state.comfyRef,provisioningAvailable:false};
@@ -149,6 +159,11 @@ export function restoreSetup(raw:string): SetupState|null {
   const options=legacy?initialSetupState().options:data.options;
   const comfyRef=legacy?'master':data.comfyRef;
   if(!Array.isArray(features)||features.some(id=>!knownFeatures.includes(id))||new Set(features).size!==features.length || !options || Object.keys(options).length!==4 || !Object.keys(initialSetupState().options).every(k=>typeof options[k]==='boolean') || typeof comfyRef!=='string'||!/^[\w./-]{1,120}$/.test(comfyRef)) return null;
+  if(data.mode==='automatic') {
+   if(!data.opened||values.route!=='managed'||values.pack!=='complete'||Object.keys(values).some(k=>!['route','storage','pack','acceleration'].includes(k))|| (values.storage!==undefined&&typeof values.storage!=='string') || (values.acceleration!==undefined&&!['cpu','nvidia','amd','intel'].includes(values.acceleration)))return null;
+   return {...initialSetupState(),mode:'automatic',opened:true,motion:data.motion,values,features,options,comfyRef};
+  }
+  if(data.mode!==undefined)return null;
   const confirmations=legacy||data.confirmed===undefined?Object.fromEntries(Object.keys(values).map(id=>[id,true])):data.confirmed;
   if(!confirmations||typeof confirmations!=='object'||Array.isArray(confirmations)||Object.entries(confirmations).some(([id,value])=>!Object.hasOwn(values,id)||value!==true||id==='review'))return null;
   let state={...initialSetupState(),opened:data.opened,motion:data.motion};

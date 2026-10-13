@@ -1,3 +1,10 @@
+.aio-auto-fields { display: grid; grid-template-columns: minmax(0,1fr); gap: .5rem; border: 0; padding: 0; margin-top: .75rem; min-width: 0; }
+.aio-auto-fields input:not([type="checkbox"]), .aio-auto-fields select { box-sizing: border-box; width: 100%; min-width: 0; padding: .55rem; color: #e4e9e5; background: #121719; border: 1px solid #627477; border-radius: .6rem; font: inherit; }
+.aio-auto-fields label { display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
+.aio-auto-fields p { margin: 0; }
+.aio-auto-fields button { justify-self: start; max-width: 100%; }
+.aio-auto-review { overflow-wrap: anywhere; }
+.aio-auto-fields input[type="checkbox"] { accent-color: #83c19a; flex: none; width: auto; padding: 0; margin: 0; }
 .aio-setup { color: #e4e9e5; min-width: 0; }
 /* Graph, step controls and the shared footer form one content-sized workspace. */
 .aio-decision-area { width: 100%; max-width: 48rem; min-width: 0; }
