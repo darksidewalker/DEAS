@@ -22,6 +22,19 @@ const COMFY: &str = "https://github.com/comfyanonymous/ComfyUI.git";
 const NODEPACK: &str = "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes.git";
 #[path = "install_torch.rs"]
 pub(crate) mod torch_profile;
+// --help exits before imports. Initialize actual core/nodes without binding a
+// listener, then assert the selected package registered its required nodes.
+const COMFY_PROBE: &str = r#"import sys,signal,json
+backend,selected=sys.argv[1:]
+signal.alarm(120)
+sys.argv=['main.py','--disable-auto-launch'] + (['--cpu'] if backend=='cpu' else ['--cuda-device','0'])
+import main,nodes
+main.start_comfyui()
+required={'MiniMaxH3Director','MiniMaxH3DirectorGuide','DaSiWaH3ContinuityAppend','DaSiWaH3ContinuityPublish'} if selected=='nodes' else set()
+missing=required-set(nodes.NODE_CLASS_MAPPINGS)
+assert not missing, 'Missing selected nodes: '+', '.join(sorted(missing))
+print(json.dumps({'coreImported':True,'selectedNodes':sorted(required),'generationReady':False}))
+"#;
 const MAX_LOGS: usize = 300;
 const FRAMEWORK_PROBE: &str = r#"import json,sys,os
 p=json.loads(sys.argv[2]); h=json.loads(sys.argv[3])
@@ -293,7 +306,7 @@ impl Engine {
                     .into(),
             });
         }
-        steps.push(Step{id:"verify".into(),label_key:"installer.steps.verify".into(),detail:"Import exact Torch trio, confirm CPU tensors and ComfyUI main --help; record manifest (not generation readiness)".into()});
+        steps.push(Step{id:"verify".into(),label_key:"installer.steps.verify".into(),detail:"Import exact Torch trio, confirm CPU tensors and initialize actual ComfyUI core/selected nodes without a listener; record manifest (not generation readiness)".into()});
         if let Some(selected) = &torch {
             if let Some(step) = steps.iter_mut().find(|s| s.id == "torch") {
                 step.detail = format!(
@@ -305,7 +318,7 @@ impl Engine {
         }
         if matches!(request.backend, Backend::Nvidia) {
             warnings.push("NVIDIA preflight is read-only, bounded to 5 seconds, and supports one visible GPU only. CUDA 13 requires driver >=580; Pascal uses CUDA 12.1. No CUDA toolkit or attention extensions are installed.".into());
-            steps.last_mut().unwrap().detail = "Verify exact framework trio, CUDA metadata, planned GPU identity and synchronized CUDA matrix multiplication; ComfyUI main --help (not generation readiness)".into();
+            steps.last_mut().unwrap().detail = "Verify exact framework trio, CUDA metadata, planned GPU identity and synchronized CUDA matrix multiplication; initialize actual ComfyUI core/selected nodes without a listener (not generation readiness)".into();
         }
         let plan = Plan {
             id: uuid::Uuid::new_v4().to_string(),
@@ -698,6 +711,48 @@ fn own_interpreter(root: &Path, python: &Path) -> Result<(), String> {
     std::fs::rename(temporary, python).map_err(|e| e.to_string())?;
     Ok(())
 }
+// NVIDIA's PyPI sdist is a wheel-downloader stub. Resolve the real wheel
+// explicitly, without making that index authoritative for bulk requirements.
+fn nvidia_vfx_requirement(requirements: &str) -> Option<&str> {
+    requirements
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .find(|line| {
+            let name = line
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+                .next()
+                .unwrap_or("");
+            name.replace('_', "-").eq_ignore_ascii_case("nvidia-vfx")
+        })
+}
+
+// Match the reference installer's backend-specific llama wheels. Never silently
+// compile a CPU library for a CUDA plan or depend on a host CMake/toolchain.
+fn node_wheel_args(requirements: &str, profile: &torch_profile::Torch) -> Vec<String> {
+    let needs_llama = requirements.lines().any(|line| {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let name = line
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+            .next()
+            .unwrap_or("");
+        name.replace('_', "-")
+            .eq_ignore_ascii_case("llama-cpp-python")
+    });
+    if !needs_llama {
+        return Vec::new();
+    }
+    let family = profile.cuda.as_ref().map_or_else(
+        || "cpu".to_owned(),
+        |cuda| format!("cu{}", cuda.replace('.', "")),
+    );
+    vec![
+        "--only-binary".into(),
+        "llama-cpp-python".into(),
+        "--index".into(),
+        format!("https://abetlen.github.io/llama-cpp-python/whl/{family}"),
+    ]
+}
+
 fn prepare_dirs(root: &Path) -> Result<(), String> {
     for folder in ["runtime", "home", "cache", "config", "tmp"] {
         std::fs::create_dir(root.join(folder)).map_err(|e| e.to_string())?;
@@ -847,26 +902,48 @@ async fn provision(
         let node = nodes.join("ComfyUI-DaSiWa-Nodes");
         node_revision = Some(checkout(git, NODEPACK, "main", &node, &root, inner, cancel).await?);
         if node.join("requirements.txt").is_file() {
-            run(
-                &uv,
-                &[
-                    "pip",
-                    "install",
-                    "--python",
-                    py,
-                    "--index",
-                    &selected.index_url,
-                    "--constraint",
-                    constraint.to_str().ok_or("Invalid constraint path")?,
-                    "-r",
-                    "requirements.txt",
-                ],
-                &node,
-                &root,
-                inner,
-                cancel,
-            )
-            .await?;
+            let requirements = std::fs::read_to_string(node.join("requirements.txt"))
+                .map_err(|e| format!("Cannot read required node dependencies: {e}"))?;
+            if let Some(requirement) = nvidia_vfx_requirement(&requirements) {
+                run(
+                    &uv,
+                    &[
+                        "pip",
+                        "install",
+                        "--python",
+                        py,
+                        "--index",
+                        "https://pypi.nvidia.com/",
+                        "--constraint",
+                        constraint.to_str().ok_or("Invalid constraint path")?,
+                        "--only-binary",
+                        "nvidia-vfx",
+                        requirement,
+                    ],
+                    &node,
+                    &root,
+                    inner,
+                    cancel,
+                )
+                .await
+                .map_err(|e| format!("Required NVIDIA VFX wheel installation failed: {e}"))?;
+            }
+            let wheel_args = node_wheel_args(&requirements, selected);
+            let mut args = vec![
+                "pip",
+                "install",
+                "--python",
+                py,
+                "--index",
+                &selected.index_url,
+                "--constraint",
+                constraint.to_str().ok_or("Invalid constraint path")?,
+            ];
+            args.extend(wheel_args.iter().map(String::as_str));
+            args.extend(["-r", "requirements.txt"]);
+            run(&uv, &args, &node, &root, inner, cancel)
+                .await
+                .map_err(|e| format!("Required node dependencies failed (llama-cpp-python requires a matching backend wheel; no source/CPU fallback): {e}"))?;
         }
     }
     step(inner, "verify");
@@ -892,11 +969,20 @@ async fn provision(
     .await?;
     run(
         &python,
-        if selected.cuda.is_some() {
-            &["main.py", "--cuda-device", "0", "--help"]
-        } else {
-            &["main.py", "--cpu", "--help"]
-        },
+        &[
+            "-c",
+            COMFY_PROBE,
+            if selected.cuda.is_some() {
+                "nvidia"
+            } else {
+                "cpu"
+            },
+            if node_revision.is_some() {
+                "nodes"
+            } else {
+                "core"
+            },
+        ],
         &comfy,
         &root,
         inner,
@@ -1244,6 +1330,147 @@ mod tests {
         println!("{}", serde_json::to_string(&plan).unwrap());
         assert!(!Path::new(&plan.request.storage_path).exists());
         assert!(engine.start(&plan.id, false).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn comfy_probe_rejects_missing_selected_nodes_after_real_import() {
+        let tmp = scratch();
+        prepare_dirs(tmp.path()).unwrap();
+        std::fs::write(
+            tmp.path().join("main.py"),
+            "import nodes\ndef start_comfyui(): pass\n",
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("nodes.py"), "NODE_CLASS_MAPPINGS = {}\n").unwrap();
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let result = run(
+            Path::new("/usr/bin/python3"),
+            &["-c", COMFY_PROBE, "cpu", "nodes"],
+            tmp.path(),
+            tmp.path(),
+            &inner,
+            &cancel,
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "Selected nodepack must not silently fail import"
+        );
+        assert!(result.unwrap_err().contains("Missing selected nodes"));
+    }
+
+    #[test]
+    fn nvidia_vfx_uses_explicit_wheels_only_for_exact_requirement() {
+        assert_eq!(
+            nvidia_vfx_requirement("torch\n nvidia-vfx>=0.2 # stub\n"),
+            Some("nvidia-vfx>=0.2")
+        );
+        assert_eq!(
+            nvidia_vfx_requirement("# nvidia-vfx\nnvidia-vfx-extra\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn node_llama_wheels_match_approved_backend_without_source_fallback() {
+        let cpu = node_wheel_args("torch\nllama-cpp-python>=0.3.26\n", &torch_profile::cpu());
+        assert_eq!(
+            cpu,
+            vec![
+                "--only-binary",
+                "llama-cpp-python",
+                "--index",
+                "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+            ]
+        );
+        let mut cuda = torch_profile::cpu();
+        cuda.cuda = Some("13.0".into());
+        let gpu = node_wheel_args(" LLAMA_CPP_PYTHON>=0.3.26 # wheel\n", &cuda);
+        assert_eq!(
+            gpu[3],
+            "https://abetlen.github.io/llama-cpp-python/whl/cu130"
+        );
+        assert!(node_wheel_args("# llama-cpp-python\nllama-cpp-python-extra\n", &cuda).is_empty());
+    }
+
+    /// Full upstream baseline acceptance; only an owned temporary CPU environment.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "Downloads real ComfyUI, managed Python and CPU Torch; run explicitly"]
+    async fn real_comfy_cpu_install_and_owned_lifecycle() {
+        real_comfy_install_and_owned_lifecycle(Backend::Cpu, false).await;
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "Downloads real CUDA Torch and ComfyUI; exercises planned NVIDIA GPU"]
+    async fn real_comfy_nvidia_install_and_owned_lifecycle() {
+        real_comfy_install_and_owned_lifecycle(Backend::Nvidia, false).await;
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "Downloads CUDA Torch, ComfyUI and complete selected Director nodepack"]
+    async fn real_comfy_director_install_and_owned_lifecycle() {
+        real_comfy_install_and_owned_lifecycle(Backend::Nvidia, true).await;
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    async fn real_comfy_install_and_owned_lifecycle(backend: Backend, director: bool) {
+        let tmp = scratch();
+        let engine = Engine::default();
+        let mut request = request(tmp.path());
+        request.backend = backend;
+        if director {
+            request.features.push("director".into());
+        }
+        let plan = engine.plan(request).unwrap();
+        assert!(plan.can_execute, "{:?}", plan.unsupported_options);
+        assert!(engine.start(&plan.id, false).is_err());
+        engine.start(&plan.id, true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1800);
+        loop {
+            let status = lock(&engine.inner).status.clone();
+            if status.state != "running" {
+                assert_eq!(status.state, "succeeded", "{status:?}");
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                lock(&engine.inner).cancel.store(true, Ordering::SeqCst);
+                panic!("Full installation exceeded acceptance deadline: {status:?}");
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let root = Path::new(&plan.request.storage_path);
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("deas-install.json")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["generationReady"], false);
+        assert_eq!(manifest["planId"], plan.id);
+        assert_eq!(engine.backend.status().state, "stopped");
+        engine.backend_start().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(150);
+        loop {
+            let status = engine.backend.status();
+            if status.state == "running" {
+                assert!(status.endpoint.is_some());
+                assert!(!status.generation_ready);
+                println!(
+                    "Real {:?} ComfyUI installed and API ready: {manifest}; {status:?}",
+                    plan.request.backend
+                );
+                break;
+            }
+            if status.state == "failed" || std::time::Instant::now() >= deadline {
+                engine.shutdown_backend();
+                panic!("Real ComfyUI failed readiness: {status:?}");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        engine.shutdown_backend();
+        assert_eq!(engine.backend.status().state, "stopped");
     }
 
     /// Explicit network smoke only: no Torch, models or user target touched.

@@ -1,5 +1,21 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Real upstream CPU/NVIDIA installation acceptance
+
+The explicit `real_comfy_cpu_install_and_owned_lifecycle` test passed twice against upstream ComfyUI master in a new temporary environment. It exercised the actual Engine plan/confirmation/start worker, checksum-verified uv, managed Python 3.12, pinned CPU Torch trio, constrained ComfyUI dependencies, framework computation checks, manifest capture, owned backend launch, real API readiness and owned stop. No fixtures replace ComfyUI in this test. The temporary environment is removed afterward; no model weights or user installations/services are touched. API readiness remains distinct from generation acceptance.
+
+The explicit `real_comfy_nvidia_install_and_owned_lifecycle` test also passed against upstream ComfyUI master on the RTX 5090. It used the same real Engine path with the immutable cu130 Torch profile, exact framework versions, hardware identity checks and synchronized CUDA matrix multiplication, followed by actual ComfyUI API readiness and owned stop. No existing GPU service was stopped.
+
+The node dependency path now applies the reference installer’s CPU/CUDA-specific llama-cpp-python wheel index and binary-only guard. NVIDIA VFX is resolved separately from its actual NVIDIA wheel index rather than executing its PyPI downloader stub. Provisioning initializes real ComfyUI core/custom nodes without opening a listener, within a 120-second process alarm, and fails when the selected Director/Continuity node IDs did not register; `--help` is no longer treated as an import check. Focused regression tests cover CPU, cu130, spelling variants and false matches. The explicit `real_comfy_director_install_and_owned_lifecycle` test subsequently passed in a new NVIDIA environment: full selected nodepack dependencies (including real NVIDIA VFX and cu130 llama-cpp-python wheels), actual Director/Continuity node registration, ComfyUI API readiness and owned stop. It does not prove model generation, RTX VFX execution or every included feature recipe.
+
+Current checks passed: 88 Rust tests (eight explicit integration tests ignored by default), the separately executed full CPU, NVIDIA and selected Director-nodepack integration tests, 47 core tests, 94 UI tests, typecheck, frontend build, native debug and release builds, formatting and Clippy with warnings denied.
+
+Repeat the network/download integration explicitly:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --locked real_comfy_cpu_install_and_owned_lifecycle -- --ignored --nocapture
+```
+
 ## Final six-language acceptance
 
 All six bundled languages have 344 translated keys each, spread across five module-owned dictionaries. Four new manifests retain native names: Türkçe, Français, 中文 and 日本語. Selector options derive suffixes from ISO 639-1 IDs; Deutsch/English also show `(de)`/`(en)`. Chinese uses Simplified Chinese under `zh`. Core tests independently validate exact key and interpolation-placeholder parity, nonempty strings and manifest identities.
@@ -92,7 +108,7 @@ Launch authorization is held only after successful approved provisioning in the 
 
 `artifacts/deas-linux-amd64`
 
-SHA-256: `d5c323746007049d6e4c843df24cffe5d1e63a78f31dad32cf6663a5c8307d78`
+SHA-256: `fd9de91ae32779733b657c74cc58e6e5074683a32d93a864cee5dc940fd86be3`
 
 Locally verified, system-linked Linux x86_64 development artifact. Not a signed portable release. Native capture used:
 
@@ -104,8 +120,8 @@ These are host-specific test settings, not global graphics changes. Wayland, med
 
 ## Explicit unverified or unsupported areas
 
-- No complete CPU/GPU ComfyUI installation or generation acceptance run was performed.
-- Source-only node dependencies such as nvidia-vfx/llama-cpp-python remain unverified. The binary-only node resolver fails; native execution must abort required dependency failures.
+- Complete CPU installation and owned API lifecycle are now verified above; full NVIDIA installation and owned API lifecycle are also verified; actual model generation remains unverified.
+- Node dependencies now use explicit NVIDIA VFX wheels from NVIDIA’s package index and backend-matched llama-cpp-python wheels; no wheel-stub/source build or implicit CPU fallback is required for those packages. Full selected-nodepack acceptance is reported separately; package availability alone is not RTX operation or generation readiness.
 - AMD/Intel, other platforms, Sage/Radial/Flash/FFmpeg remain blocked selections, not ported capability claims.
 - Git remains an external prerequisite. Free-space estimates and multi-GPU selection are unfinished.
 - No model/recipe/workflow provisioning, restart adoption, resume, repair, transactional update or rollback. Explicit owned backend lifecycle is implemented and fixture-tested; launch against a full new ComfyUI install remains unverified.

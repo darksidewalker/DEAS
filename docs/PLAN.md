@@ -83,7 +83,9 @@ Current next slice: native-owned verified recipe prerequisites, followed by corr
 - [x] Implement native Rust uv/Python/ComfyUI baseline for Linux x86_64 CPU/NVIDIA; Go remains a read-only reference.
 - [ ] Reach full Go parity: AMD/Intel, attention extensions, FFmpeg, models/workflows and target-platform setup.
 - [x] Expose immutable native plans, explicit confirmed execution, status and owned-process cancellation.
-- [x] Select capabilities explicitly; baseline planning/execution needs no extra feature (full install remains unverified).
+- [x] Select capabilities explicitly; baseline planning/execution needs no extra feature.
+- [x] Verify complete new CPU/NVIDIA ComfyUI installation through the real Engine, framework computation, owned API readiness and stop; no model generation claim.
+- [x] Verify selected Director-nodepack dependencies, actual required node registration and owned API lifecycle on NVIDIA. Missing selected nodes block install completion.
 - [x] Show Suggested metadata without silently enabling features; the label-only revision below supersedes the original paths.
 - [x] Decentralize static UX/menu resources and provide validated German, English, Turkish, French, Simplified Chinese and Japanese language plugins, with native names and ISO selector suffixes; raw technical output is preserved.
 - [x] Migrate old local drafts without implicit feature activation.
