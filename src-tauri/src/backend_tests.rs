@@ -196,9 +196,6 @@ fn stalled_owned_http_respects_overall_readiness_deadline() {
         "stalled readiness diagnostics: {timing}; stalled_request_pid={stalled_pid:?}; terminal_status={status:?}"
     );
 
-    // Keep the original acceptance threshold while collecting Linux CI
-    // diagnostics. These caller-observed durations do not isolate scheduler,
-    // request-cancellation, termination, or state-observation time.
     assert!(
         status
             .error
@@ -216,8 +213,12 @@ fn stalled_owned_http_respects_overall_readiness_deadline() {
     if let Some(pid) = stalled_pid {
         assert!(!Path::new(&format!("/proc/{pid}")).exists(), "{timing}");
     }
+    // Bound caller-observed post-launch liveness, excluding synchronous launch
+    // validation/spawn. The supervisor's 300 ms clock starts after runtime
+    // construction and may already be running when launch returns; this is not
+    // a precise supervisor/cleanup measurement. Retain launch/total diagnostics.
     assert!(
-        total_elapsed < Duration::from_secs(1),
+        terminal_observation < Duration::from_secs(1),
         "{timing}; {status:?}"
     );
 }

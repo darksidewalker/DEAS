@@ -1,5 +1,22 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## T05-R1 local readiness-test correction (2026-10-15; acceptance BLOCKED)
+
+Checked out `fix/deas-readiness-ci` from local `main` at `f2651a584b0757c2d292fe2f44672f89b16279bb` (0.1.5); the local `origin/main` reference matched. The pre-existing `.gitignore` addition of `plan/` is preserved. All three planning documents are revision 3 dated 2026-10-15; repository plan/verification/handoff notes were read, and no applicable `AGENTS.md` was found.
+
+Source inspection confirmed that synchronous launch validation/spawn precedes the supervisor's deadline, which starts after runtime construction. The test now applies its unchanged <1 second bound to `terminal_observation`, intentionally excluding synchronous launch latency. Supervisor work can overlap launch return, so this caller-observed post-launch liveness guard is not a precise 300 ms supervisor/cleanup measurement. Launch/total diagnostics, the 300 ms timeout, overall-timeout error assertion and every outcome/process check remain unchanged. Production code, dependencies and CI configuration are untouched.
+
+Local Windows checks used Node 22.13.1 and bundled npm 10.9.2 via `node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js"`:
+
+- `run typecheck` and `run build`: exit 1 each; `tsc` unavailable, with `node_modules` absent.
+- `test`: exit 1 before tests; nested npm launcher hit `EPERM` resolving `C:\Users\arasb` in the sandbox.
+- `run test:core`: exit 1; 42 passed, 2 dependency-load failures (`@tauri-apps/api`, `typescript`), not product assertion failures.
+- `run test:ui`: exit 1; `vitest` unavailable.
+- `node --experimental-strip-types --test tests/execution.test.ts tests/setup.test.ts`: exit 0, 29 passed; overlaps the core results above.
+- `git diff --check`: exit 0. Static diff review confirms only the intended test expression/comment changed in Rust; this is not a rustfmt/native pass.
+
+`cargo --version` exited 1 (command unavailable); Rust tools were not found. Linux isolated diagnostic, normally parallel native suite, strict fmt/locked all-targets Clippy/build and required frontend/Ubuntu/Windows CI remain **BLOCKED**. No new native timing/count, corrective commit SHA, CI run URL or attempt exists; the correction is uncommitted. No toolchains/dependencies were installed, ignored/live/GPU/dialog/model tests run, or user services controlled. No commit/push/merge. T01 requires a separate assignment after this correction's required CI is green. The earlier acceptance sections below are historical evidence, not results for this correction.
+
 ## PNG preview/export and paused handoff (0.1.5)
 
 The current diagnostic succeeded job now supports explicit indexed PNG retrieval through its native-held endpoint/output references. Transport disables proxies/redirects, bounds encoded bytes to 16 MiB and uses a ten-second request deadline. PNG parsing checks envelope/IEND/trailing data, CRC and Adler checksums, rejects animation, bounds decoding to 32 MiB and requires dimensions matching the original diagnostic intent (at most 2048 per side). Text/ICC metadata decompression is skipped. One bounded native cache preserves original encoded bytes and SHA-256; job status does not include media bytes. Stale/replaced jobs cannot publish a fetched result.
