@@ -16,7 +16,7 @@ use std::{fs::File, path::Path};
 mod tests;
 
 #[cfg(target_os = "linux")]
-pub struct Anchor(File);
+pub struct Anchor(pub(crate) File);
 #[cfg(not(target_os = "linux"))]
 pub struct Anchor;
 impl Anchor {
@@ -110,7 +110,7 @@ impl Anchor {
         }
     }
     #[cfg(target_os = "linux")]
-    fn validate_directory(&self, private: bool) -> Result<(), String> {
+    pub(crate) fn validate_directory(&self, private: bool) -> Result<(), String> {
         use std::os::unix::fs::MetadataExt;
         let metadata = self.0.metadata().map_err(|_| "Cannot inspect directory")?;
         Self::validate_directory_metadata(metadata.uid(), metadata.mode(), private)

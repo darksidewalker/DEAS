@@ -13,6 +13,14 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting}: {install
  const epoch=useRef(0);
  const live=useRef(false);
  const active=status?.state==='starting'||status?.state==='running';
+ const connectedEndpoint=useRef<string|null>(null);
+ useEffect(()=>{
+  const endpoint=native&&status?.state==='running'&&status.endpoint?status.endpoint:null;
+  if(!endpoint){connectedEndpoint.current=null;return;}
+  if(connectedEndpoint.current===endpoint)return;
+  connectedEndpoint.current=endpoint;
+  onConnectExisting(endpoint);
+ },[native,status,onConnectExisting]);
  useEffect(()=>{
   live.current=true;
   return ()=>{live.current=false;epoch.current++;};

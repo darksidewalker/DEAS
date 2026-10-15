@@ -8,6 +8,11 @@ pub use downloads::{
 };
 pub mod api;
 pub use api::native_negotiate_api;
+pub mod jobs;
+pub use jobs::{
+    native_job_current, native_job_export, native_job_output, native_job_prepare,
+    native_job_status, native_job_submit,
+};
 pub mod recipe_prerequisites;
 pub use recipe_prerequisites::native_recipe_prerequisites;
 pub mod backend;

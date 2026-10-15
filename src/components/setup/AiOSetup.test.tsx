@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false)}));
 beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(false);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}));
-const mount=(connect=vi.fn())=>render(<I18nProvider><AiOSetup onConnectExisting={connect}/></I18nProvider>);
+const mount=(connect=vi.fn(),installed=vi.fn())=>render(<I18nProvider><AiOSetup onConnectExisting={connect} onInstalled={installed}/></I18nProvider>);
 const open=()=>click('AiO installer');
 const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText(label),{target:{value}});
 const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
@@ -27,6 +27,56 @@ function nativeFixture(){
 async function ready(){mount();open();await waitFor(()=>expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe(request.storagePath));click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});}
 function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 describe('automatic-first installation — read-only mock IPC fixtures',()=>{
+ it('hands off exact successful native features once, without starting or inspecting a backend',async()=>{
+  nativeFixture();const installed=vi.fn();let prepared=plan();
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan'){prepared=plan((args as {request:NativeInstallRequest}).request);return prepared;}
+   return {state:'succeeded',stepId:null,logs:['installed fixture'],error:null};
+  });
+  const view=mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');fireEvent.click(screen.getByLabelText('Director'));
+  click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});expect(installed).not.toHaveBeenCalled();
+  click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
+  expect(installed.mock.calls[0][0]).toBe(prepared.request.features);
+  expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
+  fireEvent.click(screen.getByLabelText('Off'));click('Save local draft');
+  view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
+  expect(installed).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+ });
+ it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
+  nativeFixture();const installed=vi.fn();
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):{state,stepId:null,logs:['not succeeded'],error:null});
+  mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('not succeeded');
+  expect(installed).not.toHaveBeenCalled();
+ });
+ it('hands off only when a running actual install polls succeeded',async()=>{
+  nativeFixture();const installed=vi.fn();const completion=deferred<unknown>();
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);
+   if(command==='native_install_status')return completion.promise;
+   return {state:'running',stepId:null,logs:['running install'],error:null};
+  });
+  mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('running install');
+  expect(installed).not.toHaveBeenCalled();await act(async()=>completion.resolve({state:'succeeded',stepId:null,logs:[],error:null}));
+  expect(installed).toHaveBeenCalledExactlyOnceWith([]);
+ });
+ it('does not replay a previous success for an edited or newly prepared plan',async()=>{
+  nativeFixture();const installed=vi.fn();let id=0;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?{...plan((args as {request:NativeInstallRequest}).request),id:`plan-${++id}`}:{state:'succeeded',stepId:null,logs:[],error:null});
+  mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByLabelText('Director'));expect(installed).toHaveBeenCalledTimes(1);
+  click('Prepare native plan');await screen.findByRole('button',{name:'Start install'});expect(installed).toHaveBeenCalledTimes(1);
+  click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual(['director','forge','refmods','continuity']);
+ });
+ it('does not turn a restored draft or backend status into install success',async()=>{
+  nativeFixture();const installed=vi.fn();
+  let s=transitionSetup(initialSetupState(),{type:'automatic'});s=transitionSetup(s,{type:'select',step:'storage',value:request.storagePath});s=transitionSetup(s,{type:'select',step:'acceleration',value:'cpu'});s=transitionSetup(s,{type:'feature',id:'director'});
+  localStorage.setItem(SETUP_DRAFT_KEY,serializeSetup(s));vi.mocked(invoke).mockResolvedValue({state:'succeeded',stepId:null,logs:[],error:null});
+  mount(vi.fn(),installed);click('Restore saved draft');click('Refresh backend status');await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_status'));
+  expect(installed).not.toHaveBeenCalled();expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+ });
  it('opens every editable field without inventing a browser path or hardware',()=>{
   mount();open();expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('');

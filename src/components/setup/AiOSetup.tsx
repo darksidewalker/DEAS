@@ -6,8 +6,8 @@ import { SETUP_DRAFT_KEY, initialSetupState, restoreSetup, serializeSetup, setup
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
-export interface AiOSetupProps { onConnectExisting: (baseUrl: string) => void }
-export function AiOSetup({ onConnectExisting }: AiOSetupProps) {
+export interface AiOSetupProps { onConnectExisting: (baseUrl: string) => void; onInstalled?: (features: readonly FeatureId[]) => void }
+export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  const {t}=useI18n();
  const native=isTauri();
  const [state,setState]=useState(initialSetupState);
@@ -23,6 +23,8 @@ export function AiOSetup({ onConnectExisting }: AiOSetupProps) {
  const [notice,setNotice]=useState('');
  const [hasSaved,setHasSaved]=useState(()=>{try{return !!localStorage.getItem(SETUP_DRAFT_KEY);}catch{return false;}});
  const [nativePlan,setNativePlan]=useState<NativeInstallPlan|null>(null);
+ const startedPlan=useRef<NativeInstallPlan|null>(null);
+ const notifiedPlans=useRef(new Set<string>());
  const [defaults,setDefaults]=useState<NativeInstallDefaults|null>(null);
  const defaultsRequest=useRef<Promise<NativeInstallDefaults>|null>(null);
  const touched=useRef(new Set<string>());
@@ -82,6 +84,11 @@ export function AiOSetup({ onConnectExisting }: AiOSetupProps) {
   setState(s=>preselectDetectedSetup(s,detectionMetadata,{locked:explicitBackend.current,explicitChoices:explicitBackend.current?['setup:acceleration']:[]}));
  },[detection,detectionMetadata,state,nativePlan,busy,running,pickerBusy]);
  useEffect(()=>{generation.current++;setNativePlan(null);setConfirmed(false);setTechnicalError('');},[signature]);
+ useEffect(()=>{
+  if(!native||!onInstalled||status?.state!=='succeeded'||!planMatches||!nativePlan||startedPlan.current!==nativePlan||notifiedPlans.current.has(nativePlan.id))return;
+  notifiedPlans.current.add(nativePlan.id);
+  onInstalled(nativePlan.request.features);
+ },[native,onInstalled,status,planMatches,nativePlan]);
  useEffect(()=>{if(definition?.kind==='input'){setDraftInput(state.values[step!]??'');inputRef.current?.focus();}},[step,definition?.kind]);
  useEffect(()=>()=>{generation.current++;},[]);
  useEffect(()=>{
@@ -156,8 +163,9 @@ export function AiOSetup({ onConnectExisting }: AiOSetupProps) {
   if(!planMatches)return;
   operationLock.current=true;
   setBusy(true);setTechnicalError('');
+  startedPlan.current=nativePlan;
   try{const next=await invoke<NativeInstallStatus>('native_install_start',{planId:nativePlan.id,confirmed:true});setConfirmed(false);setStatus(next);}
-  catch(e){setTechnicalError(String(e));}
+  catch(e){startedPlan.current=null;setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
  const cancel=async()=>{

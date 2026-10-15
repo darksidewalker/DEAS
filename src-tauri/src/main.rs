@@ -10,6 +10,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(deas::install::Engine::default())
+        .manage(deas::jobs::Jobs::default())
         .manage(deas::auth::AuthState::default())
         .manage(deas::downloads::DownloadEngine::default())
         .invoke_handler(tauri::generate_handler![
@@ -27,6 +28,12 @@ fn main() {
             deas::inspect_backend,
             deas::native_negotiate_api,
             deas::native_recipe_prerequisites,
+            deas::native_job_current,
+            deas::native_job_output,
+            deas::native_job_export,
+            deas::native_job_prepare,
+            deas::native_job_submit,
+            deas::native_job_status,
             deas::native_pick_directory,
             deas::native_detect_hardware,
             deas::native_install_defaults,

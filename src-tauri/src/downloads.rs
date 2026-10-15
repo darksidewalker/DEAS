@@ -1,6 +1,6 @@
 //! Optional staged data downloads. Catalogs never grant execution or credential access.
 #[path = "downloads/fs.rs"]
-mod fs;
+pub(crate) mod fs;
 #[path = "downloads_providers.rs"]
 mod providers;
 #[cfg(test)]

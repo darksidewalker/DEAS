@@ -1,7 +1,7 @@
 {
   "identifier": "main",
-  "description": "Local main window only; read-only backend inspection and confirmed native provisioning.",
+  "description": "Local main window only; bounded backend inspection, confirmed provisioning and explicit diagnostic job submission.",
   "local": true,
   "windows": ["main"],
-  "permissions": ["allow-inspect-backend", "allow-native-negotiate-api", "allow-native-recipe-prerequisites", "allow-native-install", "allow-native-pick-directory", "allow-native-detect-hardware", "allow-native-backend", "allow-download-plugins", "allow-auth-plugins"]
+  "permissions": ["allow-inspect-backend", "allow-native-negotiate-api", "allow-native-recipe-prerequisites", "allow-native-diagnostic-jobs", "allow-native-install", "allow-native-pick-directory", "allow-native-detect-hardware", "allow-native-backend", "allow-download-plugins", "allow-auth-plugins"]
 }

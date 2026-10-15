@@ -19,14 +19,16 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   expect(screen.getByRole('status').textContent).toContain('Starting');
   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
   expect(screen.getByRole('status').textContent).toContain('Running');
-  expect(connect).not.toHaveBeenCalled();
+  expect(connect).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:49173');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(connect).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button',{name:'Inspect running backend'}));
-  expect(connect).toHaveBeenCalledWith('http://127.0.0.1:49173');
+  expect(connect).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('button',{name:'Stop owned backend'}));await act(async()=>{});
   expect(screen.getByRole('status').textContent).toContain('Stopped');
   expect(screen.queryByRole('button',{name:'Inspect running backend'})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls).toEqual([['native_backend_start'],['native_backend_status'],['native_backend_stop']]);
-  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(invoke).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(invoke).mock.calls).toEqual([['native_backend_start'],['native_backend_status'],['native_backend_status'],['native_backend_stop']]);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(invoke).toHaveBeenCalledTimes(4);
   expect(screen.getByText(/Generation readiness is not verified/)).toBeTruthy();
  });
  it('rehydrates native session status without starting or adopting a draft environment',async()=>{
@@ -76,6 +78,26 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
   await screen.findByRole('button',{name:'Stop owned backend'});
   expect(screen.queryByRole('button',{name:'Inspect running backend'})).toBeNull();
+ });
+ it.each(['starting','failed','stopped'] as const)('does not hand off a %s backend even with endpoint metadata',async state=>{
+  const connect=vi.fn();vi.mocked(invoke).mockResolvedValue(fixture(state,'http://127.0.0.1:49312'));
+  mount(false,connect);fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
+  await screen.findByRole('status');expect(connect).not.toHaveBeenCalled();
+ });
+ it('hands off a restarted or changed native endpoint but not repeated running polls',async()=>{
+  const connect=vi.fn();const view=mount(true,connect);
+  for(const [state,endpoint,count] of [
+   ['running','http://127.0.0.1:49312',1],['running','http://127.0.0.1:49312',1],
+   ['stopped',null,1],['running','http://127.0.0.1:49312',2],['running','http://127.0.0.1:49313',3],
+  ] as const){
+   vi.mocked(invoke).mockResolvedValue(fixture(state,endpoint));
+   fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
+   await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh backend status'})).toHaveProperty('disabled',false));
+   expect(connect).toHaveBeenCalledTimes(count);
+  }
+  expect(connect).toHaveBeenLastCalledWith('http://127.0.0.1:49313');
+  view.rerender(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={endpoint=>connect(endpoint)}/></I18nProvider>);
+  expect(connect).toHaveBeenCalledTimes(3);
  });
  it('cannot invoke native lifecycle commands in browser preview',()=>{
   vi.mocked(isTauri).mockReturnValue(false);mount(true);

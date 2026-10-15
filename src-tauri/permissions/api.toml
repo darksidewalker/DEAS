@@ -7,3 +7,8 @@ commands.allow = ["native_negotiate_api"]
 identifier = "allow-native-recipe-prerequisites"
 description = "Bounded read-only core object_info diagnostic recipe prerequisites at an explicitly selected endpoint; no submission, assets, or service lifecycle."
 commands.allow = ["native_recipe_prerequisites"]
+
+[[permission]]
+identifier = "allow-native-diagnostic-jobs"
+description = "Prepare a bounded diagnostic image intent, explicitly submit its immutable plan, and inspect only its correlated job; job-bound PNG retrieval and explicit new-file export only; no arbitrary graphs/paths or global interrupts."
+commands.allow = ["native_job_current", "native_job_output", "native_job_export", "native_job_prepare", "native_job_submit", "native_job_status"]

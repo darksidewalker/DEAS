@@ -30,7 +30,7 @@ Capability negotiation selects the v2 SDK/API adapter only after a real compatib
 
 For v2, polling is the authoritative status/output view; live SSE events enhance progress but cannot serve as the durable result store.[2] The classic adapter must correlate progress/history with its own prompt/client ID and recover results after reconnect. Never display fabricated progress or treat a successful HTTP submission as successful computation.
 
-## Dynamic execution path (compiler foundation implemented; execution pending)
+## Dynamic execution path (diagnostic transport implemented; complete media execution pending)
 
 1. UX creates a versioned feature intent from DEAS-owned inputs/settings.
 2. Recipe validation checks required parameters, models, capability/node versions, media constraints and licenses. Missing prerequisites block Run without claiming readiness.
@@ -49,6 +49,18 @@ The implemented native lifecycle permits explicit app-owned backend start/status
 
 A local process/HTTP fixture proves lifecycle and protocol checks, not a full newly installed ComfyUI/PyTorch stack. Full installation and model execution remain separate explicitly authorized acceptance runs.
 
+## Diagnostic classic submission boundary
+
+The bounded diagnostic adapter accepts only the versioned diagnostic checkpoint intent, never arbitrary frontend API graphs. Native preparation rechecks core prerequisites and stores the exact endpoint and compiled seven-node graph. An explicit Run authorizes one submission of that immutable plan. A lost or malformed submission response is an uncertain result, not permission to retry. Session-held job identity is the only authority for subsequent history/queue reads; correlate the prompt ID, client identity and exact graph before interpreting completion or exposing safe output metadata.
+
+No global interrupt, clear-all queue operation or foreign job adoption is permitted. Running submissions remain independent of authoring edits. Output metadata is not a downloaded/verified media asset; PNG retrieval/preview/new-file export are implemented in the bounded slice below; scoped cancellation and actual model-generation acceptance remain separate work. This diagnostic classic route is explicit, not automatic fallback from failed v2 authentication/negotiation.
+
+## Diagnostic output transfer boundary
+
+The PNG output slice resolves only an index from the current succeeded native job. The frontend cannot supply an endpoint, backend filename or export bytes. Native transport requests the exact original output via the stored endpoint, rejects redirects and oversized/non-PNG responses, fully decodes under memory/dimension bounds and preserves the original encoded bytes with a SHA-256 digest. One bounded session cache supplies both preview and export, so Save As never silently retrieves changed backend content.
+
+Loading a preview and exporting are separate explicit actions. The studio uses local PNG Blob URLs, not remote image URLs, and revokes replaced/unmounted previews. Export uses a native chooser and no-clobber descriptor-anchored publication to a new file; cancelling never reports success. These media/transport fixtures do not establish actual model generation or native-webview media acceptance. Unsupported export platforms fail closed rather than fall back to unsafe writes.
+
 ## Implementation ledger
 
 - [x] React/Tauri feature UX and read-only ComfyUI inspection exist (`src/lib/comfy.ts`, `src-tauri/src/lib.rs`).
@@ -58,6 +70,8 @@ A local process/HTTP fixture proves lifecycle and protocol checks, not a full ne
 - [x] Read-only native API negotiation with explicit endpoint, real HTTP fixtures and localized desktop action; no cloud default.
 - [x] Pure versioned diagnostic checkpoint text-to-image compiler; supplied capability/model allowlists, strict validation and deterministic immutable graph.
 - [x] Native read-only diagnostic recipe-prerequisite discovery and DEAS-owned compile preview; HTTP/IPC fixtures verified, not architecture/model-load or generation acceptance.
+- [x] Explicit diagnostic classic native prepare/submit/status plus read-only current-session job recovery; bounded HTTP fixtures and localized IPC/browser checks, not model-generation acceptance.
+- [x] Indexed native PNG retrieval, bounded full decoding, original-byte cache, explicit local Blob preview and safe new-file Linux export; HTTP/filesystem/browser fixtures only.
 - [ ] Complete capability-negotiated SDK/classic execution adapters.
 - [ ] Versioned recipes and dynamic API graph compilation from UX intent.
 - [ ] DEAS-owned input/output assets, job correlation/cancellation and result playback/export.
@@ -77,3 +91,5 @@ A local process/HTTP fixture proves lifecycle and protocol checks, not a full ne
 [1] https://docs.comfy.org/development/api-development/sdks
 [2] https://docs.comfy.org/development/api-development/sdks-design
 [3] https://docs.comfy.org/development/comfyui-server/comms_routes
+
+Classic prompt/queue/history response shapes were checked against upstream ComfyUI commit `8a33128f2f8c5585c57486c07de481241e70a39c`: [server routes](https://github.com/Comfy-Org/ComfyUI/blob/8a33128f2f8c5585c57486c07de481241e70a39c/server.py) and [queue/history storage](https://github.com/Comfy-Org/ComfyUI/blob/8a33128f2f8c5585c57486c07de481241e70a39c/execution.py). Queue/history tuples retain the prompt ID, actual graph and `extra_data.client_id`; additional server timestamps are not part of identity. A missing history record is not completion. No compatibility claim is made for arbitrary custom proxy schemas.

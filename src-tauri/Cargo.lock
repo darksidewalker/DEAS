@@ -739,11 +739,12 @@ dependencies = [
 
 [[package]]
 name = "deas"
-version = "0.1.2"
+version = "0.1.5"
 dependencies = [
  "flate2",
  "keyring",
  "libc",
+ "png 0.17.16",
  "reqwest 0.12.28",
  "rfd",
  "serde",

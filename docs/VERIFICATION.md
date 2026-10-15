@@ -1,5 +1,41 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## PNG preview/export and paused handoff (0.1.5)
+
+The current diagnostic succeeded job now supports explicit indexed PNG retrieval through its native-held endpoint/output references. Transport disables proxies/redirects, bounds encoded bytes to 16 MiB and uses a ten-second request deadline. PNG parsing checks envelope/IEND/trailing data, CRC and Adler checksums, rejects animation, bounds decoding to 32 MiB and requires dimensions matching the original diagnostic intent (at most 2048 per side). Text/ICC metadata decompression is skipped. One bounded native cache preserves original encoded bytes and SHA-256; job status does not include media bytes. Stale/replaced jobs cannot publish a fetched result.
+
+The frontend explicitly loads native-validated bytes into a local PNG Blob preview, revokes replaced/unmounted URLs and discards stale async responses. Save As uses the exact cached native original, not frontend bytes or another HTTP fetch. Linux publication is descriptor-anchored, private-mode, synced and no-clobber; existing files, symlinks and untrusted parents are preserved. Cancelling returns null and does not report success. Non-Linux export fails closed. The native dialog cannot create parent directories.
+
+Final independent gates: 48 core tests, 147 UI/IPC tests, 122 Rust tests with nine ignored, typecheck, frontend build, Clippy with warnings denied, formatting and native release build. HTTP/PNG fixtures cover actual original bytes, digest, exact prefixed view query, cache reuse with the server gone, MIME/HTML/SVG/redirect/corruption/truncation/APNG/dimension/size/time bounds and exclusive/stale fetches. Real scratch filesystem tests read back byte-identical exported PNGs and verify cancellation, private mode, no-clobber/symlink/perms guards. One earlier full Rust run had a transient pre-existing backend fixture assertion failure; its isolated rerun and both final full runs passed without changing that test.
+
+The extended `tools/verify_jobs.py` passed at five widths down to 320px across six locales: one explicit media load, actual browser PNG decode (512px test fixture), local Blob URL, cancelled export without success, explicit mocked successful Save As and no extra media fetch. Browser native responses and exported path are IPC fixtures; the filesystem export above is real. Updated `assets/deas-jobs-fixture-{1440,320}.png` show an explicitly encoded copper test PNG, not a model-generated image. Existing UI/confirmation/help/stability suites also passed at five widths.
+
+With Vite stopped, a separate exact-PID 0.1.5 release instance rendered the initial native window (`assets/deas-native-outputs.png`) through the existing XWayland fallback; only that instance was terminated. This does not prove native-webview media decoding or interactive native Save As dispatch. Local artifact/release SHA-256 matches: `896bebf6ad614876fed32f800fa5a9a46afb4895f9b279e68877b08fef481d5a`. No live generation/model download was attempted; user services were untouched.
+
+**Stopped at the owner-requested boundary.** No live delegated workers or owned verification servers remain. Accumulated changes are local/uncommitted; no push/publication. Resume from [NEXT-SESSION.md](NEXT-SESSION.md), then choose safe job cancellation or a separately consented real model-generation acceptance. Full Director recipes, durable restart adoption, other export platforms and complete installer parity remain open.
+
+## Diagnostic native classic job transport (0.1.4)
+
+The native job service accepts only a bounded versioned diagnostic intent and rechecks fresh core prerequisites before storing its endpoint and fixed graph. Separate unchecked consent and Run authorize one classic submission; the native plan is consumed before the first network await. Lost/malformed responses remain unknown and cannot silently retry. Subsequent history/queue reads use the native-held prompt ID, client ID and exact graph; foreign identities and unsafe output names are rejected. Only validated output metadata is returned, never arbitrary backend paths or media URLs.
+
+The DEAS panel keeps a submitted identity across draft endpoint changes, serializes polling, stops polling on terminal/unknown results and allows explicit refresh. Explicit Recover session job restores only the current native session snapshot after panel unmount/navigation or a lost IPC response. It never submits, starts a service or adopts saved drafts. An unknown submission without a returned prompt ID deliberately blocks replacement jobs for that app session; safe abandonment/reconciliation is not implemented. No global interrupt/queue-clear, file transfer, media preview/export or generation-readiness claim is added.
+
+Independent gates passed: 48 core tests, 131 UI/IPC tests and 115 Rust tests (nine explicit tests ignored by default), TypeScript check, production build, Clippy with warnings denied, formatting and native release build. Nine native job tests include real local HTTP fixtures covering prepare-only reads, endpoint prefixes, immutable submission/confirmation/duplicate guards, queued/running/completed/error states, transport ambiguity, correlation failures, unsafe references, streamed response bounds and session recovery. Frontend tests cover stale/unmounted requests, input invalidation, consent, serialization, browser fail-closed behavior and recovery without resubmission.
+
+`tools/verify_jobs.py` passed at 1440/1024/768/390/320px across all six locales, including exact explicit Run payload, draft invalidation, original-endpoint tracking and navigation/recovery. Its server responses are mocked IPC fixtures, not actual model generation. Captures: `assets/deas-jobs-fixture-{1440,320}.png`. The 320px completion UUID/URL overflow found during verification was fixed with bounded wrapping; the final suite passed. Existing UI/confirmation/help/stability suites passed at five widths; automatic and recipe-prerequisite browser suites passed browser/IPC-fixture modes across six locales.
+
+With Vite stopped, a separate exact-PID release instance rendered the native initial window through XWayland fallback; `assets/deas-native-jobs.png` was visually checked. Only that owned instance was terminated. The atomically staged local 0.1.4 artifact and release binary share SHA-256 `7329cfaca07f1537a633c2988cae3e3dd04d4fc0873784c41b8abd11de5d0e39`. This is local Linux rendering/build evidence, not interactive native job or model/GPU acceptance. Previous real installer/Director acceptance remains documented below; this slice did not rerun large installs or submit to a user backend.
+
+## Installed components and automatic studio handoff (0.1.3)
+
+Successful native provisioning of the exact started immutable plan reveals the studio automatically, including Director and its passive companions without another enable step. Drafts, running/failed/cancelled installs, stale requests and newly prepared plans cannot trigger the success handoff. Backend start remains explicit; actual native running status binds its exact endpoint once per lifecycle/endpoint, without automatic inspection, job submission or a generation-ready claim. Repeated polling and callback changes do not repeatedly reopen the Engine panel.
+
+Independent gates passed: 48 core tests, 111 UI/IPC tests, 106 Rust tests (nine ignored by default), typecheck, production build, Cargo Clippy/fmt and native release build. The separately invoked `real_comfy_director_install_and_owned_lifecycle` also passed (164.45 seconds): a new actual NVIDIA/ComfyUI environment, selected Director dependencies and required node registration, synchronized framework computation, owned API readiness and stop. This does not prove model generation or every Director recipe.
+
+The extended `tools/verify_automatic.py URL` passed automatic review plus install-success → studio → explicit backend start → endpoint handoff at 1440/1024/768/390/320px across all six locales. Browser installation/lifecycle responses are explicitly mocked IPC; no model/job is submitted. Existing UI/confirmation/help/stability suites passed at all five widths. New fixture captures: `assets/deas-studio-handoff-fixture-{1440,320}.png`. A separate exact-PID release instance rendered the native initial window (`assets/deas-native-studio-continuation.png`) using automatic X11 fallback with default graphics variables unset and an unavailable Wayland socket. Only that owned instance was terminated. Native screenshot rendering is not interactive installation acceptance.
+
+The local `artifacts/deas-linux-amd64` was atomically replaced with the rebuilt 0.1.3 binary; matching release/artifact SHA-256: `5e2e3e5e52c2a61a8a41a7a8db366557e17d892d344c92cd31bc49f743cc8662`. Existing services and installations were not modified. Remaining work: real job/assets/output handling, verified model recipes, restart adoption, Git bootstrap and full platform/installer parity.
+
 ## Diagnostic recipe prerequisites and compile preview (0.1.2)
 
 The native `native_recipe_prerequisites({baseUrl})` command reads only the selected core ComfyUI `object_info` endpoint. It preserves path prefixes, disables redirects/environment proxies and bounds the response to 16 MiB with a ten-second request timeout. It checks the six diagnostic built-in node identities and extracts exact checkpoint/sampler/scheduler choices. Missing nodes are diagnostics; malformed schemas, unsafe identifiers and duplicate choices fail closed. There is no upstream/proxy following, submission, download or service operation.
@@ -126,7 +162,7 @@ Launch authorization is held only after successful approved provisioning in the 
 
 `artifacts/deas-linux-amd64`
 
-SHA-256: `2ea13130c6e3c9fd003477aa89ed664daba70b009b1399fbf3bba556f42c001a`
+Current 0.1.5 SHA-256: `896bebf6ad614876fed32f800fa5a9a46afb4895f9b279e68877b08fef481d5a`
 
 Locally verified, system-linked Linux x86_64 development artifact. Not a signed portable release. Launch directly:
 
@@ -148,7 +184,7 @@ Verification: frontend production build and native release build passed; Cargo t
 - Node dependencies now use explicit NVIDIA VFX wheels from NVIDIA’s package index and backend-matched llama-cpp-python wheels; no wheel-stub/source build or implicit CPU fallback is required for those packages. Full selected-nodepack acceptance is reported separately; package availability alone is not RTX operation or generation readiness.
 - AMD/Intel, other platforms, Sage/Radial/Flash/FFmpeg remain blocked selections, not ported capability claims.
 - Git remains an external prerequisite. Free-space estimates and multi-GPU selection are unfinished.
-- No model/recipe/workflow provisioning, restart adoption, resume, repair, transactional update or rollback. Explicit owned backend lifecycle is implemented and fixture-tested; launch against a full new ComfyUI install remains unverified.
+- No model/recipe/workflow provisioning, restart adoption, resume, repair, transactional update or rollback. Full new CPU/NVIDIA and selected Director-nodepack installation/lifecycle acceptance is documented above; model generation remains unverified.
 - Language plugins are bundled validated JSON data; downloadable pack installation is not implemented. Raw native technical logs/errors/details remain original beneath translated headings.
 - Native UI-to-command dispatch is covered with mocked frontend IPC and direct native engine tests; screenshot rendering alone does not prove a full end-to-end native installation.
 - Earlier live endpoint 127.0.0.1:7801 returned Kestrel redirect/HTML rather than ComfyUI; no new live backend request or environment mutation in this slice.

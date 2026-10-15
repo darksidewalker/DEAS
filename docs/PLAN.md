@@ -6,7 +6,7 @@ DEAS is an early-alpha all-in-one replacement for the owner's separate installer
 
 See [the all-in-one plugin roadmap](PLUGIN-ROADMAP.md) for the mapping of DaSiWa-TrainFlow, TrueVideoEnhancer, ComfyUI-DaSiWa-Nodes, PromptForge and simple-video-compare, plus the additional editor, library, automation and model-pack plugins. Existing implementations are foundations, not completed ports of those projects. Checked entries below require verified acceptance; roadmap targets remain unchecked.
 
-**Post-setup rule:** optional features, backends and resource packs can be installed/enabled later from the same UX. The first-run wizard must never be the only route to installation. Preserve projects, existing outputs and unrelated external environments when extending the studio.
+**Post-setup rule:** optional features, backends and resource packs can be installed later from the same UX. Successfully installed components are included automatically; there is no second enable step. Backend process start and per-recipe readiness remain separate. The first-run wizard must never be the only route to installation. Preserve projects, existing outputs and unrelated external environments when extending the studio.
 
 ## Product contract
 A lightweight Rust/Tauri desktop application with a React/TypeScript single-page studio. Neural feature blobs are clickable and connected by meaningful parent-child edges. Selected features expand their controls in the page; no modal maze or conventional dashboard replaces this visual model.
@@ -86,6 +86,29 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Preserve old drafts and existing-backend inspection; keep unknown/unsupported hardware and selected-option blockers visible.
 - [x] Verify automatic defaults, no writes before final consent, collisions, native IPC, locales and responsive UI; rebuild the native artifact. Browser native-start checks use IPC fixtures; real native defaults/rendering are separately verified.
 
+### Installation-to-studio continuation (0.1.3)
+- [x] Reveal the studio after successful native installation of the exact approved plan; no extra Explore/enable action for Director or its included components.
+- [x] Bind the studio automatically to the actual running owned backend endpoint, once per endpoint/lifecycle; preserve explicit Start/Stop and do not auto-inspect, submit or claim generation readiness.
+- [ ] Complete the diagnostic classic execution slice: explicit job submission, correlated progress/cancellation, validated output retrieval and DEAS playback/export.
+- [ ] Verify a consented real model job separately before marking any generation recipe ready.
+- [ ] Support ownership-verified reopening after app restart; saved setup drafts alone cannot authorize environment adoption.
+
+### Diagnostic classic job transport (0.1.4, implemented bounded slice)
+- [x] Revalidate the explicit versioned diagnostic intent natively against fresh core prerequisites; store an immutable native endpoint/graph plan.
+- [x] Require separate unchecked consent and explicit Run; submit once through classic POST prompt, retaining uncertain transport outcomes instead of retrying silently.
+- [x] Track only the returned prompt/client/graph identity through bounded history/queue reads; expose real queued/running/failed/completed/unknown states and validated output metadata.
+- [x] Keep active job identity independent of draft edits and recover the native-held job explicitly after panel navigation; no global interrupt/queue clear, media transfer or generation-ready claim.
+- [x] Verify real local HTTP transport fixtures, explicit frontend IPC controls, six locales/responsive browser rendering and the native release artifact.
+
+### Diagnostic PNG output transfer (0.1.5, verified stopping point)
+- [x] Retrieve only indexed validated outputs of the current succeeded native job, with bounded nonredirecting PNG transport.
+- [x] Fully decode with CRC/dimension/allocation checks; preserve original bytes and SHA-256 in one bounded session cache.
+- [x] Add explicit local-Blob preview and native Save As export of the cached original, with cancellation and stale/unmounted-result safeguards.
+- [x] Export only new files through an explicit native chooser; reject clobbering, unsafe parents and symlinks, preserving original bytes.
+- [x] Verify HTTP/PNG/filesystem fixtures, explicit IPC/browser paths, six locales at five widths and native release rendering.
+
+**Paused by owner after this verified slice.** Resume instructions: [NEXT-SESSION.md](NEXT-SESSION.md). No further features, model downloads or real generation attempts were started.
+
 ### Planned later — machine capability scan and optimization mode
 - [ ] Add a separate opt-in capability/optimization scan for the actual target machine, not the development host.
 - [ ] Record CPU/ISA/core count, RAM, GPU identity/VRAM/driver/compute capability, available storage, supported runtime/attention/codec capabilities and competing resource use. Distinguish measured data, compatibility rules and recommendations.
@@ -155,8 +178,8 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 
 ### M4b — Feature manager and shared project/media domain
 - [ ] Define versioned plugin manifests: dependencies, permissions, resource packs, backend/model capabilities, locale references and project migrations.
-- [ ] Reopen installation after setup; add/remove/enable/update optional plugins without resetting the studio or projects.
-- [ ] Distinguish available, installed, verified, enabled and job-ready plugin states.
+- [ ] Reopen installation after setup; add/remove/update optional plugins without resetting the studio or projects. Installed components need no separate enable action.
+- [ ] Distinguish available, installed, verified and job-ready plugin states; installed components are included automatically.
 - [ ] Shared project/asset library with immutable revisions, metadata/provenance, collections, tags and search.
 - [ ] Native media player, thumbnails and reusable compatibility proxies; preserve originals.
 - [ ] Shared GPU/job scheduler and isolated runtime profiles where dependency stacks conflict.

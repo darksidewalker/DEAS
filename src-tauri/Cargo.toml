@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.2"
+version = "0.1.5"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
 
@@ -15,6 +15,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "process", "sync"] }
 sha2 = "0.10"
+png = "=0.17.16"
 toml = "0.8"
 flate2 = "1"
 tar = "0.4"

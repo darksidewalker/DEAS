@@ -56,7 +56,7 @@ export default function App(){
    <label className="language-control">{t('app.language')}<select aria-label={t('app.language')} value={locale} onChange={e=>setLocale(e.target.value)}>{languages.map(l=><option key={l.id} value={l.id}>{l.name} ({l.id})</option>)}</select></label>
    <span className="phase"><i/>{t('app.phase')}</span></header>
   <main id="workspace">
-   <AiOSetup onConnectExisting={connectExisting}/>
+   <AiOSetup onConnectExisting={connectExisting} onInstalled={()=>setStudioVisible(true)}/>
    <div className="studio-entry"><p>{t('studio.previewNotice')}</p><button className="close-button studio-explore" type="button" aria-expanded={studioVisible} aria-controls="studio-workspace" onClick={()=>setStudioVisible(v=>!v)}>{t(studioVisible?'studio.hide':'studio.explore')}<span aria-hidden="true">{studioVisible?'−':'↗'}</span></button></div>
    {studioVisible&&<div id="studio-workspace" className="studio-workspace">
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
