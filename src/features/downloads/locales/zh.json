@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "保持 SFW",
   "downloads.nsfwConfirm": "我已满 18 岁，显示",
   "downloads.nsfwSwitch": "成人内容",
-  "downloads.local": "本地已有"
+  "downloads.local": "本地已有",
+  "downloads.sort": "排序方式",
+  "downloads.sort.newest": "最新优先",
+  "downloads.sort.name": "名称（A–Z）",
+  "downloads.nsfwHelp": "提供方将此模型标记为成人内容；预览图可能适合公开查看。"
 }

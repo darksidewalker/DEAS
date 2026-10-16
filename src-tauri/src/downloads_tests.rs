@@ -65,6 +65,7 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         auth: false,
         nsfw: false,
         base: None,
+        published_at: None,
     }
 }
 #[cfg(any(target_os = "linux", windows))]
@@ -490,15 +491,15 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "user",
             "alice",
             serde_json::json!({"items":[{"id":12,"modelVersions":[{"id":34,"files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34","hashes":{"SHA256":"0".repeat(64)}}]}]}],"metadata":{}}),
-            "/api/v1/models?username=alice&limit=10&page=1&nsfw=false",
+            "/api/v1/models?username=alice&sort=Newest&limit=10&page=1&nsfw=false",
             true,
         ),
         (
             "civitai",
             "search",
             "dark lora",
-            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","nsfw":true,"modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","baseModel":"LTXV 2.3","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
-            "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded&nsfw=false",
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","nsfw":true,"modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","baseModel":"LTXV 2.3","publishedAt":"2026-01-02T00:00:00Z","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            "/api/v1/models?query=dark+lora&limit=20&sort=Newest&nsfw=false",
             false,
         ),
     ];
@@ -531,6 +532,10 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             assert_eq!(page.resources[0].label, "Dark · v1");
             assert!(page.resources[0].auth && page.resources[0].nsfw);
             assert_eq!(page.resources[0].base.as_deref(), Some("LTX 2.3"));
+            assert_eq!(
+                page.resources[0].published_at.as_deref(),
+                Some("2026-01-02T00:00:00Z")
+            );
         } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
             assert!(page.resources[0].sha256.is_some());

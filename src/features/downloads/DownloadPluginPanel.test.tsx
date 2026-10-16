@@ -131,6 +131,19 @@ it('opens the fixed provider token page natively without sending any URL',async(
  mount(true);click('Provider authorization');fireEvent.change(screen.getByLabelText('Provider'),{target:{value:'civitai'}});click('Open token page in browser');await act(async()=>{});
  expect(invoke).toHaveBeenCalledWith('native_open_token_page',{providerId:'civitai'});
 });
+it('sorts catalog cards and files newest first, then by name, with missing dates last',async()=>{
+ const entries=[{...catalog.entries[0],id:'old',label:'Alpha',publishedAt:'2025-01-01T00:00:00Z'},{...catalog.entries[0],id:'new',label:'Zulu',publishedAt:'2026-01-01T00:00:00Z'},{...catalog.entries[0],id:'unknown',label:'Beta',publishedAt:undefined}];
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:entries.map(e=>({...resource,id:e.id,label:e.label,publishedAt:e.publishedAt})),nextCursor:null,warnings:[]});
+ mount();click('Library');await screen.findByRole('button',{name:'Zulu'});
+ const cards=()=>[...document.querySelectorAll('.download-card')].map(e=>e.textContent);
+ expect(cards()).toEqual(['Zulu','Alpha','Beta']);
+ click('Zulu');await screen.findByLabelText('Zulu');
+ const rows=()=>[...document.querySelectorAll('.download-resource label')].map(e=>e.textContent);
+ expect(rows()).toEqual(['Zulu','Alpha','Beta']);
+ fireEvent.change(screen.getByLabelText('Sort by'),{target:{value:'name'}});
+ expect(cards()).toEqual(['Alpha','Beta','Zulu']);expect(rows()).toEqual(['Alpha','Beta','Zulu']);
+ expect((screen.getByLabelText('Zulu') as HTMLInputElement).checked).toBe(false);
+});
 it('marks files that already exist in the destination as local and keeps them unselectable',async()=>{
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_download_browse'?{resources:[{...resource,locator:'have.safetensors'},{...resource,id:'new',label:'New file',locator:'new.safetensors'}],nextCursor:null,warnings:[]}:c==='native_files_present'?[true,false]:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
  render(<I18nProvider><DownloadPanel installTarget="/env" modelsDir="/models"/></I18nProvider>);click('Library');

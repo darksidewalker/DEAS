@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "Bei SFW bleiben",
   "downloads.nsfwConfirm": "Ich bin 18+, anzeigen",
   "downloads.nsfwSwitch": "Inhalte für Erwachsene",
-  "downloads.local": "bereits lokal"
+  "downloads.local": "bereits lokal",
+  "downloads.sort": "Sortieren nach",
+  "downloads.sort.newest": "Neueste zuerst",
+  "downloads.sort.name": "Name (A–Z)",
+  "downloads.nsfwHelp": "Der Anbieter kennzeichnet dieses Modell als Erwachseneninhalt; die Vorschau kann SFW sein."
 }

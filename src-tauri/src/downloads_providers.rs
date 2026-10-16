@@ -91,6 +91,7 @@ fn file(
         auth: false,
         nsfw: false,
         base: None,
+        published_at: None,
     })
 }
 async fn json(
@@ -212,6 +213,14 @@ fn civitai_base(version: &Value) -> Option<String> {
     };
     (short.len() <= 64 && !short.chars().any(char::is_control)).then(|| short.to_owned())
 }
+fn civitai_published(version: &Value) -> Option<String> {
+    version
+        .get("publishedAt")
+        .and_then(Value::as_str)
+        .or_else(|| version.get("createdAt").and_then(Value::as_str))
+        .filter(|s| s.len() <= 64 && !s.chars().any(char::is_control))
+        .map(str::to_owned)
+}
 pub(super) async fn list(
     p: &Provider,
     r: &BrowseRequest,
@@ -275,6 +284,7 @@ pub(super) async fn list(
             let mut u = endpoint(p, &["api", "v1", "models"])?;
             u.query_pairs_mut()
                 .append_pair("username", &r.locator)
+                .append_pair("sort", "Newest")
                 .append_pair("limit", "10")
                 .append_pair("page", "1")
                 .append_pair("nsfw", if r.nsfw { "true" } else { "false" });
@@ -289,7 +299,7 @@ pub(super) async fn list(
             u.query_pairs_mut()
                 .append_pair("query", q)
                 .append_pair("limit", "20")
-                .append_pair("sort", "Most Downloaded")
+                .append_pair("sort", "Newest")
                 .append_pair("nsfw", if r.nsfw { "true" } else { "false" });
             u
         }
@@ -376,6 +386,7 @@ pub(super) async fn list(
                         auth: false,
                         nsfw: false,
                         base: None,
+                        published_at: None,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -428,6 +439,7 @@ pub(super) async fn list(
                         auth: false,
                         nsfw: false,
                         base: None,
+                        published_at: None,
                     });
                 }
             } else {
@@ -454,6 +466,7 @@ pub(super) async fn list(
                             auth: false,
                             nsfw: false,
                             base: None,
+                            published_at: None,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -545,6 +558,7 @@ pub(super) async fn list(
                         auth: version.is_some_and(civitai_restricted),
                         nsfw,
                         base: version.and_then(civitai_base),
+                        published_at: version.and_then(civitai_published),
                     });
                     continue;
                 }
@@ -582,6 +596,7 @@ pub(super) async fn list(
                         resource.auth = civitai_restricted(version);
                         resource.nsfw = nsfw;
                         resource.base = civitai_base(version);
+                        resource.published_at = civitai_published(version);
                         resources.push(resource);
                     }
                 }
@@ -624,6 +639,7 @@ pub(super) async fn list(
                     auth: false,
                     nsfw: false,
                     base: None,
+                    published_at: None,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

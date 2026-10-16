@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "Keep SFW",
   "downloads.nsfwConfirm": "I am 18+, show it",
   "downloads.nsfwSwitch": "Adult content",
-  "downloads.local": "already local"
+  "downloads.local": "already local",
+  "downloads.sort": "Sort by",
+  "downloads.sort.newest": "Newest first",
+  "downloads.sort.name": "Name (A–Z)",
+  "downloads.nsfwHelp": "The provider marks this model as adult content; the preview may be SFW."
 }

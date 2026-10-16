@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "Rester en SFW",
   "downloads.nsfwConfirm": "J’ai 18 ans ou plus, afficher",
   "downloads.nsfwSwitch": "Contenu adulte",
-  "downloads.local": "déjà en local"
+  "downloads.local": "déjà en local",
+  "downloads.sort": "Trier par",
+  "downloads.sort.newest": "Les plus récents",
+  "downloads.sort.name": "Nom (A–Z)",
+  "downloads.nsfwHelp": "Le fournisseur classe ce modèle comme contenu adulte ; l’aperçu peut être tout public."
 }

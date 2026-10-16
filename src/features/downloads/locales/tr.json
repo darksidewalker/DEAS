@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "SFW kalsın",
   "downloads.nsfwConfirm": "18+ yaşındayım, göster",
   "downloads.nsfwSwitch": "Yetişkin içeriği",
-  "downloads.local": "zaten yerel"
+  "downloads.local": "zaten yerel",
+  "downloads.sort": "Sıralama",
+  "downloads.sort.newest": "Önce en yeni",
+  "downloads.sort.name": "Ad (A–Z)",
+  "downloads.nsfwHelp": "Sağlayıcı bu modeli yetişkin içeriği olarak işaretlemiştir; önizleme SFW olabilir."
 }

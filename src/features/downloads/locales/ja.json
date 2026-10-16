@@ -100,5 +100,9 @@
   "downloads.nsfwCancel": "SFWのままにする",
   "downloads.nsfwConfirm": "18歳以上です、表示する",
   "downloads.nsfwSwitch": "成人向けコンテンツ",
-  "downloads.local": "ローカルにあり"
+  "downloads.local": "ローカルにあり",
+  "downloads.sort": "並び順",
+  "downloads.sort.newest": "新しい順",
+  "downloads.sort.name": "名前（A–Z）",
+  "downloads.nsfwHelp": "提供元が成人向けと分類したモデルです。プレビューは一般向けの場合があります。"
 }

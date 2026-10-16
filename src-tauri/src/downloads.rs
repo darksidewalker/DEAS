@@ -55,6 +55,9 @@ pub struct Resource {
     pub nsfw: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// Version publication date supplied by the provider (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -86,6 +89,9 @@ pub struct Entry {
     /// Base model family label (e.g. "Wan 2.2", "LTX 2.3"); used for filtering only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// Version publication date supplied by the provider (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
     /// Source rejects anonymous downloads (observed 401 when the catalog was generated).
@@ -165,6 +171,9 @@ impl Catalog {
             bounded_text(&e.locator, 4096)?;
             safe_name(&e.target)?;
             validate_kind(&e.kind)?;
+            if let Some(date) = &e.published_at {
+                bounded_text(date, 64)?;
+            }
             if let Some(base) = &e.base {
                 bounded_text(base, 64)?;
             }
@@ -929,6 +938,9 @@ fn source_url(p: &Provider, s: &str) -> Result<Url, String> {
 fn validate_resource(p: &Provider, r: &Resource) -> Result<(), String> {
     bounded_text(&r.id, 2048)?;
     bounded_text(&r.label, 240)?;
+    if let Some(date) = &r.published_at {
+        bounded_text(date, 64)?;
+    }
     validate_kind(&r.kind)?;
     validate_metadata(
         r.sha256.as_deref(),
