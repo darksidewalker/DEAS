@@ -16,14 +16,14 @@ with sync_playwright() as p:
    if native:page.add_init_script(fixture)
    page.goto(url,wait_until='networkidle')
    page.get_by_label('Sprache',exact=True).select_option('en')
-   page.get_by_role('button',name='AiO installer',exact=True).click()
-   page.get_by_role('button',name='Optional downloads',exact=True).click()
+   page.get_by_role('tab',name='AiO installer',exact=True).click()
+   page.get_by_role('tab',name='Optional downloads',exact=True).click()
    if native:
     page.get_by_role('tab',name='Models',exact=True).wait_for()
     assert page.get_by_text('Login / API key needed',exact=True).count()==1
     page.get_by_role('button',name='Video',exact=True).click();assert page.locator('.download-card').count()==0
     page.get_by_role('tab',name='LoRAs',exact=True).click()
-    assert page.evaluate("__DEAS_CALLS__.filter(x=>x.startsWith('native_download_'))")==['native_download_catalog']
+    assert set(page.evaluate("__DEAS_CALLS__.filter(x=>x.startsWith('native_download_'))"))=={'native_download_catalog'}  # dev StrictMode may mount twice
     assert page.locator('.download-card .download-preview').count()==1
     page.get_by_role('tab',name='Workflows',exact=True).click();assert page.get_by_role('button',name='Fixture workflow',exact=True).count()==1
     page.get_by_role('tab',name='LoRAs',exact=True).click()
@@ -44,7 +44,7 @@ with sync_playwright() as p:
    else:
     assert page.get_by_text('Browser preview',exact=False).count()>0
     assert page.get_by_role('button',name='Start confirmed download',exact=True).is_disabled()
-   page.get_by_role('button',name='Provider authorization',exact=True).click()
+   page.get_by_role('tab',name='Provider authorization',exact=True).click()
    page.get_by_label('Token',exact=True).wait_for()
    assert page.get_by_label('Token',exact=True).get_attribute('type')=='password'
    assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')

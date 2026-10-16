@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { AuthPanel, DownloadPanel } from './DownloadPluginPanel';
-/** One bubble panel at a time, so switching between bubbles swaps the view instead of stacking it. */
-export function DownloadWorkspace({installTarget}:{installTarget?:string}) {
+/** Renders the panel for the active top tab; the tabs themselves live in the setup header. */
+export function DownloadWorkspace({view,installTarget}:{view:'auth'|'downloads'|null;installTarget?:string}) {
   const [authRevision,setAuthRevision]=useState(0);
-  const [active,setActive]=useState<'auth'|'downloads'|null>(null);
-  const toggle=(id:'auth'|'downloads')=>setActive(id); // a bubble stays open on repeated clicks; only another bubble replaces it
-  return <><AuthPanel open={active==='auth'} onToggle={()=>toggle('auth')} onChange={()=>setAuthRevision(v=>v+1)}/><DownloadPanel open={active==='downloads'} onToggle={()=>toggle('downloads')} authRevision={authRevision} installTarget={installTarget}/></>;
+  return <>{view==='auth'&&<AuthPanel embedded onChange={()=>setAuthRevision(v=>v+1)}/>}{view==='downloads'&&<DownloadPanel embedded authRevision={authRevision} installTarget={installTarget}/>}</>;
 }

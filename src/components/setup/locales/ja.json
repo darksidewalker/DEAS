@@ -109,5 +109,22 @@
   "setup.backendLifecycle.stop": "管理対象バックエンドを停止",
   "setup.backendLifecycle.inspect": "実行中のバックエンドを確認",
   "setup.backendLifecycle.logs": "バックエンドの技術ログ",
-  "setup.advanced": "詳細オプション"
+  "setup.advanced": "詳細オプション",
+  "setup.tab.installed": "インストール済み · 再実行",
+  "setup.rerun": "インストールを再実行",
+  "installer.chain.uv": "uv",
+  "installer.chain.python": "Python 3.12",
+  "installer.chain.comfy": "ComfyUI",
+  "installer.chain.venv": "venv",
+  "installer.chain.torch": "Torch",
+  "installer.chain.requirements": "依存関係",
+  "installer.chain.nodes": "DaSiWaノード",
+  "installer.chain.verify": "検証",
+  "setup.notes": "{count}件の注記",
+  "setup.summary.director": "ComfyUI + Director（Forge・RefMods・Continuity・Output）",
+  "setup.feature.director.short": "Forge · RefMods · Continuity · Output",
+  "setup.profile.packages": "Torch",
+  "setup.profile.cuda": "CUDA",
+  "setup.nativeSteps": "インストール手順",
+  "setup.summary.selected": "選択"
 }

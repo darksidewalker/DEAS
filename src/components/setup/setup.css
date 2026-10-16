@@ -68,12 +68,6 @@
 .aio-advanced { display: grid; gap: .5rem; }
 .aio-advanced summary { cursor: pointer; color: #b9d9e0; font-size: .85rem; }
 /* Installer, credentials and downloads bubbles share one row; opened panels span below it. */
-.aio-bubble-row { display: grid; grid-template-columns: repeat(3, minmax(0, 144px)) minmax(0, 1fr); gap: .75rem; align-items: start; }
-.aio-bubble-row > .neural-graph-container { grid-row: 1; grid-column: 1; min-width: 0; }
-.aio-bubble-row .download-module { display: contents; }
-.aio-bubble-row [data-node="provider-auth"] { grid-row: 1; grid-column: 2; }
-.aio-bubble-row [data-node="optional-downloads"] { grid-row: 1; grid-column: 3; }
-.aio-bubble-row .download-controls { grid-column: 1 / -1; }
 .aio-start { display: grid; gap: .5rem; justify-items: start; margin: .75rem 0; }
 .aio-start .aio-confirm-button { width: auto; min-width: 208px; }
 /* One page: bubbles and their panels on the left, the installation review pinned on the right. */
@@ -83,3 +77,26 @@
 .aio-right > .aio-detail { margin-top: 0; max-width: none; }
 .aio-right > .aio-detail + .aio-detail { margin-top: .65rem; }
 @media (max-width: 900px) { .aio-decision-area { grid-template-columns: minmax(0, 1fr); } .aio-right { position: static; } }
+/* Top segment line: installer, credentials and downloads as always-available tabs. */
+.aio-tabs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .35rem; margin-bottom: 1rem; border-bottom: 1px solid #7c9cac4d; }
+.aio-tab { display: inline-flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .6rem 1rem; border: 1px solid #7c9cac4d; border-bottom: 0; border-radius: .6rem .6rem 0 0; background: #1c2427; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; }
+.aio-tab small { font-size: .65rem; opacity: .8; }
+.aio-tab[aria-selected="true"] { background: var(--surface, #26363c); color: var(--chalk); border-color: var(--copper); }
+.aio-tab-installer.is-pending { color: var(--chalk); border-color: #83c19a; animation: aio-tab-glow 2.4s ease-in-out infinite; }
+.aio-tab-installer.is-done { background: #161c1f; color: var(--muted); }
+.aio-tab-check { color: #83c19a; margin-right: .35rem; }
+@keyframes aio-tab-glow { 0%, 100% { box-shadow: 0 0 0 0 #83c19a00; } 50% { box-shadow: 0 0 12px 2px #83c19a66; } }
+@media (prefers-reduced-motion: reduce) { .aio-tab-installer.is-pending { animation: none; } }
+/* Dense plan: facts grid, step chain, notes collapsed. */
+.aio-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .5rem .9rem; margin: 0; }
+.aio-facts div { display: grid; gap: .1rem; min-width: 0; }
+.aio-facts dt { font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #8fa0a6); }
+.aio-facts dd { margin: 0; font-size: .85rem; overflow-wrap: anywhere; }
+.aio-facts code { font-size: .78rem; }
+.aio-fact-sub { display: block; font-size: .72rem; color: var(--muted, #8fa0a6); }
+.aio-auto-fields > .aio-fact-sub { margin: -.3rem 0 0 1.6rem; }
+.aio-chain { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; margin: .25rem 0; padding: 0; list-style: none; font-size: .75rem; }
+.aio-chain li { display: inline-flex; align-items: center; gap: .25rem; }
+.aio-chain li span { padding: .2rem .55rem; border: 1px solid #7c9cac4d; border-radius: 999px; background: #1c2427; cursor: help; }
+.aio-chain li + li::before { content: "→"; color: var(--copper, #c89b6d); }
+.aio-notes summary { font-size: .75rem; color: var(--muted, #8fa0a6); cursor: pointer; }

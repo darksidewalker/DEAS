@@ -10,7 +10,7 @@ beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en')
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}));
 const mount=(connect=vi.fn(),installed=vi.fn())=>render(<I18nProvider><AiOSetup onConnectExisting={connect} onInstalled={installed}/></I18nProvider>);
-const open=()=>click('AiO installer');
+const open=()=>fireEvent.click(screen.getByRole('tab',{name:'AiO installer'}));
 const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText(label),{target:{value}});
 const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
 const defaults={storagePath:request.storagePath,backend:'cpu',hardware:null,warnings:['CPU fallback fixture']};
@@ -106,7 +106,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  it('late defaults do not replace a prepared request',async()=>{
   nativeFixture();const late=deferred<typeof defaults>();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?late.promise:plan((args as {request:NativeInstallRequest}).request));
   mount();open();change('Storage directory','/manual');change('Backend','cpu');await screen.findByRole('button',{name:'Start install'});
-  await act(async()=>late.resolve({...defaults,storagePath:'/late',backend:'nvidia'}));expect(screen.getByText('/manual')).toBeTruthy();expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('cpu');
+  await act(async()=>late.resolve({...defaults,storagePath:'/late',backend:'nvidia'}));expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/manual');expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('cpu');
  });
  it('failed defaults leave manual editing available without guessing',async()=>{
   nativeFixture();vi.mocked(invoke).mockRejectedValue('probe unavailable');mount();open();await screen.findByRole('alert');expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('');expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');change('Storage directory','/manual');change('Backend','cpu');await waitFor(()=>expect(screen.getAllByRole('alert')).toHaveLength(2));expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();

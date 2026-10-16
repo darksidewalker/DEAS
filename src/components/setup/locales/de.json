@@ -109,5 +109,22 @@
   "setup.backendLifecycle.stop": "App-eigenes Backend stoppen",
   "setup.backendLifecycle.inspect": "Laufendes Backend prüfen",
   "setup.backendLifecycle.logs": "Technisches Backend-Protokoll",
-  "setup.advanced": "Erweiterte Optionen"
+  "setup.advanced": "Erweiterte Optionen",
+  "setup.tab.installed": "Installiert · erneut ausführen",
+  "setup.rerun": "Installation erneut ausführen",
+  "installer.chain.uv": "uv",
+  "installer.chain.python": "Python 3.12",
+  "installer.chain.comfy": "ComfyUI",
+  "installer.chain.venv": "venv",
+  "installer.chain.torch": "Torch",
+  "installer.chain.requirements": "Abhängigkeiten",
+  "installer.chain.nodes": "DaSiWa-Nodes",
+  "installer.chain.verify": "Prüfen",
+  "setup.notes": "{count} Hinweise",
+  "setup.summary.director": "ComfyUI + Director (Forge, RefMods, Continuity, Output)",
+  "setup.feature.director.short": "Forge · RefMods · Continuity · Output",
+  "setup.profile.packages": "Torch",
+  "setup.profile.cuda": "CUDA",
+  "setup.nativeSteps": "Installationsschritte",
+  "setup.summary.selected": "Ausgewählt"
 }

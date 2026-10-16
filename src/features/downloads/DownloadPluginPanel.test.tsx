@@ -104,12 +104,10 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true,nsfw:false}});
 });
-it('keeps only one bubble panel open when switching between authorization and downloads',async()=>{
- render(<I18nProvider><DownloadWorkspace/></I18nProvider>);
- click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();
- click('Optional downloads');await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
- click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
- click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();
+it('mounts exactly the panel for the active top tab',async()=>{
+ const view=render(<I18nProvider><DownloadWorkspace view="auth"/></I18nProvider>);expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
+ view.rerender(<I18nProvider><DownloadWorkspace view="downloads"/></I18nProvider>);await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
+ view.rerender(<I18nProvider><DownloadWorkspace view={null}/></I18nProvider>);expect(screen.queryByRole('tab')).toBeNull();
 });
 it('hides adult entries until the NSFW switch is confirmed and sends the flag to native browsing',async()=>{
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true}];

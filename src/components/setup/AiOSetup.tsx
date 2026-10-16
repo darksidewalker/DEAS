@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { NeuralGraph } from '../neural/NeuralGraph';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
@@ -36,10 +35,7 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  const plan=setupPlan(state);
  const signature=JSON.stringify(plan);
  const planMatches=!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
- const presentation=useMemo(()=>{
-  const view=setupPresentation(state);
-  return {nodes:view.nodes.filter(n=>n.id==='setup:aio').map(n=>({...n,label:t(n.label),description:n.description?t(n.description):undefined,status:n.status?t(n.status):undefined,disabled:running||busy||pickerBusy})),history:[]};
- },[state,t,running,busy,pickerBusy]);
+ const [view,setView]=useState<'setup'|'auth'|'downloads'>('setup');
  // One read-only defaults request per mounted setup, also reused by StrictMode effect replay.
  useEffect(()=>{
   if(!native||!state.opened)return;
@@ -121,10 +117,12 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
   {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
   <div className="aio-decision-area">
   <div className="aio-left">
-  <div className="aio-bubble-row">
-   <NeuralGraph nodes={presentation.nodes} history={presentation.history} motion="off" onSelect={id=>{if(id==='setup:aio'&&!running&&!busy&&!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}} label={t('setup.decisions')}/>
-   <DownloadWorkspace installTarget={plan?.route==='managed'?plan.storagePath:undefined}/>
+  <div className="aio-tabs" role="tablist" aria-label={t('setup.decisions')}>
+   <button type="button" role="tab" data-node="setup:aio" className={`aio-tab aio-tab-installer ${status?.state==='succeeded'?'is-done':'is-pending'}`} aria-selected={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}}>{status?.state==='succeeded'&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}<small>{t(status?.state==='succeeded'?'setup.tab.installed':'setup.aio.description')}</small></button>
+   <button type="button" role="tab" data-node="provider-auth" className="aio-tab" aria-selected={view==='auth'} onClick={()=>setView('auth')}>{t('downloads.auth')}</button>
+   <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
   </div>
+  <DownloadWorkspace view={view==='setup'?null:view} installTarget={plan?.route==='managed'?plan.storagePath:undefined}/>
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
   </div>
   <aside className="aio-right">
@@ -132,15 +130,19 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
     <label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>
     <button type="button" disabled={!native} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>{storageParent&&<p className="aio-help">{t('setup.selectedParent')}: <code>{storageParent}</code></p>}
-    <label><input type="checkbox" checked={state.features.includes('director')} onChange={()=>edit({type:'feature',id:'director'},'features')}/>{t('setup.feature.director.label')}</label><p className="aio-help">{t('setup.capabilityHelp')}</p>
+    <label title={t('setup.capabilityHelp')}><input type="checkbox" checked={state.features.includes('director')} onChange={()=>edit({type:'feature',id:'director'},'features')}/>{t('setup.feature.director.label')}</label><span className="aio-fact-sub">{t('setup.feature.director.short')}</span>
    </fieldset>
    {nativePlan&&<div className="aio-start">
-    <p>{t('setup.request.storagePath')}: <code>{nativePlan.request.storagePath}</code> · {t('setup.request.backend')}: {t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&` · ${nativePlan.hardware.name}`} · {t('setup.request.features')}: {nativePlan.request.features.join(', ')||t('setup.summary.core')}</p>
-    {nativePlan.warnings.length>0&&<ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}
+    <dl className="aio-facts">
+     <div><dt>{t('setup.request.backend')}</dt><dd>{t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&<span className="aio-fact-sub">{nativePlan.hardware.name}</span>}</dd></div>
+     <div><dt>{t('setup.summary.selected')}</dt><dd>{nativePlan.request.features.includes('director')?t('setup.summary.director'):t('setup.summary.core')}</dd></div>
+     {Array.isArray(nativePlan.torch?.packages)&&<div><dt>{t('setup.profile.packages')}</dt><dd>{String(nativePlan.torch.packages[0]).replace('==',' ')}{typeof nativePlan.torch.cuda==='string'&&<span className="aio-fact-sub">{t('setup.profile.cuda')} {nativePlan.torch.cuda}</span>}</dd></div>}
+    </dl>
+    <ol className="aio-chain" aria-label={t('setup.nativeSteps')}>{nativePlan.steps.map(s=><li key={s.id}><span title={s.detail}>{t(`installer.chain.${s.id}`)}</span></li>)}</ol>
+    {nativePlan.warnings.length>0&&<details className="aio-notes"><summary>{t('setup.notes',{count:nativePlan.warnings.length})}</summary><ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>}
     {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
     {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
-    <p className="aio-help">{t('setup.autoConsent')}</p>
-    <button className="aio-confirm-button" disabled={!planMatches||running||busy||status?.state==='succeeded'||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t('setup.autoStart')}</button>
+    <button className="aio-confirm-button" title={t('setup.autoConsent')} disabled={!planMatches||running||busy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t(status?.state==='succeeded'?'setup.rerun':'setup.autoStart')}</button>
    </div>}
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
     <details className="aio-advanced"><summary>{t('setup.advanced')}</summary>

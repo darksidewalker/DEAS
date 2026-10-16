@@ -29,7 +29,7 @@ with sync_playwright() as p:
             if native: page.add_init_script(fixture)
             page.goto(url, wait_until='networkidle')
             page.locator('.language-control select').select_option('en')
-            page.locator('[data-node="setup:aio"] > button').click()
+            page.locator('[data-node="setup:aio"]').click()
             assert page.locator('button[data-setup-mode="guided"]').count()==0
             storage=page.locator('#auto-storage')
             backend=page.locator('#auto-backend')

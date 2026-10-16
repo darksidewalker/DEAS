@@ -109,5 +109,22 @@
   "setup.backendLifecycle.stop": "Arrêter le moteur géré",
   "setup.backendLifecycle.inspect": "Inspecter le moteur en cours d’exécution",
   "setup.backendLifecycle.logs": "Journaux techniques du moteur",
-  "setup.advanced": "Options avancées"
+  "setup.advanced": "Options avancées",
+  "setup.tab.installed": "Installé · relancer",
+  "setup.rerun": "Relancer l’installation",
+  "installer.chain.uv": "uv",
+  "installer.chain.python": "Python 3.12",
+  "installer.chain.comfy": "ComfyUI",
+  "installer.chain.venv": "venv",
+  "installer.chain.torch": "Torch",
+  "installer.chain.requirements": "Dépendances",
+  "installer.chain.nodes": "Nœuds DaSiWa",
+  "installer.chain.verify": "Vérifier",
+  "setup.notes": "{count} notes",
+  "setup.summary.director": "ComfyUI + Director (Forge, RefMods, Continuity, Output)",
+  "setup.feature.director.short": "Forge · RefMods · Continuity · Output",
+  "setup.profile.packages": "Torch",
+  "setup.profile.cuda": "CUDA",
+  "setup.nativeSteps": "Étapes d’installation",
+  "setup.summary.selected": "Sélection"
 }

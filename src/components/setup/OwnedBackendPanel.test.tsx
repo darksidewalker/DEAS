@@ -121,7 +121,7 @@ async function installFixture(result:'succeeded'|'failed') {
  });
  render(<I18nProvider><AiOSetup onConnectExisting={vi.fn()}/></I18nProvider>);
  const click=(name:RegExp)=>fireEvent.click(screen.getByRole('button',{name}));
- click(/AiO installer/);await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
+ fireEvent.click(screen.getByRole('tab',{name:/AiO installer/}));await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
  await screen.findByText('mock install fixture');
 }
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
@@ -129,7 +129,7 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   await installFixture('succeeded');
   expect(screen.getByRole('button',{name:'Start owned backend'})).toBeTruthy();
   expect(vi.mocked(invoke).mock.calls.some(([command])=>command==='native_backend_start')).toBe(false);
-  expect(screen.getByText(/Start install authorizes only the reviewed native plan/)).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Run install again'}).getAttribute('title')).toMatch(/authorizes only the reviewed native plan/);
   vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49517':null));
   fireEvent.click(screen.getByRole('button',{name:'Start owned backend'}));
   await screen.findByRole('button',{name:'Stop owned backend'});

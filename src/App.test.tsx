@@ -37,7 +37,7 @@ test("language selection updates app, setup, studio metadata and aria without lo
   fireEvent.change(screen.getByLabelText("Shot direction"), { target: { value: "Preserve my draft" } });
   fireEvent.change(screen.getByLabelText("Language"), { target: { value: "de" } });
   expect(document.documentElement.lang).toBe("de");
-  expect(screen.getByRole("button", { name: /AiO-Installer/ })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: /AiO-Installer/ })).toBeTruthy();
   expect(screen.getByLabelText("Aufnahmeregie")).toHaveProperty("value", "Preserve my draft");
   expect(screen.getByRole("button", { name: "Director schließen" })).toBeTruthy();
   expect(document.querySelector(".neural-legend")).toBeNull();
@@ -73,7 +73,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   });
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
+  fireEvent.click(screen.getByRole('tab',{name:'AiO installer'}));
   if(!director)fireEvent.click(screen.getByLabelText('Director'));
   await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   const start=await screen.findByRole('button',{name:'Start install'});
@@ -92,7 +92,7 @@ test.each([false,true])("successful native install reveals studio without an ext
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole("button", { name: /AiO installer/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /AiO installer/ }));
   fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
@@ -108,7 +108,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   fireEvent.click(screen.getByRole("button", { name: /^Engine$/ }));
   fireEvent.click(screen.getByRole("button", { name: /Inspect connection/ }));
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
-  fireEvent.click(setup.getByRole("button", { name: /AiO installer/ }));
+  fireEvent.click(setup.getByRole("tab", { name: /AiO installer/ }));
   fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));
