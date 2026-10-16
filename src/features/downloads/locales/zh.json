@@ -66,8 +66,6 @@
   "downloads.scope.model": "模型",
   "downloads.scope.index": "资源索引",
   "downloads.scope.backend": "后端",
-  "downloads.folder.checkpoints": "Checkpoint",
-  "downloads.folder.diffusion_models": "扩散模型",
   "downloads.folder.loras": "LoRA",
   "downloads.folder.vae": "VAE",
   "downloads.folder.text_encoders": "文本编码器",
@@ -84,5 +82,11 @@
   "downloads.destination": "目标位置",
   "downloads.scope.search": "搜索",
   "downloads.authBubble": "Hugging Face、CivitAI 和 GitHub 的令牌",
-  "downloads.bubble": "按 ComfyUI 文件夹分类的模型、LoRA 和工作流"
+  "downloads.bubble": "按 ComfyUI 文件夹分类的模型、LoRA 和工作流",
+  "downloads.folder.models": "模型",
+  "downloads.media": "模型类型",
+  "downloads.media.all": "全部",
+  "downloads.media.image": "图像",
+  "downloads.media.video": "视频",
+  "downloads.authNeeded": "需要登录 / API 密钥"
 }

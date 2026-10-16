@@ -62,6 +62,7 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         license: Some("fixture license".into()),
         preview: None,
         category: None,
+        auth: false,
     }
 }
 #[cfg(any(target_os = "linux", windows))]
@@ -141,6 +142,7 @@ fn strict_catalog_and_extension() {
         .filter(|e| e.id.starts_with("civitai-") && e.id != "civitai-creator")
         .collect::<Vec<_>>();
     assert_eq!(bundled.len(), 22);
+    assert!(bundled.iter().any(|e| e.auth) && bundled.iter().any(|e| e.media.is_some()));
     assert!(bundled.iter().all(|e| e.scope == "model"
         && matches!(
             e.target.as_str(),
@@ -489,7 +491,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "civitai",
             "search",
             "dark lora",
-            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
             "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded",
             false,
         ),
@@ -520,6 +522,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
                 Some("https://image.civitai.com/x/width=450/1.jpeg")
             );
             assert_eq!(page.resources[0].label, "Dark · v1");
+            assert!(page.resources[0].auth);
         } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
             assert!(page.resources[0].sha256.is_some());

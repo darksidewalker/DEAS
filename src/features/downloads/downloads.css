@@ -27,3 +27,7 @@
 .download-resource .download-preview { aspect-ratio: 1; }
 .download-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: end; }
 @media (max-width: 400px) { .download-search { grid-template-columns: minmax(0, 1fr); } }
+.download-card { position: relative; }
+.download-auth { position: absolute; top: .55rem; left: .55rem; padding: .15rem .45rem; border-radius: .4rem; background: #000000b3; color: var(--copper); font-size: .65rem; font-style: normal; }
+.download-resource .download-auth { position: static; justify-self: start; display: inline-block; margin-bottom: .3rem; }
+.download-media-filter button[aria-pressed="true"] { background: var(--surface); color: var(--chalk); border-color: var(--blue); }

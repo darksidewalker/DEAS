@@ -48,6 +48,9 @@ pub struct Resource {
     /// ComfyUI model folder name (checkpoints, loras, …) when the source declares a type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Source signals restricted access (non-public availability or paid access).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auth: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -75,6 +78,12 @@ pub struct Entry {
     pub sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
+    /// "image" or "video" generation model; used for filtering only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
+    /// Source rejects anonymous downloads (observed 401 when the catalog was generated).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auth: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -146,6 +155,12 @@ impl Catalog {
             bounded_text(&e.locator, 4096)?;
             safe_name(&e.target)?;
             validate_kind(&e.kind)?;
+            if e.media
+                .as_deref()
+                .is_some_and(|m| !matches!(m, "image" | "video"))
+            {
+                return Err("Entry media must be image or video".into());
+            }
             validate_metadata(e.sha256.as_deref(), e.license.as_deref(), None)?;
             if let Some(preview) = &e.preview {
                 validate_url(preview, false, true)?;

@@ -88,6 +88,7 @@ fn file(
         license,
         preview: None,
         category: None,
+        auth: false,
     })
 }
 async fn json(
@@ -188,6 +189,14 @@ fn civitai_preview(version: &Value) -> Option<String> {
             && !url.bytes().any(|b| b.is_ascii_control()))
         .then(|| url.replacen("/original=true/", "/width=450/", 1))
     })
+}
+/// Non-public availability or paid access means anonymous downloads will be refused.
+fn civitai_restricted(version: &Value) -> bool {
+    version
+        .get("availability")
+        .and_then(Value::as_str)
+        .is_some_and(|a| a != "Public")
+        || version.get("paidAccess").is_some_and(|p| !p.is_null())
 }
 pub(super) async fn list(
     p: &Provider,
@@ -348,6 +357,7 @@ pub(super) async fn list(
                         license: None,
                         preview: None,
                         category: None,
+                        auth: false,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -397,6 +407,7 @@ pub(super) async fn list(
                             .map(str::to_owned),
                         preview: None,
                         category: None,
+                        auth: false,
                     });
                 }
             } else {
@@ -420,6 +431,7 @@ pub(super) async fn list(
                             license: None,
                             preview: None,
                             category: None,
+                            auth: false,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -506,6 +518,7 @@ pub(super) async fn list(
                         license: None,
                         preview: version.and_then(civitai_preview),
                         category: Some(category.into()),
+                        auth: version.is_some_and(civitai_restricted),
                     });
                     continue;
                 }
@@ -540,6 +553,7 @@ pub(super) async fn list(
                         resource.kind = "model".into();
                         resource.preview = civitai_preview(version);
                         resource.category = Some(category.into());
+                        resource.auth = civitai_restricted(version);
                         resources.push(resource);
                     }
                 }
@@ -579,6 +593,7 @@ pub(super) async fn list(
                     license: None,
                     preview: None,
                     category: None,
+                    auth: false,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

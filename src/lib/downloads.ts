@@ -2,9 +2,9 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 
 export type DownloadScope = 'user' | 'repo' | 'model' | 'search' | 'index' | 'backend';
 export interface DownloadProvider { id:string; kind:string; label:string; origin:string; scopes:DownloadScope[]; anonymousNotice:string }
-export interface CatalogEntry { id:string; label:string; providerId:string; scope:DownloadScope; locator:string; kind:string; target:string; license?:string; sha256?:string; preview?:string }
+export interface CatalogEntry { id:string; label:string; providerId:string; scope:DownloadScope; locator:string; kind:string; target:string; license?:string; sha256?:string; preview?:string; media?:'image'|'video'; auth?:boolean }
 export interface DownloadCatalog { version:1; providers:DownloadProvider[]; entries:CatalogEntry[] }
-export interface DownloadResource { id:string; label:string; kind:string; url?:string; size?:number; sha256?:string; downloadable:boolean; locator?:string; license?:string; preview?:string; category?:string }
+export interface DownloadResource { id:string; label:string; kind:string; url?:string; size?:number; sha256?:string; downloadable:boolean; locator?:string; license?:string; preview?:string; category?:string; auth?:boolean }
 export interface BrowseRequest { providerId:string; scope:DownloadScope; locator:string; cursor?:string; authenticated:boolean }
 export interface DownloadListing { resources:DownloadResource[]; nextCursor:string|null; warnings:string[] }
 export interface PlanRequest { providerId:string; resources:DownloadResource[]; parentPath:string; folderName:string; authenticated:boolean }

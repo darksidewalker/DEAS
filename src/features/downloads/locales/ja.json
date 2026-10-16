@@ -66,8 +66,6 @@
   "downloads.scope.model": "モデル",
   "downloads.scope.index": "リソースインデックス",
   "downloads.scope.backend": "バックエンド",
-  "downloads.folder.checkpoints": "チェックポイント",
-  "downloads.folder.diffusion_models": "拡散モデル",
   "downloads.folder.loras": "LoRA",
   "downloads.folder.vae": "VAE",
   "downloads.folder.text_encoders": "テキストエンコーダー",
@@ -84,5 +82,11 @@
   "downloads.destination": "保存先",
   "downloads.scope.search": "検索",
   "downloads.authBubble": "Hugging Face・CivitAI・GitHubのトークン",
-  "downloads.bubble": "ComfyUIフォルダー別のモデル・LoRA・ワークフロー"
+  "downloads.bubble": "ComfyUIフォルダー別のモデル・LoRA・ワークフロー",
+  "downloads.folder.models": "モデル",
+  "downloads.media": "モデル種別",
+  "downloads.media.all": "すべて",
+  "downloads.media.image": "画像",
+  "downloads.media.video": "動画",
+  "downloads.authNeeded": "ログイン / APIキーが必要"
 }

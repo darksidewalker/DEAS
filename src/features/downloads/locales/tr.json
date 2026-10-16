@@ -66,8 +66,6 @@
   "downloads.scope.model": "Model",
   "downloads.scope.index": "Kaynak dizini",
   "downloads.scope.backend": "Arka uç",
-  "downloads.folder.checkpoints": "Checkpointler",
-  "downloads.folder.diffusion_models": "Difüzyon modelleri",
   "downloads.folder.loras": "LoRA’lar",
   "downloads.folder.vae": "VAE",
   "downloads.folder.text_encoders": "Metin kodlayıcılar",
@@ -84,5 +82,11 @@
   "downloads.destination": "Hedef",
   "downloads.scope.search": "Arama",
   "downloads.authBubble": "Hugging Face, CivitAI ve GitHub için jetonlar",
-  "downloads.bubble": "ComfyUI klasörüne göre modeller, LoRA’lar ve iş akışları"
+  "downloads.bubble": "ComfyUI klasörüne göre modeller, LoRA’lar ve iş akışları",
+  "downloads.folder.models": "Modeller",
+  "downloads.media": "Model türü",
+  "downloads.media.all": "Tümü",
+  "downloads.media.image": "Görsel",
+  "downloads.media.video": "Video",
+  "downloads.authNeeded": "Giriş / API anahtarı gerekli"
 }

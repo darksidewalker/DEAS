@@ -66,8 +66,6 @@
   "downloads.scope.model": "Model",
   "downloads.scope.index": "Resource index",
   "downloads.scope.backend": "Backend",
-  "downloads.folder.checkpoints": "Checkpoints",
-  "downloads.folder.diffusion_models": "Diffusion models",
   "downloads.folder.loras": "LoRAs",
   "downloads.folder.vae": "VAE",
   "downloads.folder.text_encoders": "Text encoders",
@@ -84,5 +82,11 @@
   "downloads.destination": "Destination",
   "downloads.scope.search": "Search",
   "downloads.authBubble": "Tokens for Hugging Face, CivitAI and GitHub",
-  "downloads.bubble": "Models, LoRAs and workflows by ComfyUI folder"
+  "downloads.bubble": "Models, LoRAs and workflows by ComfyUI folder",
+  "downloads.folder.models": "Models",
+  "downloads.media": "Model type",
+  "downloads.media.all": "All",
+  "downloads.media.image": "Image",
+  "downloads.media.video": "Video",
+  "downloads.authNeeded": "Login / API key needed"
 }
