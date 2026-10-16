@@ -2,6 +2,13 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](docs/VERIFICATION.md); the roadmap in [docs/PLAN.md](docs/PLAN.md).
 
+## 0.1.11 — 2026-10-16
+
+- Header buttons are smaller with their ✓ inline before the name. **Provider authorization** shows a ✓ plus the providers whose saved token passed the identity check (re-checked on start and when leaving the panel). The AiO installer pulses red until a backend is installed.
+- **Settings & Backend** (renamed): after an install it holds the autostart switch next to the owned backend controls, now with **Restart** (stop, then start) besides Start/Stop.
+- Library always lists every model; in SFW mode 18+ previews are blurred instead of hidden, and the 18+ switch only un-blurs (no reload).
+- Technical logs are read line by line and cleaned: ANSI colour codes and control characters are removed, progress-bar carriage returns keep the last state, UTF-8 is no longer split between chunks and empty lines are dropped.
+
 ## 0.1.10 — 2026-10-16
 
 - Installed model sizes use localized GiB/Gio labels; Python cache files are excluded from Git.

@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "deas"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "flate2",
  "keyring",

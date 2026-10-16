@@ -379,13 +379,18 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    async fn fetch_fixture(path: &Path, before_reply: impl FnOnce() + Send + 'static) -> Result<LocalModel, String> {
+    async fn fetch_fixture(
+        path: &Path,
+        before_reply: impl FnOnce() + Send + 'static,
+    ) -> Result<LocalModel, String> {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
             let mut request = vec![];
             while !request.ends_with(b"\r\n\r\n") {
                 let mut b = [0];
@@ -393,10 +398,21 @@ mod tests {
                 request.push(b[0]);
             }
             before_reply();
-            stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
             String::from_utf8(request).unwrap()
         });
-        let p = Provider { id: "fixture".into(), kind: "civitai".into(), label: "Fixture".into(), origin, scopes: vec!["model".into()], anonymous_notice: "".into() };
+        let p = Provider {
+            id: "fixture".into(),
+            kind: "civitai".into(),
+            label: "Fixture".into(),
+            origin,
+            scopes: vec!["model".into()],
+            anonymous_notice: "".into(),
+        };
         let result = fetch(&p, path.to_owned(), None).await;
         let request = server.join().unwrap();
         if let Ok(model) = &result {
@@ -415,8 +431,11 @@ mod tests {
             std::fs::write(&path, b"model").unwrap();
             std::fs::write(&victim, b"keep these bytes").unwrap();
             let tmp = sidecar(&path).with_extension("json.tmp");
-            if hard { std::fs::hard_link(&victim, &tmp).unwrap(); }
-            else { std::os::unix::fs::symlink(&victim, &tmp).unwrap(); }
+            if hard {
+                std::fs::hard_link(&victim, &tmp).unwrap();
+            } else {
+                std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+            }
             fetch_fixture(&path, || {}).await.unwrap();
             assert_eq!(std::fs::read(&victim).unwrap(), b"keep these bytes");
         }
@@ -435,9 +454,17 @@ mod tests {
         std::fs::write(&replacement, b"other").unwrap();
         // Match mtime too: file identity must independently invalidate a replacement.
         let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
-        std::fs::File::options().write(true).open(&replacement).unwrap().set_modified(modified).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
         std::fs::rename(&replacement, &path).unwrap();
-        assert!(scan(root.path()).unwrap()[0].info.is_none(), "stale replacement metadata shown");
+        assert!(
+            scan(root.path()).unwrap()[0].info.is_none(),
+            "stale replacement metadata shown"
+        );
         let refreshed = fetch_fixture(&path, || {}).await.unwrap().info.unwrap();
         assert_ne!(first.sha256, refreshed.sha256);
         assert_eq!(refreshed.sha256, sha256_file(&path).unwrap());

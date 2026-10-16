@@ -55,10 +55,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start')).toBe(false);
  });
  it('defaults backend autostart on and remembers the Settings switch being disabled',async()=>{
-  localStorage.removeItem('deas.pref.backend.autostart');const first=mount();click('Settings');
+  localStorage.removeItem('deas.pref.backend.autostart');const first=mount();click('Settings & Backend');
   const toggle=screen.getByRole('switch',{name:'Auto-start backend'});expect(toggle.getAttribute('aria-checked')).toBe('true');
   fireEvent.click(toggle);await waitFor(()=>expect(localStorage.getItem('deas.pref.backend.autostart')).toBe('false'));
-  first.unmount();mount();click('Settings');expect(screen.getByRole('switch',{name:'Auto-start backend'}).getAttribute('aria-checked')).toBe('false');
+  first.unmount();mount();click('Settings & Backend');expect(screen.getByRole('switch',{name:'Auto-start backend'}).getAttribute('aria-checked')).toBe('false');
  });
  it('recognizes a chosen environment root without nesting another environment directory',async()=>{
   nativeFixture();
@@ -110,7 +110,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
  });
  it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
   nativeFixture();const installed=vi.fn();
@@ -161,10 +161,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(screen.queryByRole('button',{name:'Confirm & continue'})).toBeNull();expect(invoke).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('reads defaults only on open; automatic planning never starts installation; final click confirms once',async()=>{
-  nativeFixture();mount();expect(invoke).not.toHaveBeenCalled();open();await screen.findByText('CPU fallback fixture');
+  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status')).toEqual([]);open();await screen.findByText('CPU fallback fixture');
   expect(invoke).toHaveBeenCalledWith('native_install_defaults',{});
   await screen.findByRole('button',{name:'Start install'});
-  expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
   const button=screen.getByRole('button',{name:'Start install'});fireEvent.click(button);fireEvent.click(button);
   await screen.findByText('native fixture log');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_start')).toEqual([['native_install_start',{planId:'fixture-plan',confirmed:true}]]);
   expect(screen.getByLabelText('Storage directory').matches(':disabled')).toBe(true);
@@ -229,13 +229,13 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   await ready();click('Choose Models folder');await waitFor(()=>expect(screen.getByText('/real/models')).toBeTruthy());
   await waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{...request,folders:{models:'/real/models'}}}));
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_write'||c==='native_settings_move'||c==='native_install_start')).toBe(false);
-  fireEvent.click(screen.getByRole('button',{name:'Settings'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
  });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText(/Installed · click to re-run/);
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
-  fireEvent.click(screen.getByRole('button',{name:'Settings'}));
+  fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));
   const settings=screen.getByRole('region',{name:'Settings'});
   await waitFor(()=>expect((settings.querySelector('button') as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(settings.querySelector('button')!);await screen.findByText('/new/models');click('Save folders');

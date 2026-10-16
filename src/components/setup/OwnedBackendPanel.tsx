@@ -75,6 +75,7 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=
   <div className="aio-actions">
    {native&&installSucceeded&&!active&&<button disabled={busy} onClick={()=>void request('native_backend_start')}>{t('setup.backendLifecycle.start')}</button>}
    <button disabled={!native||busy} onClick={()=>void request('native_backend_status')}>{t('setup.backendLifecycle.refresh')}</button>
+   {native&&status?.state==='running'&&<button disabled={busy} onClick={()=>void request('native_backend_stop').then(s=>{if(s?.state==='stopped')return request('native_backend_start');})}>{t('setup.backendLifecycle.restart')}</button>}
    {native&&active&&<button disabled={busy} onClick={()=>void request('native_backend_stop')}>{t('setup.backendLifecycle.stop')}</button>}
    {native&&status?.state==='running'&&status.endpoint&&<button disabled={busy} onClick={()=>onConnectExisting(status.endpoint!)}>{t('setup.backendLifecycle.inspect')}</button>}
   </div>

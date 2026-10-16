@@ -156,5 +156,7 @@
   "settings.language.system": "Sistem dili — {name}",
   "settings.language.customTag": "Özel seçim",
   "settings.language.custom": "Sistem dili {name}; yeniden ona uymak için ilk girişi seçin.",
-  "settings.language.auto": "Sistem dilini otomatik olarak izler."
+  "settings.language.auto": "Sistem dilini otomatik olarak izler.",
+  "settings.button": "Ayarlar ve arka uç",
+  "setup.backendLifecycle.restart": "Arka ucu yeniden başlat"
 }

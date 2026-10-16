@@ -593,20 +593,30 @@ fn isolated(command: &mut Command, root: &Path) {
         .env("GIT_CONFIG_GLOBAL", root.join("config/empty-gitconfig"));
 }
 async fn capture<R: AsyncRead + Unpin>(
-    mut stream: R,
+    stream: R,
     inner: Arc<Mutex<Inner>>,
 ) -> Result<String, String> {
+    use tokio::io::AsyncBufReadExt;
+    let mut reader = tokio::io::BufReader::new(stream);
     let mut collected = Vec::new();
-    let mut chunk = [0u8; 4096];
+    let mut line = Vec::new();
     loop {
-        let n = stream.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        line.clear();
+        let n = (&mut reader)
+            .take(crate::backend::MAX_LOG_LINE)
+            .read_until(b'\n', &mut line)
+            .await
+            .map_err(|e| e.to_string())?;
         if n == 0 {
             break;
         }
-        log(&inner, String::from_utf8_lossy(&chunk[..n]).into_owned());
+        let text = crate::backend::clean_log_line(&line);
+        if !text.is_empty() {
+            log(&inner, text);
+        }
         if collected.len() < 262144 {
             let take = n.min(262144 - collected.len());
-            collected.extend_from_slice(&chunk[..take]);
+            collected.extend_from_slice(&line[..take]);
         }
     }
     Ok(String::from_utf8_lossy(&collected).into_owned())
@@ -695,7 +705,14 @@ async fn run(
         return Err(format!(
             "{} exited {status}: {}",
             program.display(),
-            err.chars().take(2048).collect::<String>()
+            err.lines()
+                .map(|l| crate::backend::clean_log_line(l.as_bytes()))
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .chars()
+                .take(2048)
+                .collect::<String>()
         ));
     }
     cancelled(cancel)?;

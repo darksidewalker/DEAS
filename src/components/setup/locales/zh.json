@@ -156,5 +156,7 @@
   "settings.language.system": "系统语言 — {name}",
   "settings.language.customTag": "自定义",
   "settings.language.custom": "系统语言为 {name}；选择第一项即可重新跟随系统语言。",
-  "settings.language.auto": "自动跟随系统语言。"
+  "settings.language.auto": "自动跟随系统语言。",
+  "settings.button": "设置与后端",
+  "setup.backendLifecycle.restart": "重启后端"
 }

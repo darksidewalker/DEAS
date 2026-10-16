@@ -228,6 +228,42 @@ pub struct Lifecycle {
 fn locked(inner: &Arc<Mutex<Inner>>) -> std::sync::MutexGuard<'_, Inner> {
     inner.lock().unwrap_or_else(|e| e.into_inner())
 }
+pub(crate) const MAX_LOG_LINE: u64 = 64 * 1024;
+/// Child output as display text: ANSI escapes and control characters removed,
+/// a carriage return overwrites the line like a terminal (progress bars).
+pub(crate) fn clean_log_line(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim_end_matches(['\r', '\n']);
+    let text = text.rsplit('\r').next().unwrap_or_default();
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            match chars.next() {
+                // CSI: parameters until a final byte in @..=~
+                Some('[') => {
+                    for n in chars.by_ref() {
+                        if ('@'..='~').contains(&n) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: until BEL or ESC \\
+                Some(']') => {
+                    while let Some(n) = chars.next() {
+                        if n == '\u{7}' || (n == '\u{1b}' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if c == '\t' || !c.is_control() {
+            out.push(c);
+        }
+    }
+    out.trim_end().to_string()
+}
 fn log(inner: &mut Inner, text: String) {
     if inner.status.logs.len() >= 300 {
         inner.status.logs.remove(0);
@@ -578,25 +614,29 @@ impl Drop for Lifecycle {
         self.stop();
     }
 }
-fn capture<R: std::io::Read + Send + 'static>(
-    mut reader: R,
-    inner: Arc<Mutex<Inner>>,
-    serial: u64,
-) {
+fn capture<R: std::io::Read + Send + 'static>(reader: R, inner: Arc<Mutex<Inner>>, serial: u64) {
     std::thread::spawn(move || {
-        let mut buffer = [0; 4096];
-        while let Ok(n) = reader.read(&mut buffer) {
-            if n == 0 {
-                break;
+        use std::io::{BufRead, Read};
+        let mut reader = std::io::BufReader::new(reader);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            // Whole lines keep UTF-8 sequences intact; the cap bounds output without newlines.
+            match (&mut reader)
+                .take(MAX_LOG_LINE)
+                .read_until(b'\n', &mut line)
+            {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
             }
             let mut guard = locked(&inner);
             if guard.serial != serial {
                 break;
             }
-            log(
-                &mut guard,
-                String::from_utf8_lossy(&buffer[..n]).into_owned(),
-            );
+            let text = clean_log_line(&line);
+            if !text.is_empty() {
+                log(&mut guard, text);
+            }
         }
     });
 }

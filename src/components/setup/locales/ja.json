@@ -156,5 +156,7 @@
   "settings.language.system": "システムの言語 — {name}",
   "settings.language.customTag": "カスタム",
   "settings.language.custom": "システムの言語は {name} です。最初の項目を選ぶと再びそれに従います。",
-  "settings.language.auto": "システムの言語に自動で従います。"
+  "settings.language.auto": "システムの言語に自動で従います。",
+  "settings.button": "設定とバックエンド",
+  "setup.backendLifecycle.restart": "バックエンドを再起動"
 }

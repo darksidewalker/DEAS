@@ -156,5 +156,7 @@
   "settings.language.system": "Langue du système — {name}",
   "settings.language.customTag": "Choix personnalisé",
   "settings.language.custom": "La langue du système est {name} ; choisissez la première entrée pour la suivre à nouveau.",
-  "settings.language.auto": "Suit automatiquement la langue du système."
+  "settings.language.auto": "Suit automatiquement la langue du système.",
+  "settings.button": "Paramètres & moteur",
+  "setup.backendLifecycle.restart": "Redémarrer le moteur"
 }

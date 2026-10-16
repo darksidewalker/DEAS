@@ -156,5 +156,7 @@
   "settings.language.system": "System language — {name}",
   "settings.language.customTag": "Custom",
   "settings.language.custom": "The system language is {name}; choose the first entry to follow it again.",
-  "settings.language.auto": "Follows the system language automatically."
+  "settings.language.auto": "Follows the system language automatically.",
+  "settings.button": "Settings & Backend",
+  "setup.backendLifecycle.restart": "Restart backend"
 }

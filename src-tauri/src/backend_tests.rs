@@ -383,3 +383,20 @@ fn foreign_listener_is_never_adopted_or_stopped() {
     lifecycle.stop();
     assert!(std::net::TcpStream::connect(foreign.local_addr().unwrap()).is_ok());
 }
+#[test]
+fn clean_log_line_strips_terminal_control_sequences() {
+    assert_eq!(
+        clean_log_line(b"\x1b[32m[INFO]\x1b[0m Starting server\n"),
+        "[INFO] Starting server"
+    );
+    assert_eq!(clean_log_line(b" 10%\r 55%\r100% done\r\n"), "100% done");
+    assert_eq!(
+        clean_log_line(b"\x1b]0;title\x07a\tb\x08c\x1b]8;;x\x1b\\d"),
+        "a\tbcd"
+    );
+    assert_eq!(
+        clean_log_line("Gr\u{fc}\u{df}e \u{2713}\n".as_bytes()),
+        "Grüße ✓"
+    );
+    assert_eq!(clean_log_line(b"\n"), "");
+}

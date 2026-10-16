@@ -25,6 +25,7 @@
 .download-card { display: grid; gap: .4rem; padding: .4rem; border: 1px solid #ffffff1f; border-radius: .7rem; background: var(--surface); color: inherit; font-size: .75rem; text-align: left; overflow-wrap: anywhere; }
 .download-card[aria-pressed="true"] { border-color: var(--copper); }
 .download-preview { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: .4rem; background: #121719; }
+.download-preview.is-blurred { filter: blur(14px) saturate(.6); clip-path: inset(0 round .4rem); }
 .download-preview.is-empty { background: repeating-linear-gradient(45deg, #ffffff08 0 6px, transparent 6px 12px); }
 .download-resource { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: .6rem; align-items: start; }
 .download-resource .download-preview { aspect-ratio: 1; }
