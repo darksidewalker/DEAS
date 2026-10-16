@@ -109,7 +109,7 @@ it('keeps only one bubble panel open when switching between authorization and do
  click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();
  click('Optional downloads');await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
  click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
- click('Provider authorization');expect(screen.queryByLabelText('Token')).toBeNull();
+ click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();
 });
 it('hides adult entries until the NSFW switch is confirmed and sends the flag to native browsing',async()=>{
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true}];

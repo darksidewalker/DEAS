@@ -4,6 +4,6 @@ import { AuthPanel, DownloadPanel } from './DownloadPluginPanel';
 export function DownloadWorkspace({installTarget}:{installTarget?:string}) {
   const [authRevision,setAuthRevision]=useState(0);
   const [active,setActive]=useState<'auth'|'downloads'|null>(null);
-  const toggle=(id:'auth'|'downloads')=>setActive(current=>current===id?null:id);
+  const toggle=(id:'auth'|'downloads')=>setActive(id); // a bubble stays open on repeated clicks; only another bubble replaces it
   return <><AuthPanel open={active==='auth'} onToggle={()=>toggle('auth')} onChange={()=>setAuthRevision(v=>v+1)}/><DownloadPanel open={active==='downloads'} onToggle={()=>toggle('downloads')} authRevision={authRevision} installTarget={installTarget}/></>;
 }
