@@ -38,10 +38,12 @@ pub use settings::{native_files_present, native_settings_read, native_settings_w
 pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;
+pub mod logs;
 pub use install::{
     native_install_cancel, native_install_open, native_install_plan, native_install_start,
-    native_install_status,
+    native_install_status, native_install_update,
 };
+pub use logs::{native_logs, native_logs_export};
 
 use reqwest::Url;
 

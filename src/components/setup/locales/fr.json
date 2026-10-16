@@ -1,6 +1,5 @@
 {
   "setup.backendAutostart": "Démarrer le backend automatiquement",
-  "setup.backendAutostartHelp": "Démarrer le backend DEAS vérifié à l’ouverture de l’application ou d’un environnement. Désactiver cette option n’arrête pas un backend en cours.",
   "setup.autostartOn": "Activé",
   "setup.autostartOff": "Désactivé",
   "setup.useExisting": "Utiliser l’environnement existant",
@@ -37,7 +36,6 @@
   "setup.install": "Installer le plan confirmé",
   "setup.installStatus": "État de l’installation native",
   "setup.installedNotReady": "La mise en place et ses vérifications d’exécution obligatoires ont réussi. Les fonctionnalités du studio, les modèles et la capacité à générer restent non vérifiés.",
-  "setup.logs": "Journaux techniques de l’installateur",
   "setup.technicalError": "Erreur technique",
   "setup.cancel": "Annuler l’installation",
   "setup.error.backend": "Saisissez une URL HTTP/S sans identifiants, espaces, paramètres de requête ni fragment.",
@@ -114,10 +112,8 @@
   "setup.backendLifecycle.refresh": "Actualiser l’état du moteur",
   "setup.backendLifecycle.stop": "Arrêter le moteur géré",
   "setup.backendLifecycle.inspect": "Inspecter le moteur en cours d’exécution",
-  "setup.backendLifecycle.logs": "Journaux techniques du moteur",
   "setup.advanced": "Options avancées",
-  "setup.tab.installed": "Installé · relancer",
-  "setup.rerun": "Relancer l’installation",
+  "setup.tab.installed": "Installé",
   "installer.chain.uv": "uv",
   "installer.chain.python": "Python 3.12",
   "installer.chain.comfy": "ComfyUI",
@@ -158,5 +154,12 @@
   "settings.language.custom": "La langue du système est {name} ; choisissez la première entrée pour la suivre à nouveau.",
   "settings.language.auto": "Suit automatiquement la langue du système.",
   "settings.button": "Paramètres & moteur",
-  "setup.backendLifecycle.restart": "Redémarrer le moteur"
+  "setup.backendLifecycle.restart": "Redémarrer le moteur",
+  "setup.upgrade": "Mettre à jour",
+  "setup.upgradeHelp": "Arrête le moteur, met à jour ComfyUI et les nœuds DaSiWa et met à niveau les paquets Python du venv (Torch reste figé).",
+  "setup.reinstall": "Relancer l'installation",
+  "setup.reinstallTitle": "Relancer l'installation ?",
+  "setup.reinstallWarning": "Cela écrase l'installation : le moteur est arrêté, l'environnement Python (venv) est supprimé puis reconstruit, et ComfyUI ainsi que les nœuds DaSiWa sont remis à leur dernière version (les modifications locales du code sont perdues). Modèles, entrées, sorties, workflows et paramètres sont conservés.",
+  "setup.reinstallCancel": "Annuler",
+  "setup.reinstallConfirm": "Écraser et réinstaller"
 }

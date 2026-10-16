@@ -1,6 +1,5 @@
 {
   "setup.backendAutostart": "Arka ucu otomatik başlat",
-  "setup.backendAutostartHelp": "Uygulamayı veya bir ortamı açarken denetlenen DEAS arka ucunu otomatik başlatır. Kapatmak çalışan arka ucu durdurmaz.",
   "setup.autostartOn": "Açık",
   "setup.autostartOff": "Kapalı",
   "setup.useExisting": "Mevcut ortamı kullan",
@@ -37,7 +36,6 @@
   "setup.install": "Onaylanan planı kur",
   "setup.installStatus": "Yerel kurulum durumu",
   "setup.installedNotReady": "Ortam kurulumu ve gerekli çalışma ortamı kontrolleri başarıyla tamamlandı. Stüdyo özellikleri, modeller ve üretime hazır olma durumu henüz doğrulanmadı.",
-  "setup.logs": "Kurulum aracının teknik günlükleri",
   "setup.technicalError": "Teknik hata",
   "setup.cancel": "Kurulumu iptal et",
   "setup.error.backend": "Kimlik bilgisi, boşluk, sorgu veya parça tanımlayıcısı içermeyen bir HTTP/S URL'si girin.",
@@ -114,10 +112,8 @@
   "setup.backendLifecycle.refresh": "Arka uç durumunu yenile",
   "setup.backendLifecycle.stop": "Yönetilen arka ucu durdur",
   "setup.backendLifecycle.inspect": "Çalışan arka ucu incele",
-  "setup.backendLifecycle.logs": "Arka ucun teknik günlükleri",
   "setup.advanced": "Gelişmiş seçenekler",
-  "setup.tab.installed": "Kuruldu · yeniden çalıştır",
-  "setup.rerun": "Kurulumu yeniden çalıştır",
+  "setup.tab.installed": "Kuruldu",
   "installer.chain.uv": "uv",
   "installer.chain.python": "Python 3.12",
   "installer.chain.comfy": "ComfyUI",
@@ -158,5 +154,12 @@
   "settings.language.custom": "Sistem dili {name}; yeniden ona uymak için ilk girişi seçin.",
   "settings.language.auto": "Sistem dilini otomatik olarak izler.",
   "settings.button": "Ayarlar ve arka uç",
-  "setup.backendLifecycle.restart": "Arka ucu yeniden başlat"
+  "setup.backendLifecycle.restart": "Arka ucu yeniden başlat",
+  "setup.upgrade": "Yükselt",
+  "setup.upgradeHelp": "Arka ucu durdurur, ComfyUI ve DaSiWa düğümlerini günceller ve venv içindeki Python paketlerini yükseltir (Torch sabit kalır).",
+  "setup.reinstall": "Kurulumu yeniden çalıştır",
+  "setup.reinstallTitle": "Kurulum yeniden çalıştırılsın mı?",
+  "setup.reinstallWarning": "Bu, kurulumun üzerine yazar: arka uç durdurulur, Python ortamı (venv) silinip yeniden oluşturulur, ComfyUI ve DaSiWa düğümleri en son sürüme sıfırlanır (yerel kod değişiklikleri kaybolur). Modeller, girdiler, çıktılar, iş akışları ve ayarlar korunur.",
+  "setup.reinstallCancel": "İptal",
+  "setup.reinstallConfirm": "Üzerine yaz ve yeniden kur"
 }

@@ -130,14 +130,14 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed).not.toHaveBeenCalled();await act(async()=>completion.resolve({state:'succeeded',stepId:null,logs:[],error:null}));
   expect(installed).toHaveBeenCalledExactlyOnceWith(['director','forge','refmods','continuity']);
  });
- it('does not replay a previous success for an edited or newly prepared plan',async()=>{
+ it('does not replay a previous success when the installer is reopened',async()=>{
   nativeFixture();const installed=vi.fn();let id=0;
   vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?{...plan((args as {request:NativeInstallRequest}).request),id:`plan-${++id}`}:{state:'succeeded',stepId:null,logs:[],error:null});
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
   expect(JSON.parse(localStorage.getItem('deas.pref.install.root')!)).toBe(request.storagePath);expect(screen.queryByLabelText('Director')).toBeNull();open();open();
-  fireEvent.click(screen.getByLabelText('Director'));expect(installed).toHaveBeenCalledTimes(1);
-  await screen.findByRole('button',{name:'Run install again'});expect(installed).toHaveBeenCalledTimes(1);
-  click('Run install again');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual([]);
+  // Re-runs moved to Settings & Backend: reopening the installer neither shows the review nor replays success.
+  expect(screen.queryByLabelText('Director')).toBeNull();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
+  await new Promise(r=>setTimeout(r,300));expect(installed).toHaveBeenCalledTimes(1);
  });
  it('remembers a successful install root and reopens the Studio while its manifest exists',async()=>{
   nativeFixture();localStorage.setItem('deas.pref.install.root','"/custom/env"');
@@ -233,7 +233,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
-  await ready();click('Start install');await screen.findByText(/Installed · click to re-run/);
+  await ready();click('Start install');await screen.findByText('Installed');
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
   fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));
   const settings=screen.getByRole('region',{name:'Settings'});
@@ -241,7 +241,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   fireEvent.click(settings.querySelector('button')!);await screen.findByText('/new/models');click('Save folders');
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_settings_write',{root:request.storagePath,folders:{models:'/new/models'}}));
   await new Promise(r=>setTimeout(r,350));expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan')).toHaveLength(before);
-  expect(screen.getByText(/Installed · click to re-run/)).toBeTruthy();
+  expect(screen.getByText('Installed')).toBeTruthy();
  });
  it('cancels only the native installation and shows returned status, not simulated progress',async()=>{
   nativeFixture();await ready();click('Start install');await screen.findByText('native fixture log');

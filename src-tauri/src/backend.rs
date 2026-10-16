@@ -16,7 +16,6 @@ use std::{
 pub struct Status {
     pub state: String,
     pub endpoint: Option<String>,
-    pub logs: Vec<String>,
     pub error: Option<String>,
     pub generation_ready: bool,
 }
@@ -25,7 +24,6 @@ impl Default for Status {
         Self {
             state: "stopped".into(),
             endpoint: None,
-            logs: vec![],
             error: None,
             generation_ready: false,
         }
@@ -115,6 +113,9 @@ pub(crate) fn read_owned(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 impl Approved {
+    pub(crate) fn plan(&self) -> &Plan {
+        &self.plan
+    }
     pub(crate) fn capture(plan: &Plan) -> Result<Self, String> {
         let root = Path::new(&plan.request.storage_path);
         let expected = serde_json::to_value(plan).map_err(|e| e.to_string())?;
@@ -264,11 +265,8 @@ pub(crate) fn clean_log_line(bytes: &[u8]) -> String {
     }
     out.trim_end().to_string()
 }
-fn log(inner: &mut Inner, text: String) {
-    if inner.status.logs.len() >= 300 {
-        inner.status.logs.remove(0);
-    }
-    inner.status.logs.push(text.chars().take(4096).collect());
+fn log(text: &str) {
+    crate::logs::push(crate::logs::Source::Deas, text);
 }
 // Keep the leader unreaped until its private group is killed: no PID/group reuse window.
 #[cfg(target_os = "linux")]
@@ -338,8 +336,8 @@ fn terminate(inner: &mut Inner) {
         }
         let _ = child.kill();
         match child.wait() {
-            Ok(status) => log(inner, format!("Owned child exited: {status}")),
-            Err(error) => log(inner, format!("Owned child reap failed: {error}")),
+            Ok(status) => log(&format!("Owned child exited: {status}")),
+            Err(error) => log(&format!("Owned child reap failed: {error}")),
         }
     }
     inner.environment_lock = None;
@@ -348,7 +346,7 @@ fn terminate(inner: &mut Inner) {
 fn fail(inner: &mut Inner, error: String) {
     terminate(inner);
     inner.status.state = "failed".into();
-    log(inner, error.clone());
+    log(&error);
     inner.status.error = Some(error);
 }
 // Require the listening socket to belong to the exact unreaped child, not just
@@ -565,10 +563,9 @@ impl Lifecycle {
             state: "starting".into(),
             ..Status::default()
         };
-        log(
-            &mut inner,
-            format!("Starting owned backend on 127.0.0.1:{port}; API readiness only"),
-        );
+        log(&format!(
+            "Starting owned backend on 127.0.0.1:{port}; API readiness only"
+        ));
         let stdout = child.stdout.take().ok_or("Missing owned stdout")?;
         let stderr = child.stderr.take().ok_or("Missing owned stderr")?;
         inner.child = Some(child);
@@ -629,13 +626,13 @@ fn capture<R: std::io::Read + Send + 'static>(reader: R, inner: Arc<Mutex<Inner>
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
-            let mut guard = locked(&inner);
+            let guard = locked(&inner);
             if guard.serial != serial {
                 break;
             }
             let text = clean_log_line(&line);
             if !text.is_empty() {
-                log(&mut guard, text);
+                crate::logs::push(crate::logs::Source::Comfyui, &text);
             }
         }
     });
@@ -741,14 +738,11 @@ fn supervise(inner: Arc<Mutex<Inner>>, serial: u64, port: u16, timeout: Duration
         {
             guard.status.state = "running".into();
             guard.status.endpoint = Some(base.to_string());
-            log(
-                &mut guard,
-                "Owned ComfyUI API responded; generation/model readiness remains unverified".into(),
-            );
-            // Continue monitoring liveness; readiness is not generation acceptance.
+            log("Owned ComfyUI API responded; generation/model readiness remains unverified");
+            // Liveness only; the UI polls once a second too, so 100 ms would be 10x wasted /proc scans.
             drop(guard);
             loop {
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_secs(1));
                 let mut g = locked(&inner);
                 if g.serial != serial || g.child.is_none() {
                     return;

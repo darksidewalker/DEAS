@@ -1,6 +1,5 @@
 {
   "setup.backendAutostart": "自动启动后端",
-  "setup.backendAutostartHelp": "打开应用或环境时自动启动已检查的 DEAS 后端。关闭此选项不会停止正在运行的后端。",
   "setup.autostartOn": "开启",
   "setup.autostartOff": "关闭",
   "setup.useExisting": "使用现有环境",
@@ -37,7 +36,6 @@
   "setup.install": "安装已确认的计划",
   "setup.installStatus": "原生安装状态",
   "setup.installedNotReady": "环境部署及其必需的运行时检查已成功。工作室能力、模型和生成功能是否就绪仍未验证。",
-  "setup.logs": "安装器技术日志",
   "setup.technicalError": "技术错误",
   "setup.cancel": "取消安装",
   "setup.error.backend": "请输入不含凭据、空格、查询参数或片段标识的 HTTP/S URL。",
@@ -114,10 +112,8 @@
   "setup.backendLifecycle.refresh": "刷新后端状态",
   "setup.backendLifecycle.stop": "停止自有后端",
   "setup.backendLifecycle.inspect": "检查运行中的后端",
-  "setup.backendLifecycle.logs": "后端技术日志",
   "setup.advanced": "高级选项",
-  "setup.tab.installed": "已安装 · 点击重新运行",
-  "setup.rerun": "重新运行安装",
+  "setup.tab.installed": "已安装",
   "installer.chain.uv": "uv",
   "installer.chain.python": "Python 3.12",
   "installer.chain.comfy": "ComfyUI",
@@ -158,5 +154,12 @@
   "settings.language.custom": "系统语言为 {name}；选择第一项即可重新跟随系统语言。",
   "settings.language.auto": "自动跟随系统语言。",
   "settings.button": "设置与后端",
-  "setup.backendLifecycle.restart": "重启后端"
+  "setup.backendLifecycle.restart": "重启后端",
+  "setup.upgrade": "升级",
+  "setup.upgradeHelp": "停止后端，更新 ComfyUI 和 DaSiWa 节点，并升级 venv 中的 Python 包（Torch 版本保持固定）。",
+  "setup.reinstall": "重新运行安装",
+  "setup.reinstallTitle": "重新运行安装？",
+  "setup.reinstallWarning": "这将覆盖安装：后端会被停止，Python 环境（venv）会被删除并重建，ComfyUI 和 DaSiWa 节点会重置为最新版本（本地代码修改将丢失）。模型、输入、输出、工作流和设置会保留。",
+  "setup.reinstallCancel": "取消",
+  "setup.reinstallConfirm": "覆盖并重新安装"
 }

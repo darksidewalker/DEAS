@@ -1,6 +1,5 @@
 {
   "setup.backendAutostart": "Auto-start backend",
-  "setup.backendAutostartHelp": "Automatically start the checked DEAS backend after opening the app or an environment. Switching off does not stop a running backend.",
   "setup.autostartOn": "On",
   "setup.autostartOff": "Off",
   "setup.useExisting": "Use existing environment",
@@ -37,7 +36,6 @@
   "setup.install": "Install confirmed plan",
   "setup.installStatus": "Native installation status",
   "setup.installedNotReady": "Provisioning and its required runtime checks succeeded. Studio capabilities, models and generation readiness remain unverified.",
-  "setup.logs": "Installer technical logs",
   "setup.technicalError": "Technical error",
   "setup.cancel": "Cancel installation",
   "setup.error.backend": "Enter an HTTP/S URL without credentials, spaces, query or fragment.",
@@ -114,10 +112,8 @@
   "setup.backendLifecycle.refresh": "Refresh backend status",
   "setup.backendLifecycle.stop": "Stop owned backend",
   "setup.backendLifecycle.inspect": "Inspect running backend",
-  "setup.backendLifecycle.logs": "Backend technical logs",
   "setup.advanced": "Advanced options",
-  "setup.tab.installed": "Installed · click to re-run",
-  "setup.rerun": "Run install again",
+  "setup.tab.installed": "Installed",
   "installer.chain.uv": "uv",
   "installer.chain.python": "Python 3.12",
   "installer.chain.comfy": "ComfyUI",
@@ -158,5 +154,12 @@
   "settings.language.custom": "The system language is {name}; choose the first entry to follow it again.",
   "settings.language.auto": "Follows the system language automatically.",
   "settings.button": "Settings & Backend",
-  "setup.backendLifecycle.restart": "Restart backend"
+  "setup.backendLifecycle.restart": "Restart backend",
+  "setup.upgrade": "Upgrade",
+  "setup.upgradeHelp": "Stops the backend, updates ComfyUI and the DaSiWa nodes and upgrades the Python packages in the venv (Torch stays pinned).",
+  "setup.reinstall": "Re-run installation",
+  "setup.reinstallTitle": "Re-run installation?",
+  "setup.reinstallWarning": "This overwrites the installation: the backend is stopped, the Python environment (venv) is deleted and rebuilt, and ComfyUI and the DaSiWa nodes are reset to their latest version (local code changes are lost). Models, inputs, outputs, workflows and settings are kept.",
+  "setup.reinstallCancel": "Cancel",
+  "setup.reinstallConfirm": "Overwrite and reinstall"
 }

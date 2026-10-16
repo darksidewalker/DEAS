@@ -57,7 +57,7 @@ test("language selection updates app, setup, studio metadata and aria without lo
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","studio","optional-downloads"]);
+  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","logs","studio","optional-downloads"]);
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));

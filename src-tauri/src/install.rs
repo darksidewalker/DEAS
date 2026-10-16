@@ -160,6 +160,8 @@ struct Inner {
     plans: HashMap<String, Plan>,
     approved: Option<crate::backend::Approved>,
     reopen: Option<(String, crate::backend::Approved)>,
+    // Environment of the last upgrade/reinstall, so a failed or cancelled run can be repaired.
+    repair: Option<Plan>,
     status: Status,
     cancel: Arc<AtomicBool>,
 }
@@ -167,6 +169,11 @@ fn lock(engine: &Arc<Mutex<Inner>>) -> std::sync::MutexGuard<'_, Inner> {
     engine.lock().unwrap_or_else(|e| e.into_inner())
 }
 fn log(engine: &Arc<Mutex<Inner>>, text: String) {
+    crate::logs::push(crate::logs::Source::Deas, &text);
+    keep(engine, text);
+}
+/// Status tail only; the full history lives in `crate::logs`.
+fn keep(engine: &Arc<Mutex<Inner>>, text: String) {
     let mut g = lock(engine);
     if g.status.logs.len() >= MAX_LOGS {
         g.status.logs.remove(0);
@@ -467,30 +474,84 @@ impl Engine {
             state: "running".into(),
             ..Status::default()
         };
-        let cancel = g.cancel.clone();
-        let inner = self.inner.clone();
-        tauri::async_runtime::spawn(async move {
-            let result = provision(&plan, &git, &inner, &cancel).await;
-            let result = result.and_then(|()| crate::backend::Approved::capture(&plan));
-            let mut g = lock(&inner);
-            if !cancel.load(Ordering::SeqCst) {
-                if let Ok(approved) = &result {
-                    g.approved = Some(approved.clone());
-                }
-            }
-            g.status.state = if cancel.load(Ordering::SeqCst) {
-                "cancelled"
-            } else if result.is_ok() {
-                "succeeded"
-            } else {
-                "failed"
-            }
-            .into();
-            g.status.error = result.err();
-            g.status.step_id = None;
-        });
+        launch(self.inner.clone(), g.cancel.clone(), plan, git, None);
         Ok(g.status.clone())
     }
+    /// Update (`reinstall=false`) or rebuild the venv of (`reinstall=true`) the open environment.
+    fn update(&self, reinstall: bool, confirmed: bool) -> Result<Status, String> {
+        if !confirmed {
+            return Err("Explicit confirmation is required".into());
+        }
+        let mut g = lock(&self.inner);
+        if g.status.state == "running" {
+            return Err("A native installation is already running".into());
+        }
+        let plan = match &g.approved {
+            Some(approved) => {
+                approved.validate()?;
+                approved.plan().clone()
+            }
+            None => g
+                .repair
+                .clone()
+                .ok_or("No installed DEAS environment is open")?,
+        };
+        let git = git_path().ok_or("Git is not available; install Git first")?;
+        // The user asked to change this environment: stop only our own backend first.
+        if self.backend.active() {
+            self.backend.stop();
+        }
+        g.repair = Some(plan.clone());
+        g.approved = None;
+        g.cancel = Arc::new(AtomicBool::new(false));
+        g.status = Status {
+            state: "running".into(),
+            ..Status::default()
+        };
+        launch(
+            self.inner.clone(),
+            g.cancel.clone(),
+            plan,
+            git,
+            Some(reinstall),
+        );
+        Ok(g.status.clone())
+    }
+}
+/// Run provisioning (`refresh=None`) or an update of the existing environment in the background.
+fn launch(
+    inner: Arc<Mutex<Inner>>,
+    cancel: Arc<AtomicBool>,
+    plan: Plan,
+    git: PathBuf,
+    refresh: Option<bool>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let result = match refresh {
+            None => provision(&plan, &git, &inner, &cancel).await,
+            Some(reinstall) => update(&plan, &git, &inner, &cancel, reinstall).await,
+        };
+        let result = result.and_then(|()| crate::backend::Approved::capture(&plan));
+        let mut g = lock(&inner);
+        if !cancel.load(Ordering::SeqCst) {
+            if let Ok(approved) = &result {
+                g.approved = Some(approved.clone());
+            }
+        }
+        g.status.state = if cancel.load(Ordering::SeqCst) {
+            "cancelled"
+        } else if result.is_ok() {
+            "succeeded"
+        } else {
+            "failed"
+        }
+        .into();
+        if let Err(error) = &result {
+            crate::logs::push(crate::logs::Source::Deas, &format!("ERROR: {error}"));
+        }
+        g.status.error = result.err();
+        g.status.step_id = None;
+    });
 }
 #[tauri::command]
 pub fn native_install_plan(
@@ -524,6 +585,22 @@ pub fn native_install_open(
         );
     }
     engine.open_existing(&plan_id, confirmed)
+}
+#[tauri::command]
+pub fn native_install_update(
+    reinstall: bool,
+    confirmed: bool,
+    engine: tauri::State<'_, Engine>,
+    operations: tauri::State<'_, crate::FolderOperations>,
+    downloads: tauri::State<'_, crate::downloads::DownloadEngine>,
+) -> Result<Status, String> {
+    let _guard = operations.enter()?;
+    if downloads.status()?.state == "running" {
+        return Err(
+            "Wait for downloads before updating the environment; no download was stopped".into(),
+        );
+    }
+    engine.update(reinstall, confirmed)
 }
 #[tauri::command]
 pub fn native_install_status(engine: tauri::State<'_, Engine>) -> Status {
@@ -612,7 +689,8 @@ async fn capture<R: AsyncRead + Unpin>(
         }
         let text = crate::backend::clean_log_line(&line);
         if !text.is_empty() {
-            log(&inner, text);
+            crate::logs::push(crate::logs::Source::Cli, &text);
+            keep(&inner, text);
         }
         if collected.len() < 262144 {
             let take = n.min(262144 - collected.len());
@@ -867,17 +945,30 @@ async fn checkout(
     inner: &Arc<Mutex<Inner>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<String, String> {
-    std::fs::create_dir(target).map_err(|e| e.to_string())?;
-    run(git, &["init", "."], target, root, inner, cancel).await?;
-    run(
-        git,
-        &["remote", "add", "origin", url],
-        target,
-        root,
-        inner,
-        cancel,
-    )
-    .await?;
+    if target.join(".git").is_dir() {
+        // Existing owned checkout (upgrade/reinstall): point origin at the canonical URL again.
+        run(
+            git,
+            &["remote", "set-url", "origin", url],
+            target,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+    } else {
+        std::fs::create_dir(target).map_err(|e| e.to_string())?;
+        run(git, &["init", "."], target, root, inner, cancel).await?;
+        run(
+            git,
+            &["remote", "add", "origin", url],
+            target,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+    }
     run(
         git,
         &["fetch", "--depth", "1", "origin", reference],
@@ -893,6 +984,7 @@ async fn checkout(
             "-c",
             "advice.detachedHead=false",
             "checkout",
+            "--force",
             "--detach",
             "FETCH_HEAD",
         ],
@@ -1039,25 +1131,102 @@ async fn provision(
         cancel,
     )
     .await?;
-    step(inner, "venv");
-    let venv = root.join("venv");
-    run(
-        &uv,
-        &[
-            "venv",
-            "--managed-python",
-            "--python",
-            "3.12",
-            venv.to_str().ok_or("Path must be UTF-8")?,
-        ],
-        &root,
+    packages(plan, git, &root, &uv, &comfy, revision, true, inner, cancel).await?;
+    log(inner,"Provisioning checks succeeded; backend is not launched and generation readiness is not verified".into());
+    Ok(())
+}
+/// Upgrade or reinstall an existing owned environment in place: ComfyUI and nodepack are
+/// fetched again, packages upgraded within the planned Torch profile, then re-verified.
+/// Models, inputs, outputs, workflows and settings are left untouched.
+async fn update(
+    plan: &Plan,
+    git: &Path,
+    inner: &Arc<Mutex<Inner>>,
+    cancel: &Arc<AtomicBool>,
+    reinstall: bool,
+) -> Result<(), String> {
+    let root = std::fs::canonicalize(&plan.request.storage_path).map_err(|e| e.to_string())?;
+    let uv = root.join(if cfg!(windows) {
+        "runtime/uv.exe"
+    } else {
+        "runtime/uv"
+    });
+    if !uv.is_file() || !root.join("ComfyUI/.git").is_dir() {
+        return Err("Environment is missing its managed uv or ComfyUI checkout".into());
+    }
+    cancelled(cancel)?;
+    step(inner, "comfy");
+    let comfy = root.join("ComfyUI");
+    let revision = checkout(
+        git,
+        COMFY,
+        &plan.request.comfy_ref,
+        &comfy,
         &root,
         inner,
         cancel,
     )
     .await?;
+    packages(
+        plan, git, &root, &uv, &comfy, revision, reinstall, inner, cancel,
+    )
+    .await?;
+    log(
+        inner,
+        if reinstall {
+            "Reinstallation checks succeeded; generation readiness is not verified"
+        } else {
+            "Upgrade checks succeeded; generation readiness is not verified"
+        }
+        .into(),
+    );
+    Ok(())
+}
+#[allow(clippy::too_many_arguments)]
+async fn packages(
+    plan: &Plan,
+    git: &Path,
+    root: &Path,
+    uv: &Path,
+    comfy: &Path,
+    revision: String,
+    fresh_venv: bool,
+    inner: &Arc<Mutex<Inner>>,
+    cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
+    step(inner, "venv");
+    let venv = root.join("venv");
     let python = root.join(VENV_PYTHON);
-    own_interpreter(&root, &python)?;
+    if fresh_venv {
+        if let Ok(meta) = std::fs::symlink_metadata(&venv) {
+            if !meta.is_dir() {
+                return Err("venv is not a directory; refusing to replace it".into());
+            }
+            log(
+                inner,
+                "Removing the existing venv for a clean reinstall".into(),
+            );
+            std::fs::remove_dir_all(&venv).map_err(|e| format!("Cannot remove old venv: {e}"))?;
+        }
+        run(
+            uv,
+            &[
+                "venv",
+                "--managed-python",
+                "--python",
+                "3.12",
+                venv.to_str().ok_or("Path must be UTF-8")?,
+            ],
+            root,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+        own_interpreter(root, &python)?;
+    } else if !python.is_file() {
+        return Err("The environment has no venv; use Re-run installation".into());
+    }
     let py = python.to_str().ok_or("Python path must be UTF-8")?;
     let constraint = root.join("constraints.txt");
     let selected = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
@@ -1075,7 +1244,7 @@ async fn provision(
     std::fs::write(&constraint, constraints).map_err(|e| e.to_string())?;
     step(inner, "torch");
     run(
-        &uv,
+        uv,
         &[
             "pip",
             "install",
@@ -1087,15 +1256,15 @@ async fn provision(
             &selected.packages[1],
             &selected.packages[2],
         ],
-        &root,
-        &root,
+        root,
+        root,
         inner,
         cancel,
     )
     .await?;
     step(inner, "requirements");
     run(
-        &uv,
+        uv,
         &[
             "pip",
             "install",
@@ -1105,11 +1274,12 @@ async fn provision(
             &selected.index_url,
             "--constraint",
             constraint.to_str().ok_or("Constraint path must be UTF-8")?,
+            "--upgrade",
             "-r",
             "requirements.txt",
         ],
-        &comfy,
-        &root,
+        comfy,
+        root,
         inner,
         cancel,
     )
@@ -1127,13 +1297,13 @@ async fn provision(
             std::fs::create_dir(&nodes).map_err(|e| e.to_string())?;
         }
         let node = nodes.join("ComfyUI-DaSiWa-Nodes");
-        node_revision = Some(checkout(git, NODEPACK, "main", &node, &root, inner, cancel).await?);
+        node_revision = Some(checkout(git, NODEPACK, "main", &node, root, inner, cancel).await?);
         if node.join("requirements.txt").is_file() {
             let requirements = std::fs::read_to_string(node.join("requirements.txt"))
                 .map_err(|e| format!("Cannot read required node dependencies: {e}"))?;
             if let Some(requirement) = nvidia_vfx_requirement(&requirements) {
                 run(
-                    &uv,
+                    uv,
                     &[
                         "pip",
                         "install",
@@ -1148,7 +1318,7 @@ async fn provision(
                         requirement,
                     ],
                     &node,
-                    &root,
+                    root,
                     inner,
                     cancel,
                 )
@@ -1167,8 +1337,8 @@ async fn provision(
                 constraint.to_str().ok_or("Invalid constraint path")?,
             ];
             args.extend(wheel_args.iter().map(String::as_str));
-            args.extend(["-r", "requirements.txt"]);
-            run(&uv, &args, &node, &root, inner, cancel)
+            args.extend(["--upgrade", "-r", "requirements.txt"]);
+            run(uv, &args, &node, root, inner, cancel)
                 .await
                 .map_err(|e| format!("Required node dependencies failed (llama-cpp-python requires a matching backend wheel; no source/CPU fallback): {e}"))?;
         }
@@ -1188,8 +1358,8 @@ async fn provision(
             &profile_json,
             &hardware_json,
         ],
-        &comfy,
-        &root,
+        comfy,
+        root,
         inner,
         cancel,
     )
@@ -1210,8 +1380,8 @@ async fn provision(
                 "core"
             },
         ],
-        &comfy,
-        &root,
+        comfy,
+        root,
         inner,
         cancel,
     )
@@ -1223,7 +1393,6 @@ async fn provision(
         serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    log(inner,"Provisioning checks succeeded; backend is not launched and generation readiness is not verified".into());
     Ok(())
 }
 
@@ -1616,6 +1785,48 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(tmp.path().join("checkout/fixture.txt")).unwrap(),
             "real fixture"
+        );
+        // Upgrade: same target again picks up the new commit, overwrites tracked edits, keeps untracked data.
+        std::fs::write(source.join("fixture.txt"), "updated").unwrap();
+        std::fs::write(tmp.path().join("checkout/fixture.txt"), "local edit").unwrap();
+        std::fs::write(tmp.path().join("checkout/model.safetensors"), "user data").unwrap();
+        run(
+            &git,
+            &[
+                "-c",
+                "user.name=DEAS test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-am",
+                "update",
+            ],
+            &source,
+            tmp.path(),
+            &inner,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        let updated = checkout(
+            &git,
+            source.to_str().unwrap(),
+            "HEAD",
+            &tmp.path().join("checkout"),
+            tmp.path(),
+            &inner,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        assert_ne!(updated, rev);
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("checkout/fixture.txt")).unwrap(),
+            "updated"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("checkout/model.safetensors")).unwrap(),
+            "user data"
         );
         cancel.store(true, Ordering::SeqCst);
         assert!(run(&git, &["status"], &source, tmp.path(), &inner, &cancel)

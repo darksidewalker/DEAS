@@ -408,7 +408,7 @@ select:hover {
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-dasharray: 8 92;
-  animation: road-light 8s linear infinite;
+  animation: road-light 8s linear 3; /* finite: endless animations keep WebKitGTK repainting (CPU) */
   opacity: .48;
 }
 .neural-road.is-active .neural-road-light { stroke: #d6b397; opacity: .8; }
@@ -416,7 +416,7 @@ select:hover {
 @keyframes road-light { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 .neural-blob { position: relative; flex: 0 0 144px; width: 144px; max-width: 100%; min-height: 96px; border: 1px solid #7c9cac4d; border-radius: 50%; color: var(--chalk); background: linear-gradient(145deg, #303d43, #20262b 78%); overflow-wrap: anywhere; }
 /* Uniform oval with a slow breathing border instead of per-node random blob shapes. */
-.neural-blob::before { content: ""; position: absolute; inset: -2px; border: 1px solid #7c9cac66; border-radius: inherit; background: inherit; pointer-events: none; animation: blob-breathe 4s ease-in-out infinite; }
+.neural-blob::before { content: ""; position: absolute; inset: -2px; border: 1px solid #7c9cac66; border-radius: inherit; background: inherit; pointer-events: none; animation: blob-breathe 4s ease-in-out 3; }
 .neural-blob:hover::before, .neural-blob:focus-within::before { border-color: var(--copper); }
 @keyframes blob-breathe { 0%, 100% { border-color: #7c9cac40; box-shadow: 0 0 0 0 #7c9cac00; } 50% { border-color: #7c9cac99; box-shadow: 0 0 10px 1px #7c9cac22; } }
 @media (prefers-reduced-motion: reduce) { .neural-blob::before { animation: none; } }

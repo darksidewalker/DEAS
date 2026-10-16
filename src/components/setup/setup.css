@@ -85,7 +85,7 @@
 .aio-tab { display: inline-flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .6rem 1rem; border: 1px solid #7c9cac4d; border-bottom: 0; border-radius: .6rem .6rem 0 0; background: #1c2427; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; }
 .aio-tab small { font-size: .65rem; opacity: .8; }
 .aio-tab[aria-selected="true"] { background: var(--surface, #26363c); color: var(--chalk); border-color: var(--copper); }
-.aio-tab-installer.is-pending { color: var(--chalk); border-color: #d9706b; animation: aio-tab-glow 2.4s ease-in-out infinite; }
+.aio-tab-installer.is-pending { color: var(--chalk); border-color: #d9706b; animation: aio-tab-glow 2.4s ease-in-out 3; }
 .aio-tab-installer.is-done { background: #161c1f; color: var(--muted); }
 .aio-tab-check { color: #83c19a; margin-right: .25rem; }
 @keyframes aio-tab-glow { 0%, 100% { box-shadow: 0 0 0 0 #d9706b00; } 50% { box-shadow: 0 0 12px 2px #d9706b80; } }
@@ -117,3 +117,6 @@
 .aio-tab.aio-head small { font-size: .62rem; }
 .aio-tab.aio-head[aria-pressed="true"] { background: var(--surface, #26363c); color: var(--chalk); border-color: var(--copper); }
 .aio-decision-area.is-single { grid-template-columns: minmax(0, 1fr); }
+.aio-danger { border-color: #d9706b; background: #3b1d1c; color: #ffb4ad; }
+.aio-danger:hover:not(:disabled) { background: #5a2624; color: #fff; }
+.aio-last-log { font-family: ui-monospace, monospace; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

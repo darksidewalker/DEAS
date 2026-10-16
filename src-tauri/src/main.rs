@@ -53,6 +53,9 @@ fn main() {
             deas::native_install_open,
             deas::native_install_status,
             deas::native_install_cancel,
+            deas::native_install_update,
+            deas::native_logs,
+            deas::native_logs_export,
             deas::native_backend_start,
             deas::native_backend_status,
             deas::native_backend_stop

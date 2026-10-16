@@ -133,7 +133,9 @@ fn readiness_timeout_kills_only_owned_process() {
     assert!(status.endpoint.is_none());
     assert!(!status.generation_ready);
     assert!(!Path::new(&format!("/proc/{pid}")).exists());
-    assert!(status.logs.iter().any(|text| text.contains("not an API")));
+    assert!(crate::logs::native_logs(0)
+        .iter()
+        .any(|entry| entry.text.contains("not an API")));
 }
 #[test]
 fn startup_failure_retains_real_logs() {
@@ -145,11 +147,9 @@ fn startup_failure_retains_real_logs() {
     assert!(status.error.unwrap().contains("exited"));
     assert!(!status.generation_ready);
     let deadline = Instant::now() + Duration::from_secs(1);
-    while !lifecycle
-        .status()
-        .logs
+    while !crate::logs::native_logs(0)
         .iter()
-        .any(|text| text.contains("fixture startup failed"))
+        .any(|entry| entry.text.contains("fixture startup failed"))
     {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
@@ -327,7 +327,7 @@ fn stop_during_probe_does_not_allow_stale_running_status() {
 fn exact_ipc_status_schema_never_claims_generation() {
     assert_eq!(
         serde_json::to_value(Status::default()).unwrap(),
-        serde_json::json!({"state":"stopped","endpoint":null,"logs":[],"error":null,"generationReady":false})
+        serde_json::json!({"state":"stopped","endpoint":null,"error":null,"generationReady":false})
     );
 }
 #[test]

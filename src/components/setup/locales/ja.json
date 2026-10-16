@@ -1,6 +1,5 @@
 {
   "setup.backendAutostart": "バックエンドを自動起動",
-  "setup.backendAutostartHelp": "アプリまたは環境を開いたときに、確認済みのDEASバックエンドを自動起動します。オフにしても実行中のバックエンドは停止しません。",
   "setup.autostartOn": "オン",
   "setup.autostartOff": "オフ",
   "setup.useExisting": "既存の環境を使用",
@@ -37,7 +36,6 @@
   "setup.install": "承認済みの計画をインストール",
   "setup.installStatus": "ネイティブインストールの状態",
   "setup.installedNotReady": "環境構築と必要なランタイム検証に成功しました。スタジオ機能、モデル、生成の準備完了は未検証です。",
-  "setup.logs": "インストーラーの技術ログ",
   "setup.technicalError": "技術的なエラー",
   "setup.cancel": "インストールをキャンセル",
   "setup.error.backend": "認証情報、空白、クエリ、フラグメントを含まない HTTP/S URL を入力してください。",
@@ -114,10 +112,8 @@
   "setup.backendLifecycle.refresh": "バックエンドの状態を更新",
   "setup.backendLifecycle.stop": "管理対象バックエンドを停止",
   "setup.backendLifecycle.inspect": "実行中のバックエンドを確認",
-  "setup.backendLifecycle.logs": "バックエンドの技術ログ",
   "setup.advanced": "詳細オプション",
-  "setup.tab.installed": "インストール済み · 再実行",
-  "setup.rerun": "インストールを再実行",
+  "setup.tab.installed": "インストール済み",
   "installer.chain.uv": "uv",
   "installer.chain.python": "Python 3.12",
   "installer.chain.comfy": "ComfyUI",
@@ -158,5 +154,12 @@
   "settings.language.custom": "システムの言語は {name} です。最初の項目を選ぶと再びそれに従います。",
   "settings.language.auto": "システムの言語に自動で従います。",
   "settings.button": "設定とバックエンド",
-  "setup.backendLifecycle.restart": "バックエンドを再起動"
+  "setup.backendLifecycle.restart": "バックエンドを再起動",
+  "setup.upgrade": "アップグレード",
+  "setup.upgradeHelp": "バックエンドを停止し、ComfyUI と DaSiWa ノードを更新し、venv の Python パッケージをアップグレードします（Torch は固定のまま）。",
+  "setup.reinstall": "インストールを再実行",
+  "setup.reinstallTitle": "インストールを再実行しますか？",
+  "setup.reinstallWarning": "インストールを上書きします：バックエンドを停止し、Python 環境（venv）を削除して再構築し、ComfyUI と DaSiWa ノードを最新版にリセットします（ローカルのコード変更は失われます）。モデル、入力、出力、ワークフロー、設定は保持されます。",
+  "setup.reinstallCancel": "キャンセル",
+  "setup.reinstallConfirm": "上書きして再インストール"
 }

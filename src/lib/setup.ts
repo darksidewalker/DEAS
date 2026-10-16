@@ -133,7 +133,7 @@ export interface NativeHardwareDetection {backend: 'nvidia'|null; hardware?:Reco
 export interface NativeInstallRequest {storagePath:string;backend:Backend;features:FeatureId[];options:InstallOptions;comfyRef:string;folders?:import('./settings').Folders}
 export interface NativeInstallPlan {id:string;reopenId?:string;request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:{vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string}|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
 export interface NativeInstallStatus {state:'idle'|'running'|'succeeded'|'failed'|'cancelled';stepId:string|null;logs:string[];error:string|null}
-export interface NativeBackendStatus {state:'starting'|'running'|'failed'|'stopped';endpoint:string|null;logs:string[];error:string|null;generationReady:false}
+export interface NativeBackendStatus {state:'starting'|'running'|'failed'|'stopped';endpoint:string|null;error:string|null;generationReady:false}
 export type SetupPlan = {version:2;provisioningAvailable:false} & ({status:'NOT INSTALLED';route:'managed'} & NativeInstallRequest | {status:'NOT INSPECTED';route:'existing';baseUrl:string});
 export function setupPlan(state: SetupState): SetupPlan|null {
  if(activeSetupStep(state)!=='review'||! /^[\w./-]{1,120}$/.test(state.comfyRef)) return null;

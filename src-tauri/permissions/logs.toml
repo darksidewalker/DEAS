@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-logs"
+description = "Read the in-memory app/backend/installer log and save a user-chosen text export."
+commands.allow = ["native_logs", "native_logs_export"]
