@@ -123,6 +123,11 @@ fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(crate::win::CREATE_NO_WINDOW);
+    }
     let mut child = command.spawn().map_err(|e| format!("NVIDIA_DRIVER: cannot run nvidia-smi ({e}); install/repair the NVIDIA driver and re-plan"))?;
     let stdout = child
         .stdout

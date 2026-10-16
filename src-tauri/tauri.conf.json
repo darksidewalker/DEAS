@@ -16,5 +16,5 @@
       "assetProtocol": {"enable": true, "scope": {"allow": ["**"], "requireLiteralLeadingDot": false}}
     }
   },
-  "bundle": {"active":true,"targets":["deb","appimage"],"icon":["icons/icon.png","icons/icon.ico"]}
+  "bundle": {"active":true,"targets":["deb","appimage","nsis"],"icon":["icons/icon.png","icons/icon.ico"]}
 }

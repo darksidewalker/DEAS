@@ -1,4 +1,6 @@
 pub mod auth;
+#[cfg(windows)]
+pub(crate) mod win;
 pub use auth::{native_auth_remove, native_auth_restore, native_auth_set, native_auth_status};
 pub mod downloads;
 pub use downloads::{

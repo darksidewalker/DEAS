@@ -1,6 +1,6 @@
 //! Explicit lifecycle for the current app-owned, successfully provisioned environment.
-//! Linux only, matching native provisioning. No target/PID/URL IPC inputs.
-use crate::install::{Backend, Plan};
+//! Linux and Windows, matching native provisioning. No target/PID/URL IPC inputs.
+use crate::install::{Backend, Plan, VENV_BIN, VENV_PYTHON};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -73,9 +73,17 @@ fn identity(path: &Path) -> Result<(u64, u64, u32), String> {
     }
     Ok((meta.dev(), meta.ino(), meta.uid()))
 }
-#[cfg(not(target_os = "linux"))]
+// Windows: handle identity only; ownership is ACL-based and the environment root was
+// created by this app, so the uid slot is always 0.
+#[cfg(windows)]
+fn identity(path: &Path) -> Result<(u64, u64, u32), String> {
+    safe_path(path)?;
+    let (volume, index) = crate::win::identity(&crate::win::open_no_follow(path)?)?;
+    Ok((volume, index, 0))
+}
+#[cfg(not(any(target_os = "linux", windows)))]
 fn identity(_: &Path) -> Result<(u64, u64, u32), String> {
-    Err("Owned lifecycle supports Linux only".into())
+    Err("Owned lifecycle supports Linux and Windows only".into())
 }
 fn read_owned(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     use std::io::Read;
@@ -86,6 +94,11 @@ fn read_owned(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
@@ -117,7 +130,7 @@ impl Approved {
         if manifest["planId"] != plan.id
             || manifest["python"]
                 != root
-                    .join("venv/bin/python")
+                    .join(VENV_PYTHON)
                     .to_str()
                     .ok_or("Invalid Python path")?
             || manifest["backend"] != expected["request"]["backend"]
@@ -133,8 +146,8 @@ impl Approved {
             "ComfyUI",
             "ComfyUI/main.py",
             "venv",
-            "venv/bin",
-            "venv/bin/python",
+            VENV_BIN,
+            VENV_PYTHON,
             "venv/pyvenv.cfg",
             "runtime",
             "runtime/python",
@@ -148,11 +161,11 @@ impl Approved {
             let path = root.join(name);
             identities.push((path.clone(), identity(&path)?));
         }
-        if !root.join("venv/bin/python").is_file() || !root.join("ComfyUI/main.py").is_file() {
+        if !root.join(VENV_PYTHON).is_file() || !root.join("ComfyUI/main.py").is_file() {
             return Err("Owned executable/main.py must be regular files".into());
         }
         let mut fingerprints = vec![];
-        for name in ["ComfyUI/main.py", "venv/bin/python", "venv/pyvenv.cfg"] {
+        for name in ["ComfyUI/main.py", VENV_PYTHON, "venv/pyvenv.cfg"] {
             let path = root.join(name);
             fingerprints.push((
                 path.clone(),
@@ -202,6 +215,8 @@ impl Approved {
 struct Inner {
     status: Status,
     child: Option<Child>,
+    #[cfg(windows)]
+    job: Option<crate::win::Job>,
     serial: u64,
     port: u16,
 }
@@ -238,7 +253,12 @@ fn exited(child: &Child) -> Result<bool, String> {
     }
     Ok(unsafe { info.si_pid() } != 0)
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn exited(child: &Child) -> Result<bool, String> {
+    use std::os::windows::io::AsRawHandle;
+    crate::win::exited(child.as_raw_handle())
+}
+#[cfg(not(any(target_os = "linux", windows)))]
 fn exited(_: &Child) -> Result<bool, String> {
     Err("Unsupported platform".into())
 }
@@ -247,6 +267,10 @@ fn terminate(inner: &mut Inner) {
         #[cfg(target_os = "linux")]
         unsafe {
             libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+        #[cfg(windows)]
+        if let Some(job) = inner.job.take() {
+            job.kill();
         }
         let _ = child.kill();
         match child.wait() {
@@ -296,10 +320,24 @@ fn owns_listener(child: &Child, port: u16) -> Result<bool, String> {
     }
     Ok(false)
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn owns_listener(child: &Child, port: u16) -> Result<bool, String> {
+    let loopback: Vec<u32> = crate::win::listeners(port)?
+        .into_iter()
+        .filter(|(addr, _)| *addr == Some(crate::win::LOOPBACK_V4))
+        .map(|(_, pid)| pid)
+        .collect();
+    Ok(loopback == [child.id()])
+}
+#[cfg(not(any(target_os = "linux", windows)))]
 fn owns_listener(_: &Child, _: u16) -> Result<bool, String> {
     Err("Unsupported platform".into())
 }
+#[cfg(windows)]
+fn port_has_listener(port: u16) -> bool {
+    crate::win::listeners(port).is_ok_and(|rows| !rows.is_empty())
+}
+#[cfg(not(windows))]
 fn port_has_listener(port: u16) -> bool {
     ["/proc/net/tcp", "/proc/net/tcp6"].iter().any(|path| {
         fs::read_to_string(path).is_ok_and(|table| {
@@ -356,7 +394,7 @@ impl Lifecycle {
         }
         approved.validate()?;
         let root = Path::new(&approved.plan.request.storage_path);
-        let mut command = Command::new(root.join("venv/bin/python"));
+        let mut command = Command::new(root.join(VENV_PYTHON));
         command.args([
             "-u",
             "main.py",
@@ -377,14 +415,31 @@ impl Lifecycle {
         }
         command
             .env_clear()
-            .env("PATH", "/usr/bin:/bin")
             .env("PYTHONNOUSERSITE", "1")
             .env("PYTHONDONTWRITEBYTECODE", "1");
+        #[cfg(windows)]
+        {
+            // Python refuses to start without SYSTEMROOT; System32 supplies only OS DLLs.
+            let system_root = std::env::var_os("SYSTEMROOT").unwrap_or_default();
+            command.env("PATH", Path::new(&system_root).join("System32"));
+            for name in ["SYSTEMROOT", "WINDIR", "COMSPEC"] {
+                if let Some(value) = std::env::var_os(name) {
+                    command.env(name, value);
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        command.env("PATH", "/usr/bin:/bin");
         for (name, folder) in [
             ("HOME", "home"),
+            ("USERPROFILE", "home"),
             ("XDG_CACHE_HOME", "cache"),
+            ("LOCALAPPDATA", "cache"),
             ("XDG_CONFIG_HOME", "config"),
+            ("APPDATA", "config"),
             ("TMPDIR", "tmp"),
+            ("TMP", "tmp"),
+            ("TEMP", "tmp"),
         ] {
             command.env(name, root.join(folder));
         }
@@ -401,6 +456,11 @@ impl Lifecycle {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(crate::win::CREATE_NO_WINDOW);
+        }
         // One reservation, one spawn. A bind race fails ownership/readiness; never retry/adopt.
         drop(listener);
         let mut child = command.spawn().map_err(|e| {
@@ -411,6 +471,25 @@ impl Lifecycle {
             };
             inner.status.error.clone().unwrap()
         })?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            let job = crate::win::Job::new()
+                .and_then(|job| job.assign(child.as_raw_handle()).map(|_| job));
+            match job {
+                Ok(job) => inner.job = Some(job),
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    inner.status = Status {
+                        state: "failed".into(),
+                        error: Some(error.clone()),
+                        ..Status::default()
+                    };
+                    return Err(error);
+                }
+            }
+        }
         inner.serial += 1;
         let serial = inner.serial;
         inner.port = port;

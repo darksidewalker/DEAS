@@ -676,7 +676,7 @@ impl DownloadEngine {
                 .count(),
             resources: request.resources,
             warnings,
-            can_execute: cfg!(target_os = "linux"),
+            can_execute: cfg!(any(target_os = "linux", windows)),
         };
         i.plans
             .retain(|_, p| p.created.elapsed() < Duration::from_secs(600));

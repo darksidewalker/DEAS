@@ -4,7 +4,7 @@ use std::{
     net::{TcpListener, TcpStream},
     thread,
 };
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn scratch() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
 }
@@ -48,7 +48,7 @@ fn provider(origin: String) -> Provider {
         anonymous_notice: "Fixture only".into(),
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
     Resource {
         id: "fixture-file".into(),
@@ -64,7 +64,7 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         category: None,
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn engine(p: Provider, r: &Resource) -> DownloadEngine {
     let e = DownloadEngine::default();
     let mut i = e.inner.lock().unwrap();
@@ -78,7 +78,7 @@ fn engine(p: Provider, r: &Resource) -> DownloadEngine {
     drop(i);
     e
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn prepare(e: &DownloadEngine, r: Resource, d: &tempfile::TempDir) -> DownloadPlan {
     e.plan(PlanRequest {
         provider_id: "fixture".into(),
@@ -89,7 +89,7 @@ fn prepare(e: &DownloadEngine, r: Resource, d: &tempfile::TempDir) -> DownloadPl
     })
     .unwrap()
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn finished(e: &DownloadEngine) -> DownloadStatus {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -101,7 +101,7 @@ fn finished(e: &DownloadEngine) -> DownloadStatus {
         thread::sleep(Duration::from_millis(20));
     }
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 #[test]
 fn unsupported_platform_anchor_fails_closed() {
     assert!(fs::Anchor::open(std::path::Path::new(".")).is_err());
@@ -188,7 +188,7 @@ async fn direct_json_file_and_index_bounds() {
     assert!(providers::list(&p, &r, None, None).await.is_err());
     server.join().unwrap();
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn parent_identity_change_and_existing_target_block_start() {
     let d = scratch();
@@ -240,7 +240,7 @@ fn url_path_metadata_and_auth_safety() {
     assert!(credential(&auth, &p, true).is_err());
     assert!(credential(&auth, &p, false).unwrap().is_none());
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn immutable_plan_rejects_frontend_forgery() {
     let d = scratch();
@@ -262,7 +262,7 @@ fn immutable_plan_rejects_frontend_forgery() {
         .is_err());
     assert!(e.start(plan.id, false, &AuthState::default()).is_err());
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn real_stream_digest_bytes_and_status() {
     let bytes = b"real tiny fixture bytes\n".to_vec();
@@ -308,7 +308,7 @@ fn real_stream_digest_bytes_and_status() {
         .contains("authorization:"));
     assert!(e.start(plan.id, true, &AuthState::default()).is_err());
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn corrupt_digest_or_size_never_publishes() {
     for (hash, size) in [(Some("0".repeat(64)), Some(3)), (None, Some(4))] {
@@ -359,7 +359,7 @@ async fn foreign_redirect_strips_credential() {
         .to_lowercase()
         .contains("authorization:"));
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn cancellation_interrupts_stalled_stream_and_cleans_partial() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -387,7 +387,7 @@ fn cancellation_interrupts_stalled_stream_and_cleans_partial() {
     );
     task.join().unwrap();
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn empty_folder_stages_into_existing_parent_without_manifest_or_clobber() {
     let (origin, server) = fixture(b"abc".to_vec());

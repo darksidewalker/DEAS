@@ -15,9 +15,27 @@ use tokio::{
     process::Command,
 };
 
+#[cfg(not(windows))]
 const UV_URL: &str =
     "https://github.com/astral-sh/uv/releases/download/0.8.22/uv-x86_64-unknown-linux-gnu.tar.gz";
+#[cfg(not(windows))]
 const UV_SHA: &str = "741ff1f5742c5a4a25d2f829e8395355e43f7a5ae2ebc6368e9ae2df0efb69cf";
+// Digest from the release asset uv-x86_64-pc-windows-msvc.zip.sha256 (0.8.22).
+#[cfg(windows)]
+const UV_URL: &str =
+    "https://github.com/astral-sh/uv/releases/download/0.8.22/uv-x86_64-pc-windows-msvc.zip";
+#[cfg(windows)]
+const UV_SHA: &str = "5049375aa2a5162f132b2c1cb992e25d42d47d934cab8c174dbe6f60973dcc12";
+pub(crate) const VENV_BIN: &str = if cfg!(windows) {
+    "venv/Scripts"
+} else {
+    "venv/bin"
+};
+pub(crate) const VENV_PYTHON: &str = if cfg!(windows) {
+    "venv/Scripts/python.exe"
+} else {
+    "venv/bin/python"
+};
 const COMFY: &str = "https://github.com/comfyanonymous/ComfyUI.git";
 const NODEPACK: &str = "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes.git";
 #[path = "install_torch.rs"]
@@ -42,7 +60,7 @@ if h: os.environ['CUDA_VISIBLE_DEVICES']=h['uuid']
 import torch,torchvision,torchaudio
 assert sys.version_info[:2]==(3,12)
 assert sys.prefix!=sys.base_prefix
-assert os.path.commonpath([sys.base_prefix,sys.argv[1]])==sys.argv[1]
+assert os.path.normcase(os.path.commonpath([sys.base_prefix,sys.argv[1]]))==os.path.normcase(sys.argv[1])
 for module,spec in zip([torch,torchvision,torchaudio],p['packages']):
     expected=spec.split('==')[1]
     expected += '+' + p['indexUrl'].rsplit('/',1)[1]
@@ -260,8 +278,10 @@ impl Engine {
                 request.backend
             ));
         }
-        if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
-            unsupported.push("platform: only Linux x86_64 CPU/NVIDIA baseline is supported".into());
+        if !(cfg!(any(target_os = "linux", windows)) && cfg!(target_arch = "x86_64")) {
+            unsupported.push(
+                "platform: only Linux/Windows x86_64 CPU/NVIDIA baseline is supported".into(),
+            );
         }
         for (name, selected) in [
             ("sage", request.options.sage),
@@ -511,11 +531,18 @@ async fn run(
     isolated(&mut command, root);
     #[cfg(unix)]
     command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(crate::win::CREATE_NO_WINDOW);
     let mut child = command
         .spawn()
         .map_err(|e| format!("Cannot run {}: {e}", program.display()))?;
     #[cfg(unix)]
     let pid = child.id();
+    // Kill-on-close job: descendants die with the runner even on early return.
+    #[cfg(windows)]
+    let job = crate::win::Job::new()?;
+    #[cfg(windows)]
+    job.assign(child.raw_handle().ok_or("Missing child handle")?)?;
     let stdout = tokio::spawn(capture(
         child.stdout.take().ok_or("Missing stdout")?,
         inner.clone(),
@@ -534,6 +561,8 @@ async fn run(
                     libc::kill(-(pid as i32), libc::SIGKILL);
                 }
             }
+            #[cfg(windows)]
+            job.kill();
             let _ = child.kill().await;
             let _ = child.wait().await;
             stdout.abort();
@@ -558,6 +587,8 @@ async fn run(
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
+    #[cfg(windows)]
+    job.kill();
     let out = stdout.await.map_err(|e| e.to_string())??;
     let err = stderr.await.map_err(|e| e.to_string())??;
     if !status.success() {
@@ -607,6 +638,17 @@ fn extract_verified_uv(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
     if format!("{:x}", Sha256::digest(bytes)) != UV_SHA {
         return Err("uv archive checksum mismatch; refusing execution".into());
     }
+    if cfg!(windows) {
+        let uv = root.join("runtime/uv.exe");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&uv)
+            .map_err(|e| e.to_string())?;
+        std::io::copy(&mut zip_member(bytes, "uv.exe")?.as_slice(), &mut file)
+            .map_err(|e| e.to_string())?;
+        return Ok(uv);
+    }
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
     for entry in archive.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
@@ -632,6 +674,70 @@ fn extract_verified_uv(bytes: &[u8], root: &Path) -> Result<PathBuf, String> {
                 .map_err(|e| e.to_string())?;
         }
         return Ok(uv);
+    }
+    Err("Official archive did not contain uv".into())
+}
+// Minimal reader for one stored/deflated member of a verified zip (no zip64, no encryption).
+fn zip_member(bytes: &[u8], name: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let u16_at = |i: usize| {
+        bytes
+            .get(i..i + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+    };
+    let u32_at = |i: usize| {
+        bytes
+            .get(i..i + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let eocd = (0..bytes.len().saturating_sub(21))
+        .rev()
+        .find(|&i| bytes[i..i + 4] == [0x50, 0x4b, 0x05, 0x06])
+        .ok_or("Invalid uv archive")?;
+    let count = u16_at(eocd + 10).ok_or("Invalid uv archive")?;
+    let mut offset = u32_at(eocd + 16).ok_or("Invalid uv archive")?;
+    for _ in 0..count {
+        if bytes.get(offset..offset + 4) != Some(&[0x50, 0x4b, 0x01, 0x02]) {
+            return Err("Invalid uv archive".into());
+        }
+        let (method, size, len) = (
+            u16_at(offset + 10).ok_or("Invalid uv archive")?,
+            u32_at(offset + 20).ok_or("Invalid uv archive")?,
+            u32_at(offset + 24).ok_or("Invalid uv archive")?,
+        );
+        let (n, m, k) = (
+            u16_at(offset + 28).ok_or("Invalid uv archive")?,
+            u16_at(offset + 30).ok_or("Invalid uv archive")?,
+            u16_at(offset + 32).ok_or("Invalid uv archive")?,
+        );
+        let local = u32_at(offset + 42).ok_or("Invalid uv archive")?;
+        if bytes.get(offset + 46..offset + 46 + n) == Some(name.as_bytes()) {
+            if len > 128 * 1024 * 1024
+                || bytes.get(local..local + 4) != Some(&[0x50, 0x4b, 0x03, 0x04])
+            {
+                return Err("Invalid uv archive executable".into());
+            }
+            let start = local
+                + 30
+                + u16_at(local + 26).ok_or("Invalid uv archive")?
+                + u16_at(local + 28).ok_or("Invalid uv archive")?;
+            let data = bytes.get(start..start + size).ok_or("Invalid uv archive")?;
+            let mut out = Vec::with_capacity(len);
+            match method {
+                0 => out.extend_from_slice(data),
+                8 => flate2::read::DeflateDecoder::new(data)
+                    .take(len as u64 + 1)
+                    .read_to_end(&mut out)
+                    .map_err(|e| e.to_string())
+                    .map(|_| ())?,
+                _ => return Err("Unsupported uv archive compression".into()),
+            }
+            if out.len() != len {
+                return Err("Invalid uv archive executable".into());
+            }
+            return Ok(out);
+        }
+        offset += 46 + n + m + k;
     }
     Err("Official archive did not contain uv".into())
 }
@@ -690,7 +796,12 @@ async fn checkout(
 // copy so launch never follows an interpreter symlink or escapes this runtime.
 fn own_interpreter(root: &Path, python: &Path) -> Result<(), String> {
     let resolved = std::fs::canonicalize(python).map_err(|e| e.to_string())?;
-    if !resolved.starts_with(root.join("runtime/python")) {
+    // Windows: uv places a regular trampoline .exe inside the venv (canonicalize adds the
+    // \\?\ prefix, so compare canonical roots); Linux: a symlink into the managed runtime.
+    let inside = |folder: &str| {
+        std::fs::canonicalize(root.join(folder)).is_ok_and(|base| resolved.starts_with(base))
+    };
+    if !inside("runtime/python") && !(cfg!(windows) && inside("venv")) {
         return Err("Venv interpreter is not inside the approved managed runtime".into());
     }
     let temporary = python.with_extension("deas-copy");
@@ -825,11 +936,7 @@ async fn provision(
         cancel,
     )
     .await?;
-    let python = venv.join(if cfg!(windows) {
-        "Scripts/python.exe"
-    } else {
-        "bin/python"
-    });
+    let python = root.join(VENV_PYTHON);
     own_interpreter(&root, &python)?;
     let py = python.to_str().ok_or("Python path must be UTF-8")?;
     let constraint = root.join("constraints.txt");
@@ -1016,10 +1123,10 @@ mod tests {
         }
     }
     fn assert_baseline_platform_support(plan: &Plan) {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        #[cfg(all(any(target_os = "linux", windows), target_arch = "x86_64"))]
         assert!(plan.can_execute, "{:?}", plan.unsupported_options);
 
-        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        #[cfg(not(all(any(target_os = "linux", windows), target_arch = "x86_64")))]
         {
             assert!(!plan.can_execute);
             assert!(plan
@@ -1105,6 +1212,60 @@ mod tests {
             std::os::unix::fs::symlink(tmp.path(), tmp.path().join("link")).unwrap();
             assert!(validate_target(tmp.path().join("link/new").to_str().unwrap()).is_err());
         }
+    }
+    #[test]
+    fn zip_member_reads_stored_and_deflated_entries_only() {
+        use std::io::Write;
+        fn zip(members: &[(&str, &[u8], u16)]) -> Vec<u8> {
+            let (mut out, mut central) = (vec![], vec![]);
+            for (name, raw, method) in members {
+                let data = if *method == 8 {
+                    let mut e = flate2::write::DeflateEncoder::new(vec![], Default::default());
+                    e.write_all(raw).unwrap();
+                    e.finish().unwrap()
+                } else {
+                    raw.to_vec()
+                };
+                let local = out.len() as u32;
+                let mut header = vec![];
+                header.extend_from_slice(&method.to_le_bytes());
+                header.extend_from_slice(&[0; 8]);
+                header.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                header.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+                header.extend_from_slice(&(name.len() as u16).to_le_bytes());
+                out.extend_from_slice(&[0x50, 0x4b, 3, 4, 20, 0, 0, 0]);
+                out.extend_from_slice(&header);
+                out.extend_from_slice(&[0, 0]);
+                out.extend_from_slice(name.as_bytes());
+                out.extend_from_slice(&data);
+                central.extend_from_slice(&[0x50, 0x4b, 1, 2, 20, 0, 20, 0, 0, 0]);
+                central.extend_from_slice(&header);
+                central.extend_from_slice(&[0; 8]);
+                central.extend_from_slice(&[0; 4]);
+                central.extend_from_slice(&local.to_le_bytes());
+                central.extend_from_slice(name.as_bytes());
+            }
+            let (start, size) = (out.len() as u32, central.len() as u32);
+            out.extend(central);
+            out.extend_from_slice(&[0x50, 0x4b, 5, 6, 0, 0, 0, 0]);
+            out.extend_from_slice(&(members.len() as u16).to_le_bytes());
+            out.extend_from_slice(&(members.len() as u16).to_le_bytes());
+            out.extend_from_slice(&size.to_le_bytes());
+            out.extend_from_slice(&start.to_le_bytes());
+            out.extend_from_slice(&[0, 0]);
+            out
+        }
+        let big = vec![7u8; 100_000];
+        let archive = zip(&[
+            ("uvw.exe", b"other", 0),
+            ("uv.exe", &big, 8),
+            ("x", b"s", 0),
+        ]);
+        assert_eq!(zip_member(&archive, "uv.exe").unwrap(), big);
+        assert_eq!(zip_member(&archive, "x").unwrap(), b"s");
+        assert!(zip_member(&archive, "missing").is_err());
+        assert!(zip_member(&zip(&[("uv.exe", b"lzma", 14)]), "uv.exe").is_err());
+        assert!(zip_member(b"not a zip", "uv.exe").is_err());
     }
     #[tokio::test]
     async fn real_git_runner_and_checkout_in_scratch() {
