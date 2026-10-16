@@ -196,3 +196,11 @@ Gates: 48 core tests, 158 UI/IPC tests (new `MediaLibrary.test.tsx`), typecheck/
 ## Publication and safety
 
 Existing user installations and services were not changed or restarted. Only owned development processes and scratch fixtures were used. No model downloads or releases were performed. GitHub publication/CI is checked separately from these local acceptance results. Windows CI remains configured but not exercised locally. Remaining acceptance items are in `docs/PLAN.md`; full Go feature parity is explicitly incomplete.
+
+## 0.1.7–0.1.8 — Library sorting, Settings folders, relocation and tab-strip setup
+
+Gates re-run at the 0.1.8 docs commit: typecheck, 14 Vitest files / 167 UI-IPC tests, production build, `cargo fmt --check`, clippy clean, Cargo 141 passed / 9 ignored. The pre-existing host-dependent `backend::tests::invalid_owned_api_never_marks_running` failure persists independent of these changes. Browser suites `verify_automatic`, `verify_downloads`, `verify_languages`, `verify_jobs`, `verify_api` and `verify_recipe_prerequisites` were run during the 0.1.6–0.1.8 feature commits; no new browser acceptance was performed in this docs-only pass.
+
+Relocation (`settings_move.rs`) is covered by Rust fixtures: all-tree conflict/overlap rejection, exclusive streamed copy, byte verification, atomic settings save, unchanged-source removal, retained-original warnings, symlinked/overlapping tree rejection. Relocation is Linux-only; other platforms fail closed. Real large-tree relocation on live data and crash/power-loss recovery remain unverified. `native_pick_directory` canonicalizes symlink aliases at the chooser boundary; execution still refuses substitutions.
+
+Windows remains compiled and CI-built only; no Windows runtime acceptance. Artifact re-staging for 0.1.8 is pending the next `./build-linux.sh` release build.

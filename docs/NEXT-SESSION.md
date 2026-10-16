@@ -1,38 +1,27 @@
 # Resume DEAS development
 
-## Stopping boundary
+## Current boundary
 
-The diagnostic PNG preview/new-file export slice (0.1.5) is finished and independently verified. Work is stopped at this boundary. Do not begin cancellation, model downloads, restart adoption or further installer/backend features in this session. The owner explicitly requested a clean stopping point for later continuation.
+0.1.8 is committed and pushed: setup tab strip, Library (sorting, base-model filter, NSFW light-switch, local-present rows), Settings tab with per-environment folders, folder alias resolution and verified no-clobber relocation (`settings_move.rs`). Windows support is merged and CI-built, not runtime-verified. The source of truth is `docs/PLAN.md`; verification evidence is in `docs/VERIFICATION.md`; per-version changes in `CHANGELOG.md`.
 
-The accumulated work is local and uncommitted. Do not reset existing changes, publish or push without a new explicit request. The current source of truth is `docs/PLAN.md`; verification evidence belongs in `docs/VERIFICATION.md`.
+## Known host quirks
 
-## Implemented preceding slices
+- The pre-existing Cargo test `backend::tests::invalid_owned_api_never_marks_running` fails on this host independent of changes.
+- KDE Wayland host ignores XTest fake input: native click-through cannot be automated; native evidence is limited to initial-render screenshots of a separately launched instance.
+- `npx vitest run` through the rtk wrapper writes its JSON report late; use `./node_modules/.bin/vitest run --reporter=dot`.
+- Browser suites: owned Vite on an explicit free port, isolated Playwright Python at `~/.hermes/cache/scratch/deas-handoff-verify/bin/python`; suites are `verify_automatic`, `verify_downloads`, `verify_languages`, `verify_jobs`, `verify_api`, `verify_recipe_prerequisites URL`. The guided suites (`verify_ui/confirmation/help/stability`) were deleted with manual mode.
+- `lib/setup.ts` still carries the guided state machine for core tests and the `existing` plan route — delete it only together with its tests.
 
-- Successful approved native installation reveals the studio automatically; Director companions require no second enable step.
-- Explicit owned backend start binds its actual endpoint to the studio automatically. No automatic inspection, foreign-service adoption or generation-ready claim.
-- Native diagnostic intent preparation, immutable consented one-shot classic submission, prompt/client/graph-correlated status, and explicit read-only current-session job recovery after panel navigation.
-- Previous real new CPU/NVIDIA and selected Director installation/lifecycle acceptance is documented separately from HTTP/IPC fixtures.
+## Next functional work (in order)
 
-## Current PNG slice acceptance
+1. Safe job-scoped cancellation, then real diagnostic generation acceptance. Before a real model run, establish the exact suitable existing checkpoint or obtain model-download/license consent; a filename in object_info is not architecture compatibility.
+2. Director/video recipe vertical slice: versioned intent → native compile → correlated submission → verified outputs (see `docs/EXECUTION-CONTRACT.md`, PLAN M3).
+3. Restart adoption with ownership verification; saved drafts alone never authorize environment adoption.
+4. Relocation acceptance beyond Linux, resumable downloads, real authenticated provider/vault acceptance.
+5. Windows runtime acceptance on actual hardware.
 
-Native output retrieval must use only a succeeded current native job's indexed metadata, not arbitrary frontend paths/URLs. Fully validate bounded PNG data, keep original encoded bytes and digest, and export exactly the cached original through an explicit native Save As dialog. Cancellation is not success; existing files/symlinks/untrusted parents must remain untouched. The frontend uses revocable local Blob URLs, never remote media URLs. Non-Linux export must fail closed until equivalent filesystem safeguards are implemented.
-
-Final gates: 48 core tests, 147 UI/IPC tests, 122 Rust tests (nine ignored); typecheck/build, Clippy/fmt and native release/rendering passed. The extended job browser suite passed six locales at five widths including actual fixture-PNG browser decode, export cancellation and explicit mocked export success. Native filesystem fixtures verified byte-identical no-clobber export. No background workers or owned verification servers remain. Check the final status in `docs/VERIFICATION.md` before continuing. Browser job/media responses are explicit IPC fixtures, not proof of real model generation. A native screenshot proves initial rendering only, not native-webview media decode or interactive Save As dispatch.
-
-## 0.1.6 slice (uncommitted)
-
-Automatic setup now shows only folder + Director with Advanced options collapsed and prepares the native plan automatically (`AiOSetup.tsx` effect; Start install remains the only authorization). The studio has top tabs and a `MediaLibrary` plugin panel (`src/features/media`, `src-tauri/src/media.rs`, `allow-native-media`, asset protocol scope `**` without the leading-dot restriction). Browser suites expect `[data-studio-tab="map"]` before touching graph nodes. The pre-existing Cargo test `backend::tests::invalid_owned_api_never_marks_running` fails on this host independent of these changes.
-
-Later in the same session: the manual/guided installer, draft save/restore and the four guided Playwright suites (`verify_ui/confirmation/help/stability`) were removed; `lib/setup.ts` still contains the guided state machine (used by core tests and the `existing` plan route) — delete it when nothing else needs it. Downloads are category cards with previews plus CivitAI search; see `docs/DOWNLOAD-PLUGINS.md` and `docs/PLAN.md` 0.1.6.
-
-## Resume after the stop
-
-1. Read `git status --short`, `docs/PLAN.md` and the newest `docs/VERIFICATION.md` section. Preserve all accumulated edits.
-2. Re-run `npm run typecheck`, `npm test`, `npm run build`; then Cargo test, Clippy, formatting and release build using `--manifest-path src-tauri/Cargo.toml --locked` (formatting uses `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`).
-3. For browser acceptance, start an owned Vite server on an explicit free port and run `tools/verify_jobs.py URL`, `tools/verify_automatic.py URL` and `tools/verify_recipe_prerequisites.py URL` using an isolated Playwright Python. Legacy UI/confirmation/help/stability scripts also exercise the original guided path; several retain port 1420 internally.
-4. Next functional work is safe job-scoped cancellation or real diagnostic generation acceptance, not another enable toggle. Before a real model run, establish the exact suitable existing checkpoint or obtain model-download/license consent. Do not assume an offered checkpoint architecture is compatible merely because its filename appears in object_info.
-5. Keep full installer parity, durable restart adoption, AMD/Intel/Windows acceptance, resumable setup/repair and actual Director/video recipes unchecked until independently verified. Do not stop/restart user services to make a test pass.
+Keep full installer parity (AMD/Intel, FFmpeg, attention extensions), durable restart adoption, resumable setup/repair and actual Director/video recipes unchecked until independently verified. Never stop/restart user services to make a test pass.
 
 ## Local artifact
 
-`artifacts/deas-linux-amd64` is a system-linked Linux development binary, not a signed portable release. Confirm its current version/hash against the newest verification entry. Replace it atomically when rebuilding; do not overwrite a running executable or stop the owner's app. Browser fixture screenshots are labelled `assets/deas-jobs-fixture-*`; native initial captures have separate names.
+`artifacts/deas-linux-amd64` is a system-linked Linux development binary, not a signed portable release. Re-stage it atomically with `./build-linux.sh` after every release build and print its SHA-256; a running app keeps the old inode, so the owner must quit and relaunch. Browser fixture screenshots are labelled `assets/deas-jobs-fixture-*`; native initial captures have separate names.

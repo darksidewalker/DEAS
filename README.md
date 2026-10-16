@@ -8,7 +8,7 @@ DEAS is a Rust/Tauri desktop studio with a single-page neural interface for Comf
 
 ## Setup path
 
-The first blob is the AiO installer. Clicking it reveals one compact staircase choice group. Earlier choices recede into a returnable translucent stack; active bubbles follow short snake rows. Hover/focus shows help inside reserved space in the existing bubble: no resizing, reflow or extra help bubbles. The green Confirm & continue button follows the current selection/control area at its lower-right edge, including input forms; it is not pinned to the viewport. The default setup prepares conservative recommendations automatically and presents one short editable summary. Directory, backend, Director package, attention/media options and ComfyUI reference can all be changed before the final **Start install**. The guided **Confirm & continue** flow is an optional fallback, not a sequence of mandatory default questions. Managed setup defaults to a new `deas-environment` directly beside the running executable, selects a compatible NVIDIA profile or an explained conservative CPU recommendation, and leaves optional packages/extensions off; the existing-backend route hands an explicit URL to the inspector. Changing an earlier decision clears incompatible later choices. Local plans can be saved/restored or exported as JSON. The native Linux x86_64 baseline installs ComfyUI directly. Full new CPU and NVIDIA installations, framework computation, owned backend start, real API readiness and stop are verified on Linux. AMD/Intel and optional Sage/Radial/Flash/FFmpeg currently block execution explicitly; there is no simulated success.
+Setup is one automatic path. A top tab strip carries the Installer tab (pulsing green until the install succeeds, then a done check; it stays clickable to re-run), Provider authorization, Library and Settings. The Installer tab shows the hardware findings, and a sticky **Review & edit installation** panel on the right holds the storage folder, the Director package (checked by default; Forge · RefMods · Continuity · Output are included parts, not separate choices), a dense plan summary with the step chain, collapsed native warnings and the single green **Start install** authorization. Backend, optional packages, the ComfyUI Git ref and an existing-backend address live under Advanced options. The native plan re-prepares automatically after every edit; any edit invalidates the prepared plan, and choices lock during execution. Managed setup defaults to a new `deas-environment` directly beside the running executable, selects a compatible NVIDIA profile or an explained conservative CPU recommendation, and leaves optional packages/extensions off. The native Linux x86_64 baseline installs ComfyUI directly. Full new CPU and NVIDIA installations, framework computation, owned backend start, real API readiness and stop are verified on Linux. AMD/Intel and optional Sage/Radial/Flash/FFmpeg currently block execution explicitly; there is no simulated success.
 
 Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFeatures` components serve both setup and studio features. Roads offer light, moving cat paws and off modes, with reduced-motion support. See [primitive ownership and references](docs/NEURAL-PRIMITIVES.md).
 
@@ -22,7 +22,7 @@ Most of this is not implemented. The [plugin roadmap](docs/PLUGIN-ROADMAP.md) ma
 
 ## Current development stage
 
-Current alpha: **0.1.5** — automatic installation-to-studio handoff, diagnostic classic jobs and explicit PNG preview/export. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
+Current alpha: **0.1.8** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings and verified no-clobber folder relocation. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
 
 The first milestone builds the desktop shell, interactive studio, trusted built-in feature registry and read-only ComfyUI discovery. This is **not yet the completed AiO installer or a generation-ready Director replacement**. Unavailable execution functions are identified in the interface rather than simulated.
 
@@ -44,7 +44,7 @@ The desktop Engine panel now offers a separate read-only execution-API check. It
 - **Export:** Save As writes the exact cached original with SHA-256; Linux refuses existing files and unsafe/symlink parents. Cancelling is not success.
 - **Safety:** no global interruption or silent retry of uncertain submissions.
 
-Safe cancellation, actual model-generation acceptance and native-webview media acceptance remain open. Development is paused at this verified 0.1.5 boundary; see [resume notes](docs/NEXT-SESSION.md).
+Safe cancellation, actual model-generation acceptance and native-webview media acceptance remain open.
 
 ![Diagnostic job preview — test fixture, not model-generated](assets/deas-jobs-fixture-1440.png)
 
@@ -110,14 +110,12 @@ It embeds the frontend and does not require a Vite server. It still requires com
 Browser acceptance checks can be repeated with a Python environment containing Playwright and Pillow:
 
 ```sh
-python tools/verify_ui.py http://127.0.0.1:1420
-python tools/verify_confirmation.py
-python tools/verify_help.py
-python tools/verify_stability.py
 python tools/verify_api.py
 python tools/verify_recipe_prerequisites.py http://127.0.0.1:1420
 python tools/verify_automatic.py http://127.0.0.1:1420
 python tools/verify_jobs.py http://127.0.0.1:1420
+python tools/verify_downloads.py http://127.0.0.1:1420
+python tools/verify_languages.py http://127.0.0.1:1420
 ```
 
 ## Architecture
@@ -135,7 +133,7 @@ Development does not install models, alter existing ComfyUI environments or stop
 
 ## Plan
 
-See [the milestone plan and acceptance checklist](docs/PLAN.md). Verified outcomes and explicit limitations are recorded in `docs/VERIFICATION.md`.
+See [the milestone plan and acceptance checklist](docs/PLAN.md). Verified outcomes and explicit limitations are recorded in `docs/VERIFICATION.md`. Per-version changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository
 

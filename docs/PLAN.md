@@ -28,7 +28,7 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Delegate UI, native shell and adapter/registry work independently.
 - [x] Integrate and independently verify the first implementation.
 
-### M1 — Executable neural studio foundation (current scope)
+### M1 — Executable neural studio foundation (complete)
 - [x] React/TypeScript/Vite application builds and typechecks.
 - [x] Neural blobs show feature hierarchy and expand controls inline.
 - [x] Keyboard navigation, responsive layout and reduced motion work.
@@ -54,7 +54,7 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Existing-backend route hands off explicitly to read-only inspection.
 - [x] Unit, browser and native rendering checks pass after refactoring.
 
-### UX confirmation and included Director package (current work)
+### UX confirmation and included Director package (historical)
 - [x] Every setup selection remains on the current step until explicit Confirm & continue.
 - [x] Detected backend preselection must still expose optional attention/media controls and require confirmation.
 - [x] History/step heading clicks cannot bypass a pending decision or its extra options.
@@ -70,7 +70,7 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Remove history transform/recede movement, retaining opacity and optional road motion.
 - [x] Verify geometry and CTA placement at five widths, all frontend gates, native release build and launch.
 
-### Selection-area CTA and backend continuation (current work)
+### Selection-area CTA and backend continuation (historical; superseded by the tab-strip setup)
 - [x] Green confirmation footer at the lower-right of the current selection/control area, not the viewport corner.
 - [x] Preserve stable hover/focus/selection geometry, shared button identity and input form submission.
 - [x] Review execution-only backend plan against official SDK/API docs; all feature inputs/outputs remain DEAS-owned.
@@ -107,7 +107,7 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Export only new files through an explicit native chooser; reject clobbering, unsafe parents and symlinks, preserving original bytes.
 - [x] Verify HTTP/PNG/filesystem fixtures, explicit IPC/browser paths, six locales at five widths and native release rendering.
 
-**Paused by owner after this verified slice.** Resume instructions: [NEXT-SESSION.md](NEXT-SESSION.md). No further features, model downloads or real generation attempts were started.
+**Owner stopped at this verified slice; development later resumed into 0.1.6+.** Resume instructions: [NEXT-SESSION.md](NEXT-SESSION.md). No model downloads or real generation attempts were started.
 
 ### Simplified automatic setup and media start page (0.1.6)
 - [x] Automatic setup asks only for the storage folder and the optional Director package; backend, optional packages and Git ref live under Advanced options. The native plan is prepared automatically after each edit; Start install stays the single explicit authorization and shows a one-line summary with full details collapsed.
@@ -119,6 +119,27 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Provider authorization and Optional downloads are always-visible bubbles below the setup. Downloads are grouped by ComfyUI model folder (checkpoints, diffusion_models, loras, …, workflows) as preview cards generated from catalog data; the bundled `src-tauri/downloads/darksidewalker.toml` lists all 22 current CivitAI checkpoints, LoRAs and workflows of the owner with preview media. CivitAI search (`scope = "search"`) returns previewed models; opening one lists its files with previews and ComfyUI category.
 - [x] Managed installs receive files in place: a plan with an empty folder name stages into the existing `ComfyUI/models/<category>` (or `user/default/workflows`) folder, still creating files exclusively and never overwriting; no manifest is written there. Choosing a parent folder (optional new subfolder) overrides the destination.
 - [ ] CivitAI downloads of the owner's models require a configured CivitAI token (creator setting); anonymous browse works. Live token download and `.mp4` preview rendering in WebKitGTK are unverified.
+
+### Setup tab strip, Library and Settings refinement (0.1.6)
+- [x] Setup is a top tab strip (Installer · Provider authorization · Library · Settings): the installer tab pulses green until install success, then shows a done check and stays clickable to re-run; the installer tab is the only one rendering the hardware findings. The Review & edit panel is sticky so it never scrolls out of sight; collapses to one column below 900px.
+- [x] Dense plan facts (backend + GPU, selected packages, Torch/CUDA) and a step-chain pill row built from the native plan; native warnings collapsed in notes; no separate plan-JSON/consent-checkbox disclosures.
+- [x] Optional downloads renamed **Library**; a fourth Settings tab edits per-environment models/input/output folders (`deas-settings.json`, atomic tmp+rename); the owned backend honours them at start and fails closed on a vanished saved folder.
+- [x] NSFW light-switch with a one-time in-app 18+ confirmation dialog (never a system dialog), `18+` tags, base-model chip filter (Anima, Illustrious, Krea 2, LTX 2.3, MiniMax H3, Wan 2.1/2.2), Models tab image/video filter, preview posters (no autoplaying video in WebKitGTK), login/API-key hints, local-present rows without checkboxes, provider token page opened in the system browser.
+- [x] Windows support compiled and CI-built (`deas.exe` + NSIS on windows-latest): managed uv/Python provisioning, Job-Object/`GetExtendedTcpTable` owned lifecycle, anchored no-clobber downloads and export. No Windows runtime acceptance.
+
+### Library sorting and folder relocation (0.1.7)
+- [x] Library sorts catalog cards and loaded file rows by publication date (newest first) or name (A–Z); undated entries last.
+- [x] Atomic settings saves and no-clobber relocation groundwork: all-tree conflict/overlap checks before copying, exclusive streamed copy, byte verification, settings switched only after verification, originals removed last; collisions abort, never overwrite.
+
+### Folder alias resolution and safe relocation (0.1.8, current)
+- [x] `native_pick_directory` canonicalizes explicitly chosen existing directories at the chooser boundary; installation execution still refuses symlink substitutions.
+- [x] First-setup optional folders remain an in-memory draft; Settings edits that same draft before success and keeps installed folder settings in separate state (saving/moving after success never invalidates the provisioning plan).
+- [x] Post-install Settings separates path-only save from explicit **Move files & save folders** consent; retained originals are warnings, not successful moved-file counts. Relocation currently supports Linux; other platforms reject movement without changing files. The per-app `FolderOperations` gate covers settings writes/moves and backend/install/download startup.
+- [ ] Relocation runtime acceptance on other platforms, transactional crash/power-loss recovery, and job-scoped cancellation remain open.
+
+### Windows support (compiled, not runtime-verified)
+- [x] `win.rs` Job-Object group termination, TCP-table listener ownership, handle-based no-clobber helpers; `downloads/fs.rs` Windows anchor rejecting reparse points; venv/Scripts and pinned uv msvc zip paths; `nsis` bundle target; CI workflow builds the release binary and installer.
+- [ ] Windows runtime acceptance on actual hardware remains open; CI success is not Windows verification.
 
 ### Planned later — machine capability scan and optimization mode
 - [ ] Add a separate opt-in capability/optimization scan for the actual target machine, not the development host.
