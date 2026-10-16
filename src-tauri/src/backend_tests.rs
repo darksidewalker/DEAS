@@ -44,6 +44,7 @@ fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
             features: vec![],
             options: Options::default(),
             comfy_ref: "master".into(),
+            folders: None,
         },
         steps: vec![],
         warnings: vec![],

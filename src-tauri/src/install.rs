@@ -108,6 +108,8 @@ pub struct Request {
     pub features: Vec<String>,
     pub options: Options,
     pub comfy_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folders: Option<crate::settings::Folders>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -233,6 +235,9 @@ impl Engine {
     pub fn shutdown_backend(&self) {
         self.backend.stop();
     }
+    pub(crate) fn folders_idle(&self) -> bool {
+        lock(&self.inner).status.state != "running" && !self.backend.active()
+    }
     pub(crate) fn backend_start(&self) -> Result<crate::backend::Status, String> {
         let g = lock(&self.inner);
         if g.status.state == "running" {
@@ -246,6 +251,9 @@ impl Engine {
     fn plan(&self, mut request: Request) -> Result<Plan, String> {
         validate_target(&request.storage_path)?;
         validate_ref(&request.comfy_ref)?;
+        if let Some(folders) = &request.folders {
+            crate::settings::validate(folders)?;
+        }
         // Director is one selected package: its companion capabilities are included,
         // not independently optional. Persist the complete request before consent.
         if request.features.iter().any(|feature| feature == "director") {
@@ -422,7 +430,9 @@ pub fn native_install_start(
     plan_id: String,
     confirmed: bool,
     engine: tauri::State<'_, Engine>,
+    operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<Status, String> {
+    let _guard = operations.enter()?;
     engine.start(&plan_id, confirmed)
 }
 #[tauri::command]
@@ -890,6 +900,9 @@ async fn provision(
     // Exclusive claim; never accept a target introduced after planning.
     std::fs::create_dir(&root).map_err(|e| format!("Cannot claim new target: {e}"))?;
     prepare_dirs(&root)?;
+    if let Some(folders) = &plan.request.folders {
+        crate::settings::write(&root, folders.clone())?;
+    }
     std::fs::write(
         root.join("deas-plan.json"),
         serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?,
@@ -1120,6 +1133,7 @@ mod tests {
             features: vec!["installer".into()],
             options: Options::default(),
             comfy_ref: "master".into(),
+            folders: None,
         }
     }
     fn assert_baseline_platform_support(plan: &Plan) {
@@ -1154,6 +1168,29 @@ mod tests {
         std::fs::remove_file(&py).unwrap();
         std::os::unix::fs::symlink("/usr/bin/python3", &py).unwrap();
         assert!(own_interpreter(tmp.path(), &py).is_err());
+    }
+    #[test]
+    fn optional_folders_are_validated_and_held_in_the_plan_without_writes() {
+        let tmp = scratch();
+        let models = scratch();
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.folders = Some(crate::settings::Folders {
+            models: Some(models.path().to_str().unwrap().into()),
+            ..Default::default()
+        });
+        let plan = engine.plan(r.clone()).unwrap();
+        r.folders.as_mut().unwrap().models = Some("relative".into());
+        assert!(engine.plan(r).is_err());
+        assert_eq!(
+            plan.request.folders.as_ref().unwrap().models.as_deref(),
+            models.path().to_str()
+        );
+        assert!(!tmp.path().join("new").exists());
+        assert!(!models.path().join(crate::settings::FILE).exists());
+        assert!(engine.folders_idle());
+        lock(&engine.inner).status.state = "running".into();
+        assert!(!engine.folders_idle());
     }
     #[test]
     fn backend_requires_current_successful_provision() {

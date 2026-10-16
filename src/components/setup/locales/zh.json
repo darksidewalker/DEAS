@@ -136,5 +136,13 @@
   "settings.default": "默认",
   "settings.choose": "选择…",
   "settings.reset": "重置",
-  "settings.save": "保存文件夹"
+  "settings.save": "保存文件夹",
+  "settings.optional": "可选文件夹（模型、输入、输出）",
+  "settings.draftHelp": "可选择已有文件夹。留空使用环境默认值。这些选择在开始安装时生效；选择文件夹不会写入文件。",
+  "settings.chooseFor": "选择{folder}",
+  "settings.resetFor": "重置{folder}",
+  "settings.move": "将现有文件移至所选文件夹",
+  "settings.moveHelp": "请关闭使用这些文件夹的其他应用，停止后端并完成下载。任何同名冲突都会在复制前中止。文件经过验证后才删除原件；复制成功后才保存路径。",
+  "settings.moveSave": "移动文件并保存文件夹",
+  "settings.moved": "已移动 {count} 个文件"
 }

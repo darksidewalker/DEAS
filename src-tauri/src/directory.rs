@@ -13,6 +13,9 @@ fn selected_directory(path: Option<PathBuf>) -> Result<Option<String>, String> {
     if !path.is_absolute() || !path.is_dir() {
         return Err("The chooser did not return an existing absolute directory".into());
     }
+    // The chooser may return a symlink alias; bind the real parent before planning.
+    let path = std::fs::canonicalize(path)
+        .map_err(|e| format!("Cannot resolve selected directory: {e}"))?;
     path.to_str()
         .map(|value| Some(value.to_owned()))
         .ok_or_else(|| "The selected directory cannot be represented as a UTF-8 path".into())
@@ -54,6 +57,21 @@ mod tests {
         assert!(selected_directory(Some(PathBuf::from("relative"))).is_err());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn selected_symlink_resolves_without_creating_or_changing_anything() {
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let alias = root.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        assert_eq!(
+            selected_directory(Some(alias.clone())).unwrap(),
+            Some(real.to_str().unwrap().into())
+        );
+        assert!(alias.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(!real.join("deas-environment").exists());
+    }
     #[test]
     fn validates_dialog_title_before_opening() {
         assert!(validate_title("Speicherordner wählen").is_ok());

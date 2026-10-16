@@ -1076,7 +1076,9 @@ pub fn native_download_start(
     auth: tauri::State<'_, AuthState>,
     plan_id: String,
     confirmed: bool,
+    operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<DownloadStatus, String> {
+    let _guard = operations.enter()?;
     engine.start(plan_id, confirmed, &auth)
 }
 #[tauri::command]

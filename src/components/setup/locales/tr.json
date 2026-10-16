@@ -136,5 +136,13 @@
   "settings.default": "varsayılan",
   "settings.choose": "Seç…",
   "settings.reset": "Sıfırla",
-  "settings.save": "Klasörleri kaydet"
+  "settings.save": "Klasörleri kaydet",
+  "settings.optional": "İsteğe bağlı klasörler (model, girdi, çıktı)",
+  "settings.draftHelp": "İsteğe bağlı mevcut klasörleri seçin. Boş alan ortam varsayılanlarını kullanır. Seçimler kurulumu başlatmaya dahildir; klasör seçmek dosya yazmaz.",
+  "settings.chooseFor": "{folder} seç",
+  "settings.resetFor": "{folder} sıfırla",
+  "settings.move": "Mevcut dosyaları seçili klasörlere taşı",
+  "settings.moveHelp": "Bu klasörleri kullanan diğer uygulamaları kapatın. Arka ucu durdurun ve indirmeleri bitirin. Ad çakışması kopyalamadan önce işlemi iptal eder. Orijinaller kaldırılmadan önce dosyalar doğrulanır; yollar başarılı kopyalamadan sonra kaydedilir.",
+  "settings.moveSave": "Dosyaları taşı ve klasörleri kaydet",
+  "settings.moved": "{count} dosya taşındı"
 }

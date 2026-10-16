@@ -707,7 +707,9 @@ pub(crate) mod tests;
 #[tauri::command]
 pub fn native_backend_start(
     engine: tauri::State<'_, crate::install::Engine>,
+    operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<Status, String> {
+    let _guard = operations.enter()?;
     engine.backend_start()
 }
 #[tauri::command]

@@ -136,5 +136,13 @@
   "settings.default": "défaut",
   "settings.choose": "Choisir…",
   "settings.reset": "Réinitialiser",
-  "settings.save": "Enregistrer les dossiers"
+  "settings.save": "Enregistrer les dossiers",
+  "settings.optional": "Dossiers facultatifs (modèles, entrée, sortie)",
+  "settings.draftHelp": "Choisissez des dossiers existants facultatifs. Vide : dossiers par défaut. Ces choix font partie du démarrage de l’installation ; choisir un dossier n’écrit rien.",
+  "settings.chooseFor": "Choisir {folder}",
+  "settings.resetFor": "Réinitialiser {folder}",
+  "settings.move": "Déplacer les fichiers existants vers les dossiers sélectionnés",
+  "settings.moveHelp": "Fermez les autres applications utilisant ces dossiers. Arrêtez le backend et terminez les téléchargements. Tout conflit de nom annule la copie avant son démarrage. Les fichiers sont vérifiés avant suppression des originaux ; les chemins sont enregistrés après la copie réussie.",
+  "settings.moveSave": "Déplacer les fichiers et enregistrer",
+  "settings.moved": "{count} fichiers déplacés"
 }

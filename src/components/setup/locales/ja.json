@@ -136,5 +136,13 @@
   "settings.default": "既定",
   "settings.choose": "選択…",
   "settings.reset": "リセット",
-  "settings.save": "フォルダーを保存"
+  "settings.save": "フォルダーを保存",
+  "settings.optional": "任意のフォルダー（モデル・入力・出力）",
+  "settings.draftHelp": "既存のフォルダーを任意で選択できます。空欄は環境内の既定値です。インストール開始時に適用され、選択だけでは書き込みません。",
+  "settings.chooseFor": "{folder}を選択",
+  "settings.resetFor": "{folder}をリセット",
+  "settings.move": "既存ファイルを選択したフォルダーへ移動",
+  "settings.moveHelp": "これらのフォルダーを使用する他のアプリを閉じ、バックエンドを停止し、ダウンロードを完了してください。同名ファイルがある場合、コピー前に中止します。検証後に元のファイルを削除し、コピー成功後にパスを保存します。",
+  "settings.moveSave": "ファイルを移動して保存",
+  "settings.moved": "{count}個のファイルを移動しました"
 }

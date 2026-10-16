@@ -10,6 +10,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(deas::install::Engine::default())
+        .manage(deas::FolderOperations::default())
         .manage(deas::jobs::Jobs::default())
         .manage(deas::auth::AuthState::default())
         .manage(deas::downloads::DownloadEngine::default())
@@ -40,6 +41,7 @@ fn main() {
             deas::native_open_token_page,
             deas::native_settings_read,
             deas::native_settings_write,
+            deas::native_settings_move,
             deas::native_files_present,
             deas::native_detect_hardware,
             deas::native_install_defaults,

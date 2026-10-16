@@ -103,7 +103,12 @@ pub fn native_settings_read(root: String) -> Result<Folders, String> {
     read(&root_dir(&root)?)
 }
 #[tauri::command]
-pub fn native_settings_write(root: String, folders: Folders) -> Result<Folders, String> {
+pub fn native_settings_write(
+    root: String,
+    folders: Folders,
+    operations: tauri::State<'_, crate::FolderOperations>,
+) -> Result<Folders, String> {
+    let _guard = operations.enter()?;
     write(&root_dir(&root)?, folders)
 }
 /// Which of the given absolute file paths already exist; used to mark library items as local.

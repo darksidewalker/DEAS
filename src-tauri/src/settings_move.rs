@@ -41,11 +41,47 @@ pub fn move_folders(root: &Path, folders: Folders) -> Result<MoveReport, String>
 mod platform {
     use super::*;
     use std::path::PathBuf;
-    pub(super) fn chosen(_: &Path) -> Result<PathBuf, String> {
-        Err("Safe folder settings currently require Linux".into())
+    pub(super) fn chosen(path: &Path) -> Result<PathBuf, String> {
+        if !path.is_absolute() || !path.is_dir() {
+            return Err("Folder must be an existing absolute directory".into());
+        }
+        let real = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        if !crate::win::is_directory(&crate::win::open_no_follow(&real)?)? {
+            return Err("Folder must be a directory".into());
+        }
+        Ok(real)
     }
-    pub(super) fn save(_: &Path, _: Folders) -> Result<Folders, String> {
-        Err("Safe folder settings currently require Linux".into())
+    pub(super) fn save(root: &Path, folders: Folders) -> Result<Folders, String> {
+        use std::io::Write;
+        let folders = normalized(folders)?;
+        let root = chosen(root)?;
+        let target = root.join(super::super::FILE);
+        match std::fs::symlink_metadata(&target) {
+            Ok(m) if !m.is_file() || m.file_type().is_symlink() => {
+                return Err("Settings target must be a regular file".into())
+            }
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.to_string()),
+            _ => (),
+        }
+        let tmp = root.join(format!(".{}.{}", super::super::FILE, uuid::Uuid::new_v4()));
+        let result = (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp)
+                .map_err(|e| e.to_string())?;
+            file.write_all(&serde_json::to_vec_pretty(&folders).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+            file.sync_all().map_err(|e| e.to_string())?;
+            drop(file);
+            std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+            Ok(folders)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(tmp);
+        }
+        result
     }
     pub(super) fn relocate(
         _: &Path,

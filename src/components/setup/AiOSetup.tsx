@@ -5,7 +5,7 @@ import { initialSetupState, setupPresentation, storageTarget, setupPlan, transit
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
-import { FoldersPanel } from '../../features/settings/FoldersPanel';
+import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
 import type { Folders } from '../../lib/settings';
 export interface AiOSetupProps { onConnectExisting: (baseUrl: string) => void; onInstalled?: (features: readonly FeatureId[]) => void }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
@@ -14,7 +14,7 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  const native=isTauri();
  const [state,setState]=useState(initialSetupState);
  const [error,setError]=useState('');
- const [pickerBusy,setPickerBusy]=useState(false);
+ const [pickerBusy,setPickerBusy]=useState(false);const [folderPickerBusy,setFolderPickerBusy]=useState(false);
  const pickerLock=useRef(false);
  const [storageParent,setStorageParent]=useState('');
  const [technicalError,setTechnicalError]=useState('');
@@ -32,13 +32,13 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  const generation=useRef(0);
  const running=status?.state==='running';
  const defaultsLocked=useRef(false);
- defaultsLocked.current=!!nativePlan||busy||running||pickerBusy;
+ defaultsLocked.current=!!nativePlan||busy||running||pickerBusy||folderPickerBusy;
  const edit=(event:Parameters<typeof transitionSetup>[1],field:string)=>{if(operationLock.current||running||pickerLock.current)return;touched.current.add(field);setState(s=>transitionSetup(s,event));};
+ const [folders,setFolders]=useState<Folders>({});const [folderDraft,setFolderDraft]=useState<Folders>({});
  const plan=setupPlan(state);
- const signature=JSON.stringify(plan);
- const planMatches=!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
+ const signature=JSON.stringify([plan,folderDraft]);
+ const planMatches=JSON.stringify(nativePlan?.request.folders??{})===JSON.stringify(folderDraft)&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
  const [view,setView]=useState<'setup'|'auth'|'downloads'|'settings'>('setup');
- const [folders,setFolders]=useState<Folders>({});
  // One read-only defaults request per mounted setup, also reused by StrictMode effect replay.
  useEffect(()=>{
   if(!native||!state.opened)return;
@@ -75,7 +75,7 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
   return ()=>{alive=false;window.clearInterval(timer);};
  },[native,running]);
  const pickDirectory=async()=>{
-  if(!native||running||busy||pickerLock.current)return;
+  if(!native||running||busy||folderPickerBusy||pickerLock.current)return;
   pickerLock.current=true;setPickerBusy(true);setTechnicalError('');
   try {
    const parent=await invoke<string|null>('native_pick_directory',{title:t('setup.pickTitle')});
@@ -84,26 +84,27 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
   finally{pickerLock.current=false;setPickerBusy(false);}
  };
  const prepare=async()=>{
-  if(!native||operationLock.current||busy||running||pickerBusy||error||plan?.route!=='managed')return;
+  if(!native||operationLock.current||busy||running||pickerBusy||folderPickerBusy||error||plan?.route!=='managed')return;
   operationLock.current=true;
   const version=generation.current;
   setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(null);
   const {storagePath,backend,features,options,comfyRef}=plan;
-  try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath,backend,features,options,comfyRef}});if(version===generation.current)setNativePlan(result);}
+  try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath,backend,features,options,comfyRef,...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
   catch(e){if(version===generation.current)setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
  // Plans without a separate click; Start stays the only authorization.
  useEffect(()=>{
-  if(!native||running||busy||nativePlan||technicalError||error||plan?.route!=='managed')return;
+  if(!native||running||busy||folderPickerBusy||nativePlan||technicalError||error||plan?.route!=='managed')return;
   const timer=window.setTimeout(()=>void prepare(),250);
   return ()=>window.clearTimeout(timer);
  });
  const start=async()=>{
-  if(!native||operationLock.current||busy||running||!nativePlan?.canExecute||nativePlan.unsupportedOptions.length||plan?.route!=='managed'||!planMatches)return;
+  if(!native||operationLock.current||busy||running||folderPickerBusy||!nativePlan?.canExecute||nativePlan.unsupportedOptions.length||plan?.route!=='managed'||!planMatches)return;
   operationLock.current=true;
   setBusy(true);setTechnicalError('');
   startedPlan.current=nativePlan;
+  setFolders(folderDraft);
   try{const next=await invoke<NativeInstallStatus>('native_install_start',{planId:nativePlan.id,confirmed:true});setStatus(next);}
   catch(e){startedPlan.current=null;setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
@@ -120,21 +121,22 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
   <div className="aio-decision-area">
   <div className="aio-left">
   <div className="aio-tabs" role="tablist" aria-label={t('setup.decisions')}>
-   <button type="button" role="tab" data-node="setup:aio" className={`aio-tab aio-tab-installer ${status?.state==='succeeded'?'is-done':'is-pending'}`} aria-selected={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}}>{status?.state==='succeeded'&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}<small>{t(status?.state==='succeeded'?'setup.tab.installed':'setup.aio.description')}</small></button>
-   <button type="button" role="tab" data-node="provider-auth" className="aio-tab" aria-selected={view==='auth'} onClick={()=>setView('auth')}>{t('downloads.auth')}</button>
-   <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
-   <button type="button" role="tab" data-node="settings" className="aio-tab" aria-selected={view==='settings'} onClick={()=>setView('settings')}>{t('settings.title')}</button>
+   <button type="button" role="tab" data-node="setup:aio" className={`aio-tab aio-tab-installer ${status?.state==='succeeded'?'is-done':'is-pending'}`} aria-selected={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy||folderPickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}}>{status?.state==='succeeded'&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}<small>{t(status?.state==='succeeded'?'setup.tab.installed':'setup.aio.description')}</small></button>
+   <button type="button" role="tab" data-node="provider-auth" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='auth'} onClick={()=>setView('auth')}>{t('downloads.auth')}</button>
+   <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
+   <button type="button" role="tab" data-node="settings" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='settings'} onClick={()=>setView('settings')}>{t('settings.title')}</button>
   </div>
-  <DownloadWorkspace view={view==='auth'||view==='downloads'?view:null} installTarget={plan?.route==='managed'?plan.storagePath:undefined} modelsDir={folders.models}/>
+  <DownloadWorkspace view={view==='auth'||view==='downloads'?view:null} installTarget={plan?.route==='managed'?plan.storagePath:undefined} modelsDir={status?.state==='succeeded'?folders.models:folderDraft.models}/>
   {view==='setup'&&state.opened&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
-  {view==='settings'&&<FoldersPanel root={plan?.route==='managed'?plan.storagePath:defaults?.storagePath} onChange={setFolders}/>}
+  {view==='settings'&&<FoldersPanel root={plan?.route==='managed'?plan.storagePath:defaults?.storagePath} draft={status?.state==='succeeded'?undefined:folderDraft} disabled={running||busy||folderPickerBusy} onChange={status?.state==='succeeded'?setFolders:setFolderDraft}/>}
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
   </div>
   <aside className="aio-right">
   {state.opened&&<section className="aio-detail aio-auto-review" aria-label={t('setup.autoReview')}><h3>{t('setup.autoReview')}</h3><p className="aio-help">{t(native?'setup.autoHelp':'setup.autoBrowser')}</p>
-   <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
+   <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
     <label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>
     <button type="button" disabled={!native} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>{storageParent&&<p className="aio-help">{t('setup.selectedParent')}: <code>{storageParent}</code></p>}
+    <details><summary>{t('settings.optional')}</summary><p className="field-help">{t('settings.draftHelp')}</p><FolderFields folders={folderDraft} onChange={setFolderDraft} disabled={running||busy||pickerBusy||folderPickerBusy} onBusyChange={setFolderPickerBusy}/></details>
     <label title={t('setup.capabilityHelp')}><input type="checkbox" checked={state.features.includes('director')} onChange={()=>edit({type:'feature',id:'director'},'features')}/>{t('setup.feature.director.label')}</label><span className="aio-fact-sub">{t('setup.feature.director.short')}</span>
    </fieldset>
    {nativePlan&&<div className="aio-start">
@@ -147,9 +149,9 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
     {nativePlan.warnings.length>0&&<details className="aio-notes"><summary>{t('setup.notes',{count:nativePlan.warnings.length})}</summary><ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>}
     {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
     {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
-    <button className="aio-confirm-button" title={t('setup.autoConsent')} disabled={!planMatches||running||busy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t(status?.state==='succeeded'?'setup.rerun':'setup.autoStart')}</button>
+    <button className="aio-confirm-button" title={t('setup.autoConsent')} disabled={!planMatches||running||busy||folderPickerBusy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t(status?.state==='succeeded'?'setup.rerun':'setup.autoStart')}</button>
    </div>}
-   <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
+   <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
     <details className="aio-advanced"><summary>{t('setup.advanced')}</summary>
      <label htmlFor="auto-backend">{t('setup.request.backend')}</label><select id="auto-backend" value={state.values.acceleration??''} onChange={e=>edit({type:'select',step:'acceleration',value:e.target.value},'acceleration')}><option value="">{t('setup.manualBackend')}</option>{['cpu','nvidia','amd','intel'].map(id=><option key={id} value={id}>{t(`setup.backend.${id}.label`)}</option>)}</select>
      {(Object.keys(state.options) as (keyof InstallOptions)[]).map(id=><label key={id}><input type="checkbox" checked={state.options[id]} onChange={e=>edit({type:'option',id,enabled:e.target.checked},'options')}/>{t(`setup.option.${id}`)}</label>)}

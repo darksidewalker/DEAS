@@ -136,5 +136,13 @@
   "settings.default": "Standard",
   "settings.choose": "Wählen…",
   "settings.reset": "Zurücksetzen",
-  "settings.save": "Ordner speichern"
+  "settings.save": "Ordner speichern",
+  "settings.optional": "Optionale Ordner (Modelle, Input, Output)",
+  "settings.draftHelp": "Optional bestehende Ordner wählen. Leer verwendet die Standardordner der Umgebung. Diese Auswahl gehört zu Start install; die Ordnerwahl schreibt nichts.",
+  "settings.chooseFor": "{folder} auswählen",
+  "settings.resetFor": "{folder} zurücksetzen",
+  "settings.move": "Vorhandene Dateien in die ausgewählten Ordner verschieben",
+  "settings.moveHelp": "Andere Apps mit Zugriff auf diese Ordner schließen. Eigenes Backend stoppen und Downloads abschließen. Jede Namenskollision bricht vor dem Kopieren ab. Dateien werden vor dem Entfernen der Originale geprüft; Pfade erst nach erfolgreichem Kopieren gespeichert.",
+  "settings.moveSave": "Dateien verschieben & Ordner speichern",
+  "settings.moved": "{count} Dateien verschoben"
 }

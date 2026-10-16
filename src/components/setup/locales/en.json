@@ -136,5 +136,13 @@
   "settings.default": "default",
   "settings.choose": "Choose…",
   "settings.reset": "Reset",
-  "settings.save": "Save folders"
+  "settings.save": "Save folders",
+  "settings.optional": "Optional folders (models, input, output)",
+  "settings.draftHelp": "Optional existing folders. Empty uses the environment defaults. These choices are part of Start install; selecting folders writes nothing.",
+  "settings.chooseFor": "Choose {folder}",
+  "settings.resetFor": "Reset {folder}",
+  "settings.move": "Move existing files to the selected folders",
+  "settings.moveHelp": "Close other apps using these folders. Stop the owned backend and finish downloads first. Any filename collision aborts before copying. Files are verified before originals are removed; paths are saved only after successful copying.",
+  "settings.moveSave": "Move files & save folders",
+  "settings.moved": "{count} files moved"
 }

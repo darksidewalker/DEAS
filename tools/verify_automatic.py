@@ -11,6 +11,7 @@ window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
 window.__calls.push({command,args});
 if(command==='native_media_list') return {path:'/fixture',parent:null,entries:[],truncated:false};
 if(command==='native_download_catalog') return {version:1,providers:[],entries:[]};
+if(command==='native_pick_directory') return '/real/custom-models';
 if(command==='native_install_defaults') return {storagePath:'/executable-folder/deas-environment',backend:'nvidia',hardware:{name:'RTX fixture'},warnings:[]};
 if(command==='native_install_plan') return {id:'fixture-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:Object.entries(args.request.options).filter(([,v])=>v).map(([k])=>k),canExecute:!Object.values(args.request.options).some(Boolean)};
 if(command==='native_install_start'||command==='native_install_status') return {state:window.__installState,stepId:'fixture-only',logs:[],error:null};
@@ -40,6 +41,11 @@ with sync_playwright() as p:
             else:
                 assert storage.input_value()=='' and backend.input_value()==''
                 assert page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True).count()==0
+            page.get_by_text(strings['en']['settings.optional'],exact=True).click()
+            if native:
+                page.get_by_role('button',name=strings['en']['settings.chooseFor'].replace('{folder}',strings['en']['settings.models']),exact=True).click()
+                page.wait_for_function("__calls.filter(x=>x.command==='native_install_plan').at(-1)?.args.request.folders?.models==='/real/custom-models'")
+                assert not page.evaluate("__calls.some(x=>x.command==='native_settings_write'||x.command==='native_settings_move')")
             for box in page.locator('.aio-auto-fields input[type="checkbox"]').evaluate_all('els=>els.map(el=>el.getBoundingClientRect().toJSON())'):
                 assert box['width']<=24, 'Checkbox inherited full-width input styling'
             storage.fill('/edited/new-environment')
