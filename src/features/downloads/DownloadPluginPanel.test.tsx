@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { DownloadPanel, AuthPanel } from './DownloadPluginPanel';
+import { DownloadWorkspace } from './DownloadWorkspace';
 import { browseDownloads, planDownloads, setAuthToken, removeAuthToken } from '../../lib/downloads';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
 const resource={id:'file',label:'Remote file',kind:'file',url:'https://example.invalid/file',downloadable:true,size:23};
@@ -102,4 +103,11 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'search',locator:'found',authenticated:true}});
  click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true}});
+});
+it('keeps only one bubble panel open when switching between authorization and downloads',async()=>{
+ render(<I18nProvider><DownloadWorkspace/></I18nProvider>);
+ click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();
+ click('Optional downloads');await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
+ click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
+ click('Provider authorization');expect(screen.queryByLabelText('Token')).toBeNull();
 });

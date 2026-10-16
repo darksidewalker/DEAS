@@ -23,10 +23,15 @@ function useNativeRequest() {
 }
 
 const authProviders=[{id:'huggingface',label:'Hugging Face',origin:'https://huggingface.co'},{id:'civitai',label:'CivitAI',origin:'https://civitai.com'},{id:'github',label:'GitHub',origin:'https://api.github.com'}];
-export interface AuthPanelProps { onChange?:()=>void }
+/** `open`/`onToggle` let a parent keep a single panel open; uncontrolled panels manage their own state. */
+function useOpen(open?:boolean,onToggle?:()=>void):[boolean,()=>void] {
+ const [local,setLocal]=useState(false);
+ return open===undefined?[local,()=>setLocal(v=>!v)]:[open,onToggle??(()=>{})];
+}
+export interface AuthPanelProps { onChange?:()=>void; open?:boolean; onToggle?:()=>void }
 /** Fixed native credential audiences; never infer audiences from external catalog entries. */
-export function AuthPanel({onChange}:AuthPanelProps={}) {
- const {t}=useI18n();const io=useNativeRequest();const [open,setOpen]=useState(false);
+export function AuthPanel({onChange,open:openProp,onToggle}:AuthPanelProps={}) {
+ const {t}=useI18n();const io=useNativeRequest();const [open,toggleOpen]=useOpen(openProp,onToggle);
  const [providerId,setProviderId]=useState('huggingface');const [persist,setPersist]=useState(false);const [metadata,setMetadata]=useState<AuthMetadata[]>([]);
  const token=useRef<HTMLInputElement>(null);const [hasToken,setHasToken]=useState(false);
  const clear=()=>{if(token.current)token.current.value='';setHasToken(false);};
@@ -34,7 +39,7 @@ export function AuthPanel({onChange}:AuthPanelProps={}) {
  const current=metadata.find(p=>p.providerId===providerId);
  const changed=(value:AuthMetadata)=>{setMetadata(old=>[...old.filter(p=>p.providerId!==value.providerId),value]);clear();onChange?.();};
  return <section className="feature-panel download-module" aria-label={t('downloads.auth')}>
-  <NeuralBlob id="provider-auth" label={t('downloads.auth')} description={t('downloads.authBubble')} selected={open} onSelect={()=>{clear();io.invalidate();setOpen(!open);}}/>
+  <NeuralBlob id="provider-auth" label={t('downloads.auth')} description={t('downloads.authBubble')} selected={open} onSelect={()=>{clear();io.invalidate();toggleOpen();}}/>
   {open&&<div className="download-controls">
    <p className="field-help">{t(io.native?'downloads.tokenHelp':'downloads.browser')}</p>
    <label>{t('downloads.provider')}<select aria-label={t('downloads.provider')} value={providerId} disabled={io.busy} onChange={e=>{clear();io.invalidate();setProviderId(e.target.value);}}>{authProviders.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
@@ -63,10 +68,10 @@ const categoryOrder=['models','loras','vae','text_encoders','clip_vision','contr
 // Checkpoints and diffusion models share one "Models" tab; the entry's own target stays the destination folder.
 const modelFolders=['checkpoints','diffusion_models'];
 const tabOf=(target:string)=>modelFolders.includes(target)?'models':target;
-export interface DownloadPanelProps { installTarget?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void }
+export interface DownloadPanelProps { installTarget?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; open?:boolean; onToggle?:()=>void }
 const key=(r:DownloadResource)=>JSON.stringify([r.id,r.url,r.locator]);
-export function DownloadPanel({installTarget,authRevision=0,onStatus}:DownloadPanelProps={}) {
- const {t}=useI18n();const io=useNativeRequest();const [open,setOpen]=useState(false);
+export function DownloadPanel({installTarget,authRevision=0,onStatus,open:openProp,onToggle}:DownloadPanelProps={}) {
+ const {t}=useI18n();const io=useNativeRequest();const [open,toggleOpen]=useOpen(openProp,onToggle);
  const [catalogText,setCatalogText]=useState('');
  const [catalog,setCatalog]=useState<DownloadCatalog|null>(null);const [providerId,setProviderId]=useState('');
  const [scope,setScope]=useState<DownloadScope>('index');const [locator,setLocator]=useState('');const [entryId,setEntryId]=useState('');const [authenticated,setAuthenticated]=useState(false);
@@ -98,7 +103,7 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus}:DownloadPa
  // Managed install folders receive files in place; a chosen parent (with optional new subfolder) overrides.
  const destination=parentPath?{parentPath,folderName:folderName.trim()}:installTarget&&folder?{parentPath:comfyFolder(installTarget,folder),folderName:''}:null;
  return <section className="feature-panel download-module" aria-label={t('downloads.title')}>
-  <NeuralBlob id="optional-downloads" label={t('downloads.title')} description={t('downloads.bubble')} selected={open} onSelect={()=>{if(locked)return;setOpen(!open);if(!open&&!catalog)load();}}/>
+  <NeuralBlob id="optional-downloads" label={t('downloads.title')} description={t('downloads.bubble')} selected={open} onSelect={()=>{if(locked)return;toggleOpen();if(!open&&!catalog)load();}}/>
   {open&&<div className="download-controls" aria-busy={io.busy}>
    <p className="field-help">{t(io.native?'downloads.help':'downloads.browser')}</p>
    {catalog&&<>
