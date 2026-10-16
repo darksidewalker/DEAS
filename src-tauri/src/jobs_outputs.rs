@@ -230,16 +230,18 @@ fn validate_envelope(bytes: &[u8]) -> Result<(), String> {
     Err("Missing PNG end".into())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     use crate::downloads::fs::Anchor;
-    use std::{io::Write, os::fd::AsRawFd, os::unix::fs::MetadataExt};
+    use std::io::Write;
     if !path.is_absolute()
         || path.extension().and_then(|s| s.to_str()) != Some("png")
         || path.components().any(|p| {
             !matches!(
                 p,
-                std::path::Component::RootDir | std::path::Component::Normal(_)
+                std::path::Component::Prefix(_)
+                    | std::path::Component::RootDir
+                    | std::path::Component::Normal(_)
             )
         })
     {
@@ -255,46 +257,24 @@ fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     parent.absent(name)?;
     let temp = format!(".deas-{}.partial", uuid::Uuid::new_v4());
     let mut file = parent.partial(&temp)?;
-    let owned = |file: &std::fs::File| -> bool {
-        let Ok(metadata) = file.metadata() else {
-            return false;
-        };
-        let temp = std::ffi::CString::new(temp.as_str()).unwrap();
-        let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
-        if unsafe {
-            libc::fstatat(
-                parent.0.as_raw_fd(),
-                temp.as_ptr(),
-                st.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        } != 0
-        {
-            return false;
-        }
-        let st = unsafe { st.assume_init() };
-        st.st_dev == metadata.dev()
-            && st.st_ino == metadata.ino()
-            && st.st_mode & libc::S_IFMT == libc::S_IFREG
-    };
     let result = (|| {
         file.write_all(bytes)
             .map_err(|_| "Cannot write exported PNG")?;
         file.sync_all().map_err(|_| "Cannot sync exported PNG")?;
         parent.validate_directory(false)?;
-        if !owned(&file) {
+        if !parent.owns_partial(&temp, &file) {
             return Err("Export temporary file changed".into());
         }
         parent.publish(&temp, name)
     })();
-    if owned(&file) {
+    if parent.owns_partial(&temp, &file) {
         parent.remove_partial(&temp);
     }
     result
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 fn export_png(_: &std::path::Path, _: &[u8]) -> Result<(), String> {
-    Err("Safe PNG export currently requires Linux".into())
+    Err("Safe PNG export currently requires Linux or Windows".into())
 }
 
 #[tauri::command]
