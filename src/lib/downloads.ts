@@ -29,5 +29,6 @@ export const setAuthToken=(providerId:string,token:string,persist=false)=>native
 export const restoreAuthToken=(providerId:string)=>native<AuthMetadata>('native_auth_restore',{providerId});
 export const removeAuthToken=(providerId:string)=>native<AuthMetadata>('native_auth_remove',{providerId});
 /** Where a ComfyUI category lives inside a managed DEAS environment. */
-export const comfyFolder=(installTarget:string,category:string)=>`${installTarget}/ComfyUI/${category==='workflows'?'user/default/workflows':`models/${category}`}`;
+/** Workflows live in the ComfyUI user folder; model categories follow the configured models folder when set. */
+export const comfyFolder=(installTarget:string,category:string,modelsDir?:string)=>category==='workflows'?`${installTarget}/ComfyUI/user/default/workflows`:`${modelsDir??`${installTarget}/ComfyUI/models`}/${category}`;
 export const openTokenPage=(providerId:string)=>invoke<void>('native_open_token_page',{providerId});

@@ -5,7 +5,7 @@
   "downloads.importHelp": "Nur validierte Daten. Erweiterungen gelten für diese Sitzung; keine Befehle, Zugangsdaten oder automatische Downloads.",
   "downloads.catalogText": "TOML-Katalogdaten",
   "downloads.import": "Katalog validieren und ergänzen",
-  "downloads.title": "Optionale Downloads",
+  "downloads.title": "Bibliothek",
   "downloads.start": "Bestätigten Download starten",
   "downloads.help": "Optionale Ressourcen sind von der Basisinstallation getrennt. Ressourcen und einen neuen Ordner wählen, dann den exakten nativen Plan prüfen und freigeben.",
   "downloads.browser": "Die Browser-Vorschau kann keine Ressourcen auflisten, herunterladen oder Zugangsdaten verwalten. Die DEAS-Desktop-App verwenden.",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "Inhalte für Erwachsene (18+)",
   "downloads.nsfwCancel": "Bei SFW bleiben",
   "downloads.nsfwConfirm": "Ich bin 18+, anzeigen",
-  "downloads.nsfwSwitch": "Inhalte für Erwachsene"
+  "downloads.nsfwSwitch": "Inhalte für Erwachsene",
+  "downloads.local": "bereits lokal"
 }

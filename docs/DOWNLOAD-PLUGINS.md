@@ -67,3 +67,7 @@ The parent must be effective-user-owned and not group/world writable; staging ch
 - [x] Scratch HTTP/file tests, frontend/native build gates, responsive browser fixtures and native initial-screen rendering; interactive native plugin UI-to-transport acceptance remains unverified.
 
 Live authenticated provider, gated license acceptance, provider rate/speed entitlement, large-model resume, full install integration and other target OS verification must be distinguished from local HTTP/UI fixtures.
+
+## Folder settings and local presence
+
+`native_settings_read({root})` / `native_settings_write({root, folders:{models?,input?,output?}})` keep `deas-settings.json` beside the environment (absolute existing directories only). The owned backend start appends `--input-directory`, `--output-directory` and `--extra-model-paths-config <root>/deas-models.yaml` (generated, `base_path` = models folder with the standard ComfyUI subfolders) when set; a folder removed since saving fails the start. The Library targets `<models>/<category>` for model categories when a models folder is configured. `native_files_present({paths})` reports which absolute files exist; the Library marks listed files found in the destination as "already local" and does not offer them for download. Catalog cards (model pages) are not checked until their files are listed.

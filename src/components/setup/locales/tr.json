@@ -126,5 +126,15 @@
   "setup.profile.packages": "Torch",
   "setup.profile.cuda": "CUDA",
   "setup.nativeSteps": "Kurulum adımları",
-  "setup.summary.selected": "Seçilen"
+  "setup.summary.selected": "Seçilen",
+  "settings.title": "Ayarlar",
+  "settings.help": "Arka ucun kullandığı klasörler. Boş = ortam içindeki varsayılan. Ortamın yanına kaydedilir; bir sonraki başlatmada uygulanır.",
+  "settings.noRoot": "Ayarlar bir ortama aittir; önce depolama klasörünü belirleyin.",
+  "settings.models": "Model klasörü",
+  "settings.input": "Girdi klasörü",
+  "settings.output": "Çıktı klasörü",
+  "settings.default": "varsayılan",
+  "settings.choose": "Seç…",
+  "settings.reset": "Sıfırla",
+  "settings.save": "Klasörleri kaydet"
 }

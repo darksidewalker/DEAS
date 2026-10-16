@@ -20,7 +20,7 @@ beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en')
  return {state:c==='native_download_cancel'?'cancelled':'running',completed:0,total:1,bytesDownloaded:12,error:null};
 });});
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
-async function open(){mount();click('Optional downloads');await screen.findByRole('option',{name:'Fixture provider'});}
+async function open(){mount();click('Library');await screen.findByRole('option',{name:'Fixture provider'});}
 async function browse(){await open();fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');}
 async function prepare(){await browse();fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');}
 it('uses exact nested IPC and metadata-only auth contracts',async()=>{
@@ -29,7 +29,7 @@ it('uses exact nested IPC and metadata-only auth contracts',async()=>{
  await setAuthToken('huggingface','private',false);expect(invoke).toHaveBeenLastCalledWith('native_auth_set',{providerId:'huggingface',token:'private',persist:false});await removeAuthToken('huggingface');expect(invoke).toHaveBeenLastCalledWith('native_auth_remove',{providerId:'huggingface'});
 });
 it('loads catalog only on explicit opening; browses curated sources and pagination explicitly',async()=>{
- mount();expect(invoke).not.toHaveBeenCalled();click('Optional downloads');await screen.findByRole('option',{name:'Curated index'});expect(vi.mocked(invoke).mock.calls).toEqual([['native_download_catalog']]);
+ mount();expect(invoke).not.toHaveBeenCalled();click('Library');await screen.findByRole('option',{name:'Curated index'});expect(vi.mocked(invoke).mock.calls).toEqual([['native_download_catalog']]);
  fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');expect(screen.getByText('Installed model')).toBeTruthy();expect(screen.queryByLabelText('Installed model')).toBeNull();click('Browse next page');await act(async()=>{});expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/index',authenticated:false,nsfw:false,cursor:'page2'}});
 });
 it('discloses native plan, requires separate consent, locks edits and shows only real progress',async()=>{
@@ -62,7 +62,7 @@ it('cancels polling timers and ignores an in-flight poll after unmount',async()=
 it('invalidates a prepared authenticated plan when parent reports credential changes',async()=>{
  await prepare();const view=render(<I18nProvider><DownloadPanel authRevision={0}/></I18nProvider>);view.rerender(<I18nProvider><DownloadPanel authRevision={1}/></I18nProvider>);view.unmount();
  // Exercise the same mounted panel with a fresh prepared fixture.
- cleanup();const active=render(<I18nProvider><DownloadPanel authRevision={0}/></I18nProvider>);click('Optional downloads');await screen.findByLabelText('Provider');fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'source'}});click('Browse resources');await screen.findByLabelText('Remote file');fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
+ cleanup();const active=render(<I18nProvider><DownloadPanel authRevision={0}/></I18nProvider>);click('Library');await screen.findByLabelText('Provider');fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'source'}});click('Browse resources');await screen.findByLabelText('Remote file');fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
  active.rerender(<I18nProvider><DownloadPanel authRevision={1}/></I18nProvider>);expect(screen.queryByLabelText('I authorize only this exact optional download plan.')).toBeNull();
 });
 it('locks meaning edits while native start is unresolved',async()=>{
@@ -83,11 +83,11 @@ it('imports data-only catalogs explicitly and adopts returned provider entries w
 it('restores saved tokens only through an explicit action and displays metadata',async()=>{
  mount(true);click('Provider authorization');expect(invoke).not.toHaveBeenCalled();vi.mocked(invoke).mockResolvedValueOnce({providerId:'huggingface',configured:true,persisted:true});click('Explicitly restore saved token');await screen.findByText(/Token configured; account not verified/);expect(invoke).toHaveBeenLastCalledWith('native_auth_restore',{providerId:'huggingface'});expect((screen.getByLabelText('Token') as HTMLInputElement).value).toBe('');
 });
-it('labels unavailable browser transport without IPC',()=>{vi.mocked(isTauri).mockReturnValue(false);mount();click('Optional downloads');expect(screen.getByText(/Browser preview/)).toBeTruthy();expect(invoke).not.toHaveBeenCalled();});
+it('labels unavailable browser transport without IPC',()=>{vi.mocked(isTauri).mockReturnValue(false);mount();click('Library');expect(screen.getByText(/Browser preview/)).toBeTruthy();expect(invoke).not.toHaveBeenCalled();});
 it('shows catalog categories as cards with previews, opens an entry on click and targets the managed ComfyUI folder',async()=>{
  const entries=[{id:'lora-a',label:'Lora A',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'loras',preview:'https://image.civitai.com/a.jpeg'},{id:'wf',label:'Workflow W',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'workflow',target:'workflows'},{id:'ckpt',label:'Image checkpoint',providerId:'fixture',scope:'index',locator:'https://example.invalid/c.json',kind:'model',target:'checkpoints',media:'image',auth:true},{id:'wan',label:'Video model',providerId:'fixture',scope:'index',locator:'https://example.invalid/v.json',kind:'model',target:'diffusion_models',media:'video'}];
  vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_download_catalog'?{...catalog,providers:[...catalog.providers,{id:'civitai',kind:'civitai',label:'CivitAI',origin:'https://civitai.com',scopes:['user','model','search'],anonymousNotice:''}],entries}:c==='native_download_browse'?((a as {request:{scope:string}}).request.scope==='search'?{resources:[{id:'civitai:7',label:'Found · v1',kind:'repo',downloadable:false,locator:'7',category:'checkpoints',preview:'https://image.civitai.com/f.jpeg'}],nextCursor:null,warnings:[]}:{resources:[{...resource,preview:'https://image.civitai.com/r.jpeg'}],nextCursor:null,warnings:[]}):c==='native_download_plan'?{id:'p',target:(a as {request:{parentPath:string}}).request.parentPath,resources:[resource],totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true}:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
- render(<I18nProvider><DownloadPanel installTarget="/env"/></I18nProvider>);click('Optional downloads');
+ render(<I18nProvider><DownloadPanel installTarget="/env"/></I18nProvider>);click('Library');
  const tabs=await screen.findAllByRole('tab');expect(tabs.map(t=>t.textContent)).toEqual(['Models','LoRAs','Workflows']);expect(tabs[0].getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('button',{name:/Image checkpoint/})).toBeTruthy();expect(screen.getByText('Login / API key needed')).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'Video'}));expect(screen.queryByRole('button',{name:/Image checkpoint/})).toBeNull();expect(screen.getByRole('button',{name:/Video model/})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'All'}));
  fireEvent.click(screen.getByRole('button',{name:/Image checkpoint/}));await screen.findByText('/env/ComfyUI/models/checkpoints');expect((screen.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('true');
@@ -112,7 +112,7 @@ it('mounts exactly the panel for the active top tab',async()=>{
 it('hides adult entries until the NSFW switch is confirmed and sends the flag to native browsing',async()=>{
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true}];
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,nsfw:true},{...resource,id:'safe',label:'Safe file'}],nextCursor:null,warnings:[]});
- mount();click('Optional downloads');await screen.findByRole('button',{name:/Safe model/});expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
+ mount();click('Library');await screen.findByRole('button',{name:/Safe model/});expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
  fireEvent.click(screen.getByRole('switch'));expect(screen.getByRole('alertdialog')).toBeTruthy();click('Keep SFW');expect(screen.queryByRole('alertdialog')).toBeNull();expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
  fireEvent.click(screen.getByRole('switch'));click('I am 18+, show it');expect(screen.getByRole('button',{name:/Adult model/})).toBeTruthy();expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true');
  fireEvent.click(screen.getByRole('button',{name:/Adult model/}));await screen.findByLabelText('Remote file');
@@ -122,7 +122,7 @@ it('hides adult entries until the NSFW switch is confirmed and sends the flag to
 it('filters catalog cards and listed files by base model family',async()=>{
  const entries=[{id:'wan',label:'Wan model',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'model',target:'checkpoints',base:'Wan 2.2'},{id:'ltx',label:'LTX model',providerId:'fixture',scope:'index',locator:'https://example.invalid/l.json',kind:'model',target:'checkpoints',base:'LTX 2.3'}];
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,base:'Wan 2.2'},{...resource,id:'l',label:'LTX file',base:'LTX 2.3'}],nextCursor:null,warnings:[]});
- mount();click('Optional downloads');await screen.findByRole('button',{name:/Wan model/});
+ mount();click('Library');await screen.findByRole('button',{name:/Wan model/});
  const group=screen.getByRole('group',{name:'Base model'});expect([...group.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['All','LTX 2.3','Wan 2.2']);
  fireEvent.click(screen.getByRole('button',{name:'LTX 2.3'}));expect(screen.queryByRole('button',{name:/Wan model/})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/LTX model/}));await screen.findByLabelText('LTX file');expect(screen.queryByLabelText('Remote file')).toBeNull();
@@ -130,4 +130,11 @@ it('filters catalog cards and listed files by base model family',async()=>{
 it('opens the fixed provider token page natively without sending any URL',async()=>{
  mount(true);click('Provider authorization');fireEvent.change(screen.getByLabelText('Provider'),{target:{value:'civitai'}});click('Open token page in browser');await act(async()=>{});
  expect(invoke).toHaveBeenCalledWith('native_open_token_page',{providerId:'civitai'});
+});
+it('marks files that already exist in the destination as local and keeps them unselectable',async()=>{
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_download_browse'?{resources:[{...resource,locator:'have.safetensors'},{...resource,id:'new',label:'New file',locator:'new.safetensors'}],nextCursor:null,warnings:[]}:c==='native_files_present'?[true,false]:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
+ render(<I18nProvider><DownloadPanel installTarget="/env" modelsDir="/models"/></I18nProvider>);click('Library');
+ fireEvent.click(await screen.findByRole('button',{name:'Curated index'}));await screen.findByLabelText('New file');
+ await screen.findByText(/already local/);expect(screen.queryByLabelText('Remote file')).toBeNull();
+ expect(invoke).toHaveBeenCalledWith('native_files_present',{paths:['/models/models/have.safetensors','/models/models/new.safetensors']});
 });

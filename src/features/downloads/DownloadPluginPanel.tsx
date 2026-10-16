@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { NeuralBlob } from '../../components/neural/NeuralBlob';
 import { useI18n } from '../../i18n/I18nProvider';
+import { filesPresent } from '../../lib/settings';
 import { importDownloadCatalog, restoreAuthToken, browseDownloads, cancelDownloads, pickDownloadParent, planDownloads, readAuthStatus, readDownloadCatalog, readDownloadStatus, removeAuthToken, setAuthToken, startDownloads, comfyFolder, openTokenPage } from '../../lib/downloads';
 import type { AuthMetadata, CatalogEntry, DownloadCatalog, DownloadListing, DownloadPlan, DownloadResource, DownloadScope, DownloadStatus } from '../../lib/downloads';
 import './downloads.css';
@@ -65,9 +66,9 @@ const categoryOrder=['models','loras','vae','text_encoders','clip_vision','contr
 // Checkpoints and diffusion models share one "Models" tab; the entry's own target stays the destination folder.
 const modelFolders=['checkpoints','diffusion_models'];
 const tabOf=(target:string)=>modelFolders.includes(target)?'models':target;
-export interface DownloadPanelProps { installTarget?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean }
+export interface DownloadPanelProps { installTarget?:string; modelsDir?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean }
 const key=(r:DownloadResource)=>JSON.stringify([r.id,r.url,r.locator]);
-export function DownloadPanel({installTarget,authRevision=0,onStatus,embedded=false}:DownloadPanelProps={}) {
+export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,embedded=false}:DownloadPanelProps={}) {
  const {t}=useI18n();const io=useNativeRequest();const [opened,setOpened]=useState(false);const open=embedded||opened;
  const [catalogText,setCatalogText]=useState('');
  const [catalog,setCatalog]=useState<DownloadCatalog|null>(null);const [providerId,setProviderId]=useState('');
@@ -104,7 +105,11 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus,embedded=fa
  const entries=visibleEntries.filter(e=>(!base||e.base===base)&&(category!=='models'||mediaFilter==='all'||e.media===mediaFilter));
  const resources=listing?.resources.filter(r=>(nsfw||!r.nsfw)&&(!base||!r.base||r.base===base))??[];
  // Managed install folders receive files in place; a chosen parent (with optional new subfolder) overrides.
- const destination=parentPath?{parentPath,folderName:folderName.trim()}:installTarget&&folder?{parentPath:comfyFolder(installTarget,folder),folderName:''}:null;
+ const destination=parentPath?{parentPath,folderName:folderName.trim()}:installTarget&&folder?{parentPath:comfyFolder(installTarget,folder,modelsDir),folderName:''}:null;
+ const [present,setPresent]=useState<Set<string>>(new Set());
+ const destinationDir=destination?(destination.folderName?`${destination.parentPath}/${destination.folderName}`:destination.parentPath):'';
+ // Mark files that already exist in the destination as local; a failed check simply shows nothing.
+ useEffect(()=>{setPresent(new Set());if(!io.native||!destinationDir||!listing)return;const names=listing.resources.filter(r=>r.downloadable&&r.locator).map(r=>r.locator!);if(!names.length)return;let alive=true;filesPresent(names.map(n=>`${destinationDir}/${n}`)).then(flags=>{if(alive)setPresent(new Set(names.filter((_,i)=>flags[i])));},()=>{});return()=>{alive=false;};},[io.native,destinationDir,listing]);
  return <section className="feature-panel download-module" aria-label={t('downloads.title')}>
   {!embedded&&<NeuralBlob id="optional-downloads" label={t('downloads.title')} description={t('downloads.bubble')} selected={open} onSelect={()=>{if(locked)return;setOpened(v=>!v);if(!open&&!catalog)load();}}/>}
   {open&&<div className="download-controls" aria-busy={io.busy}>
@@ -132,7 +137,7 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus,embedded=fa
     </div></details>
     {listing&&<p className="field-help">{t('downloads.more')}</p>}{listing?.warnings.map((w,i)=><p key={i}>{w}</p>)}
     {listing&&!resources.length&&<p>{t('downloads.empty')}</p>}
-    {resources.map(r=><div className={`download-resource${selected.some(s=>key(s)===key(r))?' is-selected':''}`} key={key(r)}><Preview src={r.preview} alt=""/><div>{r.auth&&<em className="download-auth">{t('downloads.authNeeded')}</em>}{r.nsfw&&<em className="download-auth download-nsfw-tag">{t('downloads.nsfwTag')}</em>}{r.downloadable?<label className="download-check"><input type="checkbox" disabled={locked} checked={selected.some(s=>key(s)===key(r))} onChange={()=>{edit();setSelected(old=>old.some(s=>key(s)===key(r))?old.filter(s=>key(s)!==key(r)):[...old,r]);}}/>{r.label}</label>:r.kind==='repo'&&r.locator&&provider?<button className="action-button" disabled={io.busy||locked} onClick={()=>openResource(r,provider.kind==='civitai'?'model':'repo')}>{t('downloads.openRepo',{name:r.label})}</button>:<p><strong>{r.label}</strong> · {t('downloads.backendResource')}</p>}<details><summary>{t('downloads.resourceDetails')}</summary>{resourceDetails(r)}</details></div></div>)}
+    {resources.map(r=><div className={`download-resource${selected.some(s=>key(s)===key(r))?' is-selected':''}${r.locator&&present.has(r.locator)?' is-local':''}`} key={key(r)}><Preview src={r.preview} alt=""/><div>{r.auth&&<em className="download-auth">{t('downloads.authNeeded')}</em>}{r.nsfw&&<em className="download-auth download-nsfw-tag">{t('downloads.nsfwTag')}</em>}{r.downloadable&&r.locator&&present.has(r.locator)?<p className="download-local"><span aria-hidden="true">✓</span> {r.label} · {t('downloads.local')}</p>:r.downloadable?<label className="download-check"><input type="checkbox" disabled={locked} checked={selected.some(s=>key(s)===key(r))} onChange={()=>{edit();setSelected(old=>old.some(s=>key(s)===key(r))?old.filter(s=>key(s)!==key(r)):[...old,r]);}}/>{r.label}</label>:r.kind==='repo'&&r.locator&&provider?<button className="action-button" disabled={io.busy||locked} onClick={()=>openResource(r,provider.kind==='civitai'?'model':'repo')}>{t('downloads.openRepo',{name:r.label})}</button>:<p><strong>{r.label}</strong> · {t('downloads.backendResource')}</p>}<details><summary>{t('downloads.resourceDetails')}</summary>{resourceDetails(r)}</details></div></div>)}
     {listing?.nextCursor&&<button className="action-button" disabled={io.busy||running} onClick={()=>browse(current,listing.nextCursor!)}>{t('downloads.next')}</button>}
     <p>{t('downloads.selection',{count:selected.length})}</p>
     {destination&&<p>{t('downloads.destination')}: <span className="download-identity">{destination.folderName?`${destination.parentPath}/${destination.folderName}`:destination.parentPath}</span></p>}

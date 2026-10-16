@@ -17,7 +17,7 @@ with sync_playwright() as p:
    page.goto(url,wait_until='networkidle')
    page.get_by_label('Sprache',exact=True).select_option('en')
    page.get_by_role('tab',name='AiO installer',exact=True).click()
-   page.get_by_role('tab',name='Optional downloads',exact=True).click()
+   page.get_by_role('tab',name='Library',exact=True).click()
    if native:
     page.get_by_role('tab',name='Models',exact=True).wait_for()
     assert page.get_by_text('Login / API key needed',exact=True).count()==1

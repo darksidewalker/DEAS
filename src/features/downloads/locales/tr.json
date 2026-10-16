@@ -5,7 +5,7 @@
   "downloads.importHelp": "Yalnızca doğrulanmış veriler. Eklemeler bu oturum için geçerlidir; komut, kimlik bilgisi veya otomatik indirme içermez.",
   "downloads.catalogText": "TOML katalog verileri",
   "downloads.import": "Kataloğu doğrula ve genişlet",
-  "downloads.title": "İsteğe bağlı indirmeler",
+  "downloads.title": "Kitaplık",
   "downloads.start": "Onaylanan indirmeyi başlat",
   "downloads.help": "İsteğe bağlı kaynaklar temel kurulumdan ayrıdır. Kaynakları ve yeni bir klasörü seçin, ardından kesin yerel planı inceleyip izin verin.",
   "downloads.browser": "Tarayıcı önizlemesi kaynakları listeleyemez veya indiremez ya da kimlik bilgilerini yönetemez. DEAS masaüstü uygulamasını kullanın.",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "Yetişkin içeriği (18+)",
   "downloads.nsfwCancel": "SFW kalsın",
   "downloads.nsfwConfirm": "18+ yaşındayım, göster",
-  "downloads.nsfwSwitch": "Yetişkin içeriği"
+  "downloads.nsfwSwitch": "Yetişkin içeriği",
+  "downloads.local": "zaten yerel"
 }

@@ -126,5 +126,15 @@
   "setup.profile.packages": "Torch",
   "setup.profile.cuda": "CUDA",
   "setup.nativeSteps": "Installation steps",
-  "setup.summary.selected": "Selected"
+  "setup.summary.selected": "Selected",
+  "settings.title": "Settings",
+  "settings.help": "Folders used by the owned backend. Empty = default inside the environment. Saved beside the environment; applied at the next backend start.",
+  "settings.noRoot": "Settings belong to an environment; set the storage directory first.",
+  "settings.models": "Models folder",
+  "settings.input": "Input folder",
+  "settings.output": "Output folder",
+  "settings.default": "default",
+  "settings.choose": "Choose…",
+  "settings.reset": "Reset",
+  "settings.save": "Save folders"
 }

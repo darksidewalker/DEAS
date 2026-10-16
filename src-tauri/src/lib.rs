@@ -27,6 +27,8 @@ pub mod media;
 pub use media::{native_media_describe, native_media_list};
 pub mod token_page;
 pub use token_page::native_open_token_page;
+pub mod settings;
+pub use settings::{native_files_present, native_settings_read, native_settings_write};
 pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;

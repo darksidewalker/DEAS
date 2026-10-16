@@ -5,7 +5,7 @@
   "downloads.importHelp": "Données validées uniquement. Les extensions s’appliquent à cette session ; aucune commande, aucun identifiant ni téléchargement automatique.",
   "downloads.catalogText": "Données du catalogue TOML",
   "downloads.import": "Valider et étendre le catalogue",
-  "downloads.title": "Téléchargements facultatifs",
+  "downloads.title": "Bibliothèque",
   "downloads.start": "Démarrer le téléchargement confirmé",
   "downloads.help": "Les ressources facultatives sont distinctes de l’installation de base. Choisissez les ressources et un nouveau dossier, puis examinez et autorisez le plan natif exact.",
   "downloads.browser": "L’aperçu dans le navigateur ne peut ni lister ni télécharger des ressources, ni gérer les identifiants. Utilisez l’application de bureau DEAS.",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "Contenu adulte (18+)",
   "downloads.nsfwCancel": "Rester en SFW",
   "downloads.nsfwConfirm": "J’ai 18 ans ou plus, afficher",
-  "downloads.nsfwSwitch": "Contenu adulte"
+  "downloads.nsfwSwitch": "Contenu adulte",
+  "downloads.local": "déjà en local"
 }

@@ -126,5 +126,15 @@
   "setup.profile.packages": "Torch",
   "setup.profile.cuda": "CUDA",
   "setup.nativeSteps": "安装步骤",
-  "setup.summary.selected": "已选择"
+  "setup.summary.selected": "已选择",
+  "settings.title": "设置",
+  "settings.help": "后端使用的文件夹。留空＝环境内默认。保存在环境旁；下次启动后端时生效。",
+  "settings.noRoot": "设置属于某个环境；请先设置存储目录。",
+  "settings.models": "模型文件夹",
+  "settings.input": "输入文件夹",
+  "settings.output": "输出文件夹",
+  "settings.default": "默认",
+  "settings.choose": "选择…",
+  "settings.reset": "重置",
+  "settings.save": "保存文件夹"
 }

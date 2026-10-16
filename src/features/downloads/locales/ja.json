@@ -5,7 +5,7 @@
   "downloads.importHelp": "検証済みのデータのみを扱います。拡張はこのセッションに適用され、コマンド、認証情報、自動ダウンロードは含みません。",
   "downloads.catalogText": "TOML カタログデータ",
   "downloads.import": "カタログを検証して拡張",
-  "downloads.title": "任意のダウンロード",
+  "downloads.title": "ライブラリ",
   "downloads.start": "承認済みのダウンロードを開始",
   "downloads.help": "追加リソースは基本構成のインストールとは別です。リソースと新しいフォルダーを選び、正確なネイティブ計画を確認して承認してください。",
   "downloads.browser": "ブラウザープレビューではリソースの一覧取得やダウンロード、認証情報の管理は行えません。DEAS デスクトップアプリをご利用ください。",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "成人向けコンテンツ（18+）",
   "downloads.nsfwCancel": "SFWのままにする",
   "downloads.nsfwConfirm": "18歳以上です、表示する",
-  "downloads.nsfwSwitch": "成人向けコンテンツ"
+  "downloads.nsfwSwitch": "成人向けコンテンツ",
+  "downloads.local": "ローカルにあり"
 }

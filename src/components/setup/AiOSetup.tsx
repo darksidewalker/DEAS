@@ -5,6 +5,8 @@ import { initialSetupState, setupPresentation, storageTarget, setupPlan, transit
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
+import { FoldersPanel } from '../../features/settings/FoldersPanel';
+import type { Folders } from '../../lib/settings';
 export interface AiOSetupProps { onConnectExisting: (baseUrl: string) => void; onInstalled?: (features: readonly FeatureId[]) => void }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
 export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
@@ -35,7 +37,8 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  const plan=setupPlan(state);
  const signature=JSON.stringify(plan);
  const planMatches=!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
- const [view,setView]=useState<'setup'|'auth'|'downloads'>('setup');
+ const [view,setView]=useState<'setup'|'auth'|'downloads'|'settings'>('setup');
+ const [folders,setFolders]=useState<Folders>({});
  // One read-only defaults request per mounted setup, also reused by StrictMode effect replay.
  useEffect(()=>{
   if(!native||!state.opened)return;
@@ -113,7 +116,6 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  return <section className="aio-setup" aria-label={t('setup.region')}>
   <header className="aio-setup-header"><p className="aio-setup-eyebrow">{t('setup.eyebrow')}</p>
   </header>
-  {state.opened&&defaults&&!status&&<div className="aio-help" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
   <div className="aio-decision-area">
   <div className="aio-left">
@@ -121,8 +123,11 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
    <button type="button" role="tab" data-node="setup:aio" className={`aio-tab aio-tab-installer ${status?.state==='succeeded'?'is-done':'is-pending'}`} aria-selected={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}}>{status?.state==='succeeded'&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}<small>{t(status?.state==='succeeded'?'setup.tab.installed':'setup.aio.description')}</small></button>
    <button type="button" role="tab" data-node="provider-auth" className="aio-tab" aria-selected={view==='auth'} onClick={()=>setView('auth')}>{t('downloads.auth')}</button>
    <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
+   <button type="button" role="tab" data-node="settings" className="aio-tab" aria-selected={view==='settings'} onClick={()=>setView('settings')}>{t('settings.title')}</button>
   </div>
-  <DownloadWorkspace view={view==='setup'?null:view} installTarget={plan?.route==='managed'?plan.storagePath:undefined}/>
+  <DownloadWorkspace view={view==='auth'||view==='downloads'?view:null} installTarget={plan?.route==='managed'?plan.storagePath:undefined} modelsDir={folders.models}/>
+  {view==='setup'&&state.opened&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
+  {view==='settings'&&<FoldersPanel root={plan?.route==='managed'?plan.storagePath:defaults?.storagePath} onChange={setFolders}/>}
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
   </div>
   <aside className="aio-right">

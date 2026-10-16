@@ -5,7 +5,7 @@
   "downloads.importHelp": "仅接受经过验证的数据。扩展仅在当前会话中生效；不包含命令或凭据，也不会自动下载。",
   "downloads.catalogText": "TOML 目录数据",
   "downloads.import": "验证并扩展目录",
-  "downloads.title": "可选下载",
+  "downloads.title": "资源库",
   "downloads.start": "开始已确认的下载",
   "downloads.help": "可选资源与基础安装相互独立。请选择资源和新的文件夹，然后审查并授权执行这份确切的原生计划。",
   "downloads.browser": "浏览器预览无法列出或下载资源，也无法管理凭据。请使用 DEAS 桌面应用。",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "成人内容（18+）",
   "downloads.nsfwCancel": "保持 SFW",
   "downloads.nsfwConfirm": "我已满 18 岁，显示",
-  "downloads.nsfwSwitch": "成人内容"
+  "downloads.nsfwSwitch": "成人内容",
+  "downloads.local": "本地已有"
 }

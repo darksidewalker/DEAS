@@ -126,5 +126,15 @@
   "setup.profile.packages": "Torch",
   "setup.profile.cuda": "CUDA",
   "setup.nativeSteps": "Installationsschritte",
-  "setup.summary.selected": "Ausgewählt"
+  "setup.summary.selected": "Ausgewählt",
+  "settings.title": "Einstellungen",
+  "settings.help": "Ordner für das eigene Backend. Leer = Standard in der Umgebung. Wird neben der Umgebung gespeichert; gilt ab dem nächsten Backend-Start.",
+  "settings.noRoot": "Einstellungen gehören zu einer Umgebung; zuerst den Speicherordner festlegen.",
+  "settings.models": "Modellordner",
+  "settings.input": "Eingabeordner",
+  "settings.output": "Ausgabeordner",
+  "settings.default": "Standard",
+  "settings.choose": "Wählen…",
+  "settings.reset": "Zurücksetzen",
+  "settings.save": "Ordner speichern"
 }

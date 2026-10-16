@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-settings"
+description = "Read/write the per-environment folder settings (models, input, output) and check whether listed files already exist."
+commands.allow = ["native_settings_read", "native_settings_write", "native_files_present"]

@@ -126,5 +126,15 @@
   "setup.profile.packages": "Torch",
   "setup.profile.cuda": "CUDA",
   "setup.nativeSteps": "インストール手順",
-  "setup.summary.selected": "選択"
+  "setup.summary.selected": "選択",
+  "settings.title": "設定",
+  "settings.help": "バックエンドが使うフォルダー。空＝環境内の既定。環境の横に保存され、次回のバックエンド起動時に適用。",
+  "settings.noRoot": "設定は環境に属します。先に保存先を設定してください。",
+  "settings.models": "モデルフォルダー",
+  "settings.input": "入力フォルダー",
+  "settings.output": "出力フォルダー",
+  "settings.default": "既定",
+  "settings.choose": "選択…",
+  "settings.reset": "リセット",
+  "settings.save": "フォルダーを保存"
 }

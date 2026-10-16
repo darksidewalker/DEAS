@@ -5,7 +5,7 @@
   "downloads.importHelp": "Validated data only. Extensions apply to this session; no commands, credentials or automatic downloads.",
   "downloads.catalogText": "TOML catalog data",
   "downloads.import": "Validate and extend catalog",
-  "downloads.title": "Optional downloads",
+  "downloads.title": "Library",
   "downloads.start": "Start confirmed download",
   "downloads.help": "Optional resources are separate from baseline installation. Choose resources and a new folder, then review and authorize the exact native plan.",
   "downloads.browser": "Browser preview cannot list or download resources or manage credentials. Use the DEAS desktop app.",
@@ -99,5 +99,6 @@
   "downloads.nsfwTitle": "Adult content (18+)",
   "downloads.nsfwCancel": "Keep SFW",
   "downloads.nsfwConfirm": "I am 18+, show it",
-  "downloads.nsfwSwitch": "Adult content"
+  "downloads.nsfwSwitch": "Adult content",
+  "downloads.local": "already local"
 }

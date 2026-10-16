@@ -50,3 +50,5 @@
 .download-switch-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(50% - 3px); height: calc(100% - 4px); border-radius: 999px; background: #83c19a; transition: transform .2s; }
 .download-switch[aria-checked="true"] .download-switch-knob::after { transform: translateX(100%); background: #ffbaaa; }
 .download-switch:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.download-resource.is-local { border-inline-start-color: #83c19a; }
+.download-local { margin: 0; color: #83c19a; font-size: .85rem; }
