@@ -98,5 +98,6 @@
   "downloads.base": "基础模型",
   "downloads.nsfwTitle": "成人内容（18+）",
   "downloads.nsfwCancel": "保持 SFW",
-  "downloads.nsfwConfirm": "我已满 18 岁，显示"
+  "downloads.nsfwConfirm": "我已满 18 岁，显示",
+  "downloads.nsfwSwitch": "成人内容"
 }

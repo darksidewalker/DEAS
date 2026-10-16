@@ -33,7 +33,6 @@
 .download-auth { position: absolute; top: .55rem; left: .55rem; padding: .15rem .45rem; border-radius: .4rem; background: #000000b3; color: var(--copper); font-size: .65rem; font-style: normal; }
 .download-resource .download-auth { position: static; justify-self: start; display: inline-block; margin-bottom: .3rem; }
 .download-media-filter button[aria-pressed="true"] { background: var(--surface); color: var(--chalk); border-color: var(--blue); }
-.download-nsfw { justify-self: end; font-size: .75rem; color: var(--muted); }
 .download-nsfw-tag { top: auto; bottom: 2.4rem; left: auto; right: .55rem; color: #ffbaaa; }
 .download-resource .download-nsfw-tag { margin-left: .4rem; }
 .download-link { margin-left: .5rem; padding: .2rem .5rem; border: 1px solid #ffffff1f; border-radius: .4rem; background: transparent; color: var(--copper); font: inherit; font-size: .75rem; }
@@ -42,3 +41,12 @@
 .download-dialog-card h3 { margin: 0 0 .5rem; font-size: 1rem; }
 .download-dialog-card p { margin: 0 0 1rem; font-size: .85rem; line-height: 1.5; color: var(--muted); }
 .download-danger { border-color: #ffbaaa; color: #ffbaaa; }
+/* Light-switch style: both labels always visible, the lit side is the active one. */
+.download-switch { justify-self: start; display: inline-grid; grid-template-columns: auto 2.6rem auto; align-items: center; gap: .5rem; padding: .35rem .7rem; border: 1px solid #ffffff1f; border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; }
+.download-switch > span:first-child, .download-switch > span:last-child { transition: color .2s; }
+.download-switch[aria-checked="false"] > span:first-child { color: #83c19a; font-weight: 600; }
+.download-switch[aria-checked="true"] > span:last-child { color: #ffbaaa; font-weight: 600; }
+.download-switch-knob { position: relative; height: 1.3rem; border-radius: 999px; background: #11171a; border: 1px solid #ffffff2a; }
+.download-switch-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(50% - 3px); height: calc(100% - 4px); border-radius: 999px; background: #83c19a; transition: transform .2s; }
+.download-switch[aria-checked="true"] .download-switch-knob::after { transform: translateX(100%); background: #ffbaaa; }
+.download-switch:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }

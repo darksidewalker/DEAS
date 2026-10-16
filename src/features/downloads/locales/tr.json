@@ -98,5 +98,6 @@
   "downloads.base": "Temel model",
   "downloads.nsfwTitle": "Yetişkin içeriği (18+)",
   "downloads.nsfwCancel": "SFW kalsın",
-  "downloads.nsfwConfirm": "18+ yaşındayım, göster"
+  "downloads.nsfwConfirm": "18+ yaşındayım, göster",
+  "downloads.nsfwSwitch": "Yetişkin içeriği"
 }

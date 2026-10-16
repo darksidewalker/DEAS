@@ -98,5 +98,6 @@
   "downloads.base": "Basismodell",
   "downloads.nsfwTitle": "Inhalte für Erwachsene (18+)",
   "downloads.nsfwCancel": "Bei SFW bleiben",
-  "downloads.nsfwConfirm": "Ich bin 18+, anzeigen"
+  "downloads.nsfwConfirm": "Ich bin 18+, anzeigen",
+  "downloads.nsfwSwitch": "Inhalte für Erwachsene"
 }

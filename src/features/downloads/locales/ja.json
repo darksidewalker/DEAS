@@ -98,5 +98,6 @@
   "downloads.base": "ベースモデル",
   "downloads.nsfwTitle": "成人向けコンテンツ（18+）",
   "downloads.nsfwCancel": "SFWのままにする",
-  "downloads.nsfwConfirm": "18歳以上です、表示する"
+  "downloads.nsfwConfirm": "18歳以上です、表示する",
+  "downloads.nsfwSwitch": "成人向けコンテンツ"
 }
