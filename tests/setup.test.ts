@@ -10,7 +10,8 @@ function through(last:StepId='acceleration') {
 }
 test('automatic review keeps all fields editable without per-step confirmation',()=>{
  let s=transitionSetup(initialSetupState(),{type:'automatic'});
- assert.equal(activeSetupStep(s),'review');assert.equal(setupPlan(s),null);
+ assert.equal(activeSetupStep(s),'review');assert.equal(setupPlan(s),null);assert.deepEqual(s.features,['director']);
+ s=transitionSetup(s,{type:'feature',id:'director'});assert.deepEqual(s.features,[]);
  s=select(s,'storage','/data/new');s=select(s,'acceleration','cpu');
  assert.ok(setupPlan(s));
  s=transitionSetup(s,{type:'option',id:'ffmpeg',enabled:true});

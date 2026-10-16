@@ -121,15 +121,29 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
   {state.opened&&defaults&&!status&&<div className="aio-help" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
   <div className="aio-decision-area">
+  <div className="aio-left">
   <div className="aio-bubble-row">
    <NeuralGraph nodes={presentation.nodes} history={presentation.history} motion={state.motion} onSelect={id=>{if(id==='setup:aio'&&!running&&!busy&&!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}} label={t('setup.decisions')}/>
    <DownloadWorkspace installTarget={plan?.route==='managed'?plan.storagePath:undefined}/>
   </div>
+  {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
+  </div>
+  <aside className="aio-right">
   {state.opened&&<section className="aio-detail aio-auto-review" aria-label={t('setup.autoReview')}><h3>{t('setup.autoReview')}</h3><p className="aio-help">{t(native?'setup.autoHelp':'setup.autoBrowser')}</p>
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
     <label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>
     <button type="button" disabled={!native} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>{storageParent&&<p className="aio-help">{t('setup.selectedParent')}: <code>{storageParent}</code></p>}
     <label><input type="checkbox" checked={state.features.includes('director')} onChange={()=>edit({type:'feature',id:'director'},'features')}/>{t('setup.feature.director.label')}</label><p className="aio-help">{t('setup.capabilityHelp')}</p>
+   </fieldset>
+   {nativePlan&&<div className="aio-start">
+    <p>{t('setup.request.storagePath')}: <code>{nativePlan.request.storagePath}</code> · {t('setup.request.backend')}: {t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&` · ${nativePlan.hardware.name}`} · {t('setup.request.features')}: {nativePlan.request.features.join(', ')||t('setup.summary.core')}</p>
+    {nativePlan.warnings.length>0&&<ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}
+    {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
+    {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
+    <p className="aio-help">{t('setup.autoConsent')}</p>
+    <button className="aio-confirm-button" disabled={!planMatches||running||busy||status?.state==='succeeded'||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t('setup.autoStart')}</button>
+   </div>}
+   <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy}>
     <details className="aio-advanced"><summary>{t('setup.advanced')}</summary>
      <label htmlFor="auto-backend">{t('setup.request.backend')}</label><select id="auto-backend" value={state.values.acceleration??''} onChange={e=>edit({type:'select',step:'acceleration',value:e.target.value},'acceleration')}><option value="">{t('setup.manualBackend')}</option>{['cpu','nvidia','amd','intel'].map(id=><option key={id} value={id}>{t(`setup.backend.${id}.label`)}</option>)}</select>
      {(Object.keys(state.options) as (keyof InstallOptions)[]).map(id=><label key={id}><input type="checkbox" checked={state.options[id]} onChange={e=>edit({type:'option',id,enabled:e.target.checked},'options')}/>{t(`setup.option.${id}`)}</label>)}
@@ -139,19 +153,11 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
      <button type="button" disabled={!existingUrl.trim()} onClick={()=>{if(validateBackend(existingUrl.trim()))onConnectExisting(existingUrl.trim());else setError('setup.error.backend');}}>{t('setup.inspect')}</button>
     </details>
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
-   {nativePlan&&<>
-    <p>{t('setup.request.storagePath')}: <code>{nativePlan.request.storagePath}</code> · {t('setup.request.backend')}: {t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&` · ${nativePlan.hardware.name}`} · {t('setup.request.features')}: {nativePlan.request.features.join(', ')||t('setup.summary.core')}</p>
-    {nativePlan.warnings.length>0&&<ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}
-    {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
-    {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
-    <p className="aio-help">{t('setup.autoConsent')}</p>
-    <button disabled={!planMatches||running||busy||status?.state==='succeeded'||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t('setup.autoStart')}</button>
-   </>}
   </section>}
-  </div>
   {status&&<section className="aio-detail" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.state==='succeeded'&&<p>{t('setup.installedNotReady')}</p>}<details><summary>{t('setup.logs')}</summary><pre aria-label={t('setup.logs')}>{status.logs.join('\n')}</pre></details>{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
-  {(native||plan)&&<OwnedBackendPanel installSucceeded={status?.state==='succeeded'} onConnectExisting={onConnectExisting}/>}
-  {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
+  {status?.state==='succeeded'&&<OwnedBackendPanel installSucceeded onConnectExisting={onConnectExisting}/>}
+  </aside>
+  </div>
  </section>;
 }
 export default AiOSetup;

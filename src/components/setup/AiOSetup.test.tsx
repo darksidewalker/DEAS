@@ -12,7 +12,7 @@ const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}));
 const mount=(connect=vi.fn(),installed=vi.fn())=>render(<I18nProvider><AiOSetup onConnectExisting={connect} onInstalled={installed}/></I18nProvider>);
 const open=()=>click('AiO installer');
 const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText(label),{target:{value}});
-const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
+const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
 const defaults={storagePath:request.storagePath,backend:'cpu',hardware:null,warnings:['CPU fallback fixture']};
 const plan=(r=request)=>({id:'fixture-plan',request:r,steps:[],warnings:[],unsupportedOptions:[],canExecute:true});
 function nativeFixture(){
@@ -34,7 +34,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
    if(command==='native_install_plan'){prepared=plan((args as {request:NativeInstallRequest}).request);return prepared;}
    return {state:'succeeded',stepId:null,logs:['installed fixture'],error:null};
   });
-  const view=mount(vi.fn(),installed);open();fireEvent.click(screen.getByLabelText('Director'));await screen.findByText('CPU fallback fixture');
+  const view=mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');
   await screen.findByRole('button',{name:'Start install'});expect(installed).not.toHaveBeenCalled();
   click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
   expect(installed.mock.calls[0][0]).toBe(prepared.request.features);
@@ -60,7 +60,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   });
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('running install');
   expect(installed).not.toHaveBeenCalled();await act(async()=>completion.resolve({state:'succeeded',stepId:null,logs:[],error:null}));
-  expect(installed).toHaveBeenCalledExactlyOnceWith([]);
+  expect(installed).toHaveBeenCalledExactlyOnceWith(['director','forge','refmods','continuity']);
  });
  it('does not replay a previous success for an edited or newly prepared plan',async()=>{
   nativeFixture();const installed=vi.fn();let id=0;
@@ -68,13 +68,14 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByLabelText('Director'));expect(installed).toHaveBeenCalledTimes(1);
   await screen.findByRole('button',{name:'Start install'});expect(installed).toHaveBeenCalledTimes(1);
-  click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual(['director','forge','refmods','continuity']);
+  click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual([]);
  });
  it('opens every editable field without inventing a browser path or hardware',()=>{
   mount();open();expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('');
   expect(screen.getByLabelText('ComfyUI Git ref')).toBeTruthy();
-  for(const label of ['Director','SageAttention (opt-in)','Radial attention (opt-in)','FlashAttention (opt-in)','FFmpeg (opt-in)'])expect((screen.getByLabelText(label) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText('Director') as HTMLInputElement).checked).toBe(true);
+  for(const label of ['SageAttention (opt-in)','Radial attention (opt-in)','FlashAttention (opt-in)','FFmpeg (opt-in)'])expect((screen.getByLabelText(label) as HTMLInputElement).checked).toBe(false);
   expect(screen.queryByRole('button',{name:'Confirm & continue'})).toBeNull();expect(invoke).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('reads defaults only on open; automatic planning never starts installation; final click confirms once',async()=>{
@@ -92,7 +93,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   for(const label of ['SageAttention (opt-in)','Radial attention (opt-in)','FlashAttention (opt-in)','FFmpeg (opt-in)'])fireEvent.click(screen.getByLabelText(label));
   change('ComfyUI Git ref','v0.3.50');change('Storage directory','/other/new');change('Backend','nvidia');
   await screen.findByRole('button',{name:'Start install'});
-  expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{storagePath:'/other/new',backend:'nvidia',features:['director','forge','refmods','continuity'],options:{sage:true,radial:true,flash:true,ffmpeg:true},comfyRef:'v0.3.50'}});
+  expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{storagePath:'/other/new',backend:'nvidia',features:[],options:{sage:true,radial:true,flash:true,ffmpeg:true},comfyRef:'v0.3.50'}});
  });
  it('invalid text is visible, disables review, and invalidates the previous plan',async()=>{
   nativeFixture();await ready();change('Storage directory','relative');expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();

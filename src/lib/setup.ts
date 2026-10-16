@@ -60,7 +60,7 @@ function invalidateStep(state: SetupState, step: StepId): SetupState {
  return {...state,values,confirmed};
 }
 export function transitionSetup(state: SetupState,event: SetupEvent): SetupState {
- if(event.type==='automatic') return {...state,mode:'automatic',opened:true,values:{...state.values,route:'managed',pack:'complete'}};
+ if(event.type==='automatic') return {...state,mode:'automatic',opened:true,values:{...state.values,route:'managed',pack:'complete'},features:state.features.length?state.features:['director']}; // Director is the recommended package; untick to install core only
  if(event.type==='open') return {...state,opened:true};
  if(state.mode==='automatic') {
   if(event.type==='select'&&event.step==='storage') return {...state,values:{...state.values,storage:event.value}};

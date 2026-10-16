@@ -74,7 +74,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
-  if(director)fireEvent.click(screen.getByLabelText('Director'));
+  if(!director)fireEvent.click(screen.getByLabelText('Director'));
   await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   const start=await screen.findByRole('button',{name:'Start install'});
   expect(screen.queryByRole('tablist',{name:'Studio areas'})).toBeNull();

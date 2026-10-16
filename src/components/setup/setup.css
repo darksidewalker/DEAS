@@ -7,7 +7,7 @@
 .aio-auto-fields input[type="checkbox"] { accent-color: #83c19a; flex: none; width: auto; padding: 0; margin: 0; }
 .aio-setup { color: #e4e9e5; min-width: 0; }
 /* Graph, step controls and the shared footer form one content-sized workspace. */
-.aio-decision-area { width: 100%; max-width: 48rem; min-width: 0; }
+.aio-decision-area { width: 100%; min-width: 0; }
 .aio-decision-area > .aio-detail { box-sizing: border-box; width: 100%; }
 .aio-confirm-rail { display: flex; justify-content: flex-end; margin-top: .75rem; }
 .aio-setup .aio-confirm-button { width: 208px; max-width: 100%; min-height: 48px; padding: 12px 16px; border: 1px solid #83c19a; border-radius: 12px; background: #286145; color: #f2fff6; font-size: 13px; font-weight: 600; box-shadow: 0 4px 16px #0004; }
@@ -74,3 +74,12 @@
 .aio-bubble-row [data-node="provider-auth"] { grid-row: 1; grid-column: 2; }
 .aio-bubble-row [data-node="optional-downloads"] { grid-row: 1; grid-column: 3; }
 .aio-bubble-row .download-controls { grid-column: 1 / -1; }
+.aio-start { display: grid; gap: .5rem; justify-items: start; margin: .75rem 0; }
+.aio-start .aio-confirm-button { width: auto; min-width: 208px; }
+/* One page: bubbles and their panels on the left, the installation review pinned on the right. */
+.aio-decision-area { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 30rem); gap: 1.5rem; align-items: start; }
+.aio-left, .aio-right { min-width: 0; }
+.aio-right { position: sticky; top: .75rem; }
+.aio-right > .aio-detail { margin-top: 0; max-width: none; }
+.aio-right > .aio-detail + .aio-detail { margin-top: .65rem; }
+@media (max-width: 900px) { .aio-decision-area { grid-template-columns: minmax(0, 1fr); } .aio-right { position: static; } }
