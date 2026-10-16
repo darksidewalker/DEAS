@@ -92,5 +92,7 @@
   "downloads.nsfwOff": "Yalnızca SFW",
   "downloads.nsfwOn": "+NSFW (18+)",
   "downloads.nsfwWarning": "Yetişkin (18+) içeriği gösterilsin mi? Önizlemeler ve adlar açık olabilir. Yalnızca reşitseniz devam edin.",
-  "downloads.nsfwTag": "18+"
+  "downloads.nsfwTag": "18+",
+  "downloads.openTokenPage": "Jeton sayfasını tarayıcıda aç",
+  "downloads.tokenPageHelp": "Tarayıcı oturumları uygulama tarafından kullanılamaz. Sağlayıcı sayfasında bir API anahtarı oluşturun, buraya bir kez yapıştırın ve isterseniz işletim sistemi kimlik deposunda saklayın."
 }

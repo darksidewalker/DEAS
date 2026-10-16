@@ -30,3 +30,4 @@ export const restoreAuthToken=(providerId:string)=>native<AuthMetadata>('native_
 export const removeAuthToken=(providerId:string)=>native<AuthMetadata>('native_auth_remove',{providerId});
 /** Where a ComfyUI category lives inside a managed DEAS environment. */
 export const comfyFolder=(installTarget:string,category:string)=>`${installTarget}/ComfyUI/${category==='workflows'?'user/default/workflows':`models/${category}`}`;
+export const openTokenPage=(providerId:string)=>invoke<void>('native_open_token_page',{providerId});

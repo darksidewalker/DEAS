@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-open-token-page"
+description = "Open a fixed provider token page in the system browser; no URL comes from the UI."
+commands.allow = ["native_open_token_page"]

@@ -92,5 +92,7 @@
   "downloads.nsfwOff": "SFWのみ",
   "downloads.nsfwOn": "+NSFW（18+）",
   "downloads.nsfwWarning": "成人向け（18+）コンテンツを表示しますか？プレビューや名前が露骨な場合があります。成人の場合のみ続行してください。",
-  "downloads.nsfwTag": "18+"
+  "downloads.nsfwTag": "18+",
+  "downloads.openTokenPage": "ブラウザーでトークンページを開く",
+  "downloads.tokenPageHelp": "ブラウザーのログインはアプリで再利用できません。プロバイダーのページでAPIキーを作成し、ここに一度貼り付け、必要ならOSの資格情報ストアに保存してください。"
 }

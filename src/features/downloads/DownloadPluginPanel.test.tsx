@@ -121,3 +121,7 @@ it('hides adult entries until the NSFW switch is confirmed and sends the flag to
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',authenticated:false,nsfw:true}});
  fireEvent.click(screen.getByRole('switch'));expect(screen.queryByLabelText('Remote file')).toBeNull();expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();
 });
+it('opens the fixed provider token page natively without sending any URL',async()=>{
+ mount(true);click('Provider authorization');fireEvent.change(screen.getByLabelText('Provider'),{target:{value:'civitai'}});click('Open token page in browser');await act(async()=>{});
+ expect(invoke).toHaveBeenCalledWith('native_open_token_page',{providerId:'civitai'});
+});

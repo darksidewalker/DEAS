@@ -52,7 +52,7 @@ button:disabled {
 .studio-shell {
   max-width: 1480px;
   padding: 0 28px;
-  margin: 0;
+  margin: 0 auto;
 }
 .masthead {
   height: 72px;

@@ -25,6 +25,8 @@ pub mod directory;
 pub use directory::native_pick_directory;
 pub mod media;
 pub use media::{native_media_describe, native_media_list};
+pub mod token_page;
+pub use token_page::native_open_token_page;
 pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;

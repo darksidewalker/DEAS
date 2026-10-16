@@ -92,5 +92,7 @@
   "downloads.nsfwOff": "Nur SFW",
   "downloads.nsfwOn": "+NSFW (18+)",
   "downloads.nsfwWarning": "Inhalte für Erwachsene (18+) anzeigen? Vorschauen und Namen können explizit sein. Nur fortfahren, wenn du volljährig bist.",
-  "downloads.nsfwTag": "18+"
+  "downloads.nsfwTag": "18+",
+  "downloads.openTokenPage": "Token-Seite im Browser öffnen",
+  "downloads.tokenPageHelp": "Browser-Logins kann die App nicht übernehmen. Erstelle auf der Anbieterseite einen API-Key, füge ihn hier einmal ein und speichere ihn optional im OS-Schlüsselbund."
 }

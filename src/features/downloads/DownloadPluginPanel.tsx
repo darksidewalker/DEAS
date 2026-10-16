@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { NeuralBlob } from '../../components/neural/NeuralBlob';
 import { useI18n } from '../../i18n/I18nProvider';
-import { importDownloadCatalog, restoreAuthToken, browseDownloads, cancelDownloads, pickDownloadParent, planDownloads, readAuthStatus, readDownloadCatalog, readDownloadStatus, removeAuthToken, setAuthToken, startDownloads, comfyFolder } from '../../lib/downloads';
+import { importDownloadCatalog, restoreAuthToken, browseDownloads, cancelDownloads, pickDownloadParent, planDownloads, readAuthStatus, readDownloadCatalog, readDownloadStatus, removeAuthToken, setAuthToken, startDownloads, comfyFolder, openTokenPage } from '../../lib/downloads';
 import type { AuthMetadata, CatalogEntry, DownloadCatalog, DownloadListing, DownloadPlan, DownloadResource, DownloadScope, DownloadStatus } from '../../lib/downloads';
 import './downloads.css';
 
@@ -43,7 +43,8 @@ export function AuthPanel({onChange,open:openProp,onToggle}:AuthPanelProps={}) {
   {open&&<div className="download-controls">
    <p className="field-help">{t(io.native?'downloads.tokenHelp':'downloads.browser')}</p>
    <label>{t('downloads.provider')}<select aria-label={t('downloads.provider')} value={providerId} disabled={io.busy} onChange={e=>{clear();io.invalidate();setProviderId(e.target.value);}}>{authProviders.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
-   <p className="download-identity">{authProviders.find(p=>p.id===providerId)?.origin}</p>
+   <p className="download-identity">{authProviders.find(p=>p.id===providerId)?.origin} <button type="button" className="download-link" disabled={!io.native||io.busy} onClick={()=>void io.request(()=>openTokenPage(providerId),()=>{})}>{t('downloads.openTokenPage')}</button></p>
+   <p className="field-help">{t('downloads.tokenPageHelp')}</p>
    <p role="status">{t(current?.configured?'downloads.supplied':'downloads.anonymous')}{current?.persisted&&<> · {t('downloads.persisted')}</>}</p>
    <label>{t('downloads.token')}<input aria-label={t('downloads.token')} ref={token} type="password" autoComplete="off" spellCheck={false} disabled={!io.native||io.busy} onChange={e=>setHasToken(!!e.target.value.trim())}/></label>
    <label className="download-check"><input type="checkbox" checked={persist} disabled={io.busy} onChange={e=>setPersist(e.target.checked)}/>{t('downloads.persist')}</label>

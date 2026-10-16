@@ -92,5 +92,7 @@
   "downloads.nsfwOff": "仅 SFW",
   "downloads.nsfwOn": "+NSFW（18+）",
   "downloads.nsfwWarning": "显示成人（18+）内容？预览和名称可能包含露骨内容。仅在已成年时继续。",
-  "downloads.nsfwTag": "18+"
+  "downloads.nsfwTag": "18+",
+  "downloads.openTokenPage": "在浏览器中打开令牌页面",
+  "downloads.tokenPageHelp": "应用无法复用浏览器登录。请在提供方页面创建 API 密钥，粘贴到此处一次，可选择保存到系统凭据库。"
 }

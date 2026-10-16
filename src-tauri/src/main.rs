@@ -37,6 +37,7 @@ fn main() {
             deas::native_pick_directory,
             deas::native_media_list,
             deas::native_media_describe,
+            deas::native_open_token_page,
             deas::native_detect_hardware,
             deas::native_install_defaults,
             deas::native_install_plan,
