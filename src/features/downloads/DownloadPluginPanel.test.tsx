@@ -115,11 +115,19 @@ it('hides adult entries until the NSFW switch is confirmed and sends the flag to
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true}];
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,nsfw:true},{...resource,id:'safe',label:'Safe file'}],nextCursor:null,warnings:[]});
  mount();click('Optional downloads');await screen.findByRole('button',{name:/Safe model/});expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('switch'));expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
- confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('switch'));expect(screen.getByRole('button',{name:/Adult model/})).toBeTruthy();expect(screen.getByText('+NSFW (18+)')).toBeTruthy();
+ fireEvent.click(screen.getByRole('switch'));expect(screen.getByRole('alertdialog')).toBeTruthy();click('Keep SFW');expect(screen.queryByRole('alertdialog')).toBeNull();expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
+ fireEvent.click(screen.getByRole('switch'));click('I am 18+, show it');expect(screen.getByRole('button',{name:/Adult model/})).toBeTruthy();expect(screen.getByText('+NSFW (18+)')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:/Adult model/}));await screen.findByLabelText('Remote file');
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',authenticated:false,nsfw:true}});
- fireEvent.click(screen.getByRole('switch'));expect(screen.queryByLabelText('Remote file')).toBeNull();expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();
+ fireEvent.click(screen.getByRole('switch'));expect(screen.queryByLabelText('Remote file')).toBeNull();expect(screen.queryByRole('alertdialog')).toBeNull();
+});
+it('filters catalog cards and listed files by base model family',async()=>{
+ const entries=[{id:'wan',label:'Wan model',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'model',target:'checkpoints',base:'Wan 2.2'},{id:'ltx',label:'LTX model',providerId:'fixture',scope:'index',locator:'https://example.invalid/l.json',kind:'model',target:'checkpoints',base:'LTX 2.3'}];
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,base:'Wan 2.2'},{...resource,id:'l',label:'LTX file',base:'LTX 2.3'}],nextCursor:null,warnings:[]});
+ mount();click('Optional downloads');await screen.findByRole('button',{name:/Wan model/});
+ const group=screen.getByRole('group',{name:'Base model'});expect([...group.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['All','LTX 2.3','Wan 2.2']);
+ fireEvent.click(screen.getByRole('button',{name:'LTX 2.3'}));expect(screen.queryByRole('button',{name:/Wan model/})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:/LTX model/}));await screen.findByLabelText('LTX file');expect(screen.queryByLabelText('Remote file')).toBeNull();
 });
 it('opens the fixed provider token page natively without sending any URL',async()=>{
  mount(true);click('Provider authorization');fireEvent.change(screen.getByLabelText('Provider'),{target:{value:'civitai'}});click('Open token page in browser');await act(async()=>{});

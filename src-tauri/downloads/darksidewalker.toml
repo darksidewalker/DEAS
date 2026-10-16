@@ -7,6 +7,7 @@ providers = []
 [[entries]]
 id = "civitai-1981116"
 label = "DaSiWa WAN 2.2 I2V 14B | Lightspeed | Safetensors · SnatchKiss High v11"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "1981116"
@@ -20,6 +21,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2877206"
 label = "DaSiWa MiniMax H3 · DaSiWa Hybrid v4"
+base = "MiniMax H3"
 providerId = "civitai"
 scope = "model"
 locator = "2877206"
@@ -33,6 +35,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2190659"
 label = "DaSiWa-WAN 2.2 I2V 14B TastySin v8 | Lightspeed | GGUF · Q8 High"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2190659"
@@ -46,6 +49,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2543443"
 label = "DaSiWa LTX 2.3 · DragonLeap v4"
+base = "LTX 2.3"
 providerId = "civitai"
 scope = "model"
 locator = "2543443"
@@ -59,6 +63,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1823089"
 label = "DaSiWa Wan2.2 Workflows | I2V | SVI 2.0 | FLF2V · FastFidelity C-AiO v9.5"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "1823089"
@@ -71,6 +76,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2831978"
 label = "DaSiWa MiniMax H3 Workflows | T2VA | FL2VA | REF2VA · C-MMH3 v3.3"
+base = "MiniMax H3"
 providerId = "civitai"
 scope = "model"
 locator = "2831978"
@@ -83,6 +89,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1034922"
 label = "DaSiWa Illustrious | Anime · EpitaphEcstasy"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1034922"
@@ -96,6 +103,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2668916"
 label = "NSFW Body Physics Fluid Motion Enhancer | Lora | LTX2.3 · LTX2.3 - v1.0"
+base = "LTX 2.3"
 providerId = "civitai"
 scope = "model"
 locator = "2668916"
@@ -109,6 +117,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2760803"
 label = "DaSiWa Krea2 | Turbo | Raw · DarkDesire V3 Turbo UC"
+base = "Krea 2"
 providerId = "civitai"
 scope = "model"
 locator = "2760803"
@@ -122,6 +131,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2168276"
 label = "Deepthroat blowjob | WAN 2.2 | i2v | DaSiWa · High v1.1"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2168276"
@@ -135,6 +145,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1802623"
 label = "DaSiWa WAN 2.1 Lightspeed · Lightspeed-i2v-14B-720p"
+base = "Wan 2.1"
 providerId = "civitai"
 scope = "model"
 locator = "1802623"
@@ -148,6 +159,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2498991"
 label = "DaSiWa LTX2.3 Workflows | I2V | FLF2V | T2V | Audio · OmniForge C-LTX23 v5.0"
+base = "LTX 2.3"
 providerId = "civitai"
 scope = "model"
 locator = "2498991"
@@ -160,6 +172,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2269796"
 label = "DaSiWa-WAN 2.2 I2V 14B SynthSeduction v9 | Lightspeed | GGUF · Q8 High"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2269796"
@@ -172,6 +185,7 @@ auth = true
 [[entries]]
 id = "civitai-2272580"
 label = "DaSiWa-WAN 2.2 I2V 14B | TrueVision | Safetensors · SnatchKiss High v11"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2272580"
@@ -184,6 +198,7 @@ auth = true
 [[entries]]
 id = "civitai-2627349"
 label = "DaSiWa - Anima · Obsidian Archives v2"
+base = "Anima"
 providerId = "civitai"
 scope = "model"
 locator = "2627349"
@@ -197,6 +212,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2456413"
 label = "DaSiWa-WAN 2.2 I2V 14B BoundBite v10 | Lightspeed | GGUF · Q8 High"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2456413"
@@ -209,6 +225,7 @@ auth = true
 [[entries]]
 id = "civitai-2929860"
 label = "Minimax H3 Turbo | REF2VA | FL2VA | Hybrid · turbo-4step-PD-v1"
+base = "MiniMax H3"
 providerId = "civitai"
 scope = "model"
 locator = "2929860"
@@ -221,6 +238,7 @@ auth = true
 [[entries]]
 id = "civitai-1047424"
 label = "DaSiWa - Illustrious | True Slime Girls | LoRA · v3.0"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1047424"
@@ -234,6 +252,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2151205"
 label = "DaSiWa Wan 2.2 14B S2V · LittleDemon v2"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2151205"
@@ -246,6 +265,7 @@ auth = true
 [[entries]]
 id = "civitai-2680695"
 label = "NSFW Cumshot Joyshot | Lora | LTX2.3 · LTX 2.3 - v1.0"
+base = "LTX 2.3"
 providerId = "civitai"
 scope = "model"
 locator = "2680695"
@@ -259,6 +279,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2457933"
 label = "DaSiWa-WAN 2.2 I2V 14B Lightspeed | NVFP4 | Safetensors · SnatchKiss High v11"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2457933"
@@ -271,6 +292,7 @@ auth = true
 [[entries]]
 id = "civitai-2633067"
 label = "DaSiWa-WAN 2.2 I2V 14B | Lightspeed | GGUF · SnatchKiss High v11"
+base = "Wan 2.2"
 providerId = "civitai"
 scope = "model"
 locator = "2633067"
@@ -283,6 +305,7 @@ auth = true
 [[entries]]
 id = "civitai-2650426"
 label = "DaSiWa Image Workflows | T2I | I2I · DarkArts C-TI2I v3.3"
+base = "Anima"
 providerId = "civitai"
 scope = "model"
 locator = "2650426"
@@ -295,6 +318,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2385363"
 label = "DaSiWa Illustrious | Realistic · ShatteredReality v1"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "2385363"
@@ -307,6 +331,7 @@ auth = true
 [[entries]]
 id = "civitai-2727972"
 label = "DaSiWa - True Slime Girls | LoRA · Krea2 v1.0"
+base = "Krea 2"
 providerId = "civitai"
 scope = "model"
 locator = "2727972"
@@ -320,6 +345,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1064740"
 label = "DaSiWa-Illustrious-Colorful-Detail-Style · v1.0"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1064740"
@@ -333,6 +359,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1811161"
 label = "DaSiWa Wan2.1 I2V Workflows · FastFidelity C-AiO 2.0"
+base = "Wan 2.1"
 providerId = "civitai"
 scope = "model"
 locator = "1811161"
@@ -344,6 +371,7 @@ auth = true
 [[entries]]
 id = "civitai-2979777"
 label = "Minimax H3 Motion Combat Reasoning | REF2VA | FL2VA | Hybrid · v1"
+base = "MiniMax H3"
 providerId = "civitai"
 scope = "model"
 locator = "2979777"
@@ -357,6 +385,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2692457"
 label = "DaSiWa Alluring Abyss | Lora · Krea2 v1.0"
+base = "Krea 2"
 providerId = "civitai"
 scope = "model"
 locator = "2692457"
@@ -370,6 +399,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1040844"
 label = "DaSiWa-Illustrious-Android-Style · illustrious v1.0"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1040844"
@@ -383,6 +413,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2783959"
 label = "DaSiWa LTX 2.3 DMD/Distilled LoRA · r86-a160-L80-D20-v2.0"
+base = "LTX 2.3"
 providerId = "civitai"
 scope = "model"
 locator = "2783959"
@@ -395,6 +426,7 @@ auth = true
 [[entries]]
 id = "civitai-1058332"
 label = "DaSiWa-Illustrious-Oni-Style · illustrious v1.0"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1058332"
@@ -408,6 +440,7 @@ nsfw = true
 [[entries]]
 id = "civitai-1612645"
 label = "Niru - The catgirl rogue · V1"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1612645"
@@ -420,6 +453,7 @@ nsfw = true
 [[entries]]
 id = "civitai-2698097"
 label = "Noctipaper · Anima v1.0"
+base = "Anima"
 providerId = "civitai"
 scope = "model"
 locator = "2698097"
@@ -432,6 +466,7 @@ auth = true
 [[entries]]
 id = "civitai-1096352"
 label = "DaSiWa-Illustrious-Void-Droid · v1.0"
+base = "Illustrious"
 providerId = "civitai"
 scope = "model"
 locator = "1096352"

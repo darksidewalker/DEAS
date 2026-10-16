@@ -64,6 +64,7 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         category: None,
         auth: false,
         nsfw: false,
+        base: None,
     }
 }
 #[cfg(any(target_os = "linux", windows))]
@@ -145,6 +146,7 @@ fn strict_catalog_and_extension() {
     assert_eq!(bundled.len(), 35);
     assert!(bundled.iter().any(|e| e.auth) && bundled.iter().any(|e| e.media.is_some()));
     assert!(bundled.iter().any(|e| e.nsfw) && bundled.iter().any(|e| !e.nsfw));
+    assert!(bundled.iter().all(|e| e.base.is_some()));
     assert!(bundled.iter().all(|e| e.scope == "model"
         && matches!(
             e.target.as_str(),
@@ -495,7 +497,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "civitai",
             "search",
             "dark lora",
-            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","nsfw":true,"modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","nsfw":true,"modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","baseModel":"LTXV 2.3","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
             "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded&nsfw=false",
             false,
         ),
@@ -528,6 +530,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             );
             assert_eq!(page.resources[0].label, "Dark · v1");
             assert!(page.resources[0].auth && page.resources[0].nsfw);
+            assert_eq!(page.resources[0].base.as_deref(), Some("LTX 2.3"));
         } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
             assert!(page.resources[0].sha256.is_some());

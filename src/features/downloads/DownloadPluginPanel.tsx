@@ -76,8 +76,8 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus,open:openPr
  const [catalogText,setCatalogText]=useState('');
  const [catalog,setCatalog]=useState<DownloadCatalog|null>(null);const [providerId,setProviderId]=useState('');
  const [scope,setScope]=useState<DownloadScope>('index');const [locator,setLocator]=useState('');const [entryId,setEntryId]=useState('');const [authenticated,setAuthenticated]=useState(false);
- const [category,setCategory]=useState('');const [folder,setFolder]=useState('');const [nsfw,setNsfw]=useState(false);
- const toggleNsfw=()=>{if(nsfw){setNsfw(false);sourceEdit();return;}if(window.confirm(t('downloads.nsfwWarning'))){setNsfw(true);sourceEdit();}};const [mediaFilter,setMediaFilter]=useState<'all'|'image'|'video'>('all');const [search,setSearch]=useState('');
+ const [category,setCategory]=useState('');const [folder,setFolder]=useState('');const [nsfw,setNsfw]=useState(false);const [nsfwAsk,setNsfwAsk]=useState(false);const [base,setBase]=useState('');
+ const toggleNsfw=()=>{if(nsfw){setNsfw(false);sourceEdit();}else setNsfwAsk(true);};const [mediaFilter,setMediaFilter]=useState<'all'|'image'|'video'>('all');const [search,setSearch]=useState('');
  const [listing,setListing]=useState<DownloadListing|null>(null);const [selected,setSelected]=useState<DownloadResource[]>([]);
  const [parentPath,setParentPath]=useState('');const [folderName,setFolderName]=useState('');const [plan,setPlan]=useState<DownloadPlan|null>(null);const [consent,setConsent]=useState(false);const [status,setStatus]=useState<DownloadStatus|null>(null);
  const running=status?.state==='running';const executionLock=useRef(false);const locked=running||executionLock.current;
@@ -101,8 +101,10 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus,open:openPr
  const openResource=(r:DownloadResource,nextScope:DownloadScope)=>{sourceEdit();setEntryId('');setScope(nextScope);setLocator(r.locator!);if(r.category)setFolder(r.category);if(r.auth)setAuthenticated(true);browse({providerId,scope:nextScope,locator:r.locator!});};
  const runSearch=()=>{const civitai=catalog?.providers.find(p=>p.kind==='civitai'&&p.scopes.includes('search'));if(!civitai||!search.trim())return;sourceEdit();setEntryId('');setProviderId(civitai.id);setScope('search');setLocator(search.trim());browse({providerId:civitai.id,scope:'search',locator:search.trim()});};
  const resourceDetails=(r:DownloadResource)=><dl className="download-identity"><dt>{t('downloads.identity')}</dt><dd>{r.id}</dd><dt>{t('downloads.category')}</dt><dd>{r.category??r.kind}</dd><dt>{t('downloads.source')}</dt><dd>{r.url??r.locator??t('downloads.unknown')}</dd><dt>{t('downloads.size')}</dt><dd>{r.size??t('downloads.unknown')}</dd><dt>{t('downloads.digest')}</dt><dd>{r.sha256??t('downloads.unknown')}</dd><dt>{t('downloads.license')}</dt><dd>{r.license??t('downloads.unknown')}</dd></dl>;
- const entries=catalog?.entries.filter(e=>tabOf(e.target)===category&&(nsfw||!e.nsfw)&&(category!=='models'||mediaFilter==='all'||e.media===mediaFilter))??[];
- const resources=listing?.resources.filter(r=>nsfw||!r.nsfw)??[];
+ const visibleEntries=catalog?.entries.filter(e=>tabOf(e.target)===category&&(nsfw||!e.nsfw))??[];
+ const bases=[...new Set(visibleEntries.map(e=>e.base).filter((b):b is string=>!!b))].sort();
+ const entries=visibleEntries.filter(e=>(!base||e.base===base)&&(category!=='models'||mediaFilter==='all'||e.media===mediaFilter));
+ const resources=listing?.resources.filter(r=>(nsfw||!r.nsfw)&&(!base||!r.base||r.base===base))??[];
  // Managed install folders receive files in place; a chosen parent (with optional new subfolder) overrides.
  const destination=parentPath?{parentPath,folderName:folderName.trim()}:installTarget&&folder?{parentPath:comfyFolder(installTarget,folder),folderName:''}:null;
  return <section className="feature-panel download-module" aria-label={t('downloads.title')}>
@@ -111,7 +113,9 @@ export function DownloadPanel({installTarget,authRevision=0,onStatus,open:openPr
    <p className="field-help">{t(io.native?'downloads.help':'downloads.browser')}</p>
    {catalog&&<>
     <label className="download-check download-nsfw"><input type="checkbox" role="switch" checked={nsfw} disabled={locked} onChange={toggleNsfw}/>{t(nsfw?'downloads.nsfwOn':'downloads.nsfwOff')}</label>
+    {nsfwAsk&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="nsfw-dialog-title"><div className="download-dialog-card"><h3 id="nsfw-dialog-title">{t('downloads.nsfwTitle')}</h3><p>{t('downloads.nsfwWarning')}</p><div className="aio-actions"><button type="button" className="action-button" autoFocus onClick={()=>setNsfwAsk(false)}>{t('downloads.nsfwCancel')}</button><button type="button" className="action-button download-danger" onClick={()=>{setNsfwAsk(false);setNsfw(true);sourceEdit();}}>{t('downloads.nsfwConfirm')}</button></div></div></div>}
     <div className="download-categories" role="tablist" aria-label={t('downloads.category')}>{categories(catalog).map(c=><button key={c} role="tab" type="button" aria-selected={category===c} disabled={locked} onClick={()=>{sourceEdit();setEntryId('');setCategory(c);}}>{t(`downloads.folder.${c}`)}</button>)}</div>
+    {bases.length>1&&<div className="download-categories download-media-filter" role="group" aria-label={t('downloads.base')}><button type="button" aria-pressed={!base} disabled={locked} onClick={()=>setBase('')}>{t('downloads.media.all')}</button>{bases.map(b=><button key={b} type="button" aria-pressed={base===b} disabled={locked} onClick={()=>setBase(b)}>{b}</button>)}</div>}
     {category==='models'&&<div className="download-categories download-media-filter" role="group" aria-label={t('downloads.media')}>{(['all','image','video'] as const).map(m=><button key={m} type="button" aria-pressed={mediaFilter===m} disabled={locked} onClick={()=>setMediaFilter(m)}>{t(`downloads.media.${m}`)}</button>)}</div>}
     <div className="download-cards">{entries.map(e=><button key={e.id} type="button" className="download-card" aria-pressed={entryId===e.id} disabled={locked||io.busy} onClick={()=>openEntry(e)}><Preview src={e.preview} alt=""/>{e.auth&&<em className="download-auth">{t('downloads.authNeeded')}</em>}{e.nsfw&&<em className="download-auth download-nsfw-tag">{t('downloads.nsfwTag')}</em>}<span>{e.label}</span></button>)}</div>
     {!entries.length&&<p className="field-help">{t('downloads.emptyCategory')}</p>}

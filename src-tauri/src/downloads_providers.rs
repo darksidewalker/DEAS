@@ -90,6 +90,7 @@ fn file(
         category: None,
         auth: false,
         nsfw: false,
+        base: None,
     })
 }
 async fn json(
@@ -198,6 +199,18 @@ fn civitai_restricted(version: &Value) -> bool {
         .and_then(Value::as_str)
         .is_some_and(|a| a != "Public")
         || version.get("paidAccess").is_some_and(|p| !p.is_null())
+}
+/// Short base-model family label from a CivitAI version; unknown names pass through bounded.
+fn civitai_base(version: &Value) -> Option<String> {
+    let raw = version.get("baseModel")?.as_str()?;
+    let short = match raw {
+        "Wan Video 2.2 I2V-A14B" | "Wan Video 2.2 T2V-A14B" | "Wan Video 2.2 TI2V-5B" => "Wan 2.2",
+        "Wan Video 14B i2v 720p" | "Wan Video 14B t2v" | "Wan Video 1.3B t2v" => "Wan 2.1",
+        "LTXV 2.3" => "LTX 2.3",
+        "LTXV 2.0" => "LTX 2.0",
+        _ => raw,
+    };
+    (short.len() <= 64 && !short.chars().any(char::is_control)).then(|| short.to_owned())
 }
 pub(super) async fn list(
     p: &Provider,
@@ -362,6 +375,7 @@ pub(super) async fn list(
                         category: None,
                         auth: false,
                         nsfw: false,
+                        base: None,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -413,6 +427,7 @@ pub(super) async fn list(
                         category: None,
                         auth: false,
                         nsfw: false,
+                        base: None,
                     });
                 }
             } else {
@@ -438,6 +453,7 @@ pub(super) async fn list(
                             category: None,
                             auth: false,
                             nsfw: false,
+                            base: None,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -528,6 +544,7 @@ pub(super) async fn list(
                         category: Some(category.into()),
                         auth: version.is_some_and(civitai_restricted),
                         nsfw,
+                        base: version.and_then(civitai_base),
                     });
                     continue;
                 }
@@ -564,6 +581,7 @@ pub(super) async fn list(
                         resource.category = Some(category.into());
                         resource.auth = civitai_restricted(version);
                         resource.nsfw = nsfw;
+                        resource.base = civitai_base(version);
                         resources.push(resource);
                     }
                 }
@@ -605,6 +623,7 @@ pub(super) async fn list(
                     category: None,
                     auth: false,
                     nsfw: false,
+                    base: None,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

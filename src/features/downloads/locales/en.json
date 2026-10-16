@@ -94,5 +94,9 @@
   "downloads.nsfwWarning": "Show adult (18+) content? Previews and names may be explicit. Continue only if you are of legal age.",
   "downloads.nsfwTag": "18+",
   "downloads.openTokenPage": "Open token page in browser",
-  "downloads.tokenPageHelp": "Browser logins cannot be reused by the app. Create an API key on the provider page, paste it here once, optionally keep it in the OS credential store."
+  "downloads.tokenPageHelp": "Browser logins cannot be reused by the app. Create an API key on the provider page, paste it here once, optionally keep it in the OS credential store.",
+  "downloads.base": "Base model",
+  "downloads.nsfwTitle": "Adult content (18+)",
+  "downloads.nsfwCancel": "Keep SFW",
+  "downloads.nsfwConfirm": "I am 18+, show it"
 }

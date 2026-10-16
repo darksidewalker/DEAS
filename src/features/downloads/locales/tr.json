@@ -94,5 +94,9 @@
   "downloads.nsfwWarning": "Yetişkin (18+) içeriği gösterilsin mi? Önizlemeler ve adlar açık olabilir. Yalnızca reşitseniz devam edin.",
   "downloads.nsfwTag": "18+",
   "downloads.openTokenPage": "Jeton sayfasını tarayıcıda aç",
-  "downloads.tokenPageHelp": "Tarayıcı oturumları uygulama tarafından kullanılamaz. Sağlayıcı sayfasında bir API anahtarı oluşturun, buraya bir kez yapıştırın ve isterseniz işletim sistemi kimlik deposunda saklayın."
+  "downloads.tokenPageHelp": "Tarayıcı oturumları uygulama tarafından kullanılamaz. Sağlayıcı sayfasında bir API anahtarı oluşturun, buraya bir kez yapıştırın ve isterseniz işletim sistemi kimlik deposunda saklayın.",
+  "downloads.base": "Temel model",
+  "downloads.nsfwTitle": "Yetişkin içeriği (18+)",
+  "downloads.nsfwCancel": "SFW kalsın",
+  "downloads.nsfwConfirm": "18+ yaşındayım, göster"
 }

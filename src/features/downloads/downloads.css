@@ -37,3 +37,8 @@
 .download-nsfw-tag { top: auto; bottom: 2.4rem; left: auto; right: .55rem; color: #ffbaaa; }
 .download-resource .download-nsfw-tag { margin-left: .4rem; }
 .download-link { margin-left: .5rem; padding: .2rem .5rem; border: 1px solid #ffffff1f; border-radius: .4rem; background: transparent; color: var(--copper); font: inherit; font-size: .75rem; }
+.download-dialog { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: #0b0f11cc; }
+.download-dialog-card { max-width: 26rem; margin: 1rem; padding: 1.2rem 1.4rem; border: 1px solid #ffbaaa66; border-radius: 1rem; background: linear-gradient(145deg, #303d43, #20262b 78%); color: var(--chalk); }
+.download-dialog-card h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.download-dialog-card p { margin: 0 0 1rem; font-size: .85rem; line-height: 1.5; color: var(--muted); }
+.download-danger { border-color: #ffbaaa; color: #ffbaaa; }

@@ -94,5 +94,9 @@
   "downloads.nsfwWarning": "成人向け（18+）コンテンツを表示しますか？プレビューや名前が露骨な場合があります。成人の場合のみ続行してください。",
   "downloads.nsfwTag": "18+",
   "downloads.openTokenPage": "ブラウザーでトークンページを開く",
-  "downloads.tokenPageHelp": "ブラウザーのログインはアプリで再利用できません。プロバイダーのページでAPIキーを作成し、ここに一度貼り付け、必要ならOSの資格情報ストアに保存してください。"
+  "downloads.tokenPageHelp": "ブラウザーのログインはアプリで再利用できません。プロバイダーのページでAPIキーを作成し、ここに一度貼り付け、必要ならOSの資格情報ストアに保存してください。",
+  "downloads.base": "ベースモデル",
+  "downloads.nsfwTitle": "成人向けコンテンツ（18+）",
+  "downloads.nsfwCancel": "SFWのままにする",
+  "downloads.nsfwConfirm": "18歳以上です、表示する"
 }
