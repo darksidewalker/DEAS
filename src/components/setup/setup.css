@@ -68,7 +68,7 @@
 .aio-advanced { display: grid; gap: .5rem; }
 .aio-advanced summary { cursor: pointer; color: #b9d9e0; font-size: .85rem; }
 /* Installer, credentials and downloads bubbles share one row; opened panels span below it. */
-.aio-bubble-row { display: grid; grid-template-columns: repeat(3, minmax(0, 144px)); gap: .75rem; align-items: start; }
+.aio-bubble-row { display: grid; grid-template-columns: repeat(3, minmax(0, 144px)) minmax(0, 1fr); gap: .75rem; align-items: start; }
 .aio-bubble-row > .neural-graph-container { grid-row: 1; grid-column: 1; min-width: 0; }
 .aio-bubble-row .download-module { display: contents; }
 .aio-bubble-row [data-node="provider-auth"] { grid-row: 1; grid-column: 2; }

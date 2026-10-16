@@ -146,7 +146,7 @@ fn strict_catalog_and_extension() {
             e.target.as_str(),
             "checkpoints" | "diffusion_models" | "loras" | "workflows"
         )));
-    assert!(bundled.iter().filter(|e| e.preview.is_some()).count() >= 20);
+    assert!(bundled.iter().filter(|e| e.preview.is_some()).count() >= 10);
     for field in ["command='sh'", "token='secret'", "hook='evil'"] {
         assert!(Catalog::parse(&format!("version=1\nproviders=[]\n{field}")).is_err());
     }
@@ -489,7 +489,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "civitai",
             "search",
             "dark lora",
-            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","images":[{"url":"https://image.civitai.com/x/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
             "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded",
             false,
         ),
@@ -517,7 +517,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             assert_eq!(page.resources[0].category.as_deref(), Some("loras"));
             assert_eq!(
                 page.resources[0].preview.as_deref(),
-                Some("https://image.civitai.com/x/1.jpeg")
+                Some("https://image.civitai.com/x/width=450/1.jpeg")
             );
             assert_eq!(page.resources[0].label, "Dark · v1");
         } else if kind == "civitai" {

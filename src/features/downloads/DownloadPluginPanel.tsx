@@ -53,10 +53,10 @@ export function AuthPanel({onChange}:AuthPanelProps={}) {
  </section>;
 }
 
-/** Catalog previews are plain HTTPS media; CSP restricts them to known image hosts. */
+/** Catalog previews are plain HTTPS stills; CSP restricts them to civitai hosts. */
 function Preview({src,alt}:{src?:string;alt:string}) {
  if(!src)return <span className="download-preview is-empty" aria-hidden="true"/>;
- return /\.(mp4|webm)(\?|$)/i.test(src)?<video className="download-preview" src={src} muted loop autoPlay playsInline aria-label={alt}/>:<img className="download-preview" src={src} alt={alt} loading="lazy"/>;
+ return <img className="download-preview" src={src} alt={alt} loading="lazy"/>;
 }
 // ComfyUI model folder order; unknown catalog targets follow alphabetically.
 const categoryOrder=['checkpoints','diffusion_models','loras','vae','text_encoders','clip_vision','controlnet','upscale_models','embeddings','workflows'];

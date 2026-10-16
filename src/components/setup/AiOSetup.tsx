@@ -139,19 +139,16 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
      <button type="button" disabled={!existingUrl.trim()} onClick={()=>{if(validateBackend(existingUrl.trim()))onConnectExisting(existingUrl.trim());else setError('setup.error.backend');}}>{t('setup.inspect')}</button>
     </details>
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
+   {nativePlan&&<>
+    <p>{t('setup.request.storagePath')}: <code>{nativePlan.request.storagePath}</code> · {t('setup.request.backend')}: {t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&` · ${nativePlan.hardware.name}`} · {t('setup.request.features')}: {nativePlan.request.features.join(', ')||t('setup.summary.core')}</p>
+    {nativePlan.warnings.length>0&&<ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}
+    {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
+    {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
+    <p className="aio-help">{t('setup.autoConsent')}</p>
+    <button disabled={!planMatches||running||busy||status?.state==='succeeded'||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t('setup.autoStart')}</button>
+   </>}
   </section>}
   </div>
-  {nativePlan&&<section className="aio-detail" aria-label={t('setup.nativePlan')}><h3>{t('setup.nativePlan')}</h3>
-   <p>{t('setup.request.storagePath')}: <code>{nativePlan.request.storagePath}</code> · {t('setup.request.backend')}: {t(`setup.backend.${nativePlan.request.backend}.label`)}{typeof nativePlan.hardware?.name==='string'&&` · ${nativePlan.hardware.name}`} · {t('setup.request.features')}: {nativePlan.request.features.join(', ')||t('setup.summary.core')}</p>
-   <details><summary>{t('setup.planDetails')}</summary><dl className="aio-request-summary" aria-label={t('setup.exactNativePlan')}>{Object.entries(nativePlan.request).map(([key,value])=><div key={key}><dt>{t(`setup.request.${key}`)}</dt><dd>{typeof value==='object'?JSON.stringify(value):String(value)}</dd></div>)}</dl><details><summary>{t('setup.requestJson')}</summary><pre>{JSON.stringify(nativePlan.request,null,2)}</pre></details>
-   {(nativePlan.hardware||nativePlan.torch)&&<><h4>{t('setup.runtimeProfile')}</h4><dl className="aio-request-summary" aria-label={t('setup.runtimeProfile')}>{Object.entries({...nativePlan.hardware,...nativePlan.torch}).map(([key,value])=><div key={key}><dt>{t(`setup.profile.${key}`)}</dt><dd>{Array.isArray(value)?value.join(', '):String(value??t('setup.profile.none'))}</dd></div>)}</dl><details><summary>{t('setup.profileJson')}</summary><pre>{JSON.stringify({hardware:nativePlan.hardware??null,torch:nativePlan.torch??null},null,2)}</pre></details></>}
-   <details><summary>{t('setup.nativeSteps')}</summary><ol>{nativePlan.steps.map(s=><li key={s.id}><strong>{t(s.labelKey)}</strong><p>{s.detail}</p></li>)}</ol></details></details>
-   {nativePlan.warnings.length>0&&<><h4>{t('setup.warnings')}</h4><ul>{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></>}
-   {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
-   {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
-   <p className="aio-help">{t('setup.autoConsent')}</p>
-   <button disabled={!planMatches||running||busy||status?.state==='succeeded'||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t('setup.autoStart')}</button>
-  </section>}
   {status&&<section className="aio-detail" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.state==='succeeded'&&<p>{t('setup.installedNotReady')}</p>}<details><summary>{t('setup.logs')}</summary><pre aria-label={t('setup.logs')}>{status.logs.join('\n')}</pre></details>{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
   {(native||plan)&&<OwnedBackendPanel installSucceeded={status?.state==='succeeded'} onConnectExisting={onConnectExisting}/>}
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}

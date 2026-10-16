@@ -174,16 +174,20 @@ pub(super) fn civitai_category(model_type: Option<&str>) -> &'static str {
         _ => "other",
     }
 }
-/// First HTTPS image of a model version, if any; bounded and never fetched here.
+/// First still image of a model version as a 450px thumbnail; videos are skipped because
+/// dozens of WebKitGTK media pipelines are unstable. Never fetched natively.
 fn civitai_preview(version: &Value) -> Option<String> {
-    let url = version
-        .get("images")?
-        .as_array()?
-        .first()?
-        .get("url")?
-        .as_str()?;
-    (url.len() <= 2048 && url.starts_with("https://") && !url.bytes().any(|b| b.is_ascii_control()))
-        .then(|| url.to_owned())
+    version.get("images")?.as_array()?.iter().find_map(|image| {
+        let url = image.get("url")?.as_str()?;
+        let still = image.get("type").and_then(Value::as_str) != Some("video")
+            && !url.ends_with(".mp4")
+            && !url.ends_with(".webm");
+        (still
+            && url.len() <= 2048
+            && url.starts_with("https://")
+            && !url.bytes().any(|b| b.is_ascii_control()))
+        .then(|| url.replacen("/original=true/", "/width=450/", 1))
+    })
 }
 pub(super) async fn list(
     p: &Provider,

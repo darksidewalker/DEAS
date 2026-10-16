@@ -1,5 +1,6 @@
 # Generated from https://civitai.com/api/v1/models?username=darksidewalker (latest version per model).
 # Entry-only extension of the compiled default catalog; browsing a model lists its live files.
+# Previews are 450px stills (videos skipped); regenerate when models change.
 version = 1
 providers = []
 
@@ -11,7 +12,6 @@ scope = "model"
 locator = "2877206"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/10caf8d2-e953-4a6d-9031-6211e6052943/original=true/145137879.mp4"
 
 [[entries]]
 id = "civitai-2929860"
@@ -21,7 +21,7 @@ scope = "model"
 locator = "2929860"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/18176268-f0ea-4147-b85c-c7173cbf9b37/original=true/144737171.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/61b8ee86-fde2-401c-949e-8ee43d26d54b/width=450/142436906.jpeg"
 
 [[entries]]
 id = "civitai-2979777"
@@ -31,7 +31,6 @@ scope = "model"
 locator = "2979777"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/6aa32e7a-75fd-4ee2-8a4e-0c9c498dc210/original=true/144477114.mp4"
 
 [[entries]]
 id = "civitai-2760803"
@@ -41,7 +40,7 @@ scope = "model"
 locator = "2760803"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/bb829b83-20c7-43e0-8ae7-5f3423eba2ff/original=true/143986183.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/d50302eb-4e60-4fd2-8970-417299ed29c1/width=450/143986189.jpeg"
 
 [[entries]]
 id = "civitai-2783959"
@@ -51,7 +50,7 @@ scope = "model"
 locator = "2783959"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/692c50ab-70b3-4e65-a44f-259d93bc0591/original=true/137056725.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/692c50ab-70b3-4e65-a44f-259d93bc0591/width=450/137056725.jpeg"
 
 [[entries]]
 id = "civitai-2692457"
@@ -61,7 +60,7 @@ scope = "model"
 locator = "2692457"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/8ed56f7f-9005-4237-8aac-907024794d5a/original=true/136505852.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/8ed56f7f-9005-4237-8aac-907024794d5a/width=450/136505852.jpeg"
 
 [[entries]]
 id = "civitai-2627349"
@@ -71,7 +70,7 @@ scope = "model"
 locator = "2627349"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/8ad4f721-51ae-4081-a3f2-45b5f9973723/original=true/138750772.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/fa19dfc3-eaa5-427b-9d64-91c534d2dd11/width=450/133886509.jpeg"
 
 [[entries]]
 id = "civitai-2698097"
@@ -81,7 +80,7 @@ scope = "model"
 locator = "2698097"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0123e344-9ee7-4114-bcdd-04f3793d8ac4/original=true/133668284.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0123e344-9ee7-4114-bcdd-04f3793d8ac4/width=450/133668284.jpeg"
 
 [[entries]]
 id = "civitai-2272580"
@@ -91,7 +90,6 @@ scope = "model"
 locator = "2272580"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/6611c162-57fb-4166-9d88-a77d975a4c57/original=true/131276770.mp4"
 
 [[entries]]
 id = "civitai-2650426"
@@ -101,7 +99,7 @@ scope = "model"
 locator = "2650426"
 kind = "workflow"
 target = "workflows"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/82d77278-1278-42ae-8b74-75626c0577e4/original=true/138919582.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/3ac77878-ae0e-4d0a-84fb-dde579e1c7fb/width=450/131795435.jpeg"
 
 [[entries]]
 id = "civitai-2498991"
@@ -111,7 +109,6 @@ scope = "model"
 locator = "2498991"
 kind = "workflow"
 target = "workflows"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/fd575c10-ebb6-4079-af28-b92d1e7ef584/original=true/128479251.mp4"
 
 [[entries]]
 id = "civitai-1823089"
@@ -121,7 +118,6 @@ scope = "model"
 locator = "1823089"
 kind = "workflow"
 target = "workflows"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/89771b26-8343-402c-8aad-98a156c3c6b8/original=true/121992247.mp4"
 
 [[entries]]
 id = "civitai-2385363"
@@ -131,7 +127,7 @@ scope = "model"
 locator = "2385363"
 kind = "model"
 target = "checkpoints"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/1c24c190-e07b-4fb9-9a43-0935ef9960a3/original=true/120815269.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/ffcc0978-ae2a-4896-a210-da4c16206185/width=450/120804421.jpeg"
 
 [[entries]]
 id = "civitai-2269796"
@@ -141,7 +137,6 @@ scope = "model"
 locator = "2269796"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/2e6819d5-e9e1-44d8-96c8-a2b979076eca/original=true/116149234.mp4"
 
 [[entries]]
 id = "civitai-2151205"
@@ -151,7 +146,6 @@ scope = "model"
 locator = "2151205"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/e0fc21f9-9ea1-4824-8a74-49f2514b19b3/original=true/114268303.mp4"
 
 [[entries]]
 id = "civitai-2190659"
@@ -161,7 +155,6 @@ scope = "model"
 locator = "2190659"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/1b791561-0501-423e-bd94-755d7c7f3b98/original=true/112636097.mp4"
 
 [[entries]]
 id = "civitai-1811161"
@@ -171,7 +164,6 @@ scope = "model"
 locator = "1811161"
 kind = "workflow"
 target = "workflows"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/c663ed6c-3eef-4559-9304-229924093913/original=true/110081258.mp4"
 
 [[entries]]
 id = "civitai-1802623"
@@ -181,7 +173,7 @@ scope = "model"
 locator = "1802623"
 kind = "model"
 target = "diffusion_models"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/a83fb275-30d8-4b5a-a9dd-9d7591c43461/original=true/92703226.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/dc469494-49a1-4bfb-9d34-cc2be6eca88e/width=450/92883948.jpeg"
 
 [[entries]]
 id = "civitai-1612645"
@@ -191,7 +183,7 @@ scope = "model"
 locator = "1612645"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/2597a97f-a672-453c-9f26-3ecb91706697/original=true/78229283.mp4"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0ef0bf42-2f29-4c71-8e47-3a9725b21bac/width=450/80004704.jpeg"
 
 [[entries]]
 id = "civitai-1096352"
@@ -201,7 +193,7 @@ scope = "model"
 locator = "1096352"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/48363f77-e781-4c6b-80f5-140fcc8998d8/original=true/49101355.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/48363f77-e781-4c6b-80f5-140fcc8998d8/width=450/49101355.jpeg"
 
 [[entries]]
 id = "civitai-1064740"
@@ -211,7 +203,7 @@ scope = "model"
 locator = "1064740"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0f6be9fa-d876-43fb-90db-861db6c9c524/original=true/115698094.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0f6be9fa-d876-43fb-90db-861db6c9c524/width=450/115698094.jpeg"
 
 [[entries]]
 id = "civitai-1040844"
@@ -221,4 +213,4 @@ scope = "model"
 locator = "1040844"
 kind = "model"
 target = "loras"
-preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/a4b03aa3-7fdb-41c4-8dbb-4065a0eeb46d/original=true/45688223.jpeg"
+preview = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/a4b03aa3-7fdb-41c4-8dbb-4065a0eeb46d/width=450/45688223.jpeg"
