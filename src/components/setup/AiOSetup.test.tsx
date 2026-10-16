@@ -39,7 +39,6 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
   expect(installed.mock.calls[0][0]).toBe(prepared.request.features);
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
-  fireEvent.click(screen.getByLabelText('Off'));
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
   expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(['native_install_defaults','native_install_plan','native_install_start']);

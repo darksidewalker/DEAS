@@ -88,5 +88,9 @@
   "downloads.media.all": "すべて",
   "downloads.media.image": "画像",
   "downloads.media.video": "動画",
-  "downloads.authNeeded": "ログイン / APIキーが必要"
+  "downloads.authNeeded": "ログイン / APIキーが必要",
+  "downloads.nsfwOff": "SFWのみ",
+  "downloads.nsfwOn": "+NSFW（18+）",
+  "downloads.nsfwWarning": "成人向け（18+）コンテンツを表示しますか？プレビューや名前が露骨な場合があります。成人の場合のみ続行してください。",
+  "downloads.nsfwTag": "18+"
 }

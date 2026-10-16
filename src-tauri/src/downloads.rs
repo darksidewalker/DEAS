@@ -51,6 +51,8 @@ pub struct Resource {
     /// Source signals restricted access (non-public availability or paid access).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auth: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nsfw: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -84,6 +86,9 @@ pub struct Entry {
     /// Source rejects anonymous downloads (observed 401 when the catalog was generated).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auth: bool,
+    /// Adult content; hidden unless the user switched the view to NSFW.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nsfw: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -397,6 +402,9 @@ pub struct BrowseRequest {
     #[serde(default)]
     pub cursor: Option<String>,
     pub authenticated: bool,
+    /// Ask the source for adult content too; off by default.
+    #[serde(default)]
+    pub nsfw: bool,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

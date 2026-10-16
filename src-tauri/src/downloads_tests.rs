@@ -63,6 +63,7 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         preview: None,
         category: None,
         auth: false,
+        nsfw: false,
     }
 }
 #[cfg(any(target_os = "linux", windows))]
@@ -134,15 +135,16 @@ fn strict_catalog_and_extension() {
             .as_array()
             .unwrap()
             .len(),
-        5 + 22
+        5 + 35
     );
     let bundled = c
         .entries
         .iter()
         .filter(|e| e.id.starts_with("civitai-") && e.id != "civitai-creator")
         .collect::<Vec<_>>();
-    assert_eq!(bundled.len(), 22);
+    assert_eq!(bundled.len(), 35);
     assert!(bundled.iter().any(|e| e.auth) && bundled.iter().any(|e| e.media.is_some()));
+    assert!(bundled.iter().any(|e| e.nsfw) && bundled.iter().any(|e| !e.nsfw));
     assert!(bundled.iter().all(|e| e.scope == "model"
         && matches!(
             e.target.as_str(),
@@ -174,6 +176,7 @@ async fn direct_json_file_and_index_bounds() {
         locator: "direct:https://files.example.org/workflow.json".into(),
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     let page = providers::list(&p, &r, None, None).await.unwrap();
     assert_eq!(page.resources[0].locator.as_deref(), Some("workflow.json"));
@@ -186,6 +189,7 @@ async fn direct_json_file_and_index_bounds() {
         locator: format!("{origin}/index.json"),
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     assert!(providers::list(&p, &r, None, None).await.is_err());
     server.join().unwrap();
@@ -484,15 +488,15 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "user",
             "alice",
             serde_json::json!({"items":[{"id":12,"modelVersions":[{"id":34,"files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34","hashes":{"SHA256":"0".repeat(64)}}]}]}],"metadata":{}}),
-            "/api/v1/models?username=alice&limit=10&page=1",
+            "/api/v1/models?username=alice&limit=10&page=1&nsfw=false",
             true,
         ),
         (
             "civitai",
             "search",
             "dark lora",
-            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
-            "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded",
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","nsfw":true,"modelVersions":[{"id":34,"name":"v1","availability":"EarlyAccess","images":[{"type":"video","url":"https://image.civitai.com/x/original=true/0.mp4"},{"type":"image","url":"https://image.civitai.com/x/original=true/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded&nsfw=false",
             false,
         ),
     ];
@@ -506,6 +510,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             locator: locator.into(),
             cursor: None,
             authenticated: false,
+            nsfw: false,
         };
         let page = providers::list(&p, &r, None, None).await.unwrap();
         assert_eq!(page.resources.len(), 1);
@@ -522,7 +527,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
                 Some("https://image.civitai.com/x/width=450/1.jpeg")
             );
             assert_eq!(page.resources[0].label, "Dark · v1");
-            assert!(page.resources[0].auth);
+            assert!(page.resources[0].auth && page.resources[0].nsfw);
         } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
             assert!(page.resources[0].sha256.is_some());
@@ -553,6 +558,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
         locator: "alice/tiny/dir".into(),
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     let page = providers::list(&p, &r, None, None).await.unwrap();
     assert!(page.resources[0]
@@ -592,6 +598,7 @@ async fn continuation_is_native_opaque_and_bound_to_request() {
         locator: "alice".into(),
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     let page = e.browse(r.clone(), &AuthState::default()).await.unwrap();
     let cursor = page.next_cursor.unwrap();
@@ -612,6 +619,7 @@ async fn real_generic_index_and_ollama_non_downloadable() {
         locator: format!("{origin}/index.json"),
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     let page = providers::list(&p, &r, None, None).await.unwrap();
     assert_eq!(
@@ -631,6 +639,7 @@ async fn real_generic_index_and_ollama_non_downloadable() {
         locator: origin,
         cursor: None,
         authenticated: false,
+        nsfw: false,
     };
     let page = providers::list(&p, &r, None, None).await.unwrap();
     assert!(!page.resources[0].downloadable);

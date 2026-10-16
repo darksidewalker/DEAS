@@ -88,5 +88,9 @@
   "downloads.media.all": "Tous",
   "downloads.media.image": "Image",
   "downloads.media.video": "Vidéo",
-  "downloads.authNeeded": "Connexion / clé API requise"
+  "downloads.authNeeded": "Connexion / clé API requise",
+  "downloads.nsfwOff": "SFW uniquement",
+  "downloads.nsfwOn": "+NSFW (18+)",
+  "downloads.nsfwWarning": "Afficher le contenu adulte (18+) ? Les aperçus et noms peuvent être explicites. Continuez seulement si vous êtes majeur.",
+  "downloads.nsfwTag": "18+"
 }

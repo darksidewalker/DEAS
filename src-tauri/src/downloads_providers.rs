@@ -89,6 +89,7 @@ fn file(
         preview: None,
         category: None,
         auth: false,
+        nsfw: false,
     })
 }
 async fn json(
@@ -262,7 +263,8 @@ pub(super) async fn list(
             u.query_pairs_mut()
                 .append_pair("username", &r.locator)
                 .append_pair("limit", "10")
-                .append_pair("page", "1");
+                .append_pair("page", "1")
+                .append_pair("nsfw", if r.nsfw { "true" } else { "false" });
             u
         }
         ("civitai", "search") => {
@@ -274,7 +276,8 @@ pub(super) async fn list(
             u.query_pairs_mut()
                 .append_pair("query", q)
                 .append_pair("limit", "20")
-                .append_pair("sort", "Most Downloaded");
+                .append_pair("sort", "Most Downloaded")
+                .append_pair("nsfw", if r.nsfw { "true" } else { "false" });
             u
         }
         ("civitai", "model") => {
@@ -358,6 +361,7 @@ pub(super) async fn list(
                         preview: None,
                         category: None,
                         auth: false,
+                        nsfw: false,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -408,6 +412,7 @@ pub(super) async fn list(
                         preview: None,
                         category: None,
                         auth: false,
+                        nsfw: false,
                     });
                 }
             } else {
@@ -432,6 +437,7 @@ pub(super) async fn list(
                             preview: None,
                             category: None,
                             auth: false,
+                            nsfw: false,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -491,6 +497,8 @@ pub(super) async fn list(
                     .ok_or("Missing CivitAI model ID")?;
                 let versions = array(model.get("modelVersions").ok_or("Missing modelVersions")?)?;
                 let category = civitai_category(model.get("type").and_then(Value::as_str));
+                let nsfw = model.get("nsfw").and_then(Value::as_bool).unwrap_or(false)
+                    || model.get("nsfwLevel").and_then(Value::as_u64).unwrap_or(0) >= 4;
                 // Search results stay browsable model identities; files come from the model scope.
                 if r.scope == "search" {
                     if resources.len() >= MAX_RESOURCES {
@@ -519,6 +527,7 @@ pub(super) async fn list(
                         preview: version.and_then(civitai_preview),
                         category: Some(category.into()),
                         auth: version.is_some_and(civitai_restricted),
+                        nsfw,
                     });
                     continue;
                 }
@@ -554,6 +563,7 @@ pub(super) async fn list(
                         resource.preview = civitai_preview(version);
                         resource.category = Some(category.into());
                         resource.auth = civitai_restricted(version);
+                        resource.nsfw = nsfw;
                         resources.push(resource);
                     }
                 }
@@ -594,6 +604,7 @@ pub(super) async fn list(
                     preview: None,
                     category: None,
                     auth: false,
+                    nsfw: false,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

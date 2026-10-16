@@ -414,10 +414,14 @@ select:hover {
 .neural-road.is-active .neural-road-light { stroke: #d6b397; opacity: .8; }
 .neural-paw { fill: #b9cbd3; opacity: .5; }
 @keyframes road-light { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-.neural-blob { position: relative; flex: 0 0 144px; width: 144px; max-width: 100%; min-height: 82px; border: 1px solid #7c9cac4d; border-radius: 43% 57% 53% 47% / 48% 43% 57% 52%; color: var(--chalk); background: linear-gradient(145deg, #303d43, #20262b 78%); overflow-wrap: anywhere; }
-.neural-blob::before { content: ""; position: absolute; inset: -1px; border: 1px solid transparent; border-radius: inherit; background: inherit; transition: border-color .22s; pointer-events: none; }
-.neural-blob:hover::before, .neural-blob:focus-within::before { transform: none; border-color: var(--copper); }
+.neural-blob { position: relative; flex: 0 0 144px; width: 144px; max-width: 100%; min-height: 96px; border: 1px solid #7c9cac4d; border-radius: 50%; color: var(--chalk); background: linear-gradient(145deg, #303d43, #20262b 78%); overflow-wrap: anywhere; }
+/* Uniform oval with a slow breathing border instead of per-node random blob shapes. */
+.neural-blob::before { content: ""; position: absolute; inset: -2px; border: 1px solid #7c9cac66; border-radius: inherit; background: inherit; pointer-events: none; animation: blob-breathe 4s ease-in-out infinite; }
+.neural-blob:hover::before, .neural-blob:focus-within::before { border-color: var(--copper); }
+@keyframes blob-breathe { 0%, 100% { border-color: #7c9cac40; box-shadow: 0 0 0 0 #7c9cac00; } 50% { border-color: #7c9cac99; box-shadow: 0 0 10px 1px #7c9cac22; } }
+@media (prefers-reduced-motion: reduce) { .neural-blob::before { animation: none; } }
 .neural-blob.is-selected { border-color: var(--copper); background: linear-gradient(145deg, #424744, #29343c 80%); }
+.neural-blob.is-selected::before { animation: none; border-color: var(--copper); }
 .neural-blob.is-disabled { opacity: .6; }
 .neural-blob-trigger, .neural-group-heading { position: relative; z-index: 2; color: inherit; background: none; border: 0; border-radius: inherit; width: 100%; min-height: 82px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 12px; text-align: center; }
 .neural-blob-trigger:disabled, .neural-choice:disabled { cursor: not-allowed; }

@@ -16,7 +16,7 @@ function useReducedMotion() {
 export type NeuralMotion = "light" | "paws" | "off";
 
 /** A road is presentation only: its geometry and state belong to its caller. */
-export function NeuralPath({ d, active = false, motion = "light", fromId, toId }:  {
+export function NeuralPath({ d, active = false, motion = "off", fromId, toId }:  {
   d: string;
   fromId?: string;
   toId?: string;

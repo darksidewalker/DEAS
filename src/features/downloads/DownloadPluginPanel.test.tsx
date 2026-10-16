@@ -30,7 +30,7 @@ it('uses exact nested IPC and metadata-only auth contracts',async()=>{
 });
 it('loads catalog only on explicit opening; browses curated sources and pagination explicitly',async()=>{
  mount();expect(invoke).not.toHaveBeenCalled();click('Optional downloads');await screen.findByRole('option',{name:'Curated index'});expect(vi.mocked(invoke).mock.calls).toEqual([['native_download_catalog']]);
- fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');expect(screen.getByText('Installed model')).toBeTruthy();expect(screen.queryByLabelText('Installed model')).toBeNull();click('Browse next page');await act(async()=>{});expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/index',authenticated:false,cursor:'page2'}});
+ fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');expect(screen.getByText('Installed model')).toBeTruthy();expect(screen.queryByLabelText('Installed model')).toBeNull();click('Browse next page');await act(async()=>{});expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/index',authenticated:false,nsfw:false,cursor:'page2'}});
 });
 it('discloses native plan, requires separate consent, locks edits and shows only real progress',async()=>{
  await prepare();const consent=screen.getByLabelText('I authorize only this exact optional download plan.') as HTMLInputElement;expect(consent.checked).toBe(false);click('Start confirmed download');expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_start')).toBe(false);fireEvent.click(consent);click('Start confirmed download');await screen.findByText('Running');expect(invoke).toHaveBeenCalledWith('native_download_start',{planId:'immutable',confirmed:true});expect((screen.getByLabelText('New subfolder') as HTMLInputElement).disabled).toBe(true);expect(screen.getByText('12')).toBeTruthy();click('Cancel download');await screen.findByText('Cancelled');
@@ -72,7 +72,7 @@ it('locks meaning edits while native start is unresolved',async()=>{
  await act(async()=>resolve({state:'running',completed:0,total:1,bytesDownloaded:0,error:null}));
 });
 it('turns user repository listings into explicit repository browsing',async()=>{
- await open();vi.mocked(invoke).mockResolvedValueOnce({resources:[{id:'repo',label:'Owner/repo',kind:'repo',downloadable:false,locator:'models:Owner/repo'}],nextCursor:null,warnings:[]});fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'Owner'}});click('Browse resources');await screen.findByRole('button',{name:'Select repository: Owner/repo'});click('Select repository: Owner/repo');expect((screen.getByLabelText('Source locator') as HTMLInputElement).value).toBe('models:Owner/repo');expect((screen.getByLabelText('Browse mode') as HTMLSelectElement).value).toBe('repo');expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'repo',locator:'models:Owner/repo',authenticated:false}});
+ await open();vi.mocked(invoke).mockResolvedValueOnce({resources:[{id:'repo',label:'Owner/repo',kind:'repo',downloadable:false,locator:'models:Owner/repo'}],nextCursor:null,warnings:[]});fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'Owner'}});click('Browse resources');await screen.findByRole('button',{name:'Select repository: Owner/repo'});click('Select repository: Owner/repo');expect((screen.getByLabelText('Source locator') as HTMLInputElement).value).toBe('models:Owner/repo');expect((screen.getByLabelText('Browse mode') as HTMLSelectElement).value).toBe('repo');expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'repo',locator:'models:Owner/repo',authenticated:false,nsfw:false}});
 });
 it('imports data-only catalogs explicitly and adopts returned provider entries without browsing',async()=>{
  await open();const text='version = 1\nentries = []';
@@ -95,14 +95,14 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  expect(document.querySelector('.download-card img')).toBeTruthy();expect(screen.queryByRole('button',{name:'Workflow W'})).toBeNull();expect(screen.queryByRole('button',{name:/Image checkpoint/})).toBeNull();
  fireEvent.click(screen.getByRole('tab',{name:'Workflows'}));expect(screen.getByRole('button',{name:'Workflow W'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Workflow W'}));await screen.findByLabelText('Remote file');
- expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',authenticated:true}});
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',authenticated:true,nsfw:false}});
  expect(document.querySelector('.download-resource img')).toBeTruthy();expect(screen.getByText('/env/ComfyUI/user/default/workflows')).toBeTruthy();
  fireEvent.click(screen.getByLabelText('Remote file'));click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
  expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:{providerId:'fixture',resources:[expect.objectContaining({id:'file'})],parentPath:'/env/ComfyUI/user/default/workflows',folderName:'',authenticated:true}});
  fireEvent.change(screen.getByLabelText('Search CivitAI'),{target:{value:'found'}});click('Search');await screen.findByRole('button',{name:'Select repository: Found · v1'});
- expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'search',locator:'found',authenticated:true}});
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'search',locator:'found',authenticated:true,nsfw:false}});
  click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
- expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true}});
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true,nsfw:false}});
 });
 it('keeps only one bubble panel open when switching between authorization and downloads',async()=>{
  render(<I18nProvider><DownloadWorkspace/></I18nProvider>);
@@ -110,4 +110,14 @@ it('keeps only one bubble panel open when switching between authorization and do
  click('Optional downloads');await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
  click('Provider authorization');expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
  click('Provider authorization');expect(screen.queryByLabelText('Token')).toBeNull();
+});
+it('hides adult entries until the NSFW switch is confirmed and sends the flag to native browsing',async()=>{
+ const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true}];
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,nsfw:true},{...resource,id:'safe',label:'Safe file'}],nextCursor:null,warnings:[]});
+ mount();click('Optional downloads');await screen.findByRole('button',{name:/Safe model/});expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('switch'));expect(screen.queryByRole('button',{name:/Adult model/})).toBeNull();
+ confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('switch'));expect(screen.getByRole('button',{name:/Adult model/})).toBeTruthy();expect(screen.getByText('+NSFW (18+)')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:/Adult model/}));await screen.findByLabelText('Remote file');
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',authenticated:false,nsfw:true}});
+ fireEvent.click(screen.getByRole('switch'));expect(screen.queryByLabelText('Remote file')).toBeNull();expect(confirm).toHaveBeenCalledTimes(2);confirm.mockRestore();
 });

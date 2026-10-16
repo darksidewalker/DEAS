@@ -90,7 +90,7 @@ export function neuralSnakeRows(nodes: NeuralNode[], availableWidth: number): Ne
   return rows;
 }
 
-export function NeuralGraph({ nodes, selectedId, onSelect, motion = "light", label, edges = [], history = [] }: {
+export function NeuralGraph({ nodes, selectedId, onSelect, motion = "off", label, edges = [], history = [] }: {
   nodes: NeuralNode[];
   selectedId?: string | null;
   onSelect: (id: string) => void;

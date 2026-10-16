@@ -88,5 +88,9 @@
   "downloads.media.all": "Tümü",
   "downloads.media.image": "Görsel",
   "downloads.media.video": "Video",
-  "downloads.authNeeded": "Giriş / API anahtarı gerekli"
+  "downloads.authNeeded": "Giriş / API anahtarı gerekli",
+  "downloads.nsfwOff": "Yalnızca SFW",
+  "downloads.nsfwOn": "+NSFW (18+)",
+  "downloads.nsfwWarning": "Yetişkin (18+) içeriği gösterilsin mi? Önizlemeler ve adlar açık olabilir. Yalnızca reşitseniz devam edin.",
+  "downloads.nsfwTag": "18+"
 }

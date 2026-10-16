@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { NeuralGraph } from '../neural/NeuralGraph';
-import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type Motion, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
+import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
@@ -116,14 +116,13 @@ export function AiOSetup({ onConnectExisting, onInstalled }: AiOSetupProps) {
  };
  return <section className="aio-setup" aria-label={t('setup.region')}>
   <header className="aio-setup-header"><p className="aio-setup-eyebrow">{t('setup.eyebrow')}</p>
-   <fieldset className="aio-motion" disabled={running||busy||pickerBusy}><legend>{t('setup.motion')}</legend>{(['light','paws','off'] as Motion[]).map(m=><label key={m}><input type="radio" name="setup-motion" checked={state.motion===m} onChange={()=>setState(s=>transitionSetup(s,{type:'motion',motion:m}))}/>{t(`setup.motion.${m}`)}</label>)}</fieldset>
   </header>
   {state.opened&&defaults&&!status&&<div className="aio-help" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
   <div className="aio-decision-area">
   <div className="aio-left">
   <div className="aio-bubble-row">
-   <NeuralGraph nodes={presentation.nodes} history={presentation.history} motion={state.motion} onSelect={id=>{if(id==='setup:aio'&&!running&&!busy&&!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}} label={t('setup.decisions')}/>
+   <NeuralGraph nodes={presentation.nodes} history={presentation.history} motion="off" onSelect={id=>{if(id==='setup:aio'&&!running&&!busy&&!pickerLock.current)setState(s=>transitionSetup(s,{type:'automatic'}));}} label={t('setup.decisions')}/>
    <DownloadWorkspace installTarget={plan?.route==='managed'?plan.storagePath:undefined}/>
   </div>
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
