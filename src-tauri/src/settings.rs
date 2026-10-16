@@ -60,21 +60,12 @@ pub fn read(root: &Path) -> Result<Folders, String> {
     }
 }
 
+#[path = "settings_move.rs"]
+mod relocation;
+pub use relocation::{move_folders, validate, MoveReport};
+
 pub fn write(root: &Path, folders: Folders) -> Result<Folders, String> {
-    for value in [&folders.models, &folders.input, &folders.output] {
-        existing_dir(value)?;
-    }
-    if !root.is_dir() {
-        return Err("Environment root does not exist yet; install first".into());
-    }
-    let tmp = root.join(format!(".{FILE}.{}", std::process::id()));
-    std::fs::write(
-        &tmp,
-        serde_json::to_vec_pretty(&folders).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, root.join(FILE)).map_err(|e| e.to_string())?;
-    Ok(folders)
+    relocation::save(root, folders)
 }
 
 /// Extra ComfyUI launch arguments honouring the saved folders; empty when nothing is set.
@@ -92,7 +83,8 @@ pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
     }
     if let Some(models) = folders.models {
         // ComfyUI's extra_model_paths format: one named block with base_path + folder keys.
-        let mut yaml = format!("deas:\n  base_path: {models}\n");
+        let quoted = serde_json::to_string(&models).map_err(|e| e.to_string())?;
+        let mut yaml = format!("deas:\n  base_path: {quoted}\n");
         for folder in MODEL_FOLDERS {
             yaml.push_str(&format!("  {folder}: {folder}\n"));
         }
@@ -177,7 +169,7 @@ mod tests {
         let yaml = std::fs::read_to_string(&args[3]).unwrap();
         assert!(yaml.starts_with(&format!(
             "deas:\n  base_path: {}\n  checkpoints: checkpoints\n",
-            models.path().display()
+            serde_json::to_string(models.path().to_str().unwrap()).unwrap()
         )));
         assert!(yaml.contains("  loras: loras\n"));
         let present = native_files_present(vec![
