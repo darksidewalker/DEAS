@@ -98,6 +98,17 @@ impl Anchor {
             Err("Unsupported platform".into())
         }
     }
+    /// An existing user-owned directory may receive exclusively created files.
+    pub fn writable(&self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        {
+            self.validate_directory(false)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err("Unsupported platform".into())
+        }
+    }
     pub fn create(&self, name: &str) -> Result<Self, String> {
         #[cfg(target_os = "linux")]
         {

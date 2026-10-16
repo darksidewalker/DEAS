@@ -86,6 +86,8 @@ fn file(
         downloadable: true,
         locator: Some(name),
         license,
+        preview: None,
+        category: None,
     })
 }
 async fn json(
@@ -159,6 +161,30 @@ fn hf_locator(s: &str) -> Result<(&str, &str), String> {
     }
     Ok((kind, name))
 }
+/// ComfyUI model folder for a CivitAI model type; unknown types stay unsorted.
+pub(super) fn civitai_category(model_type: Option<&str>) -> &'static str {
+    match model_type {
+        Some("Checkpoint") => "checkpoints",
+        Some("LORA" | "LoCon" | "DoRA") => "loras",
+        Some("TextualInversion") => "embeddings",
+        Some("VAE") => "vae",
+        Some("Controlnet") => "controlnet",
+        Some("Upscaler") => "upscale_models",
+        Some("Workflows") => "workflows",
+        _ => "other",
+    }
+}
+/// First HTTPS image of a model version, if any; bounded and never fetched here.
+fn civitai_preview(version: &Value) -> Option<String> {
+    let url = version
+        .get("images")?
+        .as_array()?
+        .first()?
+        .get("url")?
+        .as_str()?;
+    (url.len() <= 2048 && url.starts_with("https://") && !url.bytes().any(|b| b.is_ascii_control()))
+        .then(|| url.to_owned())
+}
 pub(super) async fn list(
     p: &Provider,
     r: &BrowseRequest,
@@ -224,6 +250,18 @@ pub(super) async fn list(
                 .append_pair("username", &r.locator)
                 .append_pair("limit", "10")
                 .append_pair("page", "1");
+            u
+        }
+        ("civitai", "search") => {
+            let q = r.locator.trim();
+            if q.is_empty() || q.len() > 120 || q.bytes().any(|b| b.is_ascii_control()) {
+                return Err("CivitAI search needs 1–120 printable characters".into());
+            }
+            let mut u = endpoint(p, &["api", "v1", "models"])?;
+            u.query_pairs_mut()
+                .append_pair("query", q)
+                .append_pair("limit", "20")
+                .append_pair("sort", "Most Downloaded");
             u
         }
         ("civitai", "model") => {
@@ -304,6 +342,8 @@ pub(super) async fn list(
                         downloadable: false,
                         locator: Some(format!("{kind}:{id}")),
                         license: None,
+                        preview: None,
+                        category: None,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -351,6 +391,8 @@ pub(super) async fn list(
                             .pointer("/license/spdx_id")
                             .and_then(Value::as_str)
                             .map(str::to_owned),
+                        preview: None,
+                        category: None,
                     });
                 }
             } else {
@@ -372,6 +414,8 @@ pub(super) async fn list(
                             downloadable: false,
                             locator: Some(format!("{}/{}", r.locator, name)),
                             license: None,
+                            preview: None,
+                            category: None,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -401,12 +445,12 @@ pub(super) async fn list(
             }
         }
         "civitai" => {
-            let models = if r.scope == "user" {
-                array(v.get("items").ok_or("Missing CivitAI items")?)?.clone()
-            } else {
+            let models = if r.scope == "model" {
                 vec![v.clone()]
+            } else {
+                array(v.get("items").ok_or("Missing CivitAI items")?)?.clone()
             };
-            if r.scope == "user" {
+            if r.scope != "model" {
                 if let Some(input) = v.pointer("/metadata/nextPage").and_then(Value::as_str) {
                     let next = Url::parse(input).map_err(|_| "Invalid CivitAI pagination")?;
                     if next.origin() != u.origin() || next.path() != u.path() {
@@ -430,6 +474,37 @@ pub(super) async fn list(
                     .and_then(Value::as_u64)
                     .ok_or("Missing CivitAI model ID")?;
                 let versions = array(model.get("modelVersions").ok_or("Missing modelVersions")?)?;
+                let category = civitai_category(model.get("type").and_then(Value::as_str));
+                // Search results stay browsable model identities; files come from the model scope.
+                if r.scope == "search" {
+                    if resources.len() >= MAX_RESOURCES {
+                        break;
+                    }
+                    let version = versions.first();
+                    let label = format!(
+                        "{} · {}",
+                        text(&model, "name")?,
+                        version
+                            .and_then(|v| v.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                    );
+                    bounded_text(&label, 240)?;
+                    resources.push(Resource {
+                        id: format!("civitai:{modelid}"),
+                        label,
+                        kind: "repo".into(),
+                        url: None,
+                        size: None,
+                        sha256: None,
+                        downloadable: false,
+                        locator: Some(modelid.to_string()),
+                        license: None,
+                        preview: version.and_then(civitai_preview),
+                        category: Some(category.into()),
+                    });
+                    continue;
+                }
                 for version in versions {
                     let versionid = version
                         .get("id")
@@ -459,6 +534,8 @@ pub(super) async fn list(
                             name.into(),
                         )?;
                         resource.kind = "model".into();
+                        resource.preview = civitai_preview(version);
+                        resource.category = Some(category.into());
                         resources.push(resource);
                     }
                 }
@@ -496,6 +573,8 @@ pub(super) async fn list(
                     downloadable: false,
                     locator: Some(name.into()),
                     license: None,
+                    preview: None,
+                    category: None,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

@@ -9,7 +9,7 @@ const manifest = (id: string, parentId: string | null = null): PluginManifest =>
 test('trusted builtin hierarchy has director features and no invalid parents', () => {
   assert.doesNotThrow(() => validatePlugins(builtinPlugins));
   const parents = Object.fromEntries(builtinPlugins.map(p => [p.id, p.parentId]));
-  assert.deepEqual(parents, { engine: null, director: 'engine', forge: 'director', refmods: 'director', continuity: 'director', output: 'director', plugins: 'engine' });
+  assert.deepEqual(parents, { engine: null, director: 'engine', forge: 'director', refmods: 'director', continuity: 'director', output: 'director', plugins: 'engine', media: 'engine' });
   assert.deepEqual(builtinPlugins.find(p => p.id === 'director')?.requiredNodes, ['MiniMaxH3Director', 'MiniMaxH3DirectorGuide']);
 });
 

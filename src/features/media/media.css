@@ -1,0 +1,17 @@
+.media-library { display: flex; flex-direction: column; gap: .5rem; min-width: 0; padding: .8rem; border: 1px solid #435256; border-radius: 1rem; background: #1c2427; }
+.media-library.is-dragging { border-color: #83c19a; background: #203029; }
+.media-header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.media-header h2 { margin: 0; font-size: 1rem; }
+.media-header button, .media-path button { padding: .4rem .7rem; border: 1px solid #627477; border-radius: .6rem; background: #26363c; color: inherit; font-size: .8rem; }
+.media-help { margin: 0; font-size: .75rem; color: var(--muted); }
+.media-error { margin: 0; font-size: .8rem; color: #ffbaaa; overflow-wrap: anywhere; }
+.media-path { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.media-path code { font-size: .72rem; overflow-wrap: anywhere; color: #b9d9e0; }
+.media-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+.media-list button { display: block; width: 100%; text-align: left; padding: .35rem .5rem; border: 0; border-radius: .4rem; background: transparent; color: inherit; font-size: .82rem; overflow-wrap: anywhere; }
+.media-list button:hover { background: #ffffff10; }
+.media-list button[aria-current="true"] { background: #2a4a3a; }
+.media-list button[data-media="image"]::before { content: "▣ "; color: var(--copper); }
+.media-list button[data-media="video"]::before { content: "▶ "; color: var(--blue); }
+.media-list button[data-media="audio"]::before { content: "♪ "; color: #83c19a; }
+.media-symlink { color: var(--muted); }

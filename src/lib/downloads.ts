@@ -1,10 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 
-export type DownloadScope = 'user' | 'repo' | 'model' | 'index' | 'backend';
+export type DownloadScope = 'user' | 'repo' | 'model' | 'search' | 'index' | 'backend';
 export interface DownloadProvider { id:string; kind:string; label:string; origin:string; scopes:DownloadScope[]; anonymousNotice:string }
-export interface CatalogEntry { id:string; label:string; providerId:string; scope:DownloadScope; locator:string; kind:string; target:string; license?:string; sha256?:string }
+export interface CatalogEntry { id:string; label:string; providerId:string; scope:DownloadScope; locator:string; kind:string; target:string; license?:string; sha256?:string; preview?:string }
 export interface DownloadCatalog { version:1; providers:DownloadProvider[]; entries:CatalogEntry[] }
-export interface DownloadResource { id:string; label:string; kind:string; url?:string; size?:number; sha256?:string; downloadable:boolean; locator?:string; license?:string }
+export interface DownloadResource { id:string; label:string; kind:string; url?:string; size?:number; sha256?:string; downloadable:boolean; locator?:string; license?:string; preview?:string; category?:string }
 export interface BrowseRequest { providerId:string; scope:DownloadScope; locator:string; cursor?:string; authenticated:boolean }
 export interface DownloadListing { resources:DownloadResource[]; nextCursor:string|null; warnings:string[] }
 export interface PlanRequest { providerId:string; resources:DownloadResource[]; parentPath:string; folderName:string; authenticated:boolean }
@@ -28,3 +28,5 @@ export const readAuthStatus=()=>native<AuthMetadata[]>('native_auth_status');
 export const setAuthToken=(providerId:string,token:string,persist=false)=>native<AuthMetadata>('native_auth_set',{providerId,token,persist});
 export const restoreAuthToken=(providerId:string)=>native<AuthMetadata>('native_auth_restore',{providerId});
 export const removeAuthToken=(providerId:string)=>native<AuthMetadata>('native_auth_remove',{providerId});
+/** Where a ComfyUI category lives inside a managed DEAS environment. */
+export const comfyFolder=(installTarget:string,category:string)=>`${installTarget}/ComfyUI/${category==='workflows'?'user/default/workflows':`models/${category}`}`;

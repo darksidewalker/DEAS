@@ -35,6 +35,8 @@ fn main() {
             deas::native_job_submit,
             deas::native_job_status,
             deas::native_pick_directory,
+            deas::native_media_list,
+            deas::native_media_describe,
             deas::native_detect_hardware,
             deas::native_install_defaults,
             deas::native_install_plan,

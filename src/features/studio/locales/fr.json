@@ -140,5 +140,13 @@
   "studio.jobs.saveAs": "Enregistrer le PNG sous…",
   "studio.jobs.saveTitle": "Enregistrer le PNG de diagnostic dans un nouveau fichier",
   "studio.jobs.exported": "Enregistré : {path} · SHA-256 {sha256}",
-  "studio.jobs.noSessionJob": "Aucune tâche native enregistrée dans cette session."
+  "studio.jobs.noSessionJob": "Aucune tâche native enregistrée dans cette session.",
+  "studio.tab.video": "Vidéo",
+  "studio.tab.image": "Image",
+  "studio.tab.map": "Carte de l’espace",
+  "studio.tabs": "Zones du studio",
+  "studio.tab.plannedNotice": "L’inférence et l’édition de cette zone arrivent par étapes séparées. Chargez des médias à gauche pour préparer.",
+  "studio.tab.noMedia": "Aucun média sélectionné.",
+  "studio.plugin.media.name": "Médiathèque",
+  "studio.plugin.media.description": "Navigation en lecture seule dans les dossiers et glisser-déposer pour images, vidéo et audio."
 }

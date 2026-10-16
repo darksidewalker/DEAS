@@ -140,5 +140,13 @@
   "studio.jobs.saveAs": "PNG dosyasını farklı kaydet…",
   "studio.jobs.saveTitle": "Tanılama PNG dosyasını yeni dosya olarak kaydet",
   "studio.jobs.exported": "Kaydedildi: {path} · SHA-256 {sha256}",
-  "studio.jobs.noSessionJob": "Bu uygulama oturumunda kayıtlı yerel iş yok."
+  "studio.jobs.noSessionJob": "Bu uygulama oturumunda kayıtlı yerel iş yok.",
+  "studio.tab.video": "Video",
+  "studio.tab.image": "Görsel",
+  "studio.tab.map": "Çalışma alanı haritası",
+  "studio.tabs": "Stüdyo alanları",
+  "studio.tab.plannedNotice": "Bu alan için çıkarım ve düzenleme ayrı adımlarda gelecek. Hazırlık için solda medya yükleyin.",
+  "studio.tab.noMedia": "Medya seçilmedi.",
+  "studio.plugin.media.name": "Medya kitaplığı",
+  "studio.plugin.media.description": "Görsel, video ve ses için salt okunur klasör gezintisi ve sürükle-bırak."
 }

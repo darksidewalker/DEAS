@@ -60,6 +60,8 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         downloadable: true,
         locator: Some("tiny.bin".into()),
         license: Some("fixture license".into()),
+        preview: None,
+        category: None,
     }
 }
 #[cfg(target_os = "linux")]
@@ -131,8 +133,20 @@ fn strict_catalog_and_extension() {
             .as_array()
             .unwrap()
             .len(),
-        5
+        5 + 22
     );
+    let bundled = c
+        .entries
+        .iter()
+        .filter(|e| e.id.starts_with("civitai-") && e.id != "civitai-creator")
+        .collect::<Vec<_>>();
+    assert_eq!(bundled.len(), 22);
+    assert!(bundled.iter().all(|e| e.scope == "model"
+        && matches!(
+            e.target.as_str(),
+            "checkpoints" | "diffusion_models" | "loras" | "workflows"
+        )));
+    assert!(bundled.iter().filter(|e| e.preview.is_some()).count() >= 20);
     for field in ["command='sh'", "token='secret'", "hook='evil'"] {
         assert!(Catalog::parse(&format!("version=1\nproviders=[]\n{field}")).is_err());
     }
@@ -375,6 +389,42 @@ fn cancellation_interrupts_stalled_stream_and_cleans_partial() {
 }
 #[cfg(target_os = "linux")]
 #[test]
+fn empty_folder_stages_into_existing_parent_without_manifest_or_clobber() {
+    let (origin, server) = fixture(b"abc".to_vec());
+    let r = resource(&origin, None, Some(3));
+    let e = engine(provider(origin.clone()), &r);
+    let d = scratch();
+    let request = PlanRequest {
+        provider_id: "fixture".into(),
+        resources: vec![r.clone()],
+        parent_path: d.path().to_str().unwrap().into(),
+        folder_name: String::new(),
+        authenticated: false,
+    };
+    let p = e.plan(request.clone()).unwrap();
+    assert_eq!(p.target, d.path().to_str().unwrap());
+    e.start(p.id, true, &AuthState::default()).unwrap();
+    assert_eq!(finished(&e).state, "succeeded");
+    server.join().unwrap();
+    assert_eq!(std::fs::read(d.path().join("tiny.bin")).unwrap(), b"abc");
+    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1);
+    // A second run into the same folder must not replace the existing file.
+    let (origin2, server2) = fixture(b"xyz".to_vec());
+    let r2 = resource(&origin2, None, Some(3));
+    let e2 = engine(provider(origin2), &r2);
+    let p2 = e2
+        .plan(PlanRequest {
+            resources: vec![r2],
+            ..request
+        })
+        .unwrap();
+    e2.start(p2.id, true, &AuthState::default()).unwrap();
+    assert_eq!(finished(&e2).state, "failed");
+    let _ = server2.join();
+    assert_eq!(std::fs::read(d.path().join("tiny.bin")).unwrap(), b"abc");
+}
+#[cfg(target_os = "linux")]
+#[test]
 fn anchored_writes_refuse_symlinks_and_overwrites() {
     use std::os::unix::fs::symlink;
     let d = scratch();
@@ -435,6 +485,14 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "/api/v1/models?username=alice&limit=10&page=1",
             true,
         ),
+        (
+            "civitai",
+            "search",
+            "dark lora",
+            serde_json::json!({"items":[{"id":12,"name":"Dark","type":"LORA","modelVersions":[{"id":34,"name":"v1","images":[{"url":"https://image.civitai.com/x/1.jpeg"}],"files":[]}]}],"metadata":{}}),
+            "/api/v1/models?query=dark+lora&limit=20&sort=Most+Downloaded",
+            false,
+        ),
     ];
     for (kind, scope, locator, body, expected, downloadable) in cases {
         let (origin, server) = fixture(serde_json::to_vec(&body).unwrap());
@@ -454,9 +512,18 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             .join()
             .unwrap()
             .starts_with(&format!("GET {expected} HTTP/1.1")));
-        if kind == "civitai" {
+        if kind == "civitai" && scope == "search" {
+            assert_eq!(page.resources[0].locator.as_deref(), Some("12"));
+            assert_eq!(page.resources[0].category.as_deref(), Some("loras"));
+            assert_eq!(
+                page.resources[0].preview.as_deref(),
+                Some("https://image.civitai.com/x/1.jpeg")
+            );
+            assert_eq!(page.resources[0].label, "Dark · v1");
+        } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
             assert!(page.resources[0].sha256.is_some());
+            assert_eq!(page.resources[0].category.as_deref(), Some("other"));
         }
     }
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

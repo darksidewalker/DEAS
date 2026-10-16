@@ -42,6 +42,12 @@ pub struct Resource {
     pub locator: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
+    /// HTTPS image shown beside the resource; never fetched natively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// ComfyUI model folder name (checkpoints, loras, …) when the source declares a type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +73,8 @@ pub struct Entry {
     pub license: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -99,7 +107,7 @@ impl Catalog {
             }
             let scopes = match p.kind.as_str() {
                 "huggingface" => vec!["user", "repo"],
-                "civitai" => vec!["user", "model"],
+                "civitai" => vec!["user", "model", "search"],
                 "github" => vec!["user", "repo"],
                 "http" => vec!["index"],
                 "ollama" => vec!["backend"],
@@ -139,6 +147,9 @@ impl Catalog {
             safe_name(&e.target)?;
             validate_kind(&e.kind)?;
             validate_metadata(e.sha256.as_deref(), e.license.as_deref(), None)?;
+            if let Some(preview) = &e.preview {
+                validate_url(preview, false, true)?;
+            }
             if !ids.insert(&e.id) || !self.provider(&e.provider_id)?.scopes.contains(&e.scope) {
                 return Err("Duplicate entry or unsupported scope".into());
             }
@@ -155,7 +166,13 @@ impl Catalog {
         Ok(())
     }
     fn load() -> Result<Self, String> {
-        Self::parse(include_str!("../downloads/default.toml"))
+        let mut c = Self::parse(include_str!("../downloads/default.toml"))?;
+        // Bundled entry-only catalogs reuse the compiled providers and are validated together.
+        let extra: Catalog = toml::from_str(include_str!("../downloads/darksidewalker.toml"))
+            .map_err(|_| "Invalid bundled catalog")?;
+        c.entries.extend(extra.entries);
+        c.validate()?;
+        Ok(c)
     }
     pub fn provider(&self, id: &str) -> Result<&Provider, String> {
         self.providers
@@ -580,10 +597,16 @@ impl DownloadEngine {
         if request.resources.is_empty() || request.resources.len() > MAX_FILES {
             return Err("Select 1–16 files".into());
         }
-        safe_name(&request.folder_name)?;
         let parent = PathBuf::from(request.parent_path);
         let anchor = fs::Anchor::open(&parent)?;
-        anchor.absent(&request.folder_name)?;
+        // Empty folder name stages directly into the existing parent (e.g. ComfyUI/models/loras);
+        // files are still created exclusively, so nothing is overwritten.
+        if request.folder_name.is_empty() {
+            anchor.writable()?;
+        } else {
+            safe_name(&request.folder_name)?;
+            anchor.absent(&request.folder_name)?;
+        }
         let mut i = self
             .inner
             .lock()
@@ -637,10 +660,14 @@ impl DownloadEngine {
         }
         let view = DownloadPlan {
             id: uuid::Uuid::new_v4().to_string(),
-            target: parent
-                .join(&request.folder_name)
-                .to_string_lossy()
-                .into_owned(),
+            target: if request.folder_name.is_empty() {
+                parent.to_string_lossy().into_owned()
+            } else {
+                parent
+                    .join(&request.folder_name)
+                    .to_string_lossy()
+                    .into_owned()
+            },
             total_known_bytes: total,
             unknown_size_count: request
                 .resources
@@ -713,8 +740,13 @@ impl DownloadEngine {
         if parent.identity() != Ok(p.identity) {
             return Err("Parent changed since planning".into());
         }
-        parent.absent(&p.subfolder)?;
-        let target = parent.create(&p.subfolder)?;
+        let target = if p.subfolder.is_empty() {
+            parent.writable()?;
+            parent
+        } else {
+            parent.absent(&p.subfolder)?;
+            parent.create(&p.subfolder)?
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         i.cancel = cancel.clone();
         i.status = DownloadStatus {
@@ -832,6 +864,9 @@ impl DownloadEngine {
         if cancel.load(Ordering::SeqCst) {
             return Err("Download cancelled".into());
         }
+        if p.subfolder.is_empty() {
+            return Ok(()); // shared model folders get no manifest, add per-file sidecars when provenance is needed
+        }
         let name = format!("deas-{}.partial", uuid::Uuid::new_v4());
         let result = (|| {
             let mut file = target.partial(&name)?;
@@ -871,6 +906,12 @@ fn validate_resource(p: &Provider, r: &Resource) -> Result<(), String> {
     )?;
     if let Some(s) = &r.locator {
         bounded_text(s, 4096)?;
+    }
+    if let Some(s) = &r.preview {
+        validate_url(s, false, true)?;
+    }
+    if let Some(s) = &r.category {
+        safe_name(s)?;
     }
     if r.downloadable {
         if p.kind == "ollama" || r.kind == "repo" {

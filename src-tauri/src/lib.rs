@@ -21,6 +21,8 @@ pub mod hardware;
 pub use hardware::native_detect_hardware;
 pub mod directory;
 pub use directory::native_pick_directory;
+pub mod media;
+pub use media::{native_media_describe, native_media_list};
 pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;

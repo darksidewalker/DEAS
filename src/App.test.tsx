@@ -15,11 +15,13 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { NativeInstallRequest } from './lib/setup';
 vi.mock("./lib/comfy", () => ({ inspectBackend: vi.fn() }));
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false)}));
+vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 
 function renderStudio() {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole("button", { name: /Explore studio without installing/i }));
+  fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
   return view;
 }
 
@@ -49,11 +51,14 @@ test("language selection updates app, setup, studio metadata and aria without lo
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  expect(view.container.querySelectorAll("[data-node]")).toHaveLength(1);
-  expect(view.container.querySelector("[data-node]")?.getAttribute("data-node")).toBe("setup:aio");
+  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","optional-downloads"]);
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: /Explore studio without installing/ }));
+  expect(screen.getByRole("tab", { name: "Video", selected: true })).toBeTruthy();
+  expect(screen.getByRole("complementary", { name: "Media" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
   expect(screen.getByRole("group", { name: "Connected studio features" })).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
 });
@@ -62,34 +67,33 @@ test.each([false,true])("successful native install reveals studio without an ext
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==='native_install_defaults')return {storagePath:'/app/new',backend:'cpu',warnings:[]};
+    if(command==='native_media_list')return {path:'/home/fixture',parent:null,entries:[],truncated:false};
     if(command==='native_install_plan')return {id:'installed-plan',request:(args as {request:NativeInstallRequest}).request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
     return {state:'succeeded',stepId:null,logs:[],error:null};
   });
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
-  await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   if(director)fireEvent.click(screen.getByLabelText('Director'));
-  fireEvent.click(screen.getByRole('button',{name:'Prepare native plan'}));
+  await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   const start=await screen.findByRole('button',{name:'Start install'});
-  expect(screen.queryByRole('group',{name:'Connected studio features'})).toBeNull();
+  expect(screen.queryByRole('tablist',{name:'Studio areas'})).toBeNull();
   fireEvent.click(start);
-  expect(await screen.findByRole('group',{name:'Connected studio features'})).toBeTruthy();
+  expect(await screen.findByRole('complementary',{name:'Media'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab',{name:'Workspace map'}));
+  expect(screen.getByRole('group',{name:'Connected studio features'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Director'}));
   expect(screen.getByLabelText('Shot direction')).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/generate/i})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(['native_install_defaults','native_install_plan','native_install_start','native_media_list']);
 });
 
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole("button", { name: /AiO installer/ }));
-  fireEvent.click(screen.getByRole("button", { name: /Connect existing backend/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm & continue" }));
-  fireEvent.change(screen.getByLabelText("Backend URL"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(screen.getByRole("button", { name: "Confirm & continue" }));
+  fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
@@ -105,10 +109,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   fireEvent.click(screen.getByRole("button", { name: /Inspect connection/ }));
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
   fireEvent.click(setup.getByRole("button", { name: /AiO installer/ }));
-  fireEvent.click(setup.getByRole("button", { name: /Connect existing backend/ }));
-  fireEvent.click(setup.getByRole("button", { name: "Confirm & continue" }));
-  fireEvent.change(setup.getByLabelText("Backend URL"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(setup.getByRole("button", { name: "Confirm & continue" }));
+  fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
@@ -125,7 +126,7 @@ test("Director owns passive included parts instead of duplicate interactive stud
   expect(studio.querySelectorAll("button")).toHaveLength(3);
   expect(studio.querySelector("[data-choice], .neural-legend, [data-kind=suggested]")).toBeNull();
   for(const part of director.querySelectorAll("[data-included]")) fireEvent.click(part);
-  expect(view.container.querySelector(".feature-panel")).toBeNull();
+  expect(view.container.querySelector("[id^='panel-']")).toBeNull();
   const trigger=screen.getByRole("button",{name:"Director"});
   fireEvent.click(trigger);
   fireEvent.change(screen.getByLabelText("Shot direction"),{target:{value:"Keep included direction"}});

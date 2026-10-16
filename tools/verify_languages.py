@@ -23,17 +23,13 @@ with sync_playwright() as p:
   assert select.locator('option').count()==6
   for locale,name in names.items():assert select.locator(f'option[value="{locale}"]').inner_text()==f'{name} ({locale})'
   select.select_option('en');page.locator('[data-node="setup:aio"] > button').click()
-  page.locator('button[data-setup-mode="guided"]').click()
-  page.locator('[data-choice="setup:route:managed"] button').click()
-  assert page.locator('[data-choice="setup:route:managed"] button').get_attribute('aria-pressed')=='true'
+  page.get_by_label('Director',exact=True).check()
   for locale in names:
    select.select_option(locale);t=strings[locale]
    assert page.locator('html').get_attribute('lang')==locale
    assert page.evaluate("localStorage.getItem('deas.locale.v1')")==locale
-   assert page.get_by_role('button',name=t['setup.confirmStep'],exact=True).count()==1
-   assert page.get_by_label(t['setup.storageDirectory'],exact=True).count()==0
-   assert page.locator('[data-choice="setup:route:managed"] button').get_attribute('aria-pressed')=='true'
-   page.get_by_text(t['setup.downloadPlugins'],exact=True).click()
+   assert page.get_by_label(t['setup.storageDirectory'],exact=True).count()==1
+   assert page.get_by_label(t['setup.feature.director.label'],exact=True).is_checked()
    page.get_by_role('button',name=t['downloads.title'],exact=True).click()
    assert page.get_by_text(t['downloads.browser'],exact=True).count()==1
    assert page.get_by_role('button',name=t['downloads.start'],exact=True).is_disabled()
@@ -41,7 +37,6 @@ with sync_playwright() as p:
    page.mouse.move(0,0);page.evaluate('document.activeElement?.blur()')
    if width==320 and locale in ('tr','fr','zh','ja'):page.screenshot(path=str(root/'assets'/f'deas-language-{locale}-320.png'),full_page=True)
    page.get_by_role('button',name=t['downloads.title'],exact=True).click()
-   page.get_by_text(t['setup.downloadPlugins'],exact=True).click()
    results.append({'width':width,'locale':locale,'nativeNameAndIso':True,'choicePreserved':True,'localizedDownloadPanel':True,'noOverflow':True})
   page.reload(wait_until='networkidle');assert select.input_value()=='zh'
   assert not errors and not foreign,(errors,foreign)

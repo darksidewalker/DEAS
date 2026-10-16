@@ -1,0 +1,14 @@
+{
+  "media.title": "媒体",
+  "media.openFolder": "打开文件夹…",
+  "media.pickTitle": "选择媒体文件夹",
+  "media.dropHelp": "将文件或文件夹拖到此处，或浏览。不会复制或移动任何内容。",
+  "media.browserHelp": "浏览器预览：将文件拖到此处。浏览文件夹需要桌面应用。",
+  "media.dropped": "已拖入的媒体",
+  "media.currentFolder": "当前文件夹",
+  "media.up": "上级文件夹",
+  "media.entries": "文件夹内容",
+  "media.symlink": "符号链接",
+  "media.empty": "此处没有媒体或文件夹。",
+  "media.truncated": "仅显示前5000项。"
+}

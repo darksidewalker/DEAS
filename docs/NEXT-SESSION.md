@@ -19,6 +19,12 @@ Native output retrieval must use only a succeeded current native job's indexed m
 
 Final gates: 48 core tests, 147 UI/IPC tests, 122 Rust tests (nine ignored); typecheck/build, Clippy/fmt and native release/rendering passed. The extended job browser suite passed six locales at five widths including actual fixture-PNG browser decode, export cancellation and explicit mocked export success. Native filesystem fixtures verified byte-identical no-clobber export. No background workers or owned verification servers remain. Check the final status in `docs/VERIFICATION.md` before continuing. Browser job/media responses are explicit IPC fixtures, not proof of real model generation. A native screenshot proves initial rendering only, not native-webview media decode or interactive Save As dispatch.
 
+## 0.1.6 slice (uncommitted)
+
+Automatic setup now shows only folder + Director with Advanced options collapsed and prepares the native plan automatically (`AiOSetup.tsx` effect; Start install remains the only authorization). The studio has top tabs and a `MediaLibrary` plugin panel (`src/features/media`, `src-tauri/src/media.rs`, `allow-native-media`, asset protocol scope `**` without the leading-dot restriction). Browser suites expect `[data-studio-tab="map"]` before touching graph nodes. The pre-existing Cargo test `backend::tests::invalid_owned_api_never_marks_running` fails on this host independent of these changes.
+
+Later in the same session: the manual/guided installer, draft save/restore and the four guided Playwright suites (`verify_ui/confirmation/help/stability`) were removed; `lib/setup.ts` still contains the guided state machine (used by core tests and the `existing` plan route) — delete it when nothing else needs it. Downloads are category cards with previews plus CivitAI search; see `docs/DOWNLOAD-PLUGINS.md` and `docs/PLAN.md` 0.1.6.
+
 ## Resume after the stop
 
 1. Read `git status --short`, `docs/PLAN.md` and the newest `docs/VERIFICATION.md` section. Preserve all accumulated edits.

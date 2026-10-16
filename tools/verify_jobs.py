@@ -16,6 +16,7 @@ png = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB', 512, 512
 output_fixture = {'mimeType': 'image/png', 'width': 512, 'height': 512, 'sha256': hashlib.sha256(png).hexdigest(), 'bytes': list(png)}
 fixture = r"""window.isTauri=true; window.__calls=[]; window.__jobState='queued';
 window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
+if(command==='native_media_list') return {path:'/fixture',parent:null,entries:[],truncated:false};
 window.__calls.push({command,args});
 if(command==='native_job_output') return {...window.__outputFixture,jobId:args.jobId,index:args.index};
 if(command==='native_job_export') return window.__exportCancel?null:{path:'/fixture/exported-image.png',sha256:window.__outputFixture.sha256,size:window.__outputFixture.bytes.length};
@@ -38,6 +39,7 @@ with sync_playwright() as p:
         page.goto(url, wait_until='networkidle')
         page.locator('.language-control select').select_option('en')
         page.locator('.studio-explore').click()
+        page.locator('[data-studio-tab="map"]').click()
         page.locator('[data-node="engine"] > button').click()
         assert page.evaluate('__calls.length') == 0
         page.locator('[data-recipe-check]').click()

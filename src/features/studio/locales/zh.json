@@ -140,5 +140,13 @@
   "studio.jobs.saveAs": "PNG 另存为…",
   "studio.jobs.saveTitle": "将诊断 PNG 保存为新文件",
   "studio.jobs.exported": "已保存：{path} · SHA-256 {sha256}",
-  "studio.jobs.noSessionJob": "此应用会话中没有保存的原生任务。"
+  "studio.jobs.noSessionJob": "此应用会话中没有保存的原生任务。",
+  "studio.tab.video": "视频",
+  "studio.tab.image": "图像",
+  "studio.tab.map": "工作区地图",
+  "studio.tabs": "工作室区域",
+  "studio.tab.plannedNotice": "该区域的推理与编辑将分步推出。请先在左侧加载媒体。",
+  "studio.tab.noMedia": "未选择媒体。",
+  "studio.plugin.media.name": "媒体库",
+  "studio.plugin.media.description": "图像、视频和音频的只读文件夹浏览与拖放。"
 }

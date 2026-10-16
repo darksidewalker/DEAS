@@ -1,0 +1,14 @@
+{
+  "media.title": "Medien",
+  "media.openFolder": "Ordner öffnen…",
+  "media.pickTitle": "Medienordner wählen",
+  "media.dropHelp": "Dateien oder Ordner hierher ziehen oder durchsuchen. Nichts wird kopiert oder verschoben.",
+  "media.browserHelp": "Browser-Vorschau: Dateien hierher ziehen. Ordner durchsuchen geht nur in der Desktop-App.",
+  "media.dropped": "Abgelegte Medien",
+  "media.currentFolder": "Aktueller Ordner",
+  "media.up": "Übergeordneter Ordner",
+  "media.entries": "Ordnerinhalt",
+  "media.symlink": "Symbolischer Link",
+  "media.empty": "Keine Medien oder Ordner hier.",
+  "media.truncated": "Nur die ersten 5000 Einträge werden angezeigt."
+}

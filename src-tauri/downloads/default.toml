@@ -21,7 +21,7 @@ id = "civitai"
 kind = "civitai"
 label = "CivitAI"
 origin = "https://civitai.com"
-scopes = ["user", "model"]
+scopes = ["user", "model", "search"]
 anonymousNotice = "Public creator/model listing; access, content restrictions and rate limits are upstream-controlled. Review model permissions."
 
 [[providers]]
@@ -77,12 +77,12 @@ target = "github-files"
 
 [[entries]]
 id = "civitai-creator"
-label = "Browse CivitAI creator (replace username)"
+label = "Browse CivitAI creator darksidewalker"
 providerId = "civitai"
 scope = "user"
-locator = "USERNAME"
+locator = "darksidewalker"
 kind = "model"
-target = "civitai-models"
+target = "other"
 
 [[entries]]
 id = "local-ollama-tags"

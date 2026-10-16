@@ -48,5 +48,6 @@ export const builtinPlugins: PluginManifest[] = [
  manifest('continuity', 'director', 'feature', ['MiniMaxH3DirectorGuide']),
  manifest('output', 'director', 'feature', ['MiniMaxH3Director']),
  manifest('plugins', 'engine', 'core', []),
+ manifest('media', 'engine', 'plugin', []),
 ];
 validatePlugins(builtinPlugins);

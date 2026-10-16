@@ -1,0 +1,14 @@
+{
+  "media.title": "Médias",
+  "media.openFolder": "Ouvrir un dossier…",
+  "media.pickTitle": "Choisir un dossier de médias",
+  "media.dropHelp": "Déposez des fichiers ou dossiers ici, ou parcourez. Rien n’est copié ni déplacé.",
+  "media.browserHelp": "Aperçu navigateur : déposez des fichiers ici. La navigation dans les dossiers nécessite l’application de bureau.",
+  "media.dropped": "Médias déposés",
+  "media.currentFolder": "Dossier actuel",
+  "media.up": "Dossier parent",
+  "media.entries": "Contenu du dossier",
+  "media.symlink": "Lien symbolique",
+  "media.empty": "Aucun média ni dossier ici.",
+  "media.truncated": "Seules les 5000 premières entrées sont affichées."
+}

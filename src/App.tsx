@@ -6,7 +6,9 @@ import { NeuralGraph, type NeuralNode, type NeuralEdge } from './components/neur
 import { AiOSetup } from './components/setup/AiOSetup';
 import { ApiNegotiationPanel } from './features/studio/ApiNegotiationPanel';
 import { RecipePrerequisitesPanel } from './features/studio/RecipePrerequisitesPanel';
-import { DownloadWorkspace } from './features/downloads/DownloadWorkspace';
+import { MediaLibrary } from './features/media/MediaLibrary';
+import type { MediaItem } from './lib/media';
+const studioTabs=['video','image','map'] as const;
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
 const defaultDraft:DirectorDraft={direction:'',framing:'wide',mood:'natural'};
@@ -44,11 +46,13 @@ export default function App(){
  function saveDraft(){try{localStorage.setItem(draftKey,JSON.stringify(draft));setDraftStatus('studio.draft.saved');}catch{setDraftStatus('studio.draft.saveError');}}
  function closePanel(){document.querySelector<HTMLButtonElement>(`[data-node="${active}"] button`)?.focus();setActive(null);}
  const [studioVisible,setStudioVisible]=useState(false);
+ const [tab,setTab]=useState<typeof studioTabs[number]>('video');
+ const [media,setMedia]=useState<MediaItem|null>(null);
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
  useEffect(()=>{if(pendingConnectionFocus&&studioVisible&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,studioVisible,active]);
- function connectExisting(baseUrl:string){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);setSnapshot(null);setInspectionError('');setStudioVisible(true);setActive('engine');setPendingConnectionFocus(true);}
+ function connectExisting(baseUrl:string){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);setSnapshot(null);setInspectionError('');setStudioVisible(true);setTab('map');setActive('engine');setPendingConnectionFocus(true);}
  const includedIds=new Set(builtinPlugins.flatMap(p=>p.includes??[]));
- const nodes:NeuralNode[]=builtinPlugins.filter(p=>!includedIds.has(p.id)).map((p,index)=>({id:p.id,label:t(p.nameKey!),description:t(`studio.hint.${p.id}`),included:(p.includes??[]).map(id=>({id,label:t(builtinPlugins.find(part=>part.id===id)!.nameKey!)})),parentId:p.parentId,...(presentation[p.id]??{column:2,order:index}),status:t(p.id==='engine'?inspecting?'studio.status.inspecting':snapshot?'studio.status.snapshot':inspectionError?'studio.status.error':'studio.status.notInspected':p.id==='director'?'studio.status.draft':p.id==='plugins'?'studio.status.registry':'studio.status.planned')}));
+ const nodes:NeuralNode[]=builtinPlugins.filter(p=>!includedIds.has(p.id)&&p.kind!=='plugin').map((p,index)=>({id:p.id,label:t(p.nameKey!),description:t(`studio.hint.${p.id}`),included:(p.includes??[]).map(id=>({id,label:t(builtinPlugins.find(part=>part.id===id)!.nameKey!)})),parentId:p.parentId,...(presentation[p.id]??{column:2,order:index}),status:t(p.id==='engine'?inspecting?'studio.status.inspecting':snapshot?'studio.status.snapshot':inspectionError?'studio.status.error':'studio.status.notInspected':p.id==='director'?'studio.status.draft':p.id==='plugins'?'studio.status.registry':'studio.status.planned')}));
  const edges:NeuralEdge[]=builtinPlugins.flatMap(p=>active===p.id?(p.suggests??[]).map(id=>({id:`suggested:${p.id}:${id}`,fromId:p.id,toId:id,kind:'suggested' as const})):[]);
  const selected=builtinPlugins.find(p=>p.id===active);
  return <div className="studio-shell">
@@ -59,6 +63,12 @@ export default function App(){
    <AiOSetup onConnectExisting={connectExisting} onInstalled={()=>setStudioVisible(true)}/>
    <div className="studio-entry"><p>{t('studio.previewNotice')}</p><button className="close-button studio-explore" type="button" aria-expanded={studioVisible} aria-controls="studio-workspace" onClick={()=>setStudioVisible(v=>!v)}>{t(studioVisible?'studio.hide':'studio.explore')}<span aria-hidden="true">{studioVisible?'−':'↗'}</span></button></div>
    {studioVisible&&<div id="studio-workspace" className="studio-workspace">
+    <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
+    <div className="studio-columns"><MediaLibrary selected={media} onSelect={setMedia}/>
+    <div className="studio-main">
+    {tab!=='map'&&<section className="media-stage" aria-label={t(`studio.tab.${tab}`)}><p className="field-help">{t('studio.tab.plannedNotice')}</p>
+     {media?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name}/>:media.media==='video'?<video src={media.src} controls/>:<audio src={media.src} controls/>}<figcaption>{media.name}</figcaption></figure>:<p className="empty-note">{t('studio.tab.noMedia')}</p>}</section>}
+    {tab==='map'&&<>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>
      <div className="field-footer"><span>{t('studio.hierarchy')}</span><span>{t('studio.yourProcess')}</span></div></section>
@@ -68,7 +78,6 @@ export default function App(){
      :active==='director'?<div className="panel-content"><div><h3>{t('studio.director.title')}</h3><p>{t('studio.director.notice')}</p><p className="field-help">{t('studio.director.local')}</p></div><form onSubmit={e=>{e.preventDefault();saveDraft();}}><div className="draft-form"><div className="full-width"><label htmlFor="direction">{t('studio.direction')}</label><textarea id="direction" maxLength={8000} placeholder={t('studio.placeholder')} value={draft.direction} onChange={e=>updateDraft({direction:e.target.value})}/></div><div><label htmlFor="framing">{t('studio.framing')}</label><select id="framing" value={draft.framing} onChange={e=>updateDraft({framing:e.target.value})}>{framing.map(id=><option key={id} value={id}>{t(`studio.framing.${id}`)}</option>)}</select></div><div><label htmlFor="mood">{t('studio.mood')}</label><select id="mood" value={draft.mood} onChange={e=>updateDraft({mood:e.target.value})}>{moods.map(id=><option key={id} value={id}>{t(`studio.mood.${id}`)}</option>)}</select></div></div><div className="draft-footer"><button className="action-button" type="submit">{t('studio.save')}</button><p role="status" aria-live="polite">{t(draftStatus||'studio.draft.notSubmitted')}</p></div></form></div>
      :active==='plugins'?<div className="panel-content"><div><h3>{t('studio.registry.title')}</h3><p>{t('studio.registry.notice')}</p></div><ul className="plugin-list">{builtinPlugins.map(p=><li key={p.id}><strong>{t(p.nameKey!)}</strong><span className="plugin-kind">{t(`studio.kind.${p.kind}`)} / {p.parentId?t(builtinPlugins.find(parent=>parent.id===p.parentId)!.nameKey!):t('studio.workspace')}</span><p>{t(p.descriptionKey!)}</p>{p.requiredNodes.length>0&&<p className="field-help">{t('studio.requires')}: {p.requiredNodes.join(', ')}</p>}</li>)}</ul></div>
      :<div className="panel-content"><div><h3>{t(`studio.hint.${selected.id}`)}</h3><p>{t('studio.roadmap')}</p></div><div className="planned-note"><span className="eyebrow">{t('studio.notConnected')}</span><p>{t('studio.plannedNotice')}</p></div></div>}
-     {active==='plugins'&&<DownloadWorkspace/>}
      {active==='engine'&&<ApiNegotiationPanel endpoint={endpoint}/>}
      {active==='engine'&&<RecipePrerequisitesPanel endpoint={endpoint}/>}
      {active==='engine'&&<div aria-live="polite" aria-busy={inspecting}>{inspecting&&<p className="status-message" role="status">{t('studio.reading')}</p>}{inspectionError&&<p className="status-message error-message" role="alert">{t('studio.technicalError')}: {inspectionError}</p>}
@@ -76,6 +85,8 @@ export default function App(){
      </div>}
     </section>}
     <aside className="studio-note"><span className="note-index">{t('studio.firstConnection')}</span><p>{t('studio.firstHelp')}</p><span className="note-end" aria-hidden="true">↖</span></aside>
+    </>}
+    </div></div>
    </div>}
   </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span><span>{t('app.noCloud')}</span></footer>
  </div>;

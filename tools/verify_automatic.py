@@ -9,6 +9,8 @@ strings = {locale: json.loads((root / f'src/components/setup/locales/{locale}.js
 fixture = r"""window.isTauri=true; window.__calls=[]; window.__installState='running';
 window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
 window.__calls.push({command,args});
+if(command==='native_media_list') return {path:'/fixture',parent:null,entries:[],truncated:false};
+if(command==='native_download_catalog') return {version:1,providers:[],entries:[]};
 if(command==='native_install_defaults') return {storagePath:'/executable-folder/deas-environment',backend:'nvidia',hardware:{name:'RTX fixture'},warnings:[]};
 if(command==='native_install_plan') return {id:'fixture-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:Object.entries(args.request.options).filter(([,v])=>v).map(([k])=>k),canExecute:!Object.values(args.request.options).some(Boolean)};
 if(command==='native_install_start'||command==='native_install_status') return {state:window.__installState,stepId:'fixture-only',logs:[],error:null};
@@ -28,8 +30,7 @@ with sync_playwright() as p:
             page.goto(url, wait_until='networkidle')
             page.locator('.language-control select').select_option('en')
             page.locator('[data-node="setup:aio"] > button').click()
-            assert page.locator('button[data-setup-mode="guided"]').count()==1
-            assert page.get_by_role('button', name=strings['en']['setup.confirmStep'],exact=True).count()==0
+            assert page.locator('button[data-setup-mode="guided"]').count()==0
             storage=page.locator('#auto-storage')
             backend=page.locator('#auto-backend')
             if native:
@@ -38,10 +39,11 @@ with sync_playwright() as p:
                 assert page.evaluate("__calls.filter(x=>x.command==='native_install_start').length")==0
             else:
                 assert storage.input_value()=='' and backend.input_value()==''
-                assert page.get_by_role('button',name=strings['en']['setup.prepare'],exact=True).is_disabled()
+                assert page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True).count()==0
             for box in page.locator('.aio-auto-fields input[type="checkbox"]').evaluate_all('els=>els.map(el=>el.getBoundingClientRect().toJSON())'):
                 assert box['width']<=24, 'Checkbox inherited full-width input styling'
             storage.fill('/edited/new-environment')
+            page.locator('details.aio-advanced > summary').click()
             backend.select_option('cpu')
             page.locator('#auto-ref').fill('master')
             for locale,t in strings.items():
@@ -52,21 +54,21 @@ with sync_playwright() as p:
                 assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale)
             page.locator('.language-control select').select_option('en')
             if native:
-                prepare=page.get_by_role('button',name=strings['en']['setup.prepare'],exact=True)
-                prepare.click()
                 start=page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True)
                 start.wait_for()
                 assert start.is_enabled()
+                plans="__calls.filter(x=>x.command==='native_install_plan').length"
+                def replan(action):
+                    before=page.evaluate(plans); action(); page.wait_for_function(f"{plans}==={before+1}"); start.wait_for()
+                before=page.evaluate(plans)
                 storage.fill('/edited/newer-environment')
                 assert page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True).count()==0
                 assert page.evaluate("__calls.filter(x=>x.command==='native_install_start').length")==0
-                page.get_by_label(strings['en']['setup.option.ffmpeg'],exact=True).check()
-                prepare.click()
-                start.wait_for()
+                page.wait_for_function(f"{plans}==={before+1}"); start.wait_for()
+                replan(lambda: page.get_by_label(strings['en']['setup.option.ffmpeg'],exact=True).check())
                 assert start.is_disabled(), 'Unsupported selection must block final start'
-                page.get_by_label(strings['en']['setup.option.ffmpeg'],exact=True).uncheck()
-                prepare.click()
-                start.wait_for()
+                replan(lambda: page.get_by_label(strings['en']['setup.option.ffmpeg'],exact=True).uncheck())
+                assert start.is_enabled()
                 if width in (1440,320):
                     page.screenshot(path=str(root/f'assets/deas-automatic-fixture-{width}.png'),full_page=True)
                 start.click()
@@ -77,6 +79,7 @@ with sync_playwright() as p:
                 assert page.locator('#studio-workspace').count()==0
                 page.evaluate("window.__installState='succeeded'")
                 page.locator('#studio-workspace').wait_for()
+                page.locator('[data-studio-tab="map"]').click()
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==0
                 assert page.locator('[data-node="director"]').count()==1
                 page.get_by_role('button',name=strings['en']['setup.backendLifecycle.start'],exact=True).click()

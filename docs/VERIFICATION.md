@@ -178,6 +178,10 @@ The previous artifact, with both variables removed, exited with `Error 71 (Proto
 
 Verification: frontend production build and native release build passed; Cargo tests reported 93 passed / 9 ignored, including the new defaults/override regression; clippy, fmt and diff whitespace checks passed. The deployed artifact and release build have identical SHA-256 hashes. Media and other target platforms still need independent acceptance tests.
 
+## 0.1.6 — simplified automatic setup and media start page
+
+Gates: 48 core tests, 158 UI/IPC tests (new `MediaLibrary.test.tsx`), typecheck/build, clippy/fmt and release build passed; Cargo `media` tests cover extension classification, sorted listing, hidden-entry skipping, symlinked and dangling links. `backend::tests::invalid_owned_api_never_marks_running` fails on this host before and after the change. Browser suites `verify_automatic`, `verify_ui`, `verify_jobs`, `verify_api`, `verify_recipe_prerequisites`, `verify_languages`, `verify_downloads`, `verify_help`, `verify_confirmation` and `verify_stability` passed against owned Vite servers; `assets/deas-media-start-{1440,320}.png` show a browser drop rendering an image preview. The native release artifact rendered its initial page; media library click-through, OS drag & drop and asset-protocol preview inside WebKitGTK were not exercised (no input automation on this Wayland host).
+
 ## Explicit unverified or unsupported areas
 
 - Complete CPU installation and owned API lifecycle are now verified above; full NVIDIA installation and owned API lifecycle are also verified; actual model generation remains unverified.

@@ -15,3 +15,15 @@
 .download-controls :is(button, input, select, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 @media (max-width: 400px) { .download-controls .aio-actions { flex-direction: column; align-items: stretch; } }
 @media (prefers-reduced-motion: reduce) { .download-module *, .download-module *::before, .download-module *::after { animation: none !important; transition: none !important; } }
+.download-categories { display: flex; flex-wrap: wrap; gap: .35rem; }
+.download-categories button { padding: .35rem .7rem; border: 1px solid #ffffff1f; border-radius: 999px; background: transparent; color: var(--muted); font-size: .75rem; }
+.download-categories button[aria-selected="true"] { background: var(--surface); color: var(--chalk); border-color: var(--copper); }
+.download-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .6rem; }
+.download-card { display: grid; gap: .4rem; padding: .4rem; border: 1px solid #ffffff1f; border-radius: .7rem; background: var(--surface); color: inherit; font-size: .75rem; text-align: left; overflow-wrap: anywhere; }
+.download-card[aria-pressed="true"] { border-color: var(--copper); }
+.download-preview { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: .4rem; background: #121719; }
+.download-preview.is-empty { background: repeating-linear-gradient(45deg, #ffffff08 0 6px, transparent 6px 12px); }
+.download-resource { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: .6rem; align-items: start; }
+.download-resource .download-preview { aspect-ratio: 1; }
+.download-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: end; }
+@media (max-width: 400px) { .download-search { grid-template-columns: minmax(0, 1fr); } }

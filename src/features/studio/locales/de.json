@@ -140,5 +140,13 @@
   "studio.jobs.saveAs": "PNG speichern unter…",
   "studio.jobs.saveTitle": "Diagnose-PNG als neue Datei speichern",
   "studio.jobs.exported": "Gespeichert: {path} · SHA-256 {sha256}",
-  "studio.jobs.noSessionJob": "In dieser App-Sitzung ist kein nativer Auftrag gespeichert."
+  "studio.jobs.noSessionJob": "In dieser App-Sitzung ist kein nativer Auftrag gespeichert.",
+  "studio.tab.video": "Video",
+  "studio.tab.image": "Bild",
+  "studio.tab.map": "Arbeitsbereich-Karte",
+  "studio.tabs": "Studio-Bereiche",
+  "studio.tab.plannedNotice": "Inferenz und Bearbeitung für diesen Bereich folgen in eigenen Schritten. Lade links Medien zur Vorbereitung.",
+  "studio.tab.noMedia": "Kein Medium ausgewählt.",
+  "studio.plugin.media.name": "Medienbibliothek",
+  "studio.plugin.media.description": "Schreibgeschütztes Durchsuchen von Ordnern und Drag & Drop für Bilder, Video und Audio."
 }

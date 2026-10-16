@@ -1,0 +1,14 @@
+{
+  "media.title": "メディア",
+  "media.openFolder": "フォルダーを開く…",
+  "media.pickTitle": "メディアフォルダーを選択",
+  "media.dropHelp": "ファイルやフォルダーをここにドロップするか、参照してください。コピーも移動もされません。",
+  "media.browserHelp": "ブラウザープレビュー：ファイルをここにドロップ。フォルダー参照はデスクトップアプリが必要です。",
+  "media.dropped": "ドロップしたメディア",
+  "media.currentFolder": "現在のフォルダー",
+  "media.up": "親フォルダー",
+  "media.entries": "フォルダーの内容",
+  "media.symlink": "シンボリックリンク",
+  "media.empty": "ここにはメディアもフォルダーもありません。",
+  "media.truncated": "最初の5000件のみ表示しています。"
+}

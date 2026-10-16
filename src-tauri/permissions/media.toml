@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-media"
+description = "Read-only folder listing and description of dropped paths for the media library; never writes, moves or opens files."
+commands.allow = ["native_media_list", "native_media_describe"]

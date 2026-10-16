@@ -140,5 +140,13 @@
   "studio.jobs.exported": "Saved {path} · SHA-256 {sha256}",
   "studio.jobs.loadPreview": "Load PNG preview",
   "studio.jobs.previewAlt": "Diagnostic output preview",
-  "studio.jobs.noSessionJob": "No native job is stored in this app session."
+  "studio.jobs.noSessionJob": "No native job is stored in this app session.",
+  "studio.tab.video": "Video",
+  "studio.tab.image": "Image",
+  "studio.tab.map": "Workspace map",
+  "studio.tabs": "Studio areas",
+  "studio.tab.plannedNotice": "Inference and editing for this area arrive in separate steps. Load media on the left to prepare.",
+  "studio.tab.noMedia": "No media selected.",
+  "studio.plugin.media.name": "Media library",
+  "studio.plugin.media.description": "Read-only folder browsing and drag & drop for images, video and audio."
 }

@@ -70,8 +70,8 @@ it('locks meaning edits while native start is unresolved',async()=>{
  expect((screen.getByLabelText('New subfolder') as HTMLInputElement).disabled).toBe(true);
  await act(async()=>resolve({state:'running',completed:0,total:1,bytesDownloaded:0,error:null}));
 });
-it('turns user repository listings into explicit repository browsing without an implicit request',async()=>{
- await open();vi.mocked(invoke).mockResolvedValueOnce({resources:[{id:'repo',label:'Owner/repo',kind:'repo',downloadable:false,locator:'models:Owner/repo'}],nextCursor:null,warnings:[]});fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'Owner'}});click('Browse resources');await screen.findByRole('button',{name:'Select repository: Owner/repo'});click('Select repository: Owner/repo');expect((screen.getByLabelText('Source locator') as HTMLInputElement).value).toBe('models:Owner/repo');expect((screen.getByLabelText('Browse mode') as HTMLSelectElement).value).toBe('repo');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_browse')).toHaveLength(1);
+it('turns user repository listings into explicit repository browsing',async()=>{
+ await open();vi.mocked(invoke).mockResolvedValueOnce({resources:[{id:'repo',label:'Owner/repo',kind:'repo',downloadable:false,locator:'models:Owner/repo'}],nextCursor:null,warnings:[]});fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'Owner'}});click('Browse resources');await screen.findByRole('button',{name:'Select repository: Owner/repo'});click('Select repository: Owner/repo');expect((screen.getByLabelText('Source locator') as HTMLInputElement).value).toBe('models:Owner/repo');expect((screen.getByLabelText('Browse mode') as HTMLSelectElement).value).toBe('repo');expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'repo',locator:'models:Owner/repo',authenticated:false}});
 });
 it('imports data-only catalogs explicitly and adopts returned provider entries without browsing',async()=>{
  await open();const text='version = 1\nentries = []';
@@ -83,3 +83,20 @@ it('restores saved tokens only through an explicit action and displays metadata'
  mount(true);click('Provider authorization');expect(invoke).not.toHaveBeenCalled();vi.mocked(invoke).mockResolvedValueOnce({providerId:'huggingface',configured:true,persisted:true});click('Explicitly restore saved token');await screen.findByText(/Token configured; account not verified/);expect(invoke).toHaveBeenLastCalledWith('native_auth_restore',{providerId:'huggingface'});expect((screen.getByLabelText('Token') as HTMLInputElement).value).toBe('');
 });
 it('labels unavailable browser transport without IPC',()=>{vi.mocked(isTauri).mockReturnValue(false);mount();click('Optional downloads');expect(screen.getByText(/Browser preview/)).toBeTruthy();expect(invoke).not.toHaveBeenCalled();});
+it('shows catalog categories as cards with previews, opens an entry on click and targets the managed ComfyUI folder',async()=>{
+ const entries=[{id:'lora-a',label:'Lora A',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'loras',preview:'https://image.civitai.com/a.mp4'},{id:'wf',label:'Workflow W',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'workflow',target:'workflows'}];
+ vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_download_catalog'?{...catalog,providers:[...catalog.providers,{id:'civitai',kind:'civitai',label:'CivitAI',origin:'https://civitai.com',scopes:['user','model','search'],anonymousNotice:''}],entries}:c==='native_download_browse'?((a as {request:{scope:string}}).request.scope==='search'?{resources:[{id:'civitai:7',label:'Found · v1',kind:'repo',downloadable:false,locator:'7',category:'checkpoints',preview:'https://image.civitai.com/f.jpeg'}],nextCursor:null,warnings:[]}:{resources:[{...resource,preview:'https://image.civitai.com/r.jpeg'}],nextCursor:null,warnings:[]}):c==='native_download_plan'?{id:'p',target:(a as {request:{parentPath:string}}).request.parentPath,resources:[resource],totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true}:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
+ render(<I18nProvider><DownloadPanel installTarget="/env"/></I18nProvider>);click('Optional downloads');
+ const tabs=await screen.findAllByRole('tab');expect(tabs.map(t=>t.textContent)).toEqual(['LoRAs','Workflows']);expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+ expect(document.querySelector('.download-card video')).toBeTruthy();expect(screen.queryByRole('button',{name:'Workflow W'})).toBeNull();
+ fireEvent.click(screen.getByRole('tab',{name:'Workflows'}));expect(screen.getByRole('button',{name:'Workflow W'})).toBeTruthy();expect(invoke).not.toHaveBeenCalledWith('native_download_browse',expect.anything());
+ fireEvent.click(screen.getByRole('button',{name:'Workflow W'}));await screen.findByLabelText('Remote file');
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',authenticated:false}});
+ expect(document.querySelector('.download-resource img')).toBeTruthy();expect(screen.getByText('/env/ComfyUI/user/default/workflows')).toBeTruthy();
+ fireEvent.click(screen.getByLabelText('Remote file'));click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
+ expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:{providerId:'fixture',resources:[expect.objectContaining({id:'file'})],parentPath:'/env/ComfyUI/user/default/workflows',folderName:'',authenticated:false}});
+ fireEvent.change(screen.getByLabelText('Search CivitAI'),{target:{value:'found'}});click('Search');await screen.findByRole('button',{name:'Select repository: Found · v1'});
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'search',locator:'found',authenticated:false}});
+ click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
+ expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:false}});
+});

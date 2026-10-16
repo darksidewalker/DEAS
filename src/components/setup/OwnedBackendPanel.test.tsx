@@ -114,18 +114,14 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
 
 async function installFixture(result:'succeeded'|'failed') {
  vi.mocked(invoke).mockImplementation(async command=>{
-  if(command==='native_detect_hardware')return {backend:null};
+  if(command==='native_install_defaults')return {storagePath:'/data/mock-DEAS',backend:'cpu',hardware:null,warnings:[]};
   if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};
   return fixture('stopped');
  });
  render(<I18nProvider><AiOSetup onConnectExisting={vi.fn()}/></I18nProvider>);
  const click=(name:RegExp)=>fireEvent.click(screen.getByRole('button',{name}));
- const confirm=()=>click(/^Confirm & continue$/);
- click(/AiO installer/);click(/Manual step-by-step/);click(/New app-owned install/);confirm();
- fireEvent.change(screen.getByLabelText('Storage directory'),{target:{value:'/data/mock-DEAS'}});confirm();confirm();click(/^CPU/);confirm();
- click(/Prepare native plan/);await screen.findByLabelText(/I confirm this exact plan/);
- fireEvent.click(screen.getByLabelText(/I confirm this exact plan/));click(/Install confirmed plan/);
+ click(/AiO installer/);await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
  await screen.findByText('mock install fixture');
 }
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
@@ -133,7 +129,7 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   await installFixture('succeeded');
   expect(screen.getByRole('button',{name:'Start owned backend'})).toBeTruthy();
   expect(vi.mocked(invoke).mock.calls.some(([command])=>command==='native_backend_start')).toBe(false);
-  expect(screen.getByLabelText(/I confirm this exact plan/)).toBeTruthy();
+  expect(screen.getByText(/Start install authorizes only the reviewed native plan/)).toBeTruthy();
   vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49517':null));
   fireEvent.click(screen.getByRole('button',{name:'Start owned backend'}));
   await screen.findByRole('button',{name:'Stop owned backend'});

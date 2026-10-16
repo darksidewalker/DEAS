@@ -26,6 +26,7 @@ with sync_playwright() as p:
             page.goto(url, wait_until='networkidle')
             page.locator('.language-control select').select_option('en')
             page.locator('.studio-explore').click()
+            page.locator('[data-studio-tab="map"]').click()
             page.locator('[data-node="engine"] > button').click()
             panel = page.locator('[data-recipe-prerequisites]')
             panel.wait_for()

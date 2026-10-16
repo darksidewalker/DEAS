@@ -1,0 +1,14 @@
+{
+  "media.title": "Media",
+  "media.openFolder": "Open folder…",
+  "media.pickTitle": "Choose a media folder",
+  "media.dropHelp": "Drop files or folders here, or browse. Nothing is copied or moved.",
+  "media.browserHelp": "Browser preview: drop files here. Folder browsing needs the desktop app.",
+  "media.dropped": "Dropped media",
+  "media.currentFolder": "Current folder",
+  "media.up": "Parent folder",
+  "media.entries": "Folder contents",
+  "media.symlink": "Symbolic link",
+  "media.empty": "No media or folders here.",
+  "media.truncated": "Only the first 5000 entries are shown."
+}

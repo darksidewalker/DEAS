@@ -1,0 +1,14 @@
+{
+  "media.title": "Medya",
+  "media.openFolder": "Klasör aç…",
+  "media.pickTitle": "Medya klasörü seç",
+  "media.dropHelp": "Dosya veya klasörleri buraya bırakın ya da göz atın. Hiçbir şey kopyalanmaz veya taşınmaz.",
+  "media.browserHelp": "Tarayıcı önizlemesi: dosyaları buraya bırakın. Klasörlerde gezinmek masaüstü uygulaması gerektirir.",
+  "media.dropped": "Bırakılan medya",
+  "media.currentFolder": "Geçerli klasör",
+  "media.up": "Üst klasör",
+  "media.entries": "Klasör içeriği",
+  "media.symlink": "Sembolik bağlantı",
+  "media.empty": "Burada medya veya klasör yok.",
+  "media.truncated": "Yalnızca ilk 5000 giriş gösteriliyor."
+}

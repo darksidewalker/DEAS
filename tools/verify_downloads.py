@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 root=Path(__file__).resolve().parents[1]
 url=sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:1420'
 results=[]
-fixture=r"""window.isTauri=true;window.__DEAS_CALLS__=[];window.__TAURI_INTERNALS__={invoke:async(c,a)=>{window.__DEAS_CALLS__.push(c);if(c==='native_detect_hardware')return {backend:null,warnings:[]};if(c==='native_download_catalog'||c==='native_download_import_catalog')return {version:1,providers:[{id:'fixture',kind:'http',label:'Fixture HTTPS provider',origin:'https://example.invalid',scopes:['index'],anonymousNotice:'Fixture only; no live provider contacted.'}],entries:[]};if(c==='native_download_browse')return {resources:[{id:'fixture-file',label:'Fixture data file',kind:'file',url:'https://example.invalid/a.json',downloadable:true,size:23}],nextCursor:null,warnings:[]};if(c==='native_pick_directory')return '/scratch-fixture';if(c==='native_download_plan')return {id:'fixture-plan',target:'/scratch-fixture/new-files',resources:a.request.resources,totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true};if(c==='native_download_start'||c==='native_download_status')return {state:'succeeded',completed:1,total:1,bytesDownloaded:23,error:null};if(c==='native_auth_status')return [{providerId:'huggingface',configured:false,persisted:false}];throw Error('Unexpected fixture command');}};"""
+fixture=r"""window.isTauri=true;window.__DEAS_CALLS__=[];window.__TAURI_INTERNALS__={invoke:async(c,a)=>{window.__DEAS_CALLS__.push(c);if(c==='native_install_defaults')return {storagePath:'/executable-folder/deas-environment',backend:'cpu',hardware:null,warnings:[]};if(c==='native_install_plan')return {id:'fixture-plan',request:a.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};if(c==='native_media_list')return {path:'/fixture',parent:null,entries:[],truncated:false};if(c==='native_download_catalog'||c==='native_download_import_catalog')return {version:1,providers:[{id:'fixture',kind:'http',label:'Fixture HTTPS provider',origin:'https://example.invalid',scopes:['index'],anonymousNotice:'Fixture only; no live provider contacted.'},{id:'civitai',kind:'civitai',label:'CivitAI',origin:'https://civitai.com',scopes:['user','model','search'],anonymousNotice:'Fixture CivitAI.'}],entries:[{id:'fixture-lora',label:'Fixture LoRA',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'loras',preview:'https://image.civitai.com/fixture.jpeg'},{id:'fixture-workflow',label:'Fixture workflow',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'workflow',target:'workflows'}]};if(c==='native_download_browse')return a.request.scope==='search'?{resources:[{id:'civitai:1',label:'Found model · v1',kind:'repo',downloadable:false,locator:'1',category:'loras',preview:'https://image.civitai.com/found.jpeg'}],nextCursor:null,warnings:[]}:{resources:[{id:'fixture-file',label:'Fixture data file',kind:'file',url:'https://example.invalid/a.json',downloadable:true,size:23,preview:'https://image.civitai.com/file.mp4'}],nextCursor:null,warnings:[]};if(c==='native_pick_directory')return '/scratch-fixture';if(c==='native_download_plan')return {id:'fixture-plan',target:'/scratch-fixture/new-files',resources:a.request.resources,totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true};if(c==='native_download_start'||c==='native_download_status')return {state:'succeeded',completed:1,total:1,bytesDownloaded:23,error:null};if(c==='native_auth_status')return [{providerId:'huggingface',configured:false,persisted:false}];throw Error('Unexpected fixture command');}};"""
 with sync_playwright() as p:
  browser=p.chromium.launch(headless=True)
  for width in (1440,1024,768,390,320):
@@ -17,14 +17,20 @@ with sync_playwright() as p:
    page.goto(url,wait_until='networkidle')
    page.get_by_label('Sprache',exact=True).select_option('en')
    page.get_by_role('button',name='AiO installer',exact=True).click()
-   page.get_by_text('Optional downloads and credentials — available any time',exact=True).click()
    page.get_by_role('button',name='Optional downloads',exact=True).click()
    if native:
-    page.get_by_role('option',name='Fixture HTTPS provider').wait_for(state='attached')
+    page.get_by_role('tab',name='LoRAs',exact=True).wait_for()
     assert page.evaluate("__DEAS_CALLS__.filter(x=>x.startsWith('native_download_'))")==['native_download_catalog']
-    page.get_by_label('Source locator',exact=True).fill('https://example.invalid/a.json')
-    page.get_by_role('button',name='Browse resources',exact=True).click()
+    assert page.get_by_role('tab',name='LoRAs',exact=True).get_attribute('aria-selected')=='true'
+    assert page.locator('.download-card .download-preview').count()==1
+    page.get_by_role('tab',name='Workflows',exact=True).click();assert page.get_by_role('button',name='Fixture workflow',exact=True).count()==1
+    page.get_by_role('tab',name='LoRAs',exact=True).click()
+    page.get_by_label('Search CivitAI',exact=True).fill('found');page.get_by_role('button',name='Search',exact=True).click()
+    page.get_by_role('button',name='Select repository: Found model · v1',exact=True).wait_for()
+    page.get_by_role('button',name='Fixture LoRA',exact=True).click()
     page.get_by_label('Fixture data file',exact=True).check()
+    assert page.locator('.download-resource video.download-preview').count()==1
+    assert page.get_by_text('/executable-folder/deas-environment/ComfyUI/models/loras',exact=True).count()==1
     page.get_by_role('button',name='Choose existing parent folder',exact=True).click()
     page.get_by_label('New subfolder',exact=True).fill('new-files')
     page.get_by_role('button',name='Prepare native download plan',exact=True).click()

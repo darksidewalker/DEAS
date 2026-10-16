@@ -109,6 +109,17 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 
 **Paused by owner after this verified slice.** Resume instructions: [NEXT-SESSION.md](NEXT-SESSION.md). No further features, model downloads or real generation attempts were started.
 
+### Simplified automatic setup and media start page (0.1.6)
+- [x] Automatic setup asks only for the storage folder and the optional Director package; backend, optional packages and Git ref live under Advanced options. The native plan is prepared automatically after each edit; Start install stays the single explicit authorization and shows a one-line summary with full details collapsed.
+- [x] Studio start page with top tabs (Video, Image, Workspace map) and a media library side panel: native read-only folder listing with symlinked folders, OS drag & drop (paths) and browser drag & drop (files), image/video/audio preview through the asset protocol. The library is registered as the `media` plugin; `plugin`-kind entries mount as panels, not as graph nodes.
+- [ ] Native click-through of the media library (asset preview, OS drop) is unverified; only listing, scope semantics and browser rendering are tested. Video/Image tabs hold no inference yet.
+
+### Single-path setup, credential bubble and categorised downloads (0.1.6)
+- [x] Removed the manual step-by-step installer, draft save/restore and the collapsed downloads disclosure. Setup is one automatic path; an existing backend address lives under Advanced options.
+- [x] Provider authorization and Optional downloads are always-visible bubbles below the setup. Downloads are grouped by ComfyUI model folder (checkpoints, diffusion_models, loras, …, workflows) as preview cards generated from catalog data; the bundled `src-tauri/downloads/darksidewalker.toml` lists all 22 current CivitAI checkpoints, LoRAs and workflows of the owner with preview media. CivitAI search (`scope = "search"`) returns previewed models; opening one lists its files with previews and ComfyUI category.
+- [x] Managed installs receive files in place: a plan with an empty folder name stages into the existing `ComfyUI/models/<category>` (or `user/default/workflows`) folder, still creating files exclusively and never overwriting; no manifest is written there. Choosing a parent folder (optional new subfolder) overrides the destination.
+- [ ] CivitAI downloads of the owner's models require a configured CivitAI token (creator setting); anonymous browse works. Live token download and `.mp4` preview rendering in WebKitGTK are unverified.
+
 ### Planned later — machine capability scan and optimization mode
 - [ ] Add a separate opt-in capability/optimization scan for the actual target machine, not the development host.
 - [ ] Record CPU/ISA/core count, RAM, GPU identity/VRAM/driver/compute capability, available storage, supported runtime/attention/codec capabilities and competing resource use. Distinguish measured data, compatibility rules and recommendations.

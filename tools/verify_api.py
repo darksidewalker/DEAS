@@ -17,6 +17,7 @@ with sync_playwright() as p:
         page.goto(url, wait_until='networkidle')
         page.get_by_label('Sprache', exact=True).select_option('en')
         page.get_by_role('button', name='Explore studio without installing', exact=False).click()
+        page.locator('[data-studio-tab="map"]').click()
         page.get_by_role('button', name='Engine', exact=True).click()
         panel = page.locator('[data-api-negotiation]')
         assert panel.get_by_role('button', name='Check execution API', exact=True).count() == 1
