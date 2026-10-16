@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import sys
 from playwright.sync_api import sync_playwright
+from deas_locale import set_locale
 root=Path(__file__).resolve().parents[1]
 url=sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:1420'
 results=[]
@@ -15,8 +16,8 @@ with sync_playwright() as p:
    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
    if native:page.add_init_script(fixture)
    page.goto(url,wait_until='networkidle')
-   page.get_by_label('Sprache',exact=True).select_option('en')
-   page.get_by_role('tab',name='AiO installer',exact=True).click()
+   set_locale(page,'en')
+   page.get_by_role('button',name='AiO installer',exact=True).click()
    page.get_by_role('tab',name='Library',exact=True).click()
    if native:
     page.get_by_role('tab',name='Models',exact=True).wait_for()
@@ -44,11 +45,11 @@ with sync_playwright() as p:
    else:
     assert page.get_by_text('Browser preview',exact=False).count()>0
     assert page.get_by_role('button',name='Start confirmed download',exact=True).is_disabled()
-   page.get_by_role('tab',name='Provider authorization',exact=True).click()
+   page.get_by_role('button',name='Provider authorization',exact=True).click()
    page.get_by_label('Token',exact=True).wait_for()
    assert page.get_by_label('Token',exact=True).get_attribute('type')=='password'
    assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
-   if native:assert 'native_auth_status' not in page.evaluate('__DEAS_CALLS__')
+   if native:assert 'native_auth_status' in page.evaluate('__DEAS_CALLS__')
    assert not errors,errors
    if width in (1440,320) and native:page.screenshot(path=str(root/'assets'/f'deas-downloads-fixture-{width}.png'),full_page=True)
    results.append({'width':width,'mode':'native IPC fixture' if native else 'browser fails closed','setupIntegration':True,'noOverflow':True,'noRuntimeErrors':True})

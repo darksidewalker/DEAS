@@ -8,8 +8,6 @@
   "studio.api.classic": "Classic API",
   "studio.api.notReady": "Generation has not been verified. API detection does not confirm models or an executable Director recipe.",
   "studio.previewNotice": "Installation is not required to explore. Studio tools are a local preview.",
-  "studio.hide": "Hide studio preview",
-  "studio.explore": "Explore studio without installing",
   "studio.features": "Connected studio features",
   "studio.map": "WORKSPACE MAP",
   "studio.select": "SELECT A NODE TO OPEN",

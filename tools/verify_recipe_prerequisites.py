@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import sys
 from playwright.sync_api import sync_playwright
+from deas_locale import set_locale
 
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
@@ -24,8 +25,8 @@ with sync_playwright() as p:
             if native:
                 page.add_init_script(fixture)
             page.goto(url, wait_until='networkidle')
-            page.locator('.language-control select').select_option('en')
-            page.locator('.studio-explore').click()
+            set_locale(page, 'en')
+            page.locator('[data-node="studio"]').click()
             page.locator('[data-studio-tab="map"]').click()
             page.locator('[data-node="engine"] > button').click()
             panel = page.locator('[data-recipe-prerequisites]')
@@ -45,7 +46,7 @@ with sync_playwright() as p:
             else:
                 assert panel.locator('[role="alert"]').count() > 0, 'Browser must fail closed'
             for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
-                page.locator('.language-control select').select_option(locale)
+                set_locale(page, locale, '[data-node="studio"]')
                 assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'), (width, locale)
             if native:
                 page.locator('#endpoint').fill('http://127.0.0.1:9999')

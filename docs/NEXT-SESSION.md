@@ -2,7 +2,7 @@
 
 ## Current boundary
 
-0.1.8 is committed and pushed: setup tab strip, Library (sorting, base-model filter, NSFW light-switch, local-present rows), Settings tab with per-environment folders, folder alias resolution and verified no-clobber relocation (`settings_move.rs`). Windows support is merged and CI-built, not runtime-verified. The source of truth is `docs/PLAN.md`; verification evidence is in `docs/VERIFICATION.md`; per-version changes in `CHANGELOG.md`.
+The 0.1.10 source gathers persistent/verified provider authorization, checked environment reopening, default-on backend autostart with a Settings opt-out, installed-model metadata, remembered UI choices and system-language selection. It retains per-environment folders, folder alias resolution and verified no-clobber relocation (`settings_move.rs`). Windows support is merged and CI-built, not runtime-verified. The source of truth is `docs/PLAN.md`; verification evidence is in `docs/VERIFICATION.md`; per-version changes in `CHANGELOG.md`.
 
 ## Known host quirks
 
@@ -16,11 +16,11 @@
 
 1. Safe job-scoped cancellation, then real diagnostic generation acceptance. Before a real model run, establish the exact suitable existing checkpoint or obtain model-download/license consent; a filename in object_info is not architecture compatibility.
 2. Director/video recipe vertical slice: versioned intent → native compile → correlated submission → verified outputs (see `docs/EXECUTION-CONTRACT.md`, PLAN M3).
-3. Restart adoption with ownership verification; saved drafts alone never authorize environment adoption.
+3. Real hardware/GPU restart acceptance for the checked reopen/autostart path; saved drafts alone never authorize environment adoption.
 4. Relocation acceptance beyond Linux, resumable downloads, real authenticated provider/vault acceptance.
 5. Windows runtime acceptance on actual hardware.
 
-Keep full installer parity (AMD/Intel, FFmpeg, attention extensions), durable restart adoption, resumable setup/repair and actual Director/video recipes unchecked until independently verified. Never stop/restart user services to make a test pass.
+Keep full installer parity (AMD/Intel, FFmpeg, attention extensions), real GPU restart acceptance, resumable setup/repair and actual Director/video recipes unchecked until independently verified. Never stop/restart user services to make a test pass.
 
 ## Local artifact
 

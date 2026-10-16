@@ -18,27 +18,41 @@ if (import.meta.env.DEV && bundledCatalog.diagnostics.length) {
 
 interface I18nContextValue {
   locale: string;
+  /** Explicit user choice; persisted and shown as custom. */
   setLocale: (locale: string) => void;
+  /** True while an explicit choice overrides the detected system language. */
+  custom: boolean;
+  /** The bundled language matching the system, used whenever there is no custom choice. */
+  systemLocale: string;
+  /** Drops the custom choice and follows the system language again. */
+  followSystemLocale: () => void;
   t: (key: string, params?: TranslationParams) => string;
   languages: Array<{ id: string; name: string }>;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-function defaultLocale(catalog: TranslationCatalog): string {
-  return catalog.languages.find(({ id }) => id === 'de')?.id
-    ?? catalog.languages.find(({ id }) => id === 'en')?.id
-    ?? catalog.languages[0]?.id ?? 'en';
+/** First system language (e.g. `de-DE` → `de`) that is bundled; English when none matches. */
+function systemLocale(catalog: TranslationCatalog): string {
+  const has = (id: string) => catalog.languages.some((language) => language.id === id);
+  const wanted = typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const tag of wanted) {
+    const base = tag?.toLowerCase().split(/[-_]/)[0];
+    if (base && has(base)) return base;
+  }
+  return has('en') ? 'en' : catalog.languages[0]?.id ?? 'en';
 }
 
-function initialLocale(catalog: TranslationCatalog): string {
+/** Only an explicit choice is stored; a missing or invalid entry means "follow the system". */
+function storedLocale(catalog: TranslationCatalog): string | null {
   try {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    if (catalog.languages.some(({ id }) => id === stored)) return stored!;
+    if (catalog.languages.some(({ id }) => id === stored)) return stored;
+    if (stored !== null) window.localStorage.removeItem(LOCALE_STORAGE_KEY);
   } catch {
     // Webviews, privacy settings and server rendering can deny storage access.
   }
-  return defaultLocale(catalog);
+  return null;
 }
 
 /** Optional catalog injection accepts already validated data, not plugin code. */
@@ -46,26 +60,35 @@ export function I18nProvider({ children, catalog = bundledCatalog }: {
   children: ReactNode;
   catalog?: TranslationCatalog;
 }) {
-  const [selectedLocale, selectLocale] = useState(() => initialLocale(catalog));
-  const locale = catalog.languages.some(({ id }) => id === selectedLocale)
-    ? selectedLocale : defaultLocale(catalog);
+  const system = useMemo(() => systemLocale(catalog), [catalog]);
+  const [choice, setChoice] = useState(() => storedLocale(catalog));
+  const custom = choice !== null && catalog.languages.some(({ id }) => id === choice);
+  const locale = custom ? choice! : system;
   const setLocale = useCallback((id: string) => {
-    if (catalog.languages.some((language) => language.id === id)) selectLocale(id);
-  }, [catalog]);
-
-  useEffect(() => {
-    document.documentElement.lang = locale;
-    try { window.localStorage.setItem(LOCALE_STORAGE_KEY, locale); } catch {
+    if (!catalog.languages.some((language) => language.id === id)) return;
+    setChoice(id);
+    try { window.localStorage.setItem(LOCALE_STORAGE_KEY, id); } catch {
       // Selection remains functional without persistence.
     }
-  }, [locale]);
+  }, [catalog]);
+  const followSystemLocale = useCallback(() => {
+    setChoice(null);
+    try { window.localStorage.removeItem(LOCALE_STORAGE_KEY); } catch {
+      // Nothing persisted to remove.
+    }
+  }, []);
+
+  useEffect(() => { document.documentElement.lang = locale; }, [locale]);
 
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     setLocale,
+    custom,
+    systemLocale: system,
+    followSystemLocale,
     t: (key, params) => translate(catalog, locale, key, params),
     languages: catalog.languages.map(({ id, name }) => ({ id, name })),
-  }), [catalog, locale, setLocale]);
+  }), [catalog, locale, setLocale, custom, system, followSystemLocale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

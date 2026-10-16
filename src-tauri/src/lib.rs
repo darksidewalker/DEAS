@@ -1,8 +1,12 @@
 pub mod auth;
 #[cfg(windows)]
 pub(crate) mod win;
-pub use auth::{native_auth_remove, native_auth_restore, native_auth_set, native_auth_status};
+pub use auth::{
+    native_auth_remove, native_auth_restore, native_auth_set, native_auth_status,
+    native_auth_verify,
+};
 pub mod downloads;
+pub use downloads::models::{native_model_info, native_models_scan};
 pub use downloads::{
     native_download_browse, native_download_cancel, native_download_catalog,
     native_download_import_catalog, native_download_plan, native_download_start,
@@ -35,7 +39,8 @@ pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;
 pub use install::{
-    native_install_cancel, native_install_plan, native_install_start, native_install_status,
+    native_install_cancel, native_install_open, native_install_plan, native_install_start,
+    native_install_status,
 };
 
 use reqwest::Url;

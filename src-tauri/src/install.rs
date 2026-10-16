@@ -1,4 +1,4 @@
-//! Native provisioning. No sidecar, shell, system package manager, reuse or wipe.
+//! Native provisioning and checked existing-environment reopening. No sidecar, shell, system package manager or wipe.
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -111,17 +111,19 @@ pub struct Request {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folders: Option<crate::settings::Folders>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Step {
     pub id: String,
     pub label_key: String,
     pub detail: String,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reopen_id: Option<String>,
     pub request: Request,
     pub steps: Vec<Step>,
     pub warnings: Vec<String>,
@@ -130,7 +132,7 @@ pub struct Plan {
     pub hardware: Option<torch_profile::Hardware>,
     pub torch: Option<torch_profile::Torch>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub state: String,
@@ -157,6 +159,7 @@ pub struct Engine {
 struct Inner {
     plans: HashMap<String, Plan>,
     approved: Option<crate::backend::Approved>,
+    reopen: Option<(String, crate::backend::Approved)>,
     status: Status,
     cancel: Arc<AtomicBool>,
 }
@@ -243,12 +246,82 @@ impl Engine {
         if g.status.state == "running" {
             return Err("Provisioning is still running".into());
         }
-        let approved = g.approved.clone().ok_or(
-            "No current successful native provision; existing environments cannot be adopted",
-        )?;
+        let approved = g
+            .approved
+            .clone()
+            .ok_or("No successful native installation or verified existing environment is open")?;
         self.backend.start(approved)
     }
+    fn open_existing(&self, id: &str, confirmed: bool) -> Result<Status, String> {
+        if !confirmed {
+            return Err("Explicit existing environment approval is required".into());
+        }
+        let mut g = lock(&self.inner);
+        if g.status.state == "running" || self.backend.active() {
+            return Err("Wait for installation and stop only the owned backend before changing environments; no service was stopped".into());
+        }
+        if !g.reopen.as_ref().is_some_and(|(token, _)| token == id) {
+            return Err(
+                "Existing environment preview is missing or stale; choose the folder again".into(),
+            );
+        }
+        let (_, approved) = g.reopen.take().unwrap();
+        approved.validate()?;
+        g.approved = Some(approved);
+        g.status = Status { state: "succeeded".into(), step_id: None, logs: vec!["Existing DEAS environment opened. No installation, downloads or backend start performed.".into()], error: None };
+        Ok(g.status.clone())
+    }
+    fn existing_plan(&self, input: &str) -> Result<Plan, String> {
+        let path = Path::new(input);
+        if !path.is_absolute() || input.split(['/', '\\']).any(|s| s == ".." || s == ".") {
+            return Err("Existing environment needs an absolute path without traversal".into());
+        }
+        let root = std::fs::canonicalize(path)
+            .map_err(|e| format!("Existing environment is unavailable: {e}"))?;
+        let bytes = crate::backend::read_owned(&root.join("deas-plan.json"), 1024 * 1024)
+            .map_err(|_| "This folder is not a complete DEAS environment; choose a new directory or a completed DEAS installation".to_string())?;
+        let mut plan: Plan = serde_json::from_slice(&bytes)
+            .map_err(|_| "Existing DEAS plan is invalid".to_string())?;
+        let persisted_root = std::fs::canonicalize(&plan.request.storage_path)
+            .map_err(|e| format!("Recorded environment location is unavailable: {e}"))?;
+        if persisted_root != root
+            || plan.reopen_id.is_some()
+            || uuid::Uuid::parse_str(&plan.id).is_err()
+            || !plan.can_execute
+            || !plan.unsupported_options.is_empty()
+            || !matches!(plan.request.backend, Backend::Cpu | Backend::Nvidia)
+            || plan.request.features.iter().any(|id| {
+                !["installer", "director", "forge", "refmods", "continuity"].contains(&id.as_str())
+            })
+            || plan.request.options.sage
+            || plan.request.options.radial
+            || plan.request.options.flash
+            || plan.request.options.ffmpeg
+        {
+            return Err(
+                "Existing DEAS environment is incompatible or its recorded location changed".into(),
+            );
+        }
+        validate_ref(&plan.request.comfy_ref)?;
+        let approved = crate::backend::Approved::capture(&plan)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut g = lock(&self.inner);
+        if g.status.state == "running" || self.backend.active() {
+            return Err(
+                "An owned installation/backend is active; no environment was changed".into(),
+            );
+        }
+        g.reopen = Some((id.clone(), approved));
+        plan.id = id.clone();
+        plan.reopen_id = Some(id);
+        plan.steps.clear();
+        plan.warnings = vec!["Existing DEAS installation: opening does not reinstall, update or remove files. Backend start remains a separate explicit action; generation readiness is not verified.".into()];
+        Ok(plan)
+    }
     fn plan(&self, mut request: Request) -> Result<Plan, String> {
+        if Path::new(&request.storage_path).exists() {
+            return self.existing_plan(&request.storage_path);
+        }
         validate_target(&request.storage_path)?;
         validate_ref(&request.comfy_ref)?;
         if let Some(folders) = &request.folders {
@@ -349,6 +422,7 @@ impl Engine {
             steps.last_mut().unwrap().detail = "Verify exact framework trio, CUDA metadata, planned GPU identity and synchronized CUDA matrix multiplication; initialize actual ComfyUI core/selected nodes without a listener (not generation readiness)".into();
         }
         let plan = Plan {
+            reopen_id: None,
             id: uuid::Uuid::new_v4().to_string(),
             request,
             steps,
@@ -434,6 +508,22 @@ pub fn native_install_start(
 ) -> Result<Status, String> {
     let _guard = operations.enter()?;
     engine.start(&plan_id, confirmed)
+}
+#[tauri::command]
+pub fn native_install_open(
+    plan_id: String,
+    confirmed: bool,
+    engine: tauri::State<'_, Engine>,
+    operations: tauri::State<'_, crate::FolderOperations>,
+    downloads: tauri::State<'_, crate::downloads::DownloadEngine>,
+) -> Result<Status, String> {
+    let _guard = operations.enter()?;
+    if downloads.status()?.state == "running" {
+        return Err(
+            "Wait for downloads before changing environments; no download was stopped".into(),
+        );
+    }
+    engine.open_existing(&plan_id, confirmed)
 }
 #[tauri::command]
 pub fn native_install_status(engine: tauri::State<'_, Engine>) -> Status {
@@ -1192,6 +1282,155 @@ mod tests {
         lock(&engine.inner).status.state = "running".into();
         assert!(!engine.folders_idle());
     }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn existing_environment_requires_explicit_open_without_reinstall_or_autostart() {
+        let (tmp, _) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        let before = std::fs::read(tmp.path().join("deas-install.json")).unwrap();
+        let plan = engine.plan(r).unwrap();
+        assert!(plan.reopen_id.is_some());
+        assert!(lock(&engine.inner).approved.is_none());
+        assert!(engine.start(&plan.id, true).is_err());
+        assert!(engine.open_existing(&plan.id, false).is_err());
+        assert_eq!(
+            engine.open_existing(&plan.id, true).unwrap().state,
+            "succeeded"
+        );
+        assert!(lock(&engine.inner).approved.is_some());
+        assert!(!engine.backend.active());
+        assert_eq!(
+            before,
+            std::fs::read(tmp.path().join("deas-install.json")).unwrap()
+        );
+        assert!(engine.open_existing(&plan.id, true).is_err());
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn changed_existing_environment_cannot_be_opened() {
+        let (tmp, _) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        let plan = engine.plan(r).unwrap();
+        std::fs::write(tmp.path().join("ComfyUI/main.py"), "changed after preview").unwrap();
+        assert!(engine.open_existing(&plan.id, true).is_err());
+        assert!(lock(&engine.inner).approved.is_none());
+        assert!(!engine.backend.active());
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reopened_environment_can_explicitly_start_only_its_owned_fixture_backend() {
+        let (tmp, _) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        let plan = engine.plan(r).unwrap();
+        engine.open_existing(&plan.id, true).unwrap();
+        assert!(!engine.backend.active());
+        engine.backend_start().unwrap();
+        let status = crate::backend::tests::await_state(&engine.backend, "running");
+        engine.shutdown_backend();
+        assert!(!status.generation_ready);
+        assert!(status.endpoint.unwrap().starts_with("http://127.0.0.1:"));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn existing_environment_reopens_non_verbatim_windows_path_without_changing_manifests() {
+        let tmp = scratch();
+        let canonical = std::fs::canonicalize(tmp.path()).unwrap();
+        let root = Path::new(
+            canonical
+                .to_str()
+                .unwrap()
+                .strip_prefix(r"\\?\")
+                .expect("Windows canonical path must be verbatim"),
+        );
+        assert!(matches!(
+            root.components().next(),
+            Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), std::path::Prefix::Disk(_))
+        ));
+        assert_ne!(root, canonical);
+        for name in [
+            "runtime/python",
+            "ComfyUI",
+            VENV_BIN,
+            "home",
+            "cache",
+            "config",
+            "tmp",
+        ] {
+            std::fs::create_dir_all(root.join(name)).unwrap();
+        }
+        for name in ["ComfyUI/main.py", VENV_PYTHON, "venv/pyvenv.cfg"] {
+            std::fs::write(root.join(name), "owned fixture; never executed").unwrap();
+        }
+        let mut r = request(root);
+        r.storage_path = root.to_str().unwrap().into();
+        let persisted = Plan {
+            reopen_id: None,
+            id: uuid::Uuid::new_v4().to_string(),
+            request: r.clone(),
+            steps: vec![],
+            warnings: vec![],
+            unsupported_options: vec![],
+            can_execute: true,
+            hardware: None,
+            torch: Some(torch_profile::cpu()),
+        };
+        let plan_bytes = serde_json::to_vec(&persisted).unwrap();
+        let install_bytes = serde_json::to_vec(&serde_json::json!({
+            "planId": persisted.id, "backend": "cpu", "hardware": null,
+            "torchProfile": persisted.torch, "python": root.join(VENV_PYTHON),
+            "generationReady": false
+        }))
+        .unwrap();
+        std::fs::write(root.join("deas-plan.json"), &plan_bytes).unwrap();
+        std::fs::write(root.join("deas-install.json"), &install_bytes).unwrap();
+        let engine = Engine::default();
+        let plan = engine.plan(r.clone()).unwrap();
+        assert_eq!(plan.request.storage_path, persisted.request.storage_path);
+        assert!(plan.reopen_id.is_some());
+        assert!(lock(&engine.inner).approved.is_none());
+        assert!(engine.open_existing(&plan.id, false).is_err());
+        assert_eq!(
+            engine.open_existing(&plan.id, true).unwrap().state,
+            "succeeded"
+        );
+        assert!(lock(&engine.inner).approved.is_some());
+        assert!(!engine.backend.active());
+        assert_eq!(
+            std::fs::read(root.join("deas-plan.json")).unwrap(),
+            plan_bytes
+        );
+        assert_eq!(
+            std::fs::read(root.join("deas-install.json")).unwrap(),
+            install_bytes
+        );
+
+        let preview = engine.plan(r).unwrap();
+        let mut changed = plan_bytes;
+        changed.push(b' ');
+        std::fs::write(root.join("deas-plan.json"), changed).unwrap();
+        assert!(engine.open_existing(&preview.id, true).is_err());
+        assert!(!engine.backend.active());
+    }
+    #[test]
+    #[ignore = "explicit read-only inspection/open of DEAS_EXISTING_ROOT; never starts a backend"]
+    fn inspect_existing_environment_from_env() {
+        let root = std::env::var("DEAS_EXISTING_ROOT").expect("Set DEAS_EXISTING_ROOT explicitly");
+        let engine = Engine::default();
+        let mut r = request(Path::new(&root));
+        r.storage_path = root;
+        let plan = engine.plan(r).unwrap();
+        assert!(plan.reopen_id.is_some());
+        let status = engine.open_existing(&plan.id, true).unwrap();
+        assert!(!engine.backend.active());
+        println!("Existing environment checked/opened without writes or backend start: root={}, backend={:?}, features={:?}, state={}", plan.request.storage_path, plan.request.backend, plan.request.features, status.state);
+    }
     #[test]
     fn backend_requires_current_successful_provision() {
         let engine = Engine::default();
@@ -1744,6 +1983,7 @@ mod tests {
             let mut r = request(tmp.path());
             r.storage_path = tmp.path().to_str().unwrap().into();
             let plan = Plan {
+                reopen_id: None,
                 id: uuid::Uuid::new_v4().to_string(),
                 request: r,
                 steps: vec![],

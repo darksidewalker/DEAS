@@ -6,11 +6,11 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { NativeInstallRequest } from '../../lib/setup';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false)}));
-beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(false);});
+beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.pref.backend.autostart','false');localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(false);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}));
 const mount=(connect=vi.fn(),installed=vi.fn())=>render(<I18nProvider><AiOSetup onConnectExisting={connect} onInstalled={installed}/></I18nProvider>);
-const open=()=>fireEvent.click(screen.getByRole('tab',{name:'AiO installer'}));
+const open=()=>fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
 const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText(label),{target:{value}});
 const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
 const defaults={storagePath:request.storagePath,backend:'cpu',hardware:null,warnings:['CPU fallback fixture']};
@@ -27,6 +27,75 @@ function nativeFixture(){
 async function ready(){mount();open();await waitFor(()=>expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe(request.storagePath));await screen.findByRole('button',{name:'Start install'});}
 function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 describe('automatic-first installation — read-only mock IPC fixtures',()=>{
+ it('autostarts after successful fresh provisioning but never before install consent',async()=>{
+  nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');
+  vi.mocked(invoke).mockImplementation(async(c,args)=>{
+   if(c==='native_install_defaults')return defaults;
+   if(c==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);
+   if(c==='native_install_start')return {state:'succeeded',stepId:null,logs:[],error:null};
+   return {state:c==='native_backend_start'?'starting':'stopped',endpoint:null,logs:[],error:null,generationReady:false};
+  });
+  mount();open();await screen.findByRole('button',{name:'Start install'});
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start')).toBe(false);
+  click('Start install');await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
+  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_backend_start')).toHaveLength(1);
+ });
+ it('restores and autostarts a checked remembered environment by default',async()=>{
+  nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');localStorage.setItem('deas.pref.install.root','"/custom/env"');
+  vi.mocked(invoke).mockImplementation(async c=>{
+   if(c==='native_files_present')return [true];
+   if(c==='native_install_defaults')return defaults;
+   if(c==='native_install_plan')return {...plan({...request,storagePath:'/custom/env'}),id:'reopen',reopenId:'reopen'};
+   if(c==='native_settings_read')return {};
+   if(c==='native_install_open')return {state:'succeeded',stepId:null,logs:[],error:null};
+   return {state:c==='native_backend_start'?'starting':'stopped',endpoint:null,logs:[],error:null,generationReady:false};
+  });
+  mount();await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
+  expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true});
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start')).toBe(false);
+ });
+ it('defaults backend autostart on and remembers the Settings switch being disabled',async()=>{
+  localStorage.removeItem('deas.pref.backend.autostart');const first=mount();click('Settings');
+  const toggle=screen.getByRole('switch',{name:'Auto-start backend'});expect(toggle.getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(toggle);await waitFor(()=>expect(localStorage.getItem('deas.pref.backend.autostart')).toBe('false'));
+  first.unmount();mount();click('Settings');expect(screen.getByRole('switch',{name:'Auto-start backend'}).getAttribute('aria-checked')).toBe('false');
+ });
+ it('recognizes a chosen environment root without nesting another environment directory',async()=>{
+  nativeFixture();
+  vi.mocked(invoke).mockImplementation(async(c,args)=>{
+   if(c==='native_install_defaults')return defaults;
+   if(c==='native_pick_directory')return '/chosen/env';
+   if(c==='native_files_present')return [true,true];
+   if(c==='native_install_plan'){const r=(args as {request:NativeInstallRequest}).request;return {...plan(r),...(r.storagePath==='/chosen/env'?{reopenId:'fixture-plan'}:{})};}
+   return {};
+  });
+  mount();open();await screen.findByRole('button',{name:'Start install'});click('Choose parent folder…');
+  await screen.findByRole('button',{name:'Use existing environment'});expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('/chosen/env');
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start'||c==='native_install_open')).toBe(false);
+ });
+ it('does not autostart an unverified remembered folder or turn it into a new install',async()=>{
+  nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');localStorage.setItem('deas.pref.install.root','"/invalid/env"');
+  vi.mocked(invoke).mockImplementation(async c=>c==='native_files_present'?[true]:plan());
+  mount();await screen.findByText(/Saved environment is not a complete DEAS installation/);
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_open'||c==='native_install_start'||c==='native_backend_start')).toBe(false);
+ });
+ it('opens a validated existing environment instead of reinstalling the selected folder',async()=>{
+  nativeFixture();const installed=vi.fn();const existing={...plan({...request,storagePath:'/real/existing-env',features:[]}),id:'reopen-preview',reopenId:'reopen-preview'};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')return (args as {request:NativeInstallRequest}).request.storagePath==='/alias/existing-env'?existing:plan();
+   if(command==='native_settings_read')return {models:'/saved/models'};
+   if(command==='native_install_open')return {state:'succeeded',stepId:null,logs:['opened existing fixture'],error:null};
+   return {state:'stopped',endpoint:null,logs:[],error:null,generationReady:false};
+  });
+  mount(vi.fn(),installed);open();await screen.findByRole('button',{name:'Start install'});
+  change('Storage directory','/alias/existing-env');await screen.findByRole('button',{name:'Use existing environment'});
+  expect(installed).not.toHaveBeenCalled();expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_open')).toBe(false);
+  click('Use existing environment');await waitFor(()=>expect(installed).toHaveBeenCalledWith([]));
+  expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen-preview',confirmed:true});
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start'||c==='native_backend_start')).toBe(false);
+  expect(JSON.parse(localStorage.getItem('deas.pref.install.root')!)).toBe('/real/existing-env');
+ });
  it('hands off exact successful native features once, without starting or inspecting a backend',async()=>{
   nativeFixture();const installed=vi.fn();let prepared=plan();
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
@@ -65,9 +134,23 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   nativeFixture();const installed=vi.fn();let id=0;
   vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?{...plan((args as {request:NativeInstallRequest}).request),id:`plan-${++id}`}:{state:'succeeded',stepId:null,logs:[],error:null});
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
+  expect(JSON.parse(localStorage.getItem('deas.pref.install.root')!)).toBe(request.storagePath);expect(screen.queryByLabelText('Director')).toBeNull();open();open();
   fireEvent.click(screen.getByLabelText('Director'));expect(installed).toHaveBeenCalledTimes(1);
-  await screen.findByRole('button',{name:'Start install'});expect(installed).toHaveBeenCalledTimes(1);
-  click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual([]);
+  await screen.findByRole('button',{name:'Run install again'});expect(installed).toHaveBeenCalledTimes(1);
+  click('Run install again');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(2));expect(installed.mock.calls[1][0]).toEqual([]);
+ });
+ it('remembers a successful install root and reopens the Studio while its manifest exists',async()=>{
+  nativeFixture();localStorage.setItem('deas.pref.install.root','"/custom/env"');
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_files_present'?[true]:command==='native_settings_read'?{models:'/custom/models'}:command==='native_install_plan'?{...plan({...request,storagePath:'/custom/env'}),id:'reopen',reopenId:'reopen'}:command==='native_install_open'?{state:'succeeded',stepId:null,logs:[],error:null}:defaults);
+  mount();await screen.findByRole('tab',{name:'Studio',selected:true});
+  expect(invoke).toHaveBeenCalledWith('native_files_present',{paths:['/custom/env/deas-install.json']});
+  open();await screen.findByRole('button',{name:'Start owned backend'});expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true});expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start'||c==='native_install_start')).toBe(false);expect(screen.queryByRole('button',{name:'Run install again'})).toBeNull();
+ });
+ it('forgets a vanished install root and keeps the first run',async()=>{
+  nativeFixture();localStorage.setItem('deas.pref.install.root','"/gone/env"');
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_files_present'?[false]:defaults);
+  mount();await waitFor(()=>expect(localStorage.getItem('deas.pref.install.root')).toBeNull());
+  expect(screen.getByRole('button',{name:'AiO installer'}).getAttribute('aria-pressed')).toBe('true');expect(screen.queryByText(/Installed in/)).toBeNull();
  });
  it('opens every editable field without inventing a browser path or hardware',()=>{
   mount();open();expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');
@@ -146,13 +229,13 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   await ready();click('Choose Models folder');await waitFor(()=>expect(screen.getByText('/real/models')).toBeTruthy());
   await waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{...request,folders:{models:'/real/models'}}}));
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_write'||c==='native_settings_move'||c==='native_install_start')).toBe(false);
-  fireEvent.click(screen.getByRole('tab',{name:'Settings'}));expect(screen.getAllByText('/real/models')).toHaveLength(2);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Settings'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
  });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText(/Installed · click to re-run/);
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
-  fireEvent.click(screen.getByRole('tab',{name:'Settings'}));
+  fireEvent.click(screen.getByRole('button',{name:'Settings'}));
   const settings=screen.getByRole('region',{name:'Settings'});
   await waitFor(()=>expect((settings.querySelector('button') as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(settings.querySelector('button')!);await screen.findByText('/new/models');click('Save folders');

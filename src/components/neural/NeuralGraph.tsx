@@ -118,6 +118,7 @@ export function NeuralGraph({ nodes, selectedId, onSelect, motion = "off", label
     if (!element) return;
     const measure = () => {
       const box = element.getBoundingClientRect();
+      if (!box.width) return; // hidden (e.g. inactive Studio tab): keep the last visible layout instead of the 960px fallback
       const bounds = new Map<string, NeuralBounds>();
       elements.current.forEach((target, id) => {
         const rect = target.getBoundingClientRect();

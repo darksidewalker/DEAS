@@ -66,6 +66,8 @@ fn resource(origin: &str, hash: Option<String>, size: Option<u64>) -> Resource {
         nsfw: false,
         base: None,
         published_at: None,
+        version: None,
+        variant: None,
     }
 }
 #[cfg(any(target_os = "linux", windows))]
@@ -244,6 +246,21 @@ fn url_path_metadata_and_auth_safety() {
         assert!(!public_ip(ip.parse().unwrap()));
     }
     assert!(public_ip("1.1.1.1".parse().unwrap()));
+    // Real CivitAI version downloads select one file of the version with ?fileId=<n>.
+    let mut civitai = provider("https://civitai.com".into());
+    civitai.kind = "civitai".into();
+    for ok in [
+        "https://civitai.com/api/download/models/2953474?fileId=2833009",
+        "https://civitai.com/api/download/models/34?type=Model&format=SafeTensor",
+    ] {
+        assert!(source_url(&civitai, ok).is_ok(), "{ok}");
+    }
+    for bad in [
+        "https://civitai.com/api/download/models/34?token=secret",
+        "https://civitai.com/api/download/models/34?fileId=1/2",
+    ] {
+        assert!(source_url(&civitai, bad).is_err(), "{bad}");
+    }
     let p = provider("https://files.example.org".into());
     let auth = AuthState::default();
     assert!(credential(&auth, &p, true).is_err());
@@ -482,7 +499,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "civitai",
             "model",
             "12",
-            serde_json::json!({"id":12,"modelVersions":[{"id":34,"files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34?type=Model&format=SafeTensor","hashes":{"SHA256":"0".repeat(64)},"sizeKB":0.01}]}]}),
+            serde_json::json!({"id":12,"modelVersions":[{"id":34,"name":"fp8 v2","files":[{"id":56,"name":"tiny.safetensors","downloadUrl":"https://civitai.com/api/download/models/34?fileId=56","hashes":{"SHA256":"0".repeat(64)},"sizeKB":14188263.9375,"metadata":{"format":"SafeTensor","size":"pruned","fp":"fp8"}}]}]}),
             "/api/v1/models/12",
             true,
         ),
@@ -538,6 +555,16 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             );
         } else if kind == "civitai" {
             assert!(page.resources[0].size.is_none());
+            assert_eq!(
+                page.resources[0].version.as_deref(),
+                (scope == "model").then_some("fp8 v2")
+            );
+            if scope == "model" {
+                assert_eq!(
+                    page.resources[0].variant.as_deref(),
+                    Some("fp8 · pruned · SafeTensor · ≈13.5 GB")
+                );
+            }
             assert!(page.resources[0].sha256.is_some());
             assert_eq!(page.resources[0].category.as_deref(), Some("other"));
         }
@@ -653,4 +680,40 @@ async fn real_generic_index_and_ollama_non_downloadable() {
     assert!(!page.resources[0].downloadable);
     assert!(page.resources[0].url.is_none());
     server.join().unwrap();
+}
+
+/// Live CivitAI acceptance for a bundled checkpoint card; run with `cargo test -- --ignored live_civitai`.
+#[tokio::test]
+#[ignore]
+async fn live_civitai_checkpoint_lists_selectable_files() {
+    let e = DownloadEngine::default();
+    e.inner.lock().unwrap().catalog = Catalog::load();
+    let listing = e
+        .browse(
+            BrowseRequest {
+                provider_id: "civitai".into(),
+                scope: "model".into(),
+                locator: "1981116".into(),
+                cursor: None,
+                authenticated: false,
+                nsfw: true,
+            },
+            &AuthState::default(),
+        )
+        .await
+        .unwrap();
+    let files: Vec<_> = listing
+        .resources
+        .iter()
+        .filter(|r| r.downloadable)
+        .collect();
+    assert!(!files.is_empty());
+    assert!(files.iter().all(|r| r.version.is_some()));
+    assert!(files.iter().all(|r| r.variant.is_some()));
+    eprintln!(
+        "{} files, first {:?} ({:?})",
+        files.len(),
+        files[0].label,
+        files[0].version
+    );
 }

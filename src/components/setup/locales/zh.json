@@ -1,4 +1,10 @@
 {
+  "setup.backendAutostart": "自动启动后端",
+  "setup.backendAutostartHelp": "打开应用或环境时自动启动已检查的 DEAS 后端。关闭此选项不会停止正在运行的后端。",
+  "setup.autostartOn": "开启",
+  "setup.autostartOff": "关闭",
+  "setup.useExisting": "使用现有环境",
+  "setup.reuseHelp": "打开已检查的 DEAS 安装，不重新安装、更新或删除文件。后端仍需单独启动。",
   "setup.autoReview": "检查并编辑安装",
   "setup.autoHelp": "已自动检查。可按需更改文件夹或添加Director，然后开始。",
   "setup.autoBrowser": "浏览器预览无法检测硬件或可执行文件目录。请手动输入新的绝对路径并选择后端。",
@@ -95,7 +101,7 @@
   "setup.feature.output.label": "输出",
   "setup.feature.output.description": "套件包含的视觉输出能力，并非独立的原生安装功能。",
   "setup.backendLifecycle.title": "自有后端生命周期",
-  "setup.backendLifecycle.help": "原生安装成功后，启动后端仍需单独主动操作。原生状态检查仅针对当前应用会话拥有的后端；绝不会接管或停止现有服务。检查为只读操作。",
+  "setup.backendLifecycle.help": "DEAS 仅启动已检查的环境。自动启动默认开启，可在设置中关闭。状态检查仅针对本应用拥有的后端，不接管或停止其他服务。检查为只读操作。",
   "setup.backendLifecycle.browser": "后端生命周期管理仅在桌面应用中可用。浏览器预览无法启动、停止后端或检查原生生命周期状态。",
   "setup.backendLifecycle.unknown": "尚未检查状态",
   "setup.backendLifecycle.starting": "正在启动 — 验证自有 API",
@@ -144,5 +150,11 @@
   "settings.move": "将现有文件移至所选文件夹",
   "settings.moveHelp": "请关闭使用这些文件夹的其他应用，停止后端并完成下载。任何同名冲突都会在复制前中止。文件经过验证后才删除原件；复制成功后才保存路径。",
   "settings.moveSave": "移动文件并保存文件夹",
-  "settings.moved": "已移动 {count} 个文件"
+  "settings.moved": "已移动 {count} 个文件",
+  "setup.tab.studio": "工作室",
+  "setup.remembered": "已安装在 {path}。复用前会检查环境；可在设置中关闭后端自动启动。",
+  "settings.language.system": "系统语言 — {name}",
+  "settings.language.customTag": "自定义",
+  "settings.language.custom": "系统语言为 {name}；选择第一项即可重新跟随系统语言。",
+  "settings.language.auto": "自动跟随系统语言。"
 }

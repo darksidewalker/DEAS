@@ -8,8 +8,6 @@
   "studio.api.classic": "Klasik API",
   "studio.api.notReady": "Üretim doğrulanmadı. API algılama, modelleri veya yürütülebilir bir Director tarifini doğrulamaz.",
   "studio.previewNotice": "Keşfetmek için kurulum gerekmez. Stüdyo araçları yerel bir önizlemedir.",
-  "studio.hide": "Stüdyo önizlemesini gizle",
-  "studio.explore": "Kurulum yapmadan stüdyoyu keşfet",
   "studio.features": "Bağlantılı stüdyo özellikleri",
   "studio.map": "ÇALIŞMA ALANI HARİTASI",
   "studio.select": "AÇMAK İÇİN BİR DÜĞÜM SEÇİN",

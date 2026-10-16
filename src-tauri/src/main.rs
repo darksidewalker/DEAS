@@ -12,10 +12,11 @@ fn main() {
         .manage(deas::install::Engine::default())
         .manage(deas::FolderOperations::default())
         .manage(deas::jobs::Jobs::default())
-        .manage(deas::auth::AuthState::default())
+        .manage(deas::auth::AuthState::default().restore_saved())
         .manage(deas::downloads::DownloadEngine::default())
         .invoke_handler(tauri::generate_handler![
             deas::native_auth_status,
+            deas::native_auth_verify,
             deas::native_auth_set,
             deas::native_auth_remove,
             deas::native_auth_restore,
@@ -26,6 +27,8 @@ fn main() {
             deas::native_download_start,
             deas::native_download_status,
             deas::native_download_cancel,
+            deas::native_models_scan,
+            deas::native_model_info,
             deas::inspect_backend,
             deas::native_negotiate_api,
             deas::native_recipe_prerequisites,
@@ -47,6 +50,7 @@ fn main() {
             deas::native_install_defaults,
             deas::native_install_plan,
             deas::native_install_start,
+            deas::native_install_open,
             deas::native_install_status,
             deas::native_install_cancel,
             deas::native_backend_start,

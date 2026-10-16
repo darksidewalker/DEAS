@@ -20,7 +20,7 @@ vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:
 function renderStudio() {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole("button", { name: /Explore studio without installing/i }));
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
   fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
   return view;
 }
@@ -35,15 +35,21 @@ test("language selection updates app, setup, studio metadata and aria without lo
   renderStudio();
   fireEvent.click(screen.getByRole("button", { name: /^Director$/i }));
   fireEvent.change(screen.getByLabelText("Shot direction"), { target: { value: "Preserve my draft" } });
+  // Language lives in Settings; a pick there is marked as a custom choice.
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   fireEvent.change(screen.getByLabelText("Language"), { target: { value: "de" } });
   expect(document.documentElement.lang).toBe("de");
-  expect(screen.getByRole("tab", { name: /AiO-Installer/ })).toBeTruthy();
+  expect(screen.getByText("Eigene Wahl")).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
+  expect(screen.getByRole('button',{name:'AiO-Installer'})).toBeTruthy();
   expect(screen.getByLabelText("Aufnahmeregie")).toHaveProperty("value", "Preserve my draft");
   expect(screen.getByRole("button", { name: "Director schließen" })).toBeTruthy();
   expect(document.querySelector(".neural-legend")).toBeNull();
   expect([...document.querySelectorAll('[data-node="director"] [data-included]')].map(part=>part.textContent)).toEqual(["Prompt Forge", "RefMods", "Kontinuität", "Ausgabe"]);
   expect(screen.getByLabelText("Bildausschnitt").textContent).toContain("Totale");
+  fireEvent.click(screen.getByRole("button", { name: "Einstellungen" }));
   fireEvent.change(screen.getByLabelText("Sprache"), { target: { value: "en" } });
+  fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
   expect(screen.getByLabelText("Shot direction")).toHaveProperty("value", "Preserve my draft");
   expect(screen.getByLabelText("Framing")).toHaveProperty("value", "wide");
 });
@@ -51,10 +57,10 @@ test("language selection updates app, setup, studio metadata and aria without lo
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","optional-downloads","settings"]);
+  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","studio","optional-downloads"]);
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: /Explore studio without installing/ }));
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
   expect(screen.getByRole("tab", { name: "Video", selected: true })).toBeTruthy();
   expect(screen.getByRole("complementary", { name: "Media" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
@@ -64,6 +70,7 @@ test("first entry shows only AiO and keeps the studio behind an honest preview c
 });
 
 test.each([false,true])("successful native install reveals studio without an extra enable action (Director: %s)", async (director) => {
+  localStorage.setItem('deas.pref.backend.autostart','false');
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==='native_install_defaults')return {storagePath:'/app/new',backend:'cpu',warnings:[]};
@@ -73,7 +80,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   });
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole('tab',{name:'AiO installer'}));
+  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
   if(!director)fireEvent.click(screen.getByLabelText('Director'));
   await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   const start=await screen.findByRole('button',{name:'Start install'});
@@ -92,7 +99,7 @@ test.each([false,true])("successful native install reveals studio without an ext
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole("tab", { name: /AiO installer/ }));
+  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
   fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
@@ -108,7 +115,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   fireEvent.click(screen.getByRole("button", { name: /^Engine$/ }));
   fireEvent.click(screen.getByRole("button", { name: /Inspect connection/ }));
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
-  fireEvent.click(setup.getByRole("tab", { name: /AiO installer/ }));
+  fireEvent.click(setup.getByRole('button',{name:'AiO installer'}));
   fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));

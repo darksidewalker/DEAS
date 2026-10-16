@@ -8,8 +8,6 @@
   "studio.api.classic": "Classic API",
   "studio.api.notReady": "尚未验证生成功能。检测到 API 并不代表已确认模型可用或 Director 配方可执行。",
   "studio.previewNotice": "无需安装即可探索。工作室工具目前仅供本地预览。",
-  "studio.hide": "隐藏工作室预览",
-  "studio.explore": "无需安装，探索工作室",
   "studio.features": "互联的工作室功能",
   "studio.map": "工作区地图",
   "studio.select": "选择节点以打开",

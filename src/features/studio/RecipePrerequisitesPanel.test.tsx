@@ -107,7 +107,7 @@ test('Engine mounts the localized diagnostic panel without probing; endpoint edi
   localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
   vi.mocked(checkRecipePrerequisites).mockResolvedValue(fixture);
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole('button', { name: 'Explore studio without installing' }));
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
   fireEvent.click(screen.getByRole('tab', { name: 'Workspace map' }));
   fireEvent.click(screen.getByRole('button', { name: 'Engine' }));
   expect(document.querySelector('[data-recipe-prerequisites]')).toBeTruthy();

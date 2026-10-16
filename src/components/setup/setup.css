@@ -44,6 +44,9 @@
 .aio-options input[type="checkbox"], .aio-consent input { width: auto; flex-shrink: 0; }
 .aio-consent { margin: 1rem 0; }
 .aio-detail pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+.download-switch.backend-autostart { max-width: 100%; grid-template-columns: minmax(0,1fr) 2.6rem auto; text-align: start; }
+.download-switch.backend-autostart[aria-checked="true"] > span:last-child { color: #83c19a; }
+.download-switch.backend-autostart[aria-checked="true"] .download-switch-knob::after { background: #83c19a; }
 
 .aio-setup-header { align-items: center; gap: .75rem; margin-bottom: .5rem; }
 .aio-setup-eyebrow { margin: 0; font-size: .65rem; letter-spacing: .08em; }
@@ -77,7 +80,7 @@
 .aio-right > .aio-detail { margin-top: 0; max-width: none; }
 .aio-right > .aio-detail + .aio-detail { margin-top: .65rem; }
 @media (max-width: 900px) { .aio-decision-area { grid-template-columns: minmax(0, 1fr); } .aio-right { position: static; } }
-/* Top segment line: installer, credentials and downloads as always-available tabs. */
+/* Tab band (Studio, Library); .aio-tab styling is shared with the headline buttons. */
 .aio-tabs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .35rem; margin-bottom: 1rem; border-bottom: 1px solid #7c9cac4d; }
 .aio-tab { display: inline-flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .6rem 1rem; border: 1px solid #7c9cac4d; border-bottom: 0; border-radius: .6rem .6rem 0 0; background: #1c2427; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; }
 .aio-tab small { font-size: .65rem; opacity: .8; }
@@ -102,3 +105,14 @@
 .aio-notes summary { font-size: .75rem; color: var(--muted, #8fa0a6); cursor: pointer; }
 .aio-detection { padding: .75rem 1rem; border: 1px solid #7c9cac33; border-radius: .8rem; }
 .aio-detection p { margin: .2rem 0; }
+/* Live install status in the left column; the spinner only shows that the native run is still active. */
+.aio-status { margin: 0 0 1rem; max-width: none; }
+.aio-status p[role="status"] { display: flex; align-items: center; gap: .5rem; }
+.aio-spinner { width: 1rem; height: 1rem; flex: none; border: 2px solid #83c19a33; border-top-color: #83c19a; border-radius: 50%; animation: aio-spin .8s linear infinite; }
+@keyframes aio-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .aio-spinner { animation-duration: 2.4s; } }
+/* Installer, credentials and settings sit right of the headline; the tab band holds Studio and Library. */
+.aio-head-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.aio-tab.aio-head { border-bottom: 1px solid #7c9cac4d; border-radius: .6rem; }
+.aio-tab.aio-head[aria-pressed="true"] { background: var(--surface, #26363c); color: var(--chalk); border-color: var(--copper); }
+.aio-decision-area.is-single { grid-template-columns: minmax(0, 1fr); }

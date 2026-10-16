@@ -7,6 +7,7 @@
 .download-controls input:not([type=checkbox]), .download-controls select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .download-controls .action-button { white-space: normal; max-width: 100%; }
 .download-check { display: flex; gap: .5rem; align-items: flex-start; }
+.auth-verified { color: #83c19a; }
 .download-check input { appearance: auto; flex: none; width: 1.1rem; height: 1.1rem; padding: 0; margin-top: .1rem; border: 0; background: transparent; accent-color: #83c19a; }
 .download-check { cursor: pointer; }
 .download-resource.is-selected { border-inline-start-color: #83c19a; background: #20302933; }
@@ -52,3 +53,18 @@
 .download-switch:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .download-resource.is-local { border-inline-start-color: #83c19a; }
 .download-local { margin: 0; color: #83c19a; font-size: .85rem; }
+.download-cards { grid-auto-flow: dense; }
+/* Spans the full row under the clicked card; dense flow backfills the cards that follow it. */
+.download-picker { grid-column: 1 / -1; display: grid; gap: .6rem; padding: .6rem; border: 1px solid var(--copper); border-radius: .7rem; font-size: .8rem; }
+.download-sort { align-items: center; }
+.download-sort > span { font-size: .8rem; color: var(--muted); margin-inline-end: .2rem; }
+.download-variant { display: block; color: var(--muted); font-size: .72rem; }
+/* Provider overview: one card-like button per provider; ✓ and a green edge mark a saved token. */
+.auth-providers { display: flex; flex-wrap: wrap; gap: .5rem; }
+.auth-provider { display: grid; gap: .15rem; min-width: 9rem; padding: .55rem .85rem; border: 1px solid #ffffff1f; border-inline-start-width: 3px; border-radius: .7rem; background: var(--surface); color: inherit; font: inherit; font-size: .85rem; text-align: left; cursor: pointer; }
+.auth-set-mark { color: #83c19a; }
+.auth-provider small { color: var(--muted); font-size: .7rem; }
+.auth-provider.is-set { border-inline-start-color: #83c19a; }
+.auth-provider[aria-pressed="true"] { border-color: var(--copper); border-inline-start-color: var(--copper); }
+.auth-provider.is-set[aria-pressed="true"] { border-inline-start-color: #83c19a; }
+.auth-settings { display: grid; gap: .75rem; padding: .8rem; border: 1px solid var(--copper); border-radius: .7rem; }

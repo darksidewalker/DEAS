@@ -100,7 +100,8 @@ test('all six bundled component-owned languages have strict key and placeholder 
   for (const path of sourceFiles) {
     const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     function check(node: ts.Node) {
-      if (ts.isStringLiteral(node) && /^(app|setup|studio|neural|installer|downloads|api)\./.test(node.text)) {
+      const preferenceKey=!!node.parent&&ts.isCallExpression(node.parent)&&ts.isIdentifier(node.parent.expression)&&['usePref','readPref','writePref','forgetPref'].includes(node.parent.expression.text)&&node.parent.arguments[0]===node;
+      if (ts.isStringLiteral(node) && !preferenceKey && /^(app|setup|studio|neural|installer|downloads|api)\./.test(node.text)) {
         assert.ok(Object.hasOwn(catalog.dictionaries.en, node.text), `Missing referenced UI key ${node.text} in ${path}`);
       }
       if (ts.isJsxText(node)) assert.ok(!/[\p{L}\p{N}]/u.test(node.text), `Unreferenced JSX text in ${path}: ${node.text}`);

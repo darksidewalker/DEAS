@@ -2,8 +2,30 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](docs/VERIFICATION.md); the roadmap in [docs/PLAN.md](docs/PLAN.md).
 
+## 0.1.10 — 2026-10-16
+
+- Installed model sizes use localized GiB/Gio labels; Python cache files are excluded from Git.
+- Choosing a completed DEAS environment previews a checked reuse operation instead of attempting to reinstall into it. **Use existing environment** verifies the captured native manifests, ownership and launch-file fingerprints; the new-install overwrite guard remains intact. The folder chooser recognizes an environment root rather than adding a second `deas-environment` subfolder.
+- The last successful/explicitly opened environment is validated and reopened after app restart. Its owned backend auto-starts by default; **Settings → Auto-start backend** persists the opt-out. Turning it off never stops a running backend, and explicit Stop does not trigger an automatic restart.
+- Backend startup first checks current native status, remains session-scoped and uses an OS-held environment lock to prevent duplicate DEAS instances from starting the same environment. No foreign service is adopted or stopped; API readiness is not generation readiness.
+
+## 0.1.9 — 2026-10-16
+
+- Language follows the system language automatically (first bundled match of the OS/webview languages, English otherwise) and is only stored when the user picks one. The selector moved from the header into **Settings**; a pick is marked **Custom** with the detected system language named, and the first entry returns to automatic.
+- Library **Show: Catalog · Installed** switch: *Installed* scans the environment's ComfyUI models folder (standard category subfolders, recursive) and lists the files as cards per folder. Opening a card shows path, size, SHA-256 and a **Fetch CivitAI metadata** button: the file is hashed once, looked up via `api/v1/model-versions/by-hash`, and model/version name, base model, trigger words, preview and the showcase image's sampler/steps/CFG/size are cached beside the file as `<file>.deas.json` (also when CivitAI does not know the hash).
+- Provider authorization: the provider dropdown is replaced by an overview of buttons (Hugging Face · CivitAI · GitHub) showing ✓ / "Token saved" or "No token" each; clicking one opens its framed settings below.
+- Fix: CivitAI checkpoints listed no files — real download URLs carry `?fileId=<n>`, which the native URL guard rejected for the whole listing. Files now load, show their variant (precision · size · format · ≈GB), and loading/errors appear under the clicked card.
+- Library sort is an inline `Sort by  Newest ↓  Name ↑` button pair: the active one is highlighted, clicking it again flips the arrow and direction (undated items stay last).
+- Clicking a Library card opens its file picker directly under the card. CivitAI files are grouped by model version (native `Resource.version`): pick a version chip, then tick the quant/format files of that version.
+- Installation status, logs and Cancel moved to the left column under the tabs with a spinner while running; it stays visible on every tab during the run.
+- Setup layout: AiO installer, Provider authorization and Settings are buttons right of the headline; the tab band holds **Studio** then **Library** (the "Explore studio" toggle is gone). The installation review shows only on the installer view and hides after a successful install (a second installer click reopens it for a re-run); success switches to Studio.
+- Remembered choices: `src/lib/preferences.ts` (`usePref`/`readPref`/`writePref`, validated JSON under `deas.pref.*` in webview storage). It restores the install folder (only while its `deas-install.json` exists, otherwise the first run returns and the entry is forgotten), the Library category, base family, media filter and sort, and the Studio sub-tab.
+- Provider authorization automatically checks saved/restored tokens on opening or changing provider, and new tokens after saving. A green checkmark requires a successful authenticated identity response from Hugging Face, CivitAI or GitHub. Rejected tokens, unavailable checks and unsupported providers remain distinct; Refresh retries without re-entering the token.
+- Checks use fixed HTTPS identity endpoints, bounded native-only requests and no redirects or plaintext/token readback. Token replacement/removal and panel navigation discard stale verification results. Authentication does not imply download entitlement or license acceptance.
+
 ## 0.1.8 — 2026-10-16
 
+- Authorization remembers tokens in the OS credential store by default (session-only opt-out), restores saved official-provider tokens on app start and displays their status automatically. Library browsing reuses the matching configured token unless anonymous access was explicitly selected; no plaintext fallback.
 - Selected folder aliases resolve to their real existing directories at the chooser boundary; installation execution still refuses symlink substitutions.
 - Safe environment data relocation: Settings separates path-only saves from an explicit **Move files & save folders** action with all-tree conflict/overlap checks, exclusive streamed copy, byte verification, atomic settings save and unchanged-source removal. Collisions abort, never overwrite. Linux only; other platforms fail closed.
 

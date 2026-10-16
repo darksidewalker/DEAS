@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import sys
 from playwright.sync_api import sync_playwright
+from deas_locale import set_locale
 
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
 root = Path(__file__).resolve().parents[1]
@@ -15,8 +16,8 @@ with sync_playwright() as p:
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.on('request', lambda request: backend_requests.append(request.url) if request.url.startswith(('http://127.0.0.1:7801', 'http://127.0.0.1:8189')) else None)
         page.goto(url, wait_until='networkidle')
-        page.get_by_label('Sprache', exact=True).select_option('en')
-        page.get_by_role('button', name='Explore studio without installing', exact=False).click()
+        set_locale(page, 'en')
+        page.locator('[data-node="studio"]').click()
         page.locator('[data-studio-tab="map"]').click()
         page.get_by_role('button', name='Engine', exact=True).click()
         panel = page.locator('[data-api-negotiation]')
@@ -28,7 +29,7 @@ with sync_playwright() as p:
         assert not panel.get_by_text('Classic API', exact=True).count()
         page.get_by_label('Backend URL', exact=True).fill('http://127.0.0.1:8189')
         assert panel.get_by_role('alert').count() == 0
-        page.get_by_label('Language', exact=True).select_option('de')
+        set_locale(page, 'de', '[data-node="studio"]')
         assert panel.get_by_role('button', name='Ausführungs-API prüfen', exact=True).count() == 1
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
         assert not backend_requests and not errors

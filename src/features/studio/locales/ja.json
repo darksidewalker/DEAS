@@ -8,8 +8,6 @@
   "studio.api.classic": "Classic API",
   "studio.api.notReady": "生成は未検証です。API を検出しても、モデルや実行可能な Director レシピの確認にはなりません。",
   "studio.previewNotice": "インストールせずに探索できます。スタジオツールはローカルプレビューです。",
-  "studio.hide": "スタジオプレビューを非表示",
-  "studio.explore": "インストールせずにスタジオを探索",
   "studio.features": "つながるスタジオ機能",
   "studio.map": "ワークスペースマップ",
   "studio.select": "ノードを選択して開く",

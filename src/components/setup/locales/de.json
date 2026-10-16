@@ -1,4 +1,10 @@
 {
+  "setup.backendAutostart": "Backend automatisch starten",
+  "setup.backendAutostartHelp": "Das geprüfte DEAS-Backend beim Öffnen der App oder einer Umgebung automatisch starten. Ausschalten beendet kein laufendes Backend.",
+  "setup.autostartOn": "An",
+  "setup.autostartOff": "Aus",
+  "setup.useExisting": "Vorhandene Umgebung verwenden",
+  "setup.reuseHelp": "Geprüfte DEAS-Installation öffnen, ohne Dateien neu zu installieren, zu aktualisieren oder zu löschen. Das Backend wird separat gestartet.",
   "setup.autoReview": "Installation prüfen & bearbeiten",
   "setup.autoHelp": "Automatisch geprüft. Ordner ändern oder Director hinzufügen, dann starten.",
   "setup.autoBrowser": "Die Browser-Vorschau erkennt weder Hardware noch den Programmordner. Neues absolutes Verzeichnis und Backend manuell wählen.",
@@ -95,7 +101,7 @@
   "setup.feature.output.label": "Ausgabe",
   "setup.feature.output.description": "Enthaltene visuelle Ausgabefähigkeit, keine eigenständige native Installationsfunktion.",
   "setup.backendLifecycle.title": "Lebenszyklus des App-eigenen Backends",
-  "setup.backendLifecycle.help": "Starten ist eine separate ausdrückliche Aktion nach erfolgreicher nativer Installation. Der native Status prüft nur das Backend dieser App-Sitzung; bestehende Dienste werden nie übernommen oder beendet. Die Prüfung ist schreibgeschützt.",
+  "setup.backendLifecycle.help": "DEAS startet nur seine geprüfte Umgebung. Der Autostart ist standardmäßig an und lässt sich in den Einstellungen abschalten. Statusprüfungen betreffen nur das app-eigene Backend; fremde Dienste werden weder übernommen noch beendet. Die Prüfung ist nur lesend.",
   "setup.backendLifecycle.browser": "Der Backend-Lebenszyklus ist nur in der Desktop-App verfügbar. Die Browser-Vorschau kann weder starten noch stoppen oder den nativen Status prüfen.",
   "setup.backendLifecycle.unknown": "Status nicht geprüft",
   "setup.backendLifecycle.starting": "Startet — App-eigene API wird geprüft",
@@ -144,5 +150,11 @@
   "settings.move": "Vorhandene Dateien in die ausgewählten Ordner verschieben",
   "settings.moveHelp": "Andere Apps mit Zugriff auf diese Ordner schließen. Eigenes Backend stoppen und Downloads abschließen. Jede Namenskollision bricht vor dem Kopieren ab. Dateien werden vor dem Entfernen der Originale geprüft; Pfade erst nach erfolgreichem Kopieren gespeichert.",
   "settings.moveSave": "Dateien verschieben & Ordner speichern",
-  "settings.moved": "{count} Dateien verschoben"
+  "settings.moved": "{count} Dateien verschoben",
+  "setup.tab.studio": "Studio",
+  "setup.remembered": "Installiert unter {path}. Die Umgebung wird vor der Wiederverwendung geprüft; der Backend-Autostart lässt sich in den Einstellungen abschalten.",
+  "settings.language.system": "Systemsprache — {name}",
+  "settings.language.customTag": "Eigene Wahl",
+  "settings.language.custom": "Die Systemsprache ist {name}; den ersten Eintrag wählen, um ihr wieder zu folgen.",
+  "settings.language.auto": "Folgt automatisch der Systemsprache."
 }

@@ -16,7 +16,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 print('fixture starting',flush=True)
 with socketserver.TCPServer(('127.0.0.1',port),Handler) as server: server.serve_forever()
 "#;
-fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
+pub(crate) fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     for name in [
@@ -37,6 +37,7 @@ fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
     assert!(result.success());
     fs::write(root.join("ComfyUI/main.py"), script).unwrap();
     let plan = Plan {
+        reopen_id: None,
         id: uuid::Uuid::new_v4().to_string(),
         request: Request {
             storage_path: root.to_str().unwrap().into(),
@@ -62,7 +63,7 @@ fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
     let approved = Approved::capture(&plan).unwrap();
     (tmp, approved)
 }
-fn await_state(lifecycle: &Lifecycle, state: &str) -> Status {
+pub(crate) fn await_state(lifecycle: &Lifecycle, state: &str) -> Status {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let current = lifecycle.status();
@@ -75,6 +76,25 @@ fn await_state(lifecycle: &Lifecycle, state: &str) -> Status {
         );
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+#[test]
+fn a_second_lifecycle_cannot_start_the_same_environment_until_the_first_stops() {
+    let (_tmp, approved) = fixture(SERVER);
+    let first = Lifecycle::default();
+    let second = Lifecycle::default();
+    first
+        .launch(approved.clone(), Duration::from_secs(5))
+        .unwrap();
+    await_state(&first, "running");
+    let duplicate = second.launch(approved.clone(), Duration::from_secs(5));
+    first.stop();
+    assert!(
+        duplicate.is_err(),
+        "second instance must not spawn a duplicate backend"
+    );
+    second.launch(approved, Duration::from_secs(5)).unwrap();
+    await_state(&second, "running");
+    second.stop();
 }
 #[test]
 fn real_owned_child_requires_api_before_running_and_stop_is_exact() {

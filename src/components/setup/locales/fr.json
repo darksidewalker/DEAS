@@ -1,4 +1,10 @@
 {
+  "setup.backendAutostart": "Démarrer le backend automatiquement",
+  "setup.backendAutostartHelp": "Démarrer le backend DEAS vérifié à l’ouverture de l’application ou d’un environnement. Désactiver cette option n’arrête pas un backend en cours.",
+  "setup.autostartOn": "Activé",
+  "setup.autostartOff": "Désactivé",
+  "setup.useExisting": "Utiliser l’environnement existant",
+  "setup.reuseHelp": "Ouvrir l’installation DEAS vérifiée sans réinstaller, mettre à jour ni supprimer de fichiers. Le démarrage du backend reste une action distincte.",
   "setup.autoReview": "Vérifier et modifier l’installation",
   "setup.autoHelp": "Vérifié automatiquement. Modifiez le dossier ou ajoutez Director si besoin, puis démarrez.",
   "setup.autoBrowser": "L’aperçu navigateur ne détecte ni le matériel ni le dossier du programme. Saisissez un nouveau chemin absolu et choisissez le backend.",
@@ -95,7 +101,7 @@
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "Fonctionnalité de sortie visuelle incluse, et non fonctionnalité d’installation native indépendante.",
   "setup.backendLifecycle.title": "Cycle de vie du moteur géré",
-  "setup.backendLifecycle.help": "Le démarrage est une action explicite distincte après une installation native réussie. L’état natif ne vérifie que le moteur géré par cette session de l’application ; les services existants ne sont jamais repris ni arrêtés. L’inspection est en lecture seule.",
+  "setup.backendLifecycle.help": "DEAS démarre uniquement son environnement vérifié. Le démarrage automatique est activé par défaut et peut être désactivé dans les paramètres. Seul le backend de cette application est suivi ; les autres services ne sont ni repris ni arrêtés. L’inspection est en lecture seule.",
   "setup.backendLifecycle.browser": "Le cycle de vie du moteur est disponible uniquement dans l’application de bureau. L’aperçu dans le navigateur ne peut ni démarrer, ni arrêter, ni inspecter l’état du cycle de vie natif.",
   "setup.backendLifecycle.unknown": "État non inspecté",
   "setup.backendLifecycle.starting": "Démarrage — vérification de l’API du moteur géré",
@@ -144,5 +150,11 @@
   "settings.move": "Déplacer les fichiers existants vers les dossiers sélectionnés",
   "settings.moveHelp": "Fermez les autres applications utilisant ces dossiers. Arrêtez le backend et terminez les téléchargements. Tout conflit de nom annule la copie avant son démarrage. Les fichiers sont vérifiés avant suppression des originaux ; les chemins sont enregistrés après la copie réussie.",
   "settings.moveSave": "Déplacer les fichiers et enregistrer",
-  "settings.moved": "{count} fichiers déplacés"
+  "settings.moved": "{count} fichiers déplacés",
+  "setup.tab.studio": "Studio",
+  "setup.remembered": "Installé dans {path}. L’environnement est vérifié avant réutilisation ; le démarrage automatique se désactive dans les paramètres.",
+  "settings.language.system": "Langue du système — {name}",
+  "settings.language.customTag": "Choix personnalisé",
+  "settings.language.custom": "La langue du système est {name} ; choisissez la première entrée pour la suivre à nouveau.",
+  "settings.language.auto": "Suit automatiquement la langue du système."
 }

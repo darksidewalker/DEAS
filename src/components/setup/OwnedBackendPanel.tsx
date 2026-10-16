@@ -3,7 +3,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { NativeBackendStatus } from '../../lib/setup';
 
-export function OwnedBackendPanel({installSucceeded,onConnectExisting}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void}) {
+export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=false}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;autoStart?:boolean}) {
  const {t}=useI18n();
  const native=isTauri();
  const [status,setStatus]=useState<NativeBackendStatus|null>(null);
@@ -32,7 +32,7 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting}: {install
   try {
    // No environment, executable or endpoint may be supplied by the frontend.
    const next=await invoke<NativeBackendStatus>(command);
-   if(live.current&&version===epoch.current){setStatus(next);setTechnicalError('');}
+   if(live.current&&version===epoch.current){setStatus(next);setTechnicalError('');return next;}
   } catch(e) {
    if(live.current&&version===epoch.current){
     setTechnicalError(String(e));
@@ -44,6 +44,17 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting}: {install
    if(live.current&&version===epoch.current)setBusy(false);
   }
  },[native]);
+ const autoAttempted=useRef(false);
+ useEffect(()=>{
+  if(!native||!installSucceeded||!autoStart||autoAttempted.current)return;
+  let alive=true;
+  const timer=window.setTimeout(async()=>{
+   if(!alive||autoAttempted.current)return;autoAttempted.current=true;
+   const current=await request('native_backend_status');
+   if(alive&&current?.state==='stopped')await request('native_backend_start');
+  },0);
+  return()=>{alive=false;window.clearTimeout(timer);};
+ },[native,installSucceeded,autoStart,request]);
  useEffect(()=>{
   if(!native||!active)return;
   let alive=true;

@@ -1,12 +1,12 @@
 //! Read-only NVIDIA discovery and the exact Go baseline Torch profiles.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     io::Read,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hardware {
     pub vendor: String,
@@ -15,7 +15,7 @@ pub struct Hardware {
     pub driver_version: String,
     pub compute_capability: String,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Torch {
     pub packages: [String; 3],

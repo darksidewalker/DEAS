@@ -1,4 +1,10 @@
 {
+  "setup.backendAutostart": "Auto-start backend",
+  "setup.backendAutostartHelp": "Automatically start the checked DEAS backend after opening the app or an environment. Switching off does not stop a running backend.",
+  "setup.autostartOn": "On",
+  "setup.autostartOff": "Off",
+  "setup.useExisting": "Use existing environment",
+  "setup.reuseHelp": "Open the checked DEAS installation without reinstalling, updating or deleting files. Backend start remains a separate action.",
   "setup.autoReview": "Review & edit installation",
   "setup.autoHelp": "Checked automatically. Change the folder or add Director if you like, then start.",
   "setup.autoBrowser": "Browser preview cannot detect hardware or the executable directory. Enter a new absolute directory and select a backend manually.",
@@ -95,7 +101,7 @@
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "Included visual output capability, not an independent native install feature.",
   "setup.backendLifecycle.title": "Owned backend lifecycle",
-  "setup.backendLifecycle.help": "Starting is a separate explicit action after successful native installation. Native status checks only the backend owned by this app session; existing services are never adopted or stopped. Inspection is read-only.",
+  "setup.backendLifecycle.help": "DEAS starts only its checked environment. Automatic startup is on by default and can be disabled in Settings. Native status checks only this app’s owned backend; foreign services are never adopted or stopped. Inspection is read-only.",
   "setup.backendLifecycle.browser": "Backend lifecycle is available only in the desktop app. Browser preview cannot start, stop or inspect native lifecycle status.",
   "setup.backendLifecycle.unknown": "Status not inspected",
   "setup.backendLifecycle.starting": "Starting — verifying owned API",
@@ -144,5 +150,11 @@
   "settings.move": "Move existing files to the selected folders",
   "settings.moveHelp": "Close other apps using these folders. Stop the owned backend and finish downloads first. Any filename collision aborts before copying. Files are verified before originals are removed; paths are saved only after successful copying.",
   "settings.moveSave": "Move files & save folders",
-  "settings.moved": "{count} files moved"
+  "settings.moved": "{count} files moved",
+  "setup.tab.studio": "Studio",
+  "setup.remembered": "Installed in {path}. The environment is checked before reuse; backend autostart can be disabled in Settings.",
+  "settings.language.system": "System language — {name}",
+  "settings.language.customTag": "Custom",
+  "settings.language.custom": "The system language is {name}; choose the first entry to follow it again.",
+  "settings.language.auto": "Follows the system language automatically."
 }

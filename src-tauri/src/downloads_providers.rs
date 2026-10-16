@@ -8,7 +8,7 @@ pub(super) struct Page {
     pub next: Option<Url>,
     pub warnings: Vec<String>,
 }
-fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
+pub(super) fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
     v.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("Malformed provider response: missing {key}"))
@@ -45,7 +45,7 @@ fn path(s: &str) -> Result<(), String> {
         Ok(())
     }
 }
-fn endpoint(p: &Provider, parts: &[&str]) -> Result<Url, String> {
+pub(super) fn endpoint(p: &Provider, parts: &[&str]) -> Result<Url, String> {
     let mut u = Url::parse(&format!("{}/", p.origin)).map_err(|_| "Invalid origin")?;
     {
         let mut seg = u.path_segments_mut().map_err(|_| "Invalid origin")?;
@@ -92,6 +92,8 @@ fn file(
         nsfw: false,
         base: None,
         published_at: None,
+        version: None,
+        variant: None,
     })
 }
 async fn json(
@@ -100,6 +102,28 @@ async fn json(
     u: Url,
     header: &Option<HeaderValue>,
 ) -> Result<(Value, Option<String>), String> {
+    fetch_json(client, p, u, header, false)
+        .await?
+        .ok_or_else(|| "Provider HTTP 404".into())
+}
+/// Lookup where 404 is a regular answer (e.g. a hash unknown to CivitAI); other failures stay errors.
+pub(super) async fn json_optional(
+    client: &reqwest::Client,
+    p: &Provider,
+    u: Url,
+    header: &Option<HeaderValue>,
+) -> Result<Option<Value>, String> {
+    Ok(fetch_json(client, p, u, header, true)
+        .await?
+        .map(|(v, _)| v))
+}
+async fn fetch_json(
+    client: &reqwest::Client,
+    p: &Provider,
+    u: Url,
+    header: &Option<HeaderValue>,
+    not_found_ok: bool,
+) -> Result<Option<(Value, Option<String>)>, String> {
     let parsed = validate_url(u.as_str(), p.kind == "ollama", true)?;
     if parsed.origin().ascii_serialization() != p.origin {
         return Err("Provider pagination escaped configured origin".into());
@@ -111,6 +135,9 @@ async fn json(
         q = q.header(reqwest::header::AUTHORIZATION, h.clone());
     }
     let mut response = q.send().await.map_err(|_| network_error())?;
+    if not_found_ok && response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
     if response.status() != reqwest::StatusCode::OK {
         return Err(format!(
             "Provider HTTP {} (authentication, gating or rate limits may apply)",
@@ -136,7 +163,7 @@ async fn json(
         bytes.extend_from_slice(&chunk);
     }
     let v = serde_json::from_slice(&bytes).map_err(|_| "Malformed provider JSON")?;
-    Ok((v, link))
+    Ok(Some((v, link)))
 }
 fn link_next(p: &Provider, u: &Url, link: Option<String>) -> Result<Option<Url>, String> {
     let Some(link) = link else { return Ok(None) };
@@ -180,7 +207,7 @@ pub(super) fn civitai_category(model_type: Option<&str>) -> &'static str {
 }
 /// First still image of a model version as a 450px thumbnail; videos are skipped because
 /// dozens of WebKitGTK media pipelines are unstable. Never fetched natively.
-fn civitai_preview(version: &Value) -> Option<String> {
+pub(super) fn civitai_preview(version: &Value) -> Option<String> {
     version.get("images")?.as_array()?.iter().find_map(|image| {
         let url = image.get("url")?.as_str()?;
         let still = image.get("type").and_then(Value::as_str) != Some("video")
@@ -201,8 +228,26 @@ fn civitai_restricted(version: &Value) -> bool {
         .is_some_and(|a| a != "Public")
         || version.get("paidAccess").is_some_and(|p| !p.is_null())
 }
+/// Precision, size, format and rounded size of a CivitAI file so quants of one version are distinguishable.
+fn civitai_variant(file: &Value) -> Option<String> {
+    let meta = file.get("metadata");
+    let mut parts: Vec<String> = ["fp", "size", "format"]
+        .iter()
+        .filter_map(|k| meta?.get(k)?.as_str())
+        .filter(|v| !v.is_empty() && v.len() <= 40)
+        .map(str::to_owned)
+        .collect();
+    if let Some(kb) = file
+        .get("sizeKB")
+        .and_then(Value::as_f64)
+        .filter(|kb| *kb > 0.0)
+    {
+        parts.push(format!("≈{:.1} GB", kb / 1_048_576.0));
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
 /// Short base-model family label from a CivitAI version; unknown names pass through bounded.
-fn civitai_base(version: &Value) -> Option<String> {
+pub(super) fn civitai_base(version: &Value) -> Option<String> {
     let raw = version.get("baseModel")?.as_str()?;
     let short = match raw {
         "Wan Video 2.2 I2V-A14B" | "Wan Video 2.2 T2V-A14B" | "Wan Video 2.2 TI2V-5B" => "Wan 2.2",
@@ -387,6 +432,8 @@ pub(super) async fn list(
                         nsfw: false,
                         base: None,
                         published_at: None,
+                        version: None,
+                        variant: None,
                     });
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
@@ -440,6 +487,8 @@ pub(super) async fn list(
                         nsfw: false,
                         base: None,
                         published_at: None,
+                        version: None,
+                        variant: None,
                     });
                 }
             } else {
@@ -467,6 +516,8 @@ pub(super) async fn list(
                             nsfw: false,
                             base: None,
                             published_at: None,
+                            version: None,
+                            variant: None,
                         });
                     } else if item.get("type").and_then(Value::as_str) == Some("file")
                         && item.get("submodule_git_url").is_none()
@@ -559,6 +610,8 @@ pub(super) async fn list(
                         nsfw,
                         base: version.and_then(civitai_base),
                         published_at: version.and_then(civitai_published),
+                        version: None,
+                        variant: None,
                     });
                     continue;
                 }
@@ -597,6 +650,11 @@ pub(super) async fn list(
                         resource.nsfw = nsfw;
                         resource.base = civitai_base(version);
                         resource.published_at = civitai_published(version);
+                        resource.version = version
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        resource.variant = civitai_variant(f);
                         resources.push(resource);
                     }
                 }
@@ -640,6 +698,8 @@ pub(super) async fn list(
                     nsfw: false,
                     base: None,
                     published_at: None,
+                    version: None,
+                    variant: None,
                 });
             }
             warnings.push("Backend tags bounded to first 50; local installed digest is not a downloadable-file checksum".into());

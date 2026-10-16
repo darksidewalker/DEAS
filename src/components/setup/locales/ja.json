@@ -1,4 +1,10 @@
 {
+  "setup.backendAutostart": "バックエンドを自動起動",
+  "setup.backendAutostartHelp": "アプリまたは環境を開いたときに、確認済みのDEASバックエンドを自動起動します。オフにしても実行中のバックエンドは停止しません。",
+  "setup.autostartOn": "オン",
+  "setup.autostartOff": "オフ",
+  "setup.useExisting": "既存の環境を使用",
+  "setup.reuseHelp": "確認済みのDEAS環境を開きます。再インストール、更新、ファイル削除は行いません。バックエンドの起動は別の操作です。",
   "setup.autoReview": "インストールを確認・編集",
   "setup.autoHelp": "自動で確認済みです。必要ならフォルダーを変更するかDirectorを追加して、開始してください。",
   "setup.autoBrowser": "ブラウザーではハードウェアや実行ファイルのフォルダーを検出できません。新しい絶対パスとバックエンドを手動で指定してください。",
@@ -95,7 +101,7 @@
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "パッケージに含まれる映像出力機能で、独立したネイティブインストール項目ではありません。",
   "setup.backendLifecycle.title": "アプリ管理バックエンドのライフサイクル",
-  "setup.backendLifecycle.help": "起動はネイティブインストール成功後に行う、独立した明示的な操作です。ネイティブ状態確認の対象は、このアプリセッションが管理するバックエンドのみです。既存のサービスを管理対象に取り込んだり停止したりすることはありません。確認は読み取り専用です。",
+  "setup.backendLifecycle.help": "DEASは確認済みの環境のみを起動します。自動起動は既定でオンで、設定から無効にできます。このアプリが所有するバックエンドのみを確認し、他のサービスを引き継いだり停止したりしません。検査は読み取り専用です。",
   "setup.backendLifecycle.browser": "バックエンドのライフサイクル管理はデスクトップアプリでのみ利用できます。ブラウザープレビューでは、ネイティブの起動、停止、ライフサイクル状態の確認は行えません。",
   "setup.backendLifecycle.unknown": "状態未確認",
   "setup.backendLifecycle.starting": "起動中 — 管理対象 API を検証中",
@@ -144,5 +150,11 @@
   "settings.move": "既存ファイルを選択したフォルダーへ移動",
   "settings.moveHelp": "これらのフォルダーを使用する他のアプリを閉じ、バックエンドを停止し、ダウンロードを完了してください。同名ファイルがある場合、コピー前に中止します。検証後に元のファイルを削除し、コピー成功後にパスを保存します。",
   "settings.moveSave": "ファイルを移動して保存",
-  "settings.moved": "{count}個のファイルを移動しました"
+  "settings.moved": "{count}個のファイルを移動しました",
+  "setup.tab.studio": "スタジオ",
+  "setup.remembered": "インストール先：{path}。再利用前に環境を確認します。バックエンドの自動起動は設定で無効にできます。",
+  "settings.language.system": "システムの言語 — {name}",
+  "settings.language.customTag": "カスタム",
+  "settings.language.custom": "システムの言語は {name} です。最初の項目を選ぶと再びそれに従います。",
+  "settings.language.auto": "システムの言語に自動で従います。"
 }

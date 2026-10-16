@@ -98,7 +98,7 @@ fn anonymous_defaults_never_access_vault() {
     assert!(default.status().unwrap().iter().all(|s| !s.configured));
 }
 #[test]
-fn persisted_credentials_require_explicit_restore_and_delete_across_restart() {
+fn persisted_credentials_are_activated_and_deleted_across_restart() {
     let (state, store) = fixture();
     assert!(
         state
@@ -107,12 +107,12 @@ fn persisted_credentials_require_explicit_restore_and_delete_across_restart() {
             .persisted
     );
     drop(state);
-    let restarted = AuthState::with_store(Box::new(store.clone()));
+    let restarted = AuthState::with_store(Box::new(store.clone())).restore_saved();
     assert!(restarted
-        .credential("github", "https://api.github.com")
+        .status()
         .unwrap()
-        .is_none());
-    assert!(restarted.restore("github").unwrap().persisted);
+        .iter()
+        .any(|s| s.provider_id == "github" && s.configured && s.persisted));
     assert_eq!(
         restarted
             .credential("github", "https://api.github.com")
@@ -124,6 +124,44 @@ fn persisted_credentials_require_explicit_restore_and_delete_across_restart() {
     assert!(!restarted.restore("github").unwrap().configured);
     assert!(store.values.lock().unwrap().is_empty());
     restarted.remove("github").unwrap();
+}
+#[test]
+fn startup_restore_is_scoped_and_survives_unavailable_or_invalid_vault() {
+    let store = FakeStore::default();
+    store
+        .values
+        .lock()
+        .unwrap()
+        .insert(account("github", "https://evil.example"), "foreign".into());
+    store.values.lock().unwrap().insert(
+        account("civitai", "https://civitai.com"),
+        "bad\nsecret".into(),
+    );
+    store.values.lock().unwrap().insert(
+        account("huggingface", "https://huggingface.co"),
+        "saved".into(),
+    );
+    let state = AuthState::with_store(Box::new(store.clone())).restore_saved();
+    assert_eq!(
+        state
+            .credential("huggingface", "https://huggingface.co")
+            .unwrap()
+            .as_deref(),
+        Some("saved")
+    );
+    assert!(state
+        .credential("github", "https://api.github.com")
+        .unwrap()
+        .is_none());
+    assert!(state
+        .credential("civitai", "https://civitai.com")
+        .unwrap()
+        .is_none());
+    store.fail.store(true, Ordering::SeqCst);
+    let unavailable = AuthState::with_store(Box::new(store.clone())).restore_saved();
+    assert!(unavailable.status().unwrap().iter().all(|s| !s.configured));
+    store.fail.store(false, Ordering::SeqCst);
+    assert!(unavailable.restore("huggingface").unwrap().configured);
 }
 #[test]
 fn failed_vault_writes_and_removals_preserve_existing_memory() {
@@ -299,4 +337,172 @@ fn invalid_vault_content_never_enters_memory_or_errors() {
         .credential("github", "https://api.github.com")
         .unwrap()
         .is_none());
+}
+
+#[tokio::test]
+async fn identity_probe_never_confuses_transport_or_public_responses_with_valid_auth() {
+    for (status, content_type, body, expected) in [
+        (
+            401,
+            "application/json",
+            r#"{"error":"fixture-secret"}"#,
+            "rejected",
+        ),
+        (403, "application/json", "{}", "unavailable"),
+        (429, "application/json", "{}", "unavailable"),
+        (503, "application/json", "{}", "unavailable"),
+        (
+            302,
+            "application/json",
+            r#"{"id":1,"login":"fixture"}"#,
+            "unavailable",
+        ),
+        (
+            200,
+            "text/html",
+            r#"{"id":1,"login":"fixture"}"#,
+            "unavailable",
+        ),
+        (
+            200,
+            "application/json",
+            r#"{"items":[],"metadata":{}}"#,
+            "unavailable",
+        ),
+        (
+            200,
+            "application/json",
+            r#"{"id":0,"login":"fixture"}"#,
+            "unavailable",
+        ),
+        (
+            200,
+            "application/json",
+            r#"{"id":1,"login":""}"#,
+            "unavailable",
+        ),
+        (
+            200,
+            "application/json",
+            "not-json fixture-secret",
+            "unavailable",
+        ),
+    ] {
+        let (url, server) = identity_fixture(status, content_type, body).await;
+        let result = probe_identity(
+            "github",
+            url,
+            HeaderValue::from_static("Bearer fixture-secret"),
+        )
+        .await;
+        assert_eq!(result, expected);
+        assert!(!result.contains("fixture-secret"));
+        server.await.unwrap();
+    }
+    let huge = "x".repeat(65537);
+    let (url, server) = identity_fixture(200, "application/json", &huge).await;
+    assert_eq!(
+        probe_identity(
+            "github",
+            url,
+            HeaderValue::from_static("Bearer fixture-secret")
+        )
+        .await,
+        "unavailable"
+    );
+    server.await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    drop(listener);
+    assert_eq!(
+        probe_identity(
+            "github",
+            url,
+            HeaderValue::from_static("Bearer fixture-secret")
+        )
+        .await,
+        "unavailable"
+    );
+}
+
+#[tokio::test]
+async fn identity_probe_bounds_streamed_body_and_stalled_response() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let n = stream.read(&mut request).await.unwrap();
+        assert!(n > 0);
+        let body = "x".repeat(65537);
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n", body.len());
+        stream.write_all(response.as_bytes()).await.ok();
+    });
+    assert_eq!(
+        probe_identity(
+            "github",
+            url,
+            HeaderValue::from_static("Bearer fixture-secret")
+        )
+        .await,
+        "unavailable"
+    );
+    server.await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let start = std::time::Instant::now();
+    assert_eq!(
+        probe_identity(
+            "github",
+            url,
+            HeaderValue::from_static("Bearer fixture-secret")
+        )
+        .await,
+        "unavailable"
+    );
+    assert!(start.elapsed() < std::time::Duration::from_secs(10));
+}
+
+async fn identity_fixture(
+    status: u16,
+    content_type: &str,
+    body: &str,
+) -> (Url, tokio::task::JoinHandle<String>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = Url::parse(&format!(
+        "http://{}/identity",
+        listener.local_addr().unwrap()
+    ))
+    .unwrap();
+    let response = format!("HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nLocation: http://127.0.0.1:9/forbidden\r\nConnection: close\r\n\r\n{body}", body.len());
+    let task = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = vec![0; 16384];
+        let n = stream.read(&mut bytes).await.unwrap();
+        stream.write_all(response.as_bytes()).await.ok();
+        String::from_utf8_lossy(&bytes[..n]).to_string()
+    });
+    (url, task)
+}
+#[tokio::test]
+async fn identity_probe_confirms_each_provider_only_from_authenticated_identity_schema() {
+    for (provider, body) in [
+        ("civitai", r#"{"id":1,"username":"fixture"}"#),
+        ("github", r#"{"id":1,"login":"fixture"}"#),
+        (
+            "huggingface",
+            r#"{"id":"abc","name":"fixture","type":"user"}"#,
+        ),
+    ] {
+        let (url, server) = identity_fixture(200, "application/json", body).await;
+        let mut header = HeaderValue::from_static("Bearer fixture-secret");
+        header.set_sensitive(true);
+        assert_eq!(probe_identity(provider, url, header).await, "verified");
+        let request = server.await.unwrap().to_lowercase();
+        assert!(request.starts_with("get /identity http/1.1"));
+        assert!(request.contains("authorization: bearer fixture-secret"));
+        assert!(!request.contains("cookie:"));
+    }
 }

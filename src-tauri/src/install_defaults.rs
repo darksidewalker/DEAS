@@ -39,7 +39,7 @@ fn recommend(
         }
     };
     if std::fs::symlink_metadata(&target).is_ok() {
-        warnings.push("Default environment already exists; select a new directory. Existing files are never adopted, overwritten or wiped.".into());
+        warnings.push("Default environment already exists; DEAS will check it for reuse. It is never reinstalled, renamed, overwritten or wiped.".into());
     }
     Ok(InstallDefaults {
         storage_path: target

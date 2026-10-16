@@ -1,6 +1,8 @@
 //! Optional staged data downloads. Catalogs never grant execution or credential access.
 #[path = "downloads/fs.rs"]
 pub(crate) mod fs;
+#[path = "downloads_models.rs"]
+pub mod models;
 #[path = "downloads_providers.rs"]
 mod providers;
 #[cfg(test)]
@@ -58,6 +60,12 @@ pub struct Resource {
     /// Version publication date supplied by the provider (RFC 3339).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published_at: Option<String>,
+    /// Model version name; groups the files (quants, formats) of one release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Display-only file variant, e.g. "fp8 · pruned · SafeTensor · ≈13.5 GB"; never used for verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -924,7 +932,8 @@ fn source_url(p: &Provider, s: &str) -> Result<Url, String> {
     let u = validate_url(s, false, p.kind == "civitai")?;
     if p.kind == "civitai"
         && u.query_pairs().any(|(k, v)| {
-            !matches!(k.as_ref(), "type" | "format" | "size" | "fp")
+            !matches!(k.as_ref(), "type" | "format" | "size" | "fp" | "fileId")
+                || (k == "fileId" && !v.bytes().all(|b| b.is_ascii_digit()))
                 || v.len() > 80
                 || !v
                     .bytes()
@@ -940,6 +949,12 @@ fn validate_resource(p: &Provider, r: &Resource) -> Result<(), String> {
     bounded_text(&r.label, 240)?;
     if let Some(date) = &r.published_at {
         bounded_text(date, 64)?;
+    }
+    if let Some(version) = &r.version {
+        bounded_text(version, 240)?;
+    }
+    if let Some(variant) = &r.variant {
+        bounded_text(variant, 240)?;
     }
     validate_kind(&r.kind)?;
     validate_metadata(

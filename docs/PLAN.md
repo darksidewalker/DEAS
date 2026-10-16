@@ -17,7 +17,7 @@ The final product provisions ComfyUI through a native Rust installer ported from
 
 DEAS owns feature selection, inputs/settings, media, validation, queue/progress and output playback/export. ComfyUI only receives and executes dynamically compiled API-format jobs; its internal computational nodes are not the source of DEAS UI controls. No embedded ComfyUI editor, node widget forms or node-side previews. Prefer a verified SDK/API adapter with explicit local endpoint binding; retain a separate classic API adapter when v2 is absent. SDK availability, beta proxy requirements, job/output ownership and safety gates are specified in [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md).
 
-Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No automatic service start, cloud fallback or assumption of generation readiness.
+Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No foreign-service start/adoption, cloud fallback or assumption of generation readiness; owned-backend autostart follows the Settings preference.
 
 ## Milestones and acceptance checklist
 
@@ -91,7 +91,7 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Bind the studio automatically to the actual running owned backend endpoint, once per endpoint/lifecycle; preserve explicit Start/Stop and do not auto-inspect, submit or claim generation readiness.
 - [ ] Complete the diagnostic classic execution slice: explicit job submission, correlated progress/cancellation, validated output retrieval and DEAS playback/export.
 - [ ] Verify a consented real model job separately before marking any generation recipe ready.
-- [ ] Support ownership-verified reopening after app restart; saved setup drafts alone cannot authorize environment adoption.
+- [x] Support checked reopening of completed DEAS environments after app restart using bounded manifests, native ownership/launch-file capture and one-time preview approval; saved setup drafts alone never authorize reuse. Auto-start the owned backend by default with a persisted Settings opt-out; real target-platform/GPU restart acceptance remains separate from fixture proof.
 
 ### Diagnostic classic job transport (0.1.4, implemented bounded slice)
 - [x] Revalidate the explicit versioned diagnostic intent natively against fresh core prerequisites; store an immutable native endpoint/graph plan.
@@ -131,7 +131,31 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 - [x] Library sorts catalog cards and loaded file rows by publication date (newest first) or name (A–Z); undated entries last.
 - [x] Atomic settings saves and no-clobber relocation groundwork: all-tree conflict/overlap checks before copying, exclusive streamed copy, byte verification, settings switched only after verification, originals removed last; collisions abort, never overwrite.
 
-### Folder alias resolution and safe relocation (0.1.8, current)
+### Existing environments and backend autostart (0.1.10, current)
+- [x] Native existing-environment previews and checked open without reinstalling, updating or wiping; changed manifests/launch files invalidate the preview.
+- [x] Restore the last selected complete environment, revalidate before open and auto-start only the owned backend by default; persist the Settings opt-out and never auto-restart after manual Stop.
+- [x] Prevent duplicate DEAS starts with an OS-held environment lock; fixture tests preserve explicit start/stop and foreign-service isolation.
+- [x] Read-only native inspection/open of the owner's existing NVIDIA/Director environment succeeds. Real GPU/backend execution after reopening and Windows runtime acceptance remain unverified.
+
+### Automatic provider-token checks (0.1.9)
+- [x] Check configured official-provider tokens automatically on authorization-panel opening/provider change and after saving/restoring; Refresh retries without re-entry.
+- [x] Show a green checkmark only for validated authenticated identity responses. Distinguish rejected credentials from unavailable/unsupported checks; keep credentials native-only and discard stale results.
+- [x] Verify real local HTTP fixtures, frontend IPC and five browser widths; rebuild the Linux artifact. Real provider/vault acceptance remains open.
+
+### Library rework, setup layout and remembered choices (0.1.9, in progress)
+- [x] Root cause of "a checkpoint shows no files": real CivitAI version downloads are `…/api/download/models/<version>?fileId=<n>` and the native URL guard only accepted `type|format|size|fp`, so the whole model listing failed and the only error appeared at the far end of the panel. `fileId` (digits only) is now accepted; unit test plus an ignored live test (`live_civitai_checkpoint_lists_selectable_files`, 26 selectable files for model 1981116).
+- [x] Clicking a card opens its file picker directly under the card; loading (spinner) and browse failures show inside that picker. Files are grouped by model version chips; each file row shows its variant (`fp8 · pruned · SafeTensor · ≈13.5 GB`, display-only — rounded CivitAI size is never used for verification).
+- [x] Sort is an inline `Newest ↓ / Name ↑` chip pair with direction toggle.
+- [x] Setup layout: installer, credentials and settings are buttons right of the headline; the tab band is Studio then Library; the install review shows only on the installer view and hides after success (second installer click re-runs); install status with spinner sits under the band.
+- [x] Remembered choices through `src/lib/preferences.ts` (`usePref`, validated): install folder (restored only while `deas-install.json` exists, otherwise first run returns), Library category/base/media/sort, Studio sub-tab.
+- [ ] One flow per card: selection count, destination, Prepare, consent and Start inside the picker instead of at the panel bottom; one-click "download this variant" for the common single-file case.
+- [ ] Exact sizes and free-space check in the plan (HEAD/Content-Length), not only the rounded display size.
+- [ ] Per-version browsing instead of one model-wide listing capped at 50 files; mark cards whose files are already local.
+- [ ] Variant labels for Hugging Face/HTTP sources (quant suffixes, sizes); version grouping exists only for CivitAI.
+- [x] Backend start for a remembered completed install after checked reopening, with default-on autostart and a persistent Settings opt-out. Native local-process fixtures and read-only opening of the owner’s environment are verified; real GPU restart execution is not.
+- [ ] Native-window click-through acceptance of the Library (WebKitGTK); current evidence is browser fixtures plus the live native listing test.
+
+### Folder alias resolution and safe relocation (0.1.8)
 - [x] `native_pick_directory` canonicalizes explicitly chosen existing directories at the chooser boundary; installation execution still refuses symlink substitutions.
 - [x] First-setup optional folders remain an in-memory draft; Settings edits that same draft before success and keeps installed folder settings in separate state (saving/moving after success never invalidates the provisioning plan).
 - [x] Post-install Settings separates path-only save from explicit **Move files & save folders** consent; retained originals are warnings, not successful moved-file counts. Relocation currently supports Linux; other platforms reject movement without changing files. The per-app `FolderOperations` gate covers settings writes/moves and backend/install/download startup.

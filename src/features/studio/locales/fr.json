@@ -8,8 +8,6 @@
   "studio.api.classic": "API classique",
   "studio.api.notReady": "La génération n’a pas été vérifiée. La détection de l’API ne confirme ni les modèles ni une recette Director exécutable.",
   "studio.previewNotice": "Aucune installation n’est nécessaire pour explorer. Les outils du studio sont un aperçu local.",
-  "studio.hide": "Masquer l’aperçu du studio",
-  "studio.explore": "Explorer le studio sans installation",
   "studio.features": "Fonctionnalités connectées du studio",
   "studio.map": "CARTE DE L’ESPACE DE TRAVAIL",
   "studio.select": "SÉLECTIONNEZ UN NŒUD POUR L’OUVRIR",

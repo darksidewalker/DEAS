@@ -8,6 +8,7 @@ import { ApiNegotiationPanel } from './features/studio/ApiNegotiationPanel';
 import { RecipePrerequisitesPanel } from './features/studio/RecipePrerequisitesPanel';
 import { MediaLibrary } from './features/media/MediaLibrary';
 import type { MediaItem } from './lib/media';
+import { oneOf, usePref } from './lib/preferences';
 const studioTabs=['video','image','map'] as const;
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
@@ -27,7 +28,7 @@ function readDraft():DirectorDraft {
  return {...defaultDraft};
 }
 export default function App(){
- const {t,locale,setLocale,languages}=useI18n();
+ const {t}=useI18n();
  const [active,setActive]=useState<string|null>(null);
  const [endpoint,setEndpoint]=useState('http://127.0.0.1:7801');
  const [snapshot,setSnapshot]=useState<BackendSnapshot|null>(null);
@@ -45,24 +46,20 @@ export default function App(){
  function updateDraft(patch:Partial<DirectorDraft>){setDraft(d=>({...d,...patch}));setDraftStatus('studio.draft.unsaved');}
  function saveDraft(){try{localStorage.setItem(draftKey,JSON.stringify(draft));setDraftStatus('studio.draft.saved');}catch{setDraftStatus('studio.draft.saveError');}}
  function closePanel(){document.querySelector<HTMLButtonElement>(`[data-node="${active}"] button`)?.focus();setActive(null);}
- const [studioVisible,setStudioVisible]=useState(false);
- const [tab,setTab]=useState<typeof studioTabs[number]>('video');
+ const [tab,setTab]=usePref('studio.tab','video',oneOf(...studioTabs));
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
- useEffect(()=>{if(pendingConnectionFocus&&studioVisible&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,studioVisible,active]);
- function connectExisting(baseUrl:string){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);setSnapshot(null);setInspectionError('');setStudioVisible(true);setTab('map');setActive('engine');setPendingConnectionFocus(true);}
+ useEffect(()=>{if(pendingConnectionFocus&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,active]);
+ function connectExisting(baseUrl:string){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);setSnapshot(null);setInspectionError('');setTab('map');setActive('engine');setPendingConnectionFocus(true);}
  const includedIds=new Set(builtinPlugins.flatMap(p=>p.includes??[]));
  const nodes:NeuralNode[]=builtinPlugins.filter(p=>!includedIds.has(p.id)&&p.kind!=='plugin').map((p,index)=>({id:p.id,label:t(p.nameKey!),description:t(`studio.hint.${p.id}`),included:(p.includes??[]).map(id=>({id,label:t(builtinPlugins.find(part=>part.id===id)!.nameKey!)})),parentId:p.parentId,...(presentation[p.id]??{column:2,order:index}),status:t(p.id==='engine'?inspecting?'studio.status.inspecting':snapshot?'studio.status.snapshot':inspectionError?'studio.status.error':'studio.status.notInspected':p.id==='director'?'studio.status.draft':p.id==='plugins'?'studio.status.registry':'studio.status.planned')}));
  const edges:NeuralEdge[]=builtinPlugins.flatMap(p=>active===p.id?(p.suggests??[]).map(id=>({id:`suggested:${p.id}:${id}`,fromId:p.id,toId:id,kind:'suggested' as const})):[]);
  const selected=builtinPlugins.find(p=>p.id===active);
  return <div className="studio-shell">
   <header className="masthead"><a className="wordmark" href="#workspace" aria-label={t('app.home')}><span className="brand-symbol" aria-hidden="true">✳</span> {t('app.brand')}<span className="brand-caption">{t('app.brandCaption')}</span></a>
-   <label className="language-control">{t('app.language')}<select aria-label={t('app.language')} value={locale} onChange={e=>setLocale(e.target.value)}>{languages.map(l=><option key={l.id} value={l.id}>{l.name} ({l.id})</option>)}</select></label>
    <span className="phase"><i/>{t('app.phase')}</span></header>
   <main id="workspace">
-   <AiOSetup onConnectExisting={connectExisting} onInstalled={()=>setStudioVisible(true)}/>
-   <div className="studio-entry"><p>{t('studio.previewNotice')}</p><button className="close-button studio-explore" type="button" aria-expanded={studioVisible} aria-controls="studio-workspace" onClick={()=>setStudioVisible(v=>!v)}>{t(studioVisible?'studio.hide':'studio.explore')}<span aria-hidden="true">{studioVisible?'−':'↗'}</span></button></div>
-   {studioVisible&&<div id="studio-workspace" className="studio-workspace">
+   <AiOSetup onConnectExisting={connectExisting} studio={<div id="studio-workspace" className="studio-workspace"><p className="field-help">{t('studio.previewNotice')}</p>
     <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
     <div className="studio-columns"><MediaLibrary selected={media} onSelect={setMedia}/>
     <div className="studio-main">
@@ -87,7 +84,7 @@ export default function App(){
     <aside className="studio-note"><span className="note-index">{t('studio.firstConnection')}</span><p>{t('studio.firstHelp')}</p><span className="note-end" aria-hidden="true">↖</span></aside>
     </>}
     </div></div>
-   </div>}
+   </div>}/>
   </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span><span>{t('app.noCloud')}</span></footer>
  </div>;
 }

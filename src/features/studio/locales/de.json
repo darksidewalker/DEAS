@@ -8,8 +8,6 @@
   "studio.api.classic": "Classic-API",
   "studio.api.notReady": "Generierung wurde nicht verifiziert. API-Erkennung bestätigt weder Modelle noch eine ausführbare Director-Recipe.",
   "studio.previewNotice": "Zum Erkunden ist keine Installation nötig. Studio-Werkzeuge sind eine lokale Vorschau.",
-  "studio.hide": "Studio-Vorschau ausblenden",
-  "studio.explore": "Studio ohne Installation erkunden",
   "studio.features": "Verbundene Studio-Funktionen",
   "studio.map": "ARBEITSBEREICHSKARTE",
   "studio.select": "ZUM ÖFFNEN EINEN KNOTEN WÄHLEN",

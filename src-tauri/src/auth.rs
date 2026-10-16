@@ -1,5 +1,5 @@
-//! Independent origin-bound credential plugin. No catalog/network authority.
-//! Session memory is the default. Vault reuse requires explicit `native_auth_restore`.
+//! Origin-bound credentials and fixed read-only provider identity checks.
+//! The desktop restores saved official-provider tokens once at startup.
 //! Native consumers must disable redirects and never log returned credential strings.
 use reqwest::{header::HeaderValue, Url};
 use serde::Serialize;
@@ -149,6 +149,15 @@ impl AuthState {
             store,
         }
     }
+    /// Restore only DEAS's fixed provider/origin accounts; custom scopes remain explicit.
+    pub fn restore_saved(self) -> Self {
+        for (id, _) in PROVIDERS {
+            if self.restore(id).is_err() {
+                eprintln!("DEAS: saved authorization unavailable for {id}; retry Restore in Provider authorization");
+            }
+        }
+        self
+    }
     pub fn status(&self) -> Result<Vec<AuthProviderStatus>, String> {
         let providers = self.providers.lock().map_err(|_| UNAVAILABLE.to_string())?;
         Ok(providers.iter().map(|(id, p)| metadata(id, p)).collect())
@@ -203,7 +212,7 @@ impl AuthState {
         p.persisted = persist;
         Ok(metadata(id, p))
     }
-    /// Explicit restore: default/status/credential never consult the OS vault.
+    /// Also used once by desktop startup; status/credential never consult the OS vault.
     pub fn restore(&self, id: &str) -> Result<AuthProviderStatus, String> {
         let mut providers = self.providers.lock().map_err(|_| UNAVAILABLE.to_string())?;
         let p = providers.get_mut(id).ok_or_else(|| UNKNOWN.to_string())?;
@@ -286,6 +295,151 @@ impl AuthState {
         Ok(Some(header))
     }
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthVerification {
+    provider_id: String,
+    status: &'static str,
+}
+
+// Identity APIs: CivitAI api/v1/me (AuthedEndpoint), HF whoami-v2, GitHub GET /user.
+// A public catalog response is never authentication evidence.
+async fn probe_identity(id: &str, url: Url, authorization: HeaderValue) -> &'static str {
+    let Ok(client) = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(4))
+        .timeout(std::time::Duration::from_secs(8))
+        .user_agent("DEAS-token-check")
+        .build()
+    else {
+        return "unavailable";
+    };
+    let mut request = client
+        .get(url)
+        .header(reqwest::header::AUTHORIZATION, authorization)
+        .header(reqwest::header::ACCEPT, "application/json");
+    if id == "github" {
+        request = request
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2026-03-10");
+    }
+    let Ok(mut response) = request.send().await else {
+        return "unavailable";
+    };
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return "rejected";
+    }
+    // 403 may be rate limiting or temporary blocking, not an invalid token.
+    if response.status() != reqwest::StatusCode::OK {
+        return "unavailable";
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if content_type != "application/json"
+        && !(content_type.starts_with("application/") && content_type.ends_with("+json"))
+    {
+        return "unavailable";
+    }
+    const MAX_BYTES: usize = 64 * 1024;
+    if response
+        .content_length()
+        .is_some_and(|n| n > MAX_BYTES as u64)
+    {
+        return "unavailable";
+    }
+    let mut body = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) if body.len() + chunk.len() <= MAX_BYTES => {
+                body.extend_from_slice(&chunk)
+            }
+            Ok(None) => break,
+            _ => return "unavailable",
+        }
+    }
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return "unavailable";
+    };
+    let nonempty = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| !v.trim().is_empty())
+    };
+    let valid = match id {
+        "civitai" => value["id"].as_u64().is_some_and(|v| v > 0) && nonempty("username"),
+        "github" => value["id"].as_u64().is_some_and(|v| v > 0) && nonempty("login"),
+        "huggingface" => {
+            nonempty("id")
+                && nonempty("name")
+                && matches!(value["type"].as_str(), Some("user" | "org" | "app"))
+        }
+        _ => false,
+    };
+    if valid {
+        "verified"
+    } else {
+        "unavailable"
+    }
+}
+
+#[tauri::command]
+pub async fn native_auth_verify(
+    state: tauri::State<'_, AuthState>,
+    provider_id: String,
+) -> Result<AuthVerification, String> {
+    let path = match provider_id.as_str() {
+        "civitai" => "/api/v1/me",
+        "huggingface" => "/api/whoami-v2",
+        "github" => "/user",
+        _ => {
+            return Ok(AuthVerification {
+                provider_id,
+                status: "unsupported",
+            })
+        }
+    };
+    let origin = PROVIDERS
+        .iter()
+        .find(|(id, _)| *id == provider_id)
+        .ok_or(UNKNOWN)?
+        .1;
+    let Some(value) = state.credential(&provider_id, origin)? else {
+        return Ok(AuthVerification {
+            provider_id,
+            status: "unavailable",
+        });
+    };
+    let token = Token(value.into_bytes());
+    let bearer = Token([b"Bearer ".as_slice(), token.0.as_slice()].concat());
+    let mut header = HeaderValue::from_bytes(&bearer.0)
+        .map_err(|_| "Invalid authentication header".to_string())?;
+    header.set_sensitive(true);
+    let url = Url::parse(&format!("{origin}{path}")).map_err(|_| INVALID_ORIGIN.to_string())?;
+    let status = probe_identity(&provider_id, url, header).await;
+    // Removal/replacement while the request is in flight invalidates its evidence.
+    let current = state
+        .credential(&provider_id, origin)?
+        .map(|value| Token(value.into_bytes()));
+    let status = if current.as_ref().is_some_and(|current| current.0 == token.0) {
+        status
+    } else {
+        "unavailable"
+    };
+    Ok(AuthVerification {
+        provider_id,
+        status,
+    })
+}
+
 #[tauri::command]
 pub fn native_auth_status(
     state: tauri::State<'_, AuthState>,

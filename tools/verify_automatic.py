@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import sys
 from playwright.sync_api import sync_playwright
+from deas_locale import set_locale
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
 strings = {locale: json.loads((root / f'src/components/setup/locales/{locale}.json').read_text()) for locale in ('de','en','fr','ja','tr','zh')}
@@ -29,7 +30,7 @@ with sync_playwright() as p:
             page.on('pageerror', lambda e: errors.append(str(e)))
             if native: page.add_init_script(fixture)
             page.goto(url, wait_until='networkidle')
-            page.locator('.language-control select').select_option('en')
+            set_locale(page,'en')
             page.locator('[data-node="setup:aio"]').click()
             assert page.locator('button[data-setup-mode="guided"]').count()==0
             storage=page.locator('#auto-storage')
@@ -53,12 +54,13 @@ with sync_playwright() as p:
             backend.select_option('cpu')
             page.locator('#auto-ref').fill('master')
             for locale,t in strings.items():
-                page.locator('.language-control select').select_option(locale)
+                set_locale(page,locale,'[data-node="setup:aio"]')
                 assert storage.input_value()=='/edited/new-environment'
                 assert backend.input_value()=='cpu'
                 assert page.get_by_role('heading',name=t['setup.autoReview'],exact=True).count()==1
                 assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale)
-            page.locator('.language-control select').select_option('en')
+            set_locale(page,'en','[data-node="setup:aio"]')
+            page.locator('details.aio-advanced').evaluate('d=>{d.open=true}')  # the review remounts after visiting Settings
             if native:
                 start=page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True)
                 start.wait_for()
@@ -88,15 +90,19 @@ with sync_playwright() as p:
                 page.locator('[data-studio-tab="map"]').click()
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==0
                 assert page.locator('[data-node="director"]').count()==1
+                # Success switches to Studio; the backend lifecycle lives on the installer view, without the review.
+                page.locator('[data-node="setup:aio"]').click()
+                assert page.locator('.aio-auto-review').count()==0
                 page.get_by_role('button',name=strings['en']['setup.backendLifecycle.start'],exact=True).click()
+                page.locator('[data-node="studio"]').click()
                 page.wait_for_function("document.querySelector('#endpoint')?.value==='http://127.0.0.1:49173'")
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==1
                 assert not page.evaluate("__calls.some(x=>/inspect|prerequisites|negotiate/.test(x.command))")
                 for locale in strings:
-                    page.locator('.language-control select').select_option(locale)
+                    set_locale(page,locale,'[data-node="studio"]')
                     assert page.locator('#endpoint').input_value()=='http://127.0.0.1:49173'
                     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale,'handoff')
-                page.locator('.language-control select').select_option('en')
+                set_locale(page,'en','[data-node="studio"]')
                 if width in (1440,320):
                     page.screenshot(path=str(root/f'assets/deas-studio-handoff-fixture-{width}.png'),full_page=True)
             assert not errors,errors

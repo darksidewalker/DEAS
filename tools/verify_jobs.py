@@ -6,6 +6,7 @@ import hashlib
 import struct
 import zlib
 from playwright.sync_api import sync_playwright
+from deas_locale import set_locale
 
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
@@ -37,8 +38,8 @@ with sync_playwright() as p:
         page.add_init_script('window.__outputFixture=' + json.dumps(output_fixture) + ';window.__exportCancel=true;')
         page.add_init_script(fixture)
         page.goto(url, wait_until='networkidle')
-        page.locator('.language-control select').select_option('en')
-        page.locator('.studio-explore').click()
+        set_locale(page, 'en')
+        page.locator('[data-node="studio"]').click()
         page.locator('[data-studio-tab="map"]').click()
         page.locator('[data-node="engine"] > button').click()
         assert page.evaluate('__calls.length') == 0
@@ -58,10 +59,10 @@ with sync_playwright() as p:
         jobs.locator('[data-job-prepare]').click()
         consent.wait_for()
         for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
-            page.locator('.language-control select').select_option(locale)
+            set_locale(page, locale, '[data-node="studio"]')
             assert not consent.is_checked(), 'Locale changes cannot authorize a job'
             assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'), (width, locale)
-        page.locator('.language-control select').select_option('en')
+        set_locale(page, 'en', '[data-node="studio"]')
         assert page.evaluate("__calls.filter(x=>x.command==='native_job_submit').length") == 0
         consent.check()
         jobs.locator('[data-job-submit]').click()
@@ -105,9 +106,9 @@ with sync_playwright() as p:
         assert page.evaluate("__calls.filter(x=>x.command==='native_job_output').length") == 1
         assert page.evaluate("__calls.filter(x=>x.command==='native_job_export').every(x=>x.args.jobId==='fixture-job'&&x.args.index===0&&typeof x.args.title==='string'&&!('path' in x.args)&&!('bytes' in x.args))")
         for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
-            page.locator('.language-control select').select_option(locale)
+            set_locale(page, locale, '[data-node="studio"]')
             assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'), (width, locale, 'completed')
-        page.locator('.language-control select').select_option('en')
+        set_locale(page, 'en', '[data-node="studio"]')
         if width in (1440, 320):
             page.screenshot(path=str(root / f'assets/deas-jobs-fixture-{width}.png'), full_page=True)
         assert not errors, errors

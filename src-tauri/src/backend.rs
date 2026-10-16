@@ -32,7 +32,7 @@ impl Default for Status {
     }
 }
 
-/// Never reconstructed from disk: possession requires success in this Engine.
+/// Captured after native provisioning or explicit validated existing-environment approval.
 #[derive(Clone)]
 pub(crate) struct Approved {
     plan: Plan,
@@ -85,7 +85,7 @@ fn identity(path: &Path) -> Result<(u64, u64, u32), String> {
 fn identity(_: &Path) -> Result<(u64, u64, u32), String> {
     Err("Owned lifecycle supports Linux and Windows only".into())
 }
-fn read_owned(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn read_owned(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
     use std::io::Read;
     safe_path(path)?;
     let mut options = fs::OpenOptions::new();
@@ -184,7 +184,7 @@ impl Approved {
         approved.validate()?;
         Ok(approved)
     }
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         if !self.plan.can_execute
             || !matches!(self.plan.request.backend, Backend::Cpu | Backend::Nvidia)
         {
@@ -215,6 +215,7 @@ impl Approved {
 struct Inner {
     status: Status,
     child: Option<Child>,
+    environment_lock: Option<fs::File>,
     #[cfg(windows)]
     job: Option<crate::win::Job>,
     serial: u64,
@@ -262,6 +263,33 @@ fn exited(child: &Child) -> Result<bool, String> {
 fn exited(_: &Child) -> Result<bool, String> {
     Err("Unsupported platform".into())
 }
+fn lock_environment(root: &Path) -> Result<fs::File, String> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options
+            .share_mode(0)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(root.join("deas-install.json")).map_err(|_| {
+        "Environment is unavailable or already in use by another DEAS instance".to_string()
+    })?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err("Environment is already running in another DEAS instance; no duplicate backend was started".into());
+        }
+    }
+    Ok(file)
+}
 fn terminate(inner: &mut Inner) {
     if let Some(mut child) = inner.child.take() {
         #[cfg(target_os = "linux")]
@@ -278,6 +306,7 @@ fn terminate(inner: &mut Inner) {
             Err(error) => log(inner, format!("Owned child reap failed: {error}")),
         }
     }
+    inner.environment_lock = None;
     inner.status.endpoint = None;
 }
 fn fail(inner: &mut Inner, error: String) {
@@ -394,6 +423,7 @@ impl Lifecycle {
         }
         approved.validate()?;
         let root = Path::new(&approved.plan.request.storage_path);
+        let environment_lock = lock_environment(root)?;
         let mut command = Command::new(root.join(VENV_PYTHON));
         command.args([
             "-u",
@@ -491,6 +521,7 @@ impl Lifecycle {
                 }
             }
         }
+        inner.environment_lock = Some(environment_lock);
         inner.serial += 1;
         let serial = inner.serial;
         inner.port = port;

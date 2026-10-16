@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "deas-settings.json";
-const MODEL_FOLDERS: [&str; 14] = [
+pub(crate) const MODEL_FOLDERS: [&str; 14] = [
     "checkpoints",
     "diffusion_models",
     "loras",
