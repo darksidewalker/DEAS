@@ -17,7 +17,6 @@
   "setup.aio.description": "Rust によるネイティブセットアップ — インストールはまだ実行されていません。",
   "setup.status.notInstalled": "未インストール",
   "setup.region": "AiO セットアッププランナー",
-  "setup.eyebrow": "セットアップ · ご自身による明示的な選択",
   "setup.decisions": "AiO セットアップの選択項目",
   "setup.capabilityHelp": "ComfyUI が基本構成です。Director は任意で追加でき、Forge、RefMods、Continuity、Output をひとつのパッケージとして含みます。",
   "setup.storageDirectory": "保存先ディレクトリ",
@@ -161,5 +160,8 @@
   "setup.reinstallTitle": "インストールを再実行しますか？",
   "setup.reinstallWarning": "インストールを上書きします：バックエンドを停止し、Python 環境（venv）を削除して再構築し、ComfyUI と DaSiWa ノードを最新版にリセットします（ローカルのコード変更は失われます）。モデル、入力、出力、ワークフロー、設定は保持されます。",
   "setup.reinstallCancel": "キャンセル",
-  "setup.reinstallConfirm": "上書きして再インストール"
+  "setup.reinstallConfirm": "上書きして再インストール",
+  "setup.repo.open": "GitHub リポジトリを開く",
+  "setup.repo.star": "GitHub で DEAS にスターを付ける",
+  "setup.repo.starred": "GitHub でスター済み"
 }

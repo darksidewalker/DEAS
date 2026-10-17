@@ -20,5 +20,6 @@
   "logs.limited": "{count} eşleşmenin en yeni {shown} tanesi gösteriliyor; Kopyala ve Dışa aktar hepsini içerir.",
   "logs.empty": "Henüz günlük satırı yok.",
   "logs.browser": "Günlükler masaüstü uygulamasını gerektirir.",
-  "logs.error": "Hata: {error}"
+  "logs.error": "Hata: {error}",
+  "logs.all": "Tümü"
 }

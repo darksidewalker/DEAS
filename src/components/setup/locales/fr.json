@@ -17,7 +17,6 @@
   "setup.aio.description": "Configuration native en Rust — aucune installation n’a été exécutée.",
   "setup.status.notInstalled": "NON INSTALLÉ",
   "setup.region": "Planificateur de configuration AiO",
-  "setup.eyebrow": "CONFIGURATION · VOS CHOIX EXPLICITES",
   "setup.decisions": "Choix de configuration AiO",
   "setup.capabilityHelp": "ComfyUI constitue le socle. Director est facultatif et inclut Forge, RefMods, Continuity et Output dans un seul ensemble.",
   "setup.storageDirectory": "Dossier de stockage",
@@ -161,5 +160,8 @@
   "setup.reinstallTitle": "Relancer l'installation ?",
   "setup.reinstallWarning": "Cela écrase l'installation : le moteur est arrêté, l'environnement Python (venv) est supprimé puis reconstruit, et ComfyUI ainsi que les nœuds DaSiWa sont remis à leur dernière version (les modifications locales du code sont perdues). Modèles, entrées, sorties, workflows et paramètres sont conservés.",
   "setup.reinstallCancel": "Annuler",
-  "setup.reinstallConfirm": "Écraser et réinstaller"
+  "setup.reinstallConfirm": "Écraser et réinstaller",
+  "setup.repo.open": "Ouvrir le dépôt GitHub",
+  "setup.repo.star": "Mettre une étoile à DEAS sur GitHub",
+  "setup.repo.starred": "Étoile ajoutée sur GitHub"
 }

@@ -66,6 +66,9 @@ pub struct LocalModel {
     pub path: String,
     pub size: u64,
     pub info: Option<ModelInfo>,
+    /// Architecture family from `crate::model_families` (header or CivitAI base); absent = unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
 }
 
 fn is_model(path: &Path) -> bool {
@@ -91,6 +94,13 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         .ok_or("Model path is not valid UTF-8")?
         .to_owned();
     let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
+    let info = read_info(path);
+    let family = crate::model_families::detect(
+        category,
+        path,
+        info.as_ref()
+            .and_then(|i| i.civitai.as_ref()?.base.as_deref()),
+    );
     Ok(LocalModel {
         category: category.into(),
         name: path
@@ -99,7 +109,8 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
             .to_string_lossy()
             .replace('\\', "/"),
         size: meta.len(),
-        info: read_info(path),
+        info,
+        family,
         path: shown,
     })
 }

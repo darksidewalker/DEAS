@@ -10,5 +10,9 @@
   "media.entries": "Folder contents",
   "media.symlink": "Symbolic link",
   "media.empty": "No media or folders here.",
-  "media.truncated": "Only the first 5000 entries are shown."
+  "media.truncated": "Only the first 5000 entries are shown.",
+  "media.roots": "Environment folders",
+  "media.root.output": "Output",
+  "media.root.input": "Input",
+  "media.depth": "Depth"
 }

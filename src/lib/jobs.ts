@@ -16,6 +16,9 @@ export interface JobStatus {
   outputs: { filename: string; subfolder: string; type: 'output' }[];
   error: string | null;
   generationReady: false;
+  /** Live sampler steps and latest preview data URL, only while queued/running. */
+  progress?: { value: number; max: number };
+  preview?: string;
 }
 async function native<T>(command: string, args: Record<string, unknown>): Promise<T> {
   if (!isTauri()) throw new Error('Native job execution requires the DEAS desktop app.');
@@ -42,10 +45,11 @@ export interface JobExport { path: string; sha256: string; size: number }
 export async function loadDiagnosticJobOutput(jobId: string, index: number): Promise<JobOutput> {
   const value = await native<JobOutput>('native_job_output', { jobId, index });
   if (!value || value.jobId !== jobId || value.index !== index || value.mimeType !== 'image/png'
-    || !Number.isInteger(value.width) || value.width <= 0 || value.width > 2048
-    || !Number.isInteger(value.height) || value.height <= 0 || value.height > 2048
+    || !Number.isInteger(value.width) || value.width <= 0 || value.width > 8192
+    || !Number.isInteger(value.height) || value.height <= 0 || value.height > 8192
+    || value.width * value.height > 16_777_216
     || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)
-    || !Array.isArray(value.bytes) || value.bytes.length === 0 || value.bytes.length > 16 * 1024 * 1024) {
+    || !Array.isArray(value.bytes) || value.bytes.length === 0 || value.bytes.length > 144 * 1024 * 1024) {
     throw new Error('Invalid native PNG output.');
   }
   for (const byte of value.bytes) {

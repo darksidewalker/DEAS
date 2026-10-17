@@ -20,5 +20,6 @@
   "logs.limited": "显示 {count} 条匹配中最新的 {shown} 条；复制和导出包含全部。",
   "logs.empty": "暂无日志。",
   "logs.browser": "日志需要桌面应用。",
-  "logs.error": "错误：{error}"
+  "logs.error": "错误：{error}",
+  "logs.all": "全部"
 }

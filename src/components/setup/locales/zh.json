@@ -17,7 +17,6 @@
   "setup.aio.description": "原生 Rust 配置 — 尚未执行任何安装。",
   "setup.status.notInstalled": "尚未安装",
   "setup.region": "AiO 配置规划器",
-  "setup.eyebrow": "配置 · 由您明确选择",
   "setup.decisions": "AiO 配置选择",
   "setup.capabilityHelp": "ComfyUI 是核心。Director 为可选套件，将 Forge、RefMods、Continuity 和 Output 一并包含在内。",
   "setup.storageDirectory": "存储目录",
@@ -161,5 +160,8 @@
   "setup.reinstallTitle": "重新运行安装？",
   "setup.reinstallWarning": "这将覆盖安装：后端会被停止，Python 环境（venv）会被删除并重建，ComfyUI 和 DaSiWa 节点会重置为最新版本（本地代码修改将丢失）。模型、输入、输出、工作流和设置会保留。",
   "setup.reinstallCancel": "取消",
-  "setup.reinstallConfirm": "覆盖并重新安装"
+  "setup.reinstallConfirm": "覆盖并重新安装",
+  "setup.repo.open": "打开 GitHub 仓库",
+  "setup.repo.star": "在 GitHub 上为 DEAS 加星",
+  "setup.repo.starred": "已在 GitHub 加星"
 }

@@ -35,6 +35,7 @@ fn completed(base: &str) -> Jobs {
         error: None,
         submitting: false,
         polling: false,
+        live: Arc::default(),
     });
     jobs
 }
@@ -126,20 +127,21 @@ async fn refuses_non_png_transport_and_invalid_complete_images_without_caching()
             200,
             format!(
                 "Content-Type: image/png\r\nContent-Length: {}",
-                16 * 1024 * 1024 + 1
+                PNG_LIMIT + 1
             ),
         ),
         (
             "actual_size",
-            vec![0; 16 * 1024 * 1024 + 1],
+            vec![0; PNG_LIMIT + 1],
             200,
             "Content-Type: image/png".into(),
         ),
         (
             "chunked_size",
             format!(
-                "1000001\r\n{}\r\n0\r\n\r\n",
-                "x".repeat(16 * 1024 * 1024 + 1)
+                "{:x}\r\n{}\r\n0\r\n\r\n",
+                PNG_LIMIT + 1,
+                "x".repeat(PNG_LIMIT + 1)
             )
             .into_bytes(),
             200,
@@ -350,6 +352,34 @@ async fn fetch_is_exclusive_and_replaced_jobs_cannot_publish_results() {
     assert!(result.err().unwrap().contains("changed"));
     assert!(jobs.lock().unwrap().output.is_none());
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn output_supports_4k_and_pixel_limit_with_bounded_decoding() {
+    for (width, height, valid) in [
+        (3840, 2160, true),
+        (4096, 4096, true),
+        (8192, 2048, true),
+        (8200, 64, false),
+        (8192, 2056, false),
+    ] {
+        let body = png_bytes(width, height);
+        let (base, server) = binary_server(body, 200, "Content-Type: image/png").await;
+        let jobs = completed(&base);
+        {
+            let mut state = jobs.lock().unwrap();
+            let intent = &mut state.job.as_mut().unwrap().plan.intent;
+            intent["width"] = json!(width);
+            intent["height"] = json!(height);
+        }
+        assert_eq!(
+            jobs.output("job-a".into(), 0).await.is_ok(),
+            valid,
+            "{width}x{height}"
+        );
+        assert_eq!(jobs.lock().unwrap().output.is_some(), valid);
+        server.await.unwrap();
+    }
 }
 
 #[tokio::test]

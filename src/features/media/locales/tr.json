@@ -10,5 +10,9 @@
   "media.entries": "Klasör içeriği",
   "media.symlink": "Sembolik bağlantı",
   "media.empty": "Burada medya veya klasör yok.",
-  "media.truncated": "Yalnızca ilk 5000 giriş gösteriliyor."
+  "media.truncated": "Yalnızca ilk 5000 giriş gösteriliyor.",
+  "media.roots": "Ortam klasörleri",
+  "media.root.output": "Çıktı",
+  "media.root.input": "Girdi",
+  "media.depth": "Derinlik"
 }

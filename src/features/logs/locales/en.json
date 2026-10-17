@@ -20,5 +20,6 @@
   "logs.limited": "Showing the newest {shown} of {count} matches; Copy and Export include all.",
   "logs.empty": "No log lines yet.",
   "logs.browser": "Logs need the desktop app.",
-  "logs.error": "Error: {error}"
+  "logs.error": "Error: {error}",
+  "logs.all": "All"
 }

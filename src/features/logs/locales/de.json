@@ -20,5 +20,6 @@
   "logs.limited": "Die neuesten {shown} von {count} Treffern werden angezeigt; Kopieren und Export enthalten alle.",
   "logs.empty": "Noch keine Logzeilen.",
   "logs.browser": "Logs benötigen die Desktop-App.",
-  "logs.error": "Fehler: {error}"
+  "logs.error": "Fehler: {error}",
+  "logs.all": "Alle"
 }

@@ -10,17 +10,32 @@ export interface DiagnosticImageIntentV1 {
   readonly height: number;
   readonly steps: number;
   readonly cfg: number;
-  readonly sampler: 'euler' | 'euler_ancestral' | 'dpmpp_2m';
-  readonly scheduler: 'normal' | 'karras' | 'simple';
+  /** Any sampler/scheduler the backend lists in object_info. */
+  readonly sampler: string;
+  readonly scheduler: string;
   readonly outputPrefix: string;
+  /** Optional LoRA chain applied after the checkpoint; strength feeds both model and CLIP. */
+  readonly loras?: readonly { readonly name: string; readonly strength: number }[];
+  /** Image-to-image: a file name from the backend's input folder plus denoise strength (given together). */
+  readonly inputImage?: string;
+  readonly denoise?: number;
+  readonly inputResize?: { readonly width: number; readonly height: number; readonly crop: 'disabled' | 'center'; readonly pad?: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number } };
+  /** Load `checkpoint` as a diffusion model (UNETLoader) with its own text encoder (CLIPLoader type) and VAE. */
+  readonly diffusion?: { readonly textEncoder: string; readonly clipType: string; readonly vae: string };
 }
 
 /** Supply fresh, verified backend identities. This pure compiler performs no discovery. */
 export interface RecipeAllowlist {
   readonly nodes: readonly string[];
   readonly checkpoints: readonly string[];
+  readonly loras?: readonly string[];
+  readonly images?: readonly string[];
   readonly samplers: readonly string[];
   readonly schedulers: readonly string[];
+  readonly diffusionModels?: readonly string[];
+  readonly textEncoders?: readonly string[];
+  readonly clipTypes?: readonly string[];
+  readonly vaes?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {
@@ -64,7 +79,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -73,14 +88,21 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     const text = input[field];
     if (typeof text !== 'string' || text.length > 16384 || text.includes('\u0000')) invalid(field, 'Expected a prompt string of at most 16384 characters without NUL.', 'Supply a bounded prompt string; an empty prompt is permitted.');
   }
-  const checkpoint = input.checkpoint;
-  if (typeof checkpoint !== 'string' || checkpoint.length > 255 || !checkpoint.split('/').every(segment =>
-    segment.length > 0 && segment !== '.' && segment !== '..' && !/[^A-Za-z0-9_.-]/u.test(segment))) {
-    invalid('checkpoint', 'Unsafe model identifier.', 'Use the exact verified relative identifier with safe ASCII path segments, never a host path or URL.');
+  // Same grammar as native `model_name`: spaces and non-ASCII letters allowed; no traversal, host paths, URLs or control characters.
+  const safeModel = (id: unknown): id is string => typeof id === 'string' && new TextEncoder().encode(id).length <= 255 && id.split('/').every(segment =>
+    segment.length > 0 && segment !== '.' && segment !== '..' && segment.trim() === segment && !/[\p{Cc}\\:%]/u.test(segment));
+  if (!safeModel(input.checkpoint)) invalid('checkpoint', 'Unsafe model identifier.', 'Use the exact verified relative identifier, never a host path or URL.');
+  if (Object.hasOwn(input, 'inputImage') !== Object.hasOwn(input, 'denoise')) invalid('inputImage', 'inputImage and denoise must be given together.', 'Supply both for image-to-image or neither for text-to-image.');
+  if (Object.hasOwn(input, 'inputImage') && !safeModel(input.inputImage)) invalid('inputImage', 'Unsafe input image identifier.', 'Use a file name from the backend input folder.');
+  if (Object.hasOwn(input, 'denoise') && !(typeof input.denoise === 'number' && Number.isFinite(input.denoise) && input.denoise >= 0 && input.denoise <= 1)) invalid('denoise', 'Denoise must be a finite number in [0, 1].', 'Supply a denoise strength between 0 and 1.');
+  const loras = input.loras ?? [];
+  if (!Array.isArray(loras) || loras.length > 8 || !loras.every(l => isRecord(l) && Object.keys(l).length === 2 && safeModel(l.name)
+    && typeof l.strength === 'number' && Number.isFinite(l.strength) && Math.abs(l.strength) <= 10)) {
+    invalid('loras', 'Invalid LoRA list.', 'Supply at most 8 verified {name, strength in [-10, 10]} entries.');
   }
   for (const [field, min, max, integer, alignment] of [
     ['seed', 0, Number.MAX_SAFE_INTEGER, true, 1],
-    ['width', 64, 2048, true, 8], ['height', 64, 2048, true, 8],
+    ['width', 64, 8192, true, 8], ['height', 64, 8192, true, 8],
     ['steps', 1, 150, true, 1], ['cfg', 0, 30, false, 1],
   ] as const) {
     const value = input[field];
@@ -89,8 +111,33 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
       invalid(field, 'Numeric value is out of bounds, unsafe, or unaligned.', `Supply a finite ${integer ? 'safe integer' : 'number'} in [${min}, ${max}]${alignment > 1 ? ` aligned to ${alignment}` : ''}.`);
     }
   }
-  for (const [field, choices] of [['sampler', ['euler', 'euler_ancestral', 'dpmpp_2m']], ['scheduler', ['normal', 'karras', 'simple']]] as const) {
-    if (typeof input[field] !== 'string' || !(choices as readonly string[]).includes(input[field] as string)) invalid(field, 'Unsupported recipe enum.', `Choose an explicitly supported ${field}: ${choices.join(', ')}.`);
+  if ((input.width as number) * (input.height as number) > 16_777_216) invalid('width', 'Pixel limit exceeded.', 'Use at most 16,777,216 output pixels.');
+  if (Object.hasOwn(input, 'inputResize')) {
+    const r = input.inputResize;
+    const aligned = (v: unknown, min: number) => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= 8192 && v % 8 === 0;
+    if (!Object.hasOwn(input, 'inputImage') || !isRecord(r) || ![3, 4].includes(Object.keys(r).length)
+      || Object.keys(r).some(k => !['width', 'height', 'crop', 'pad'].includes(k)) || !['width', 'height', 'crop'].every(k => Object.hasOwn(r, k))
+      || !aligned(r.width, 8) || !aligned(r.height, 8) || !['disabled', 'center'].includes(r.crop as string)) {
+      invalid('inputResize', 'Invalid image resize.', 'Supply inputImage + denoise and {width, height, crop} with positive dimensions aligned to 8.');
+    }
+    const resize = r as Record<string, unknown>;
+    const pad = resize.pad;
+    if (Object.hasOwn(resize, 'pad') && (!isRecord(pad) || Object.keys(pad).length !== 4 || !['left', 'right', 'top', 'bottom'].every(k => Object.hasOwn(pad, k) && aligned(pad[k], 0)))) {
+      invalid('inputResize', 'Invalid padding.', 'Supply exactly four nonnegative pads aligned to 8, at most 8192 each.');
+    }
+    const pads = pad as Record<string, number> | undefined;
+    if ((resize.width as number) + (pads?.left ?? 0) + (pads?.right ?? 0) !== input.width
+      || (resize.height as number) + (pads?.top ?? 0) + (pads?.bottom ?? 0) !== input.height) {
+      invalid('inputResize', 'Resize plus padding must match output dimensions.', 'Use resize dimensions plus pads equal to intent width and height.');
+    }
+  }
+  const safeChoice = (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9_.-]{1,64}$/u.test(v);
+  for (const field of ['sampler', 'scheduler']) {
+    if (!safeChoice(input[field])) invalid(field, 'Unsafe recipe enum.', `Choose a ${field} the backend lists.`);
+  }
+  const d = input.diffusion;
+  if (d !== undefined && !(isRecord(d) && Object.keys(d).length === 3 && safeModel(d.textEncoder) && safeModel(d.vae) && safeChoice(d.clipType))) {
+    invalid('diffusion', 'Invalid diffusion loader.', 'Supply {textEncoder, clipType, vae} from the verified backend lists.');
   }
   const prefix = input.outputPrefix;
   if (typeof prefix !== 'string' || prefix.length < 1 || prefix.length > 128 || /[^A-Za-z0-9_-]/u.test(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use 1–128 ASCII letters, digits, underscores or hyphens; no paths.');
@@ -105,27 +152,62 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }
   const allowlist = verified as unknown as RecipeAllowlist;
-  for (const node of requiredNodes) {
+  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
-  if (!allowlist.checkpoints.includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
+  const d = intent.diffusion;
+  for (const node of d ? ['UNETLoader', 'CLIPLoader', 'VAELoader'] : []) {
+    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
+  }
+  if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
+  if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
+  if (intent.inputImage !== undefined && !allowlist.images?.includes(intent.inputImage)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  const loras = intent.loras ?? [];
+  for (const lora of loras) {
+    if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');
+  }
   for (const [field, available] of [['sampler', allowlist.samplers], ['scheduler', allowlist.schedulers]] as const) {
     if (!available.includes(intent[field])) throw new RecipeCompileError('MISSING_CAPABILITY', field, 'Choice is not verified on this backend.', 'Select a choice available in the verified backend capability list.');
   }
+  // LoraLoaders chain after the loaders; the last one feeds the sampler and both encoders.
+  const chain: Record<string, ApiNode> = d ? {
+    C: { class_type: 'CLIPLoader', inputs: { clip_name: d.textEncoder, type: d.clipType } },
+    V: { class_type: 'VAELoader', inputs: { vae_name: d.vae } },
+  } : {};
+  let model: ApiLink = ['1', 0], clip: ApiLink = d ? ['C', 0] : ['1', 1];
+  const vae: ApiLink = d ? ['V', 0] : ['1', 2];
+  loras.forEach((lora, n) => {
+    const id = `L${n + 1}`;
+    chain[id] = { class_type: 'LoraLoader', inputs: { model, clip, lora_name: lora.name, strength_model: lora.strength, strength_clip: lora.strength } };
+    model = [id, 0]; clip = [id, 1];
+  });
   const result: CompiledRecipe = {
     recipeId: intent.recipeId, version: 1, generationReady: false,
     requiredNodes,
     requiredModels: [{ kind: 'checkpoint', identifier: intent.checkpoint }],
     graph: {
-      '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: intent.checkpoint } },
-      '2': { class_type: 'CLIPTextEncode', inputs: { text: intent.positivePrompt, clip: ['1', 1] } },
-      '3': { class_type: 'CLIPTextEncode', inputs: { text: intent.negativePrompt, clip: ['1', 1] } },
+      '1': d ? { class_type: 'UNETLoader', inputs: { unet_name: intent.checkpoint, weight_dtype: 'default' } } : { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: intent.checkpoint } },
+      '2': { class_type: 'CLIPTextEncode', inputs: { text: intent.positivePrompt, clip } },
+      '3': { class_type: 'CLIPTextEncode', inputs: { text: intent.negativePrompt, clip } },
       '4': { class_type: 'EmptyLatentImage', inputs: { width: intent.width, height: intent.height, batch_size: 1 } },
-      '5': { class_type: 'KSampler', inputs: { model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0], seed: intent.seed, steps: intent.steps, cfg: intent.cfg, sampler_name: intent.sampler, scheduler: intent.scheduler, denoise: 1 } },
-      '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+      '5': { class_type: 'KSampler', inputs: { model, positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0], seed: intent.seed, steps: intent.steps, cfg: intent.cfg, sampler_name: intent.sampler, scheduler: intent.scheduler, denoise: 1 } },
+      '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae } },
       '7': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix } },
+      ...chain,
+      ...(intent.inputImage !== undefined ? { '8': { class_type: 'LoadImage', inputs: { image: intent.inputImage } }, '9': { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae } } } : {}),
     },
   };
+  if (intent.inputImage !== undefined) {
+    const graph = result.graph as Record<string, ApiNode>;
+    const r = intent.inputResize;
+    if (r) {
+      graph.S = { class_type: 'ImageScale', inputs: { image: ['8', 0], upscale_method: 'lanczos', width: r.width, height: r.height, crop: r.crop } };
+      if (r.pad) graph.P = { class_type: 'ImagePadForOutpaint', inputs: { image: ['S', 0], ...r.pad, feathering: 0 } };
+      graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: [r.pad ? 'P' : 'S', 0], vae } };
+    }
+    delete graph['4'];
+    graph['5'] = { class_type: 'KSampler', inputs: { ...graph['5'].inputs, latent_image: ['9', 0], denoise: intent.denoise! } };
+  }
   for (const node of Object.values(result.graph)) {
     for (const value of Object.values(node.inputs)) if (Array.isArray(value)) Object.freeze(value);
     Object.freeze(node.inputs);

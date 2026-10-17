@@ -18,12 +18,12 @@ function view(endpoint = 'http://127.0.0.1:7801') {
 }
 const fixture: RecipePrerequisites = {
   baseUrl: 'http://127.0.0.1:7801/', recipeId: 'checkpoint-text-to-image-diagnostic', version: 1, generationReady: false,
-  allowlist: { nodes: ['CheckpointLoaderSimple', 'CLIPTextEncode', 'EmptyLatentImage', 'KSampler', 'VAEDecode', 'SaveImage'], checkpoints: ['observed.safetensors'], samplers: ['unsupported', 'dpmpp_2m'], schedulers: ['unsupported', 'karras'] }, missingNodes: [],
+  allowlist: { nodes: ['CheckpointLoaderSimple', 'CLIPTextEncode', 'EmptyLatentImage', 'KSampler', 'VAEDecode', 'SaveImage'], checkpoints: ['observed.safetensors'], samplers: ['dpmpp_2m', 'lcm'], schedulers: ['karras', 'beta'] }, missingNodes: [],
 };
 test.each([
   [{ ...fixture, missingNodes: ['VAEDecode'], allowlist: { ...fixture.allowlist, nodes: fixture.allowlist.nodes.filter(n => n !== 'VAEDecode') } }, 'VAEDecode'],
   [{ ...fixture, allowlist: { ...fixture.allowlist, checkpoints: [] } }, 'No checkpoints observed. Compilation is blocked.'],
-  [{ ...fixture, allowlist: { ...fixture.allowlist, samplers: ['unsupported'] } }, 'No supported sampler or scheduler observed. Compilation is blocked.'],
+  [{ ...fixture, allowlist: { ...fixture.allowlist, samplers: [] } }, 'No supported sampler or scheduler observed. Compilation is blocked.'],
 ])('observed missing prerequisites block compilation: %s', async (result, blocker) => {
   vi.mocked(checkRecipePrerequisites).mockResolvedValue(result);
   render(view()); fireEvent.click(screen.getByRole('button', { name: 'Check recipe prerequisites' }));
@@ -37,8 +37,8 @@ test('pure preview uses only observed selections and explicit DEAS defaults, inv
   await screen.findByText(fixture.baseUrl);
   const checkpoint = screen.getByLabelText('Observed checkpoint') as HTMLSelectElement;
   expect(Array.from(checkpoint.options, o => o.value)).toEqual(['observed.safetensors']);
-  expect(Array.from((screen.getByLabelText('Sampler') as HTMLSelectElement).options, o => o.value)).toEqual(['dpmpp_2m']);
-  expect(Array.from((screen.getByLabelText('Scheduler') as HTMLSelectElement).options, o => o.value)).toEqual(['karras']);
+  expect(Array.from((screen.getByLabelText('Sampler') as HTMLSelectElement).options, o => o.value)).toEqual(['dpmpp_2m', 'lcm']);
+  expect(Array.from((screen.getByLabelText('Scheduler') as HTMLSelectElement).options, o => o.value)).toEqual(['karras', 'beta']);
   fireEvent.change(screen.getByLabelText('Positive prompt'), { target: { value: 'diagnostic landscape' } });
   fireEvent.change(screen.getByLabelText('Negative prompt'), { target: { value: 'blur' } });
   expect(document.querySelector('[data-recipe-graph]')).toBeNull();

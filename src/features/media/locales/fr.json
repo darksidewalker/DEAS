@@ -10,5 +10,9 @@
   "media.entries": "Contenu du dossier",
   "media.symlink": "Lien symbolique",
   "media.empty": "Aucun média ni dossier ici.",
-  "media.truncated": "Seules les 5000 premières entrées sont affichées."
+  "media.truncated": "Seules les 5000 premières entrées sont affichées.",
+  "media.roots": "Dossiers de l'environnement",
+  "media.root.output": "Sortie",
+  "media.root.input": "Entrée",
+  "media.depth": "Profondeur"
 }

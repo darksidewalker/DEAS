@@ -17,7 +17,6 @@
   "setup.aio.description": "Native Rust-Einrichtung — bisher wurde nichts installiert.",
   "setup.status.notInstalled": "NICHT INSTALLIERT",
   "setup.region": "AiO-Einrichtungsplanung",
-  "setup.eyebrow": "EINRICHTUNG · DEINE BEWUSSTEN ENTSCHEIDUNGEN",
   "setup.decisions": "AiO-Einrichtungsentscheidungen",
   "setup.capabilityHelp": "ComfyUI ist die Basis. Director ist optional und enthält Forge, RefMods, Kontinuität und Ausgabe als ein Paket.",
   "setup.storageDirectory": "Speicherverzeichnis",
@@ -161,5 +160,8 @@
   "setup.reinstallTitle": "Installation erneut ausführen?",
   "setup.reinstallWarning": "Dies überschreibt die Installation: Das Backend wird gestoppt, die Python-Umgebung (venv) gelöscht und neu aufgebaut, ComfyUI und die DaSiWa-Nodes werden auf den neuesten Stand zurückgesetzt (lokale Codeänderungen gehen verloren). Modelle, Eingaben, Ausgaben, Workflows und Einstellungen bleiben erhalten.",
   "setup.reinstallCancel": "Abbrechen",
-  "setup.reinstallConfirm": "Überschreiben und neu installieren"
+  "setup.reinstallConfirm": "Überschreiben und neu installieren",
+  "setup.repo.open": "GitHub-Repository öffnen",
+  "setup.repo.star": "DEAS auf GitHub einen Stern geben",
+  "setup.repo.starred": "Auf GitHub mit Stern markiert"
 }

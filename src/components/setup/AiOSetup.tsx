@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
+import { RepoLinks } from './RepoLinks';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
 import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
 import { LanguageSetting } from '../../features/settings/LanguageSetting';
@@ -14,10 +15,10 @@ import { readAuthStatus, verifyAuthToken } from '../../lib/downloads';
 import { forgetPref, isBoolean, isString, readPref, usePref, writePref } from '../../lib/preferences';
 // Root of the last successful install; restored on start only while its deas-install.json still exists.
 const installedKey='install.root';
-/** `studio` is the studio workspace rendered under the Studio tab. */
-export interface AiOSetupProps { onConnectExisting: (baseUrl: string) => void; onInstalled?: (features: readonly FeatureId[]) => void; studio?: ReactNode }
+/** `studio` is the studio workspace rendered under the Studio tab; `brand` sits left in the top row. */
+export interface AiOSetupProps { /** `inspect` is true for the explicit Inspect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; brand?: ReactNode }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
-export function AiOSetup({ onConnectExisting, onInstalled, studio }: AiOSetupProps) {
+export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio, brand }: AiOSetupProps) {
  const {t}=useI18n();
  const native=isTauri();
  const [verified,setVerified]=useState<string[]>([]);
@@ -60,8 +61,9 @@ export function AiOSetup({ onConnectExisting, onInstalled, studio }: AiOSetupPro
    .then(checks=>{if(alive)setVerified(checks.filter(c=>c?.status==='verified').map(c=>c!.providerId));},()=>{});
   return()=>{alive=false;};},[native,inAuth]);
  const [installedRoot,setInstalledRoot]=useState('');const installed=succeeded||!!installedRoot;
+ useEffect(()=>{onEnvironment?.(installedRoot?{root:installedRoot,folders}:null);},[installedRoot,folders,onEnvironment]);
  const review=state.opened&&!installed;const side=(view==='setup'&&(review||installed))||(view==='settings'&&installed);
- const connect=(baseUrl:string)=>{setView('studio');onConnectExisting(baseUrl);};
+ const connect=(baseUrl:string)=>{setView('studio');onConnectExisting(baseUrl,true);};
  const studioVisited=useRef(false);if(view==='studio')studioVisited.current=true;
  // One read-only defaults request per mounted setup, also reused by StrictMode effect replay.
  useEffect(()=>{
@@ -169,12 +171,13 @@ export function AiOSetup({ onConnectExisting, onInstalled, studio }: AiOSetupPro
   catch(e){setTechnicalError(String(e));}finally{setBusy(false);}
  };
  return <section className="aio-setup" aria-label={t('setup.region')}>
-  <header className="aio-setup-header"><p className="aio-setup-eyebrow">{t('setup.eyebrow')}</p>
+  <header className="aio-setup-header">{brand}
    <div className="aio-head-actions">
     <button type="button" data-node="setup:aio" className={`aio-tab aio-head aio-tab-installer ${installed?'is-done':'is-pending'}`} aria-pressed={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy||folderPickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current&&!installed)setState(s=>transitionSetup(s,{type:'automatic'}));}}><span>{installed&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}</span><small>{t(installed?'setup.tab.installed':'setup.aio.description')}</small></button>
     <button type="button" data-node="provider-auth" className="aio-tab aio-head" aria-label={t('downloads.auth')} disabled={folderPickerBusy} aria-pressed={view==='auth'} onClick={()=>setView('auth')}><span>{verified.length>0&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('downloads.auth')}</span>{verified.length>0&&<small>{authProviders.filter(p=>verified.includes(p.id)).map(p=>`✓ ${p.label}`).join(' · ')}</small>}</button>
     <button type="button" data-node="settings" className="aio-tab aio-head" disabled={folderPickerBusy} aria-pressed={view==='settings'} onClick={()=>setView('settings')}>{t('settings.button')}</button>
     <button type="button" data-node="logs" className="aio-tab aio-head" disabled={folderPickerBusy} aria-pressed={view==='logs'} onClick={()=>setView('logs')}>{t('logs.title')}</button>
+    <RepoLinks canStar={verified.includes('github')}/>
    </div>
   </header>
   {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}

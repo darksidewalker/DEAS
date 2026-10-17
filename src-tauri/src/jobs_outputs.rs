@@ -1,6 +1,9 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+const PNG_LIMIT: usize = 144 * 1024 * 1024;
+const DECODE_LIMIT: usize = 160 * 1024 * 1024;
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputPreview {
@@ -135,7 +138,7 @@ impl Jobs {
         {
             return Err("Output must have image/png content type".into());
         }
-        const LIMIT: usize = 16 * 1024 * 1024;
+        const LIMIT: usize = PNG_LIMIT;
         if response.content_length().is_some_and(|n| n > LIMIT as u64) {
             return Err("PNG size limit exceeded".into());
         }
@@ -159,18 +162,19 @@ impl Jobs {
         options.set_ignore_iccp_chunk(true);
         let mut decoder = png::Decoder::new_with_options(std::io::Cursor::new(&bytes), options);
         decoder.set_limits(png::Limits {
-            bytes: 32 * 1024 * 1024,
+            bytes: DECODE_LIMIT,
         });
         let mut reader = decoder.read_info().map_err(|_| "Invalid PNG header")?;
         let (width, height) = (reader.info().width, reader.info().height);
         if width == 0
             || height == 0
-            || width > 2048
-            || height > 2048
+            || width > 8192
+            || height > 8192
+            || u64::from(width) * u64::from(height) > 16_777_216
             || job.plan.intent["width"].as_u64() != Some(width as u64)
             || job.plan.intent["height"].as_u64() != Some(height as u64)
             || reader.info().animation_control.is_some()
-            || reader.output_buffer_size() > 32 * 1024 * 1024
+            || reader.output_buffer_size() > DECODE_LIMIT
         {
             return Err("PNG dimensions or animation do not match diagnostic intent".into());
         }

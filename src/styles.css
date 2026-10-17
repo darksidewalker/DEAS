@@ -50,17 +50,12 @@ button:disabled {
   opacity: 0.65;
 }
 .studio-shell {
-  max-width: 1480px;
-  padding: 0 28px;
-  margin: 0 auto;
-}
-.masthead {
-  height: 72px;
+  min-height: 100vh;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #ffffff0c;
+  flex-direction: column;
+  padding: 0 28px;
 }
+.studio-shell > main { flex: 1; }
 .wordmark {
   display: flex;
   align-items: center;
@@ -84,20 +79,6 @@ button:disabled {
   margin-left: 8px;
   max-width: 85px;
   line-height: 1.45;
-}
-.phase {
-  font-size: 11px;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  display: flex;
-  gap: 9px;
-  align-items: center;
-}
-.phase i {
-  width: 5px;
-  height: 5px;
-  background: var(--copper);
-  border-radius: 50%;
 }
 .intro {
   display: flex;
@@ -270,12 +251,13 @@ select:hover {
 }
 .footer {
   display: flex;
-  justify-content: space-between;
-  border-top: 1px solid #ffffff0c;
-  padding: 22px 0 28px;
+  gap: 24px;
+  background: transparent;
+  padding: 8px 0 10px;
   font-size: 9px;
   color: #818e93;
 }
+.footer-version { margin-left: auto; }
 .footer-divider {
   color: var(--copper);
   margin: 0 9px;
@@ -450,9 +432,8 @@ select:hover {
 .field-caption > span:last-child { margin-left: auto; font-size: 8px; }
 .field-footer { padding: 16px 0; }
 .field-footer > span:last-child { font-size: 8px; letter-spacing: .12em; }
-.aio-setup { margin-top: 14px; padding: 14px 0 8px; border-top: 1px solid #ffffff12; }
+.aio-setup { padding: 0 0 8px; }
 .aio-setup .aio-setup-header p { font-size: 12px; color: var(--muted); margin: 0; }
-.aio-setup .aio-setup-header .aio-setup-eyebrow { color: var(--copper); font-size: 9px; margin-bottom: 12px; }
 .aio-motion input[type="radio"] { width: 14px; height: 14px; margin: 0; padding: 0; }
 .studio-workspace { animation: open-panel .2s ease-out; }
 @container (max-width: 400px) {
@@ -482,9 +463,6 @@ select:hover {
   .studio-shell {
     padding: 0 20px;
   }
-  .masthead {
-    height: 80px;
-  }
   .wordmark {
     font-size: 20px;
     gap: 9px;
@@ -493,9 +471,6 @@ select:hover {
     font-size: 9px;
     max-width: 72px;
     margin-left: 0;
-  }
-  .phase {
-    font-size: 9px;
   }
   .intro {
     padding-top: 35px;
@@ -572,12 +547,12 @@ select:hover {
 .neural-included-feature { display: inline-block; max-width: 100%; padding: 3px 6px; border: 1px solid #7c9cac40; border-radius: 42% 58% 47% 53% / 48% 42% 58% 52%; background: #202d32; color: #b5c5cc; font-size: 8px; line-height: 1.4; overflow-wrap: anywhere; cursor: default; }
 .neural-included-feature:nth-child(even) { transform: translateY(2px); }
 .neural-choice-row > .neural-included-features { justify-content: flex-start; padding: 0 12px 5px; margin-top: -2px; }
-@media (max-width: 600px) { .masthead { flex-wrap: wrap; gap: 6px; height: auto; min-height: 72px; padding-block: 10px; } .brand-caption { display: none; } }
+@media (max-width: 600px) { .brand-caption { display: none; } }
 
 .studio-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 0 0; }
 .studio-tabs button { padding: 8px 14px; border: 1px solid #ffffff1a; border-bottom: 0; border-radius: 10px 10px 0 0; background: transparent; color: var(--muted); font-size: 12px; }
 .studio-tabs button[aria-selected="true"] { background: var(--surface); color: var(--chalk); }
-.studio-columns { display: grid; grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: 16px; align-items: start; padding-top: 8px; }
+.studio-columns { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
 .studio-main > .neural-field { margin-top: 0; }
 .studio-main { min-width: 0; }
 .media-stage { min-height: 16rem; padding: 16px; border: 1px solid #ffffff12; border-radius: 12px; background: var(--surface); }
@@ -585,4 +560,3 @@ select:hover {
 .media-preview img, .media-preview video { display: block; max-width: 100%; max-height: 70vh; border-radius: 8px; }
 .media-preview audio { width: 100%; }
 .media-preview figcaption { margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-@media (max-width: 760px) { .studio-columns { grid-template-columns: minmax(0, 1fr); } }

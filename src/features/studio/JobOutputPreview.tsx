@@ -3,7 +3,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobExport, type JobStatus } from '../../lib/jobs';
 
-export function JobOutputPreview({ job }: { job: JobStatus }) {
+/** `auto` loads the first output as soon as the job succeeded (workbench); the diagnostic panel stays click-only. */
+export function JobOutputPreview({ job, auto = false }: { job: JobStatus; auto?: boolean }) {
   const { t } = useI18n();
   const epoch = useRef(0);
   const live = useRef(false);
@@ -22,6 +23,7 @@ export function JobOutputPreview({ job }: { job: JobStatus }) {
       url.current = null;
     };
   }, [job.id]);
+  useEffect(() => { if (auto && job.outputs.length > 0) void load(0); }, [auto, job.id]); // eslint-disable-line react-hooks/exhaustive-deps
   async function load(index: number) {
     if (!isTauri() || job.state !== 'succeeded' || !live.current || lock.current) return;
     lock.current = true; setPending(true); setError(''); setExported(null);
@@ -54,11 +56,11 @@ export function JobOutputPreview({ job }: { job: JobStatus }) {
     }
   }
   return <div style={{ minWidth: 0, overflowWrap: 'anywhere' }} aria-busy={pending}>
-    <ul>{job.outputs.map((output, index) => <li key={index}>
+    {!auto && <ul>{job.outputs.map((output, index) => <li key={index}>
       <span>{output.filename}</span>{' '}
       <button type="button" data-job-output-load={index} disabled={!isTauri() || pending || job.state !== 'succeeded'} onClick={() => void load(index)}>{t('studio.jobs.loadPreview')}</button>
-    </li>)}</ul>
-    {selected && <><img data-job-output-preview src={selected.url} alt={t('studio.jobs.previewAlt')} style={{ maxWidth: '100%', height: 'auto' }} /><p>{selected.sha256}</p>
+    </li>)}</ul>}
+    {selected && <><img data-job-output-preview src={selected.url} alt={t('studio.jobs.previewAlt')} style={{ maxWidth: '100%', height: 'auto' }} />{!auto && <p>{selected.sha256}</p>}
       <button type="button" data-job-output-export disabled={!isTauri() || pending} onClick={() => void save()}>{t('studio.jobs.saveAs')}</button>
       {exported && <p role="status" data-job-output-exported>{t('studio.jobs.exported', { path: exported.path, sha256: exported.sha256 })}</p>}
     </>}

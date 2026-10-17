@@ -17,7 +17,6 @@
   "setup.aio.description": "Yerel Rust kurulumu — henüz hiçbir kurulum çalıştırılmadı.",
   "setup.status.notInstalled": "KURULMADI",
   "setup.region": "AiO kurulum planlayıcısı",
-  "setup.eyebrow": "KURULUM · AÇIKÇA BELİRTTİĞİNİZ SEÇİMLER",
   "setup.decisions": "AiO kurulum seçimleri",
   "setup.capabilityHelp": "ComfyUI temel bileşendir. Director isteğe bağlıdır ve Forge, RefMods, Continuity ve Output özelliklerini tek pakette içerir.",
   "setup.storageDirectory": "Depolama dizini",
@@ -161,5 +160,8 @@
   "setup.reinstallTitle": "Kurulum yeniden çalıştırılsın mı?",
   "setup.reinstallWarning": "Bu, kurulumun üzerine yazar: arka uç durdurulur, Python ortamı (venv) silinip yeniden oluşturulur, ComfyUI ve DaSiWa düğümleri en son sürüme sıfırlanır (yerel kod değişiklikleri kaybolur). Modeller, girdiler, çıktılar, iş akışları ve ayarlar korunur.",
   "setup.reinstallCancel": "İptal",
-  "setup.reinstallConfirm": "Üzerine yaz ve yeniden kur"
+  "setup.reinstallConfirm": "Üzerine yaz ve yeniden kur",
+  "setup.repo.open": "GitHub deposunu aç",
+  "setup.repo.star": "GitHub’da DEAS’a yıldız ver",
+  "setup.repo.starred": "GitHub’da yıldızlandı"
 }

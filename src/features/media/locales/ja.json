@@ -10,5 +10,9 @@
   "media.entries": "フォルダーの内容",
   "media.symlink": "シンボリックリンク",
   "media.empty": "ここにはメディアもフォルダーもありません。",
-  "media.truncated": "最初の5000件のみ表示しています。"
+  "media.truncated": "最初の5000件のみ表示しています。",
+  "media.roots": "環境フォルダー",
+  "media.root.output": "出力",
+  "media.root.input": "入力",
+  "media.depth": "深さ"
 }

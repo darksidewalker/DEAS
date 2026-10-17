@@ -10,5 +10,9 @@
   "media.entries": "文件夹内容",
   "media.symlink": "符号链接",
   "media.empty": "此处没有媒体或文件夹。",
-  "media.truncated": "仅显示前5000项。"
+  "media.truncated": "仅显示前5000项。",
+  "media.roots": "环境文件夹",
+  "media.root.output": "输出",
+  "media.root.input": "输入",
+  "media.depth": "深度"
 }

@@ -11,6 +11,26 @@ const REQUIRED_NODES: [&str; 6] = [
     "VAEDecode",
     "SaveImage",
 ];
+/// Image-to-image (`LoadImage`, `VAEEncode`) and split diffusion-model loading; their absence
+/// blocks only the recipe variant that needs them.
+const OPTIONAL_NODES: [&str; 7] = [
+    "ImageScale",
+    "ImagePadForOutpaint",
+    "LoadImage",
+    "VAEEncode",
+    "UNETLoader",
+    "CLIPLoader",
+    "VAELoader",
+];
+/// File-name combos; names outside the compiler's grammar (traversal, URLs, control characters) are dropped, not fatal.
+const FILE_FIELDS: [&str; 6] = [
+    "ckpt_name",
+    "lora_name",
+    "image",
+    "unet_name",
+    "clip_name",
+    "vae_name",
+];
 
 fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> {
     if nodes.get(node).is_none() {
@@ -32,17 +52,10 @@ fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> 
             let identifier = value.as_str().ok_or_else(|| {
                 format!("object_info {node}.{field} contains a non-string choice")
             })?;
-            // Checkpoints match the compiler's exact safe ASCII relative path grammar.
-            let safe = if field == "ckpt_name" {
-                identifier.len() <= 255
-                    && identifier.split('/').all(|segment| {
-                        !segment.is_empty()
-                            && segment != "."
-                            && segment != ".."
-                            && segment
-                                .bytes()
-                                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-                    })
+            // Files use the compiler's model-name grammar; enum choices stay short safe ASCII.
+            let file = FILE_FIELDS.contains(&field);
+            let safe = if file {
+                crate::jobs::model_name(identifier)
             } else {
                 !identifier.is_empty()
                     && identifier.len() <= 255
@@ -50,13 +63,18 @@ fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> 
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
             };
+
+            if file && (!safe || seen.contains(identifier)) {
+                return Ok(None);
+            }
             if !safe || !seen.insert(identifier) {
                 return Err(format!(
                     "object_info {node}.{field} contains an unsafe or duplicate choice"
                 ));
             }
-            Ok(identifier.to_owned())
+            Ok(Some(identifier.to_owned()))
         })
+        .filter_map(Result::transpose)
         .collect()
 }
 
@@ -70,10 +88,16 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
+            "loras":combo(nodes, "LoraLoader", "lora_name")?,
+            "images":combo(nodes, "LoadImage", "image")?,
             "samplers":combo(nodes, "KSampler", "sampler_name")?,
-            "schedulers":combo(nodes, "KSampler", "scheduler")?
+            "schedulers":combo(nodes, "KSampler", "scheduler")?,
+            "diffusionModels":combo(nodes, "UNETLoader", "unet_name")?,
+            "textEncoders":combo(nodes, "CLIPLoader", "clip_name")?,
+            "clipTypes":combo(nodes, "CLIPLoader", "type")?,
+            "vaes":combo(nodes, "VAELoader", "vae_name")?
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -106,7 +130,8 @@ mod tests {
             "CheckpointLoaderSimple": {"input":{"required":{"ckpt_name":[["sd/model.safetensors"], {}]}}},
             "CLIPTextEncode": {}, "EmptyLatentImage": {},
             "KSampler": {"input":{"required":{"sampler_name":[["euler", "dpmpp_2m"]],"scheduler":[["normal", "karras"]]}}},
-            "VAEDecode": {}, "SaveImage": {}, "UnrelatedNode": {}
+            "VAEDecode": {}, "SaveImage": {}, "UnrelatedNode": {},
+            "LoraLoader": {"input":{"required":{"lora_name":[["style/detail.safetensors"], {}]}}}
         })
     }
 
@@ -174,71 +199,76 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_unsafe_or_duplicate_combo_identities_without_normalizing() {
-        for (node, field, choices) in [
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["../model.safetensors"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["/model.safetensors"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["dir\\model.safetensors"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["https://host/model"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!([" model.safetensors"]),
-            ),
-            ("CheckpointLoaderSimple", "ckpt_name", json!(["dir//model"])),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["dir/./model"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["m".repeat(256)]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["模型.safetensors"]),
-            ),
-            (
-                "CheckpointLoaderSimple",
-                "ckpt_name",
-                json!(["model", "model"]),
-            ),
-            ("KSampler", "sampler_name", json!(["euler", "euler"])),
-            ("KSampler", "scheduler", json!(["normal", "normal"])),
-            ("KSampler", "sampler_name", json!([""])),
-            ("KSampler", "scheduler", json!([" normal"])),
-            ("KSampler", "scheduler", json!(["normal\u{0000}"])),
-            ("KSampler", "scheduler", json!([null])),
-            ("KSampler", "sampler_name", json!([42])),
+    async fn rejects_unsafe_or_duplicate_enum_choices_without_normalizing() {
+        for (field, choices) in [
+            ("sampler_name", json!(["euler", "euler"])),
+            ("scheduler", json!(["normal", "normal"])),
+            ("sampler_name", json!([""])),
+            ("scheduler", json!([" normal"])),
+            ("scheduler", json!(["normal\u{0000}"])),
+            ("scheduler", json!([null])),
+            ("sampler_name", json!([42])),
         ] {
             let mut info = nodes();
-            info[node]["input"]["required"][field][0] = choices.clone();
+            info["KSampler"]["input"]["required"][field][0] = choices.clone();
             let (base, request) = fixture(info.to_string()).await;
             assert!(
                 native_recipe_prerequisites(base).await.is_err(),
-                "accepted {node}.{field}: {choices}"
+                "accepted KSampler.{field}: {choices}"
             );
             request.await.unwrap();
         }
+    }
+
+    /// One oddly named file (spaces, umlauts, traversal) must not block every other model.
+    #[tokio::test]
+    async fn drops_unsafe_or_duplicate_model_files_without_normalizing() {
+        for name in [
+            "../model.safetensors",
+            "/model.safetensors",
+            "dir\\model.safetensors",
+            "https://host/model",
+            " model.safetensors",
+            "dir//model",
+            "dir/./model",
+            "dir/model.safetensors ",
+            "C:/model.safetensors",
+        ] {
+            let mut info = nodes();
+            info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0] =
+                json!([name, "ok.safetensors", "ok.safetensors"]);
+            let (base, request) = fixture(info.to_string()).await;
+            let result = native_recipe_prerequisites(base).await.unwrap();
+            assert_eq!(
+                result["allowlist"]["checkpoints"],
+                json!(["ok.safetensors"]),
+                "kept {name:?}"
+            );
+            request.await.unwrap();
+        }
+        let mut info = nodes();
+        info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0] =
+            json!(["m".repeat(256)]);
+        let (base, request) = fixture(info.to_string()).await;
+        let result = native_recipe_prerequisites(base).await.unwrap();
+        assert_eq!(result["allowlist"]["checkpoints"], json!([]));
+        request.await.unwrap();
+        // ComfyUI lists user files with spaces and non-ASCII letters as they are; they stay usable.
+        let mut info = nodes();
+        info["LoraLoader"]["input"]["required"]["lora_name"][0] = json!([
+            "MiniMaxH3/MM-H3 - Ahegao Face.safetensors",
+            "Größe/模型 v2.safetensors"
+        ]);
+        let (base, request) = fixture(info.to_string()).await;
+        let result = native_recipe_prerequisites(base).await.unwrap();
+        assert_eq!(
+            result["allowlist"]["loras"],
+            json!([
+                "MiniMaxH3/MM-H3 - Ahegao Face.safetensors",
+                "Größe/模型 v2.safetensors"
+            ])
+        );
+        request.await.unwrap();
     }
 
     #[tokio::test]
@@ -422,7 +452,8 @@ mod tests {
                 "baseUrl": format!("{base}/"), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage"],
-                    "checkpoints":["sd/model.safetensors"], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"]
+                    "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

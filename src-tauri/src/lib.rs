@@ -19,6 +19,7 @@ pub use jobs::{
     native_job_current, native_job_export, native_job_output, native_job_prepare,
     native_job_status, native_job_submit,
 };
+pub mod model_families;
 pub mod recipe_prerequisites;
 pub use recipe_prerequisites::native_recipe_prerequisites;
 pub mod backend;
@@ -28,9 +29,11 @@ pub use hardware::native_detect_hardware;
 pub mod directory;
 pub use directory::native_pick_directory;
 pub mod media;
-pub use media::{native_media_describe, native_media_list};
+pub use media::{native_media_describe, native_media_list, native_media_thumbnail};
 pub mod token_page;
 pub use token_page::native_open_token_page;
+pub mod repo;
+pub use repo::{native_open_repo, native_repo_star, native_repo_stars};
 pub mod folder_operations;
 pub mod settings;
 pub use folder_operations::{native_settings_move, FolderOperations};

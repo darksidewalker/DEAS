@@ -1,0 +1,63 @@
+[
+  {
+    "id": "sdxl", "name": "SDXL · Illustrious · Pony", "loader": "checkpoint", "pipelines": ["t2i", "i2i"],
+    "architectures": ["stable-diffusion-xl"], "bases": ["SDXL 1.0", "SDXL Turbo", "SDXL Lightning", "Illustrious", "Pony", "NoobAI"],
+    "model": [["conditioner.embedders.1"]],
+    "lora": [["lora.te2."], ["output.blocks.5.1.transformer.blocks.1"], ["down.blocks.2.attentions.1.transformer.blocks.9"]],
+    "defaults": { "width": 1024, "height": 1024, "steps": 28, "cfg": 5.5, "sampler": "euler_ancestral", "scheduler": "normal" }
+  },
+  {
+    "id": "anima", "name": "Anima", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "clipType": "stable_diffusion", "textEncoders": ["qwen_3_600m", "qwen3_06b", "qwen_3_06b", "qwen3-0.6b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
+    "architectures": ["anima"], "bases": ["Anima"],
+    "model": [["llm.adapter.blocks", "adaln.modulation.cross.attn"]],
+    "lora": [["llm.adapter.blocks"], ["blocks.27.adaln.modulation.cross.attn"], ["blocks.27.cross.attn.output.proj"]],
+    "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 4, "sampler": "er_sde", "scheduler": "simple" }
+  },
+  {
+    "id": "krea-2", "name": "Krea 2", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "clipType": "krea2", "textEncoders": ["qwen3vl_4b", "qwen3-vl-4b", "qwen_3_vl_4b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
+    "architectures": ["krea-2", "krea2"], "bases": ["Krea 2"],
+    "model": [["txtfusion.projector", "blocks.0.attn.gate"]],
+    "lora": [["blocks.0.attn.gate", "blocks.0.mlp.gate"], ["text.fusion.layerwise.blocks"], ["txtfusion"]],
+    "defaults": { "width": 1024, "height": 1024, "steps": 8, "cfg": 1, "sampler": "euler", "scheduler": "simple" }
+  },
+  {
+    "id": "qwen-image-2.1", "name": "Qwen Image 2.1", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "clipType": "qwen_image", "textEncoders": ["qwen3vl_8b", "qwen3-vl-8b", "qwen_3_vl_8b"], "vaes": ["qwen_image_2.1_vae"],
+    "architectures": ["qwen-image-2.1"], "bases": ["Qwen Image 2.1"],
+    "model": [["txt.in.text.norm", "transformer.blocks.0.attn.norm.q"]],
+    "lora": [["transformer.blocks.0.attn.to.k", "transformer.blocks.0.img.mlp.gate.layer"], ["transformer.blocks.0.attn.to.k", "transformer.blocks.0.img.mlp.proj"]],
+    "defaults": { "width": 2048, "height": 2048, "steps": 20, "cfg": 4, "sampler": "euler", "scheduler": "simple" }
+  },
+  {
+    "id": "minimax-h3", "name": "MiniMax H3", "loader": "diffusion", "pipelines": [],
+    "architectures": ["minimax-h3"], "bases": ["MiniMax H3"],
+    "model": [["video.patch.proj", "audio.patch.proj"]],
+    "lora": [["token.refiner"], ["blocks.0.adaln.proj"], ["audio.patch.proj"], ["blocks.49.mlp.fc"], ["blocks.49.attn.out.proj"]]
+  },
+  {
+    "id": "ltx-2", "name": "LTX 2 / 2.3", "loader": "diffusion", "pipelines": [],
+    "architectures": ["lightricks-ltx-video-2", "ltx-2"], "bases": ["LTX 2.3", "LTX 2.0"],
+    "model": [["audio.to.video.attn"]],
+    "lora": [["audio.attn1.to.k"], ["transformer.blocks.0.attn1.to.k", "transformer.blocks.9.attn2.to.v"]]
+  },
+  {
+    "id": "wan", "name": "Wan 2.1 / 2.2", "loader": "diffusion", "pipelines": [],
+    "architectures": ["wan-2"], "bases": ["Wan 2.1", "Wan 2.2"],
+    "model": [["blocks.0.cross.attn.k", "patch.embedding"]],
+    "lora": [["blocks.0.cross.attn.k"]]
+  },
+  {
+    "id": "sam3", "name": "SAM 3 (segmentation)", "loader": "checkpoint", "pipelines": [],
+    "architectures": ["sam3"], "bases": [],
+    "model": [["detector.backbone.vision.backbone.trunk.blocks.0.attn.qkv", "detector.transformer.decoder.query.embed"]],
+    "lora": []
+  },
+  {
+    "id": "ace-step", "name": "ACE-Step (audio)", "loader": "diffusion", "pipelines": [],
+    "architectures": ["ace-step"], "bases": [],
+    "model": [["lyric.encoder.layers"]],
+    "lora": []
+  }
+]

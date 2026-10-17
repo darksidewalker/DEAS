@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-repo"
+description = "Open the compiled-in DEAS GitHub repository, read its star count and star it with the saved GitHub token."
+commands.allow = ["native_open_repo", "native_repo_stars", "native_repo_star"]

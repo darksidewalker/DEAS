@@ -20,5 +20,6 @@
   "logs.limited": "Affichage des {shown} plus récentes sur {count} correspondances ; Copier et Exporter incluent tout.",
   "logs.empty": "Aucune ligne pour le moment.",
   "logs.browser": "Les journaux nécessitent l'application de bureau.",
-  "logs.error": "Erreur : {error}"
+  "logs.error": "Erreur : {error}",
+  "logs.all": "Tout"
 }

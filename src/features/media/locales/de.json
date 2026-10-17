@@ -10,5 +10,9 @@
   "media.entries": "Ordnerinhalt",
   "media.symlink": "Symbolischer Link",
   "media.empty": "Keine Medien oder Ordner hier.",
-  "media.truncated": "Nur die ersten 5000 Einträge werden angezeigt."
+  "media.truncated": "Nur die ersten 5000 Einträge werden angezeigt.",
+  "media.roots": "Umgebungsordner",
+  "media.root.output": "Ausgabe",
+  "media.root.input": "Eingabe",
+  "media.depth": "Tiefe"
 }

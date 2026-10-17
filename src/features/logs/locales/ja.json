@@ -20,5 +20,6 @@
   "logs.limited": "{count} 件中、最新の {shown} 件を表示中。コピーと書き出しにはすべて含まれます。",
   "logs.empty": "まだログはありません。",
   "logs.browser": "ログにはデスクトップアプリが必要です。",
-  "logs.error": "エラー: {error}"
+  "logs.error": "エラー: {error}",
+  "logs.all": "すべて"
 }

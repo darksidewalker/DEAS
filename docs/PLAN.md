@@ -21,6 +21,13 @@ Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DE
 
 ## Milestones and acceptance checklist
 
+### Generate resolution and reference scaling (0.1.13)
+- [x] Director-style aspect/resolution selectors, additional ultrawide/portrait ratios, custom aspect/megapixels/exact dimensions, persisted controls and reference metadata aspect limited to media-input pipelines. One native/model-default resolution derives from the active family; the aspect swatch is inside the picker.
+- [x] Image-to-image scaling before the next model's VAE encode: Off, Auto, Target, Fit, Fill/crop and Fit/pad; matching native/preview validation and effective output dimensions.
+- [x] Core/UI/native targeted tests, real ComfyUI CPU transform execution and responsive browser fixtures in six locales/five widths.
+- [ ] Video/multi-reference recipe execution and automatic multi-model pipeline chaining; controls do not establish these capabilities.
+- [ ] Real model/GPU generation acceptance and native-webview input-scaling click-through.
+
 ### M0 — Repository and architecture
 - [x] Create project directory and local main branch.
 - [x] Publish the alpha source repository on GitHub.

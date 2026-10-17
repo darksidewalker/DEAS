@@ -30,11 +30,13 @@ describe('logs view — mock IPC fixtures',()=>{
   const lines=()=>screen.getByLabelText('Log lines').textContent!;
   await waitFor(()=>expect(lines()).toContain('Starting server'));
   await waitFor(()=>expect(call).toBeGreaterThan(1),{timeout:2500});
+  const [allSources,allLevels]=screen.getAllByRole('button',{name:'All'});
+  expect(allSources.getAttribute('aria-pressed')).toBe('true');expect(allLevels.getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(screen.getByRole('button',{name:'ComfyUI'}));
-  expect(lines()).not.toContain('Starting server');expect(lines()).toContain('Starting owned backend');
-  fireEvent.click(screen.getByRole('button',{name:'Info'}));
-  expect(lines()).toContain('[cli] [error] error: resolution failed');expect(lines()).not.toContain('Starting owned backend');
-  fireEvent.click(screen.getByRole('button',{name:'Info'}));fireEvent.change(screen.getByRole('searchbox',{name:'Search logs'}),{target:{value:'OWNED'}});
+  expect(lines()).toContain('Starting server');expect(lines()).not.toContain('Starting owned backend');expect(lines()).not.toContain('resolution failed');
+  fireEvent.click(allSources);fireEvent.click(screen.getByRole('button',{name:'Errors'}));
+  expect(lines()).toContain('[cli] [error] error: resolution failed');expect(lines()).not.toContain('Starting owned backend');expect(lines()).not.toContain('Starting server');
+  fireEvent.click(allLevels);fireEvent.change(screen.getByRole('searchbox',{name:'Search logs'}),{target:{value:'OWNED'}});
   expect(lines()).toContain('Starting owned backend');expect(lines()).not.toContain('resolution failed');
   await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Copy'}));});
   expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/^\d\d:\d\d:\d\d \[deas\] \[info\] Starting owned backend$/));

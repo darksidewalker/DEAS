@@ -61,7 +61,8 @@ test("first entry shows only AiO and keeps the studio behind an honest preview c
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
-  expect(screen.getByRole("tab", { name: "Video", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Generate", selected: true })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run" })).toBeTruthy();
   expect(screen.getByRole("complementary", { name: "Media" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
@@ -93,7 +94,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   expect(screen.getByLabelText('Shot direction')).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/generate/i})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status')).toEqual(['native_install_defaults','native_install_plan','native_install_start','native_media_list']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>!['native_auth_status','native_repo_stars','native_models_scan','native_media_list'].includes(c))).toEqual(['native_install_defaults','native_install_plan','native_install_start']); // read-only media/model listings of the installed root are timing-dependent and asserted in their own suites
 });
 
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {

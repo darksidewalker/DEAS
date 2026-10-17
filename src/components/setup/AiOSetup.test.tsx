@@ -110,7 +110,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
  });
  it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
   nativeFixture();const installed=vi.fn();
@@ -161,10 +161,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(screen.queryByRole('button',{name:'Confirm & continue'})).toBeNull();expect(invoke).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('reads defaults only on open; automatic planning never starts installation; final click confirms once',async()=>{
-  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status')).toEqual([]);open();await screen.findByText('CPU fallback fixture');
+  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual([]);open();await screen.findByText('CPU fallback fixture');
   expect(invoke).toHaveBeenCalledWith('native_install_defaults',{});
   await screen.findByRole('button',{name:'Start install'});
-  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
   const button=screen.getByRole('button',{name:'Start install'});fireEvent.click(button);fireEvent.click(button);
   await screen.findByText('native fixture log');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_start')).toEqual([['native_install_start',{planId:'fixture-plan',confirmed:true}]]);
   expect(screen.getByLabelText('Storage directory').matches(':disabled')).toBe(true);
@@ -255,7 +255,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  it('connects an existing backend only through an explicit valid address and never installs',()=>{
   const connect=vi.fn();mount(connect);open();
   change('Existing backend address','not a url');click('Inspect existing backend');expect(connect).not.toHaveBeenCalled();expect(screen.getByRole('alert')).toBeTruthy();
-  change('Existing backend address','http://127.0.0.1:8188');click('Inspect existing backend');expect(connect).toHaveBeenCalledWith('http://127.0.0.1:8188');expect(invoke).not.toHaveBeenCalled();
+  change('Existing backend address','http://127.0.0.1:8188');click('Inspect existing backend');expect(connect).toHaveBeenCalledWith('http://127.0.0.1:8188',true);expect(invoke).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/Manual|Save local draft|Restore/})).toBeNull();
  });
 });

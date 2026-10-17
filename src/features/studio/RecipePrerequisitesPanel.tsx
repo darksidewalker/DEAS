@@ -27,15 +27,15 @@ export function RecipePrerequisitesPanel({ endpoint }: { endpoint: string }) {
     setCheckpoint(''); setSampler(''); setScheduler('');
     return () => { epoch.current++; busy.current = false; };
   }, [endpoint]);
-  const samplers = (evidence?.allowlist.samplers ?? []).filter((id): id is DiagnosticImageIntentV1['sampler'] => ['euler', 'euler_ancestral', 'dpmpp_2m'].includes(id));
-  const schedulers = (evidence?.allowlist.schedulers ?? []).filter((id): id is DiagnosticImageIntentV1['scheduler'] => ['normal', 'karras', 'simple'].includes(id));
-  const canCompile = !!evidence && !pending && !jobLocked && evidence.missingNodes.length === 0 && evidence.allowlist.checkpoints.includes(checkpoint) && samplers.includes(sampler as DiagnosticImageIntentV1['sampler']) && schedulers.includes(scheduler as DiagnosticImageIntentV1['scheduler']);
+  const samplers = evidence?.allowlist.samplers ?? [];
+  const schedulers = evidence?.allowlist.schedulers ?? [];
+  const canCompile = !!evidence && !pending && !jobLocked && evidence.missingNodes.length === 0 && evidence.allowlist.checkpoints.includes(checkpoint) && samplers.includes(sampler) && schedulers.includes(scheduler);
   function invalidatePreview() { setCompiled(null); setCompiledIntent(null); setError(''); }
   function compile() {
     if (!canCompile || !evidence) return;
     invalidatePreview();
     try {
-      const intent = Object.freeze({ recipeId: evidence.recipeId, version: evidence.version, positivePrompt, negativePrompt, checkpoint, sampler: sampler as DiagnosticImageIntentV1['sampler'], scheduler: scheduler as DiagnosticImageIntentV1['scheduler'], width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'DEAS_diagnostic' });
+      const intent = Object.freeze({ recipeId: evidence.recipeId, version: evidence.version, positivePrompt, negativePrompt, checkpoint, sampler, scheduler, width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'DEAS_diagnostic' });
       setCompiled(compileRecipe(intent, evidence.allowlist));
       setCompiledIntent(intent);
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
@@ -48,8 +48,8 @@ export function RecipePrerequisitesPanel({ endpoint }: { endpoint: string }) {
       const result = await checkRecipePrerequisites(endpoint);
       if (version !== epoch.current) return;
       setEvidence(result); setCheckpoint(result.allowlist.checkpoints[0] ?? '');
-      setSampler(result.allowlist.samplers.find(id => ['euler', 'euler_ancestral', 'dpmpp_2m'].includes(id)) ?? '');
-      setScheduler(result.allowlist.schedulers.find(id => ['normal', 'karras', 'simple'].includes(id)) ?? '');
+      setSampler(result.allowlist.samplers[0] ?? '');
+      setScheduler(result.allowlist.schedulers[0] ?? '');
     }
     catch (failure) { if (version === epoch.current) setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { if (version === epoch.current) { busy.current = false; setPending(false); } }

@@ -13,7 +13,11 @@ fn token_page(provider_id: &str) -> Option<&'static str> {
 
 #[tauri::command]
 pub fn native_open_token_page(provider_id: String) -> Result<(), String> {
-    let url = token_page(&provider_id).ok_or("Unknown provider")?;
+    open_url(token_page(&provider_id).ok_or("Unknown provider")?)
+}
+
+/// Opens a fixed, compiled-in URL in the system browser.
+pub(crate) fn open_url(url: &'static str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let mut cmd = {
         let mut c = Command::new("xdg-open");

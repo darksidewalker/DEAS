@@ -1,5 +1,20 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Resolution control correction (0.1.13)
+
+Auto-Aspect is hidden and ignored in text-input pipelines even when browsing image/video media. Media-input pipelines retain the remembered Auto choice. Native resolution is merged into the single model-default option; the fixed 768px mode is removed and old selections migrate to model defaults. Unknown families keep explicit dimensions rather than advertising a guessed native size. The proportional swatch is inside the native aspect select; the separate model input/output summary is removed.
+
+Typecheck, 57 core tests and 24 targeted Workbench/job-output tests pass, including text/media switching, native-size changes between SDXL and Qwen Image 2.1, legacy preference migration and removed-summary/in-picker-swatch assertions. The browser workbench suite also passes all six locales/five widths with the in-picker swatch and without Auto choices in text pipelines or a separate size summary. Linux release rebuilt and atomically staged. This correction changes no native execution code.
+
+## Generate resolution/reference scaling (0.1.13)
+
+- Typecheck, 57 core tests, the targeted Workbench/job-output UI suite (23 tests, including image→video reference switching, stale-dimension invalidation and fixed-size override), native `jobs::` (23 tests), `recipe_prerequisites::` (14 tests), Clippy `--lib -D warnings`, fmt check and diff whitespace check pass.
+- The final full UI run had 202 passes and two failures: the unrelated `DownloadPluginPanel` remembered-tab failure (reproduced alone in unchanged download UI files), and an intermittent setup-settings navigation failure (`AiOSetup` passes all 34 tests when rerun alone). The full native run had 163 passes, 14 ignored and three failures in the already-edited `downloads_models` cache tests (linked victim, oversized sidecar, same-size replacement). These were not repaired in the resolution change; the full suites are not green.
+- `verify_workbench.py` passes for five widths (320–1440) and all six bundled locales, including 4K selection, custom ratio/megapixels and immutable job IPC fixture submission. Screenshots are browser fixtures, not model output.
+- Actual installed ComfyUI CPU nodes were executed without starting a server: `ImageScale` fit produced 1024×576; stretch and center-crop produced 1024×1024; `ImagePadForOutpaint` padded the fit result to 1024×1024 with its built-in neutral-grey (0.5) border. No reference files were rewritten.
+- Linux release artifact rebuilt atomically. A separate isolated native process launched and its PID-owned X11 window was captured; shell chrome/version rendered, but native workbench click-through was not established. No running user service was restarted.
+- No model generation, GPU inference, Windows runtime or video/multi-reference/model-chain execution acceptance. Higher diagnostic resolution/PNG bounds are bounded allocation allowances, not model/VRAM support claims.
+
 ## T05-R1 local readiness-test correction (2026-10-15; acceptance BLOCKED)
 
 Checked out `fix/deas-readiness-ci` from local `main` at `f2651a584b0757c2d292fe2f44672f89b16279bb` (0.1.5); the local `origin/main` reference matched. The pre-existing `.gitignore` addition of `plan/` is preserved. All three planning documents are revision 3 dated 2026-10-15; repository plan/verification/handoff notes were read, and no applicable `AGENTS.md` was found.

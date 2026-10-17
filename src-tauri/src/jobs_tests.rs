@@ -13,7 +13,8 @@ const PROMPT_ID: &str = "cd5936d0-9f0f-4b82-8cda-b01c241bc669";
 
 fn nodes() -> Value {
     json!({"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["sd/model.safetensors"]]}}},
-        "CLIPTextEncode":{},"EmptyLatentImage":{},"KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}},"VAEDecode":{},"SaveImage":{}})
+        "CLIPTextEncode":{},"EmptyLatentImage":{},"KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}},"VAEDecode":{},"SaveImage":{},
+        "LoadImage":{"input":{"required":{"image":[["ref.png","my ref ä.png","../bad.png"]]}}},"VAEEncode":{}})
 }
 
 async fn server<F>(mut respond: F) -> (String, tokio::task::JoinHandle<()>)
@@ -58,7 +59,12 @@ where
             } else {
                 serde_json::from_slice(&bytes[head_end..head_end + length]).unwrap()
             };
-            let (code, body) = respond(path, body);
+            // The live-preview websocket is best effort: refusing it must not affect the job.
+            let (code, body) = if path.starts_with("GET /comfy/ws?clientId=") {
+                (404, "{}".to_owned())
+            } else {
+                respond(path, body)
+            };
             if code == 0 {
                 continue;
             } // Simulate a lost POST reply after receipt.
@@ -81,7 +87,8 @@ async fn explicit_prepare_submit_and_correlated_completion() {
             "GET /comfy/object_info HTTP/1.1" => (200,nodes().to_string()),
             "POST /comfy/prompt HTTP/1.1" => {
                 observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                assert_eq!(body.as_object().unwrap().len(),2);
+                assert_eq!(body.as_object().unwrap().len(),3);
+                assert_eq!(body["extra_data"],json!({"preview_method":"auto"}));
                 assert_eq!(body["prompt"],compile(&intent()).unwrap());
                 assert!(uuid::Uuid::parse_str(body["client_id"].as_str().unwrap()).is_ok());
                 tuple = json!([1,PROMPT_ID,body["prompt"],{"client_id":body["client_id"]},["7"]]);
@@ -141,7 +148,7 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("checkpoint", json!("../model")),
         ("checkpoint", json!("/model")),
         ("checkpoint", json!("dir\\model")),
-        ("checkpoint", json!("模型")),
+        ("checkpoint", json!(" model")),
         ("checkpoint", json!("dir//model")),
         ("checkpoint", json!("https://host/model")),
         ("checkpoint", json!("a".repeat(256))),
@@ -150,13 +157,13 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("seed", json!(-1)),
         ("seed", json!(0.5)),
         ("width", json!(65)),
-        ("width", json!(2056)),
+        ("width", json!(8200)),
         ("height", json!(56)),
         ("steps", json!(151)),
         ("steps", json!(0)),
         ("cfg", json!(30.1)),
         ("cfg", json!("7")),
-        ("sampler", json!("other")),
+        ("sampler", json!("../other")),
         ("scheduler", json!(null)),
         ("outputPrefix", json!("../x")),
         ("outputPrefix", json!("")),
@@ -173,6 +180,72 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
     edge["seed"] = json!(9_007_199_254_740_991_u64);
     edge["version"] = json!(1.0);
     assert!(compile(&edge).is_ok());
+}
+
+#[test]
+fn optional_loras_chain_between_checkpoint_and_sampler() {
+    let mut with = intent();
+    with["loras"] = json!([{"name":"style/a.safetensors","strength":0.8},{"name":"b.safetensors","strength":-1}]);
+    let graph = compile(&with).unwrap();
+    assert_eq!(graph["L1"]["inputs"]["model"], json!(["1", 0]));
+    assert_eq!(graph["L2"]["inputs"]["clip"], json!(["L1", 1]));
+    assert_eq!(graph["L2"]["inputs"]["strength_model"], json!(-1));
+    assert_eq!(graph["5"]["inputs"]["model"], json!(["L2", 0]));
+    assert_eq!(graph["2"]["inputs"]["clip"], json!(["L2", 1]));
+    assert_eq!(graph["7"]["class_type"], "SaveImage");
+    with["loras"] = json!([]);
+    assert_eq!(compile(&with).unwrap(), compile(&intent()).unwrap());
+    for bad in [
+        json!("x"),
+        json!([{"name":"../a","strength":1}]),
+        json!([{"name":"a","strength":11}]),
+        json!([{"name":"a","strength":1,"extra":1}]),
+        json!(vec![json!({"name":"a","strength":1}); 9]),
+    ] {
+        with["loras"] = bad;
+        assert!(compile(&with).is_err(), "accepted loras: {with}");
+    }
+}
+
+#[test]
+fn optional_input_image_switches_to_image_to_image() {
+    let mut with = intent();
+    with["inputImage"] = json!("ref.png");
+    with["denoise"] = json!(0.6);
+    let graph = compile(&with).unwrap();
+    assert_eq!(graph["8"]["class_type"], "LoadImage");
+    assert_eq!(graph["9"]["inputs"]["pixels"], json!(["8", 0]));
+    assert_eq!(graph["5"]["inputs"]["latent_image"], json!(["9", 0]));
+    assert_eq!(graph["5"]["inputs"]["denoise"], json!(0.6));
+    assert!(graph.get("4").is_none());
+    for (field, bad) in [
+        ("denoise", json!(1.5)),
+        ("inputImage", json!("../x.png")),
+        ("inputImage", json!(" padded.png")),
+        ("inputImage", json!("C:/x.png")),
+    ] {
+        let mut v = with.clone();
+        v[field] = bad;
+        assert!(compile(&v).is_err(), "accepted {field}: {v}");
+    }
+    let mut alone = intent();
+    alone["denoise"] = json!(0.5);
+    assert!(compile(&alone).is_err());
+}
+
+#[tokio::test]
+async fn prepare_validates_input_image_against_the_backend_list() {
+    let (base, task) = server(|_, _| (200, nodes().to_string())).await;
+    let jobs = Jobs::default();
+    let mut with = intent();
+    with["inputImage"] = json!("ref.png");
+    with["denoise"] = json!(0.6);
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["inputImage"] = json!("my ref ä.png"); // user file names with spaces/umlauts work
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["inputImage"] = json!("missing.png");
+    assert!(jobs.prepare(base, with).await.is_err());
+    task.abort();
 }
 
 #[tokio::test]
@@ -478,4 +551,194 @@ fn native_graph_matches_fixed_typescript_compiler() {
             "7":{"class_type":"SaveImage","inputs":{"images":["6",0],"filename_prefix":"DEAS_test"}}
         })
     );
+}
+
+#[test]
+fn resize_graph_and_validation() {
+    let mut image = intent();
+    image["inputImage"] = json!("ref.png");
+    image["denoise"] = json!(0.6);
+    let old = compile(&image).unwrap();
+    for crop in ["disabled", "center"] {
+        let resize = json!({"width":512,"height":768,"crop":crop});
+        image["inputResize"] = resize.clone();
+        let graph = compile(&image).unwrap();
+        assert_eq!(
+            graph["S"],
+            json!({"class_type":"ImageScale","inputs":{"image":["8",0],"upscale_method":"lanczos","width":512,"height":768,"crop":crop}})
+        );
+        assert_eq!(graph["9"]["inputs"]["pixels"], json!(["S", 0]));
+        assert!(graph.get("P").is_none());
+        let mut split = image.clone();
+        split["diffusion"] = json!({"textEncoder":"clip","clipType":"sdxl","vae":"vae"});
+        split["loras"] = json!([{"name":"lora","strength":1}]);
+        let split = compile(&split).unwrap();
+        assert_eq!(split["9"]["inputs"]["vae"], json!(["V", 0]));
+        assert_eq!(split["5"]["inputs"]["model"], json!(["L1", 0]));
+        let pad = json!({"left":8,"right":16,"top":24,"bottom":32});
+        image["inputResize"]["pad"] = pad.clone();
+        image["width"] = json!(536);
+        image["height"] = json!(824);
+        let graph = compile(&image).unwrap();
+        assert_eq!(
+            graph["P"],
+            json!({"class_type":"ImagePadForOutpaint","inputs":{"image":["S",0],"left":8,"right":16,"top":24,"bottom":32,"feathering":0}})
+        );
+        assert_eq!(graph["9"]["inputs"]["pixels"], json!(["P", 0]));
+        assert_eq!(graph["5"], old["5"]);
+        image["width"] = json!(512);
+        image["height"] = json!(768);
+        let mut bad = vec![
+            json!(null),
+            json!([]),
+            json!("resize"),
+            json!({}),
+            json!({"width":512,"height":768}),
+            json!({"width":512,"height":768,"crop":crop,"extra":1}),
+        ];
+        for field in ["width", "height"] {
+            for value in [
+                json!(0),
+                json!(-8),
+                json!(7),
+                json!(511),
+                json!(512.5),
+                json!(8200),
+                json!("512"),
+            ] {
+                let mut r = resize.clone();
+                r[field] = value;
+                bad.push(r);
+            }
+        }
+        for value in [json!("fit"), json!(null), json!(1)] {
+            let mut r = resize.clone();
+            r["crop"] = value;
+            bad.push(r);
+        }
+        for value in [
+            json!(null),
+            json!([]),
+            json!({}),
+            json!({"left":0,"right":0,"top":0}),
+            json!({"left":0,"right":0,"top":0,"bottom":0,"extra":0}),
+            json!({"left":8,"right":0,"top":0,"bottom":0}),
+        ] {
+            let mut r = resize.clone();
+            r["pad"] = value;
+            bad.push(r);
+        }
+        for value in [json!(-8), json!(1), json!(8.5), json!(8200), json!("8")] {
+            let mut r = resize.clone();
+            r["pad"] = pad.clone();
+            r["pad"]["left"] = value;
+            bad.push(r);
+        }
+        for r in bad {
+            image["inputResize"] = r;
+            assert!(compile(&image).is_err(), "accepted {image}");
+        }
+        let mut text = intent();
+        text["inputResize"] = resize;
+        assert!(compile(&text).is_err());
+    }
+    image.as_object_mut().unwrap().remove("inputResize");
+    assert_eq!(compile(&image).unwrap(), old);
+    for (width, height, valid) in [
+        (3840, 2160, true),
+        (4096, 4096, true),
+        (8192, 2048, true),
+        (2048, 8192, true),
+        (8192, 2056, false),
+    ] {
+        let mut v = intent();
+        v["width"] = json!(width);
+        v["height"] = json!(height);
+        assert_eq!(compile(&v).is_ok(), valid);
+    }
+}
+
+#[tokio::test]
+async fn prepare_requires_only_used_resize_nodes() {
+    for absent in [None, Some("ImageScale"), Some("ImagePadForOutpaint")] {
+        let mut info = nodes();
+        info["ImageScale"] = json!({});
+        info["ImagePadForOutpaint"] = json!({});
+        if let Some(name) = absent {
+            info.as_object_mut().unwrap().remove(name);
+        }
+        let (base, task) = server(move |_, _| (200, info.to_string())).await;
+        let jobs = Jobs::default();
+        let mut v = intent();
+        v["inputImage"] = json!("ref.png");
+        v["denoise"] = json!(0.6);
+        assert!(jobs.prepare(base.clone(), v.clone()).await.is_ok());
+        v["inputResize"] = json!({"width":512,"height":768,"crop":"disabled"});
+        assert_eq!(
+            jobs.prepare(base.clone(), v.clone()).await.is_ok(),
+            absent != Some("ImageScale")
+        );
+        v["inputResize"]["pad"] = json!({"left":0,"right":0,"top":0,"bottom":0});
+        assert_eq!(jobs.prepare(base, v).await.is_ok(), absent.is_none());
+        task.abort();
+    }
+}
+
+#[test]
+fn diffusion_intent_splits_model_text_encoder_and_vae() {
+    let mut value = intent();
+    value["diffusion"] = json!({"textEncoder":"qwen3vl_4b.safetensors","clipType":"krea2","vae":"q/vae.safetensors"});
+    value["loras"] = json!([{"name":"k.safetensors","strength":0.5}]);
+    let g = compile(&value).unwrap();
+    assert_eq!(g["1"]["class_type"], "UNETLoader");
+    assert_eq!(g["1"]["inputs"]["unet_name"], value["checkpoint"]);
+    assert_eq!(
+        g["C"]["inputs"],
+        json!({"clip_name":"qwen3vl_4b.safetensors","type":"krea2"})
+    );
+    assert_eq!(g["L1"]["inputs"]["clip"], json!(["C", 0]));
+    assert_eq!(g["2"]["inputs"]["clip"], json!(["L1", 1]));
+    assert_eq!(g["6"]["inputs"]["vae"], json!(["V", 0]));
+    for bad in [
+        json!({"textEncoder":"a.safetensors","clipType":"krea2"}),
+        json!({"textEncoder":"../a","clipType":"krea2","vae":"v"}),
+        json!({"textEncoder":"a","clipType":"kr ea","vae":"v"}),
+    ] {
+        value["diffusion"] = bad;
+        assert!(compile(&value).is_err(), "accepted {value}");
+    }
+}
+
+#[test]
+fn graph_correlation_accepts_comfy_float_rewrites_only() {
+    let sent =
+        json!({"5":{"inputs":{"cfg":1,"denoise":1,"seed":18446744073709551615u64,"steps":8}}});
+    let stored =
+        json!({"5":{"inputs":{"cfg":1.0,"denoise":1.0,"seed":18446744073709551615u64,"steps":8}}});
+    assert!(same(&stored, &sent));
+    assert!(!same(
+        &json!({"5":{"inputs":{"cfg":1.5}}}),
+        &json!({"5":{"inputs":{"cfg":1}}})
+    ));
+    assert!(!same(
+        &json!({"5":{"inputs":{"cfg":1,"x":0}}}),
+        &json!({"5":{"inputs":{"cfg":1}}})
+    ));
+    assert!(!same(&json!(["1", 0]), &json!(["1", 0, 0])));
+}
+
+#[test]
+fn preview_frames_need_known_format_and_magic() {
+    let jpeg = [&[0, 0, 0, 1, 0, 0, 0, 1][..], &[0xFF, 0xD8, 0xFF, 0xE0]].concat();
+    assert_eq!(
+        preview_frame(&jpeg).unwrap(),
+        "data:image/jpeg;base64,/9j/4A=="
+    );
+    let png = [&[0, 0, 0, 1, 0, 0, 0, 2][..], b"\x89PNG\r\n\x1a\n"].concat();
+    assert!(preview_frame(&png)
+        .unwrap()
+        .starts_with("data:image/png;base64,"));
+    assert!(preview_frame(&[0, 0, 0, 1, 0, 0, 0, 2, 0xFF, 0xD8, 0xFF]).is_none());
+    assert!(preview_frame(&[0, 0, 0, 4, 0, 0, 0, 1, 0xFF, 0xD8, 0xFF]).is_none());
+    assert!(preview_frame(&[0, 0, 0, 1]).is_none());
 }

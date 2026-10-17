@@ -42,17 +42,23 @@ test('output transfer and Save As are explicit native commands', async () => {
   expect(await exportDiagnosticJobOutput('job', 0, 'Save PNG')).toBeNull();
   expect(invoke).toHaveBeenLastCalledWith('native_job_export', { jobId: 'job', index: 0, title: 'Save PNG' });
 });
-test.each([{ mimeType: 'image/jpeg' }, { jobId: 'foreign' }, { index: 1 }, { bytes: [] }, { bytes: [256] }, { bytes: [-1] }, { bytes: [0.5] }, { width: 2049 }, { height: 0 }, { sha256: 'A'.repeat(64) }])('rejects malformed output before Blob allocation: %s', async invalid => {
+test.each([{ mimeType: 'image/jpeg' }, { jobId: 'foreign' }, { index: 1 }, { bytes: [] }, { bytes: [256] }, { bytes: [-1] }, { bytes: [0.5] }, { width: 8193 }, { width: 8192, height: 8192 }, { height: 0 }, { sha256: 'A'.repeat(64) }])('rejects malformed output before Blob allocation: %s', async invalid => {
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockResolvedValue({ jobId: 'job', index: 0, mimeType: 'image/png', width: 512, height: 512, sha256: 'a'.repeat(64), bytes: [137], ...invalid });
   await expect(loadDiagnosticJobOutput('job', 0)).rejects.toThrow('Invalid native PNG output');
 });
 test('rejects oversized and sparse byte arrays before allocating a typed buffer', async () => {
   vi.mocked(isTauri).mockReturnValue(true);
-  for (const bytes of [new Array(16 * 1024 * 1024 + 1), new Array(1)]) {
+  for (const bytes of [new Array(144 * 1024 * 1024 + 1), new Array(1)]) {
     vi.mocked(invoke).mockResolvedValue({ jobId: 'job', index: 0, mimeType: 'image/png', width: 1, height: 1, sha256: 'a'.repeat(64), bytes });
     await expect(loadDiagnosticJobOutput('job', 0)).rejects.toThrow('Invalid native PNG output');
   }
+});
+test('4K PNG metadata passes the same dimension and pixel bounds as native output',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ const output={jobId:'job',index:0,mimeType:'image/png',width:3840,height:2160,sha256:'a'.repeat(64),bytes:[137,80,78,71]};
+ vi.mocked(invoke).mockResolvedValue(output);
+ expect(await loadDiagnosticJobOutput('job',0)).toEqual(output);
 });
 test('empty endpoints are rejected before IPC, native errors retain code and message', async () => {
   vi.mocked(isTauri).mockReturnValue(true);

@@ -29,8 +29,9 @@ export function LogsPanel() {
   const { t } = useI18n();
   const native = isTauri();
   const [entries, setEntries] = useState<LogEntry[]>([]);
-  const [shownSources, setShownSources] = useState<LogSource[]>(sources);
-  const [shownLevels, setShownLevels] = useState<LogLevel[]>(levels);
+  // One filter per group; 'all' (the default) shows everything.
+  const [source, setSource] = useState<LogSource | 'all'>('all');
+  const [level, setLevel] = useState<LogLevel | 'all'>('all');
   const [search, setSearch] = useState('');
   const [note, setNote] = useState('');
   const view = useRef<HTMLPreElement>(null);
@@ -56,13 +57,12 @@ export function LogsPanel() {
     return () => { alive = false; window.clearTimeout(timer); };
   }, [native, t]);
   const query = search.trim().toLowerCase();
-  const matches = useMemo(() => entries.filter(e => shownSources.includes(e.source) && shownLevels.includes(levelOf(e.text)) && (!query || e.text.toLowerCase().includes(query))), [entries, shownSources, shownLevels, query]);
+  const matches = useMemo(() => entries.filter(e => (source === 'all' || e.source === source) && (level === 'all' || levelOf(e.text) === level) && (!query || e.text.toLowerCase().includes(query))), [entries, source, level, query]);
   const visible = matches.slice(-SHOWN);
   // Follow new output only while the user is already at the bottom.
   const stick = useRef(true);
   useEffect(() => { const el = view.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [visible.length, entries]);
   const text = () => matches.map(formatLog).join('\n');
-  const toggle = <T,>(list: T[], value: T) => list.includes(value) ? list.filter(v => v !== value) : [...list, value];
   const copy = async () => {
     try { await navigator.clipboard.writeText(text()); setNote(t('logs.copied', { count: matches.length })); }
     catch (e) { setNote(t('logs.error', { error: String(e) })); }
@@ -76,8 +76,8 @@ export function LogsPanel() {
   };
   return <section className="aio-detail logs-panel" aria-label={t('logs.title')}>
     <div className="logs-toolbar">
-      <div className="logs-chips" role="group" aria-label={t('logs.sources')}>{sources.map(s => <button key={s} type="button" className="logs-chip" aria-pressed={shownSources.includes(s)} onClick={() => setShownSources(v => toggle(v, s))}>{t(`logs.source.${s}`)}</button>)}</div>
-      <div className="logs-chips" role="group" aria-label={t('logs.levels')}>{levels.map(l => <button key={l} type="button" className={`logs-chip log-${l}`} aria-pressed={shownLevels.includes(l)} onClick={() => setShownLevels(v => toggle(v, l))}>{t(`logs.level.${l}`)}</button>)}</div>
+      <div className="logs-chips" role="group" aria-label={t('logs.sources')}>{(['all', ...sources] as const).map(s => <button key={s} type="button" className="logs-chip" aria-pressed={source === s} onClick={() => setSource(s)}>{t(s === 'all' ? 'logs.all' : `logs.source.${s}`)}</button>)}</div>
+      <div className="logs-chips" role="group" aria-label={t('logs.levels')}>{(['all', ...levels] as const).map(l => <button key={l} type="button" className={`logs-chip log-${l}`} aria-pressed={level === l} onClick={() => setLevel(l)}>{t(l === 'all' ? 'logs.all' : `logs.level.${l}`)}</button>)}</div>
       <input type="search" className="logs-search" aria-label={t('logs.search')} placeholder={t('logs.search')} value={search} onChange={e => setSearch(e.target.value)} />
       <button type="button" className="logs-chip logs-action" disabled={!matches.length} onClick={() => void copy()}>{t('logs.copy')}</button>
       <button type="button" className="logs-chip logs-action" disabled={!matches.length} onClick={() => void exportText()}>{t('logs.export')}</button>

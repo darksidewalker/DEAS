@@ -1,7 +1,7 @@
 //! Native-owned classic diagnostic execution; never accepts a frontend graph.
 use serde_json::{json, Value};
 use std::{
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -56,6 +56,15 @@ struct Job {
     error: Option<String>,
     submitting: bool,
     polling: bool,
+    live: Arc<Mutex<Live>>,
+}
+
+/// Display-only sampler progress and latest preview pushed over the job's own websocket.
+#[derive(Default)]
+struct Live {
+    value: u64,
+    max: u64,
+    preview: Option<String>,
 }
 
 impl Job {
@@ -63,7 +72,18 @@ impl Job {
         matches!(self.state, "succeeded" | "failed")
     }
     fn snapshot(&self) -> Value {
-        json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false})
+        let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false});
+        if matches!(self.state, "queued" | "running") {
+            if let Ok(live) = self.live.lock() {
+                if live.max > 0 {
+                    value["progress"] = json!({"value":live.value,"max":live.max});
+                }
+                if let Some(preview) = &live.preview {
+                    value["preview"] = json!(preview);
+                }
+            }
+        }
+        value
     }
     fn unknown(&mut self, error: String) {
         self.state = "unknown";
@@ -159,7 +179,36 @@ fn compile(i: &Value) -> Result<Value, String> {
     ];
     let fields = &FIELDS;
     let object = i.as_object().ok_or("Expected a diagnostic intent object")?;
-    if object.len() != fields.len() || fields.iter().any(|key| !object.contains_key(*key)) {
+    // An absent or empty LoRA list compiles the plain graph.
+    let loras = object
+        .get("loras")
+        .map(|v| v.as_array().ok_or("Invalid loras"))
+        .transpose()?;
+    // `inputImage` + `denoise` switch the recipe to image-to-image (LoadImage → VAEEncode instead of an empty latent).
+    let image = object.get("inputImage");
+    let resize = object.get("inputResize");
+    if image.is_some() != object.contains_key("denoise") {
+        return Err("inputImage and denoise must be given together".into());
+    }
+    // `diffusion` loads `checkpoint` as a diffusion model with a separate text encoder and VAE.
+    let diffusion = object.get("diffusion");
+    if diffusion.is_some_and(|d| {
+        d.as_object().is_none_or(|o| o.len() != 3)
+            || !["textEncoder", "vae"]
+                .iter()
+                .all(|k| d[*k].as_str().is_some_and(model_name))
+            || !d["clipType"].as_str().is_some_and(safe_choice)
+    }) {
+        return Err("Invalid diffusion: expected {textEncoder, clipType, vae}".into());
+    }
+    if object.len()
+        != fields.len()
+            + usize::from(loras.is_some())
+            + 2 * usize::from(image.is_some())
+            + usize::from(diffusion.is_some())
+            + usize::from(resize.is_some())
+        || fields.iter().any(|key| !object.contains_key(*key))
+    {
         return Err("Missing or unknown diagnostic intent fields".into());
     }
     if i["recipeId"] != "checkpoint-text-to-image-diagnostic" || i["version"].as_f64() != Some(1.0)
@@ -176,16 +225,36 @@ fn compile(i: &Value) -> Result<Value, String> {
             ));
         }
     }
-    if !i["checkpoint"]
-        .as_str()
-        .is_some_and(|s| s.len() <= 255 && safe_path(s, false))
-    {
+    if !i["checkpoint"].as_str().is_some_and(model_name) {
         return Err("Unsafe checkpoint identifier".into());
+    }
+    if let Some(image) = image {
+        if !image.as_str().is_some_and(model_name) {
+            return Err("Unsafe input image identifier".into());
+        }
+        if !i["denoise"]
+            .as_f64()
+            .is_some_and(|n| n.is_finite() && (0.0..=1.0).contains(&n))
+        {
+            return Err("Invalid denoise: expected 0..=1".into());
+        }
+    }
+    let loras = loras.map(Vec::as_slice).unwrap_or_default();
+    if loras.len() > 8
+        || loras.iter().any(|l| {
+            l.as_object().is_none_or(|o| o.len() != 2)
+                || !l["name"].as_str().is_some_and(model_name)
+                || !l["strength"]
+                    .as_f64()
+                    .is_some_and(|n| n.is_finite() && (-10.0..=10.0).contains(&n))
+        })
+    {
+        return Err("Invalid loras: at most 8 of {name, strength in [-10, 10]}".into());
     }
     for (field, min, max, integer, alignment) in [
         ("seed", 0.0, 9_007_199_254_740_991.0, true, 1.0),
-        ("width", 64.0, 2048.0, true, 8.0),
-        ("height", 64.0, 2048.0, true, 8.0),
+        ("width", 64.0, 8192.0, true, 8.0),
+        ("height", 64.0, 8192.0, true, 8.0),
         ("steps", 1.0, 150.0, true, 1.0),
         ("cfg", 0.0, 30.0, false, 1.0),
     ] {
@@ -195,14 +264,52 @@ fn compile(i: &Value) -> Result<Value, String> {
             return Err(format!("Invalid diagnostic {field}"));
         }
     }
-    if !["euler", "euler_ancestral", "dpmpp_2m"]
+    if i["width"].as_f64().unwrap() * i["height"].as_f64().unwrap() > 16_777_216.0 {
+        return Err("Diagnostic pixel limit exceeded".into());
+    }
+    if let Some(r) = resize {
+        let aligned = |v: &Value, min: f64| {
+            v.as_f64()
+                .is_some_and(|n| n.is_finite() && n >= min && n <= 8192.0 && n % 8.0 == 0.0)
+        };
+        if image.is_none()
+            || r.as_object().is_none_or(|o| {
+                !(3..=4).contains(&o.len())
+                    || o.keys()
+                        .any(|k| !["width", "height", "crop", "pad"].contains(&k.as_str()))
+            })
+            || !aligned(&r["width"], 8.0)
+            || !aligned(&r["height"], 8.0)
+            || !r["crop"]
+                .as_str()
+                .is_some_and(|c| ["disabled", "center"].contains(&c))
+        {
+            return Err("Invalid inputResize: requires image, aligned dimensions and crop".into());
+        }
+        let pad = r.get("pad");
+        if pad.is_some_and(|p| {
+            p.as_object().is_none_or(|o| o.len() != 4)
+                || !["left", "right", "top", "bottom"]
+                    .iter()
+                    .all(|k| aligned(&p[*k], 0.0))
+        }) {
+            return Err("Invalid inputResize padding".into());
+        }
+        let padding = |key: &str| pad.map_or(0.0, |p| p[key].as_f64().unwrap());
+        if r["width"].as_f64().unwrap() + padding("left") + padding("right")
+            != i["width"].as_f64().unwrap()
+            || r["height"].as_f64().unwrap() + padding("top") + padding("bottom")
+                != i["height"].as_f64().unwrap()
+        {
+            return Err("inputResize plus padding must match output dimensions".into());
+        }
+    }
+    // Any sampler/scheduler the backend lists is allowed; preparation checks them against object_info.
+    if !["sampler", "scheduler"]
         .iter()
-        .any(|s| i["sampler"] == *s)
-        || !["normal", "karras", "simple"]
-            .iter()
-            .any(|s| i["scheduler"] == *s)
+        .all(|f| i[*f].as_str().is_some_and(safe_choice))
     {
-        return Err("Unsupported sampler or scheduler".into());
+        return Err("Unsafe sampler or scheduler".into());
     }
     if !i["outputPrefix"].as_str().is_some_and(|s| {
         !s.is_empty()
@@ -212,7 +319,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     }) {
         return Err("Unsafe output prefix".into());
     }
-    Ok(json!({
+    let mut graph = json!({
         "1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":i["checkpoint"]}},
         "2":{"class_type":"CLIPTextEncode","inputs":{"text":i["positivePrompt"],"clip":["1",1]}},
         "3":{"class_type":"CLIPTextEncode","inputs":{"text":i["negativePrompt"],"clip":["1",1]}},
@@ -220,7 +327,64 @@ fn compile(i: &Value) -> Result<Value, String> {
         "5":{"class_type":"KSampler","inputs":{"model":["1",0],"positive":["2",0],"negative":["3",0],"latent_image":["4",0],"seed":i["seed"],"steps":i["steps"],"cfg":i["cfg"],"sampler_name":i["sampler"],"scheduler":i["scheduler"],"denoise":1}},
         "6":{"class_type":"VAEDecode","inputs":{"samples":["5",0],"vae":["1",2]}},
         "7":{"class_type":"SaveImage","inputs":{"images":["6",0],"filename_prefix":i["outputPrefix"]}}
-    }))
+    });
+    let (mut model, mut clip, mut vae) = (json!(["1", 0]), json!(["1", 1]), json!(["1", 2]));
+    if let Some(d) = diffusion {
+        graph["1"] = json!({"class_type":"UNETLoader","inputs":{"unet_name":i["checkpoint"],"weight_dtype":"default"}});
+        graph["C"] = json!({"class_type":"CLIPLoader","inputs":{"clip_name":d["textEncoder"],"type":d["clipType"]}});
+        graph["V"] = json!({"class_type":"VAELoader","inputs":{"vae_name":d["vae"]}});
+        (clip, vae) = (json!(["C", 0]), json!(["V", 0]));
+    }
+    // Chain LoraLoaders after the loaders; the last one feeds the sampler and both encoders.
+    for (n, lora) in loras.iter().enumerate() {
+        let id = format!("L{}", n + 1);
+        graph[&id] = json!({"class_type":"LoraLoader","inputs":{"model":model,"clip":clip,"lora_name":lora["name"],"strength_model":lora["strength"],"strength_clip":lora["strength"]}});
+        (model, clip) = (json!([id, 0]), json!([id, 1]));
+    }
+    graph["2"]["inputs"]["clip"] = clip.clone();
+    graph["3"]["inputs"]["clip"] = clip;
+    graph["5"]["inputs"]["model"] = model;
+    graph["6"]["inputs"]["vae"] = vae.clone();
+    if let Some(image) = image {
+        graph["8"] = json!({"class_type":"LoadImage","inputs":{"image":image}});
+        graph["9"] = json!({"class_type":"VAEEncode","inputs":{"pixels":["8",0],"vae":vae}});
+        if let Some(r) = resize {
+            graph["S"] = json!({"class_type":"ImageScale","inputs":{"image":["8",0],"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":r["crop"]}});
+            if let Some(p) = r.get("pad") {
+                graph["P"] = json!({"class_type":"ImagePadForOutpaint","inputs":{"image":["S",0],"left":p["left"],"right":p["right"],"top":p["top"],"bottom":p["bottom"],"feathering":0}});
+            }
+            graph["9"]["inputs"]["pixels"] =
+                json!([if r.get("pad").is_some() { "P" } else { "S" }, 0]);
+        }
+        graph["5"]["inputs"]["latent_image"] = json!(["9", 0]);
+        graph["5"]["inputs"]["denoise"] = i["denoise"].clone();
+        graph.as_object_mut().unwrap().remove("4");
+    }
+    Ok(graph)
+}
+
+/// Model/input file identifier as ComfyUI lists it (relative to its folder): spaces and
+/// non-ASCII letters are fine; traversal, absolute/host paths, URLs, `\` `:` `%`, control
+/// characters and padded segments are not.
+pub(crate) fn model_name(s: &str) -> bool {
+    s.len() <= 255
+        && s.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment != "."
+                && segment != ".."
+                && segment.trim() == segment
+                && !segment
+                    .chars()
+                    .any(|c| c.is_control() || "\\:%".contains(c))
+        })
+}
+
+/// Backend enum choice (sampler, scheduler, CLIP type): short safe ASCII, never a path.
+fn safe_choice(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
 fn safe_path(s: &str, empty: bool) -> bool {
@@ -266,9 +430,68 @@ impl Jobs {
         let prerequisites =
             crate::recipe_prerequisites::native_recipe_prerequisites(base.to_string()).await?;
         let allow = &prerequisites["allowlist"];
+        let diffusion = &intent["diffusion"];
+        let split = diffusion.is_object();
         for (field, required) in [
-            ("nodes", REQUIRED_NODES.to_vec()),
-            ("checkpoints", vec![intent["checkpoint"].as_str().unwrap()]),
+            (
+                "nodes",
+                REQUIRED_NODES
+                    .iter()
+                    .copied()
+                    .chain(
+                        graph
+                            .as_object()
+                            .unwrap()
+                            .values()
+                            .filter_map(|n| n["class_type"].as_str())
+                            .filter(|name| ["ImageScale", "ImagePadForOutpaint"].contains(name)),
+                    )
+                    .collect(),
+            ),
+            (
+                if split {
+                    "diffusionModels"
+                } else {
+                    "checkpoints"
+                },
+                vec![intent["checkpoint"].as_str().unwrap()],
+            ),
+            (
+                "nodes",
+                if split {
+                    vec!["UNETLoader", "CLIPLoader", "VAELoader"]
+                } else {
+                    vec![]
+                },
+            ),
+            (
+                "textEncoders",
+                diffusion["textEncoder"].as_str().into_iter().collect(),
+            ),
+            (
+                "clipTypes",
+                diffusion["clipType"].as_str().into_iter().collect(),
+            ),
+            ("vaes", diffusion["vae"].as_str().into_iter().collect()),
+            (
+                "images",
+                intent["inputImage"].as_str().into_iter().collect(),
+            ),
+            (
+                "nodes",
+                if intent["inputImage"].is_string() {
+                    vec!["LoadImage", "VAEEncode"]
+                } else {
+                    vec![]
+                },
+            ),
+            (
+                "loras",
+                intent["loras"]
+                    .as_array()
+                    .map(|l| l.iter().filter_map(|x| x["name"].as_str()).collect())
+                    .unwrap_or_default(),
+            ),
             ("samplers", vec![intent["sampler"].as_str().unwrap()]),
             ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
         ] {
@@ -331,16 +554,19 @@ impl Jobs {
                 error: Some("Submission in progress; do not retry".into()),
                 submitting: true,
                 polling: false,
+                live: Arc::default(),
             };
             session.output = None;
             session.job = Some(job.clone());
             job
         };
+        // Connect before POST so this client's progress/preview frames are not missed.
+        watch(&job.plan.base, &job.client_id, job.live.clone()).await;
         let result = request(
             &client,
             &job.plan.base,
             "prompt",
-            Some(json!({"prompt":job.plan.graph,"client_id":job.client_id})),
+            Some(json!({"prompt":job.plan.graph,"client_id":job.client_id,"extra_data":{"preview_method":"auto"}})),
         )
         .await;
         match result {
@@ -417,6 +643,86 @@ fn canonical_uuid(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|uuid| uuid.to_string() == id)
 }
 
+/// Graph equality as ComfyUI stores it: its validator rewrites FLOAT inputs (`1` → `1.0`).
+fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x == y || x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(x, y))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
+/// Decode one ComfyUI binary preview frame (`u32 event=1`, `u32 format`, image) into a data URL.
+fn preview_frame(frame: &[u8]) -> Option<String> {
+    use base64::Engine;
+    let (head, image) = (frame.get(..8)?, &frame[8..]);
+    let mime = match (&head[..4], &head[4..]) {
+        ([0, 0, 0, 1], [0, 0, 0, 1]) if image.starts_with(&[0xFF, 0xD8, 0xFF]) => "jpeg",
+        ([0, 0, 0, 1], [0, 0, 0, 2]) if image.starts_with(b"\x89PNG\r\n\x1a\n") => "png",
+        _ => return None,
+    };
+    Some(format!(
+        "data:image/{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(image)
+    ))
+}
+
+/// Best-effort live view over `/ws?clientId=`; failures only mean no preview.
+// shortcut: plain ws only (no TLS feature), https endpoints get no live preview; add rustls if remote https backends matter.
+async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
+    let Ok(mut url) = base.join("ws") else { return };
+    if base.scheme() != "http" || url.set_scheme("ws").is_err() {
+        return;
+    }
+    url.query_pairs_mut().append_pair("clientId", client_id);
+    let config = WebSocketConfig::default().max_message_size(Some(RESPONSE_LIMIT * 16));
+    let connect = tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false);
+    let Ok(Ok((mut socket, _))) = tokio::time::timeout(Duration::from_secs(3), connect).await
+    else {
+        return;
+    };
+    tokio::spawn(async move {
+        // Ends with the job's own completion events, idle silence, or when the job is dropped.
+        while Arc::strong_count(&live) > 1 {
+            let Ok(Some(Ok(message))) =
+                tokio::time::timeout(Duration::from_secs(600), socket.next()).await
+            else {
+                break;
+            };
+            let Ok(mut live) = live.lock() else { break };
+            match message {
+                Message::Binary(frame) => {
+                    if let Some(preview) = preview_frame(&frame) {
+                        live.preview = Some(preview);
+                    }
+                }
+                Message::Text(text) => {
+                    let event: Value = serde_json::from_str(&text).unwrap_or_default();
+                    match event["type"].as_str() {
+                        Some("progress") => {
+                            live.value = event["data"]["value"].as_u64().unwrap_or(0);
+                            live.max = event["data"]["max"].as_u64().unwrap_or(0);
+                        }
+                        Some("execution_success" | "execution_error" | "execution_interrupted") => {
+                            break
+                        }
+                        _ => {}
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+}
+
 fn correlate(tuple: &Value, job: &Job) -> Result<(), String> {
     let tuple = tuple
         .as_array()
@@ -424,7 +730,7 @@ fn correlate(tuple: &Value, job: &Job) -> Result<(), String> {
         .ok_or("Malformed backend prompt tuple")?;
     if !tuple[0].as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)
         || tuple[1].as_str() != job.prompt_id.as_deref()
-        || tuple[2] != job.plan.graph
+        || !same(&tuple[2], &job.plan.graph)
         || tuple[3]["client_id"].as_str() != Some(job.client_id.as_str())
         || !tuple[4]
             .as_array()

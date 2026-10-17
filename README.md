@@ -16,9 +16,19 @@ Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFea
 
 ## Studio preview
 
-A successful approved installation opens the studio automatically with **Video**, **Image** and **Workspace map** tabs. The media library loads images and videos via drop or native folder browsing, previews them in browser tabs, and lists exported job outputs. The workspace map shows the Engine, Director and plugin blobs with selectable road animation (Light · Paws · Off). Diagnostic jobs, read-only API checks and the media library are live; inference and editing controls arrive in separate steps.
+A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock. Runnable image recipes remain separate from the visible but disabled video pipeline choices. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
 
 ![Media library with a loaded preview — browser fixture](assets/deas-media-start-1440.png)
+
+### Resolution and reference scaling
+
+Generate has aspect and resolution pickers with automatic reference aspect only for media-input pipelines, Director ratios plus ultrawide/portrait formats, custom ratios, one native/model-default resolution derived from the active model family, resolution/megapixel presets through 4K, custom megapixels and exact width × height. Preset names use the Director pixel-budget convention, not a guaranteed fixed vertical edge. Dimensions snap to the current image recipe’s 8px grid; entering width/height explicitly overrides automatic aspect. Existing remembered dimensions remain fixed until another mode is selected.
+
+Image-to-image takes an image from the environment’s **Input** folder. Choose **Off** to pass its original pixels through, **Auto** to reduce references exceeding a 2048px short edge, **Target** to stretch, **Fit** to preserve aspect inside the canvas, **Fill and crop** to center-crop, or **Fit and pad** to retain the entire reference. The aspect swatch lives inside the aspect picker, with no separate size-summary row. Fit and Off need not match the selected canvas. Resizing/padding is part of the immutable backend job before VAE encoding, never a rewrite of the reference file. Unreadable reference dimensions or sizes beyond the aligned 64–8192px / 16,777,216-pixel diagnostic bound block Run. Large presets do not guarantee model or VRAM support.
+
+Auto-Aspect is offered only in media-input pipelines; browsing an image or video in a text-input pipeline does not change its aspect or block Run. Unknown model families do not advertise a native size; explicit dimensions stay available. Image/video-to-video and multi-reference recipes, and automatic chaining between different models, are not implemented; the video pipeline buttons remain disabled rather than advertising execution support.
+
+![Generate resolution controls — browser IPC fixture, not generation proof](assets/deas-workbench-fixture-1440.png)
 
 ## All-in-one vision — early alpha
 
@@ -28,7 +38,7 @@ Most of this is not implemented. The [plugin roadmap](docs/PLUGIN-ROADMAP.md) ma
 
 ## Current development stage
 
-Current alpha: **0.1.10** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
+Current alpha: **0.1.13** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
 
 The first milestone builds the desktop shell, interactive studio, trusted built-in feature registry and read-only ComfyUI discovery. This is **not yet the completed AiO installer or a generation-ready Director replacement**. Unavailable execution functions are identified in the interface rather than simulated.
 
