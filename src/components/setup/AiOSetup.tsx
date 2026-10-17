@@ -4,6 +4,8 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
+import { StartupPanel } from '../../features/settings/StartupPanel';
+import { LlmPanel } from '../../features/llm/LlmPanel';
 import { RepoLinks } from './RepoLinks';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
 import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
@@ -60,6 +62,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   readAuthStatus().then(list=>Promise.all(list.filter(m=>m.configured).map(m=>verifyAuthToken(m.providerId).catch(()=>null))))
    .then(checks=>{if(alive)setVerified(checks.filter(c=>c?.status==='verified').map(c=>c!.providerId));},()=>{});
   return()=>{alive=false;};},[native,inAuth]);
+ const [restartSignal,setRestartSignal]=useState(0);
  const [installedRoot,setInstalledRoot]=useState('');const installed=succeeded||!!installedRoot;
  useEffect(()=>{onEnvironment?.(installedRoot?{root:installedRoot,folders}:null);},[installedRoot,folders,onEnvironment]);
  const review=state.opened&&!installed;const side=(view==='setup'&&(review||installed))||(view==='settings'&&installed);
@@ -195,7 +198,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {view==='setup'&&review&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {view==='logs'&&<LogsPanel/>}
   {view==='settings'&&<LanguageSetting/>}
-  {view==='settings'&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}<FoldersPanel root={installedRoot||(plan?.route==='managed'?plan.storagePath:defaults?.storagePath)} draft={installed?undefined:folderDraft} disabled={running||busy||folderPickerBusy} onChange={installed?setFolders:setFolderDraft}/></>}
+  {view==='settings'&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}<FoldersPanel root={installedRoot||(plan?.route==='managed'?plan.storagePath:defaults?.storagePath)} draft={installed?undefined:folderDraft} disabled={running||busy||folderPickerBusy} onChange={installed?setFolders:setFolderDraft}/>{installed&&(installedRoot||plan?.route==='managed')&&<div className="settings-runtime-grid"><StartupPanel root={installedRoot||(plan?.route==='managed'?plan.storagePath:'')} onRestart={()=>setRestartSignal(n=>n+1)}/><LlmPanel key={folders.models??''} root={installedRoot||(plan?.route==='managed'?plan.storagePath:'')}/></div>}</>}
   {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
   </div>
   {/* Kept mounted (hidden) after success so backend polling and the Studio handoff continue on other tabs. */}
@@ -230,7 +233,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
     </details>}
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
   </section>}
-  {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} locked={running} actions={<>
+  {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} locked={running} restartSignal={restartSignal} actions={<>
    <button type="button" title={t('setup.upgradeHelp')} disabled={running||busy} onClick={()=>void update(false)}>{t('setup.upgrade')}</button>
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
   </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}

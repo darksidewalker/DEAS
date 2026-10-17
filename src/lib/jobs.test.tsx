@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, readCurrentDiagnosticJob, loadDiagnosticJobOutput, exportDiagnosticJobOutput } from './jobs';
-import type { DiagnosticImageIntentV1 } from './execution';
+import { compileRecipe, type DiagnosticImageIntentV1 } from './execution';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
 const intent: DiagnosticImageIntentV1 = {
@@ -9,6 +9,23 @@ const intent: DiagnosticImageIntentV1 = {
   checkpoint: 'observed.safetensors', seed: 0, width: 512, height: 512, steps: 20, cfg: 7,
   sampler: 'euler', scheduler: 'normal', outputPrefix: 'DEAS_diagnostic',
 };
+// Qwen Image 2.1 Turbo: the checkpoint's saved 8-step schedule (official ComfyUI template) replaces KSampler — same graph as jobs.rs.
+test('fixed sigmas compile to ManualSigmas → SamplerCustomAdvanced in place of KSampler', () => {
+  const nodes = ['CheckpointLoaderSimple', 'CLIPTextEncode', 'EmptyLatentImage', 'KSampler', 'VAEDecode', 'SaveImage', 'LoadImage', 'VAEEncode', 'RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
+  const allow = { nodes, checkpoints: [intent.checkpoint], images: ['in.png'], samplers: ['euler'], schedulers: ['normal'] };
+  const sigmas = [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0];
+  const g = compileRecipe({ ...intent, steps: 8, sigmas }, allow).graph;
+  expect(g.Z.inputs.sigmas).toBe('1, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0');
+  expect(g['5']).toEqual({ class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['Z', 0], latent_image: ['4', 0] } });
+  expect(g.G.inputs).toEqual({ model: ['1', 0], positive: ['2', 0], negative: ['3', 0], cfg: 7 });
+  expect(g.Q.inputs).toEqual({ sampler_name: 'euler' });
+  const i2i = compileRecipe({ ...intent, steps: 4, sigmas: sigmas.slice(-5), inputImage: 'in.png', denoise: 0.5 }, allow).graph;
+  expect(i2i['5'].inputs).toEqual({ noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['Z', 0], latent_image: ['9', 0] });
+  expect(() => compileRecipe({ ...intent, steps: 8, sigmas }, { ...allow, nodes: nodes.filter(n => n !== 'ManualSigmas') })).toThrow(/ManualSigmas/);
+  for (const bad of [[1, 0.5], [1, 0.5, 0.5, 0.2, 0], [1, 0.8, 0.6, 0.4, 0.2], [1, 0.8, 0.6, '0.4', 0], '1, 0']) {
+    expect(() => compileRecipe({ ...intent, steps: 4, sigmas: bad }, allow)).toThrow(/sigmas/);
+  }
+});
 test('native-only commands preserve exact intent, explicit consent and job identity', async () => {
   vi.mocked(isTauri).mockReturnValue(true);
   const response = { id: 'native-id' };

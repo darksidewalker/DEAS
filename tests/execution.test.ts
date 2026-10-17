@@ -32,6 +32,13 @@ test('baseline diagnostic compiles deterministic built-in graph, never Director 
   assert.deepEqual(compileRecipe(intent, allowlist), result);
 });
 
+test('DaSiWa metadata saver replaces SaveImage only when both of its nodes are listed', () => {
+  assert.equal(compileRecipe(intent, { ...allowlist, nodes: [...allowlist.nodes, 'DaSiWa_MetadataImageSaver'] }).graph['7'].class_type, 'SaveImage');
+  const graph = compileRecipe(intent, { ...allowlist, nodes: [...allowlist.nodes, 'DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'] }).graph;
+  assert.deepEqual(graph['7'], { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } });
+  assert.deepEqual(graph.M, { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } });
+});
+
 function rejects(input: unknown, verified: unknown, code: string, field: string) {
   assert.throws(() => compileRecipe(input, verified), (error: unknown) => {
     assert.ok(error instanceof RecipeCompileError);
@@ -230,4 +237,24 @@ test('diffusion loads the model through UNETLoader with its own text encoder and
   rejects(split, { ...lists, clipTypes: [] }, 'MISSING_MODEL', 'diffusion');
   rejects(split, { ...lists, diffusionModels: [] }, 'MISSING_MODEL', 'checkpoint');
   rejects({ ...split, diffusion: { ...split.diffusion, vae: '../x' } }, lists, 'INVALID_INPUT', 'diffusion');
+});
+
+test('options chain model patches after LoRAs, tile the VAE and must be listed by the backend', () => {
+  const nodes = [...allowlist.nodes, 'LoraLoader', 'LoadImage', 'VAEEncode', 'ModelAttentionBackend', 'EasyCache', 'TorchCompileModel', 'VAEDecodeTiled', 'VAEEncodeTiled'];
+  const full = { ...allowlist, nodes, loras: ['a.safetensors'], images: ['ref.png'], attention: ['pytorch attention', 'comfy kitchen attention'], compile: ['inductor'] };
+  const options = { attention: 'comfy kitchen attention', cache: { node: 'EasyCache', threshold: 0.2 }, compile: 'inductor', vaeTile: 512 } as const;
+  const graph = compileRecipe({ ...intent, loras: [{ name: 'a.safetensors', strength: 1 }], inputImage: 'ref.png', denoise: 0.5, options }, full).graph;
+  assert.deepEqual(graph.A, { class_type: 'ModelAttentionBackend', inputs: { attention: 'comfy kitchen attention', model: ['L1', 0] } });
+  assert.deepEqual(graph.E.inputs, { reuse_threshold: 0.2, start_percent: 0.15, end_percent: 0.95, verbose: false, model: ['A', 0] });
+  assert.deepEqual(graph.T.inputs.model, ['E', 0]);
+  assert.deepEqual(graph['5'].inputs.model, ['T', 0]);
+  assert.deepEqual(graph['6'], { class_type: 'VAEDecodeTiled', inputs: { samples: ['5', 0], vae: ['1', 2], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } });
+  assert.equal(graph['9'].class_type, 'VAEEncodeTiled');
+  assert.deepEqual(graph['9'].inputs.pixels, ['8', 0]);
+  assert.deepEqual(compileRecipe({ ...intent, options: {} }, allowlist).graph, compileRecipe(intent, allowlist).graph);
+  rejects({ ...intent, options: { attention: 'comfy kitchen attention' } }, { ...allowlist, attention: ['pytorch attention'] }, 'MISSING_CAPABILITY', 'options.attention');
+  rejects({ ...intent, options: { vaeTile: 512 } }, allowlist, 'MISSING_CAPABILITY', 'VAEDecodeTiled');
+  for (const bad of [{ attention: 'pytorch attention', sage: 'auto' }, { fp16Accumulation: true }, { cache: { node: 'TeaCache', threshold: 0.2 } }, { cache: { node: 'EasyCache', threshold: 4 } }, { vaeTile: 500 }, { vaeTile: 128 }, { attention: ' padded' }, { unknown: true }, []]) {
+    rejects({ ...intent, options: bad }, allowlist, 'INVALID_INPUT', 'options');
+  }
 });

@@ -11,9 +11,9 @@ const REQUIRED_NODES: [&str; 6] = [
     "VAEDecode",
     "SaveImage",
 ];
-/// Image-to-image (`LoadImage`, `VAEEncode`) and split diffusion-model loading; their absence
-/// blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 7] = [
+/// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
+/// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
+const OPTIONAL_NODES: [&str; 9] = [
     "ImageScale",
     "ImagePadForOutpaint",
     "LoadImage",
@@ -21,6 +21,28 @@ const OPTIONAL_NODES: [&str; 7] = [
     "UNETLoader",
     "CLIPLoader",
     "VAELoader",
+    "DaSiWa_MetadataImageSaver",
+    "DaSiWa_MetadataConfig",
+];
+/// Model-fixed sigma schedules (Qwen Image 2.1 Turbo): `ManualSigmas` → `SamplerCustomAdvanced` instead of `KSampler`.
+pub(crate) const SIGMA_NODES: [&str; 5] = [
+    "RandomNoise",
+    "CFGGuider",
+    "KSamplerSelect",
+    "ManualSigmas",
+    "SamplerCustomAdvanced",
+];
+/// Workbench Options patches (attention, step caches, compile, tiled VAE);
+/// each one is offered only when the backend lists it.
+pub(crate) const OPTION_NODES: [&str; 8] = [
+    "ModelAttentionBackend",
+    "PathchSageAttentionKJ",
+    "EasyCache",
+    "LazyCache",
+    "TorchCompileModel",
+    "VAEDecodeTiled",
+    "VAEEncodeTiled",
+    "SpectrumApplyMiniMaxH3",
 ];
 /// File-name combos; names outside the compiler's grammar (traversal, URLs, control characters) are dropped, not fatal.
 const FILE_FIELDS: [&str; 6] = [
@@ -78,6 +100,24 @@ fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> 
         .collect()
 }
 
+/// Option combo in either object_info form (v1 `[[...], {}]`, v3 `["COMBO", {"options": [...]}]`).
+/// Values outside the option grammar are dropped: an odd custom-node choice must not block generation.
+fn options(nodes: &Value, node: &str, field: &str) -> Vec<String> {
+    let schema = &nodes[node]["input"]["required"][field];
+    let list = if schema[0] == "COMBO" {
+        &schema[1]["options"]
+    } else {
+        &schema[0]
+    };
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|s| crate::jobs::safe_option(s) && *s != "disabled")
+        .map(str::to_owned)
+        .collect()
+}
+
 fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     let definitions = nodes
         .as_object()
@@ -88,7 +128,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
             "images":combo(nodes, "LoadImage", "image")?,
@@ -97,7 +137,10 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "diffusionModels":combo(nodes, "UNETLoader", "unet_name")?,
             "textEncoders":combo(nodes, "CLIPLoader", "clip_name")?,
             "clipTypes":combo(nodes, "CLIPLoader", "type")?,
-            "vaes":combo(nodes, "VAELoader", "vae_name")?
+            "vaes":combo(nodes, "VAELoader", "vae_name")?,
+            "attention":options(nodes, "ModelAttentionBackend", "attention"),
+            "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention"),
+            "compile":options(nodes, "TorchCompileModel", "backend")
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -442,6 +485,55 @@ mod tests {
             .contains(&json!("allow-native-recipe-prerequisites")));
     }
 
+    /// Real object_info shapes: core v3 combo (with spaces), KJNodes v1 combo (with `++`, `disabled`).
+    #[tokio::test]
+    async fn lists_option_nodes_and_choices_in_both_combo_forms() {
+        let mut info = nodes();
+        info["ModelAttentionBackend"] = json!({"input":{"required":{"model":["MODEL"],"attention":["COMBO",{"default":"pytorch attention","options":["pytorch attention","comfy kitchen attention"]}]}}});
+        info["PathchSageAttentionKJ"] = json!({"input":{"required":{"model":["MODEL"],"sage_attention":[["disabled","auto","sageattn_qk_int8_pv_fp8_cuda++","bad\u{0000}"],{"default":false}]}}});
+        info["VAEDecodeTiled"] = json!({});
+        let (base, request) = fixture(info.to_string()).await;
+        let result = native_recipe_prerequisites(base).await.unwrap();
+        let allow = &result["allowlist"];
+        assert_eq!(
+            allow["attention"],
+            json!(["pytorch attention", "comfy kitchen attention"])
+        );
+        assert_eq!(
+            allow["sage"],
+            json!(["auto", "sageattn_qk_int8_pv_fp8_cuda++"])
+        );
+        assert_eq!(allow["compile"], json!([]));
+        let listed = allow["nodes"].as_array().unwrap();
+        for node in [
+            "ModelAttentionBackend",
+            "PathchSageAttentionKJ",
+            "VAEDecodeTiled",
+        ] {
+            assert!(listed.contains(&json!(node)), "{node}");
+        }
+        assert!(!listed.contains(&json!("EasyCache")));
+        request.await.unwrap();
+    }
+
+    /// `DEAS_LIVE_COMFY=http://127.0.0.1:8199 cargo test --lib live_option_choices -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn live_option_choices() {
+        let result = native_recipe_prerequisites(std::env::var("DEAS_LIVE_COMFY").unwrap())
+            .await
+            .unwrap();
+        let allow = &result["allowlist"];
+        println!(
+            "nodes {}\nattention {}\nsage {}\ncompile {}",
+            allow["nodes"], allow["attention"], allow["sage"], allow["compile"]
+        );
+        assert!(allow["attention"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pytorch attention")));
+    }
+
     #[tokio::test]
     async fn discovers_exact_core_choices_with_prefixed_get() {
         let (base, request) = fixture(nodes().to_string()).await;
@@ -453,7 +545,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[]
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

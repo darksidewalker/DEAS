@@ -5,6 +5,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import AiOSetup from './AiOSetup';
+import { defaultLlmConfig } from '../../lib/llm';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
 beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.pref.backend.autostart','false');localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);});
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
@@ -140,6 +141,8 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
 
 async function installFixture(result:'succeeded'|'failed') {
  vi.mocked(invoke).mockImplementation(async command=>{
+  if(command==='native_llm_read')return defaultLlmConfig;
+  if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_install_defaults')return {storagePath:'/data/mock-DEAS',backend:'cpu',hardware:null,warnings:[]};
   if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};

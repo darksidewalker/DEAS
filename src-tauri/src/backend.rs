@@ -478,6 +478,7 @@ impl Lifecycle {
             _ => return Err("Unsupported backend".into()),
         }
         command.args(crate::settings::backend_args(root)?);
+        command.args(crate::startup::args(root, Some(&approved.plan))?);
         command
             .env_clear()
             .env("PYTHONNOUSERSITE", "1")

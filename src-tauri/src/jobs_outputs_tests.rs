@@ -35,6 +35,7 @@ fn completed(base: &str) -> Jobs {
         error: None,
         submitting: false,
         polling: false,
+        metadata: None,
         live: Arc::default(),
     });
     jobs

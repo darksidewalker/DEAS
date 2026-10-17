@@ -9,10 +9,14 @@
   "media.up": "Dossier parent",
   "media.entries": "Contenu du dossier",
   "media.symlink": "Lien symbolique",
-  "media.empty": "Aucun média ni dossier ici.",
+  "media.empty": "Aucun fichier multimédia ici.",
   "media.truncated": "Seules les 5000 premières entrées sont affichées.",
   "media.roots": "Dossiers de l'environnement",
   "media.root.output": "Sortie",
   "media.root.input": "Entrée",
-  "media.depth": "Profondeur"
+  "media.depth": "Profondeur",
+  "media.folders": "Dossiers",
+  "media.expandFolder": "Développer {name}",
+  "media.collapseFolder": "Réduire {name}",
+  "media.loadingFolders": "Chargement des dossiers…"
 }

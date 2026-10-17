@@ -9,10 +9,14 @@
   "media.up": "Übergeordneter Ordner",
   "media.entries": "Ordnerinhalt",
   "media.symlink": "Symbolischer Link",
-  "media.empty": "Keine Medien oder Ordner hier.",
+  "media.empty": "Keine Mediendateien vorhanden.",
   "media.truncated": "Nur die ersten 5000 Einträge werden angezeigt.",
   "media.roots": "Umgebungsordner",
   "media.root.output": "Ausgabe",
   "media.root.input": "Eingabe",
-  "media.depth": "Tiefe"
+  "media.depth": "Tiefe",
+  "media.folders": "Ordner",
+  "media.expandFolder": "{name} aufklappen",
+  "media.collapseFolder": "{name} zuklappen",
+  "media.loadingFolders": "Ordner werden geladen…"
 }

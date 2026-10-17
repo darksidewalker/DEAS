@@ -19,9 +19,49 @@ DEAS owns feature selection, inputs/settings, media, validation, queue/progress 
 
 Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No foreign-service start/adoption, cloud fallback or assumption of generation readiness; owned-backend autostart follows the Settings preference.
 
+## Model-exact values
+
+Every numeric value DEAS sends to a model must be valid for that model, not just plausible: resolution, aspect, frame count, fps, durations/timings, audio sample counts, latent lengths, steps/CFG defaults and sampler/scheduler names. A value that ComfyUI pads, crops, rounds or silently resamples counts as wrong.
+
+- Port math from the reference implementation (Director/DaSiWa nodes, ComfyUI model code) together with its constants: base area (1024² megapixels), rounding mode and divisor. Taking the formula without the divisor is an incomplete port.
+- Model constraints are family data in `src/families/builtin.json` (canvas `multiple`; later frame rule, fps, audio rate), read by every calculation. No hardcoded 8 or generic fallback where a family is known; unknown models use the strictest safe common value.
+- Snap once, at the end, with the model's rule. Display exactly the value that is submitted.
+- Each constraint gets a test with the exact expected numbers, checked against the reference implementation or SwarmUI where comparable (e.g. 3:4 at 1 MP on SDXL = 896×1152).
+- Values not confirmed from model code or the reference implementation are marked unverified in code and handoff, never presented as correct.
+
 ## Milestones and acceptance checklist
 
+### Shared discovered LLM models (0.1.18)
+- [x] Move LLM endpoint settings right of Startup optimizations; no global remote model, local path, context, GPU-layer or fallback controls.
+- [x] Always discover local language GGUFs from the configured models folder's llm directory; add configured server models without hiding local choices on remote failure.
+- [x] Select discovered provider/model per request in tests and the shared prompt-feature contract, never as a saved global model; automatic local llama-cpp runtime selection.
+- [x] Verify discovery/inference/native/UI/browser coverage and rebuild the Linux artifact.
+
+### Shared LLM backend (0.1.17, superseded by per-request discovery)
+- [x] Settings & Backend: per-environment local llama-cpp-python, Ollama or OpenAI-compatible API configuration and explicit test completion.
+- [x] Shared native completion service and TypeScript caller for PromptForge/prompt writers; bounded transport and GGUF fallback only on server unavailability.
+- [x] Verify transport fixtures, local worker inference, frontend tests and responsive localized rendering; build the Linux artifact.
+- [ ] Full model-specific PromptForge writer, streaming/cancellation/review/apply and API-key authentication remain separate work.
+
+### Media folder navigator (0.1.16)
+- [x] Separate left-hand expandable folder navigator with lazy child listing, click-to-browse, ancestor/parent navigation and local error retry; file-only media tiles.
+- [x] Media/Workbench tests and Chromium IPC fixtures across five widths and six locales; read-only native media API unchanged.
+
+### Generate seed controls (0.1.15)
+- [x] Random/Fixed, New, exact wrapping ±1, last submitted seed, persisted ten-seed history and restore/copy in all six locales.
+- [x] Workbench tests and responsive Chromium IPC fixtures at five widths; existing safe-integer job contract retained, not full uint64 support.
+
+### Generate metadata (0.1.14)
+- [x] Metadata column between preview and queue using the selected session job's immutable native intent; localized in all six languages.
+- [x] Backend-correlated execution date/duration when present; omit unreported settings instead of guessing.
+- [x] Read bounded embedded generation metadata from browsed and OS-dropped local PNG/JPEG/WebP files; retain unknown text, with empty/error/stale-reply handling.
+- [x] Civitai-compatible output metadata through the DaSiWa Metadata Image Saver when its nodes are listed (A1111 `parameters` with AutoV2 model hash beside `prompt`/`workflow`); core-only backends keep `SaveImage`.
+- [x] Explicit "Use these settings" from a job snapshot or embedded image metadata (A1111/Swarm/ComfyUI graph) into the controls; models matched against the scanned folder only.
+- [x] The same for videos: native reading of `prompt`/`workflow` container tags (mp4 `mdta`, Matroska/WebM) — the only metadata Civitai and ComfyUI carry in video files; A1111 sampler names mapped to ComfyUI ids, untranslatable values reported, never guessed.
+- [x] LoRA hashes (`Lora hashes:`) in the saver (DaSiWa 0.5.29) so civitai.com links LoRAs too; video outputs carry only `prompt`/`workflow` container tags (all civitai.com reads from mp4/webm/mkv), audio metadata is not read by civitai.com at all.
+
 ### Generate resolution and reference scaling (0.1.13)
+- [x] Canvas and input-scaling edges snap to the family `multiple` (SDXL 64, MiniMax H3/LTX 32, others and unknown 16) instead of a fixed 8 grid; 1024²-based megapixels as in the Director.
 - [x] Director-style aspect/resolution selectors, additional ultrawide/portrait ratios, custom aspect/megapixels/exact dimensions, persisted controls and reference metadata aspect limited to media-input pipelines. One native/model-default resolution derives from the active family; the aspect swatch is inside the picker.
 - [x] Image-to-image scaling before the next model's VAE encode: Off, Auto, Target, Fit, Fill/crop and Fit/pad; matching native/preview validation and effective output dimensions.
 - [x] Core/UI/native targeted tests, real ComfyUI CPU transform execution and responsive browser fixtures in six locales/five widths.

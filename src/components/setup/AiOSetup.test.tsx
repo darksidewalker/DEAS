@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AiOSetup from './AiOSetup';
+import { defaultLlmConfig } from '../../lib/llm';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { NativeInstallRequest } from '../../lib/setup';
@@ -232,7 +233,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
  });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
-  nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
+  nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText('Installed');
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
   fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));

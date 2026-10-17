@@ -2,6 +2,20 @@
 
 DEAS is a Rust/Tauri desktop studio for ComfyUI and DaSiWa tools. Setup is a tab strip — AiO installer, Provider authorization, Library, Settings — with a persistent install review panel. The studio preview shows a workspace map of connected feature blobs; selecting a blob opens its controls within the page.
 
+Generate seed controls offer Random/Fixed, New, ±1, Use last and the last ten submitted seeds with restore/copy. Seed settings and history survive restarts; seeds remain exact within the existing 0–9007199254740991 contract.
+
+Media has a separate left-hand folder navigator. Expand arrows reveal subfolders on demand; clicking a folder name changes the displayed files. The media tile panel contains no folders. Existing depth, search, sorting, Input/Output shortcuts and drag-and-drop remain available.
+
+## Shared LLM backend
+
+After installing or reopening a DEAS environment, **Settings & Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (including its prefix, such as `http://127.0.0.1:8080/v1`). There is no global model or GGUF-path setting.
+
+Local language GGUFs are discovered recursively in the existing **Models folder → llm** directory (by default `<environment>/ComfyUI/models/llm`), independently of any external server. Projector files such as `mmproj` are excluded. `llama-cpp-python` runs the selected local model automatically in the managed venv, with automatic CPU/GPU offload selection, and the worker exits after each request. Optional remote model discovery adds to the local list; an unavailable remote server does not hide local models.
+
+**Test model** lists discovered local and remote models together and chooses a model only for that test request, without saving a default. Future prompt features use the same discovery and per-request model-reference contract (`src/lib/llm.ts`), selecting their own model. A failed request never silently switches to another model. Opening settings reads model lists but never generates text. No server, package or model is installed or downloaded by this panel. API-key authentication and full model-specific PromptForge writing/streaming/review/apply remain separate work.
+
+![Shared LLM backend settings — browser IPC fixture, not a live server reply](assets/deas-llm-fixture-1440.png)
+
 ## Desktop preview
 
 ![Setup tab strip with the install review panel — browser fixture](assets/deas-automatic-fixture-1440.png)
@@ -19,6 +33,10 @@ Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFea
 A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock. Runnable image recipes remain separate from the visible but disabled video pipeline choices. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
 
 ![Media library with a loaded preview — browser fixture](assets/deas-media-start-1440.png)
+
+### Generation metadata
+
+A compact, scrollable column between preview and queue shows the selected session job's submitted prompt, negative prompt, model, dimensions, seed, steps, CFG, sampler/scheduler and any separate encoder/VAE, LoRAs or image-to-image input/denoise. These values come from the immutable native job, not the currently edited controls. Execution date and duration are shown only when matching backend history timestamps are available, alongside the DEAS version. Selecting a browsed or OS-dropped local image reads its embedded PNG text, JPEG comments/EXIF or WebP EXIF/XMP into the same column. Swarm parameters become fields; ComfyUI API graph inputs are listed with their node names; A1111 and unfamiliar text remain intact. Missing metadata and read errors clear previous values. Reads are bounded and never rewrite the image or apply settings. Browser-only blob drops and other image containers are not supported for metadata. Unreported backend details are not inferred.
 
 ### Resolution and reference scaling
 
@@ -38,7 +56,7 @@ Most of this is not implemented. The [plugin roadmap](docs/PLUGIN-ROADMAP.md) ma
 
 ## Current development stage
 
-Current alpha: **0.1.13** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
+Current alpha: **0.1.14** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
 
 The first milestone builds the desktop shell, interactive studio, trusted built-in feature registry and read-only ComfyUI discovery. This is **not yet the completed AiO installer or a generation-ready Director replacement**. Unavailable execution functions are identified in the interface rather than simulated.
 

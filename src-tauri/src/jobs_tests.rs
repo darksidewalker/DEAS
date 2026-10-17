@@ -112,6 +112,8 @@ async fn explicit_prepare_submit_and_correlated_completion() {
     assert!(jobs.submit("foreign-plan".into(), true).await.is_err());
     let job = jobs.submit(id.clone(), true).await.unwrap();
     assert_eq!(job["state"], "queued");
+    assert_eq!(job["intent"], plan["intent"]);
+    assert_eq!(job["appVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(job["generationReady"], false);
     assert!(jobs.submit(id.clone(), true).await.is_err());
     assert!(jobs.prepare(base.clone(), intent()).await.is_err());
@@ -120,6 +122,7 @@ async fn explicit_prepare_submit_and_correlated_completion() {
     for expected in ["queued", "running", "succeeded"] {
         let status = jobs.status(job_id.clone()).await.unwrap();
         assert_eq!(status["state"], expected, "{status}");
+        assert_eq!(status["intent"], plan["intent"]);
         assert_eq!(status["generationReady"], false);
         if expected == "succeeded" {
             assert_eq!(status["outputs"].as_array().unwrap().len(), 1);
@@ -205,6 +208,67 @@ fn optional_loras_chain_between_checkpoint_and_sampler() {
         with["loras"] = bad;
         assert!(compile(&with).is_err(), "accepted loras: {with}");
     }
+}
+
+#[test]
+fn options_chain_model_patches_and_tile_the_vae() {
+    let mut with = intent();
+    with["loras"] = json!([{"name":"a.safetensors","strength":1}]);
+    with["inputImage"] = json!("ref.png");
+    with["denoise"] = json!(0.5);
+    with["options"] = json!({"attention":"comfy kitchen attention","cache":{"node":"EasyCache","threshold":0.2},"compile":"inductor","vaeTile":512});
+    let graph = compile(&with).unwrap();
+    assert_eq!(graph["A"]["inputs"]["model"], json!(["L1", 0]));
+    assert_eq!(graph["A"]["inputs"]["attention"], "comfy kitchen attention");
+    assert_eq!(graph["E"]["class_type"], "EasyCache");
+    assert_eq!(graph["E"]["inputs"]["model"], json!(["A", 0]));
+    assert_eq!(graph["T"]["inputs"]["model"], json!(["E", 0]));
+    assert_eq!(graph["5"]["inputs"]["model"], json!(["T", 0]));
+    assert_eq!(graph["6"]["class_type"], "VAEDecodeTiled");
+    assert_eq!(graph["6"]["inputs"]["tile_size"], 512);
+    assert_eq!(graph["9"]["class_type"], "VAEEncodeTiled");
+    assert_eq!(graph["9"]["inputs"]["pixels"], json!(["8", 0]));
+    let mut sage = intent();
+    sage["options"] = json!({"sage":"sageattn_qk_int8_pv_fp8_cuda++"});
+    assert_eq!(
+        compile(&sage).unwrap()["5"]["inputs"]["model"],
+        json!(["K", 0])
+    );
+    let mut empty = intent();
+    empty["options"] = json!({});
+    assert_eq!(compile(&empty).unwrap(), compile(&intent()).unwrap());
+    for bad in [
+        json!({"attention":"pytorch attention","sage":"auto"}),
+        json!({"fp16Accumulation":true}),
+        json!({"cache":{"node":"TeaCache","threshold":0.2}}),
+        json!({"cache":{"node":"EasyCache","threshold":4}}),
+        json!({"vaeTile":500}),
+        json!({"vaeTile":128}),
+        json!({"attention":" padded"}),
+        json!({"unknown":true}),
+        json!([]),
+    ] {
+        empty["options"] = bad;
+        assert!(compile(&empty).is_err(), "accepted options: {empty}");
+    }
+}
+
+#[test]
+fn dasiwa_saver_replaces_save_image_only_when_both_nodes_exist() {
+    let mut graph = compile(&intent()).unwrap();
+    civitai_saver(
+        &mut graph,
+        &json!(["SaveImage", "DaSiWa_MetadataImageSaver"]),
+    );
+    assert_eq!(graph, compile(&intent()).unwrap());
+    civitai_saver(
+        &mut graph,
+        &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+    );
+    assert_eq!(graph["7"]["class_type"], "DaSiWa_MetadataImageSaver");
+    assert_eq!(graph["7"]["inputs"]["filename_prefix"], "DEAS_test");
+    assert_eq!(graph["7"]["inputs"]["metadata_config"], json!(["M", 0]));
+    assert_eq!(graph["M"]["inputs"]["node_latent"], json!(["5", 0]));
 }
 
 #[test]
@@ -705,6 +769,46 @@ fn diffusion_intent_splits_model_text_encoder_and_vae() {
         json!({"textEncoder":"a","clipType":"kr ea","vae":"v"}),
     ] {
         value["diffusion"] = bad;
+        assert!(compile(&value).is_err(), "accepted {value}");
+    }
+}
+
+/// Qwen Image 2.1 Turbo: the checkpoint's saved 8-step schedule (official ComfyUI template) replaces KSampler.
+#[test]
+fn fixed_sigmas_compile_to_manual_sigmas_and_custom_sampler() {
+    let mut value = intent();
+    value["steps"] = json!(8);
+    value["sigmas"] =
+        json!([1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0]);
+    let g = compile(&value).unwrap();
+    assert_eq!(
+        g["Z"]["inputs"]["sigmas"],
+        "1, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0"
+    );
+    assert_eq!(g["5"]["class_type"], "SamplerCustomAdvanced");
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["4", 0]));
+    assert_eq!(g["G"]["inputs"]["model"], json!(["1", 0]));
+    assert_eq!(g["G"]["inputs"]["cfg"], value["cfg"]);
+    assert_eq!(g["Q"]["inputs"]["sampler_name"], value["sampler"]);
+    assert_eq!(g["N"]["inputs"]["noise_seed"], value["seed"]);
+    assert_eq!(g["6"]["inputs"]["samples"], json!(["5", 0]));
+    assert!(g.get("KSampler").is_none());
+    // Image-to-image: the tail of the schedule carries the strength; SamplerCustomAdvanced has no denoise.
+    value["inputImage"] = json!("in.png");
+    value["denoise"] = json!(0.5);
+    value["steps"] = json!(4);
+    value["sigmas"] = json!([0.89508, 0.845148, 0.704534, 0.414568, 0]);
+    let g = compile(&value).unwrap();
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["9", 0]));
+    assert!(g["5"]["inputs"].get("denoise").is_none());
+    for bad in [
+        json!([1.0, 0.5]),                // steps mismatch
+        json!([1.0, 0.5, 0.5, 0.2, 0]),   // not descending
+        json!([1.0, 0.8, 0.6, 0.4, 0.2]), // no zero tail
+        json!([1.0, 0.8, 0.6, "0.4", 0]),
+        json!("1, 0"),
+    ] {
+        value["sigmas"] = bad;
         assert!(compile(&value).is_err(), "accepted {value}");
     }
 }

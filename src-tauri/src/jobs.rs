@@ -56,6 +56,7 @@ struct Job {
     error: Option<String>,
     submitting: bool,
     polling: bool,
+    metadata: Option<Value>,
     live: Arc<Mutex<Live>>,
 }
 
@@ -72,7 +73,7 @@ impl Job {
         matches!(self.state, "succeeded" | "failed")
     }
     fn snapshot(&self) -> Value {
-        let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false});
+        let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false,"intent":self.plan.intent,"metadata":self.metadata,"appVersion":env!("CARGO_PKG_VERSION")});
         if matches!(self.state, "queued" | "running") {
             if let Ok(live) = self.live.lock() {
                 if live.max > 0 {
@@ -201,12 +202,27 @@ fn compile(i: &Value) -> Result<Value, String> {
     }) {
         return Err("Invalid diffusion: expected {textEncoder, clipType, vae}".into());
     }
+    // Workbench Options: model patches and tiled VAE; absent or empty compiles the plain graph.
+    let options = object.get("options");
+    if options.is_some_and(|o| !valid_options(o)) {
+        return Err("Invalid options".into());
+    }
+    // `sigmas` is a model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler.
+    let sigmas = object.get("sigmas");
+    if sigmas.is_some_and(|s| !valid_sigmas(s, i["steps"].as_f64())) {
+        return Err(
+            "Invalid sigmas: expected steps + 1 finite values, strictly descending, ending at 0"
+                .into(),
+        );
+    }
     if object.len()
         != fields.len()
+            + usize::from(options.is_some())
             + usize::from(loras.is_some())
             + 2 * usize::from(image.is_some())
             + usize::from(diffusion.is_some())
             + usize::from(resize.is_some())
+            + usize::from(sigmas.is_some())
         || fields.iter().any(|key| !object.contains_key(*key))
     {
         return Err("Missing or unknown diagnostic intent fields".into());
@@ -341,10 +357,50 @@ fn compile(i: &Value) -> Result<Value, String> {
         graph[&id] = json!({"class_type":"LoraLoader","inputs":{"model":model,"clip":clip,"lora_name":lora["name"],"strength_model":lora["strength"],"strength_clip":lora["strength"]}});
         (model, clip) = (json!([id, 0]), json!([id, 1]));
     }
+    let o = options.cloned().unwrap_or_default();
+    // Patches chain after the LoRAs; compile last so it sees every other patch.
+    let mut patch = |id: &str, node: &str, mut inputs: Value| {
+        inputs["model"] = model.clone();
+        graph[id] = json!({"class_type":node,"inputs":inputs});
+        model = json!([id, 0]);
+    };
+    if let Some(a) = o["attention"].as_str() {
+        patch("A", "ModelAttentionBackend", json!({"attention":a}));
+    }
+    if let Some(s) = o["sage"].as_str() {
+        patch("K", "PathchSageAttentionKJ", json!({"sage_attention":s}));
+    }
+    if let Some(c) = o.get("cache") {
+        // start/end are the nodes' own defaults.
+        patch(
+            "E",
+            c["node"].as_str().unwrap(),
+            json!({"reuse_threshold":c["threshold"],"start_percent":0.15,"end_percent":0.95,"verbose":false}),
+        );
+    }
+    if let Some(b) = o["compile"].as_str() {
+        patch("T", "TorchCompileModel", json!({"backend":b}));
+    }
     graph["2"]["inputs"]["clip"] = clip.clone();
     graph["3"]["inputs"]["clip"] = clip;
     graph["5"]["inputs"]["model"] = model;
     graph["6"]["inputs"]["vae"] = vae.clone();
+    if let Some(s) = sigmas {
+        // f64 Display matches JS number formatting, so both compilers emit the same string.
+        let list = s
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_f64)
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        graph["N"] = json!({"class_type":"RandomNoise","inputs":{"noise_seed":i["seed"]}});
+        graph["G"] = json!({"class_type":"CFGGuider","inputs":{"model":graph["5"]["inputs"]["model"],"positive":["2",0],"negative":["3",0],"cfg":i["cfg"]}});
+        graph["Q"] = json!({"class_type":"KSamplerSelect","inputs":{"sampler_name":i["sampler"]}});
+        graph["Z"] = json!({"class_type":"ManualSigmas","inputs":{"sigmas":list}});
+        graph["5"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["G",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":["4",0]}});
+    }
     if let Some(image) = image {
         graph["8"] = json!({"class_type":"LoadImage","inputs":{"image":image}});
         graph["9"] = json!({"class_type":"VAEEncode","inputs":{"pixels":["8",0],"vae":vae}});
@@ -357,10 +413,77 @@ fn compile(i: &Value) -> Result<Value, String> {
                 json!([if r.get("pad").is_some() { "P" } else { "S" }, 0]);
         }
         graph["5"]["inputs"]["latent_image"] = json!(["9", 0]);
-        graph["5"]["inputs"]["denoise"] = i["denoise"].clone();
+        if sigmas.is_none() {
+            graph["5"]["inputs"]["denoise"] = i["denoise"].clone();
+        }
         graph.as_object_mut().unwrap().remove("4");
     }
+    if let Some(tile) = o.get("vaeTile") {
+        // Spatial tiles; the temporal values are the node defaults (used by video VAEs only).
+        let tiles = json!({"tile_size":tile,"overlap":64,"temporal_size":64,"temporal_overlap":8});
+        for (id, node) in [("6", "VAEDecodeTiled"), ("9", "VAEEncodeTiled")] {
+            if let Some(n) = graph.get_mut(id) {
+                n["class_type"] = json!(node);
+                n["inputs"]
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(tiles.as_object().unwrap().clone());
+            }
+        }
+    }
     Ok(graph)
+}
+
+fn valid_sigmas(s: &Value, steps: Option<f64>) -> bool {
+    let Some(list) = s.as_array() else {
+        return false;
+    };
+    let values: Vec<f64> = list.iter().filter_map(Value::as_f64).collect();
+    values.len() == list.len()
+        && steps == Some(list.len() as f64 - 1.0)
+        && values
+            .iter()
+            .all(|v| v.is_finite() && (0.0..=1000.0).contains(v))
+        && values.windows(2).all(|w| w[0] > w[1])
+        && values.last() == Some(&0.0)
+}
+
+fn valid_options(o: &Value) -> bool {
+    let Some(map) = o.as_object() else {
+        return false;
+    };
+    let choice = |k: &str| o.get(k).is_none_or(|v| v.as_str().is_some_and(safe_option));
+    map.keys().all(|k| {
+        ["attention", "sage", "cache", "compile", "vaeTile"].contains(&k.as_str())
+    }) && choice("attention")
+        && choice("sage")
+        && choice("compile")
+        // Two attention patches would silently override each other.
+        && !(map.contains_key("attention") && map.contains_key("sage"))
+        && o.get("cache").is_none_or(|c| {
+            c.as_object().is_some_and(|m| m.len() == 2)
+                && c["node"]
+                    .as_str()
+                    .is_some_and(|n| ["EasyCache", "LazyCache"].contains(&n))
+                && c["threshold"]
+                    .as_f64()
+                    .is_some_and(|n| n.is_finite() && (0.0..=3.0).contains(&n))
+        })
+        && o.get("vaeTile").is_none_or(|v| {
+            v.as_u64()
+                .is_some_and(|n| (256..=4096).contains(&n) && n % 64 == 0)
+        })
+}
+
+/// Civitai links resources only by hash from an A1111 `parameters` chunk, which core
+/// `SaveImage` cannot write; the DaSiWa saver (Output package) adds it beside `prompt`/`workflow`.
+fn civitai_saver(graph: &mut Value, nodes: &Value) {
+    let has = |n: &str| nodes.as_array().is_some_and(|a| a.iter().any(|v| v == n));
+    if !(has("DaSiWa_MetadataImageSaver") && has("DaSiWa_MetadataConfig")) {
+        return;
+    }
+    graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
+    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":["6",0],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":"png","compression":44,"save_output":true,"metadata_config":["M",0]}});
 }
 
 /// Model/input file identifier as ComfyUI lists it (relative to its folder): spaces and
@@ -377,6 +500,15 @@ pub(crate) fn model_name(s: &str) -> bool {
                     .chars()
                     .any(|c| c.is_control() || "\\:%".contains(c))
         })
+}
+
+/// Option-node enum choice as listed (`pytorch attention`, `sageattn_qk_int8_pv_fp8_cuda++`).
+pub(crate) fn safe_option(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.trim() == s
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b" _.+-".contains(&b))
 }
 
 /// Backend enum choice (sampler, scheduler, CLIP type): short safe ASCII, never a path.
@@ -417,7 +549,7 @@ impl Jobs {
 
     async fn prepare(&self, base_url: String, intent: Value) -> Result<Value, String> {
         let base = crate::validate_base_url(&base_url)?;
-        let graph = compile(&intent)?;
+        let mut graph = compile(&intent)?;
         let id = uuid::Uuid::new_v4().to_string();
         {
             let mut session = self.lock()?;
@@ -444,7 +576,11 @@ impl Jobs {
                             .unwrap()
                             .values()
                             .filter_map(|n| n["class_type"].as_str())
-                            .filter(|name| ["ImageScale", "ImagePadForOutpaint"].contains(name)),
+                            .filter(|name| {
+                                ["ImageScale", "ImagePadForOutpaint"].contains(name)
+                                    || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
+                                    || crate::recipe_prerequisites::OPTION_NODES.contains(name)
+                            }),
                     )
                     .collect(),
             ),
@@ -493,6 +629,21 @@ impl Jobs {
                     .unwrap_or_default(),
             ),
             ("samplers", vec![intent["sampler"].as_str().unwrap()]),
+            (
+                "attention",
+                intent["options"]["attention"]
+                    .as_str()
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                "sage",
+                intent["options"]["sage"].as_str().into_iter().collect(),
+            ),
+            (
+                "compile",
+                intent["options"]["compile"].as_str().into_iter().collect(),
+            ),
             ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
         ] {
             let available = allow[field]
@@ -507,6 +658,7 @@ impl Jobs {
                 ));
             }
         }
+        civitai_saver(&mut graph, &allow["nodes"]);
         let plan = Plan {
             id: id.clone(),
             base,
@@ -554,6 +706,7 @@ impl Jobs {
                 error: Some("Submission in progress; do not retry".into()),
                 submitting: true,
                 polling: false,
+                metadata: None,
                 live: Arc::default(),
             };
             session.output = None;
@@ -777,6 +930,47 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
         .collect()
 }
 
+#[cfg(test)]
+#[test]
+fn metadata_uses_only_matching_monotonic_execution_events() {
+    let messages = vec![
+        json!(["execution_start", {"prompt_id":"foreign","timestamp":1}]),
+        json!(["execution_start", {"prompt_id":"p","timestamp":1000}]),
+        json!(["execution_success", {"prompt_id":"p","timestamp":14310}]),
+    ];
+    assert_eq!(
+        execution_metadata(&messages, "p"),
+        Some(json!({"startedAt":1000,"generationMs":13310}))
+    );
+    assert_eq!(execution_metadata(&[], "p"), None);
+    assert_eq!(
+        execution_metadata(&[messages[1].clone()], "p").unwrap()["generationMs"],
+        Value::Null
+    );
+    let reversed = vec![
+        messages[1].clone(),
+        json!(["execution_success", {"prompt_id":"p","timestamp":999}]),
+    ];
+    assert_eq!(
+        execution_metadata(&reversed, "p").unwrap()["generationMs"],
+        Value::Null
+    );
+}
+
+// Only correlated backend event timestamps describe execution; queue/poll latency is not generation time.
+fn execution_metadata(messages: &[Value], prompt_id: &str) -> Option<Value> {
+    let timestamp = |kind: &str| {
+        messages.iter().find_map(|m| {
+            (m[0] == kind && m[1]["prompt_id"].as_str() == Some(prompt_id))
+                .then(|| m[1]["timestamp"].as_u64())
+                .flatten()
+        })
+    };
+    let start = timestamp("execution_start")?;
+    let duration = timestamp("execution_success").and_then(|end| end.checked_sub(start));
+    Some(json!({"startedAt":start,"generationMs":duration}))
+}
+
 async fn poll(job: &mut Job) -> Result<(), String> {
     let client = client()?;
     let prompt_id = job.prompt_id.as_deref().ok_or("No correlated prompt ID")?;
@@ -794,6 +988,7 @@ async fn poll(job: &mut Job) -> Result<(), String> {
         let messages = status["messages"]
             .as_array()
             .ok_or("Malformed history status messages")?;
+        job.metadata = execution_metadata(messages, prompt_id);
         match status["status_str"].as_str() {
             Some("error") => {
                 job.state = "failed";

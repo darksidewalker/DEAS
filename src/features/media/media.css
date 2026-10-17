@@ -8,11 +8,21 @@
 .media-roots button[aria-pressed="true"] { background: #2a4a3a; border-color: #83c19a; }
 .media-help { margin: 0; font-size: .72rem; color: var(--muted); }
 .media-error { margin: 0; font-size: .8rem; color: #ffbaaa; overflow-wrap: anywhere; }
+.media-browser { display: flex; gap: .6rem; flex: 1; min-height: 0; min-width: 0; }
+.media-folders { flex: 0 0 clamp(7rem, 24%, 15rem); min-width: 0; overflow: auto; border-right: 1px solid #435256; padding-right: .5rem; text-align: left; }
+.media-files { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-width: 0; min-height: 0; }
+.media-folders ul { list-style: none; margin: 0; padding: 0; }
+.media-folders ul ul { padding-left: .65rem; }
+.media-folder-row { display: flex; align-items: center; min-width: 0; }
+.media-folder-row button { padding: .2rem .25rem; border: 0; border-radius: .3rem; background: transparent; color: inherit; font-size: .72rem; text-align: left; }
+.media-folder-row button:hover { background: #ffffff10; }
+.media-folder-toggle { flex: 0 0 1.2rem; }
+.media-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-folder-name[aria-current="location"] { background: #2a4a3a; color: #b9e8c7; }
 .media-path { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem; min-width: 0; }
 .media-path .media-crumb { padding: .15rem .35rem; border: 0; border-radius: .35rem; background: transparent; color: #b9d9e0; font-family: monospace; font-size: .72rem; }
 .media-path .media-crumb:hover { background: #ffffff10; }
 .media-path .media-crumb[aria-current="location"] { color: var(--chalk); font-weight: 600; }
-.media-sep { color: var(--muted); font-size: .72rem; }
 .media-depth { display: flex; align-items: center; gap: .3rem; font-size: .7rem; color: var(--muted); }
 .media-depth select { width: auto; padding: .2rem .3rem; font-size: .72rem; }
 /* Wrapping grid of miniature tiles that fills the dock height; images are real thumbnails, other kinds a glyph. */
@@ -22,7 +32,6 @@
 .media-list button:hover { background: #ffffff10; }
 .media-list button[aria-current="true"] { border-color: #83c19a; background: #2a4a3a; }
 .media-list img, .media-glyph { width: 5.6rem; height: 4rem; border-radius: .35rem; object-fit: cover; background: #11171a; display: grid; place-items: center; font-size: 1.4rem; color: var(--muted); }
-.media-list button[data-kind="directory"] .media-glyph { color: var(--copper); }
 .media-list button[data-media="video"] .media-glyph { color: var(--blue); }
 .media-list button[data-media="audio"] .media-glyph { color: #83c19a; }
 .media-name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

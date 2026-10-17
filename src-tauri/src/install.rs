@@ -242,6 +242,13 @@ fn git_path() -> Option<PathBuf> {
         .and_then(|p| std::fs::canonicalize(p).ok())
 }
 impl Engine {
+    /// The plan of the currently approved (installed or reopened) environment, if any.
+    pub(crate) fn approved_plan(&self) -> Option<Plan> {
+        lock(&self.inner)
+            .approved
+            .as_ref()
+            .map(|a| a.plan().clone())
+    }
     pub fn shutdown_backend(&self) {
         self.backend.stop();
     }

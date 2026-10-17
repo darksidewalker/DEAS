@@ -18,6 +18,10 @@ struct Family {
     bases: Vec<String>,
     model: Vec<Vec<String>>,
     lora: Vec<Vec<String>>,
+    /// Lowercase file-name substrings for variants that share a header with their base
+    /// (Qwen Image 2.1 Turbo declares the same architecture as the base model).
+    #[serde(default, rename = "fileMatch")]
+    file_match: Vec<String>,
 }
 
 fn families() -> &'static [Family] {
@@ -62,7 +66,18 @@ pub fn detect(category: &str, path: &Path, base: Option<&str>) -> Option<String>
     if !lora && !["checkpoints", "diffusion_models", "unet"].contains(&category) {
         return None;
     }
-    let all = families();
+    let file = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // File-name variants never claim LoRAs: those stay with the base family they were trained on.
+    let all: Vec<&Family> = families()
+        .iter()
+        .filter(|f| {
+            f.file_match.is_empty() || (!lora && f.file_match.iter().any(|s| file.contains(s)))
+        })
+        .collect();
     let safetensors = path
         .extension()
         .and_then(|e| e.to_str())
@@ -138,7 +153,45 @@ mod tests {
             detect("loras", &declared, None).as_deref(),
             Some("minimax-h3")
         );
+        // Turbo shares the base header; only the file name tells them apart, and LoRAs stay with the base.
+        let q =
+            serde_json::json!({"__metadata__":{"modelspec.architecture":"qwen-image-2.1"},"x":t});
+        let turbo = write(
+            dir.path(),
+            "qwen21TurboOfficial_bf16.safetensors",
+            q.clone(),
+        );
+        assert_eq!(
+            detect("diffusion_models", &turbo, None).as_deref(),
+            Some("qwen-image-2.1-turbo")
+        );
+        let base = write(dir.path(), "qwen_image_2.1_int8.safetensors", q.clone());
+        assert_eq!(
+            detect("diffusion_models", &base, None).as_deref(),
+            Some("qwen-image-2.1")
+        );
+        let lora = write(dir.path(), "turbo-style.safetensors", q);
+        assert_eq!(
+            detect("loras", &lora, None).as_deref(),
+            Some("qwen-image-2.1")
+        );
         let unknown = write(dir.path(), "u.safetensors", serde_json::json!({"x":t}));
+        // "turbo" alone never makes a Qwen Turbo: the header (or CivitAI base) must match too.
+        let sdxl_turbo = write(
+            dir.path(),
+            "sdxl_turbo.safetensors",
+            serde_json::json!({"conditioner.embedders.1.model.ln_final.weight":t}),
+        );
+        assert_eq!(
+            detect("checkpoints", &sdxl_turbo, None).as_deref(),
+            Some("sdxl")
+        );
+        let odd_turbo = write(dir.path(), "turbo.safetensors", serde_json::json!({"x":t}));
+        assert_eq!(
+            detect("checkpoints", &odd_turbo, Some("SDXL Turbo")).as_deref(),
+            Some("sdxl")
+        );
+        assert_eq!(detect("checkpoints", &odd_turbo, None), None);
         assert_eq!(detect("checkpoints", &unknown, None), None);
         assert_eq!(
             detect("checkpoints", &unknown, Some("illustrious")).as_deref(),

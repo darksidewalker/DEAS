@@ -9,10 +9,14 @@
   "media.up": "Parent folder",
   "media.entries": "Folder contents",
   "media.symlink": "Symbolic link",
-  "media.empty": "No media or folders here.",
+  "media.empty": "No media files here.",
   "media.truncated": "Only the first 5000 entries are shown.",
   "media.roots": "Environment folders",
   "media.root.output": "Output",
   "media.root.input": "Input",
-  "media.depth": "Depth"
+  "media.depth": "Depth",
+  "media.folders": "Folders",
+  "media.expandFolder": "Expand {name}",
+  "media.collapseFolder": "Collapse {name}",
+  "media.loadingFolders": "Loading folders…"
 }

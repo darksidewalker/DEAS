@@ -22,6 +22,21 @@ export interface DiagnosticImageIntentV1 {
   readonly inputResize?: { readonly width: number; readonly height: number; readonly crop: 'disabled' | 'center'; readonly pad?: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number } };
   /** Load `checkpoint` as a diffusion model (UNETLoader) with its own text encoder (CLIPLoader type) and VAE. */
   readonly diffusion?: { readonly textEncoder: string; readonly clipType: string; readonly vae: string };
+  /** Workbench Options: model patches (one attention backend, step cache, torch.compile) and tiled VAE. */
+  readonly options?: RunOptions;
+  /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */
+  readonly sigmas?: readonly number[];
+}
+export interface RunOptions {
+  /** `ModelAttentionBackend` choice; exclusive with `sage`. */
+  readonly attention?: string;
+  /** `PathchSageAttentionKJ` mode (KJNodes). */
+  readonly sage?: string;
+  readonly cache?: { readonly node: 'EasyCache' | 'LazyCache'; readonly threshold: number };
+  /** `TorchCompileModel` backend. */
+  readonly compile?: string;
+  /** Tile edge for VAEDecodeTiled/VAEEncodeTiled, 256–4096 in steps of 64. */
+  readonly vaeTile?: number;
 }
 
 /** Supply fresh, verified backend identities. This pure compiler performs no discovery. */
@@ -36,11 +51,14 @@ export interface RecipeAllowlist {
   readonly textEncoders?: readonly string[];
   readonly clipTypes?: readonly string[];
   readonly vaes?: readonly string[];
+  readonly attention?: readonly string[];
+  readonly sage?: readonly string[];
+  readonly compile?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {
   readonly class_type: string;
-  readonly inputs: Readonly<Record<string, string | number | ApiLink>>;
+  readonly inputs: Readonly<Record<string, string | number | boolean | ApiLink>>;
 }
 export interface CompiledRecipe {
   readonly recipeId: DiagnosticImageIntentV1['recipeId'];
@@ -79,7 +97,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'options', 'sigmas'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -139,6 +157,25 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (d !== undefined && !(isRecord(d) && Object.keys(d).length === 3 && safeModel(d.textEncoder) && safeModel(d.vae) && safeChoice(d.clipType))) {
     invalid('diffusion', 'Invalid diffusion loader.', 'Supply {textEncoder, clipType, vae} from the verified backend lists.');
   }
+  // Same grammar as native `safe_option`: option enums may carry spaces and `+` (`pytorch attention`, `…fp8_cuda++`).
+  const safeOption = (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9 _.+-]{1,64}$/u.test(v) && v.trim() === v;
+  const o = input.options;
+  if (o !== undefined) {
+    const c = isRecord(o) ? o.cache : undefined;
+    if (!isRecord(o) || Object.keys(o).some(k => !['attention', 'sage', 'cache', 'compile', 'vaeTile'].includes(k))
+      || ['attention', 'sage', 'compile'].some(k => Object.hasOwn(o, k) && !safeOption(o[k]))
+      || (Object.hasOwn(o, 'attention') && Object.hasOwn(o, 'sage'))
+      || (c !== undefined && !(isRecord(c) && Object.keys(c).length === 2 && ['EasyCache', 'LazyCache'].includes(c.node as string)
+        && typeof c.threshold === 'number' && Number.isFinite(c.threshold) && c.threshold >= 0 && c.threshold <= 3))
+      || (Object.hasOwn(o, 'vaeTile') && !(Number.isSafeInteger(o.vaeTile) && (o.vaeTile as number) >= 256 && (o.vaeTile as number) <= 4096 && (o.vaeTile as number) % 64 === 0))) {
+      invalid('options', 'Invalid options.', 'Use one attention backend, listed choices, a cache threshold in [0, 3] and a VAE tile of 256–4096 in steps of 64.');
+    }
+  }
+  const s = input.sigmas;
+  if (s !== undefined && !(Array.isArray(s) && s.length === (input.steps as number) + 1 && s.every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000)
+    && s.every((v, n) => n === 0 || v < s[n - 1]) && s[s.length - 1] === 0)) {
+    invalid('sigmas', 'Invalid sigmas.', 'Supply steps + 1 finite values, strictly descending and ending at 0.');
+  }
   const prefix = input.outputPrefix;
   if (typeof prefix !== 'string' || prefix.length < 1 || prefix.length > 128 || /[^A-Za-z0-9_-]/u.test(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use 1–128 ASCII letters, digits, underscores or hyphens; no paths.');
   return input as unknown as DiagnosticImageIntentV1;
@@ -152,7 +189,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }
   const allowlist = verified as unknown as RecipeAllowlist;
-  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : [])]) {
+  const sigmaNodes = ['RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
+  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
   const d = intent.diffusion;
@@ -169,6 +207,21 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   for (const [field, available] of [['sampler', allowlist.samplers], ['scheduler', allowlist.schedulers]] as const) {
     if (!available.includes(intent[field])) throw new RecipeCompileError('MISSING_CAPABILITY', field, 'Choice is not verified on this backend.', 'Select a choice available in the verified backend capability list.');
   }
+  const o = intent.options ?? {};
+  const tiled = o.vaeTile !== undefined;
+  const patches: (readonly [id: string, node: string, inputs: Record<string, string | number | boolean>])[] = [
+    ...(o.attention !== undefined ? [['A', 'ModelAttentionBackend', { attention: o.attention }] as const] : []),
+    ...(o.sage !== undefined ? [['K', 'PathchSageAttentionKJ', { sage_attention: o.sage }] as const] : []),
+    // start/end are the nodes' own defaults.
+    ...(o.cache ? [['E', o.cache.node, { reuse_threshold: o.cache.threshold, start_percent: 0.15, end_percent: 0.95, verbose: false }] as const] : []),
+    ...(o.compile !== undefined ? [['T', 'TorchCompileModel', { backend: o.compile }] as const] : []),
+  ];
+  for (const [field, value] of [['attention', o.attention], ['sage', o.sage], ['compile', o.compile]] as const) {
+    if (value !== undefined && !allowlist[field]?.includes(value)) throw new RecipeCompileError('MISSING_CAPABILITY', `options.${field}`, 'Choice is not verified on this backend.', 'Select a choice the backend lists.');
+  }
+  for (const node of [...patches.map(p => p[1]), ...(tiled ? ['VAEDecodeTiled', ...(intent.inputImage !== undefined ? ['VAEEncodeTiled'] : [])] : [])]) {
+    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Option node is unavailable.', 'Install the node pack or turn the option off.');
+  }
   // LoraLoaders chain after the loaders; the last one feeds the sampler and both encoders.
   const chain: Record<string, ApiNode> = d ? {
     C: { class_type: 'CLIPLoader', inputs: { clip_name: d.textEncoder, type: d.clipType } },
@@ -181,6 +234,13 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     chain[id] = { class_type: 'LoraLoader', inputs: { model, clip, lora_name: lora.name, strength_model: lora.strength, strength_clip: lora.strength } };
     model = [id, 0]; clip = [id, 1];
   });
+  // Patches chain after the LoRAs; compile last so it sees every other patch.
+  for (const [id, node, inputs] of patches) {
+    chain[id] = { class_type: node, inputs: { ...inputs, model } };
+    model = [id, 0];
+  }
+  // Spatial tiles; the temporal values are the node defaults (used by video VAEs only).
+  const tiles: Record<string, number> = tiled ? { tile_size: o.vaeTile!, overlap: 64, temporal_size: 64, temporal_overlap: 8 } : {};
   const result: CompiledRecipe = {
     recipeId: intent.recipeId, version: 1, generationReady: false,
     requiredNodes,
@@ -191,12 +251,20 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
       '3': { class_type: 'CLIPTextEncode', inputs: { text: intent.negativePrompt, clip } },
       '4': { class_type: 'EmptyLatentImage', inputs: { width: intent.width, height: intent.height, batch_size: 1 } },
       '5': { class_type: 'KSampler', inputs: { model, positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0], seed: intent.seed, steps: intent.steps, cfg: intent.cfg, sampler_name: intent.sampler, scheduler: intent.scheduler, denoise: 1 } },
-      '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae } },
+      '6': { class_type: tiled ? 'VAEDecodeTiled' : 'VAEDecode', inputs: { samples: ['5', 0], vae, ...tiles } },
       '7': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix } },
       ...chain,
       ...(intent.inputImage !== undefined ? { '8': { class_type: 'LoadImage', inputs: { image: intent.inputImage } }, '9': { class_type: 'VAEEncode', inputs: { pixels: ['8', 0], vae } } } : {}),
     },
   };
+  if (intent.sigmas) {
+    const graph = result.graph as Record<string, ApiNode>;
+    graph.N = { class_type: 'RandomNoise', inputs: { noise_seed: intent.seed } };
+    graph.G = { class_type: 'CFGGuider', inputs: { model, positive: ['2', 0], negative: ['3', 0], cfg: intent.cfg } };
+    graph.Q = { class_type: 'KSamplerSelect', inputs: { sampler_name: intent.sampler } };
+    graph.Z = { class_type: 'ManualSigmas', inputs: { sigmas: intent.sigmas.join(', ') } };
+    graph['5'] = { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['Z', 0], latent_image: ['4', 0] } };
+  }
   if (intent.inputImage !== undefined) {
     const graph = result.graph as Record<string, ApiNode>;
     const r = intent.inputResize;
@@ -205,8 +273,15 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
       if (r.pad) graph.P = { class_type: 'ImagePadForOutpaint', inputs: { image: ['S', 0], ...r.pad, feathering: 0 } };
       graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: [r.pad ? 'P' : 'S', 0], vae } };
     }
+    if (tiled) graph['9'] = { class_type: 'VAEEncodeTiled', inputs: { ...graph['9'].inputs, ...tiles } };
     delete graph['4'];
-    graph['5'] = { class_type: 'KSampler', inputs: { ...graph['5'].inputs, latent_image: ['9', 0], denoise: intent.denoise! } };
+    graph['5'] = { ...graph['5'], inputs: { ...graph['5'].inputs, latent_image: ['9', 0], ...(intent.sigmas ? {} : { denoise: intent.denoise! }) } };
+  }
+  // Civitai links resources only by hash from an A1111 `parameters` chunk, which core SaveImage cannot write; the DaSiWa saver (Output package) adds it beside prompt/workflow.
+  if (['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'].every(node => allowlist.nodes.includes(node))) {
+    const graph = result.graph as Record<string, ApiNode>;
+    graph.M = { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } };
+    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } };
   }
   for (const node of Object.values(result.graph)) {
     for (const value of Object.values(node.inputs)) if (Array.isArray(value)) Object.freeze(value);

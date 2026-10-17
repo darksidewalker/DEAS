@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { DiagnosticImageIntentV1 } from '../../lib/execution';
+import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, type JobStatus } from '../../lib/jobs';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
@@ -9,18 +9,23 @@ import { MediaLibrary, type MediaRoots } from '../media/MediaLibrary';
 import type { MediaItem } from '../../lib/media';
 import { isString, oneOf, readPref, usePref } from '../../lib/preferences';
 import { JobOutputPreview } from './JobOutputPreview';
+import { GenerationMetadata } from './GenerationMetadata';
+import type { GenerationSettings } from '../../lib/imageMetadata';
+import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json';
 import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
 import './workbench.css';
 /** Data-only family plugin (also read natively for header detection): loader, runnable pipelines, encoder/VAE file patterns, starting settings. */
-interface Family { id:string; name:string; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; vaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string} }
+interface Family { id:string; name:string; multiple?:number; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; vaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string }
 const families=new Map((builtinFamilies as Family[]).map(f=>[f.id,f]));
 const modelCategories=['checkpoints','diffusion_models','unet'];
 type Lora={name:string;strength:number};
 const isLoras=(v:unknown):v is Lora[]=>Array.isArray(v)&&v.every(l=>l&&typeof l.name==='string'&&typeof l.strength==='number');
 const isNumber=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const randomSeed=()=>Math.floor(Math.random()*2**32);
-const dockTabs=['media','models','loras'] as const;
+const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
+const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
+const dockTabs=['media','models','loras','options'] as const;
 /** Pipeline taxonomy. Only `t2i`/`i2i` have a verified native recipe today; the video ones stay listed but disabled until one exists. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
@@ -55,15 +60,23 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const [scheduler,setScheduler]=usePref('studio.run.scheduler','normal',isString);
  const [textEncoderPref,setTextEncoder]=usePref('studio.run.textEncoder','',isString);
  const [vaePref,setVae]=usePref('studio.run.vae','',isString);
- // Sampler/scheduler choices are whatever the backend lists; read on first use of a picker (no auto-inspection).
- const [choices,setChoices]=useState<{samplers:readonly string[];schedulers:readonly string[]}|null>(null);
- const [seed,setSeed]=useState(randomSeed);const [lockSeed,setLockSeed]=useState(false);
+ // Sampler/scheduler choices are whatever the running backend lists (read-only object_info); read once per endpoint, before a picker can open.
+ const [choices,setChoices]=useState<RecipeAllowlist|null>(null);
+ const [optionsPref,setOptions]=usePref('studio.run.options',defaultOptions,isOptionsPref);
+ const [seed,setSeed]=usePref('studio.run.seed',randomSeed(),isSeed);
+ const [seedMode,setSeedMode]=usePref('studio.run.seedMode','random',oneOf('random','fixed'));
+ const [recentSeeds,setRecentSeeds]=usePref<number[]>('studio.run.recentSeeds',[],isSeeds);
+ const [copyStatus,setCopyStatus]=useState('');
+ const fixedSeed=(value:number)=>{setSeed(value);setSeedMode('fixed');};
+ const copySeed=async(value:number)=>{try{await navigator.clipboard.writeText(String(value));setCopyStatus(t('studio.run.seedCopied'));}catch{setCopyStatus(t('studio.run.seedCopyFailed'));}};
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');
  const live=useRef(false);const lock=useRef(false);const epoch=useRef(0);
  const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequisites(endpoint).then(e=>{if(live.current)setChoices(e.allowlist);},()=>{});};
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
+ // A native <select> opens synchronously on the first click; a list fetched on that click only shows on the second one.
+ useEffect(()=>{setChoices(null);if(native&&endpoint.trim())checkRecipePrerequisites(endpoint).then(e=>{if(live.current)setChoices(e.allowlist);},()=>{});},[native,endpoint]);
  // Models come from the environment's models folder (read-only scan, no backend probe); the backend list is the fallback.
  async function load(){
   if(!native||lock.current||(!modelsDir&&!endpoint.trim()))return;
@@ -112,13 +125,19 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const textEncoder=split?.encoders.includes(textEncoderPref)?textEncoderPref:split?.encoders[0]??'';
  const vae=split?.vaes.includes(vaePref)?vaePref:split?.vaes[0]??'';
  // LoRAs of another known family are hidden; unknown ones stay (their target cannot be checked).
- const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===family.id)).sort(byName);
+ const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
+ // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
+ const schedule=parseSigmas(optionsPref.sigmas??'')??family?.sigmas;
+ const sigmas=schedule&&(pipeline==='i2i'?schedule.slice(-(Math.max(1,Math.round((schedule.length-1)*denoise))+1)):schedule);
  const loraNames=loraModels.map(m=>m.name);
  const activeLoras=loras.filter(l=>loraNames.includes(l.name));
+ const options=runOptions(optionsPref,choices);
  const source=mediaSize&&mediaSize.src===media?.src?mediaSize:undefined;
  const modelSize=family?.defaults??{width:1024,height:1024};
- const canvas=canvasSize(aspect,resolution,{width:aspectWidth,height:aspectHeight},megapixels,{width,height},modelSize,mediaPipeline?source:undefined);
- const scaled=pipeline==='i2i'&&source?scaleInput(inputScaling,source,canvas):null;
+ // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
+ const grid=family?.multiple??16;
+ const canvas=canvasSize(aspect,resolution,{width:aspectWidth,height:aspectHeight},megapixels,{width,height},modelSize,mediaPipeline?source:undefined,grid);
+ const scaled=pipeline==='i2i'&&source?scaleInput(inputScaling,source,canvas,grid):null;
  const outputSize=scaled?.size??canvas;
  const sizeError=!validCanvas(canvas)||!validCanvas(outputSize)?'studio.run.resolution.invalid'
   :pipeline==='i2i'&&!source?'studio.run.resolution.waiting'
@@ -132,12 +151,12 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
   if(!native||lock.current||current)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   if(sizeError){setError(t(sizeError));return;}
-  const intent:DiagnosticImageIntentV1=Object.freeze({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,width:outputSize.width,height:outputSize.height,steps,cfg,sampler,scheduler,outputPrefix:'DEAS',...(activeLoras.length?{loras:activeLoras}:{}),...(pipeline==='i2i'?{inputImage,denoise,...(scaled?.resize?{inputResize:scaled.resize}:{})}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{})});
+  const intent:DiagnosticImageIntentV1=Object.freeze({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,cfg,sampler,scheduler,outputPrefix:'DEAS',...(sigmas?{sigmas}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(pipeline==='i2i'?{inputImage,denoise,...(scaled?.resize?{inputResize:scaled.resize}:{})}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})});
   lock.current=true;setBusy(true);setError('');
   try{
    const plan=await prepareDiagnosticJob(endpoint,intent); // native: validates against the running backend's object_info
    const job=await submitDiagnosticJob(plan.id); // the Run click is the authorization
-   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(!lockSeed)setSeed(randomSeed());}
+   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
@@ -167,10 +186,25 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  };
  const shown=jobs.find(j=>j.id===selectedJob)??null;
  const fileSrc=(o:JobStatus['outputs'][number])=>outputDir?convertFileSrc([outputDir,o.subfolder,o.filename].filter(Boolean).join('/')):null;
- const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/></label>;
+ const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number,fixed?:string)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} disabled={!!fixed} title={fixed} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/></label>;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
  // Picking a model applies its family's starting settings (SwarmUI: per-class defaults).
  const pickModel=(m:LocalModel)=>{setCheckpoint(m.name);setResolution('model');const d=familyOf(m)?.defaults;if(d){setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);}};
+ // Explicit "use these settings": only values the metadata carries; a model/LoRA is picked only if this folder holds it (by full name, else by basename). Returns what was skipped.
+ const base=(n:string)=>(n.split('/').pop()??n).replace(/\.(safetensors|sft|ckpt|pt|gguf)$/i,'').toLowerCase();
+ const applySettings=(s:GenerationSettings):string[]=>{
+  const skipped=[...(s.skipped??[])];
+  if(s.positive!==undefined)setPositive(s.positive);if(s.negative!==undefined)setNegative(s.negative);
+  if(s.seed!==undefined&&isSeed(s.seed))fixedSeed(s.seed);if(s.steps!==undefined)setSteps(s.steps);if(s.cfg!==undefined)setCfg(s.cfg);
+  // Backend lists are checked when already read; otherwise native preparation rejects an unknown name later.
+  for(const [key,value,list,set] of [['sampler',s.sampler,choices?.samplers,setSampler],['scheduler',s.scheduler,choices?.schedulers,setScheduler]] as const){
+   if(!value)continue;if(list&&!list.includes(value))skipped.push(`${t(key==='sampler'?'studio.recipe.sampler':'studio.recipe.scheduler')}: ${value}`);else set(value);
+  }
+  if(s.width&&s.height){setWidth(s.width);setHeight(s.height);setResolution('fixed');}
+  if(s.checkpoint){const found=allModels.find(m=>m.name===s.checkpoint)??allModels.find(m=>base(m.name)===base(s.checkpoint!));if(found)setCheckpoint(found.name);else skipped.push(`${t('studio.run.checkpoint')}: ${s.checkpoint}`);}
+  if(s.loras)setLoras(s.loras.flatMap(l=>{const m=loraModels.find(x=>x.name===l.name)??loraModels.find(x=>base(x.name)===base(l.name));if(!m)skipped.push(`LoRA: ${l.name}`);return m?[{name:m.name,strength:l.strength}]:[];}));
+  return skipped;
+ };
  const tile=(m:LocalModel,pressed:boolean,onClick:()=>void,extra?:React.ReactNode,reason='')=><li key={`${m.category}/${m.name}`}><button type="button" aria-pressed={pressed} disabled={!!reason} title={reason?t(reason):m.name} onClick={onClick}>{m.info?.civitai?.preview?<img src={m.info.civitai.preview} alt="" loading="lazy"/>:<span className="wb-thumb" aria-hidden="true">◆</span>}<span className="wb-tile-name">{m.name}</span>{familyOf(m)&&<small className="wb-family">{familyOf(m)!.name}</small>}</button>{extra}</li>;
  const pick=(id:string,value:string,list:readonly string[],set:(v:string)=>void,onFocus?:()=>void)=><label key={id} className="wb-field"><span>{t(id)}</span><select value={value} onFocus={onFocus} onPointerDown={onFocus} onChange={e=>set(e.target.value)}>{(list.includes(value)?list:[value,...list]).map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
  return <div className="workbench" data-workbench ref={shell} style={{height:fit}}>
@@ -188,11 +222,18 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
       {num('width',canvas.width,n=>{setWidth(n);setHeight(canvas.height);setResolution('fixed');},64,8192,8)}{num('height',canvas.height,n=>{setHeight(n);setWidth(canvas.width);setResolution('fixed');},64,8192,8)}
       {pipeline==='i2i'&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
       {sizeError&&<p className="wb-resolution-hint error-message" role="status">{t(sizeError)}</p>}
-      {num('steps',steps,setSteps,1,150,1)}{num('cfg',cfg,setCfg,0,30,0.5)}
+      {num('steps',sigmas?sigmas.length-1:steps,setSteps,1,150,1,sigmas&&t('studio.run.customSchedule.hint'))}{num('cfg',cfg,setCfg,0,30,0.5)}
       {pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices)}
-      {pick('studio.recipe.scheduler',scheduler,choices?.schedulers??[],setScheduler,loadChoices)}
+      {sigmas?<label className="wb-field"><span>{t('studio.recipe.scheduler')}</span><select value="custom" disabled title={t('studio.run.customSchedule.hint')}><option value="custom">{t('studio.run.customSchedule')}</option></select></label>
+       :pick('studio.recipe.scheduler',scheduler,choices?.schedulers??[],setScheduler,loadChoices)}
       {split&&<>{pick('studio.run.textEncoder',textEncoder,split.encoders,setTextEncoder)}{pick('studio.run.vae',vae,split.vaes,setVae)}</>}
-      <label className="wb-field wb-seed"><span>{t('studio.run.seed')}</span><span className="wb-seed-row"><input type="number" inputMode="numeric" value={seed} min={0} step={1} onChange={e=>{const n=Number(e.target.value);if(Number.isSafeInteger(n)&&n>=0)setSeed(n);}}/><button type="button" aria-label={t('studio.run.newSeed')} title={t('studio.run.newSeed')} onClick={()=>setSeed(randomSeed())}>⟳</button><button type="button" aria-pressed={lockSeed} aria-label={t('studio.run.lockSeed')} title={t('studio.run.lockSeed')} onClick={()=>setLockSeed(v=>!v)}>{lockSeed?'🔒':'🔓'}</button></span></label>
+      <div className="wb-field wb-seed">
+       <label><span>{t('studio.run.seed')}</span><input aria-label={t('studio.run.seed')} type="number" inputMode="numeric" value={seed} min={0} max={Number.MAX_SAFE_INTEGER} step={1} onChange={e=>{const n=Number(e.target.value);if(isSeed(n))fixedSeed(n);}}/></label>
+       <div className="wb-seed-row"><button type="button" aria-label={t('studio.run.seedDecrease')} onClick={()=>fixedSeed(seed===0?Number.MAX_SAFE_INTEGER:seed-1)}>−</button><button type="button" aria-label={t('studio.run.seedIncrease')} onClick={()=>fixedSeed(seed===Number.MAX_SAFE_INTEGER?0:seed+1)}>+</button>{(['random','fixed'] as const).map(mode=><button key={mode} type="button" aria-pressed={seedMode===mode} onClick={()=>setSeedMode(mode)}>{t(`studio.run.seedMode.${mode}`)}</button>)}<button type="button" aria-label={t('studio.run.newSeed')} title={t('studio.run.newSeed')} onClick={()=>setSeed(randomSeed())}>⟳</button></div>
+       <button type="button" disabled={!recentSeeds.length} onClick={()=>fixedSeed(recentSeeds[0])}>{t('studio.run.seedLast')}</button>
+       <details className="wb-seed-history"><summary>{t('studio.run.seedHistory')}</summary>{recentSeeds.map(value=><div className="wb-seed-row" key={value}><button type="button" aria-label={t('studio.run.seedUse',{seed:String(value)})} onClick={()=>fixedSeed(value)}>{value}</button><button type="button" aria-label={t('studio.run.seedCopy',{seed:String(value)})} onClick={()=>void copySeed(value)}>⧉</button></div>)}</details>
+       {copyStatus&&<span role="status">{copyStatus}</span>}
+      </div>
      </div>
      {!native&&<p className="field-help">{t('studio.jobs.browser')}</p>}
      {error&&<p className="status-message error-message" role="alert">{error}</p>}
@@ -212,6 +253,7 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
      <label className="wb-prompt wb-negative"><span>{t('studio.run.negative')}</span><textarea data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/></label>
     </div>
    </div>
+   <GenerationMetadata job={shown} media={shown?null:media} onApply={applySettings}/>
    <section className="wb-queue" aria-label={t('studio.run.queue')}>
     <h3>{t('studio.run.queue')}</h3>
     {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id}><button type="button" aria-current={j.id===selectedJob} data-state={j.state} onClick={()=>setSelectedJob(j.id)}>
@@ -222,12 +264,13 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
   </div>
   <div className="wb-dock" style={{height:dockHeight}}>
    <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} onPointerDown={dragDock}/>
-   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>setDockTab(id)}>{t(`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}</button>)}
-    <input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
-    <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select>
-    {dockTab!=='media'&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
+   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
+    {dockTab!=='options'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
+    <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select></>}
+    {(dockTab==='models'||dockTab==='loras')&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
    {dockTab==='media'&&<MediaLibrary selected={media} onSelect={pickMedia} roots={roots} outputRevision={outputRevision} filter={query} sort={sort}/>}
-   {dockTab!=='media'&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
+   {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
+   {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
     {models&&dockTab==='models'&&(allModels.length===0?<p className="media-help">{t('studio.run.noModels')}</p>:<ul className="wb-tiles" data-run-checkpoint>{allModels.filter(match).sort(bySort).map(m=>tile(m,m===model,()=>pickModel(m),undefined,blocked(m,pipeline)))}</ul>)}
     {models&&dockTab==='loras'&&(loraNames.length===0?<p className="media-help">{t('studio.run.noLoras')}</p>:<ul className="wb-tiles wb-loras">{loraModels.filter(match).sort(bySort).map(m=>{const on=loras.find(l=>l.name===m.name);return tile(m,!!on,()=>toggleLora(m.name,!on),on&&<input type="number" aria-label={t('studio.run.strength',{name:m.name})} value={on.strength} min={-10} max={10} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)setLoras(loras.map(l=>l.name===m.name?{...l,strength:n}:l));}}/>);})}</ul>)}

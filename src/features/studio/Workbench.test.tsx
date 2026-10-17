@@ -8,7 +8,7 @@ import { scanModels } from '../../lib/models';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, type JobStatus } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
-vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn()}));
+vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
 vi.mock('../../lib/jobs',()=>({prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
@@ -16,6 +16,67 @@ const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-im
 beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+test('seed controls restore submitted seeds, preserve mode on New and wrap exact integer steps',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'seed-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(scanModels).toHaveBeenCalled());
+ const input=()=>screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement;
+ fireEvent.change(input(),{target:{value:'42'}});
+ expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].seed).toBe(42);
+ expect(input().value).toBe('42');
+ fireEvent.click(screen.getByRole('button',{name:'New random seed'}));
+ expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Use last seed'}));
+ expect(input().value).toBe('42');
+ fireEvent.change(input(),{target:{value:'0'}});
+ fireEvent.click(screen.getByRole('button',{name:'Decrease seed'}));
+ expect(input().value).toBe(String(Number.MAX_SAFE_INTEGER));
+ fireEvent.click(screen.getByRole('button',{name:'Increase seed'}));
+ expect(input().value).toBe('0');
+ fireEvent.click(screen.getByRole('button',{name:'Use seed 42'}));
+ expect(input().value).toBe('42');
+ fireEvent.click(screen.getByRole('button',{name:'Copy seed 42'}));
+ await screen.findByRole('status'); // unavailable clipboard is a visible failure, not a successful copy
+ const writeText=vi.fn().mockResolvedValue(undefined);
+ Object.defineProperty(navigator,'clipboard',{value:{writeText},configurable:true});
+ fireEvent.click(screen.getByRole('button',{name:'Copy seed 42'}));
+ await waitFor(()=>expect(writeText).toHaveBeenCalledWith('42'));
+ expect(screen.getByRole('status').textContent).toBe('Seed copied');
+ fireEvent.click(screen.getByRole('button',{name:'Random'}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValueOnce({id:'seed-job-2',baseUrl:evidence.baseUrl,promptId:'p2',state:'succeeded',outputs:[],error:null,generationReady:false});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledTimes(2));
+ expect(input().value).not.toBe('42');
+ view.unmount();
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl}/></I18nProvider>);
+ expect(screen.getByRole('button',{name:'Random',pressed:true})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Use seed 42'})).toBeTruthy();
+});
+test('seed history caps at ten, deduplicates submitted values and ignores failed preparation',async()=>{
+ localStorage.setItem('deas.pref.studio.run.recentSeeds',JSON.stringify([1,2,3,4,5,6,7,8,9,10]));
+ localStorage.setItem('deas.pref.studio.run.seed','12');
+ localStorage.setItem('deas.pref.studio.run.seedMode',JSON.stringify('fixed'));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
+ vi.mocked(prepareDiagnosticJob).mockRejectedValueOnce(new Error('prepare failed')).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:String(Math.random()),baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await screen.findByText('prepare failed');
+ const history=()=>JSON.parse(localStorage.getItem('deas.pref.studio.run.recentSeeds')!);
+ expect(history()).toEqual([1,2,3,4,5,6,7,8,9,10]);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(history()).toEqual([12,1,2,3,4,5,6,7,8,9]));
+ fireEvent.change(screen.getByRole('spinbutton',{name:'Seed'}),{target:{value:'3'}});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(history()).toEqual([3,12,1,2,4,5,6,7,8,9]));
+});
+
 test('IPC fixture: Load models → pick LoRA → Run prepares and submits one intent, polls to success and previews the output file',async()=>{
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  const queued:JobStatus={id:'job-1234',baseUrl:evidence.baseUrl,promptId:'p',state:'queued',outputs:[],error:null,generationReady:false};
@@ -24,7 +85,7 @@ test('IPC fixture: Load models → pick LoRA → Run prepares and submits one in
  vi.mocked(readDiagnosticJobStatus).mockResolvedValue({...queued,state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}]});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{output:'/env/ComfyUI/output'}}/></I18nProvider>);
  expect(screen.getByRole('complementary',{name:'Media'})).toBeTruthy(); // the media dock tab is the default
- expect(checkRecipePrerequisites).not.toHaveBeenCalled(); // explicit load only; no auto-inspection on mount
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // sampler/scheduler lists are read once per endpoint; models still need the explicit Load
  dock('Models');fireEvent.click(screen.getByRole('button',{name:'Load models'}));
  fireEvent.click(await screen.findByRole('button',{name:'b.safetensors'}));
  expect(screen.getByRole('button',{name:'b.safetensors'}).getAttribute('aria-pressed')).toBe('true');
@@ -51,7 +112,7 @@ test('IPC fixture: with an environment the models folder is scanned on mount ins
  expect((await screen.findByRole('button',{name:'sdxl/base.safetensors'})).getAttribute('aria-pressed')).toBe('true');
  dock('LoRAs');expect(screen.getByRole('button',{name:'grain.safetensors'}).getAttribute('aria-pressed')).toBe('false');
  expect(scanModels).toHaveBeenCalledExactlyOnceWith('/m');
- expect(checkRecipePrerequisites).not.toHaveBeenCalled();
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // only the sampler/scheduler lists, never the model list
 });
 
 test('IPC fixture: pipelines are gated — Image→Image needs an Input-folder image and submits inputImage+denoise; video pipelines stay disabled',async()=>{
@@ -95,13 +156,36 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  dock('LoRAs');
  expect(screen.queryByRole('button',{name:/ill-style/})).toBeNull(); // other family hidden, unknown kept
  fireEvent.click(screen.getByRole('button',{name:/k-style/}));expect(screen.getByRole('button',{name:/mystery/})).toBeTruthy();
- expect(checkRecipePrerequisites).not.toHaveBeenCalled();
- fireEvent.focus(screen.getByLabelText('Sampler')); // the picker reads the backend's full list on first use
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // the backend list is read once when the endpoint is known, so the first click already shows it
  await waitFor(()=>expect(Array.from((screen.getByLabelText('Sampler') as HTMLSelectElement).options,o=>o.value)).toEqual(['euler','er_sde','res_multistep']));
+ fireEvent.focus(screen.getByLabelText('Sampler'));expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1);
  fireEvent.change(screen.getByLabelText('Sampler'),{target:{value:'res_multistep'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'k2.safetensors',sampler:'res_multistep',scheduler:'simple',loras:[{name:'k-style.safetensors',strength:1}],diffusion:{textEncoder:'qwen3vl_4b.safetensors',clipType:'krea2',vae:'Q/qwen_image_vae.safetensors'}});
+});
+
+test('IPC fixture: a Turbo family locks steps and scheduler to its saved schedule, submits the sigmas and keeps the base family LoRAs',async()=>{
+ const m=(category:string,name:string,family?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(family?{family}:{})});
+ vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','turbo.safetensors','qwen-image-2.1-turbo'),m('text_encoders','qwen3vl_8b.safetensors'),m('vae','qwen_image_2.1_vae.safetensors'),m('loras','q-style.safetensors','qwen-image-2.1')]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-4',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
+ dock('Models');fireEvent.click(await screen.findByRole('button',{name:/turbo\.safetensors/}));
+ const steps=screen.getByLabelText('Steps') as HTMLInputElement;expect(steps.value).toBe('8');expect(steps.disabled).toBe(true);
+ const scheduler=screen.getByLabelText('Scheduler') as HTMLSelectElement;expect(scheduler.disabled).toBe(true);expect(scheduler.options[scheduler.selectedIndex].text).toBe('CUSTOM');
+ expect((screen.getByLabelText('Sampler') as HTMLSelectElement).disabled).toBe(false);
+ dock('LoRAs');expect(screen.getByRole('button',{name:/q-style/})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'turbo.safetensors',steps:8,cfg:1,sampler:'euler',sigmas:[1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0]});
+ // A typed schedule in Options overrides the model's own; steps follow it.
+ dock('Options');fireEvent.change(screen.getByRole('textbox',{name:'Custom sigmas'}),{target:{value:'1, 0.6, 0.3, 0'}});
+ expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('3');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({steps:3,sigmas:[1,0.6,0.3,0]});
 });
 
 test('automatic aspect is confined to media pipelines and text pipelines ignore image and video previews',async()=>{
@@ -124,7 +208,7 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
  expect(Array.from(aspectPicker.options,o=>o.value)).toContain('auto');
  expect(aspectPicker.value).toBe('auto');
  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'target'}});
- expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1368');
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1344');
  fireEvent.click(screen.getByRole('button',{name:'Text → Image'}));
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  expect(aspectPicker.value).toBe('1:1');
@@ -182,7 +266,7 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  const ref=screen.getByRole('img',{name:'wide.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1920},naturalHeight:{value:1080}});fireEvent.load(ref);
- expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1368');
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1344');
  expect((screen.getByLabelText('Height') as HTMLInputElement).value).toBe('768');
  fireEvent.change(screen.getByLabelText('Aspect ratio'),{target:{value:'1:1'}});
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'1024p'}});

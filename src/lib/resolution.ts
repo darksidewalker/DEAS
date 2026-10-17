@@ -8,7 +8,7 @@ export type ScalingMode=typeof scalingModes[number];
 export type Size={width:number;height:number};
 export type InputResize=Size&{crop:'disabled'|'center';pad?:{left:number;right:number;top:number;bottom:number}};
 const snap=(n:number,grid:number)=>Math.max(grid,Math.round(n/grid)*grid);
-export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:number,fixed:Size,model:Size,source?:Size,grid=8):Size{
+export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:number,fixed:Size,model:Size,source?:Size,grid=16):Size{
  if(resolution==='fixed')return fixed;
  const ratio=aspect==='auto'?(source??model):aspect==='custom'?customAspect:(()=>{const [width,height]=aspect.split(':').map(Number);return {width,height};})();
  const r=ratio.width/ratio.height;
@@ -18,17 +18,18 @@ export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:
  const height=Math.sqrt(pixels/r);return {width:snap(height*r,grid),height:snap(height,grid)};
 }
 export const validCanvas=({width,height}:Size)=>[width,height].every(n=>Number.isInteger(n)&&n>=64&&n<=8192&&n%8===0)&&width*height<=16_777_216;
-/** Fit can produce a smaller canvas; crop/pad fill it. Auto only downsizes inputs over the 2048px short-edge cap. */
-export function scaleInput(mode:ScalingMode,source:Size,target:Size):{size:Size;resize?:InputResize}{
- if(mode==='off')return {size:{width:Math.floor(source.width/8)*8,height:Math.floor(source.height/8)*8}};
+/** Fit can produce a smaller canvas; crop/pad fill it. Auto only downsizes inputs over the 2048px short-edge cap. Sizes snap down to the model grid. */
+export function scaleInput(mode:ScalingMode,source:Size,target:Size,grid=16):{size:Size;resize?:InputResize}{
+ const down=(n:number)=>Math.max(grid,Math.floor(n/grid)*grid);
+ if(mode==='off')return {size:{width:down(source.width),height:down(source.height)}};
  let width=target.width,height=target.height;
  if(mode==='auto'){
   const scale=Math.min(1,2048/Math.min(source.width,source.height));
-  if(scale===1)return scaleInput('off',source,target);
-  width=Math.max(64,Math.floor(source.width*scale/8)*8);height=Math.max(64,Math.floor(source.height*scale/8)*8);
+  if(scale===1)return scaleInput('off',source,target,grid);
+  width=Math.max(64,down(source.width*scale));height=Math.max(64,down(source.height*scale));
  }else if(mode==='fit'||mode==='pad'){
   const scale=Math.min(width/source.width,height/source.height);
-  width=Math.max(8,Math.min(target.width,Math.floor(source.width*scale/8)*8));height=Math.max(8,Math.min(target.height,Math.floor(source.height*scale/8)*8));
+  width=Math.min(target.width,down(source.width*scale));height=Math.min(target.height,down(source.height*scale));
  }
  const resize:InputResize={width,height,crop:mode==='crop'?'center':'disabled'};
  if(mode==='pad'){

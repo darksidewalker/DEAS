@@ -9,10 +9,14 @@
   "media.up": "上级文件夹",
   "media.entries": "文件夹内容",
   "media.symlink": "符号链接",
-  "media.empty": "此处没有媒体或文件夹。",
+  "media.empty": "此处没有媒体文件。",
   "media.truncated": "仅显示前5000项。",
   "media.roots": "环境文件夹",
   "media.root.output": "输出",
   "media.root.input": "输入",
-  "media.depth": "深度"
+  "media.depth": "深度",
+  "media.folders": "文件夹",
+  "media.expandFolder": "展开 {name}",
+  "media.collapseFolder": "折叠 {name}",
+  "media.loadingFolders": "正在加载文件夹…"
 }

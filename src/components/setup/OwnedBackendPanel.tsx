@@ -3,8 +3,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { NativeBackendStatus } from '../../lib/setup';
 
-/** `children` (e.g. the autostart switch) render above the action row; `actions` extend it; `locked` disables lifecycle buttons while the environment is being changed. */
-export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=false,children,actions,locked=false}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean}) {
+/** `children` (e.g. the autostart switch) render above the action row; `actions` extend it; `locked` disables lifecycle buttons while the environment is being changed; each `restartSignal` change restarts a running backend (stopped stays stopped). */
+export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=false,children,actions,locked=false,restartSignal=0}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean;restartSignal?:number}) {
  const {t}=useI18n();
  const native=isTauri();
  const [status,setStatus]=useState<NativeBackendStatus|null>(null);
@@ -59,6 +59,11 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=
   },0);
   return()=>{alive=false;window.clearTimeout(timer);};
  },[native,installSucceeded,autoStart,request]);
+ const restarts=useRef(restartSignal);
+ useEffect(()=>{
+  if(restartSignal===restarts.current)return;restarts.current=restartSignal;
+  void request('native_backend_status').then(s=>s?.state==='running'?request('native_backend_stop').then(x=>{if(x?.state==='stopped')return request('native_backend_start');}):undefined);
+ },[restartSignal,request]);
  useEffect(()=>{
   if(!native||!active)return;
   let alive=true;

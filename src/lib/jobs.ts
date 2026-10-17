@@ -16,6 +16,10 @@ export interface JobStatus {
   outputs: { filename: string; subfolder: string; type: 'output' }[];
   error: string | null;
   generationReady: false;
+  /** Immutable native-held intent, never the workbench's current controls. */
+  intent?: DiagnosticImageIntentV1;
+  appVersion?: string;
+  metadata?: { startedAt: number; generationMs: number | null } | null;
   /** Live sampler steps and latest preview data URL, only while queued/running. */
   progress?: { value: number; max: number };
   preview?: string;

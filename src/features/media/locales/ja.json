@@ -9,10 +9,14 @@
   "media.up": "親フォルダー",
   "media.entries": "フォルダーの内容",
   "media.symlink": "シンボリックリンク",
-  "media.empty": "ここにはメディアもフォルダーもありません。",
+  "media.empty": "メディアファイルはありません。",
   "media.truncated": "最初の5000件のみ表示しています。",
   "media.roots": "環境フォルダー",
   "media.root.output": "出力",
   "media.root.input": "入力",
-  "media.depth": "深さ"
+  "media.depth": "深さ",
+  "media.folders": "フォルダー",
+  "media.expandFolder": "{name} を展開",
+  "media.collapseFolder": "{name} を折りたたむ",
+  "media.loadingFolders": "フォルダーを読み込み中…"
 }

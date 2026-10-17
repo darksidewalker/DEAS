@@ -9,10 +9,14 @@
   "media.up": "Üst klasör",
   "media.entries": "Klasör içeriği",
   "media.symlink": "Sembolik bağlantı",
-  "media.empty": "Burada medya veya klasör yok.",
+  "media.empty": "Burada medya dosyası yok.",
   "media.truncated": "Yalnızca ilk 5000 giriş gösteriliyor.",
   "media.roots": "Ortam klasörleri",
   "media.root.output": "Çıktı",
   "media.root.input": "Girdi",
-  "media.depth": "Derinlik"
+  "media.depth": "Derinlik",
+  "media.folders": "Klasörler",
+  "media.expandFolder": "{name} klasörünü genişlet",
+  "media.collapseFolder": "{name} klasörünü daralt",
+  "media.loadingFolders": "Klasörler yükleniyor…"
 }

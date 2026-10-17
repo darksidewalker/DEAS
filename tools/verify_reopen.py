@@ -16,6 +16,11 @@ window.__TAURI_INTERNALS__={invoke:async(c,a)=>{
  if(c==='native_install_open')return {state:'succeeded',stepId:null,logs:['Opened fixture; no reinstall'],error:null};
  if(c==='native_install_defaults')return {storagePath:'/new/environment',backend:'cpu',hardware:null,warnings:[]};
  if(c==='native_settings_read')return {};
+ if(c==='native_startup_read')return {startup:{preset:'speed',flags:[],fast:[]},packages:[],presets:{speed:{flags:[],fast:[]},compatibility:{flags:[],fast:[]},off:{flags:[],fast:[]}}};
+ if(c==='native_startup_write')return a.startup;
+ if(c==='native_llm_read')return {provider:'local',baseUrl:'http://127.0.0.1:11434'};
+ if(c==='native_llm_models')return {models:[],warnings:[]};
+ if(c==='native_job_current')return null;
  if(c==='native_media_list')return {path:'/fixture',parent:null,entries:[],truncated:false};
  if(c==='native_backend_start')window.__RUNNING__=true;
  if(c==='native_backend_stop')window.__RUNNING__=false;
