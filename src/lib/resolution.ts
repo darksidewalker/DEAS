@@ -8,6 +8,9 @@ export type ScalingMode=typeof scalingModes[number];
 export type Size={width:number;height:number};
 export type InputResize=Size&{crop:'disabled'|'center';pad?:{left:number;right:number;top:number;bottom:number}};
 const snap=(n:number,grid:number)=>Math.max(grid,Math.round(n/grid)*grid);
+/** SwarmUI reference sizes at a 512 side (params.js `aspectRatios`, mirrored by T2IParamInput.GetImageWidth): scaled by the model side they give the SDXL training buckets (3:2 → 1216×832, not the area-exact 1280×832). Other ratios use the exact area. */
+const swarmRefs:Record<string,Size>={'1:1':{width:512,height:512},'4:3':{width:576,height:448},'3:2':{width:608,height:416},'16:9':{width:672,height:384},'21:9':{width:768,height:320}};
+for(const [k,{width,height}] of Object.entries(swarmRefs))swarmRefs[k.split(':').reverse().join(':')]={width:height,height:width};
 export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:number,fixed:Size,model:Size,source?:Size,grid=16):Size{
  if(resolution==='fixed')return fixed;
  const ratio=aspect==='auto'?(source??model):aspect==='custom'?customAspect:(()=>{const [width,height]=aspect.split(':').map(Number);return {width,height};})();
@@ -15,7 +18,8 @@ export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:
  if(!Number.isFinite(r)||r<=0)return {width:0,height:0};
  const pixels=resolution==='model'?model.width*model.height:(resolution==='custom'?mp:resolutions[resolution])*1024*1024;
  if(!Number.isFinite(pixels)||pixels<=0)return {width:0,height:0};
- const height=Math.sqrt(pixels/r);return {width:snap(height*r,grid),height:snap(height,grid)};
+ const side=Math.sqrt(pixels)/512,ref=swarmRefs[aspect]??{width:512*Math.sqrt(r),height:512/Math.sqrt(r)};
+ return {width:snap(ref.width*side,grid),height:snap(ref.height*side,grid)};
 }
 export const validCanvas=({width,height}:Size)=>[width,height].every(n=>Number.isInteger(n)&&n>=64&&n<=8192&&n%8===0)&&width*height<=16_777_216;
 /** Fit can produce a smaller canvas; crop/pad fill it. Auto only downsizes inputs over the 2048px short-edge cap. Sizes snap down to the model grid. */

@@ -12,10 +12,16 @@ test('Director ratios, added ultrawide/portrait ratios and every resolution snap
  assert.deepEqual(canvasSize('auto','fixed',wide,1,{width:768,height:512},square,wide),{width:768,height:512});
  const portrait=canvasSize('custom','custom',{width:2,height:3},1,square,square);
  assert.ok(portrait.height>portrait.width);
- // 1024²-based megapixels on the model grid: SDXL buckets (64), Director/H3 (32), latent×patch (16).
- assert.deepEqual(canvasSize('3:4','1024p',wide,1,square,square,undefined,64),{width:896,height:1152});
- assert.deepEqual(canvasSize('3:4','1024p',wide,1,square,square,undefined,32),{width:896,height:1184});
- assert.deepEqual(canvasSize('3:4','1024p',wide,1,square,square),{width:880,height:1184});
+ // SwarmUI reference table scaled to the 1024 side = SDXL training buckets at every grid; area-exact rounding alone gave 1280×832 (3:2) and 880×1184 (3:4).
+ for(const grid of [64,32,16]){
+  assert.deepEqual(canvasSize('3:4','1024p',wide,1,square,square,undefined,grid),{width:896,height:1152});
+  assert.deepEqual(canvasSize('3:2','1024p',wide,1,square,square,undefined,grid),{width:1216,height:832});
+  assert.deepEqual(canvasSize('16:9','1024p',wide,1,square,square,undefined,grid),{width:1344,height:768});
+  assert.deepEqual(canvasSize('21:9','1024p',wide,1,square,square,undefined,grid),{width:1536,height:640});
+ }
+ // Non-square model size uses its area side (SwarmUI sqrt(w*h)); ratios outside the table stay area-exact on the grid.
+ assert.deepEqual(canvasSize('16:9','model',wide,1,square,{width:1280,height:720}),{width:1264,height:720});
+ assert.deepEqual(canvasSize('2:1','1024p',wide,1,square,square),{width:1456,height:720});
  assert.equal(validCanvas({width:8192,height:8192}),false);
  assert.equal(validCanvas({width:1023,height:1024}),false);
 });
