@@ -742,8 +742,8 @@ async fn generation_exact_selection_no_fallback_and_local_is_independent() {
             );
         }
         let calls = server.join().unwrap();
-        assert_eq!(calls[0].0, "GET /prefix/models HTTP/1.1");
-        assert_eq!(calls[1].0, "POST /prefix/chat/completions HTTP/1.1");
+        assert_eq!(calls[0].0, "GET /prefix/v1/models HTTP/1.1");
+        assert_eq!(calls[1].0, "POST /prefix/v1/chat/completions HTTP/1.1");
         assert_eq!(calls[1].1["model"], "fixture-model");
     }
 }

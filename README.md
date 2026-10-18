@@ -144,7 +144,7 @@ Example: `image/2026_10_18/14-30-05-42-My_Model_00001_.png`. Core SaveImage and 
 
 ## Shared LLM backend
 
-After installing or reopening a DEAS environment, **Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (including its prefix, such as `http://127.0.0.1:8080/v1`). There is no global model or GGUF-path setting.
+After installing or reopening a DEAS environment, **Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (such as `http://127.0.0.1:8080`; `/v1` is appended when missing, like the DaSiWa node pack does). There is no global model or GGUF-path setting.
 
 Local language GGUFs are discovered recursively in the existing **Models folder → llm** directory (by default `<environment>/ComfyUI/models/llm`), independently of any external server. Projector files such as `mmproj` are excluded. `llama-cpp-python` runs the selected local model automatically in the managed venv, with automatic CPU/GPU offload selection, and the worker exits after each request. Optional remote model discovery adds to the local list; an unavailable remote server does not hide local models.
 

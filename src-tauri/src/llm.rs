@@ -66,8 +66,12 @@ fn endpoint(config: &LlmConfig, route: &str) -> Result<reqwest::Url, String> {
     {
         return Err("LLM URL must use HTTP(S), without credentials".into());
     }
-    let path = format!("{}/", url.path().trim_end_matches('/'));
-    url.set_path(&path);
+    let mut path = url.path().trim_end_matches('/').to_owned();
+    // Same rule as the node pack's OpenAICompatible, so one URL works in both.
+    if config.provider == Provider::Openai && !path.ends_with("/v1") {
+        path.push_str("/v1");
+    }
+    url.set_path(&format!("{path}/"));
     url.join(route).map_err(|_| "Invalid LLM endpoint".into())
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
