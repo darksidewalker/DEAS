@@ -164,6 +164,8 @@ async function installFixture(result:'succeeded'|'failed') {
  const click=(name:RegExp)=>fireEvent.click(screen.getByRole('button',{name}));
  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
  await screen.findByText('mock install fixture');
+ // The success handoff switches to Studio in an effect; let it land before the test navigates, or it overrides the click.
+ if(result==='succeeded')await waitFor(()=>expect(screen.getByRole('tab',{name:'Studio'}).getAttribute('aria-selected')).toBe('true'));
 }
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
  it('exposes a separate explicit backend start only after succeeded install',async()=>{
