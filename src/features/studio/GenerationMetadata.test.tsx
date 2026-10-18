@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { GenerationMetadata } from './GenerationMetadata';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import type { JobStatus } from '../../lib/jobs';
+import type { DiagnosticImageIntentV1 } from '../../lib/execution';
 import { OpenComfyWorkflow } from '../../lib/comfyWorkflow';
 import { readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:()=>true}));
@@ -14,7 +15,7 @@ test('renders native generation settings as text and switches with the selected 
  const {container,rerender}=render(<I18nProvider><GenerationMetadata job={job}/></I18nProvider>);
  for(const value of ['<img src=x onerror=alert(1)> forest','blur','Krea2/model.safetensors','896 × 1152','940563189','13.31 s','0.1.14','qwen3vl_4b.safetensors','qwen_vae.safetensors','style.safetensors (0.7)'])expect(screen.getByText(value)).toBeTruthy();
  expect(container.querySelector('img')).toBeNull();
- rerender(<I18nProvider><GenerationMetadata job={{...job,id:'b',metadata:null,intent:{...job.intent!,positivePrompt:'second',checkpoint:'second.safetensors'}}}/></I18nProvider>);
+ rerender(<I18nProvider><GenerationMetadata job={{...job,id:'b',metadata:null,intent:{...(job.intent as DiagnosticImageIntentV1),positivePrompt:'second',checkpoint:'second.safetensors'}}}/></I18nProvider>);
  expect(screen.queryByText('13.31 s')).toBeNull();expect(screen.queryByText('Krea2/model.safetensors')).toBeNull();expect(screen.getByText('second')).toBeTruthy();
  rerender(<I18nProvider><GenerationMetadata job={null}/></I18nProvider>);
  expect(screen.queryByText('second')).toBeNull();expect(screen.getByText('Select an image or generated job to see its metadata.')).toBeTruthy();

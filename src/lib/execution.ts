@@ -42,6 +42,9 @@ export interface DiagnosticImageIntentV1 {
   readonly upscaleModel?: string;
   /** Post pass after the first decode (SwarmUI refiner/upscale): optional upscale model, exact resize, second sampling at `denoise` with the same model, prompts and seed; `sigmas` is required exactly when the first pass has them. */
   readonly refine?: { readonly width: number; readonly height: number; readonly denoise: number; readonly upscaleModel?: string; readonly sigmas?: readonly number[] };
+  /** Options → Output: DaSiWa saver file format and 0–100 compression (PNG level / WebP quality); core SaveImage ignores them. */
+  readonly imageFormat?: 'png' | 'webp';
+  readonly imageCompression?: number;
 }
 export interface RunOptions {
   /** `ModelAttentionBackend` choice; exclusive with `sage`. */
@@ -71,6 +74,7 @@ export interface RecipeAllowlist {
   readonly sage?: readonly string[];
   readonly compile?: readonly string[];
   readonly upscaleModels?: readonly string[];
+  readonly latentUpscaleModels?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {
@@ -114,7 +118,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -208,6 +212,8 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (s !== undefined && !(schedule(s) && s.length === (input.steps as number) + 1)) {
     invalid('sigmas', 'Invalid sigmas.', 'Supply steps + 1 finite values, strictly descending and ending at 0.');
   }
+  if (Object.hasOwn(input, 'imageFormat') && !['png', 'webp'].includes(input.imageFormat as string)) invalid('imageFormat', 'Invalid image format.', 'Use png or webp.');
+  if (Object.hasOwn(input, 'imageCompression') && !(Number.isInteger(input.imageCompression) && (input.imageCompression as number) >= 0 && (input.imageCompression as number) <= 100)) invalid('imageCompression', 'Invalid image compression.', 'Use an integer from 0 to 100.');
   if (Object.hasOwn(input, 'upscaleModel') && (!Object.hasOwn(input, 'inputResize') || !safeModel(input.upscaleModel))) invalid('upscaleModel', 'Invalid upscale model.', 'Use a listed upscale model together with inputResize.');
   if (Object.hasOwn(input, 'refine')) {
     const r = input.refine;
@@ -392,7 +398,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'].every(node => allowlist.nodes.includes(node))) {
     const graph = result.graph as Record<string, ApiNode>;
     graph.M = { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } };
-    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph['7'].inputs.images, filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } };
+    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph['7'].inputs.images, filename_prefix: intent.outputPrefix, file_format: intent.imageFormat ?? 'png', compression: intent.imageCompression ?? 44, save_output: true, metadata_config: ['M', 0] } };
   }
   if (intent.wildcard) {
     const graph=result.graph as Record<string,ApiNode>;

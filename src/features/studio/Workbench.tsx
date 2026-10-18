@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, type JobStatus } from '../../lib/jobs';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, type JobStatus, type JobIntent } from '../../lib/jobs';
+import { chunkCount, defaultVideoOutput, isVideoIntent, videoFrames, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { ContinuityPlanner } from './ContinuityPlanner';
+import { defaultPlan, isContinuityPlan, nextStep, resolveClip, type ContinuityPlan } from '../../lib/continuity';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
 import { MediaLibrary, type MediaRoots } from '../media/MediaLibrary';
@@ -23,7 +26,11 @@ import { defaultWildcard, isWildcardRules } from '../../lib/wildcard';
 import { visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
 /** Data-only family plugin (also read natively for header detection): loader, runnable pipelines, encoder/VAE file patterns, starting settings. */
-interface Family { id:string; name:string; multiple?:number; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; vaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string }
+interface Family { id:string; name:string; multiple?:number; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]} }
+/** Remembered video controls; family rows read only their own keys. */
+interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string; shiftHigh:number; shiftLow:number; refinerStep:number; shiftVideo:number; shiftAudio:number; audioVae:string; textProjection:string }
+const defaultVideo:VideoPref={seconds:5,fps:24,passes:1,upscaler:'',shiftHigh:5,shiftLow:5,refinerStep:2,shiftVideo:10,shiftAudio:3,audioVae:'',textProjection:''};
+const isVideoPref=(v:unknown):v is VideoPref=>{const o=v as VideoPref;return !!o&&typeof o==='object'&&Object.keys(defaultVideo).every(k=>typeof (o as unknown as Record<string,unknown>)[k]===typeof (defaultVideo as unknown as Record<string,unknown>)[k])&&[1,2,3].includes(o.passes);};
 const families=new Map((builtinFamilies as Family[]).map(f=>[f.id,f]));
 const modelCategories=['checkpoints','diffusion_models','unet'];
 type Lora={name:string;strength:number};
@@ -35,8 +42,8 @@ const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 const randomSeed=()=>Math.floor(Math.random()*2**32);
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
-const dockTabs=['media','models','loras','wildcards','post','options'] as const;
-/** Pipeline taxonomy. Only `t2i`/`i2i` have a verified native recipe today; the video ones stay listed but disabled until one exists. */
+const dockTabs=['media','models','loras','wildcards','post','options','continuity'] as const;
+/** Pipeline taxonomy. `t2i`/`i2i` (images) and `t2v`/`i2v` (LTX, Wan, MiniMax H3 per family data) have native recipes; `v2v`/`ref2v` stay listed but disabled. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
 /** Edits of the shown image: plain image-to-image (`resample`) or inpaint; refine/upscale live in the Post-Processing tab. */
@@ -87,6 +94,11 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const copySeed=async(value:number)=>{try{await navigator.clipboard.writeText(String(value));setCopyStatus(t('studio.run.seedCopied'));}catch{setCopyStatus(t('studio.run.seedCopyFailed'));}};
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
+ const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
+ const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
+ // MiniMax H3 continuity plan (own dock tab): steps run one by one, each pinning the clip the previous one produced.
+ const [plan,setPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
+ const planRun=useRef<{index:number;all:boolean}|null>(null);const [autoPlan,setAutoPlan]=useState(false);const [resolving,setResolving]=useState(false);
  const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
  // Post-Processing (SwarmUI Refine / Upscale): opt-in second pass after every run, or applied alone to the shown image.
  const [post,setPost]=usePref('studio.run.post',false,isBoolean);
@@ -127,13 +139,18 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  // Diffusion-model families need a separate text encoder and VAE, found by file-name pattern.
  // shortcut: name patterns, not header checks; upgrade when two families share an encoder name.
  const files=(categories:string[],patterns:string[]=[])=>(models??[]).filter(m=>categories.includes(m.category)&&patterns.some(p=>(m.name.split('/').pop()??'').toLowerCase().includes(p))).map(m=>m.name).sort();
- const parts=(f?:Family)=>f?.loader==='diffusion'?{encoders:files(['text_encoders','clip'],f.textEncoders),vaes:files(['vae'],f.vaes)}:null;
+ const parts=(f?:Family)=>f?.loader==='diffusion'?{encoders:files(['text_encoders','clip'],f.textEncoders),vaes:files(['vae'],f.vaes),audioVaes:files(['vae'],f.audioVaes),projections:files(['text_encoders','clip'],f.textProjections)}:null;
+ // Wan 2.2 ships HIGH/LOW files; the counterpart is the same name with the pair swapped (case kept).
+ // shortcut: file-name swap; upgrade when a header flag tells high from low.
+ const lowOf=(m:LocalModel,f?:Family)=>{const [hi,lo]=f?.video?.lowModel??[];if(!hi||!lo)return '';const low=m.name.replace(new RegExp(hi,'i'),x=>x===x.toUpperCase()?lo.toUpperCase():lo);return low!==m.name&&(models??[]).some(x=>x.name===low&&x.category===m.category)?low:'';};
  // Unknown checkpoints stay usable (self-contained loader, like SwarmUI); everything else must be a known family with a recipe for the pipeline.
  const blocked=(m:LocalModel,p:Pipeline):string=>{
  const f=familyOf(m);
  if(!f)return m.category==='checkpoints'&&(p==='t2i'||p==='i2i')?'':'studio.run.family.unknown';
  if(!f.pipelines.includes(p))return 'studio.run.pipe.noRecipe';
- const s=parts(f);return s&&(!s.encoders.length||!s.vaes.length)?'studio.run.family.noEncoder':'';
+ const s=parts(f);if(s&&(!s.encoders.length||!s.vaes.length))return 'studio.run.family.noEncoder';
+ if(p==='t2v'||p==='i2v'){if(s&&f.audioVaes&&!s.audioVaes.length)return 'studio.run.family.noEncoder';if(s&&f.textProjections&&!s.projections.length)return 'studio.run.family.noEncoder';if(f.video?.lowModel&&!lowOf(m,f))return 'studio.run.family.noEncoder';}
+ return '';
  };
  const allModels=(models??[]).filter(m=>modelCategories.includes(m.category)).sort(byName);
  // Dock search/sort are display-only: the pick logic keeps the name-sorted lists. Models have no date, so that option exists for media only.
@@ -155,9 +172,10 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const inputImage=comfyName(media);
  // Extra images pasted onto the source (SwarmUI editor image layers), in source pixels; they belong to one source.
  const [layers,setLayers]=useState<ImageLayer[]>([]);const [inserting,setInserting]=useState(false);
- const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):id==='i2i'&&!inputImage?'studio.run.pipe.needsInput':'';
+ const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):(id==='i2i'||id==='i2v')&&!inputImage?'studio.run.pipe.needsInput':'';
  const pipeline:Pipeline=why(pipelinePref)?'t2i':pipelinePref;
  const mediaPipeline=!pipeline.startsWith('t2');
+ const isVideo=pipeline==='t2v'||pipeline==='i2v';
  const aspect=aspectPref==='auto'&&!mediaPipeline?'1:1':aspectPref;
  // Remembered picks are only valid while the folder still holds them and they fit the pipeline.
  const usable=allModels.filter(m=>!blocked(m,pipeline));
@@ -168,6 +186,12 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const split=parts(family);
  const textEncoder=split?.encoders.includes(textEncoderPref)?textEncoderPref:split?.encoders[0]??'';
  const vae=split?.vaes.includes(vaePref)?vaePref:split?.vaes[0]??'';
+ const videoFamily=family?.video?family.id as VideoFamily:undefined;
+ const fps=family?.video?.fixedFps?family.video.fps:video.fps;
+ const frames=videoFamily?videoFrames(videoFamily,video.seconds,fps):0;
+ const audioVae=split?.audioVaes.includes(video.audioVae)?video.audioVae:split?.audioVaes[0]??'';
+ const textProjection=split?.projections.includes(video.textProjection)?video.textProjection:split?.projections[0]??'';
+ const lastFrameName=comfyName(lastFrame);
  // LoRAs of another known family are hidden; unknown ones stay (their target cannot be checked).
  const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
  // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
@@ -188,11 +212,12 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const up=(s:Size):Size=>({width:Math.max(grid,Math.round(s.width*upscale/grid)*grid),height:Math.max(grid,Math.round(s.height*upscale/grid)*grid)});
  const inpaint=pipeline==='i2i'&&edit==='inpaint';
  const scaled=pipeline!=='i2i'||!source?null:scaleInput(inpaint?'off':inputScaling,source,canvas,grid);
+ // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
  const outputSize=inpaint&&source?source:(scaled?.size??canvas);
  const sizeError=inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
   :!validCanvas(outputSize)?'studio.run.resolution.invalid'
-  :pipeline==='i2i'&&!source?'studio.run.resolution.waiting'
+  :(pipeline==='i2i'||pipeline==='i2v')&&!source?'studio.run.resolution.waiting'
   :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&media&&media.media!=='audio'&&!source?'studio.run.resolution.waiting':'';
  const ratio=aspect==='auto'?(source?source.width/source.height:1):aspect==='custom'?aspectWidth/aspectHeight:Number(aspect.split(':')[0])/Number(aspect.split(':')[1]);
  const swatchRatio=Number.isFinite(ratio)&&ratio>0?ratio:1;
@@ -200,7 +225,8 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const current=jobs.find(j=>j.state==='queued'||j.state==='running');
  const replace=(next:JobStatus)=>setJobs(list=>list.map(j=>j.id===next.id?next:j));
  /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
- async function run(only?:{image:string;size:Size;src:string}){
+ /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
+ async function run(only?:{image:string;size:Size;src:string},step?:{index:number;all:boolean}){
   if(!native||lock.current||current)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   const editing=!only&&inpaint;
@@ -208,11 +234,13 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
   const target=up(only?only.size:outputSize);
   if((post||only)&&!validCanvas(target)){setError(t('studio.run.resolution.invalid'));return;}
-  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:'image',seed,model:checkpoint});
+  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isVideo&&!only?'video':'image',seed,model:checkpoint});
   if(naming===null){setError(t('studio.run.opt.outputNaming.invalid'));return;}
+  const out=optionsPref.output??defaultVideoOutput;
+  if(isVideo&&!only){await runVideo(naming,out,step);return;}
   const inputLayers=visibleImages(layers);
   const refineSigmas=tail(refineDenoise);
-  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})} as const;
+  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
   const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
   const intent:DiagnosticImageIntentV1=Object.freeze(only
    ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
@@ -235,14 +263,68 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
+ async function runVideo(naming:string,out:VideoOutput,step?:{index:number;all:boolean}){
+  if(!videoFamily||!family||!split||!model)return;
+  const cont=step?nextStep(plan):null;
+  if(step&&cont?.index!==step.index){setError(t('studio.run.cont.stale'));return;}
+  const seconds=cont?plan.steps[cont.index].seconds:video.seconds;
+  const count=videoFrames(videoFamily,seconds,fps);
+  const chunks=optionsPref.chunkHeadroom?chunkCount(count,outputSize.width,outputSize.height,optionsPref.chunkHeadroom):undefined;
+  const {imageFormat,imageCompression,...output}=out;void imageFormat;void imageCompression;
+  const base={recipeId:'video-generation',version:1,positivePrompt:positive,negativePrompt:negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
+   ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{})} as const;
+  lock.current=true;setBusy(true);setError('');
+  try{
+   let intent:VideoIntentV1;
+   if(videoFamily==='ltx-2')intent={...base,...(pipeline==='i2v'?{firstFrame:inputImage}:{}),...(lastFrameName?{lastFrame:lastFrameName}:{}),family:'ltx-2',ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{})}};
+   else if(videoFamily==='wan')intent={...base,firstFrame:inputImage,...(lastFrameName?{lastFrame:lastFrameName}:{}),family:'wan',wan:{lowModel:lowOf(model,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
+   else{
+    // The Director owns H3 references; they must live in the backend input folder, so dock files are copied there explicitly.
+    const refs:{slot:0|1;image:string}[]=[];
+    if(pipeline==='i2v'&&media?.path)refs.push({slot:0,image:await uploadInput(endpoint,media.path)});
+    if(lastFrame?.path)refs.push({slot:1,image:await uploadInput(endpoint,lastFrame.path)});
+    const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
+    intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{})}};
+   }
+   const prepared=await prepareDiagnosticJob(endpoint,Object.freeze(intent));
+   const job=await submitDiagnosticJob(prepared.id);
+   if(live.current){
+    setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);setRecentSeeds(list=>[seed,...list.filter(s=>s!==seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());
+    if(cont&&step){planRun.current=step;setPlan({...plan,steps:plan.steps.map((x,i)=>i===cont.index?{...x,jobId:job.id}:x)});}
+   }
+  }catch(e){if(live.current){setError(e instanceof Error?e.message:String(e));setAutoPlan(false);}}
+  finally{lock.current=false;if(live.current)setBusy(false);}
+ }
+ // Planner: after a step's job succeeded, read the session once and pin the newest clip that continues the previous one.
+ async function pinClip(job:JobStatus){
+  const step=planRun.current;planRun.current=null;
+  if(!step)return;
+  setResolving(true);
+  try{
+   const session=await readH3Session(endpoint,plan.session);
+   const clipId=resolveClip(session.clips,plan.steps[step.index-1]?.clipId);
+   if(!live.current)return;
+   if(!clipId)throw new Error(t('studio.run.cont.noClip'));
+   setPlan({...plan,steps:plan.steps.map((x,i)=>i===step.index?{...x,clipId,jobId:job.id}:x)});
+  }catch(e){if(live.current){setError(e instanceof Error?e.message:String(e));setAutoPlan(false);}}
+  finally{if(live.current)setResolving(false);}
+ }
  useEffect(()=>{
   if(!current||!native)return;
   const timer=window.setTimeout(async()=>{
-   try{const next=await readDiagnosticJobStatus(current.id);if(!live.current)return;replace(next);if(next.state==='succeeded')setOutputRevision(r=>r+1);}
-   catch(e){if(live.current){replace({...current,state:'unknown',error:e instanceof Error?e.message:String(e)});}}
+   try{const next=await readDiagnosticJobStatus(current.id);if(!live.current)return;replace(next);if(next.state==='succeeded'){setOutputRevision(r=>r+1);void pinClip(next);}else if(next.state==='failed'||next.state==='unknown'){planRun.current=null;setAutoPlan(false);}}
+   catch(e){if(live.current){replace({...current,state:'unknown',error:e instanceof Error?e.message:String(e)});planRun.current=null;setAutoPlan(false);}}
   },1000);
   return()=>window.clearTimeout(timer);
  },[current,native]); // eslint-disable-line react-hooks/exhaustive-deps
+ // Run all: start the next planned step once the previous clip is pinned and nothing is in flight.
+ useEffect(()=>{
+  if(!autoPlan||current||busy||resolving)return;
+  const next=nextStep(plan);
+  if(!next||videoFamily!=='minimax-h3'||!isVideo){setAutoPlan(false);return;}
+  void run(undefined,{index:next.index,all:true});
+ },[autoPlan,current,busy,resolving,plan]); // eslint-disable-line react-hooks/exhaustive-deps
+ const runPlan=(all:boolean)=>{const next=nextStep(plan);if(!next||videoFamily!=='minimax-h3'||!isVideo)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  // Picking media on the strip takes over the preview until the next job is selected; while inserting it adds a layer instead.
  const select=(item:MediaItem)=>{setSelectedJob('');setInserting(false);if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
  const pickMedia=(item:MediaItem)=>{
@@ -284,14 +366,16 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number,fixed?:string)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} disabled={!!fixed} title={fixed} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/></label>;
  const outputItem=(o:JobStatus['outputs'][number]):MediaItem=>({name:o.filename,media:'image',src:fileSrc(o)!,path:[outputDir,o.subfolder,o.filename].filter(Boolean).join('/')});
  // Post-process takes the shown render (its submitted size), else the current edit source.
- const shownOutput=shown?.state==='succeeded'&&outputDir&&shown.outputs[0]&&shown.intent?outputItem(shown.outputs[0]):null;
- const postSource=shownOutput&&shown?.intent?{image:comfyName(shownOutput),size:shown.intent.refine??shown.intent,src:shownOutput.src}
+ const isVideoOut=(o:JobStatus['outputs'][number])=>!!o.format?.startsWith('video/')||/\.(webm|mkv|mp4|avif)$/i.test(o.filename);
+ const shownOutput=shown?.state==='succeeded'&&outputDir&&shown.outputs[0]&&shown.intent&&!isVideoIntent(shown.intent)?outputItem(shown.outputs[0]):null;
+ const postSource=shownOutput&&shown?.intent&&!isVideoIntent(shown.intent)?{image:comfyName(shownOutput),size:shown.intent.refine??shown.intent,src:shownOutput.src}
   :!shown&&inputImage&&source&&media?{image:inputImage,size:source,src:media.src}:null;
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
  const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
   {editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(media?.src!==item.src)select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
   <button type="button" data-edit-insert aria-pressed={inserting&&media?.src===item.src} disabled={noEditModel} onClick={()=>{if(media?.src!==item.src){select(item);setInserting(true);}else setInserting(!inserting);if(pipeline!=='i2i'){setEdit('resample');setPipeline('i2i');}}}>{t('studio.run.edit.insert')}</button>
+  {isVideo&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {original&&media?.src!==item.src&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
  </div>;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
@@ -323,6 +407,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
      <p className="wb-active"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><strong title={checkpoint}>{checkpoint||t('studio.run.noModels')}</strong><small>{t('studio.run.loras')} {activeLoras.length}</small></p>
      <div className="wb-pipelines" role="group" aria-label={t('studio.run.pipeline')}>{pipelines.map(id=>{const reason=why(id);return <button key={id} type="button" data-pipeline={id} aria-pressed={pipeline===id} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>setPipeline(id)}>{t(`studio.run.pipe.${id}`)}</button>;})}</div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{inputImage}</strong></p>}
+    {pipeline==='i2v'&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{inputImage}</strong></p>}
      <div className="wb-controls">
       {inpaint?<>{!masked&&<p className="wb-resolution-hint">{t('studio.run.edit.needsMask')}</p>}{num('denoise',strength,setStrength,0,1,0.05)}<p className="wb-resolution-hint">{t('studio.run.edit.size',{width:String(outputSize.width),height:String(outputSize.height)})}</p></>:<>
       <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><span className="wb-aspect-picker"><span className="wb-aspect-swatch" aria-hidden="true"><span style={{width:18*Math.min(1,swatchRatio),height:18*Math.min(1,1/swatchRatio)}}/></span><select value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='auto'||mediaPipeline).map(a=><option key={a} value={a}>{a==='auto'||a==='custom'?t(`studio.run.resolution.${a}`):a}</option>)}</select></span></label>
@@ -330,6 +415,16 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
       {aspect==='custom'&&<>{num('resolution.aspectWidth',aspectWidth,setAspectWidth,1,100,0.1)}{num('resolution.aspectHeight',aspectHeight,setAspectHeight,1,100,0.1)}</>}
       {resolution==='custom'&&num('resolution.megapixels',megapixels,setMegapixels,0.01,16,0.05)}
       {num('width',canvas.width,n=>{setWidth(n);setHeight(canvas.height);setResolution('fixed');},64,8192,8)}{num('height',canvas.height,n=>{setHeight(n);setWidth(canvas.width);setResolution('fixed');},64,8192,8)}</>}
+      {isVideo&&family?.video&&split&&<>
+       {num('video.seconds',video.seconds,n=>setVideo({...video,seconds:clamp(n,0.5,15)}),0.5,15,0.5)}{num('video.fps',fps,n=>setVideo({...video,fps:clamp(n,1,120)}),1,120,1,family.video.fixedFps?t('studio.run.video.fixedFps',{fps:String(family.video.fps)}):undefined)}
+       <p className="wb-resolution-hint wb-wide">{t('studio.run.video.length',{frames:String(frames),seconds:((frames-1)/fps).toFixed(2)})}</p>
+       {videoFamily==='ltx-2'&&<>{pick('studio.run.video.textProjection',textProjection,split.projections,v=>setVideo({...video,textProjection:v}))}{pick('studio.run.video.audioVae',audioVae,split.audioVaes,v=>setVideo({...video,audioVae:v}))}
+        <label className="wb-field"><span>{t('studio.run.video.passes')}</span><select value={video.passes} onChange={e=>setVideo({...video,passes:Number(e.target.value) as VideoPref['passes']})}>{[1,2,3].map(n=><option key={n} value={n} disabled={n>1&&!(choices?.latentUpscaleModels?.length||!choices)}>{n}</option>)}</select></label>
+        {video.passes>1&&pick('studio.run.video.upscaler',video.upscaler||choices?.latentUpscaleModels?.[0]||'',choices?.latentUpscaleModels??[],v=>setVideo({...video,upscaler:v}),loadChoices)}</>}
+       {videoFamily==='wan'&&<>{num('video.shiftHigh',video.shiftHigh,n=>setVideo({...video,shiftHigh:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.shiftLow',video.shiftLow,n=>setVideo({...video,shiftLow:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.refinerStep',Math.min(video.refinerStep,steps-1),n=>setVideo({...video,refinerStep:clamp(Math.round(n),1,Math.max(1,steps-1))}),1,Math.max(1,steps-1),1)}</>}
+       {videoFamily==='minimax-h3'&&<>{pick('studio.run.video.audioVae',audioVae,split.audioVaes,v=>setVideo({...video,audioVae:v}))}{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
+       <p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>
+      </>}
       {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
       {inpaint&&<>
        <label className="wb-field wb-wide" title={t('studio.run.maskGrowHelp')}><span><input type="checkbox" style={{width:'auto'}} checked={inpaintOnlyMasked} onChange={e=>setInpaintOnlyMasked(e.target.checked)}/>{t('studio.run.inpaintOnlyMasked')}</span></label>
@@ -365,7 +460,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{shown.error&&<> · <span className="error-message">{shown.error}</span></>}</p>
       {shown.state==='succeeded'&&shown.outputs.length>0&&(outputDir?<figure className="media-preview">{original&&slider?<div className="wb-compare" style={{'--divide':`${divide}%`} as React.CSSProperties}><img src={original} alt={t('studio.run.edit.original')}/><img src={fileSrc(shown.outputs[0])!} alt={shown.outputs[0].filename}/><input type="range" aria-label={t('studio.run.edit.divider')} min={0} max={100} value={divide} onChange={e=>setDivide(Number(e.target.value))}/></div>
-        :shown.outputs.map(o=><img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}{tools(outputItem(shown.outputs[0]))}<figcaption>{original&&slider&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:<JobOutputPreview job={shown} auto/>)}
+        :shown.outputs.map(o=>isVideoOut(o)?<video key={o.filename} src={fileSrc(o)!} controls autoPlay loop/>:<img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}{!isVideoOut(shown.outputs[0])&&tools(outputItem(shown.outputs[0]))}<figcaption>{original&&slider&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:isVideoOut(shown.outputs[0])?<p className="media-help">{t('studio.run.video.needsOutput')}</p>:<JobOutputPreview job={shown} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
      :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={media.src} controls onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={media.src} controls/>}{inputImage&&tools(media)}<figcaption>{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}</figcaption></figure>
@@ -381,7 +476,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
    <section className="wb-queue" aria-label={t('studio.run.queue')}>
     <h3>{t('studio.run.queue')}</h3>
     {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id}><button type="button" aria-current={j.id===selectedJob} data-state={j.state} onClick={()=>setSelectedJob(j.id)}>
-     {outputDir&&j.state==='succeeded'&&j.outputs[0]?<img src={fileSrc(j.outputs[0])!} alt=""/>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
+     {outputDir&&j.state==='succeeded'&&j.outputs[0]&&!isVideoOut(j.outputs[0])?<img src={fileSrc(j.outputs[0])!} alt=""/>:j.state==='succeeded'&&j.outputs[0]&&isVideoOut(j.outputs[0])?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button></li>)}</ul>}
     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||busy||!!current||!!sizeError||(inpaint&&!masked)} onClick={()=>void run()}>{t(current?'studio.run.running':busy?'studio.run.preparing':'studio.run.run')}</button>
     <button type="button" className="wb-run-post" data-run-post disabled={!native||busy||!!current||!postSource?.image} title={t('studio.run.post.runHint')} onClick={()=>{if(postSource)void run(postSource);}}>{t('studio.run.post.run')}</button>
@@ -389,8 +484,8 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   </div>
   <div className="wb-dock" style={{height:dockHeight}}>
    <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} onPointerDown={dragDock}/>
-   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
-    {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
+   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>id!=='continuity'||videoFamily==='minimax-h3').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
+    {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&dockTab!=='continuity'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
     <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select></>}
     {(dockTab==='models'||dockTab==='loras')&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
    {dockTab==='media'&&<MediaLibrary selected={media} onSelect={pickMedia} roots={roots} outputRevision={outputRevision} filter={query} sort={sort}/>}
@@ -401,6 +496,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
    </div></section>}
+   {dockTab==='continuity'&&videoFamily==='minimax-h3'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.continuity')}><ContinuityPlanner plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||!isVideo||!!sizeError}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}

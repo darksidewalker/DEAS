@@ -3,13 +3,15 @@ import { useI18n } from '../../i18n/I18nProvider';
 import type { RecipeAllowlist, RunOptions } from '../../lib/execution';
 import { defaultOutputNaming, outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import builtinFamilies from '../../families/builtin.json';
+import { audioBitrates, audioCodecs, bitDepths, defaultVideoOutput, isVideoOutput, videoCodecs, videoContainers, type VideoOutput } from '../../lib/videoIntent';
 
 /** Remembered Options tab state; only what the backend lists is ever submitted. `attention` is `a:<ModelAttentionBackend>`, `s:<Sage mode>` or '' (launch default). `sigmas` is the custom schedule text ('' = the model's own, if any). */
-export interface OptionsPref { attention:string; vae:'full'|'tiled'; tile:number; cache:''|'EasyCache'|'LazyCache'; threshold:number; compile:string; sigmas?:string; outputNaming?:string }
+export interface OptionsPref { attention:string; vae:'full'|'tiled'; tile:number; cache:''|'EasyCache'|'LazyCache'; threshold:number; compile:string; sigmas?:string; outputNaming?:string; /** Feed-forward chunking headroom for video (0 = off; 1 ≈ 24 GB … 4 ≈ 8 GB, the DaSiWa workflows' table). */ chunkHeadroom?:number; output?:VideoOutput }
 const tiles=[256,512,768,1024];
+const headrooms=[0,1,2,3,4];
 const namingPlaceholders=['type','date_yyyy-mm-dd','time','seed','model'];
 // Threshold 0.05: the nodes' own 0.2 (tuned for video DiTs) ruined SDXL images in a real run; 0.05 kept them coherent.
-export const defaultOptions:OptionsPref={attention:'',vae:'full',tile:512,cache:'',threshold:0.05,compile:'',sigmas:'',outputNaming:defaultOutputNaming};
+export const defaultOptions:OptionsPref={attention:'',vae:'full',tile:512,cache:'',threshold:0.05,compile:'',sigmas:'',outputNaming:defaultOutputNaming,chunkHeadroom:0,output:defaultVideoOutput};
 /** Known model-fixed schedules come from the family plugin (e.g. Qwen Image 2.1 Turbo's saved 8-step sigmas). */
 export const sigmaPresets=(builtinFamilies as {id:string;name:string;sigmas?:number[]}[]).filter(f=>f.sigmas).map(f=>({id:f.id,name:f.name,sigmas:f.sigmas!}));
 export const sigmaText=(s:readonly number[])=>s.join(', ');
@@ -23,7 +25,7 @@ const kitchen=(p:OptionsPref)=>p.attention==='a:comfy kitchen attention';
 export const isOptionsPref=(v:unknown):v is OptionsPref=>{
  const o=v as OptionsPref;
  return !!o&&typeof o==='object'&&typeof o.attention==='string'&&(o.vae==='full'||o.vae==='tiled')&&tiles.includes(o.tile)
-  &&['','EasyCache','LazyCache'].includes(o.cache)&&typeof o.threshold==='number'&&o.threshold>=0&&o.threshold<=3&&typeof o.compile==='string'&&(o.sigmas===undefined||typeof o.sigmas==='string')&&(o.outputNaming===undefined||typeof o.outputNaming==='string');
+  &&['','EasyCache','LazyCache'].includes(o.cache)&&typeof o.threshold==='number'&&o.threshold>=0&&o.threshold<=3&&typeof o.compile==='string'&&(o.sigmas===undefined||typeof o.sigmas==='string')&&(o.outputNaming===undefined||typeof o.outputNaming==='string')&&(o.chunkHeadroom===undefined||headrooms.includes(o.chunkHeadroom))&&(o.output===undefined||isVideoOutput(o.output));
 };
 type Allow=Pick<RecipeAllowlist,'nodes'|'attention'|'sage'|'compile'>;
 
@@ -64,6 +66,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
  const sigmas=p.sigmas??'';
  const shown=sigmas||(modelSigmas?sigmaText(modelSigmas):'');
  const preset=sigmaPresets.find(f=>sigmaText(f.sigmas)===shown.trim())?.id??(shown?'custom':'');
+ const out=p.output??defaultVideoOutput;const setOut=(patch:Partial<VideoOutput>)=>set({output:{...out,...patch}});
  const naming=outputNamingTemplate(p.outputNaming);
  const namingValid=outputPrefix(naming,{type:'image',seed:0,model:'model'})!==null;
  const namingHelp=<>{t('studio.run.opt.outputNaming.hint')}<span className="wb-help-list">{namingPlaceholders.map(k=><span key={k}><code>{`%${k}%`}</code> {outputPrefix(`%${k}%`,{type:'image',seed:42,model:'My Model.safetensors'})}</span>)}</span></>;
@@ -89,6 +92,13 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
    <option value="custom" disabled>{t('studio.run.opt.sigmas.custom')}</option>
   </select><input type="text" className="wb-sigmas" aria-label={t('studio.run.opt.sigmas')} value={shown} placeholder={sigmaText([1,0.5,0])} spellCheck={false} onChange={e=>set({sigmas:e.target.value})}/></span>,
    missing('SamplerCustomAdvanced')||t('studio.run.opt.sigmas.hint'),shown&&!parseSigmas(shown)?t('studio.run.opt.sigmas.invalid'):undefined)}
+  {card('chunking',<select aria-label={t('studio.run.opt.chunking')} value={p.chunkHeadroom??0} onChange={e=>set({chunkHeadroom:Number(e.target.value)})}>{headrooms.map(h=><option key={h} value={h}>{h===0?t('studio.run.opt.off'):`${[24,16,12,8][h-1]} GB · ${h.toFixed(1)}`}</option>)}</select>,t('studio.run.opt.chunking.hint'))}
+  {card('output',<span className="wb-option-grid">{([['codec',videoCodecs],['container',videoContainers],['bitDepth',bitDepths],['audioCodec',audioCodecs],['audioBitrate',audioBitrates]] as const).map(([k,list])=><label key={k}><span>{t(`studio.run.opt.output.${k}`)}</span><select value={out[k]} onChange={e=>setOut({[k]:e.target.value})}>{list.map(v=><option key={v} value={v}>{v==='Auto'?t('studio.run.opt.output.auto'):v}</option>)}</select></label>)}
+   <label><span>{t('studio.run.opt.output.quality')}</span><input type="number" value={out.quality} min={0} max={51} step={1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=0&&n<=51)setOut({quality:n});}}/></label>
+   <label><span>{t('studio.run.opt.output.imageFormat')}</span><select value={out.imageFormat} onChange={e=>setOut({imageFormat:e.target.value as VideoOutput['imageFormat']})}>{(["png","webp"] as const).map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}</select></label>
+   <label><span>{t('studio.run.opt.output.imageCompression')}</span><input type="number" value={out.imageCompression} min={0} max={100} step={1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=0&&n<=100)setOut({imageCompression:n});}}/></label>
+   {(['saveFirstFrame','saveLastFrame'] as const).map(k=><label key={k} className="wb-option-row"><input type="checkbox" checked={out[k]} onChange={e=>setOut({[k]:e.target.checked})}/>{t(`studio.run.opt.output.${k}`)}</label>)}
+  </span>,t('studio.run.opt.output.hint'))}
   {card('compile',<select aria-label={t('studio.run.opt.compile')} value={p.compile} disabled={off('TorchCompileModel')||kitchen(p)} onChange={e=>set({compile:e.target.value})}><option value="">{t('studio.run.opt.off')}</option>{keep([...(allow?.compile??[])],p.compile).map(b=><option key={b} value={b} disabled={!allow?.compile?.includes(b)}>{b}</option>)}</select>,missing('TorchCompileModel')||t(kitchen(p)?'studio.run.opt.compile.kitchen':'studio.run.opt.compile.hint'))}
  </div>;
 }

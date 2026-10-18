@@ -1,10 +1,14 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { CompiledRecipe, DiagnosticImageIntentV1 } from './execution';
+import type { VideoIntentV1 } from './videoIntent';
+
+/** Image recipe or one of the video family recipes; both compile natively. */
+export type JobIntent = DiagnosticImageIntentV1 | VideoIntentV1;
 
 export interface DiagnosticJobPlan {
   id: string;
   baseUrl: string;
-  intent: DiagnosticImageIntentV1;
+  intent: JobIntent;
   graph: CompiledRecipe['graph'];
   generationReady: false;
 }
@@ -13,11 +17,12 @@ export interface JobStatus {
   baseUrl: string;
   promptId: string | null;
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown';
-  outputs: { filename: string; subfolder: string; type: 'output' }[];
+  /** `format` is the MIME type the video combine reports (`video/webm`); image savers omit it. */
+  outputs: { filename: string; subfolder: string; type: 'output'; format?: string }[];
   error: string | null;
   generationReady: false;
   /** Immutable native-held intent, never the workbench's current controls. */
-  intent?: DiagnosticImageIntentV1;
+  intent?: JobIntent;
   appVersion?: string;
   metadata?: { startedAt: number; generationMs: number | null } | null;
   /** Live sampler steps and latest preview data URL, only while queued/running. */
@@ -35,12 +40,20 @@ async function native<T>(command: string, args: Record<string, unknown>): Promis
     throw error;
   }
 }
-export function prepareDiagnosticJob(baseUrl: string, intent: DiagnosticImageIntentV1): Promise<DiagnosticJobPlan> {
+// Overloads: the image signature stays last so `Parameters<>` in existing tests still resolve to the image intent.
+export function prepareDiagnosticJob(baseUrl: string, intent: VideoIntentV1): Promise<DiagnosticJobPlan>;
+export function prepareDiagnosticJob(baseUrl: string, intent: DiagnosticImageIntentV1): Promise<DiagnosticJobPlan>;
+export function prepareDiagnosticJob(baseUrl: string, intent: JobIntent): Promise<DiagnosticJobPlan> {
   if (!baseUrl.trim()) return Promise.reject(new Error('An explicit backend endpoint is required.'));
   return native('native_job_prepare', { baseUrl, intent });
 }
 /** Inpaint mask PNG → backend input folder; returns its `deas-masks/<uuid>.png` name for `inputMask`. */
 export const uploadMask = (baseUrl: string, png: Uint8Array): Promise<string> => native('native_mask_upload', { baseUrl, png: Array.from(png) });
+/** Reference image (PNG/JPEG/WebP on disk) → backend input folder; returns its `deas-inputs/<uuid>.<ext>` name for H3 Director references. */
+export const uploadInput = (baseUrl: string, path: string): Promise<string> => native('native_input_upload', { baseUrl, path });
+export interface H3Clip { clipId: string; parent: string | null; frames: number | null; completed: number; export: { filename: string; subfolder: string; type: string } | null }
+/** Read-only DaSiWa continuity session listing (clips newest first). */
+export const readH3Session = (baseUrl: string, session: string): Promise<{ latestId: string | null; clips: H3Clip[] }> => native('native_h3_session', { baseUrl, session });
 export const submitDiagnosticJob = (planId: string): Promise<JobStatus> => native('native_job_submit', { planId, confirmed: true });
 export const readDiagnosticJobStatus = (jobId: string): Promise<JobStatus> => native('native_job_status', { jobId });
 export const readCurrentDiagnosticJob = (): Promise<JobStatus | null> => native('native_job_current', {});

@@ -113,6 +113,11 @@
 .wb-help-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 8px; margin-top: 3px; }
 .wb-help-list > span { display: contents; }
 .wb-help-list code { font-family: ui-monospace, monospace; }
+/* Output card: label/control pairs in two aligned columns; checkboxes keep their native width. */
+.wb-option-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; align-items: center; font-size: .74rem; }
+.wb-option-grid > label { display: contents; }
+.wb-option-grid > label.wb-option-row { display: flex; grid-column: 1 / -1; }
+.wb-option-grid input[type="checkbox"] { width: auto; flex: none; }
 .wb-option select, .wb-option input[type="number"], .wb-option input[type="text"] { width: 100%; min-width: 0; padding: 3px 6px; font-size: .78rem; }
 .wb-option input[type="checkbox"] { appearance: auto; width: 1.1rem; height: 1.1rem; flex: none; border: 0; background: transparent; padding: 0; }
 .wb-option-row { display: flex; gap: 6px; min-width: 0; }

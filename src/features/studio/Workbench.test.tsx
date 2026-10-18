@@ -5,12 +5,12 @@ import { Workbench } from './Workbench';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, type JobStatus } from '../../lib/jobs';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, type JobStatus } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
-vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler'],schedulers:['normal']}};
 beforeEach(()=>{
@@ -531,4 +531,74 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'8192'}});
  fireEvent.change(screen.getByLabelText('Height'),{target:{value:'8192'}});
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+});
+
+test('IPC fixture: video families enable Image→Video; LTX submits a video intent with frames on the 8k+1 grid and a video output plays in the stage',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'unet',name:'LTX2/ltx.safetensors',path:'/m/unet/LTX2/ltx.safetensors',size:1,info:null,family:'ltx-2'},
+  {category:'text_encoders',name:'gemma_3_12B_it_fp8.safetensors',path:'/m/text_encoders/gemma.safetensors',size:1,info:null},
+  {category:'text_encoders',name:'ltx-2.3_text_projection_bf16.safetensors',path:'/m/text_encoders/proj.safetensors',size:1,info:null},
+  {category:'vae',name:'LTX2/LTX23_video_vae_bf16.safetensors',path:'/m/vae/v.safetensors',size:1,info:null},
+  {category:'vae',name:'LTX2/LTX23_audio_vae_bf16.safetensors',path:'/m/vae/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'x_00001.webm',subfolder:'video',type:'output',format:'video/webm'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ const i2v=await screen.findByRole('button',{name:'Image → Video'});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Text → Video'}).hasAttribute('disabled')).toBe(false));
+ expect(i2v.hasAttribute('disabled')).toBe(true);
+ expect(screen.getByRole('button',{name:'Video → Video'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+ fireEvent.click(i2v);
+ const ref=screen.getByRole('img',{name:'ref.png'});
+ Object.defineProperties(ref,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(ref);
+ fireEvent.change(screen.getByLabelText('Seconds'),{target:{value:'2'}});
+ expect(screen.getByText('49 frames · 2.00 s')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({recipeId:'video-generation',family:'ltx-2',model:'LTX2/ltx.safetensors',textEncoder:'gemma_3_12B_it_fp8.safetensors',vae:'LTX2/LTX23_video_vae_bf16.safetensors',frames:49,frameRate:24,firstFrame:'ref.png',output:{codec:'Auto',container:'Auto',quality:20},ltx:{textProjection:'ltx-2.3_text_projection_bf16.safetensors',audioVae:'LTX2/LTX23_audio_vae_bf16.safetensors',passes:1}});
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).not.toHaveProperty('imageFormat');
+ await waitFor(()=>expect(document.querySelector('.wb-stage video')?.getAttribute('src')).toBe('asset://localhost//env/ComfyUI/output/video/x_00001.webm'));
+ expect(screen.queryByRole('tab',{name:'Continuity'})).toBeNull();
+});
+
+test('IPC fixture: MiniMax H3 uploads dock references for the Director and the continuity planner pins the clip of each finished step',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/u1.png');
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ let n=0;
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`h3-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false}));
+ vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ vi.mocked(readH3Session).mockImplementation(async()=>({latestId:null,clips:[{clipId:'root1',parent:null,frames:124,completed:1,export:null},{clipId:'kid1',parent:'root1',frames:200,completed:2,export:null}]}));
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Image → Video'}));
+ const ref=screen.getByRole('img',{name:'ref.png'});
+ Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);
+ expect((screen.getByLabelText('FPS') as HTMLInputElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801','/env/ComfyUI/input/ref.png');
+ const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1] as unknown as {frames:number;h3:object;firstFrame?:string};
+ expect(first).toMatchObject({family:'minimax-h3',frames:124,frameRate:24,h3:{mode:'I2VA',references:[{slot:0,image:'deas-inputs/u1.png'}]}});
+ expect(first.firstFrame).toBeUndefined();
+ expect((first.h3 as {continuity?:object}).continuity).toBeUndefined();
+ await waitFor(()=>expect(screen.getAllByText('Succeeded').length).toBeGreaterThan(0),{timeout:4000});
+ dock('Continuity');
+ fireEvent.click(screen.getByRole('button',{name:'Add step'}));fireEvent.click(screen.getByRole('button',{name:'Add step'}));
+ fireEvent.change(screen.getAllByLabelText('Next action')[0],{target:{value:'she turns around'}});
+ fireEvent.click(screen.getByRole('button',{name:'Run all'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3),{timeout:5000});
+ const steps=vi.mocked(prepareDiagnosticJob).mock.calls.slice(1).map(c=>(c[1] as unknown as {h3:{continuity:{sourceId:string;action:string;capture:boolean}}}).h3.continuity);
+ expect(steps[0]).toMatchObject({sourceId:'',capture:true,action:''});
+ expect(steps[1]).toMatchObject({sourceId:'root1',capture:true,action:'she turns around'});
+ await waitFor(()=>expect(screen.getByText('kid1')).toBeTruthy(),{timeout:5000});
+ expect(readH3Session).toHaveBeenCalledWith('http://127.0.0.1:7801',expect.stringMatching(/^deas-[0-9a-f]{8}$/));
 });

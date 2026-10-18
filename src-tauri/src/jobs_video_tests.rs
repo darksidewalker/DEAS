@@ -397,3 +397,21 @@ fn h3_drives_director_guide_segment_nodes_and_publish() {
         json!({"version":3,"session":"deas-ab12cd34","source_kind":"checkpoint","source_id":"clip_1","capture":true,"output_mode":"segment","continuation_prompt":"she turns around"})
     );
 }
+
+/// `cargo test --lib dump_video_graphs -- --ignored --nocapture` prints the three graphs for an offline
+/// `execution.validate_prompt` run against the real ComfyUI checkout (see the deas-development skill).
+#[test]
+#[ignore]
+fn dump_video_graphs() {
+    let mut l = ltx();
+    l["firstFrame"] = json!("ref.png");
+    l["ltx"]["passes"] = json!(2);
+    l["ltx"]["spatialUpscaler"] = json!("ltx-2.3-spatial-upscaler-x2-1.1.safetensors");
+    let mut w = wan();
+    w["lastFrame"] = json!("ref.png");
+    w["chunks"] = json!(2);
+    println!(
+        "{}",
+        json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap()})
+    );
+}

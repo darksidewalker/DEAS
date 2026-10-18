@@ -22,7 +22,8 @@ describe('run options', () => {
 
   it('rejects stale or malformed remembered state', () => {
     expect(isOptionsPref(all)).toBe(true);
-    for (const bad of [null, { ...all, tile: 500 }, { ...all, cache: 'TeaCache' }, { ...all, threshold: 4 }, { ...all, vae: 'x' }, { ...all, sigmas: 3 }]) expect(isOptionsPref(bad)).toBe(false);
+    for (const bad of [null, { ...all, tile: 500 }, { ...all, cache: 'TeaCache' }, { ...all, threshold: 4 }, { ...all, vae: 'x' }, { ...all, sigmas: 3 }, { ...all, chunkHeadroom: 5 }, { ...all, output: { codec: 'H.266' } }]) expect(isOptionsPref(bad)).toBe(false);
+    expect(isOptionsPref({ ...all, chunkHeadroom: 2, output: defaultOptions.output })).toBe(true);
   });
 
   it('parses custom sigma text like ManualSigmas and the native validator', () => {
@@ -74,5 +75,20 @@ describe('run options', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...defaultOptions, attention: 'a:comfy kitchen attention' });
     expect((screen.getByRole('option', { name: 'LazyCache' }) as HTMLOptionElement).disabled).toBe(true);
     expect((screen.getByRole('option', { name: /^Spectrum H3/ }) as HTMLOptionElement).disabled).toBe(true);
+  });
+});
+
+describe('output and chunking cards', () => {
+  it('store the video combine settings, the image format and the chunking headroom', () => {
+    const onChange = vi.fn();
+    render(<I18nProvider><OptionsPanel value={defaultOptions} onChange={onChange} allow={allow} imageInput={false} onRead={() => {}} canRead/></I18nProvider>);
+    fireEvent.change(screen.getByLabelText('Codec'), { target: { value: 'AV1' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaultOptions, output: { ...defaultOptions.output!, codec: 'AV1' } });
+    fireEvent.change(screen.getByLabelText('Image format'), { target: { value: 'webp' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaultOptions, output: { ...defaultOptions.output!, imageFormat: 'webp' } });
+    fireEvent.change(screen.getByLabelText('Chunking (video)'), { target: { value: '3' } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaultOptions, chunkHeadroom: 3 });
+    // Chunking and output never enter the image/video `options` block; the Workbench reads them directly.
+    expect(runOptions({ ...defaultOptions, chunkHeadroom: 3 }, allow)).toBeUndefined();
   });
 });
