@@ -11,6 +11,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Bound Prompt Forge responses while streaming, reload its model list on backend/environment changes and discard late replies. Native inpaint preparation now checks every emitted crop/blur node before submission; regression tests cover these review fixes.
 - Add beginner-oriented Windows/Linux build, launch, first-setup and troubleshooting instructions to the README.
 - Make Prompt Forge find models in the configured models folder (`llm` added to the generated extra model paths). Fix CI: Linux tests run with a private `TMPDIR` (folder guards reject shared `/tmp`), the Forge reload test no longer races a thumbnail call, and release binaries build on Ubuntu 22.04 for older glibc.
+- Prompt Forge: a 405 (ComfyUI's GET-only static route answering a missing node-pack route) now shows the node-pack upgrade hint instead of a bare status, and every Forge failure is written to Logs. The Prompt Writer route ships in DaSiWa nodes 0.5.30. CI: Windows Clippy no longer fails on a Linux-only test helper; workflow actions moved to their Node 24 majors.
 
 ## 0.1.25 — 2026-10-18
 

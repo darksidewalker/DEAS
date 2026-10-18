@@ -634,6 +634,7 @@ async fn discovery_keeps_local_models_with_remote_success_or_failure() {
     assert_eq!(result.models.len(), 1);
     assert!(result.warnings.is_empty());
 }
+#[cfg(target_os = "linux")]
 fn http_sequence(
     responses: Vec<(u16, Value)>,
 ) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {

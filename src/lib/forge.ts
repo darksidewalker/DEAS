@@ -18,5 +18,5 @@ const call = <T>(baseUrl: string, root: string, route: string, body: object) => 
 export const forgeModels = (baseUrl: string, root: string) => call<ForgeModels>(baseUrl, root, 'models', {});
 export const writePrompt = (baseUrl: string, root: string, body: WriteRequest) => call<{ prompt: string; saw_images: number }>(baseUrl, root, 'write', body);
 export const forgeH3 = (baseUrl: string, root: string, body: H3Request) => call<H3Result>(baseUrl, root, 'h3', body);
-/** A 404 means the backend's node pack predates these routes. */
-export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return text.startsWith('404') ? 'forge.outdated' : text; };
+/** A 404 — or 405, since ComfyUI's GET-only static `/` route catches unknown POST paths — means the node pack predates these routes. */
+export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return /^40[45]\b/.test(text) ? 'forge.outdated' : text; };

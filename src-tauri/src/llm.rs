@@ -774,14 +774,24 @@ pub async fn native_forge(
     base_url: String,
     root: String,
     route: String,
-    mut body: Value,
+    body: Value,
 ) -> Result<Value, String> {
-    let path = forge_route(&route)?;
+    forge(&base_url, &root, &route, body)
+        .await
+        .inspect_err(|e| {
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("ERROR: Prompt Forge {route}: {e}"),
+            )
+        })
+}
+async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Result<Value, String> {
+    let path = forge_route(route)?;
     if !body.is_object() {
         return Err("Invalid Prompt Forge request".into());
     }
-    body["settings"] = forge_settings(&read(Path::new(&root))?);
-    let url = crate::validate_base_url(&base_url)?
+    body["settings"] = forge_settings(&read(Path::new(root))?);
+    let url = crate::validate_base_url(base_url)?
         .join(path)
         .map_err(|_| "Invalid backend URL")?;
     // A local 27B can take minutes to load and write; the node pack's own limit is 600 s.

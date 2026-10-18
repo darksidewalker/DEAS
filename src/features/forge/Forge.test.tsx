@@ -125,3 +125,11 @@ it('forge tab writes H3 REF2VA from labelled input pictures and sends the result
   fireEvent.click(screen.getByRole('button', { name: 'Send to Generate' }));
   expect(send).toHaveBeenCalledWith('H3 structured prompt', '');
 });
+
+it('maps a missing node-pack route (404, or 405 from ComfyUI static) to the upgrade hint', async () => {
+  const { forgeError } = await import('../../lib/forge');
+  expect(forgeError(new Error('405'))).toBe('forge.outdated');
+  expect(forgeError('404 Not Found')).toBe('forge.outdated');
+  expect(forgeError('4050 x')).toBe('4050 x');
+  expect(forgeError('500 boom')).toBe('500 boom');
+});
