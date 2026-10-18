@@ -736,10 +736,6 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
     ]
 }
 
-pub(crate) fn is_node(name: &str) -> bool {
-    VIDEO_NODES.contains(&name) || H3_CONTINUITY_NODES.contains(&name)
-}
-
 #[cfg(test)]
 #[path = "jobs_video_tests.rs"]
 pub(crate) mod tests;

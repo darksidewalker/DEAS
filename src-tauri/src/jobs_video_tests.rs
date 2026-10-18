@@ -151,7 +151,7 @@ fn ltx_single_pass_matches_omniforge_wiring() {
     assert!(g.get("G1").is_none() && g.get("CR").is_none());
     for n in g.as_object().unwrap().values() {
         assert!(
-            is_node(n["class_type"].as_str().unwrap())
+            VIDEO_NODES.contains(&n["class_type"].as_str().unwrap())
                 || ["UNETLoader", "VAELoader", "CLIPTextEncode", "VAEDecode"]
                     .contains(&n["class_type"].as_str().unwrap()),
             "{n}"
