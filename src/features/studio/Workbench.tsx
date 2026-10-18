@@ -7,14 +7,19 @@ import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
 import { MediaLibrary, type MediaRoots } from '../media/MediaLibrary';
 import type { MediaItem } from '../../lib/media';
-import { isString, oneOf, readPref, usePref } from '../../lib/preferences';
+import { isBoolean, isString, oneOf, readPref, usePref } from '../../lib/preferences';
 import { JobOutputPreview } from './JobOutputPreview';
 import { GenerationMetadata } from './GenerationMetadata';
 import type { GenerationSettings } from '../../lib/imageMetadata';
+import { defaultOutputNaming, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json';
 import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
 import { StudioImageEditor, type EditorHandle } from './StudioImageEditor';
+import { ForgeButton } from '../forge/ForgeButton';
+import { dialectOf } from '../../lib/forge';
+import { WildcardPanel } from '../wildcards/WildcardPanel';
+import { defaultWildcard, isWildcardRules } from '../../lib/wildcard';
 import { visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
 /** Data-only family plugin (also read natively for header detection): loader, runnable pipelines, encoder/VAE file patterns, starting settings. */
@@ -24,22 +29,26 @@ const modelCategories=['checkpoints','diffusion_models','unet'];
 type Lora={name:string;strength:number};
 const isLoras=(v:unknown):v is Lora[]=>Array.isArray(v)&&v.every(l=>l&&typeof l.name==='string'&&typeof l.strength==='number');
 const isNumber=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
+const isMaskGrow=(v:unknown):v is number=>isNumber(v)&&Number.isInteger(v)&&v>=0&&v<=512;
+const isMaskBlur=(v:unknown):v is number=>isMaskGrow(v)&&v<=31;
+const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 const randomSeed=()=>Math.floor(Math.random()*2**32);
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
-const dockTabs=['media','models','loras','options'] as const;
+const dockTabs=['media','models','loras','wildcards','post','options'] as const;
 /** Pipeline taxonomy. Only `t2i`/`i2i` have a verified native recipe today; the video ones stay listed but disabled until one exists. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
-/** Post edits of the shown image: presets of the image-to-image recipe (SwarmUI init image / refiner / refiner upscale). */
-const editModes=['resample','refine','upscale','inpaint'] as const;
-export interface WorkbenchProps { endpoint:string; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. */ roots?:MediaRoots&{models?:string} }
+/** Edits of the shown image: plain image-to-image (`resample`) or inpaint; refine/upscale live in the Post-Processing tab. */
+const editModes=['resample','inpaint'] as const;
+export interface WorkbenchProps { endpoint:string; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. */ roots?:MediaRoots&{models?:string}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number} }
 /** Text-to-image workbench: settings left, preview over the prompts, queue right, bottom dock with Media · Models · LoRAs tabs. */
-export function Workbench({endpoint,roots={}}:WorkbenchProps){
+export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const {t}=useI18n();const native=isTauri();const modelsDir=roots.models;const outputDir=roots.output;
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [outputRevision,setOutputRevision]=useState(0);
  const [dockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
+ const openWildcards=()=>{setDockTab('wildcards');document.querySelector<HTMLButtonElement>('[data-dock-tab="wildcards"]')?.focus();};
  const [dockHeight,setDockHeight]=usePref('studio.dock.height',220,isNumber);
  const [sortPref,setSort]=usePref('studio.dock.sort','date',oneOf('date','name','size'));
  const [query,setQuery]=useState('');
@@ -47,6 +56,9 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const [busy,setBusy]=useState(false);const [error,setError]=useState('');
  const [positive,setPositive]=usePref('studio.run.positive','',isString);
  const [negative,setNegative]=usePref('studio.run.negative','',isString);
+ const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
+ const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
+ useEffect(()=>{if(incoming){setPositive(incoming.positive);if(incoming.negative.trim())setNegative(incoming.negative);}},[incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
  const [checkpointPref,setCheckpoint]=usePref('studio.run.checkpoint','',isString);
  const [loras,setLoras]=usePref<Lora[]>('studio.run.loras',[],isLoras);
  const [width,setWidth]=usePref('studio.run.width',1024,isNumber);
@@ -76,14 +88,19 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
+ // Post-Processing (SwarmUI Refine / Upscale): opt-in second pass after every run, or applied alone to the shown image.
+ const [post,setPost]=usePref('studio.run.post',false,isBoolean);
  const [refineDenoise,setRefineDenoise]=usePref('studio.run.refineDenoise',0.25,isNumber);
- const [upscale,setUpscale]=usePref('studio.run.upscale',2,isNumber);
- const [upscaleDenoise,setUpscaleDenoise]=usePref('studio.run.upscaleDenoise',0.35,isNumber);
+ const [upscale,setUpscale]=usePref('studio.run.upscale',1,isNumber);
+ const [upscaleModelPref,setUpscaleModel]=usePref('studio.run.upscaleModel','',isString);
  const [inpaintDenoise,setInpaintDenoise]=usePref('studio.run.inpaintDenoise',0.8,isNumber);
+ const [inpaintOnlyMasked,setInpaintOnlyMasked]=usePref('studio.run.inpaintOnlyMasked',false,isBoolean);
+ const [maskGrow,setMaskGrow]=usePref('studio.run.maskGrow',8,isMaskGrow);
+ const [maskBlur,setMaskBlur]=usePref('studio.run.maskBlur',0,isMaskBlur);
  const [masked,setMasked]=useState(false);
  const editorRef=useRef<EditorHandle>(null);
  const sourceEpoch=useRef(0);
- const [strength,setStrength]=edit==='refine'?[refineDenoise,setRefineDenoise]:edit==='upscale'?[upscaleDenoise,setUpscaleDenoise]:edit==='inpaint'?[inpaintDenoise,setInpaintDenoise]:[denoise,setDenoise];
+ const [strength,setStrength]=edit==='inpaint'?[inpaintDenoise,setInpaintDenoise]:[denoise,setDenoise];
  // Source image of each edit job, for the original/edited split view.
  const [sources,setSources]=useState<Record<string,string>>({});const [slider,setSlider]=useState(false);const [divide,setDivide]=useState(50);
  const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');
@@ -147,7 +164,10 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
  // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
  const schedule=parseSigmas(optionsPref.sigmas??'')??family?.sigmas;
- const sigmas=schedule&&(pipeline==='i2i'?schedule.slice(-(Math.max(1,Math.round((schedule.length-1)*strength))+1)):schedule);
+ const tail=(d:number)=>schedule&&schedule.slice(-(Math.max(1,Math.round((schedule.length-1)*d))+1));
+ const sigmas=schedule&&(pipeline==='i2i'?tail(strength):schedule);
+ // Unread lists keep the remembered model; native preparation rejects one the backend no longer lists.
+ const upscaleModel=!choices||choices.upscaleModels?.includes(upscaleModelPref)?upscaleModelPref:'';
  const loraNames=loraModels.map(m=>m.name);
  const activeLoras=loras.filter(l=>loraNames.includes(l.name));
  const options=runOptions(optionsPref,choices);
@@ -156,11 +176,10 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
  const grid=family?.multiple??16;
  const canvas=canvasSize(aspect,resolution,{width:aspectWidth,height:aspectHeight},megapixels,{width,height},modelSize,mediaPipeline?source:undefined,grid);
- // Refine keeps the source size; Upscale scales both edges and snaps each to the model grid (lanczos ImageScale before encoding).
- const up=(n:number)=>Math.max(grid,Math.round(n*upscale/grid)*grid);
- const scaled=pipeline!=='i2i'||!source?null:edit==='upscale'?{size:{width:up(source.width),height:up(source.height)},resize:{width:up(source.width),height:up(source.height),crop:'disabled' as const}}:scaleInput(edit==='refine'||edit==='inpaint'?'off':inputScaling,source,canvas,grid);
- const preset=pipeline==='i2i'&&edit!=='resample';
+ // Post-processing scales both edges and snaps each to the model grid.
+ const up=(s:Size):Size=>({width:Math.max(grid,Math.round(s.width*upscale/grid)*grid),height:Math.max(grid,Math.round(s.height*upscale/grid)*grid)});
  const inpaint=pipeline==='i2i'&&edit==='inpaint';
+ const scaled=pipeline!=='i2i'||!source?null:scaleInput(inpaint?'off':inputScaling,source,canvas,grid);
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
  const outputSize=inpaint&&source?source:(scaled?.size??canvas);
  const sizeError=inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
@@ -172,21 +191,39 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const readMediaSize=(width:number,height:number)=>{if(media&&width>0&&height>0)setMediaSize({src:media.src,width,height});};
  const current=jobs.find(j=>j.state==='queued'||j.state==='running');
  const replace=(next:JobStatus)=>setJobs(list=>list.map(j=>j.id===next.id?next:j));
- async function run(){
+ /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
+ async function run(only?:{image:string;size:Size;src:string}){
   if(!native||lock.current||current)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
-  if(sizeError){setError(t(sizeError));return;}
-  if(inpaint&&!masked){setError(t('studio.run.edit.needsMask'));return;}
+  const editing=!only&&inpaint;
+  if(!only&&sizeError){setError(t(sizeError));return;}
+  if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
+  const target=up(only?only.size:outputSize);
+  if((post||only)&&!validCanvas(target)){setError(t('studio.run.resolution.invalid'));return;}
+  const naming=outputPrefix(optionsPref.outputNaming??defaultOutputNaming,{type:'image',seed,model:checkpoint});
+  if(naming===null){setError(t('studio.run.opt.outputNaming.invalid'));return;}
   const inputLayers=visibleImages(layers);
-  const intent:DiagnosticImageIntentV1=Object.freeze({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,cfg,sampler,scheduler,outputPrefix:'DEAS',...(sigmas?{sigmas}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})});
+  const refineSigmas=tail(refineDenoise);
+  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})} as const;
+  const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
+  const intent:DiagnosticImageIntentV1=Object.freeze(only
+   ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
+   :{...common,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,...(sigmas?{sigmas}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),
+    ...(post?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{})}}:{})});
+  const from=only?.src??(pipeline==='i2i'?media?.src:undefined);
   lock.current=true;setBusy(true);setError('');
   try{
-   const maskSnapshot=inpaint?editorRef.current?.maskPng():null;
-   if(inpaint&&!maskSnapshot)throw new Error(t('studio.run.edit.needsMask'));
+   // Capture geometry and PNG before any async upload; subsequent edits belong to the next job.
+   const bounds=editing&&inpaintOnlyMasked?editorRef.current?.maskBounds(maskGrow+maskBlur):null;
+   const target=bounds?canvasSize('auto','model',bounds,1,bounds,modelSize,bounds,grid):null;
+   if(target&&!validCanvas(target))throw new Error(t('studio.run.resolution.invalid'));
+   const inpaintCrop=bounds&&target?{...bounds,targetWidth:target.width,targetHeight:target.height}:null;
+   const maskSnapshot=editing?editorRef.current?.maskPng():null;
+   if(editing&&!maskSnapshot)throw new Error(t('studio.run.edit.needsMask'));
    const inputMask=maskSnapshot?await uploadMask(endpoint,await maskSnapshot):null;
-   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...intent,inputMask}):intent); // native: validates against the running backend's object_info
+   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...intent,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}):intent); // native: validates against the running backend's object_info
    const job=await submitDiagnosticJob(plan.id); // the Run click is the authorization
-   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(pipeline==='i2i'&&media)setSources(s=>({...s,[job.id]:media.src}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
+   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(from)setSources(s=>({...s,[job.id]:from}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
@@ -238,6 +275,10 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const fileSrc=(o:JobStatus['outputs'][number])=>outputDir?convertFileSrc([outputDir,o.subfolder,o.filename].filter(Boolean).join('/')):null;
  const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number,fixed?:string)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} disabled={!!fixed} title={fixed} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/></label>;
  const outputItem=(o:JobStatus['outputs'][number]):MediaItem=>({name:o.filename,media:'image',src:fileSrc(o)!,path:[outputDir,o.subfolder,o.filename].filter(Boolean).join('/')});
+ // Post-process takes the shown render (its submitted size), else the current edit source.
+ const shownOutput=shown?.state==='succeeded'&&outputDir&&shown.outputs[0]&&shown.intent?outputItem(shown.outputs[0]):null;
+ const postSource=shownOutput&&shown?.intent?{image:comfyName(shownOutput),size:shown.intent.refine??shown.intent,src:shownOutput.src}
+  :!shown&&inputImage&&source&&media?{image:inputImage,size:source,src:media.src}:null;
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
  const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
@@ -252,6 +293,8 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const base=(n:string)=>(n.split('/').pop()??n).replace(/\.(safetensors|sft|ckpt|pt|gguf)$/i,'').toLowerCase();
  const applySettings=(s:GenerationSettings):string[]=>{
   const skipped=[...(s.skipped??[])];
+  setWildcardEnabled(!!s.wildcard&&isWildcardRules(s.wildcard));
+  if(s.wildcard&&isWildcardRules(s.wildcard))setWildcard(structuredClone(s.wildcard));
   if(s.positive!==undefined)setPositive(s.positive);if(s.negative!==undefined)setNegative(s.negative);
   if(s.seed!==undefined&&isSeed(s.seed))fixedSeed(s.seed);if(s.steps!==undefined)setSteps(s.steps);if(s.cfg!==undefined)setCfg(s.cfg);
   // Backend lists are checked when already read; otherwise native preparation rejects an unknown name later.
@@ -273,14 +316,19 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
      <div className="wb-pipelines" role="group" aria-label={t('studio.run.pipeline')}>{pipelines.map(id=>{const reason=why(id);return <button key={id} type="button" data-pipeline={id} aria-pressed={pipeline===id} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>setPipeline(id)}>{t(`studio.run.pipe.${id}`)}</button>;})}</div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{inputImage}</strong></p>}
      <div className="wb-controls">
-      {preset?<>{edit==='upscale'&&num('upscale',upscale,setUpscale,1,4,0.25)}
-       {inpaint&&!masked&&<p className="wb-resolution-hint">{t('studio.run.edit.needsMask')}</p>}{num('denoise',strength,setStrength,0,1,0.05)}<p className="wb-resolution-hint">{t('studio.run.edit.size',inpaint&&source?{width:String(source.width),height:String(source.height)}:{width:String(outputSize.width),height:String(outputSize.height)})}</p></>:<>
+      {inpaint?<>{!masked&&<p className="wb-resolution-hint">{t('studio.run.edit.needsMask')}</p>}{num('denoise',strength,setStrength,0,1,0.05)}<p className="wb-resolution-hint">{t('studio.run.edit.size',{width:String(outputSize.width),height:String(outputSize.height)})}</p></>:<>
       <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><span className="wb-aspect-picker"><span className="wb-aspect-swatch" aria-hidden="true"><span style={{width:18*Math.min(1,swatchRatio),height:18*Math.min(1,1/swatchRatio)}}/></span><select value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='auto'||mediaPipeline).map(a=><option key={a} value={a}>{a==='auto'||a==='custom'?t(`studio.run.resolution.${a}`):a}</option>)}</select></span></label>
       <label className="wb-field"><span>{t('studio.run.resolution.title')}</span><select value={resolution} onChange={e=>setResolution(e.target.value)}>{['fixed','model',...Object.keys(resolutions),'custom'].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
       {aspect==='custom'&&<>{num('resolution.aspectWidth',aspectWidth,setAspectWidth,1,100,0.1)}{num('resolution.aspectHeight',aspectHeight,setAspectHeight,1,100,0.1)}</>}
       {resolution==='custom'&&num('resolution.megapixels',megapixels,setMegapixels,0.01,16,0.05)}
       {num('width',canvas.width,n=>{setWidth(n);setHeight(canvas.height);setResolution('fixed');},64,8192,8)}{num('height',canvas.height,n=>{setHeight(n);setWidth(canvas.width);setResolution('fixed');},64,8192,8)}</>}
-      {pipeline==='i2i'&&!preset&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
+      {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
+      {inpaint&&<>
+       <label className="wb-field wb-wide" title={t('studio.run.maskGrowHelp')}><span><input type="checkbox" style={{width:'auto'}} checked={inpaintOnlyMasked} onChange={e=>setInpaintOnlyMasked(e.target.checked)}/>{t('studio.run.inpaintOnlyMasked')}</span></label>
+       {inpaintOnlyMasked&&num('maskGrow',maskGrow,n=>{if(isMaskGrow(n))setMaskGrow(n);},0,512,1)}
+       {num('maskBlur',maskBlur,n=>{if(isMaskBlur(n))setMaskBlur(n);},0,31,1)}
+       <p className="wb-resolution-hint">{t('studio.run.maskBlurHelp')}</p>
+      </>}
       {sizeError&&<p className="wb-resolution-hint error-message" role="status">{t(sizeError)}</p>}
       {num('steps',sigmas?sigmas.length-1:steps,setSteps,1,150,1,sigmas&&t('studio.run.customSchedule.hint'))}{num('cfg',cfg,setCfg,0,30,0.5)}
       {pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices)}
@@ -316,9 +364,10 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
      :!media?<p className="empty-note">{t('studio.run.empty')}</p>:null}
     </section>
     <div className="wb-prompts">
-     <label className="wb-prompt"><span>{t('studio.run.positive')}</span><textarea data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/></label>
+     <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards}/></div>
      <label className="wb-prompt wb-negative"><span>{t('studio.run.negative')}</span><textarea data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/></label>
     </div>
+    {wildcardEnabled&&<div className="wildcard-prompt-status"><button type="button" className="wildcard-badge" title={t('wildcards.baseNotice')} onClick={()=>setDockTab('wildcards')}>{t(wildcard.auto_reroll?'wildcards.activeAuto':'wildcards.active')}</button><button type="button" className="wildcard-badge" onClick={()=>setWildcardEnabled(false)}>{t('wildcards.disable')}</button></div>}
    </div>
    <GenerationMetadata job={shown} media={shown?null:media} onApply={applySettings}/>
    <section className="wb-queue" aria-label={t('studio.run.queue')}>
@@ -327,15 +376,23 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
      {outputDir&&j.state==='succeeded'&&j.outputs[0]?<img src={fileSrc(j.outputs[0])!} alt=""/>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button></li>)}</ul>}
     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||busy||!!current||!!sizeError||(inpaint&&!masked)} onClick={()=>void run()}>{t(current?'studio.run.running':busy?'studio.run.preparing':'studio.run.run')}</button>
+    <button type="button" className="wb-run-post" data-run-post disabled={!native||busy||!!current||!postSource?.image} title={t('studio.run.post.runHint')} onClick={()=>{if(postSource)void run(postSource);}}>{t('studio.run.post.run')}</button>
    </section>
   </div>
   <div className="wb-dock" style={{height:dockHeight}}>
    <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} onPointerDown={dragDock}/>
-   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
-    {dockTab!=='options'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
+   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
+    {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
     <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select></>}
     {(dockTab==='models'||dockTab==='loras')&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
    {dockTab==='media'&&<MediaLibrary selected={media} onSelect={pickMedia} roots={roots} outputRevision={outputRevision} filter={query} sort={sort}/>}
+   {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
+   {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
+    <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+    <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
+    <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
+    <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+   </div></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}

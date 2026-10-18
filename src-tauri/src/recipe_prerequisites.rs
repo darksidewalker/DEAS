@@ -13,15 +13,24 @@ const REQUIRED_NODES: [&str; 6] = [
 ];
 /// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
 /// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 12] = [
+const OPTIONAL_NODES: [&str; 20] = [
+    crate::wildcard::NODE,
     "ImageScale",
     "ImagePadForOutpaint",
+    "ImageCrop",
+    "CropMask",
+    "MaskToImage",
+    "ImageToMask",
+    "ImageBlur",
     // Inpaint mask and image layers.
     "LoadImageMask",
     "SetLatentNoiseMask",
     "ImageCompositeMasked",
     "LoadImage",
     "VAEEncode",
+    // Model upscale (image-to-image source and refine pass).
+    "UpscaleModelLoader",
+    "ImageUpscaleWithModel",
     "UNETLoader",
     "CLIPLoader",
     "VAELoader",
@@ -104,9 +113,9 @@ fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> 
         .collect()
 }
 
-/// Option combo in either object_info form (v1 `[[...], {}]`, v3 `["COMBO", {"options": [...]}]`).
-/// Values outside the option grammar are dropped: an odd custom-node choice must not block generation.
-fn options(nodes: &Value, node: &str, field: &str) -> Vec<String> {
+/// Combo in either object_info form (v1 `[[...], {}]`, v3 `["COMBO", {"options": [...]}]`).
+/// Values `keep` rejects are dropped: an odd custom-node choice must not block generation.
+fn options(nodes: &Value, node: &str, field: &str, keep: fn(&str) -> bool) -> Vec<String> {
     let schema = &nodes[node]["input"]["required"][field];
     let list = if schema[0] == "COMBO" {
         &schema[1]["options"]
@@ -117,9 +126,13 @@ fn options(nodes: &Value, node: &str, field: &str) -> Vec<String> {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|s| crate::jobs::safe_option(s) && *s != "disabled")
+        .filter(|s| keep(s))
         .map(str::to_owned)
         .collect()
+}
+
+fn option(s: &str) -> bool {
+    crate::jobs::safe_option(s) && s != "disabled"
 }
 
 fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
@@ -142,9 +155,11 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "textEncoders":combo(nodes, "CLIPLoader", "clip_name")?,
             "clipTypes":combo(nodes, "CLIPLoader", "type")?,
             "vaes":combo(nodes, "VAELoader", "vae_name")?,
-            "attention":options(nodes, "ModelAttentionBackend", "attention"),
-            "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention"),
-            "compile":options(nodes, "TorchCompileModel", "backend")
+            "attention":options(nodes, "ModelAttentionBackend", "attention", option),
+            "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
+            "compile":options(nodes, "TorchCompileModel", "backend", option),
+            // Core v3 node: its file combo uses the v3 form.
+            "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::model_name)
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -549,7 +564,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[]
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[], "upscaleModels":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

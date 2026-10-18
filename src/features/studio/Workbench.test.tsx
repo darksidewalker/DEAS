@@ -19,6 +19,63 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+test('wildcard dock and hammer keep base text, snapshot active rules per run and allow disabling without clearing',async()=>{
+ localStorage.setItem('deas.pref.studio.run.wildcard',JSON.stringify({style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:true,selection_state:{'Art/Light/wildcards':{enabled:true,weight:1.2}}}));
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_wildcard_library'?JSON.stringify({categories:{Art:[{subject:'Light',booru_wildcards:['{red|blue} light']}]}}):{entries:[],truncated:false});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'m.safetensors',path:'/m/checkpoints/m.safetensors',size:1,info:null}]);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'wild-plan',baseUrl,intent,graph:{},generationReady:false}));
+ let submits=0;
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`wild-job-${++submits}`,baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.calls.at(-1)![1]}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'manual base'}});
+ fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+ fireEvent.click(screen.getByRole('button',{name:'Presets & Wildcards'}));
+ expect(document.activeElement).toBe(screen.getByRole('tab',{name:'Presets & Wildcards'}));
+ await screen.findByText('Art');
+ fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ expect(first.positivePrompt).toBe('manual base');expect(first.wildcard?.auto_reroll).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'New picks'}));
+ expect(first.wildcard?.reroll).toBe(3);
+ fireEvent.change(screen.getByRole('spinbutton',{name:'Wildcard seed'}),{target:{value:'9'}});
+ fireEvent.click(screen.getByRole('button',{name:'Use these settings'}));
+ expect((screen.getByRole('spinbutton',{name:'Wildcard seed'}) as HTMLInputElement).value).toBe('7');
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Disable wildcards'}));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1].wildcard).toBeUndefined();
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('manual base');
+ fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
+ fireEvent.click(screen.getByRole('button',{name:'Use these settings'}));
+ expect((screen.getByRole('checkbox',{name:'Active for generation'}) as HTMLInputElement).checked).toBe(false);
+});
+test('Options naming persists and resolves the submitted seed/model, rejecting unsafe templates before preparation',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'folder/My Model.safetensors',path:'/m/checkpoints/folder/My Model.safetensors',size:1,info:null}]);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'naming-plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'naming-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ dock('Options');
+ const field=screen.getByRole('textbox',{name:'Output naming'}) as HTMLInputElement;
+ expect(field.value).toBe('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%');
+ fireEvent.change(screen.getByRole('spinbutton',{name:'Seed'}),{target:{value:'42'}});
+ fireEvent.change(field,{target:{value:'custom/%type%/%seed%-%model%'}});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].outputPrefix).toBe('custom/image/42-My_Model');
+ fireEvent.change(field,{target:{value:'../%seed%'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+ expect(field.getAttribute('aria-invalid')).toBe('true');
+ view.unmount();
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ dock('Options');expect((screen.getByRole('textbox',{name:'Output naming'}) as HTMLInputElement).value).toBe('../%seed%');
+});
 test('seed controls restore submitted seeds, preserve mode on New and wrap exact integer steps',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
@@ -100,7 +157,7 @@ test('IPC fixture: Load models → pick LoRA → Run prepares and submits one in
  await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledWith('plan'));
  const [baseUrl,intent]=vi.mocked(prepareDiagnosticJob).mock.calls[0];
  expect(baseUrl).toBe('http://127.0.0.1:7801');
- expect(intent).toMatchObject({positivePrompt:'a quiet forest',checkpoint:'b.safetensors',width:768,height:1024,loras:[{name:'style.safetensors',strength:0.7}],outputPrefix:'DEAS'});
+ expect(intent).toMatchObject({positivePrompt:'a quiet forest',checkpoint:'b.safetensors',width:768,height:1024,loras:[{name:'style.safetensors',strength:0.7}],outputPrefix:expect.stringMatching(new RegExp(`^image/\\d{4}_\\d{2}_\\d{2}/\\d{2}-\\d{2}-\\d{2}-${intent.seed}-b$`))});
  expect(Object.isFrozen(intent)).toBe(true);
  expect(screen.getByRole('button',{name:/Queued/})).toBeTruthy();
  await waitFor(()=>expect((screen.getByRole('img',{name:'DEAS_0001.png'}) as HTMLImageElement).src).toBe('asset://localhost//env/ComfyUI/output/DEAS_0001.png'),{timeout:3000});
@@ -141,22 +198,26 @@ test('IPC fixture: pipelines are gated — Image→Image needs an Input-folder i
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
 });
 
-test('IPC fixture: floating Upscale on an Output image submits a grid-snapped [output] image-to-image job and splits original | edited',async()=>{
+test('IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-up',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false} as JobStatus);
+ let n=0;
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`job-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:`DEAS_000${n}.png`,subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(await screen.findByRole('button',{name:'out.png'}));
  const img=screen.getByRole('img',{name:'out.png'});
  Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
- await waitFor(()=>expect(screen.getByRole('button',{name:'Upscale'}).hasAttribute('disabled')).toBe(false));
- fireEvent.click(screen.getByRole('button',{name:'Upscale'}));
- expect(screen.getByRole('button',{name:'Image → Image',pressed:true})).toBeTruthy();
- expect(screen.getByText('Output 1984×1216')).toBeTruthy(); // 2000×1200 snapped per edge to the SDXL 64 grid
- fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'out.png [output]',denoise:0.35,width:1984,height:1216,inputResize:{width:1984,height:1216,crop:'disabled'}});
+ expect(screen.queryByRole('button',{name:'Refine'})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Upscale'})).toBeNull();
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.change(screen.getByLabelText('Upscale factor'),{target:{value:'2'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Post-process'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ expect(first).toMatchObject({inputImage:'out.png [output]',denoise:0.25,width:1984,height:1216,inputResize:{width:1984,height:1216,crop:'disabled'}}); // 2000×1200 snapped per edge to the SDXL 64 grid
+ expect(first.refine).toBeUndefined();expect(first.upscaleModel).toBeUndefined();
  // Default: side by side, the still-mounted editor on the source left, the render right.
  expect(await screen.findByRole('img',{name:'DEAS_0001.png'})).toBeTruthy();
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
@@ -167,9 +228,21 @@ test('IPC fixture: floating Upscale on an Output image submits a grid-snapped [o
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Slider',pressed:true}));
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
+ // Instant again on the shown render: its submitted size is the source.
+ fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({inputImage:'DEAS_0001.png [output]',width:3968,height:2432});
+ // Opt-in: every Run gets the refine pass at the upscaled grid size.
+ fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
+ expect(screen.getByRole('tab',{name:/Post-Processing/}).textContent).toContain('✓');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3));
+ const third=vi.mocked(prepareDiagnosticJob).mock.calls[2][1];
+ expect(third.refine).toEqual({width:2048,height:2048,denoise:0.25});
+ expect(third.inputImage).toBeUndefined();
 });
 
-test('IPC fixture: Inpaint preserves mask and inserted layers on same-source reselection and submits the unresized draft',async()=>{
+test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits crop/blur only when enabled (%s)',async(cropped)=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('out.png'),entry('cat.png')],truncated:false}));
@@ -186,7 +259,10 @@ test('IPC fixture: Inpaint preserves mask and inserted layers on same-source res
  const img=screen.getByRole('img',{name:'out.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Inpaint'}).hasAttribute('disabled')).toBe(false));
+ expect(screen.queryByRole('checkbox',{name:'Inpaint only masked'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
+ expect((screen.getByRole('spinbutton',{name:'Mask Blur (px)'}) as HTMLInputElement).value).toBe('0');
+ if(cropped){fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Shrink Grow (px)'}),{target:{value:'32'}});fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});}
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true); // nothing painted yet
  const mask=screen.getByLabelText('Inpaint mask',{selector:'canvas'}) as HTMLCanvasElement;
  const viewport=document.querySelector<HTMLElement>('[data-editor-viewport]')!;
@@ -195,7 +271,7 @@ test('IPC fixture: Inpaint preserves mask and inserted layers on same-source res
  fireEvent(viewport,new MouseEvent('pointerdown',{clientX:256,clientY:160,buttons:1,bubbles:true}));
  fireEvent(viewport,new MouseEvent('pointerup',{clientX:256,clientY:160,bubbles:true}));
  expect(ctx.arc).toHaveBeenCalledWith(512,320,24,0,Math.PI*2);
- fireEvent.click(screen.getByRole('button',{name:'Refine'}));
+ fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'Insert'}));
@@ -217,6 +293,8 @@ test('IPC fixture: Inpaint preserves mask and inserted layers on same-source res
  const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
  expect(intent).toMatchObject({inputImage:'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8,width:1024,height:640});
  expect(intent.inputResize).toBeUndefined();
+ if(cropped){expect(intent.maskBlur).toBe(8);expect(intent.inpaintCrop).toEqual({x:0,y:0,width:41,height:41,targetWidth:1024,targetHeight:1024});}
+ else{expect(intent.maskBlur).toBeUndefined();expect(intent.inpaintCrop).toBeUndefined();}
  expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:350,y:235,width:341,height:171}]);
  // The edit job opens side by side: the same editor stays live on the left, no return needed.
  expect(screen.queryByRole('button',{name:'Return to edit draft'})).toBeNull();

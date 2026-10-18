@@ -88,6 +88,8 @@ pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
         for folder in MODEL_FOLDERS {
             yaml.push_str(&format!("  {folder}: {folder}\n"));
         }
+        // The node pack's Prompt Forge reads `llm`; not in MODEL_FOLDERS so model scans skip LLM weights.
+        yaml.push_str("  llm: llm\n");
         let file = root.join("deas-models.yaml");
         std::fs::write(&file, yaml).map_err(|e| e.to_string())?;
         args.extend([
@@ -177,6 +179,7 @@ mod tests {
             serde_json::to_string(models.path().to_str().unwrap()).unwrap()
         )));
         assert!(yaml.contains("  loras: loras\n"));
+        assert!(yaml.contains("  llm: llm\n"));
         let present = native_files_present(vec![
             args[3].clone(),
             root.path().join("nope").to_str().unwrap().into(),

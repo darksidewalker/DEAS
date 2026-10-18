@@ -7,8 +7,26 @@ mod linux_startup;
 fn main() {
     #[cfg(target_os = "linux")]
     linux_startup::configure();
+    #[cfg(target_os = "linux")]
+    linux_startup::provide_gstreamer_plugins();
 
     tauri::Builder::default()
+        .setup(|app| {
+            let config = app.config().app.windows[0].clone();
+            let mut bridge = String::new();
+            #[cfg(debug_assertions)]
+            if let Some(url) = &app.config().build.dev_url {
+                bridge.push_str(&format!(
+                    "const DEAS_DEV_ORIGIN = {};\n",
+                    serde_json::to_string(&url.origin().ascii_serialization())?
+                ));
+            }
+            bridge.push_str(include_str!("comfy_bridge.js"));
+            tauri::WebviewWindowBuilder::from_config(app, &config)?
+                .initialization_script_for_all_frames(bridge)
+                .build()?;
+            Ok(())
+        })
         .manage(deas::install::Engine::default())
         .manage(deas::FolderOperations::default())
         .manage(deas::jobs::Jobs::default())
@@ -59,6 +77,8 @@ fn main() {
             deas::native_llm_write,
             deas::native_llm_generate,
             deas::native_llm_models,
+            deas::native_forge,
+            deas::native_wildcard_library,
             deas::native_files_present,
             deas::native_detect_hardware,
             deas::native_install_defaults,

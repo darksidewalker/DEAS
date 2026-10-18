@@ -261,13 +261,22 @@ fn running_child_losing_owned_listener_is_failed_not_adopted() {
 }
 #[test]
 fn invalid_owned_api_never_marks_running() {
-    let (_tmp, approved) = fixture(&SERVER.replace("{'FixtureNode':{}}", "[]"));
+    let script = SERVER.replace("{'FixtureNode':{}}", "[]").replace(
+        "  with open('requests.log','a')",
+        "  if self.path == '/object_info' and os.path.exists('requests.log'): time.sleep(60)\n  with open('requests.log','a')",
+    );
+    let (_tmp, approved) = fixture(&script);
     let lifecycle = Lifecycle::default();
-    lifecycle
-        .launch(approved, Duration::from_millis(350))
-        .unwrap();
+    // Preserve the malformed-API diagnostic even if a later probe stalls at the deadline.
+    lifecycle.launch(approved, Duration::from_secs(2)).unwrap();
     let status = await_state(&lifecycle, "failed");
-    assert!(status.error.unwrap().contains("object_info"));
+    assert!(
+        status
+            .error
+            .as_ref()
+            .is_some_and(|e| e.contains("object_info")),
+        "{status:?}"
+    );
     assert!(status.endpoint.is_none());
     assert!(!status.generation_ready);
 }

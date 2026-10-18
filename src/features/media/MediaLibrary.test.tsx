@@ -67,15 +67,18 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  });
  it('starts in the environment output folder newest-first and offers input/output chips',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
-  const out={path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[entry('old.png','file','image',false,10),entry('new.png','file','image',false,20)],truncated:false};
+  const out={path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[entry('old.png','file','image',false,10),entry('new.png','file','image',false,20),entry('clip.webp','file','image',false,5)],truncated:false};
   vi.mocked(invoke).mockImplementation(async(c,args)=>{const path=(args as {path:string}).path;if(c==='native_media_thumbnail'){if(path.endsWith('new.png'))return '/cache/thumbs/abc.png';throw new Error('No thumbnail for this file');}return path==='/env/ComfyUI/output'?out:home;});
   render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
   await screen.findByRole('button',{name:'output',current:'location'});
   expect(lists()).toEqual([{path:'/env/ComfyUI/output',depth:3}]);
-  expect(screen.getAllByRole('button',{name:/\.png$/}).map(b=>b.textContent)).toEqual(['new.png','old.png']);
+  expect(screen.getAllByRole('button',{name:/\.(png|webp)$/}).map(b=>b.textContent)).toEqual(['new.png','old.png','clip.webp']);
   // Tiles show the native cached thumbnail; without one the original file is the fallback.
   await waitFor(()=>expect(screen.getByRole('button',{name:'new.png'}).querySelector('img')?.getAttribute('src')).toBe('asset://localhost//cache/thumbs/abc.png'));
   await waitFor(()=>expect(screen.getByRole('button',{name:'old.png'}).querySelector('img')?.getAttribute('src')).toBe('asset://localhost//home/u/old.png'));
+  // A possibly animated original is painted once as a still frame, never shown as a live <img>.
+  await waitFor(()=>expect(screen.getByRole('button',{name:'clip.webp'}).querySelector('canvas[data-still]')).toBeTruthy());
+  expect(screen.getByRole('button',{name:'clip.webp'}).querySelector('img')).toBeNull();
   expect(screen.getByRole('button',{name:'Output'}).getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(screen.getByRole('button',{name:'Input'}));
   expect(lists().at(-1)).toEqual({path:'/env/ComfyUI/input',depth:3});

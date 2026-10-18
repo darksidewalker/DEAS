@@ -1,0 +1,26 @@
+// Tauri injects this in subframes too; never give the editor native IPC access.
+(() => {
+ if(window.parent===window||location.protocol!=='http:'||location.hostname!=='127.0.0.1')return;
+ const allowed=new Set(['tauri://localhost','http://tauri.localhost','https://tauri.localhost']);
+ // Development origin is supplied only by debug builds.
+ if(typeof DEAS_DEV_ORIGIN!=='undefined')allowed.add(DEAS_DEV_ORIGIN);
+ let loading=false;
+ window.addEventListener('message',async event=>{
+  const data=event.data;
+  if(event.source!==window.parent||!allowed.has(event.origin)||!data||typeof data.id!=='string'||!['deas:probe','deas:load'].includes(data.type))return;
+  const reply=type=>event.source.postMessage({type,id:data.id},event.origin);
+  try{
+   const {app}=await import(new URL('/scripts/app.js',location.origin).href);
+   if(!app?.canvas)return;
+   if(data.type==='deas:probe'){reply('deas:ready');return;}
+   const w=data.workflow;
+   if(loading||!w||!Array.isArray(w.nodes)||!Array.isArray(w.links)||!w.nodes.every(n=>n&&typeof n.type==='string'&&['string','number'].includes(typeof n.id))||JSON.stringify(w).length>2*1024*1024||typeof data.name!=='string')throw Error('Invalid workflow');
+   loading=true;
+   try{
+    // A named import opens a separate workflow, preserving the current editor draft.
+    const loaded=await app.loadGraphData(w,true,true,`DEAS ${data.name} (${data.id})`);
+    reply(loaded===false?'deas:error':'deas:loaded');
+   }finally{loading=false;}
+  }catch{reply('deas:error');}
+ });
+})();

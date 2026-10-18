@@ -1,6 +1,7 @@
 """Comfy tab browser acceptance: mocked DEAS IPC, optional read-only real ComfyUI frontend."""
 import argparse
 import json
+import re
 from itertools import product
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -9,6 +10,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('url', nargs='?', default='http://127.0.0.1:4287')
 parser.add_argument('--comfy-url', help='Already running loopback ComfyUI; never starts or submits jobs')
 parser.add_argument('--screenshot', type=Path)
+parser.add_argument('--workflow', action='store_true', help='Test metadata import with the native bridge injected by Playwright (no generation)')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 endpoint = args.comfy_url or 'http://127.0.0.1:49312'
@@ -19,7 +21,7 @@ if(window.top!==window.self)return;
 localStorage.setItem('deas.locale.v1',LOCALE);
 localStorage.setItem('deas.pref.install.root',JSON.stringify('/fixture/env'));
 window.isTauri=true;window.__CALLS__=[];window.__BACKENDSTATE__='starting';
-window.__TAURI_INTERNALS__={invoke:async(c,a)=>{
+window.__TAURI_INTERNALS__={convertFileSrc:p=>'asset://localhost/'+encodeURIComponent(p),invoke:async(c,a)=>{
  window.__CALLS__.push(c);
  if(c==='native_files_present')return [true];
  if(c==='native_install_plan')return {id:'reopen',reopenId:'checked',request:{storagePath:'/fixture/env',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
@@ -35,6 +37,9 @@ window.__TAURI_INTERNALS__={invoke:async(c,a)=>{
 }};
 })();
 """
+workflow = {'last_node_id': 1, 'last_link_id': 0, 'nodes': [{'id': 1, 'type': 'CLIPTextEncode', 'pos': [100, 100], 'size': [400, 200], 'flags': {}, 'order': 0, 'mode': 0, 'inputs': [{'name': 'clip', 'type': 'CLIP', 'link': None}], 'outputs': [{'name': 'CONDITIONING', 'type': 'CONDITIONING', 'links': None}], 'properties': {}, 'widgets_values': ['DEAS workflow handoff verified']}], 'links': [], 'groups': [], 'config': {}, 'extra': {}, 'version': 0.4}
+if args.workflow:
+    fixture = fixture.replace("if(c==='native_media_list')return {path:'/fixture',parent:null,entries:[],truncated:false};", "if(c==='native_media_list')return {path:'/fixture',parent:null,entries:[{path:'/fixture/workflow.png',name:'workflow.png',kind:'file',media:'image',size:1,modified:1,symlink:false}],truncated:false};if(c==='native_media_metadata')return [['workflow'," + json.dumps(json.dumps(workflow)) + "]];if(c==='native_media_thumbnail')return '/fixture/workflow.png';")
 results = []
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
@@ -49,6 +54,8 @@ with sync_playwright() as p:
         console_errors = []
         page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: errors.append(str(e)))
+        if args.workflow:
+            page.add_init_script('const DEAS_DEV_ORIGIN = '+json.dumps(args.url)+';\n'+(root/'src-tauri/src/comfy_bridge.js').read_text())
         page.add_init_script(fixture.replace('LOCALE', json.dumps(locale)).replace('ENDPOINT', json.dumps(endpoint)))
         def serve_app(route):
             response = route.fetch()
@@ -79,6 +86,33 @@ with sync_playwright() as p:
             print({'errors': errors, 'console': console_errors, 'requests': requests[-30:], 'frames': [f.url for f in page.frames], 'frameText': editor.locator('body').inner_text()[:4000]})
             raise
         page.locator('.comfy-loading').wait_for(state='hidden')
+        if args.workflow:
+            assert args.comfy_url, '--workflow requires a real ComfyUI frontend'
+            frame_obj = page.locator('.comfy-view iframe').element_handle().content_frame()
+            frame_obj.evaluate("async()=>{const {app}=await import('/scripts/app.js');await app.loadGraphData({nodes:[],links:[],version:0.4},true,true,'DEAS previous draft')}")
+            page.locator('[data-node="studio"]').click()
+            page.locator('[data-dock-tab="media"]').click()
+            page.locator('.media-list button[title="workflow.png"]').click()
+            meta = json.loads((root/'src/features/studio/locales'/f'{locale}.json').read_text())
+            page.get_by_role('button',name=meta['studio.run.metadata.workflow'],exact=True).click()
+            page.wait_for_function("()=>document.querySelector('[data-node=comfy]').getAttribute('aria-selected')==='true'")
+            frame_obj.wait_for_function("async()=>{const {app}=await import('/scripts/app.js');return app.graph._nodes.some(n=>n.widgets?.some(w=>w.value==='DEAS workflow handoff verified'))}",timeout=30000)
+            # Reimport the same file after editing: the first imported draft must survive too.
+            first_name = editor.get_by_text(re.compile(r'^DEAS workflow\.png \(')).first.inner_text()
+            frame_obj.evaluate("async()=>{const {app}=await import('/scripts/app.js');app.graph._nodes[0].widgets[0].value='DEAS edited import retained';app.graph.change()}")
+            page.locator('[data-node="studio"]').click()
+            page.get_by_role('button',name=meta['studio.run.metadata.workflow'],exact=True).click()
+            frame_obj.wait_for_function("async()=>{const {app}=await import('/scripts/app.js');return app.graph._nodes.some(n=>n.widgets?.some(w=>w.value==='DEAS workflow handoff verified'))}",timeout=30000)
+            editor.get_by_text(first_name,exact=True).first.click()
+            assert frame_obj.evaluate("async()=>{const {app}=await import('/scripts/app.js');return app.graph._nodes[0].widgets[0].value}") == 'DEAS edited import retained'
+            # A distinct tab preserves the previous unsaved graph, rather than replacing it.
+            assert 'DEAS previous draft' in editor.locator('body').inner_text()
+            editor.get_by_text('DEAS previous draft',exact=True).first.click()
+            assert frame_obj.evaluate("async()=>{const {app}=await import('/scripts/app.js');return app.graph._nodes.length}") == 0
+            page.locator('[data-node="studio"]').click()
+            page.get_by_role('button',name=meta['studio.run.metadata.workflow'],exact=True).wait_for(state='visible')
+            assert not page.get_by_role('alert').count()
+            page.locator('[data-node="comfy"]').click()
         assert not page.locator('.aio-setup-header').is_visible()
         assert not page.locator('.studio-workspace').is_visible()
         assert page.locator('.footer').is_visible()

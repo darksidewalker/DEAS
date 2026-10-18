@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { GenerationMetadata } from './GenerationMetadata';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import type { JobStatus } from '../../lib/jobs';
+import { OpenComfyWorkflow } from '../../lib/comfyWorkflow';
 import { readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:()=>true}));
 vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn()}));
@@ -41,6 +42,26 @@ test('an explicit apply button hands reusable settings back and reports what was
  vi.mocked(readImageMetadata).mockResolvedValueOnce([['Description','plain']]);
  rerender(<I18nProvider><GenerationMetadata job={null} media={media('b.png')} onApply={onApply}/></I18nProvider>);
  expect(await screen.findByText('plain')).toBeTruthy();expect(screen.queryByRole('button',{name:'Use these settings'})).toBeNull();
+});
+
+test('offers editor workflows only, disables without the owned backend, and reports import failures',async()=>{
+ localStorage.setItem('deas.locale.v1','en');
+ const workflow={nodes:[{id:1,type:'CLIPTextEncode'}],links:[],version:0.4};
+ const media={name:'clip.mp4',path:'/images/clip.mp4',src:'asset:///clip.mp4',media:'video' as const};
+ vi.mocked(readImageMetadata).mockResolvedValue([['workflow',JSON.stringify(workflow)]]);
+ const onOpen=vi.fn().mockResolvedValue(undefined);
+ const {rerender}=render(<I18nProvider><GenerationMetadata job={null} media={media}/></I18nProvider>);
+ expect((await screen.findByRole('button',{name:'Open in Comfy'}) as HTMLButtonElement).disabled).toBe(true);
+ rerender(<I18nProvider><OpenComfyWorkflow.Provider value={onOpen}><GenerationMetadata job={null} media={media}/></OpenComfyWorkflow.Provider></I18nProvider>);
+ const openButton=await screen.findByRole('button',{name:'Open in Comfy'});
+ await act(async()=>openButton.click());
+ expect(onOpen).toHaveBeenCalledWith(workflow,'clip.mp4');
+ onOpen.mockRejectedValueOnce(new Error('unsupported'));
+ await act(async()=>openButton.click());
+ expect(await screen.findByRole('alert')).toBeTruthy();
+ vi.mocked(readImageMetadata).mockResolvedValueOnce([['workflow','{}']]);
+ rerender(<I18nProvider><GenerationMetadata job={null} media={{...media,src:'asset:///bad.mp4',path:'/images/bad.mp4'}}/></I18nProvider>);
+ await screen.findByText('{}');expect(screen.queryByRole('button',{name:'Open in Comfy'})).toBeNull();
 });
 
 test('reads selected local images, clears stale values, ignores late replies and reports empty/error states',async()=>{

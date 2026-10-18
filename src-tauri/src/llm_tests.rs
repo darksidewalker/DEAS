@@ -746,3 +746,90 @@ async fn generation_exact_selection_no_fallback_and_local_is_independent() {
         assert_eq!(calls[1].1["model"], "fixture-model");
     }
 }
+
+#[tokio::test]
+async fn forge_bounds_declared_and_chunked_responses_before_buffering() {
+    let root = tempfile::tempdir().unwrap();
+    let (url, server) = http_fixture(200, br#"{"models":[]}"#.to_vec(), "");
+    assert_eq!(
+        native_forge(
+            url,
+            root.path().to_string_lossy().into(),
+            "models".into(),
+            json!({})
+        )
+        .await
+        .unwrap(),
+        json!({"models":[]})
+    );
+    server.join().unwrap();
+    for declared in [true, false] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0; 4096];
+            let _ = stream.read(&mut buf).await;
+            if declared {
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                            4 * MAX_RESPONSE + 1
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            } else {
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+                    .await
+                    .unwrap();
+                for _ in 0..=4 * MAX_RESPONSE / 4096 {
+                    if stream.write_all(b"1000\r\n").await.is_err()
+                        || stream.write_all(&[b'x'; 4096]).await.is_err()
+                        || stream.write_all(b"\r\n").await.is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+            // Never finish the body: a post-buffer limit would wait for EOF.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        });
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            native_forge(
+                url,
+                root.path().to_string_lossy().into(),
+                "models".into(),
+                json!({}),
+            ),
+        )
+        .await;
+        task.abort();
+        assert_eq!(
+            result
+                .expect("Forge waited for an oversized body to finish")
+                .unwrap_err(),
+            "Prompt Forge response too large"
+        );
+    }
+}
+
+#[test]
+fn forge_forwards_only_node_pack_routes_with_the_saved_endpoint() {
+    assert_eq!(forge_route("write").unwrap(), "dasiwa/llm/write");
+    assert_eq!(forge_route("h3").unwrap(), "dasiwa/h3/forge");
+    assert!(forge_route("../prompt").is_err() && forge_route("cancel").is_err());
+    let ollama = LlmConfig {
+        provider: Provider::Ollama,
+        base_url: "http://127.0.0.1:11434".into(),
+    };
+    assert_eq!(
+        forge_settings(&ollama),
+        json!({"ollama_url": "http://127.0.0.1:11434"})
+    );
+    assert_eq!(forge_settings(&LlmConfig::default()), json!({}));
+}

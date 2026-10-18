@@ -94,7 +94,7 @@ test('validates prompts and app-owned output prefix without altering prompt text
   for (const field of ['positivePrompt', 'negativePrompt']) {
     for (const value of [null, undefined, 1, 'x'.repeat(16385), 'x\u0000y']) rejects({ ...intent, [field]: value }, allowlist, 'INVALID_INPUT', field);
   }
-  for (const outputPrefix of ['', '../out', '/out', 'a/b', 'a\\\\b', 'a:b', 'a\n', 'x'.repeat(129), undefined]) {
+  for (const outputPrefix of ['', '../out', '/out', 'a//b', 'a\\\\b', 'a:b', 'a\n', 'x'.repeat(181), undefined]) {
     rejects({ ...intent, outputPrefix }, allowlist, 'INVALID_INPUT', 'outputPrefix');
   }
   const text = '  café\n森 🌲  ';
@@ -195,6 +195,28 @@ test('inputMask inpaints an [output] image: noise mask on the encoded source, co
   rejects({ ...intent, inputMask: mask }, verified, 'INVALID_INPUT', 'inputMask');
 });
 
+test('inpaint crop and blur preserve source geometry, use model resolution and gate optional core nodes', () => {
+ const inpaint={...intent,inputImage:'out.png [output]',denoise:0.8,inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',maskBlur:8,inpaintCrop:{x:40,y:20,width:120,height:80,targetWidth:1024,targetHeight:1024}};
+ const verified={...allowlist,nodes:[...allowlist.nodes,'LoadImage','VAEEncode','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked','ImageCrop','CropMask','ImageScale','MaskToImage','ImageToMask','ImageBlur'],images:[]};
+ const g=compileRecipe(inpaint,verified).graph;
+ assert.deepEqual(g.IC.inputs,{image:['8',0],x:40,y:20,width:120,height:80});
+ assert.deepEqual(g.IS.inputs,{image:['IC',0],upscale_method:'lanczos',width:1024,height:1024,crop:'disabled'});
+ assert.deepEqual(g['9'].inputs.pixels,['IS',0]);
+ assert.deepEqual(g.MB.inputs,{image:['MI',0],blur_radius:8,sigma:1});
+ assert.deepEqual(g.MC.inputs,{mask:['BM',0],x:40,y:20,width:120,height:80});
+ assert.deepEqual(g.X.inputs.mask,['NM',0]);
+ assert.deepEqual(g.Y.inputs,{destination:['8',0],source:['IR',0],x:40,y:20,resize_source:false,mask:['MC',0]});
+ assert.equal(g.IR.inputs.width,120);assert.equal(g.IR.inputs.height,80);
+ for(const node of ['ImageCrop','ImageBlur','CropMask'])rejects(inpaint,{...verified,nodes:verified.nodes.filter(n=>n!==node)},'MISSING_CAPABILITY',node);
+ for(const maskBlur of [-1,1.5,32,65,null])rejects({...inpaint,maskBlur},verified,'INVALID_INPUT','maskBlur');
+ for(const inpaintCrop of [{...inpaint.inpaintCrop,x:-1},{...inpaint.inpaintCrop,width:9000},{...inpaint.inpaintCrop,targetWidth:999},{...inpaint.inpaintCrop,extra:1},null])rejects({...inpaint,inpaintCrop},verified,'INVALID_INPUT','inpaintCrop');
+ rejects({...intent,maskBlur:4},verified,'INVALID_INPUT','maskBlur');
+ rejects({...intent,inpaintCrop:inpaint.inpaintCrop},verified,'INVALID_INPUT','inpaintCrop');
+ const layered=compileRecipe({...inpaint,inputLayers:[{image:'out.png [output]',x:0,y:0,width:64,height:64}],options:{vaeTile:512}}, {...verified,nodes:[...verified.nodes,'VAEEncodeTiled','VAEDecodeTiled']}).graph;
+ assert.deepEqual(layered.IC.inputs.image,['B0',0]);assert.deepEqual(layered.Y.inputs.destination,['B0',0]);assert.equal(layered['9'].class_type,'VAEEncodeTiled');assert.deepEqual(layered['9'].inputs.pixels,['IS',0]);
+ const {inpaintCrop:_,maskBlur:__,...plain}=inpaint;assert.deepEqual(compileRecipe({...plain,maskBlur:0},verified).graph,compileRecipe(plain,verified).graph);
+});
+
 test('inputLayers paste scaled images onto the source before resize and inpaint, same as native', () => {
   const layered = { ...intent, inputImage: 'src.png [output]', denoise: 0.6, inputLayers: [{ image: 'cat.png', x: 10, y: 20, width: 100, height: 50 }, { image: 'dog.png [output]', x: 0, y: 0, width: 8, height: 8 }] };
   const verified = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'ImageScale', 'ImageCompositeMasked', 'LoadImageMask', 'SetLatentNoiseMask'], images: ['cat.png'] };
@@ -286,4 +308,22 @@ test('options chain model patches after LoRAs, tile the VAE and must be listed b
   for (const bad of [{ attention: 'pytorch attention', sage: 'auto' }, { fp16Accumulation: true }, { cache: { node: 'TeaCache', threshold: 0.2 } }, { cache: { node: 'EasyCache', threshold: 4 } }, { vaeTile: 500 }, { vaeTile: 128 }, { attention: ' padded' }, { unknown: true }, []]) {
     rejects({ ...intent, options: bad }, allowlist, 'INVALID_INPUT', 'options');
   }
+});
+
+test('refine pass and source upscale model mirror the native compiler', () => {
+  const lists = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'ImageScale', 'UpscaleModelLoader', 'ImageUpscaleWithModel'], images: ['ref.png'], upscaleModels: ['2x-Sharp.safetensors'] };
+  const g = compileRecipe({ ...intent, refine: { width: 1024, height: 1536, denoise: 0.3, upscaleModel: '2x-Sharp.safetensors' } }, lists).graph;
+  assert.deepEqual(g.RU.inputs, { upscale_model: ['RL', 0], image: ['6', 0] });
+  assert.deepEqual(g.RS.inputs, { image: ['RU', 0], upscale_method: 'lanczos', width: 1024, height: 1536, crop: 'disabled' });
+  assert.deepEqual(g.R5.inputs, { ...g['5'].inputs, latent_image: ['RE', 0], denoise: 0.3 });
+  assert.deepEqual(g['7'].inputs.images, ['R6', 0]);
+  const same = compileRecipe({ ...intent, refine: { width: 512, height: 768, denoise: 0.3 } }, lists).graph;
+  assert.equal(same.RS, undefined);
+  assert.deepEqual(same.RE.inputs.pixels, ['6', 0]);
+  rejects({ ...intent, refine: { width: 1024, height: 1536, denoise: 0.3, upscaleModel: 'missing.pth' } }, lists, 'MISSING_MODEL', 'upscaleModel');
+  for (const bad of [{ width: 1001, height: 768, denoise: 0.3 }, { width: 512, height: 768, denoise: 0 }, { width: 512, height: 768, denoise: 0.3, extra: 1 }, { width: 512, height: 768, denoise: 0.3, sigmas: [0.5, 0] }]) rejects({ ...intent, refine: bad }, lists, 'INVALID_INPUT', 'refine');
+  const src = compileRecipe({ ...intent, inputImage: 'ref.png', denoise: 0.35, inputResize: { width: 512, height: 768, crop: 'disabled' }, upscaleModel: '2x-Sharp.safetensors' }, lists).graph;
+  assert.deepEqual(src.UM.inputs.image, ['8', 0]);
+  assert.deepEqual(src.S.inputs.image, ['UM', 0]);
+  rejects({ ...intent, inputImage: 'ref.png', denoise: 0.35, upscaleModel: '2x-Sharp.safetensors' }, lists, 'INVALID_INPUT', 'upscaleModel');
 });

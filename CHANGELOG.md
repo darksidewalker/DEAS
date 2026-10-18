@@ -2,6 +2,48 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](docs/VERIFICATION.md); the roadmap in [docs/PLAN.md](docs/PLAN.md).
 
+## 0.1.26 — 2026-10-18
+
+- Add Generate's **Post-Processing** dock tab (SwarmUI Refine / Upscale): opt-in second pass after every Run with Refiner strength, Upscale factor (grid-snapped) and an optional upscale model (`UpscaleModelLoader` + `ImageUpscaleWithModel`); **Post-process** under Run applies it alone to the shown render or edit source.
+- Rename the edit mode Resample to **Image to Image**; the Refine and Upscale edit modes are replaced by the tab. Both compilers validate the new `refine`/`upscaleModel` intent fields and check upscale models against the backend's v3 combo list. Verified with a real SDXL run on a throwaway ComfyUI (512×768 → 2× RCAN → 1024×1536 refine; Post-process 1024×1536 → 1536×2304). No new dependency.
+
+- Repair CI blockers without weakening checks: retain the locale-safe sigma placeholder, use fixed-size EXIF byte chunks accepted by current Clippy, restore valid catalog selection after Installed view, and integrate the existing model-cache safety fix with its Linux/Windows regression tests. Preserve the last API-probe error when the readiness deadline expires, with a deterministic malformed-then-stalled fixture.
+- Bound Prompt Forge responses while streaming, reload its model list on backend/environment changes and discard late replies. Native inpaint preparation now checks every emitted crop/blur node before submission; regression tests cover these review fixes.
+- Add beginner-oriented Windows/Linux build, launch, first-setup and troubleshooting instructions to the README.
+
+## 0.1.25 — 2026-10-18
+
+- Add persisted output naming to Generate Options with `%type%`, `%date_yyyy_mm_dd%`, `%time%`, `%seed%` and `%model%`. Default to type/date/time-seed-model below Output; preserve saver counters/extensions and immutable per-job values.
+- Validate resolved relative paths in both compilers; reject traversal, unresolved variables and Windows device names. Existing saved Options remain compatible. No new dependency or video recipe.
+
+## 0.1.24 — 2026-10-18
+
+- Add Generate's **Presets & Wildcards** dock beside LoRAs and a two-mode hammer entry alongside LLM Prompt Forge. Read the installed node's actual library; select presets/wildcards, weights, style, seed and per-side estimated token budget. Keep selections/rules across navigation and restarts; activation defaults off.
+- Preserve manual/Forge base prompts and execute the original DaSiWa wildcard node before both text encoders. New Picks rerolls alternatives; Random Select explicitly replaces the selection; optional per-generation reroll preserves selected subjects. Show active/disable controls and immutable submitted rules in job metadata. Feed actual node strings to the metadata saver so PNG parameters contain the prompts used.
+- Verify bounded native library transport, capability gating, compiler/UI tests, six-language/five-width browser IPC fixtures using the real library, and direct original-node/PNG-saver execution without models or a live-service restart. No new dependency or node-pack modification.
+
+## 0.1.23 — 2026-10-18
+
+- **Prompt Forge.** A hammer in the Generate prompt field writes or enhances the prompt in the selected model family's dialect (Illustrious/SDXL, Anima, Krea 2), with review, Apply and one Undo; in Image to Image and Inpaint it sends the source picture (input or output folder) to a vision model, and a model without vision writes from the text with a notice. A new **Prompt Forge** tab beside Generate adds Wan 2.2, LTX 2.3 and MiniMax H3 (T2VA/I2VA/FL2VA/L2VA/REF2VA, Duration, Shots, labelled reference pictures), Detail/Creativity, vision reading of input-folder pictures and **Send to Generate**.
+- No second implementation: DEAS forwards to the DaSiWa node pack's Prompt Writer (`/dasiwa/llm/write`, new in 0.5.30) and H3 Forge routes through the native `native_forge` command, which allows only those routes and fills in the LLM endpoint saved in DEAS. Families name their dialect in `src/families/builtin.json` (`forge`).
+
+## 0.1.22 — 2026-10-18
+
+- Inpaint: add opt-in **Inpaint only masked** with **Mask Shrink Grow** (0–512 source pixels, default 8 when enabled). Crop to the visible masks plus context and blur support, process at the active model's pixel budget with model-grid-aligned dimensions and crop aspect, then resize back and composite at the original coordinates. Existing image layers stay underneath; source files are never changed.
+- Add **Mask Blur** (0–31 source pixels, default 0/off), using the same Gaussian kernel and sigma as SwarmUI for both the latent noise mask and final composite. Both features use existing ComfyUI core nodes, without installing a node pack.
+- Validate the extended intent in both compilers, preserve the old graph when disabled, and snapshot crop/blur with the mask before asynchronous upload. Verify with real browser mask pixels and real ComfyUI CPU crop/blur/composite operations, not GPU generation.
+
+## 0.1.21 — 2026-10-18
+
+- Linux: render on the GPU again. The old `WEBKIT_DISABLE_DMABUF_RENDERER=1` default forced WebKitGTK into CPU rendering, which made zoom, tab switches and the inpaint editor sluggish; the real failure it worked around (Wayland protocol error 71 on NVIDIA) is avoided with `__NV_DISABLE_EXPLICIT_SYNC=1` instead. `WEBKIT_DISABLE_DMABUF_RENDERER=1` still works as an explicit override.
+- Media tiles of animated WebP/GIF files (ComfyUI video outputs) now show a still first frame. Live animated tiles kept three WebKit decoder threads and the whole window repainting as long as the dock was visible (~30% of a core), which dragged every control down.
+- Linux: opening a video no longer crashes the app on hosts without `gst-plugins-good`, where WebKitGTK aborted because `autoaudiosink` was missing and could not demux MP4/WebM. DEAS (x86_64) bundles those GStreamer 1.20 plugins and enables only the ones the host lacks.
+- Library: **Catalog · Installed** are now tabs (like Studio's Generate · Map) and the catalog view gets a **Catalog source** selector (only **DaSiWa** for now). The SFW/NSFW switch and preview blur are gone; every entry is always shown, 18+ items keep their tag.
+- Ticked files now stay selected across cards and categories. A **Selected for download** overview lists them with their target folder and a remove button. The **Download all (n)** button at the top right replaces Prepare plan + consent + Start: it plans every provider/folder group natively and runs them one after another. A blocked plan, failure or cancel stops the run and keeps the remaining files selected.
+
+- Add **Open in Comfy** to embedded image/video workflow metadata. The explicit action switches to the existing owned-backend editor and imports a named workflow without queueing generation; the previous unsaved workflow remains available. Require a running backend, validate the editor graph and show import/timeout failures. API-only prompt metadata retains the existing settings action, not a fabricated editor graph.
+- Use a narrow, origin/source-checked all-frame editor bridge without native-command permissions or backend modifications. Verify Chromium and WebKitGTK imports against the real frontend; Windows runtime remains unverified.
+
 ## 0.1.20 — 2026-10-18
 
 - Extend the existing Generate image editor with cursor-anchored zoom, Fit/100%, panning, selectable image/mask thumbnails, visible-only layer submission, image reordering and selected-image move/resize handles. Add up to four independent repaint masks, a shared numeric/range brush diameter, round/square brushes, active-mask erase/clear and preview-only mask opacity. Masks remain source-sized and merge to the existing native PNG upload contract.

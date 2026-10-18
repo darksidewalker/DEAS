@@ -1,9 +1,9 @@
 import {useEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {oneOf,usePref} from '../../lib/preferences';
-import {sourcePoint,zoomAt,stampStroke,type ImageLayer,type Point,type View} from './imageEditor';
+import {sourcePoint,zoomAt,stampStroke,maskBounds,type ImageLayer,type Point,type View} from './imageEditor';
 import './imageEditor.css';
-export interface EditorHandle{maskPng:()=>Promise<Uint8Array>}
+export interface EditorHandle{maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
 type Mask={id:string;n:number;visible:boolean;canvas:HTMLCanvasElement;content:boolean};
 export type Props={ref?:Ref<EditorHandle>;source:{src:string;name:string;width:number;height:number};layers:ImageLayer[];onLayers:(layers:ImageLayer[])=>void;maskMode:boolean;onMask:(present:boolean)=>void};
 const diameterOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=2&&v<=1024;
@@ -73,12 +73,20 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask}:P
   const previousImageIds=useRef(new Set(layers.map(l=>l.id)));
   useEffect(()=>{const added=layers.find(l=>!previousImageIds.current.has(l.id));previousImageIds.current=new Set(layers.map(l=>l.id));if(added){setActive(added.id);setTool('select');}},[layers]);
   useEffect(()=>()=>{gesture.current=null;},[]);
-  useImperativeHandle(ref,()=>({maskPng:async()=>{
+  function maskCanvas(){
     finish();const c=document.createElement('canvas');c.width=source.width;c.height=source.height;
     const ctx=c.getContext('2d');if(!ctx)throw new Error(label('canvasError'));
     if(!masksRef.current.some(m=>m.visible&&m.content))throw new Error(label('emptyMask'));
     ctx.fillStyle='#000';ctx.fillRect(0,0,c.width,c.height);
     for(const m of masksRef.current)if(m.visible)ctx.drawImage(m.canvas,0,0);
+    return c;
+  }
+  useImperativeHandle(ref,()=>({maskBounds:(padding)=>{
+    const c=maskCanvas(),bounds=maskBounds(c.getContext('2d')!.getImageData(0,0,c.width,c.height).data,c.width,c.height,padding);
+    if(!bounds)throw new Error(label('emptyMask'));
+    return bounds;
+  },maskPng:async()=>{
+    const c=maskCanvas();
     const blob=await new Promise<Blob|null>(done=>c.toBlob(done,'image/png'));
     if(!blob)throw new Error(label('canvasError'));
     return new Uint8Array(await blob.arrayBuffer());

@@ -28,23 +28,22 @@ with sync_playwright() as p:
     assert page.locator('.download-card .download-preview').count()==1
     page.get_by_role('tab',name='Workflows',exact=True).click();assert page.get_by_role('button',name='Fixture workflow',exact=True).count()==1
     page.get_by_role('tab',name='LoRAs',exact=True).click()
-    page.get_by_label('Search CivitAI',exact=True).fill('found');page.get_by_role('button',name='Search',exact=True).click()
+    page.get_by_label('Search catalog & CivitAI',exact=True).fill('found');page.get_by_label('Search catalog & CivitAI',exact=True).press('Enter')
     page.get_by_role('button',name='Select repository: Found model · v1',exact=True).wait_for()
+    assert page.get_by_role('button',name='Fixture LoRA',exact=True).count()==0  # typed text narrows catalog cards
+    page.get_by_label('Search catalog & CivitAI',exact=True).fill('')
     page.get_by_role('button',name='Fixture LoRA',exact=True).click()
     page.get_by_label('Fixture data file',exact=True).check()
     assert page.locator('.download-resource img.download-preview').count()==1
     assert page.get_by_text('/executable-folder/deas-environment/ComfyUI/models/loras',exact=True).count()==1
-    page.get_by_role('button',name='Choose existing parent folder',exact=True).click()
-    page.get_by_label('New subfolder',exact=True).fill('new-files')
-    page.get_by_role('button',name='Prepare native download plan',exact=True).click()
-    consent=page.get_by_label('I authorize only this exact optional download plan.',exact=True)
-    consent.wait_for();assert not consent.is_checked()
-    assert page.get_by_role('button',name='Start confirmed download',exact=True).is_disabled()
-    consent.check();page.get_by_role('button',name='Start confirmed download',exact=True).click()
+    assert page.get_by_role('button',name='Choose existing parent folder',exact=True).count()==0  # managed env uses the Settings models folder
+    assert page.get_by_role('region',name='Selected for download',exact=True).get_by_text('Fixture data file',exact=True).count()==1
+    page.get_by_role('button',name='Download all (1)',exact=True).click()
     page.get_by_text('Succeeded',exact=True).wait_for()
+    assert 'native_download_plan' in page.evaluate('__DEAS_CALLS__')
    else:
     assert page.get_by_text('Browser preview',exact=False).count()>0
-    assert page.get_by_role('button',name='Start confirmed download',exact=True).is_disabled()
+    assert page.get_by_role('button',name='Download all (0)',exact=True).is_disabled()
    page.get_by_role('button',name='Provider authorization',exact=True).click()
    page.get_by_label('Token',exact=True).wait_for()
    assert page.get_by_label('Token',exact=True).get_attribute('type')=='password'

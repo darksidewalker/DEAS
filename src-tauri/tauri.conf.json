@@ -1,6 +1,6 @@
 {
   "productName": "DEAS",
-  "version": "0.1.20",
+  "version": "0.1.26",
   "identifier": "com.dasiwa.deas",
   "build": {
     "frontendDist": "../dist",
@@ -9,7 +9,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "windows": [{"label":"main","title":"DEAS — Dark Engine AI Studio","width":1440,"height":960,"minWidth":960,"minHeight":640}],
+    "windows": [{"label":"main","create":false,"title":"DEAS — Dark Engine AI Studio","width":1440,"height":960,"minWidth":960,"minHeight":640}],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://*.civitai.com; media-src 'self' blob: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src http://127.0.0.1:*; form-action 'none'",
       "capabilities": ["main"],

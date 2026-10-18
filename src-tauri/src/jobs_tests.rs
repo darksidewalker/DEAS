@@ -1,5 +1,49 @@
 use super::*;
 
+#[test]
+fn wildcard_plugin_keeps_base_prompts_and_rule_snapshot() {
+    let mut i = intent();
+    i["wildcard"] = json!({"style":"Booru","seed":7,"reroll":3,"token_budget":200,"auto_reroll":true,"selection_state":{"Art/Light/wildcards":{"enabled":true,"weight":1.2}}});
+    let graph = compile(&i).unwrap();
+    assert_eq!(
+        graph["WP"]["class_type"],
+        "DaSiWa_WildcardPresetPromptBuilder"
+    );
+    assert_eq!(graph["WP"]["inputs"]["positive_input"], i["positivePrompt"]);
+    assert_eq!(graph["WP"]["inputs"]["negative_input"], i["negativePrompt"]);
+    assert_eq!(graph["WP"]["inputs"]["auto_reroll"], true);
+    assert_eq!(
+        serde_json::from_str::<Value>(graph["WP"]["inputs"]["selection_state"].as_str().unwrap())
+            .unwrap(),
+        i["wildcard"]["selection_state"]
+    );
+    assert_eq!(graph["2"]["inputs"]["text"], json!(["WP", 0]));
+    assert_eq!(graph["3"]["inputs"]["text"], json!(["WP", 1]));
+    let mut saved = graph.clone();
+    civitai_saver(
+        &mut saved,
+        &json!(["DaSiWa_MetadataConfig", "DaSiWa_MetadataImageSaver"]),
+    );
+    assert_eq!(saved["M"]["inputs"]["text_positive"], json!(["WP", 0]));
+    assert_eq!(saved["M"]["inputs"]["text_negative"], json!(["WP", 1]));
+    for patch in [
+        json!({"seed":-1}),
+        json!({"seed":4294967296_u64}),
+        json!({"reroll":2147483648_u64}),
+        json!({"style":"other"}),
+        json!({"token_budget":0}),
+        json!({"auto_reroll":"yes"}),
+        json!({"selection_state":[]}),
+        json!({"extra":true}),
+    ] {
+        let mut bad = i.clone();
+        for (k, v) in patch.as_object().unwrap() {
+            bad["wildcard"][k] = v.clone();
+        }
+        assert!(compile(&bad).unwrap_err().contains("wildcard"));
+    }
+}
+
 pub(super) fn intent() -> Value {
     json!({"recipeId":"checkpoint-text-to-image-diagnostic","version":1,
         "positivePrompt":"a cat", "negativePrompt":"", "checkpoint":"sd/model.safetensors",
@@ -7,9 +51,88 @@ pub(super) fn intent() -> Value {
         "sampler":"euler","scheduler":"normal","outputPrefix":"DEAS_test"})
 }
 
+#[test]
+fn output_naming_paths_are_bounded_relative_and_safe_on_windows() {
+    let mut i = intent();
+    i["outputPrefix"] = json!("image/2026_10_18/12-34-56-123-My_Model");
+    let graph = compile(&i).unwrap();
+    assert_eq!(graph["7"]["inputs"]["filename_prefix"], i["outputPrefix"]);
+    for bad in [
+        "", "../out", "/out", "a//b", "a/./b", "a/../b", "a\\b", "a:b", "a\n", "a/%seed%", "CON",
+        "aux.png", "a/NUL", "a/name.",
+    ] {
+        i["outputPrefix"] = json!(bad);
+        assert!(compile(&i).is_err(), "{bad:?}");
+    }
+    for bad in ["x".repeat(181), vec!["x".repeat(170); 3].join("/") + "/x"] {
+        i["outputPrefix"] = json!(bad);
+        assert!(compile(&i).is_err());
+    }
+}
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const PROMPT_ID: &str = "cd5936d0-9f0f-4b82-8cda-b01c241bc669";
+
+#[tokio::test]
+async fn wildcard_library_is_bounded_read_only_and_preserves_category_order() {
+    let raw = r#"{"categories":{"Z first":[],"A second":[]}}"#;
+    let (base, task) = server(move |path, _| {
+        assert_eq!(
+            path,
+            "GET /comfy/dasiwa/wildcard-preset-prompt-builder/library HTTP/1.1"
+        );
+        (200, raw.to_owned())
+    })
+    .await;
+    assert_eq!(
+        crate::wildcard::native_wildcard_library(base)
+            .await
+            .unwrap(),
+        raw
+    );
+    task.abort();
+    for (status, body) in [
+        (302, "{}".to_owned()),
+        (404, "{}".to_owned()),
+        (200, "{\"categories\":[]}".to_owned()),
+        (200, "x".repeat(2 * 1024 * 1024 + 1)),
+    ] {
+        let (base, task) = server(move |_, _| (status, body.clone())).await;
+        assert!(crate::wildcard::native_wildcard_library(base)
+            .await
+            .is_err());
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn wildcard_prepare_requires_original_plugin_without_submitting() {
+    for installed in [false, true] {
+        let (base, task) = server(move |path, _| {
+            assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+            let mut n = nodes();
+            if installed {
+                n[crate::wildcard::NODE] = json!({});
+            }
+            (200, n.to_string())
+        })
+        .await;
+        let mut i = intent();
+        i["wildcard"] = json!({"style":"Booru","seed":0,"reroll":0,"token_budget":200,"auto_reroll":true,"selection_state":{}});
+        let result = Jobs::default().prepare(base, i).await;
+        if installed {
+            assert_eq!(
+                result.unwrap()["graph"]["WP"]["class_type"],
+                crate::wildcard::NODE
+            );
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.contains(crate::wildcard::NODE), "{error}");
+        }
+        task.abort();
+    }
+}
 
 fn nodes() -> Value {
     json!({"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["sd/model.safetensors"]]}}},
@@ -170,8 +293,8 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("scheduler", json!(null)),
         ("outputPrefix", json!("../x")),
         ("outputPrefix", json!("")),
-        ("outputPrefix", json!("a".repeat(129))),
-        ("outputPrefix", json!("image.png")),
+        ("outputPrefix", json!("a".repeat(181))),
+        ("outputPrefix", json!("image.")),
     ] {
         let mut value = intent();
         value[field] = bad;
@@ -339,6 +462,124 @@ fn input_mask_resamples_only_the_painted_area_and_composites_onto_the_source() {
     assert!(compile(&no_image).is_err());
 }
 
+#[test]
+fn inpaint_crop_and_blur_use_model_resolution_and_restore_original_coordinates() {
+    let mut i = intent();
+    i["inputImage"] = json!("out.png [output]");
+    i["denoise"] = json!(0.8);
+    i["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    i["maskBlur"] = json!(8);
+    i["inpaintCrop"] =
+        json!({"x":40,"y":20,"width":120,"height":80,"targetWidth":1024,"targetHeight":1024});
+    let g = compile(&i).unwrap();
+    assert_eq!(
+        g["IC"]["inputs"],
+        json!({"image":["8",0],"x":40,"y":20,"width":120,"height":80})
+    );
+    assert_eq!(
+        g["IS"]["inputs"],
+        json!({"image":["IC",0],"upscale_method":"lanczos","width":1024,"height":1024,"crop":"disabled"})
+    );
+    assert_eq!(g["9"]["inputs"]["pixels"], json!(["IS", 0]));
+    assert_eq!(
+        g["MB"]["inputs"],
+        json!({"image":["MI",0],"blur_radius":8,"sigma":1})
+    );
+    assert_eq!(g["MC"]["inputs"]["mask"], json!(["BM", 0]));
+    assert_eq!(g["X"]["inputs"]["mask"], json!(["NM", 0]));
+    assert_eq!(
+        g["Y"]["inputs"],
+        json!({"destination":["8",0],"source":["IR",0],"x":40,"y":20,"resize_source":false,"mask":["MC",0]})
+    );
+    assert_eq!(g["IR"]["inputs"]["width"], 120);
+    assert_eq!(g["IR"]["inputs"]["height"], 80);
+    for bad in [json!(-1), json!(1.5), json!(32), json!(65), Value::Null] {
+        let mut v = i.clone();
+        v["maskBlur"] = bad;
+        assert!(compile(&v).is_err());
+    }
+    for (key, bad) in [
+        ("x", json!(-1)),
+        ("width", json!(9000)),
+        ("targetWidth", json!(999)),
+        ("extra", json!(1)),
+    ] {
+        let mut v = i.clone();
+        v["inpaintCrop"][key] = bad;
+        assert!(compile(&v).is_err());
+    }
+    let mut layered = i.clone();
+    layered["inputLayers"] =
+        json!([{"image":"out.png [output]","x":0,"y":0,"width":64,"height":64}]);
+    layered["options"] = json!({"vaeTile":512});
+    let layered = compile(&layered).unwrap();
+    assert_eq!(layered["IC"]["inputs"]["image"], json!(["B0", 0]));
+    assert_eq!(layered["Y"]["inputs"]["destination"], json!(["B0", 0]));
+    assert_eq!(layered["9"]["class_type"], "VAEEncodeTiled");
+    assert_eq!(layered["9"]["inputs"]["pixels"], json!(["IS", 0]));
+    let mut no_mask = i.clone();
+    no_mask.as_object_mut().unwrap().remove("inputMask");
+    assert!(compile(&no_mask).is_err());
+    i.as_object_mut().unwrap().remove("inpaintCrop");
+    i["maskBlur"] = json!(0);
+    let zero = compile(&i).unwrap();
+    i.as_object_mut().unwrap().remove("maskBlur");
+    assert_eq!(zero, compile(&i).unwrap());
+}
+
+#[tokio::test]
+async fn prepare_requires_only_emitted_crop_and_blur_nodes() {
+    let mut failures = vec![];
+    for (crop, blur) in [(false, 0), (false, 8), (true, 0), (true, 8)] {
+        let mut i = intent();
+        i["inputImage"] = json!("ref.png");
+        i["denoise"] = json!(0.8);
+        i["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+        i["maskBlur"] = json!(blur);
+        if crop {
+            i["inpaintCrop"] = json!({"x":40,"y":20,"width":120,"height":80,"targetWidth":1024,"targetHeight":1024});
+        }
+        let mut required = vec![
+            "LoadImageMask",
+            "SetLatentNoiseMask",
+            "ImageCompositeMasked",
+        ];
+        if crop {
+            required.extend(["ImageScale", "ImageCrop", "CropMask"]);
+        }
+        if crop || blur > 0 {
+            required.extend(["MaskToImage", "ImageToMask"]);
+        }
+        if blur > 0 {
+            required.push("ImageBlur");
+        }
+        for absent in std::iter::once(None).chain(required.iter().copied().map(Some)) {
+            let mut info = nodes();
+            for name in &required {
+                info[*name] = json!({});
+            }
+            if let Some(name) = absent {
+                info.as_object_mut().unwrap().remove(name);
+            }
+            let (base, task) = server(move |path, _| {
+                assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+                (200, info.to_string())
+            })
+            .await;
+            let result = Jobs::default().prepare(base, i.clone()).await;
+            task.abort();
+            match (absent, result) {
+                (None, Ok(_)) => {}
+                (Some(name), Err(error)) if error.contains(name) => {}
+                (absent, result) => failures.push(format!(
+                    "crop={crop}, blur={blur}, absent={absent:?}: {result:?}"
+                )),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[tokio::test]
 async fn mask_upload_posts_a_fresh_png_name_into_the_mask_folder() {
     assert!(
@@ -459,6 +700,79 @@ async fn live_mask_upload() {
     let base = std::env::var("DEAS_LIVE_COMFY").unwrap();
     let png = std::fs::read(std::env::var("DEAS_LIVE_MASK").unwrap()).unwrap();
     println!("{}", native_mask_upload(base, png).await.unwrap());
+}
+
+#[test]
+fn refine_pass_upscales_resizes_and_resamples_after_the_first_decode() {
+    let mut i = intent();
+    i["refine"] =
+        json!({"width":1024,"height":1536,"denoise":0.3,"upscaleModel":"2x-Sharp.safetensors"});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["RU"]["inputs"]["image"], json!(["6", 0]));
+    assert_eq!(g["RL"]["inputs"]["model_name"], "2x-Sharp.safetensors");
+    assert_eq!(
+        g["RS"]["inputs"],
+        json!({"image":["RU",0],"upscale_method":"lanczos","width":1024,"height":1536,"crop":"disabled"})
+    );
+    assert_eq!(g["RE"]["inputs"]["pixels"], json!(["RS", 0]));
+    assert_eq!(g["R5"]["inputs"]["latent_image"], json!(["RE", 0]));
+    assert_eq!(g["R5"]["inputs"]["denoise"], json!(0.3));
+    assert_eq!(g["R5"]["inputs"]["seed"], json!(123));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["R6", 0]));
+    // Same size without a model: no resample of the first pass.
+    i["refine"] = json!({"width":512,"height":768,"denoise":0.3});
+    let g = compile(&i).unwrap();
+    assert!(g.get("RS").is_none() && g.get("RL").is_none());
+    assert_eq!(g["RE"]["inputs"]["pixels"], json!(["6", 0]));
+    // Model-fixed schedules carry their own refine tail.
+    i["steps"] = json!(2);
+    i["sigmas"] = json!([1.0, 0.5, 0.0]);
+    assert!(compile(&i).is_err());
+    i["refine"]["sigmas"] = json!([0.5, 0.0]);
+    let g = compile(&i).unwrap();
+    assert_eq!(g["RZ"]["inputs"]["sigmas"], "0.5, 0");
+    assert_eq!(g["R5"]["class_type"], "SamplerCustomAdvanced");
+    for (k, bad) in [
+        ("width", json!(1001)),
+        ("denoise", json!(0)),
+        ("upscaleModel", json!("../x.pth")),
+        ("extra", json!(1)),
+    ] {
+        let mut v = i.clone();
+        v["refine"][k] = bad;
+        assert!(compile(&v).is_err(), "accepted {k}");
+    }
+}
+
+#[test]
+fn upscale_model_runs_on_the_source_before_the_exact_resize() {
+    let mut i = intent();
+    i["inputImage"] = json!("ref.png");
+    i["denoise"] = json!(0.35);
+    i["upscaleModel"] = json!("2x-Sharp.safetensors");
+    assert!(compile(&i).is_err(), "upscaleModel needs inputResize");
+    i["inputResize"] = json!({"width":512,"height":768,"crop":"disabled"});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["UM"]["inputs"]["image"], json!(["8", 0]));
+    assert_eq!(g["S"]["inputs"]["image"], json!(["UM", 0]));
+    assert_eq!(g["9"]["inputs"]["pixels"], json!(["S", 0]));
+}
+
+#[tokio::test]
+async fn prepare_checks_upscale_models_against_the_v3_backend_list() {
+    let mut list = nodes();
+    list["UpscaleModelLoader"] = json!({"input":{"required":{"model_name":["COMBO",{"multiselect":false,"options":["2x-Sharp.safetensors"]}]}}});
+    list["ImageUpscaleWithModel"] = json!({});
+    list["ImageScale"] = json!({});
+    let (base, task) = server(move |_, _| (200, list.to_string())).await;
+    let jobs = Jobs::default();
+    let mut with = intent();
+    with["refine"] =
+        json!({"width":1024,"height":1536,"denoise":0.3,"upscaleModel":"2x-Sharp.safetensors"});
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["refine"]["upscaleModel"] = json!("missing.pth");
+    assert!(jobs.prepare(base, with).await.is_err());
+    task.abort();
 }
 
 #[tokio::test]

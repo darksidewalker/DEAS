@@ -23,6 +23,14 @@ export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diamete
   }
  }finally{ctx.restore();}
 }
+/** Bounding box of the black-backed exported mask, including finite blur support and context. */
+export function maskBounds(data:Uint8ClampedArray,width:number,height:number,padding:number){
+ let left=width,top=height,right=-1,bottom=-1;
+ for(let i=0;i<data.length;i+=4)if(data[i]){const p=i/4,x=p%width,y=Math.floor(p/width);left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
+ if(right<0)return null;
+ left=Math.max(0,left-padding);top=Math.max(0,top-padding);right=Math.min(width,right+1+padding);bottom=Math.min(height,bottom+1+padding);
+ return {x:left,y:top,width:right-left,height:bottom-top};
+}
 export function visibleImages(layers:readonly ImageLayer[]){
  return layers.filter(l=>l.visible).map(({name,x,y,width,height})=>({image:name,x,y,width,height}));
 }

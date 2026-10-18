@@ -36,7 +36,7 @@ with sync_playwright() as p:
    assert page.get_by_label(t['setup.feature.director.label'],exact=True).is_checked()
    page.get_by_role('tab',name=t['downloads.title'],exact=True).click()
    assert page.get_by_text(t['downloads.browser'],exact=True).count()==1
-   assert page.get_by_role('button',name=t['downloads.start'],exact=True).is_disabled()
+   assert page.get_by_role('button',name=t['downloads.startAll'].replace('{count}','0'),exact=True).is_disabled()
    assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
    page.mouse.move(0,0);page.evaluate('document.activeElement?.blur()')
    if width==320 and locale in ('tr','fr','zh','ja'):page.screenshot(path=str(root/'assets'/f'deas-language-{locale}-320.png'),full_page=True)

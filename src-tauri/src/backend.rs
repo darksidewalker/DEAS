@@ -726,7 +726,11 @@ fn supervise(inner: Arc<Mutex<Inner>>, serial: u64, port: u16, timeout: Duration
                 })
                 .await
             })
-            .unwrap_or_else(|_| Err("Overall readiness deadline reached".into()));
+            .unwrap_or_else(|_| {
+                Err(format!(
+                    "Overall readiness deadline reached; last probe: {last_error}"
+                ))
+            });
         let mut guard = locked(&inner);
         if guard.serial != serial || guard.child.is_none() {
             return;

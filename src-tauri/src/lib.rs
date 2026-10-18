@@ -21,7 +21,9 @@ pub use jobs::{
 };
 pub mod model_families;
 pub mod recipe_prerequisites;
+pub mod wildcard;
 pub use recipe_prerequisites::native_recipe_prerequisites;
+pub use wildcard::native_wildcard_library;
 pub mod backend;
 pub use backend::{native_backend_start, native_backend_status, native_backend_stop};
 pub mod hardware;
@@ -46,7 +48,9 @@ pub use settings::{native_files_present, native_settings_read, native_settings_w
 pub mod startup;
 pub use startup::{native_startup_read, native_startup_write};
 pub mod llm;
-pub use llm::{native_llm_generate, native_llm_models, native_llm_read, native_llm_write};
+pub use llm::{
+    native_forge, native_llm_generate, native_llm_models, native_llm_read, native_llm_write,
+};
 pub mod install_defaults;
 pub use install_defaults::native_install_defaults;
 pub mod install;

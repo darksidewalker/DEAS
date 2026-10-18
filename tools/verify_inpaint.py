@@ -23,7 +23,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   if(command==='native_media_metadata')return [];
   if(command==='native_media_list')return {path:args.path,parent:'/env/ComfyUI',entries:Object.keys(images).map((name,i)=>({name,path:args.path+'/'+name,kind:'file',symlink:false,media:'image',size:1,modified:100-i})),truncated:false};
   if(command==='native_models_scan')return [{category:'checkpoints',name:'sdxl.safetensors',path:'/env/ComfyUI/models/checkpoints/sdxl.safetensors',size:1,info:null,family:'sdxl'}];
-  if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage','LoadImage','VAEEncode','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked','ImageScale'],checkpoints:['sdxl.safetensors'],loras:[],samplers:['euler'],schedulers:['normal']}};
+  if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage','LoadImage','VAEEncode','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked','ImageScale','ImageCrop','CropMask','MaskToImage','ImageToMask','ImageBlur'],checkpoints:['sdxl.safetensors'],loras:[],samplers:['euler'],schedulers:['normal']}};
   if(command==='native_mask_upload'){
    if(!Array.isArray(args.png)||args.png.length<8)throw Error('No real PNG upload');
    window.__uploads.push([...args.png]);
@@ -145,6 +145,26 @@ with sync_playwright() as p:
     result = pixels(page, [[256, 160], [300, 160], [220, 124]])
     assert (result['width'], result['height']) == (1024, 640)
     assert result['opaque'] and result['values'] == [[255,255,255,255],[0,0,0,255],[255,255,255,255]], result
+    assert 'maskBlur' not in intent and 'inpaintCrop' not in intent
+    page.get_by_role('checkbox', name='Inpaint only masked', exact=True).check()
+    page.get_by_role('spinbutton', name='Mask Shrink Grow (px)', exact=True).fill('32')
+    page.get_by_role('spinbutton', name='Mask Blur (px)', exact=True).fill('8')
+    cropped = export_mask(page)
+    assert cropped['maskBlur'] == 8
+    crop = cropped['inpaintCrop']
+    assert (cropped['width'], cropped['height']) == (1024,640)
+    assert crop['targetWidth'] % 64 == crop['targetHeight'] % 64 == 0
+    assert crop['targetWidth'] * crop['targetHeight'] >= 900000
+    # The context rectangle includes 32 context pixels and the 8-pixel blur support on every side.
+    assert abs(crop['x'] - 176) <= 1 and abs(crop['y'] - 80) <= 1, crop
+    assert 160 <= crop['width'] <= 162 and 160 <= crop['height'] <= 162, crop
+    page.get_by_role('spinbutton', name='Mask Shrink Grow (px)', exact=True).fill('0')
+    tight = export_mask(page)['inpaintCrop']
+    assert tight['width'] == crop['width'] - 64 and tight['height'] == crop['height'] - 64
+    page.get_by_role('checkbox', name='Inpaint only masked', exact=True).uncheck()
+    blurred = export_mask(page)
+    assert blurred['maskBlur'] == 8 and 'inpaintCrop' not in blurred
+    page.get_by_role('spinbutton', name='Mask Blur (px)', exact=True).fill('0')
     click_tool(page, 'Clear')
     paint(page, 128, 320, (896, 320))
     export_mask(page)

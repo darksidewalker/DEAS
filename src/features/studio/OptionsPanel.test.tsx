@@ -49,6 +49,20 @@ describe('run options', () => {
     expect(screen.getByText(/^Invalid/)).toBeTruthy();
   });
 
+  it('keeps help behind ? and lists the naming placeholders, invalid naming stays visible', () => {
+    const { rerender } = render(<I18nProvider><OptionsPanel value={defaultOptions} onChange={vi.fn()} allow={allow} imageInput={false} onRead={vi.fn()} canRead/></I18nProvider>);
+    expect(screen.queryByText(/^Relative to Output/)).toBeNull();
+    const button = screen.getByRole('button', { name: 'Explain Output naming' });
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    for (const k of ['%type%', '%date_yyyy_mm_dd%', '%time%', '%seed%', '%model%']) expect(screen.getByText(k)).toBeTruthy();
+    expect(screen.getByText('My_Model')).toBeTruthy();
+    fireEvent.click(button);
+    expect(screen.queryByText('%seed%')).toBeNull();
+    rerender(<I18nProvider><OptionsPanel value={{ ...defaultOptions, outputNaming: '../%seed%' }} onChange={vi.fn()} allow={allow} imageInput={false} onRead={vi.fn()} canRead/></I18nProvider>);
+    expect(screen.getByRole('alert').textContent).toMatch(/^Invalid naming/);
+  });
+
   it('offers listed backends, disables missing node packs and asks before reading', () => {
     const onChange = vi.fn(), onRead = vi.fn();
     const { rerender } = render(<I18nProvider><OptionsPanel value={defaultOptions} onChange={onChange} allow={null} imageInput={false} onRead={onRead} canRead/></I18nProvider>);

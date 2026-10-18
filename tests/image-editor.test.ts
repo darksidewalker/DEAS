@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {sourcePoint,zoomAt,stampStroke,visibleImages} from '../src/features/studio/imageEditor.ts';
+import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds} from '../src/features/studio/imageEditor.ts';
+test('mask bounds include disconnected pixels, context and blur support, clipped at image edges',()=>{
+ const data=new Uint8ClampedArray(10*8*4);
+ const paint=(x:number,y:number)=>{data[(y*10+x)*4]=255;};
+ assert.equal(maskBounds(data,10,8,0),null);
+ paint(3,2);paint(5,4);
+ assert.deepEqual(maskBounds(data,10,8,0),{x:3,y:2,width:3,height:3});
+ assert.deepEqual(maskBounds(data,10,8,2),{x:1,y:0,width:7,height:7});
+ assert.deepEqual(maskBounds(data,10,8,3),{x:0,y:0,width:9,height:8});
+ paint(9,7);assert.deepEqual(maskBounds(data,10,8,1024),{x:0,y:0,width:10,height:8});
+});
 test('zoomAt keeps cursor anchored and clamps scale',()=>{
  assert.deepEqual(zoomAt({scale:.5,x:20,y:30},{x:120,y:80},1),{scale:1,x:-80,y:-20});
  assert.equal(zoomAt({scale:1,x:0,y:0},{x:0,y:0},99).scale,16);

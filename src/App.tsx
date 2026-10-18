@@ -8,9 +8,10 @@ import { AiOSetup } from './components/setup/AiOSetup';
 import { ApiNegotiationPanel } from './features/studio/ApiNegotiationPanel';
 import { RecipePrerequisitesPanel } from './features/studio/RecipePrerequisitesPanel';
 import { Workbench } from './features/studio/Workbench';
+import { PromptForge } from './features/forge/PromptForge';
 import type { Folders } from './lib/settings';
 import { oneOf, usePref } from './lib/preferences';
-const studioTabs=['generate','map'] as const;
+const studioTabs=['generate','forge','map'] as const;
 interface Updates {app:string|null;comfy:boolean;nodepack:boolean}
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
@@ -52,6 +53,9 @@ export default function App(){
  // ComfyUI's own input/output live beside the managed checkout unless Settings redirected them.
  const [environment,setEnvironment]=useState<{root:string;folders:Folders}|null>(null);
  const roots=environment?{input:environment.folders.input??`${environment.root}/ComfyUI/input`,output:environment.folders.output??`${environment.root}/ComfyUI/output`,models:environment.folders.models??`${environment.root}/ComfyUI/models`}:undefined;
+ // Prompt Forge mounts on first visit (it reads the backend's model list) and then keeps its draft.
+ const forgeOpened=useRef(false);if(tab==='forge')forgeOpened.current=true;
+ const [sent,setSent]=useState<{positive:string;negative:string;n:number}>();
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
  useEffect(()=>{if(pendingConnectionFocus&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,active]);
  // An explicit Inspect opens the Engine node; the owned backend's automatic handoff only binds the endpoint and leaves the user where they are.
@@ -71,7 +75,8 @@ export default function App(){
     <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
     <div className="studio-columns">
     <div className="studio-main">
-    <div className="studio-generate-host" hidden={tab!=='generate'}><Workbench endpoint={endpoint} roots={roots}/></div>
+    <div className="studio-generate-host" hidden={tab!=='generate'}><Workbench endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
     {tab==='map'&&<>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>

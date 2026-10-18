@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
@@ -23,7 +23,8 @@ beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en')
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
 async function open(){mount();click('Library');await screen.findByRole('option',{name:'Fixture provider'});}
 async function browse(){await open();fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');}
-async function prepare(){await browse();fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');}
+async function pick(){await browse();fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});}
+const tab=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 it('uses exact nested IPC and metadata-only auth contracts',async()=>{
  const request={providerId:'fixture',scope:'index' as const,locator:'source',authenticated:false};await browseDownloads(request);expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request});
  const plan={providerId:'fixture',resources:[resource],parentPath:'/parent',folderName:'new',authenticated:false};await planDownloads(plan);expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:plan});
@@ -33,10 +34,11 @@ it('loads catalog only on explicit opening; browses curated sources and paginati
  mount();expect(invoke).not.toHaveBeenCalled();click('Library');await screen.findByRole('option',{name:'Curated index'});expect(vi.mocked(invoke).mock.calls.filter(c=>c[0]!=='native_auth_status')).toEqual([['native_download_catalog']]);
  fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');expect(screen.getByText('Installed model')).toBeTruthy();expect(screen.queryByLabelText('Installed model')).toBeNull();click('Browse next page');await act(async()=>{});expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/index',authenticated:false,nsfw:true,cursor:'page2'}});
 });
-it('discloses native plan, requires separate consent, locks edits and shows only real progress',async()=>{
- await prepare();const consent=screen.getByLabelText('I authorize only this exact optional download plan.') as HTMLInputElement;expect(consent.checked).toBe(false);click('Start confirmed download');expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_start')).toBe(false);fireEvent.click(consent);click('Start confirmed download');await screen.findByText('Running');expect(invoke).toHaveBeenCalledWith('native_download_start',{planId:'immutable',confirmed:true});expect((screen.getByLabelText('New subfolder') as HTMLInputElement).disabled).toBe(true);expect(screen.getByText('12')).toBeTruthy();click('Cancel download');await screen.findByText('Cancelled');
+it('plans and starts every selected file from one Download all click, locks edits and shows only real progress',async()=>{
+ const start=screen.queryByRole('button',{name:'Download all (0)'});expect(start).toBeNull();
+ await pick();expect((screen.getByRole('button',{name:'Download all (1)'}) as HTMLButtonElement).disabled).toBe(false);expect(within(screen.getByRole('region',{name:'Selected for download'})).getByText('Remote file')).toBeTruthy();
+ click('Download all (1)');await screen.findByText('Running');expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'fixture',resources:[resource],parentPath:'/parent',folderName:'new',authenticated:false}});expect(invoke).toHaveBeenCalledWith('native_download_start',{planId:'immutable',confirmed:true});expect((screen.getByLabelText('New subfolder') as HTMLInputElement).disabled).toBe(true);expect(screen.getByText('12')).toBeTruthy();click('Cancel download');await screen.findByText('Cancelled');
 });
-it('invalidates plan and consent on meaning edits',async()=>{await prepare();fireEvent.click(screen.getByLabelText('I authorize only this exact optional download plan.'));fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'changed'}});expect(screen.queryByLabelText('I authorize only this exact optional download plan.')).toBeNull();});
 it('supports masked session-only tokens, clears on success and never displays native secret errors',async()=>{
  mount(true);click('Provider authorization');await act(async()=>{});fireEvent.click(screen.getByLabelText('Persist in OS credential store (optional)'));const input=screen.getByLabelText('Token') as HTMLInputElement;expect(input.type).toBe('password');fireEvent.change(input,{target:{value:'PRIVATE'}});click('Save token');await screen.findByText('Token check unavailable; try again');expect(invoke).toHaveBeenCalledWith('native_auth_set',{providerId:'huggingface',token:'PRIVATE',persist:false});expect(input.value).toBe('');expect(JSON.stringify(localStorage)).not.toContain('PRIVATE');vi.mocked(invoke).mockRejectedValueOnce('PRIVATE');fireEvent.change(input,{target:{value:'PRIVATE'}});click('Save token');await screen.findByRole('alert');expect(document.body.textContent).not.toContain('PRIVATE');click('Remove token');await act(async()=>{});expect(invoke).toHaveBeenCalledWith('native_auth_remove',{providerId:'huggingface'});
 });
@@ -54,23 +56,17 @@ it('refreshes auth metadata only, makes persistence explicit and clears token on
  fireEvent.change(input,{target:{value:'PRIVATE'}});view.unmount();expect(input.value).toBe('');
 });
 it('cancels polling timers and ignores an in-flight poll after unmount',async()=>{
- await prepare();fireEvent.click(screen.getByLabelText('I authorize only this exact optional download plan.'));click('Start confirmed download');await screen.findByText('Running');
+ await pick();click('Download all (1)');await screen.findByText('Running');
  vi.useFakeTimers();let resolve!:(value:unknown)=>void;vi.mocked(invoke).mockImplementationOnce(()=>new Promise(r=>{resolve=r;}) as never);
  // Explicit status refresh exercises the same lifecycle guard as timed polling.
  click('Refresh download status');cleanup();await act(async()=>resolve({state:'succeeded',completed:1,total:1,bytesDownloaded:23,error:null}));await act(async()=>vi.advanceTimersByTimeAsync(5000));
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_status')).toHaveLength(1);
 });
-it('invalidates a prepared authenticated plan when parent reports credential changes',async()=>{
- await prepare();const view=render(<I18nProvider><DownloadPanel authRevision={0}/></I18nProvider>);view.rerender(<I18nProvider><DownloadPanel authRevision={1}/></I18nProvider>);view.unmount();
- // Exercise the same mounted panel with a fresh prepared fixture.
- cleanup();const active=render(<I18nProvider><DownloadPanel authRevision={0}/></I18nProvider>);click('Library');await screen.findByLabelText('Provider');fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'source'}});click('Browse resources');await screen.findByLabelText('Remote file');fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
- active.rerender(<I18nProvider><DownloadPanel authRevision={1}/></I18nProvider>);expect(screen.queryByLabelText('I authorize only this exact optional download plan.')).toBeNull();
-});
 it('locks meaning edits while native start is unresolved',async()=>{
- await prepare();let resolve!:(value:unknown)=>void;vi.mocked(invoke).mockImplementationOnce(()=>new Promise(r=>{resolve=r;}) as never);
- fireEvent.click(screen.getByLabelText('I authorize only this exact optional download plan.'));click('Start confirmed download');
+ await pick();let resolve!:(value:unknown)=>void;vi.mocked(invoke).mockImplementationOnce(()=>new Promise(r=>{resolve=r;}) as never);
+ click('Download all (1)');
  expect((screen.getByLabelText('New subfolder') as HTMLInputElement).disabled).toBe(true);
- await act(async()=>resolve({state:'running',completed:0,total:1,bytesDownloaded:0,error:null}));
+ await act(async()=>resolve({id:'immutable',target:'/parent/new',resources:[resource],totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true}));await screen.findByText('Running');
 });
 it('turns user repository listings into explicit repository browsing',async()=>{
  await open();vi.mocked(invoke).mockResolvedValueOnce([]).mockResolvedValueOnce({resources:[{id:'repo',label:'Owner/repo',kind:'repo',downloadable:false,locator:'models:Owner/repo'}],nextCursor:null,warnings:[]});fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'Owner'}});click('Browse resources');await screen.findByRole('button',{name:'Select repository: Owner/repo'});click('Select repository: Owner/repo');await act(async()=>{});expect((screen.getByLabelText('Source locator') as HTMLInputElement).value).toBe('models:Owner/repo');expect((screen.getByLabelText('Browse mode') as HTMLSelectElement).value).toBe('repo');expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'repo',locator:'models:Owner/repo',authenticated:false,nsfw:true}});
@@ -93,7 +89,7 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  const entries=[{id:'lora-a',label:'Lora A',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'loras',preview:'https://image.civitai.com/a.jpeg'},{id:'wf',label:'Workflow W',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'workflow',target:'workflows'},{id:'ckpt',label:'Image checkpoint',providerId:'fixture',scope:'index',locator:'https://example.invalid/c.json',kind:'model',target:'checkpoints',media:'image',auth:true},{id:'wan',label:'Video model',providerId:'fixture',scope:'index',locator:'https://example.invalid/v.json',kind:'model',target:'diffusion_models',media:'video'}];
  vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_auth_status'?[{providerId:'fixture',configured:true,persisted:true},{providerId:'civitai',configured:true,persisted:true}]:c==='native_download_catalog'?{...catalog,providers:[...catalog.providers,{id:'civitai',kind:'civitai',label:'CivitAI',origin:'https://civitai.com',scopes:['user','model','search'],anonymousNotice:''}],entries}:c==='native_download_browse'?((a as {request:{scope:string}}).request.scope==='search'?{resources:[{id:'civitai:7',label:'Found · v1',kind:'repo',downloadable:false,locator:'7',category:'checkpoints',preview:'https://image.civitai.com/f.jpeg'}],nextCursor:null,warnings:[]}:{resources:[{...resource,preview:'https://image.civitai.com/r.jpeg'}],nextCursor:null,warnings:[]}):c==='native_download_plan'?{id:'p',target:(a as {request:{parentPath:string}}).request.parentPath,resources:[resource],totalKnownBytes:23,unknownSizeCount:0,warnings:[],canExecute:true}:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
  render(<I18nProvider><DownloadPanel installTarget="/env"/></I18nProvider>);click('Library');
- const tabs=await screen.findAllByRole('tab');expect(tabs.map(t=>t.textContent)).toEqual(['Models','LoRAs','Workflows']);expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+ await screen.findByRole('tab',{name:'Models'});const tabs=within(screen.getByRole('tablist',{name:'Category'})).getAllByRole('tab');expect(tabs.map(t=>t.textContent)).toEqual(['Models','LoRAs','Workflows']);expect(tabs[0].getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('button',{name:/Image checkpoint/})).toBeTruthy();await act(async()=>{});expect(screen.queryByText('Login / API key needed')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'Video'}));expect(screen.queryByRole('button',{name:/Image checkpoint/})).toBeNull();expect(screen.getByRole('button',{name:/Video model/})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'All'}));
  fireEvent.click(screen.getByRole('button',{name:/Image checkpoint/}));await screen.findByText('/env/ComfyUI/models/checkpoints');await screen.findByLabelText('Remote file');expect((screen.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('true');
  fireEvent.click(screen.getByRole('tab',{name:'LoRAs'}));
@@ -101,10 +97,10 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  fireEvent.click(screen.getByRole('tab',{name:'Workflows'}));expect(screen.getByRole('button',{name:'Workflow W'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Workflow W'}));await screen.findByLabelText('Remote file');
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',authenticated:true,nsfw:true}});
- expect(document.querySelector('.download-resource img')).toBeTruthy();expect(screen.getByText('/env/ComfyUI/user/default/workflows')).toBeTruthy();
- fireEvent.click(screen.getByLabelText('Remote file'));click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
- expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:{providerId:'fixture',resources:[expect.objectContaining({id:'file'})],parentPath:'/env/ComfyUI/user/default/workflows',folderName:'',authenticated:true}});
- fireEvent.change(screen.getByLabelText('Search CivitAI'),{target:{value:'found'}});click('Search');await screen.findByRole('button',{name:'Select repository: Found · v1'});
+ expect(document.querySelector('.download-resource img')).toBeTruthy();expect(screen.getByText('/env/ComfyUI/user/default/workflows')).toBeTruthy();expect(screen.queryByRole('button',{name:'Choose existing parent folder'})).toBeNull();
+ fireEvent.click(screen.getByLabelText('Remote file'));click('Download all (1)');await act(async()=>{});
+ expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'fixture',resources:[expect.objectContaining({id:'file'})],parentPath:'/env/ComfyUI/user/default/workflows',folderName:'',authenticated:true}});
+ fireEvent.change(screen.getByLabelText('Search catalog & CivitAI'),{target:{value:'found'}});click('Search');await screen.findByRole('button',{name:'Select repository: Found · v1'});
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'search',locator:'found',authenticated:true,nsfw:true}});
  click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true,nsfw:true}});
@@ -114,16 +110,36 @@ it('mounts exactly the panel for the active top tab',async()=>{
  view.rerender(<I18nProvider><DownloadWorkspace view="downloads"/></I18nProvider>);await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
  view.rerender(<I18nProvider><DownloadWorkspace view={null}/></I18nProvider>);expect(screen.queryByRole('tab')).toBeNull();
 });
-it('lists adult entries blurred until the NSFW switch is confirmed and always browses everything natively',async()=>{
+it('always lists adult entries unblurred with their 18+ tag and browses everything natively',async()=>{
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints',preview:'https://example.invalid/s.png'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true,preview:'https://example.invalid/a.png'}];
- vi.mocked(invoke).mockImplementation(async c=>c==='native_auth_status'?[]:c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,nsfw:true},{...resource,id:'safe',label:'Safe file'}],nextCursor:null,warnings:[]});
- const blurred=(name:RegExp)=>screen.getByRole('button',{name}).querySelector('img')!.classList.contains('is-blurred');
- mount();click('Library');await screen.findByRole('button',{name:/Safe model/});expect(blurred(/Adult model/)).toBe(true);expect(blurred(/Safe model/)).toBe(false);
- fireEvent.click(screen.getByRole('switch'));expect(screen.getByRole('alertdialog')).toBeTruthy();click('Keep SFW');expect(screen.queryByRole('alertdialog')).toBeNull();expect(blurred(/Adult model/)).toBe(true);
- fireEvent.click(screen.getByRole('switch'));click('I am 18+, show it');expect(blurred(/Adult model/)).toBe(false);expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true');
- fireEvent.click(screen.getByRole('button',{name:/Adult model/}));await screen.findByLabelText('Remote file');
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_auth_status'?[]:c==='native_download_catalog'?{...catalog,entries}:{resources:[{...resource,nsfw:true}],nextCursor:null,warnings:[]});
+ mount();click('Library');const adult=await screen.findByRole('button',{name:/Adult model/});
+ expect(screen.queryByRole('switch')).toBeNull();expect(document.querySelector('.download-preview.is-blurred')).toBeNull();expect(within(adult).getByText('18+')).toBeTruthy();
+ fireEvent.click(adult);await screen.findByLabelText('Remote file');
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',authenticated:false,nsfw:true}});
- fireEvent.click(screen.getByRole('switch'));expect(screen.queryByRole('alertdialog')).toBeNull();expect(screen.getByLabelText('Remote file')).toBeTruthy();expect(blurred(/Adult model/)).toBe(true);
+});
+it('keeps selections across cards and downloads one native plan per folder in sequence',async()=>{
+ const entries=[{...catalog.entries[0],id:'lora',label:'Lora card',locator:'https://example.invalid/l.json',target:'loras'},{...catalog.entries[0],id:'wf',label:'Workflow card',locator:'https://example.invalid/w.json',target:'loras'}];
+ const plans:string[]=[];
+ vi.mocked(invoke).mockImplementation(async(c,a)=>{const r=(a as {request:{locator:string;parentPath:string}}|undefined)?.request;
+  if(c==='native_download_catalog')return {...catalog,entries:[entries[0],{...entries[1],target:'workflows'}]};if(c==='native_auth_status')return [];
+  if(c==='native_download_browse')return {resources:[{...resource,id:r!.locator,label:`File ${r!.locator.slice(-6)}`}],nextCursor:null,warnings:[]};
+  if(c==='native_download_plan'){plans.push(r!.parentPath);return {id:`p${plans.length}`,target:r!.parentPath,resources:[],totalKnownBytes:0,unknownSizeCount:0,warnings:[],canExecute:true};}
+  return {state:'succeeded',completed:1,total:1,bytesDownloaded:1,error:null};});
+ render(<I18nProvider><DownloadPanel installTarget="/env"/></I18nProvider>);click('Library');
+ fireEvent.click(await screen.findByRole('button',{name:'Lora card'}));fireEvent.click(await screen.findByLabelText('File l.json'));
+ tab('Workflows');fireEvent.click(await screen.findByRole('button',{name:'Workflow card'}));fireEvent.click(await screen.findByLabelText('File w.json'));
+ const basket=screen.getByRole('region',{name:'Selected for download'});expect(within(basket).getByText('loras')).toBeTruthy();expect(within(basket).getByText('workflows')).toBeTruthy();
+ click('Download all (2)');await waitFor(()=>expect(within(screen.getByRole('region',{name:'Selected for download'})).queryAllByRole('listitem')).toHaveLength(0));
+ expect(plans).toEqual(['/env/ComfyUI/models/loras','/env/ComfyUI/user/default/workflows']);expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_start').map(([,a])=>a)).toEqual([{planId:'p1',confirmed:true},{planId:'p2',confirmed:true}]);
+});
+it('narrows catalog cards live by the search text',async()=>{
+ const entries=[{...catalog.entries[0],id:'a',label:'Wan Lightspeed'},{...catalog.entries[0],id:'b',label:'LTX Director'}];
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_auth_status'?[]:c==='native_download_catalog'?{...catalog,entries}:null);
+ mount();click('Library');await screen.findByRole('button',{name:'LTX Director'});
+ fireEvent.change(screen.getByLabelText('Search catalog & CivitAI'),{target:{value:'light'}});
+ expect(screen.getByRole('button',{name:'Wan Lightspeed'})).toBeTruthy();expect(screen.queryByRole('button',{name:'LTX Director'})).toBeNull();
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_browse')).toBe(false);
 });
 it('filters catalog cards and listed files by base model family',async()=>{
  const entries=[{id:'wan',label:'Wan model',providerId:'fixture',scope:'index',locator:'https://example.invalid/w.json',kind:'model',target:'checkpoints',base:'Wan 2.2'},{id:'ltx',label:'LTX model',providerId:'fixture',scope:'index',locator:'https://example.invalid/l.json',kind:'model',target:'checkpoints',base:'LTX 2.3'}];
@@ -175,7 +191,7 @@ it('opens the file picker under the clicked card with one version selected at a 
  const group=screen.getByRole('group',{name:'Version'});expect([...group.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['v2','v1']);
  expect(screen.getByRole('button',{name:'v2'}).getAttribute('aria-pressed')).toBe('true');expect(screen.queryByLabelText('model-old.safetensors')).toBeNull();
  fireEvent.click(screen.getByLabelText(/model-fp8\.safetensors/));fireEvent.click(screen.getByRole('button',{name:'v1'}));
- expect(screen.getByLabelText('model-old.safetensors')).toBeTruthy();expect(screen.queryByLabelText(/model-fp8\.safetensors/)).toBeNull();expect(screen.getByText('1 resources selected')).toBeTruthy();
+ expect(screen.getByLabelText('model-old.safetensors')).toBeTruthy();expect(screen.queryByRole('checkbox',{name:/model-fp8\.safetensors/})).toBeNull();expect(within(screen.getByRole('region',{name:'Selected for download'})).getByText('model-fp8.safetensors')).toBeTruthy();
 });
 it('marks files that already exist in the destination as local and keeps them unselectable',async()=>{
  vi.mocked(invoke).mockImplementation(async c=>c==='native_auth_status'?[]:c==='native_download_catalog'?catalog:c==='native_download_browse'?{resources:[{...resource,locator:'have.safetensors'},{...resource,id:'new',label:'New file',locator:'new.safetensors'}],nextCursor:null,warnings:[]}:c==='native_files_present'?[true,false]:{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});
@@ -196,10 +212,11 @@ it('automatically uses the matching configured token for browse and plan but res
  vi.mocked(invoke).mockImplementation((c,a)=>c==='native_auth_status'?Promise.resolve([{providerId:'fixture',configured:true,persisted:true}]):original(c,a));
  fireEvent.change(screen.getByLabelText('Source locator'),{target:{value:'source'}});click('Browse resources');await screen.findByLabelText('Remote file');
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'fixture',scope:'index',locator:'source',authenticated:true,nsfw:true}});
- fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');click('Prepare native download plan');await screen.findByLabelText('I authorize only this exact optional download plan.');
- expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:expect.objectContaining({authenticated:true})});
+ fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');
  fireEvent.change(screen.getByLabelText('Access mode'),{target:{value:'false'}});click('Browse resources');await screen.findByLabelText('Remote file');
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:expect.objectContaining({authenticated:false})});
+ // The ticked file keeps the access mode it was listed with.
+ click('Download all (1)');await screen.findByText('Running');expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:expect.objectContaining({authenticated:true})});
 });
 it('returns from Installed VAE to a valid catalog tab and preserves valid remembered choices',async()=>{
  const entries=[{...catalog.entries[0],target:'checkpoints'},{...catalog.entries[0],id:'lora',label:'Catalog LoRA',target:'loras'}];
@@ -207,10 +224,10 @@ it('returns from Installed VAE to a valid catalog tab and preserves valid rememb
  localStorage.setItem('deas.pref.library.category',JSON.stringify('loras'));
  render(<I18nProvider><DownloadPanel embedded installTarget="/env"/></I18nProvider>);
  expect((await screen.findByRole('tab',{name:'LoRAs'})).getAttribute('aria-selected')).toBe('true');
- click('Installed');fireEvent.click(await screen.findByRole('tab',{name:'VAE'}));click('Catalog');
+ tab('Installed');fireEvent.click(await screen.findByRole('tab',{name:'VAE'}));tab('Catalog');
  expect(screen.getByRole('tab',{name:'Models'}).getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('button',{name:'Curated index'})).toBeTruthy();
- fireEvent.click(screen.getByRole('tab',{name:'LoRAs'}));click('Installed');await screen.findByRole('button',{name:'a.pt'});click('Catalog');
+ fireEvent.click(screen.getByRole('tab',{name:'LoRAs'}));tab('Installed');await screen.findByRole('button',{name:'a.pt'});tab('Catalog');
  expect(screen.getByRole('tab',{name:'LoRAs'}).getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('button',{name:'Catalog LoRA'})).toBeTruthy();
 });
@@ -227,7 +244,7 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
  render(<I18nProvider><DownloadPanel embedded installTarget="/env"/></I18nProvider>);
  await screen.findByRole('tab',{name:'Models'});
  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_models_scan')).toBe(false); // scanned only when the installed view opens
- click('Installed');
+ tab('Installed');
  expect((await screen.findByRole('tab',{name:'LoRAs'})).getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('tab',{name:'VAE'})).toBeTruthy();
  fireEvent.click(await screen.findByRole('button',{name:'Krea2/slime.safetensors'}));

@@ -25,12 +25,9 @@
 .download-card { display: grid; gap: .4rem; padding: .4rem; border: 1px solid #ffffff1f; border-radius: .7rem; background: var(--surface); color: inherit; font-size: .75rem; text-align: left; overflow-wrap: anywhere; }
 .download-card[aria-pressed="true"] { border-color: var(--copper); }
 .download-preview { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: .4rem; background: #121719; }
-.download-preview.is-blurred { filter: blur(14px) saturate(.6); clip-path: inset(0 round .4rem); }
 .download-preview.is-empty { background: repeating-linear-gradient(45deg, #ffffff08 0 6px, transparent 6px 12px); }
 .download-resource { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: .6rem; align-items: start; }
 .download-resource .download-preview { aspect-ratio: 1; }
-.download-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: end; }
-@media (max-width: 400px) { .download-search { grid-template-columns: minmax(0, 1fr); } }
 .download-card { position: relative; }
 .download-auth { position: absolute; top: .55rem; left: .55rem; padding: .15rem .45rem; border-radius: .4rem; background: #000000b3; color: var(--copper); font-size: .65rem; font-style: normal; }
 .download-resource .download-auth { position: static; justify-self: start; display: inline-block; margin-bottom: .3rem; }
@@ -42,7 +39,6 @@
 .download-dialog-card { max-width: 26rem; margin: 1rem; padding: 1.2rem 1.4rem; border: 1px solid #ffbaaa66; border-radius: 1rem; background: linear-gradient(145deg, #303d43, #20262b 78%); color: var(--chalk); }
 .download-dialog-card h3 { margin: 0 0 .5rem; font-size: 1rem; }
 .download-dialog-card p { margin: 0 0 1rem; font-size: .85rem; line-height: 1.5; color: var(--muted); }
-.download-danger { border-color: #ffbaaa; color: #ffbaaa; }
 /* Light-switch style: both labels always visible, the lit side is the active one. */
 .download-switch { justify-self: start; display: inline-grid; grid-template-columns: auto 2.6rem auto; align-items: center; gap: .5rem; padding: .35rem .7rem; border: 1px solid #ffffff1f; border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; }
 .download-switch > span:first-child, .download-switch > span:last-child { transition: color .2s; }
@@ -69,3 +65,27 @@
 .auth-provider[aria-pressed="true"] { border-color: var(--copper); border-inline-start-color: var(--copper); }
 .auth-provider.is-set[aria-pressed="true"] { border-inline-start-color: #83c19a; }
 .auth-settings { display: grid; gap: .75rem; padding: .8rem; border: 1px solid var(--copper); border-radius: .7rem; }
+/* Library header: view tabs left, the run-everything button top right. */
+.download-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .5rem; border-bottom: 1px solid #ffffff1a; }
+.download-head .studio-tabs { padding-top: 0; }
+.download-controls .download-start-all { margin-bottom: .4rem; padding: .55rem 1.1rem; border-color: var(--copper); background: var(--copper); color: #11171a; font-weight: 600; }
+.download-controls .download-start-all:disabled { background: transparent; color: var(--muted); border-color: #ffffff2a; }
+.download-basket { display: grid; gap: .35rem; padding: .6rem .8rem; border: 1px solid #83c19a66; border-radius: .7rem; }
+.download-basket h3 { margin: 0; font-size: .85rem; }
+.download-basket ul { display: grid; gap: .2rem; margin: 0; padding: 0; list-style: none; font-size: .78rem; }
+.download-basket li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem; align-items: center; }
+.download-basket small { color: var(--muted); font-family: monospace; }
+/* Filters left, the selection brief beside them as a fixed third so ticking never reflows the filters. */
+.download-filter-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: .75rem; align-items: start; }
+.download-filters { display: grid; gap: .6rem; min-width: 0; }
+.download-basket { max-height: 14rem; overflow-y: auto; align-content: start; }
+@media (max-width: 700px) { .download-filter-row { grid-template-columns: minmax(0, 1fr); } }
+.download-controls select { padding: 4px 8px; }
+/* Catalog source and CivitAI search share one row; Enter or the inline ↵ submits. */
+.download-source-row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+.download-search-go { position: absolute; right: 2px; bottom: 2px; width: 1.7rem; height: calc(100% - 4px); max-height: 1.6rem; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--copper); font-size: .9rem; line-height: 1; }
+.download-search-go:disabled { color: var(--muted); opacity: .5; cursor: default; }
+/* Source and search are twins: same width, height and label spacing. */
+.download-controls .download-source, .download-search { position: relative; flex: 0 1 16rem; min-width: 0; }
+.download-controls .download-source select, .download-controls .download-search input { width: 100%; height: 30px; box-sizing: border-box; padding: 0 8px; }
+.download-controls .download-search input { padding-right: 2rem; }

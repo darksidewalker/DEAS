@@ -10,7 +10,13 @@ const isDepth=(v:unknown):v is number=>typeof v==='number'&&depths.includes(v);
 // Session caches: listings show instantly on revisit (then refresh), thumbnails skip the IPC round trip.
 const listings=new Map<string,MediaListing>();
 const thumbs=new Map<string,string>();
-/** Image tile: asks the native side for its cached small PNG, falls back to the original file. */
+/** First frame only: an animated <img> tile keeps WebKitGTK's decoder threads busy and the window repainting for as long as it is shown. */
+function Still({src}:{src:string}){
+ const ref=useRef<HTMLCanvasElement>(null);
+ useEffect(()=>{const img=new Image();img.onload=()=>{const c=ref.current,ctx=c?.getContext('2d');if(c&&ctx){c.width=img.naturalWidth;c.height=img.naturalHeight;ctx.drawImage(img,0,0);}};img.src=src;},[src]);
+ return <canvas ref={ref} data-still aria-hidden="true"/>;
+}
+/** Image tile: asks the native side for its cached small PNG, falls back to the original file (its first frame for formats that may animate). */
 function Thumb({entry}:{entry:MediaEntry}){
  const key=`${entry.path}\0${entry.size}\0${entry.modified}`;
  const [src,setSrc]=useState(()=>thumbs.get(key)??'');
@@ -20,7 +26,8 @@ function Thumb({entry}:{entry:MediaEntry}){
   invoke<string>('native_media_thumbnail',{path:entry.path}).then(p=>typeof p==='string'?p:entry.path,()=>entry.path).then(p=>{const s=convertFileSrc(p);thumbs.set(key,s);if(alive)setSrc(s);});
   return()=>{alive=false;};
  },[key]); // eslint-disable-line react-hooks/exhaustive-deps
- return src?<img src={src} alt="" loading="lazy" decoding="async"/>:<span className="media-glyph" aria-hidden="true"/>;
+ if(!src)return <span className="media-glyph" aria-hidden="true"/>;
+ return src===convertFileSrc(entry.path)&&/\.(webp|gif|apng)$/i.test(entry.name)?<Still src={src}/>:<img src={src} alt="" loading="lazy" decoding="async"/>;
 }
 /** Renders only the tile rows in view plus two spare rows; unmeasured (jsdom, empty) renders everything. `folder` changes scroll back to the top. */
 function Tiles<T>({items,render,folder,...rest}:{items:T[];render:(item:T)=>React.ReactNode;folder:string}&React.HTMLAttributes<HTMLUListElement>){
@@ -63,7 +70,7 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
   catch(e){listings.delete(key);if(v===version.current){setError(String(e));if(cached)setListing(l=>l===cached?null:l);}} // a stale cached view must not outlive a folder that failed to list
  };
  // The output folder is the natural start once an environment is known; before that, home.
- useEffect(()=>{if(native)void open(roots.output??'');return()=>{version.current++;};},[native,roots.output]);
+ useEffect(()=>{if(native)void open(roots.output??roots.input??'');return()=>{version.current++;};},[native,roots.output,roots.input]);
  const inOutput=!!roots.output&&!!listing&&listing.path.startsWith(roots.output);
  useEffect(()=>{if(outputRevision&&inOutput&&listing)void open(listing.path);},[outputRevision]); // eslint-disable-line react-hooks/exhaustive-deps
  const changeDepth=(levels:number)=>{setDepth(levels);if(listing)void open(listing.path,levels);};

@@ -47,6 +47,29 @@ pub fn identity(file: &File) -> Result<(u64, u64), String> {
         ((i.nFileIndexHigh as u64) << 32) | i.nFileIndexLow as u64,
     ))
 }
+/// Full (including ReFS) file identity and link count for advisory model caches.
+pub fn cache_file_identity(file: &File) -> Result<(u64, [u8; 16], u64), String> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
+    };
+    let mut id: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle() as HANDLE,
+            FileIdInfo,
+            std::ptr::addr_of_mut!(id).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err("Cannot inspect full cache file identity".into());
+    }
+    Ok((
+        id.VolumeSerialNumber,
+        id.FileId.Identifier,
+        info(file)?.nNumberOfLinks as u64,
+    ))
+}
 /// Opens the object itself (never its reparse target) and rejects reparse points.
 pub fn open_no_follow(path: &Path) -> Result<File, String> {
     let file = OpenOptions::new()

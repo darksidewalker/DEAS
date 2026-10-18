@@ -12,7 +12,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo build --manifest-path src-tauri/Cargo.toml
 ```
 
-The native executable is `$CARGO_TARGET_DIR/debug/deas`. A desktop session and WebKitGTK 4.1 are needed on Linux. Before GTK/WebKit initialization, the binary supplies process-local defaults `WEBKIT_DISABLE_DMABUF_RENDERER=1` (avoid GBM/DMA-BUF allocation failures) and `GDK_BACKEND=wayland,x11` (try Wayland, then X11). Launch the binary directly; no wrapper or exported variable is needed. Existing explicit overrides are preserved, including `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt into DMA-BUF or `GDK_BACKEND=x11`/`wayland` to force one backend. This does not force software OpenGL, change system settings or replace missing system libraries.
+The native executable is `$CARGO_TARGET_DIR/debug/deas`. A desktop session, WebKitGTK 4.1 and GStreamer `good` plugins (`gst-plugins-good`; WebKit aborts on media without `autoaudiosink`) are needed on Linux. Before GTK/WebKit initialization, the binary supplies process-local defaults `__NV_DISABLE_EXPLICIT_SYNC=1` (NVIDIA Wayland: keeps WebKit's GPU renderer from a protocol error) and `GDK_BACKEND=wayland,x11` (try Wayland, then X11). Launch the binary directly; no wrapper or exported variable is needed. Existing explicit overrides are preserved, including `WEBKIT_DISABLE_DMABUF_RENDERER=1` to fall back to CPU rendering or `GDK_BACKEND=x11`/`wayland` to force one backend. This does not force software OpenGL, change system settings or replace missing system libraries.
 
 Tauri CLI development uses `http://localhost:1420` and `npm run dev`. Its build hook runs `npm run build` before embedding assets. Direct `cargo build` does not run that hook.
 

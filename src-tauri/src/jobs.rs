@@ -198,6 +198,45 @@ fn compile(i: &Value) -> Result<Value, String> {
     {
         return Err("Invalid inputMask: an uploaded mask for an unresized inputImage".into());
     }
+    let blur = object.get("maskBlur");
+    if blur.is_some_and(|b| {
+        mask.is_none()
+            || b.as_u64().is_none_or(|n| {
+                n > 31
+                    || n >= i["width"]
+                        .as_u64()
+                        .unwrap_or(0)
+                        .min(i["height"].as_u64().unwrap_or(0))
+            })
+    }) {
+        return Err(
+            "Invalid maskBlur: integer 0..31 smaller than source edges, with inputMask".into(),
+        );
+    }
+    let crop = object.get("inpaintCrop");
+    if crop.is_some_and(|c| {
+        mask.is_none()
+            || c.as_object().is_none_or(|o| o.len() != 6)
+            || ["x", "y", "width", "height", "targetWidth", "targetHeight"]
+                .iter()
+                .any(|k| {
+                    c[*k]
+                        .as_u64()
+                        .is_none_or(|n| n > 8192 || (n == 0 && !["x", "y"].contains(k)))
+                })
+            || c["x"].as_u64().unwrap_or(8193) + c["width"].as_u64().unwrap_or(8193)
+                > i["width"].as_u64().unwrap_or(0)
+            || c["y"].as_u64().unwrap_or(8193) + c["height"].as_u64().unwrap_or(8193)
+                > i["height"].as_u64().unwrap_or(0)
+            || ["targetWidth", "targetHeight"]
+                .iter()
+                .any(|k| c[*k].as_u64().is_none_or(|n| n < 64 || n % 8 != 0))
+            || c["targetWidth"].as_u64().unwrap_or(8193)
+                * c["targetHeight"].as_u64().unwrap_or(8193)
+                > 16_777_216
+    }) {
+        return Err("Invalid inpaintCrop: bounded source rectangle and model-aligned target dimensions with inputMask".into());
+    }
     // `inputLayers` paste up to 4 extra images (input or `[output]` files) onto the source, in source pixels, before encoding.
     let layers = object.get("inputLayers");
     if layers.is_some_and(|l| {
@@ -233,6 +272,10 @@ fn compile(i: &Value) -> Result<Value, String> {
     }
     // Workbench Options: model patches and tiled VAE; absent or empty compiles the plain graph.
     let options = object.get("options");
+    let wildcard = object.get("wildcard");
+    if let Some(rules) = wildcard {
+        crate::wildcard::validate(rules)?;
+    }
     if options.is_some_and(|o| !valid_options(o)) {
         return Err("Invalid options".into());
     }
@@ -244,15 +287,29 @@ fn compile(i: &Value) -> Result<Value, String> {
                 .into(),
         );
     }
+    let upscale = object.get("upscaleModel");
+    if upscale.is_some_and(|u| resize.is_none() || !u.as_str().is_some_and(model_name)) {
+        return Err("Invalid upscaleModel: a listed upscale model with inputResize".into());
+    }
+    // `refine` is a second pass after the first decode (SwarmUI refiner/upscale).
+    let refine = object.get("refine");
+    if refine.is_some_and(|r| !valid_refine(r, sigmas.is_some())) {
+        return Err("Invalid refine: aligned size, denoise in (0, 1], optional listed upscale model, sigmas exactly with the first pass".into());
+    }
     if object.len()
         != fields.len()
+            + usize::from(upscale.is_some())
+            + usize::from(refine.is_some())
             + usize::from(options.is_some())
+            + usize::from(wildcard.is_some())
             + usize::from(loras.is_some())
             + 2 * usize::from(image.is_some())
             + usize::from(diffusion.is_some())
             + usize::from(resize.is_some())
             + usize::from(sigmas.is_some())
             + usize::from(mask.is_some())
+            + usize::from(blur.is_some())
+            + usize::from(crop.is_some())
             + usize::from(layers.is_some())
         || fields.iter().any(|key| !object.contains_key(*key))
     {
@@ -359,10 +416,23 @@ fn compile(i: &Value) -> Result<Value, String> {
         return Err("Unsafe sampler or scheduler".into());
     }
     if !i["outputPrefix"].as_str().is_some_and(|s| {
-        !s.is_empty()
-            && s.len() <= 128
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+        s.len() <= 512
+            && s.rsplit_once('/')
+                .is_none_or(|(folder, _)| folder.len() <= 255)
+            && s.split('/').all(|p| {
+                let stem = p.split('.').next().unwrap_or("").to_ascii_lowercase();
+                !p.is_empty()
+                    && p.len() <= 180
+                    && p != "."
+                    && p != ".."
+                    && !p.ends_with('.')
+                    && p.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                    && !matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+                    && !(stem.len() == 4
+                        && (stem.starts_with("com") || stem.starts_with("lpt"))
+                        && stem.as_bytes()[3].is_ascii_digit())
+            })
     }) {
         return Err("Unsafe output prefix".into());
     }
@@ -376,6 +446,15 @@ fn compile(i: &Value) -> Result<Value, String> {
         "7":{"class_type":"SaveImage","inputs":{"images":["6",0],"filename_prefix":i["outputPrefix"]}}
     });
     let (mut model, mut clip, mut vae) = (json!(["1", 0]), json!(["1", 1]), json!(["1", 2]));
+    if let Some(rules) = wildcard {
+        let mut inputs = rules.clone();
+        inputs["selection_state"] = json!(rules["selection_state"].to_string());
+        inputs["positive_input"] = i["positivePrompt"].clone();
+        inputs["negative_input"] = i["negativePrompt"].clone();
+        graph["WP"] = json!({"class_type":crate::wildcard::NODE,"inputs":inputs});
+        graph["2"]["inputs"]["text"] = json!(["WP", 0]);
+        graph["3"]["inputs"]["text"] = json!(["WP", 1]);
+    }
     if let Some(d) = diffusion {
         graph["1"] = json!({"class_type":"UNETLoader","inputs":{"unet_name":i["checkpoint"],"weight_dtype":"default"}});
         graph["C"] = json!({"class_type":"CLIPLoader","inputs":{"clip_name":d["textEncoder"],"type":d["clipType"]}});
@@ -451,7 +530,13 @@ fn compile(i: &Value) -> Result<Value, String> {
         }
         graph["9"] = json!({"class_type":"VAEEncode","inputs":{"pixels":base,"vae":vae}});
         if let Some(r) = resize {
-            graph["S"] = json!({"class_type":"ImageScale","inputs":{"image":base,"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":r["crop"]}});
+            let mut scaled = base.clone();
+            if let Some(u) = upscale {
+                graph["UL"] = json!({"class_type":"UpscaleModelLoader","inputs":{"model_name":u}});
+                graph["UM"] = json!({"class_type":"ImageUpscaleWithModel","inputs":{"upscale_model":["UL",0],"image":base}});
+                scaled = json!(["UM", 0]);
+            }
+            graph["S"] = json!({"class_type":"ImageScale","inputs":{"image":scaled,"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":r["crop"]}});
             if let Some(p) = r.get("pad") {
                 graph["P"] = json!({"class_type":"ImagePadForOutpaint","inputs":{"image":["S",0],"left":p["left"],"right":p["right"],"top":p["top"],"bottom":p["bottom"],"feathering":0}});
             }
@@ -462,8 +547,32 @@ fn compile(i: &Value) -> Result<Value, String> {
         if let Some(m) = mask {
             // Only the painted area is resampled, then composited onto the untouched source pixels.
             graph["W"] = json!({"class_type":"LoadImageMask","inputs":{"image":m,"channel":"red"}});
-            graph["X"] = json!({"class_type":"SetLatentNoiseMask","inputs":{"samples":["9",0],"mask":["W",0]}});
-            graph["Y"] = json!({"class_type":"ImageCompositeMasked","inputs":{"destination":base,"source":["6",0],"x":0,"y":0,"resize_source":false,"mask":["W",0]}});
+            let mut mask_link = json!(["W", 0]);
+            if blur.and_then(Value::as_u64).unwrap_or(0) > 0 {
+                graph["MI"] = json!({"class_type":"MaskToImage","inputs":{"mask":mask_link}});
+                graph["MB"] = json!({"class_type":"ImageBlur","inputs":{"image":["MI",0],"blur_radius":i["maskBlur"],"sigma":1}});
+                graph["BM"] =
+                    json!({"class_type":"ImageToMask","inputs":{"image":["MB",0],"channel":"red"}});
+                mask_link = json!(["BM", 0]);
+            }
+            let mut noise_mask = mask_link.clone();
+            let mut decoded = json!(["6", 0]);
+            if let Some(c) = crop {
+                graph["IC"] = json!({"class_type":"ImageCrop","inputs":{"image":base,"x":c["x"],"y":c["y"],"width":c["width"],"height":c["height"]}});
+                graph["IS"] = json!({"class_type":"ImageScale","inputs":{"image":["IC",0],"upscale_method":"lanczos","width":c["targetWidth"],"height":c["targetHeight"],"crop":"disabled"}});
+                graph["9"]["inputs"]["pixels"] = json!(["IS", 0]);
+                graph["MC"] = json!({"class_type":"CropMask","inputs":{"mask":mask_link,"x":c["x"],"y":c["y"],"width":c["width"],"height":c["height"]}});
+                graph["CI"] = json!({"class_type":"MaskToImage","inputs":{"mask":["MC",0]}});
+                graph["MS"] = json!({"class_type":"ImageScale","inputs":{"image":["CI",0],"upscale_method":"bilinear","width":c["targetWidth"],"height":c["targetHeight"],"crop":"disabled"}});
+                graph["NM"] =
+                    json!({"class_type":"ImageToMask","inputs":{"image":["MS",0],"channel":"red"}});
+                graph["IR"] = json!({"class_type":"ImageScale","inputs":{"image":["6",0],"upscale_method":"lanczos","width":c["width"],"height":c["height"],"crop":"disabled"}});
+                noise_mask = json!(["NM", 0]);
+                mask_link = json!(["MC", 0]);
+                decoded = json!(["IR", 0]);
+            }
+            graph["X"] = json!({"class_type":"SetLatentNoiseMask","inputs":{"samples":["9",0],"mask":noise_mask}});
+            graph["Y"] = json!({"class_type":"ImageCompositeMasked","inputs":{"destination":base,"source":decoded,"x":crop.map_or(json!(0),|c|c["x"].clone()),"y":crop.map_or(json!(0),|c|c["y"].clone()),"resize_source":false,"mask":mask_link}});
             graph["5"]["inputs"]["latent_image"] = json!(["X", 0]);
             graph["7"]["inputs"]["images"] = json!(["Y", 0]);
         }
@@ -472,10 +581,48 @@ fn compile(i: &Value) -> Result<Value, String> {
         }
         graph.as_object_mut().unwrap().remove("4");
     }
+    if let Some(r) = refine {
+        let mut image = graph["7"]["inputs"]["images"].clone();
+        if let Some(u) = r.get("upscaleModel") {
+            graph["RL"] = json!({"class_type":"UpscaleModelLoader","inputs":{"model_name":u}});
+            graph["RU"] = json!({"class_type":"ImageUpscaleWithModel","inputs":{"upscale_model":["RL",0],"image":image}});
+            image = json!(["RU", 0]);
+        }
+        // The first pass always ends at width×height; a same-size lanczos pass would only resample.
+        if r.get("upscaleModel").is_some() || r["width"] != i["width"] || r["height"] != i["height"]
+        {
+            graph["RS"] = json!({"class_type":"ImageScale","inputs":{"image":image,"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":"disabled"}});
+            image = json!(["RS", 0]);
+        }
+        graph["RE"] = json!({"class_type":"VAEEncode","inputs":{"pixels":image,"vae":vae}});
+        if let Some(s) = r.get("sigmas") {
+            let list = s
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_f64)
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            graph["RZ"] = json!({"class_type":"ManualSigmas","inputs":{"sigmas":list}});
+            graph["R5"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["G",0],"sampler":["Q",0],"sigmas":["RZ",0],"latent_image":["RE",0]}});
+        } else {
+            graph["R5"] = graph["5"].clone();
+            graph["R5"]["inputs"]["latent_image"] = json!(["RE", 0]);
+            graph["R5"]["inputs"]["denoise"] = r["denoise"].clone();
+        }
+        graph["R6"] = json!({"class_type":"VAEDecode","inputs":{"samples":["R5",0],"vae":vae}});
+        graph["7"]["inputs"]["images"] = json!(["R6", 0]);
+    }
     if let Some(tile) = o.get("vaeTile") {
         // Spatial tiles; the temporal values are the node defaults (used by video VAEs only).
         let tiles = json!({"tile_size":tile,"overlap":64,"temporal_size":64,"temporal_overlap":8});
-        for (id, node) in [("6", "VAEDecodeTiled"), ("9", "VAEEncodeTiled")] {
+        for (id, node) in [
+            ("6", "VAEDecodeTiled"),
+            ("9", "VAEEncodeTiled"),
+            ("R6", "VAEDecodeTiled"),
+            ("RE", "VAEEncodeTiled"),
+        ] {
             if let Some(n) = graph.get_mut(id) {
                 n["class_type"] = json!(node);
                 n["inputs"]
@@ -488,13 +635,33 @@ fn compile(i: &Value) -> Result<Value, String> {
     Ok(graph)
 }
 
+fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
+    let edge = |k: &str| {
+        r[k].as_u64()
+            .is_some_and(|n| (64..=8192).contains(&n) && n % 8 == 0)
+    };
+    r.as_object().is_some_and(|o| {
+        o.keys()
+            .all(|k| ["width", "height", "denoise", "upscaleModel", "sigmas"].contains(&k.as_str()))
+            && o.contains_key("sigmas") == first_sigmas
+    }) && edge("width")
+        && edge("height")
+        && r["width"].as_u64().unwrap() * r["height"].as_u64().unwrap() <= 16_777_216
+        && r["denoise"].as_f64().is_some_and(|d| d > 0.0 && d <= 1.0)
+        && r.get("upscaleModel")
+            .is_none_or(|u| u.as_str().is_some_and(model_name))
+        && r.get("sigmas").is_none_or(|s| valid_sigmas(s, None))
+}
+
+/// `steps` = `None` checks only the schedule shape (2–151 values).
 fn valid_sigmas(s: &Value, steps: Option<f64>) -> bool {
     let Some(list) = s.as_array() else {
         return false;
     };
     let values: Vec<f64> = list.iter().filter_map(Value::as_f64).collect();
     values.len() == list.len()
-        && steps == Some(list.len() as f64 - 1.0)
+        && (2..=151).contains(&list.len())
+        && steps.is_none_or(|n| n == list.len() as f64 - 1.0)
         && values
             .iter()
             .all(|v| v.is_finite() && (0.0..=1000.0).contains(v))
@@ -537,6 +704,11 @@ fn civitai_saver(graph: &mut Value, nodes: &Value) {
         return;
     }
     graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
+    if graph.get("WP").is_some() {
+        // Graph tracing cannot resolve random text; use this execution's actual strings.
+        graph["M"]["inputs"]["text_positive"] = json!(["WP", 0]);
+        graph["M"]["inputs"]["text_negative"] = json!(["WP", 1]);
+    }
     graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":"png","compression":44,"save_output":true,"metadata_config":["M",0]}});
 }
 
@@ -642,14 +814,23 @@ impl Jobs {
                             .filter(|name| {
                                 [
                                     "ImageScale",
+                                    "ImageCrop",
+                                    "CropMask",
+                                    "MaskToImage",
+                                    "ImageToMask",
+                                    "ImageBlur",
                                     "ImagePadForOutpaint",
                                     "LoadImageMask",
                                     "SetLatentNoiseMask",
                                     "ImageCompositeMasked",
+                                    "VAEEncode",
+                                    "UpscaleModelLoader",
+                                    "ImageUpscaleWithModel",
                                 ]
                                 .contains(name)
                                     || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
                                     || crate::recipe_prerequisites::OPTION_NODES.contains(name)
+                                    || *name == crate::wildcard::NODE
                             }),
                     )
                     .collect(),
@@ -727,16 +908,23 @@ impl Jobs {
                 intent["options"]["compile"].as_str().into_iter().collect(),
             ),
             ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
+            (
+                "upscaleModels",
+                [&intent["upscaleModel"], &intent["refine"]["upscaleModel"]]
+                    .into_iter()
+                    .filter_map(Value::as_str)
+                    .collect(),
+            ),
         ] {
             let available = allow[field]
                 .as_array()
                 .ok_or("Malformed native prerequisites")?;
-            if required
+            if let Some(missing) = required
                 .iter()
-                .any(|name| !available.iter().any(|v| v.as_str() == Some(*name)))
+                .find(|name| !available.iter().any(|v| v.as_str() == Some(**name)))
             {
                 return Err(format!(
-                    "Diagnostic {field} are not available on this backend"
+                    "Diagnostic {field} are not available on this backend: {missing}"
                 ));
             }
         }

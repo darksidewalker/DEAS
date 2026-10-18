@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-settings"
 description = "Read/write the per-environment folder, startup-optimization and LLM settings, explicitly request LLM completions, and check whether listed files already exist."
-commands.allow = ["native_settings_read", "native_settings_write", "native_settings_move", "native_files_present", "native_startup_read", "native_startup_write", "native_llm_read", "native_llm_write", "native_llm_generate", "native_llm_models"]
+commands.allow = ["native_settings_read", "native_settings_write", "native_settings_move", "native_files_present", "native_startup_read", "native_startup_write", "native_llm_read", "native_llm_write", "native_llm_generate", "native_llm_models", "native_forge", "native_wildcard_library"]

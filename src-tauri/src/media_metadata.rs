@@ -568,7 +568,9 @@ fn exif(data: &[u8], out: &mut Entries) -> Result<(), String> {
                     return Err("Invalid EXIF Unicode length".into());
                 }
                 let mut units: Vec<u16> = text
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|b| {
                         if le {
                             u16::from_le_bytes([b[0], b[1]])

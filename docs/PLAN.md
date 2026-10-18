@@ -31,6 +31,23 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 
 ## Milestones and acceptance checklist
 
+### Output naming (0.1.25)
+- [x] Persist an extensionless Output-relative naming template in Generate Options, with type/date/time/seed/model substitution before immutable job preparation.
+- [x] Apply to core and metadata image savers; validate bounded safe relative paths in TypeScript and Rust without changing existing saver counters or extensions.
+- [ ] Video/audio recipe integration remains gated on those recipes; standalone Comfy node settings are independent.
+
+### Masked-area inpaint and blur (0.1.22)
+- [x] Opt-in context crop with integer grow (0–512), model-grid processing dimensions and original-coordinate recompositing; default off.
+- [x] Integer mask blur (0–31, default off), shared between sampling and final blending, with SwarmUI's Gaussian kernel/sigma and no new node dependency.
+- [x] Native/TypeScript validation, old-graph compatibility, UI tests, browser real-mask fixtures and real CPU ComfyUI image/mask operation checks.
+- [ ] New model/GPU generation quality and native Windows/WebKitGTK control interaction remain unverified.
+
+### Embedded workflow handoff (0.1.21)
+- [x] Recognize embedded editor workflows in existing image/video metadata and explicitly open them in the owned Comfy tab without execution.
+- [x] Preserve the previous editor draft; validate source/origin, await editor readiness/acknowledgement and report import/timeout/disconnect failures.
+- [x] Focused UI/transport tests, six-language/five-width Comfy regression fixtures and real Chromium/WebKitGTK frontend imports.
+- [ ] Windows native interaction and generation from an imported graph remain unverified.
+
 ### Layered image editing (0.1.20)
 - [x] Extend Generate's existing preview with cursor-anchored zoom, Fit/100%, pan and source-pixel image/mask interaction.
 - [x] Selectable thumbnails, independent mask visibility/erase/clear, visible-only inserts, image ordering and active-image handles; round/square brush and numeric/range diameter controls.
@@ -50,6 +67,21 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 - [x] Always discover local language GGUFs from the configured models folder's llm directory; add configured server models without hiding local choices on remote failure.
 - [x] Select discovered provider/model per request in tests and the shared prompt-feature contract, never as a saved global model; automatic local llama-cpp runtime selection.
 - [x] Verify discovery/inference/native/UI/browser coverage and rebuild the Linux artifact.
+
+### Presets & Wildcards (0.1.24)
+- [x] Dock tab beside LoRAs; hammer chooses LLM Prompt Forge or the wildcard controls. Persist opt-in activation, selections, weights, style, seed, budget and reroll mode.
+- [x] Read the original installed library; execute `DaSiWa_WildcardPresetPromptBuilder` before the encoders, preserving base prompts and original category/order/budget rules. Per-generation picks retain selected subjects; Random Select stays explicit.
+- [x] Active/disable badge, immutable job-rule display and actual evaluated strings fed to the metadata saver. Missing plugin fails closed.
+- [x] Native HTTP/capability tests, TS/compiler/UI tests, real-library browser fixtures at six locales/five widths, direct real-node and PNG metadata execution.
+- [ ] Native Windows interaction and new model/GPU generation acceptance; editing/importing custom library files in DEAS is not included.
+
+### Prompt Forge (0.1.23)
+- [x] Hammer in the Generate prompt field: write/enhance in the selected family's dialect, review, Apply, Undo; disabled for families without a dialect.
+- [x] Prompt Forge tab beside Generate: all family dialects plus H3 modes, Duration, Shots, labelled input-folder pictures, vision reading, Send to Generate (prompt + optional negative).
+- [x] No duplicated prompting: native `native_forge` forwards to the node pack's Prompt Writer and H3 Forge routes with DEAS's saved LLM endpoint; route allowlist tested.
+- [x] Real CPU-ComfyUI + local 4B GGUF run of `/dasiwa/llm/write` (text and vision) and H3 REF2VA with a labelled picture.
+- [ ] Streaming/cancel, H3 cast cards/people boxes, video/audio references, continuity drafts, H3 Generate recipe.
+- [ ] Native-window verification of the hammer popover and the tab.
 
 ### Shared LLM backend (0.1.17, superseded by per-request discovery)
 - [x] Backend: per-environment local llama-cpp-python, Ollama or OpenAI-compatible API configuration and explicit test completion.

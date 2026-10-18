@@ -752,6 +752,81 @@ pub async fn native_llm_generate(root: String, request: LlmRequest) -> Result<Ll
     let config = read(&root)?;
     generate(&root, &config, &request).await
 }
+/// The node pack's own LLM settings shape, filled from DEAS's saved endpoint; the webview never names a server.
+fn forge_settings(config: &LlmConfig) -> Value {
+    match config.provider {
+        Provider::Local => json!({}),
+        Provider::Ollama => json!({ "ollama_url": config.base_url }),
+        Provider::Openai => json!({ "openai_url": config.base_url }),
+    }
+}
+fn forge_route(route: &str) -> Result<&'static str, String> {
+    Ok(match route {
+        "models" => "dasiwa/h3/forge/models",
+        "h3" => "dasiwa/h3/forge",
+        "write" => "dasiwa/llm/write",
+        _ => return Err("Unknown Prompt Forge route".into()),
+    })
+}
+/// Prompt Forge runs in the DaSiWa node pack on the backend (Director Forge and Prompt Writer); this forwards one JSON call.
+#[tauri::command]
+pub async fn native_forge(
+    base_url: String,
+    root: String,
+    route: String,
+    mut body: Value,
+) -> Result<Value, String> {
+    let path = forge_route(&route)?;
+    if !body.is_object() {
+        return Err("Invalid Prompt Forge request".into());
+    }
+    body["settings"] = forge_settings(&read(Path::new(&root))?);
+    let url = crate::validate_base_url(&base_url)?
+        .join(path)
+        .map_err(|_| "Invalid backend URL")?;
+    // A local 27B can take minutes to load and write; the node pack's own limit is 600 s.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(900))
+        .build()
+        .map_err(|_| "Cannot create Prompt Forge HTTP client")?;
+    let mut response = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|_| "Prompt Forge request failed")?;
+    let status = response.status();
+    let limit = 4 * MAX_RESPONSE;
+    if response.content_length().is_some_and(|n| n > limit as u64) {
+        return Err("Prompt Forge response too large".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Prompt Forge response failed")?
+    {
+        if chunk.len() > limit - bytes.len() {
+            return Err("Prompt Forge response too large".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    if status.is_success() {
+        Ok(value)
+    } else {
+        Err(format!(
+            "{} {}",
+            status.as_u16(),
+            value["message"].as_str().unwrap_or("")
+        )
+        .trim()
+        .into())
+    }
+}
 #[cfg(test)]
 #[path = "llm_tests.rs"]
 mod tests;

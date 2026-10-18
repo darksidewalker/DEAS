@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { WildcardRules } from './wildcard';
 
 export type ImageMetadata = [string,string][];
 /** Both sides bound untrusted embedded text; only the selected image is read, never thumbnails. */
@@ -38,6 +39,7 @@ export function imageMetadataRows(entries:ImageMetadata):ImageMetadata {
 
 /** Settings an image's metadata can put back into the generation controls; absent keys were not found. */
 export interface GenerationSettings {
+ wildcard?:WildcardRules;
  positive?:string;negative?:string;checkpoint?:string;seed?:number;steps?:number;cfg?:number;sampler?:string;scheduler?:string;width?:number;height?:number;
  loras?:{name:string;strength:number}[];
  /** Values found but not translatable to ComfyUI (`Sampler: PLMS`), shown to the user instead of applied. */

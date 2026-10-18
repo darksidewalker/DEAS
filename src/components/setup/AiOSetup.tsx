@@ -3,6 +3,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults, type NativeBackendStatus } from '../../lib/setup';
 import './setup.css';
+import { OpenComfyWorkflow, sendComfyWorkflow, type ComfyWorkflow } from '../../lib/comfyWorkflow';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { StartupPanel } from '../../features/settings/StartupPanel';
 import { LlmPanel } from '../../features/llm/LlmPanel';
@@ -56,6 +57,18 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const [backendStatus,setBackendStatus]=useState<NativeBackendStatus|null>(null);
  const comfyEndpoint=backendStatus?.state==='running'?backendStatus.endpoint??'':'';
  const [comfyLoaded,setComfyLoaded]=useState(false);
+ const comfyFrame=useRef<HTMLIFrameElement>(null);
+ const handoff=useRef<AbortController|null>(null);
+ useEffect(()=>()=>handoff.current?.abort(),[comfyEndpoint]);
+ const openWorkflow=async(workflow:ComfyWorkflow,name:string)=>{
+  if(!comfyEndpoint)throw new Error('Backend disconnected');
+  handoff.current?.abort();const controller=new AbortController();handoff.current=controller;
+  setView('comfy');
+  // Wait for React to mount the previously unvisited editor before starting its handshake.
+  await new Promise<void>(resolve=>setTimeout(resolve,0));
+  if(!comfyFrame.current||controller.signal.aborted)throw new Error('Backend disconnected');
+  await sendComfyWorkflow(comfyFrame.current,comfyEndpoint,workflow,name,controller.signal);
+ };
  useEffect(()=>setComfyLoaded(false),[comfyEndpoint]);
  const comfyVisited=useRef(false);if(view==='comfy')comfyVisited.current=true;
  // After success the review hides; Upgrade / Re-run installation live in Backend.
@@ -196,10 +209,10 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
    <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
    <button type="button" role="tab" data-node="comfy" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='comfy'} onClick={()=>setView('comfy')}>{t('setup.tab.comfy')}</button>
   </div>
-  {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
+  {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe ref={comfyFrame} title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
   {status&&view!=='comfy'&&(running||view==='setup')&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.state==='succeeded'&&<p>{t('setup.installedNotReady')}</p>}{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
   {/* Once opened, the Studio stays mounted (hidden) so its panels keep their state across tab switches. */}
-  {studioVisited.current&&<div hidden={view!=='studio'}>{studio}</div>}
+  {studioVisited.current&&<div hidden={view!=='studio'}><OpenComfyWorkflow.Provider value={comfyEndpoint?openWorkflow:null}>{studio}</OpenComfyWorkflow.Provider></div>}
   <DownloadWorkspace view={view==='auth'||view==='downloads'?view:null} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
   {view==='setup'&&!succeeded&&installedRoot&&<p className="aio-help aio-detection" role="status">{t('setup.remembered',{path:installedRoot})}</p>}
   {view==='setup'&&review&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}

@@ -1,3 +1,5 @@
+import { safeOutputPrefix } from './outputNaming.ts';
+import { isWildcardRules, wildcardNode, type WildcardRules } from './wildcard.ts';
 /** DEAS-owned diagnostic intent, not a Director/video recipe or widget schema. */
 export interface DiagnosticImageIntentV1 {
   readonly recipeId: 'checkpoint-text-to-image-diagnostic';
@@ -21,6 +23,10 @@ export interface DiagnosticImageIntentV1 {
   readonly denoise?: number;
   /** Inpaint mask uploaded by `native_mask_upload` (`deas-masks/<uuid>.png`, white = repaint), at the unresized source's size. */
   readonly inputMask?: string;
+  /** Gaussian mask radius in source pixels; 0 disables it (same kernel/sigma as SwarmUI). */
+  readonly maskBlur?: number;
+  /** Source-pixel context crop, processed at exact model-aligned target dimensions, then composited back. */
+  readonly inpaintCrop?: {readonly x:number;readonly y:number;readonly width:number;readonly height:number;readonly targetWidth:number;readonly targetHeight:number};
   /** Up to 4 extra images (input or `[output]` files) pasted onto the source in source pixels before encoding. */
   readonly inputLayers?: readonly { readonly image: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }[];
   readonly inputResize?: { readonly width: number; readonly height: number; readonly crop: 'disabled' | 'center'; readonly pad?: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number } };
@@ -30,6 +36,12 @@ export interface DiagnosticImageIntentV1 {
   readonly options?: RunOptions;
   /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */
   readonly sigmas?: readonly number[];
+  /** Optional original DaSiWa preset/wildcard plugin, prepended by the manual prompts. */
+  readonly wildcard?: WildcardRules;
+  /** Image-to-image: upscale model run on the source before `inputResize`, which then sets the exact size. */
+  readonly upscaleModel?: string;
+  /** Post pass after the first decode (SwarmUI refiner/upscale): optional upscale model, exact resize, second sampling at `denoise` with the same model, prompts and seed; `sigmas` is required exactly when the first pass has them. */
+  readonly refine?: { readonly width: number; readonly height: number; readonly denoise: number; readonly upscaleModel?: string; readonly sigmas?: readonly number[] };
 }
 export interface RunOptions {
   /** `ModelAttentionBackend` choice; exclusive with `sage`. */
@@ -58,6 +70,7 @@ export interface RecipeAllowlist {
   readonly attention?: readonly string[];
   readonly sage?: readonly string[];
   readonly compile?: readonly string[];
+  readonly upscaleModels?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {
@@ -101,7 +114,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'inputLayers', 'options', 'sigmas'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -119,10 +132,18 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (Object.hasOwn(input, 'denoise') && !(typeof input.denoise === 'number' && Number.isFinite(input.denoise) && input.denoise >= 0 && input.denoise <= 1)) invalid('denoise', 'Denoise must be a finite number in [0, 1].', 'Supply a denoise strength between 0 and 1.');
   if (Object.hasOwn(input, 'inputMask') && (!Object.hasOwn(input, 'inputImage') || Object.hasOwn(input, 'inputResize')
     || !/^deas-masks\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/u.test(String(input.inputMask)))) invalid('inputMask', 'Invalid inpaint mask.', 'Upload the mask natively and use it with an unresized inputImage.');
+  if (Object.hasOwn(input, 'maskBlur') && (!input.inputMask || !Number.isSafeInteger(input.maskBlur) || (input.maskBlur as number) < 0 || (input.maskBlur as number) > 31 || (input.maskBlur as number) >= Math.min(input.width as number,input.height as number))) invalid('maskBlur','Invalid mask blur.','Use an integer radius 0..31 smaller than the source edges, with inputMask.');
+  if (Object.hasOwn(input,'inpaintCrop')) {
+    const c=input.inpaintCrop;
+    if (!input.inputMask || !isRecord(c) || Object.keys(c).length!==6 || !['x','y','width','height','targetWidth','targetHeight'].every(k=>Number.isSafeInteger(c[k]) && (c[k] as number)>=(['x','y'].includes(k)?0:1) && (c[k] as number)<=8192)
+      || (c.x as number)+(c.width as number)>(input.width as number) || (c.y as number)+(c.height as number)>(input.height as number)
+      || !['targetWidth','targetHeight'].every(k=>(c[k] as number)>=64 && (c[k] as number)%8===0) || (c.targetWidth as number)*(c.targetHeight as number)>16_777_216) invalid('inpaintCrop','Invalid inpaint crop.','Use a bounded source rectangle and model-aligned target dimensions with inputMask.');
+  }
   const layers = input.inputLayers;
   if (Object.hasOwn(input, 'inputLayers') && (!Object.hasOwn(input, 'inputImage') || !Array.isArray(layers) || layers.length < 1 || layers.length > 4
     || !layers.every(l => isRecord(l) && Object.keys(l).length === 5 && safeModel(l.image) && ['x', 'y', 'width', 'height'].every(k =>
       Number.isSafeInteger(l[k]) && (l[k] as number) <= 8192 && ((l[k] as number) > 0 || ((k === 'x' || k === 'y') && l[k] === 0)))))) invalid('inputLayers', 'Invalid image layers.', 'Supply 1-4 {image, x, y, width, height} in source pixels on an inputImage.');
+  if (Object.hasOwn(input,'wildcard')&&!isWildcardRules(input.wildcard)) invalid('wildcard','Invalid wildcard rules.','Use the original node inputs with bounded selections, weights, seed and token budget.');
   const loras = input.loras ?? [];
   if (!Array.isArray(loras) || loras.length > 8 || !loras.every(l => isRecord(l) && Object.keys(l).length === 2 && safeModel(l.name)
     && typeof l.strength === 'number' && Number.isFinite(l.strength) && Math.abs(l.strength) <= 10)) {
@@ -181,13 +202,24 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
       invalid('options', 'Invalid options.', 'Use one attention backend, listed choices, a cache threshold in [0, 3] and a VAE tile of 256–4096 in steps of 64.');
     }
   }
+  const schedule = (s: unknown): s is number[] => Array.isArray(s) && s.length >= 2 && s.length <= 151 && s.every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000)
+    && s.every((v, n) => n === 0 || v < s[n - 1]) && s[s.length - 1] === 0;
   const s = input.sigmas;
-  if (s !== undefined && !(Array.isArray(s) && s.length === (input.steps as number) + 1 && s.every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000)
-    && s.every((v, n) => n === 0 || v < s[n - 1]) && s[s.length - 1] === 0)) {
+  if (s !== undefined && !(schedule(s) && s.length === (input.steps as number) + 1)) {
     invalid('sigmas', 'Invalid sigmas.', 'Supply steps + 1 finite values, strictly descending and ending at 0.');
   }
+  if (Object.hasOwn(input, 'upscaleModel') && (!Object.hasOwn(input, 'inputResize') || !safeModel(input.upscaleModel))) invalid('upscaleModel', 'Invalid upscale model.', 'Use a listed upscale model together with inputResize.');
+  if (Object.hasOwn(input, 'refine')) {
+    const r = input.refine;
+    const edge = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 64 && (v as number) <= 8192 && (v as number) % 8 === 0;
+    if (!isRecord(r) || Object.keys(r).some(k => !['width', 'height', 'denoise', 'upscaleModel', 'sigmas'].includes(k)) || !edge(r.width) || !edge(r.height)
+      || (r.width as number) * (r.height as number) > 16_777_216 || !(typeof r.denoise === 'number' && r.denoise > 0 && r.denoise <= 1)
+      || (Object.hasOwn(r, 'upscaleModel') && !safeModel(r.upscaleModel)) || Object.hasOwn(r, 'sigmas') !== (s !== undefined) || (Object.hasOwn(r, 'sigmas') && !schedule(r.sigmas))) {
+      invalid('refine', 'Invalid refine pass.', 'Supply aligned width/height (at most 16,777,216 pixels), denoise in (0, 1], an optional listed upscale model, and sigmas exactly when the first pass has them.');
+    }
+  }
   const prefix = input.outputPrefix;
-  if (typeof prefix !== 'string' || prefix.length < 1 || prefix.length > 128 || /[^A-Za-z0-9_-]/u.test(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use 1–128 ASCII letters, digits, underscores or hyphens; no paths.');
+  if (!safeOutputPrefix(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use a relative output path of at most 512 ASCII characters, with safe segments of at most 180 characters.');
   return input as unknown as DiagnosticImageIntentV1;
 }
 
@@ -199,8 +231,9 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }
   const allowlist = verified as unknown as RecipeAllowlist;
+  if (intent.wildcard&&!allowlist.nodes.includes(wildcardNode)) throw new RecipeCompileError('MISSING_CAPABILITY',wildcardNode,'Wildcard plugin is unavailable.','Install the DaSiWa node pack or disable wildcards.');
   const sigmaNodes = ['RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
-  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : [])]) {
+  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : []), ...(intent.maskBlur ? ['MaskToImage','ImageBlur','ImageToMask'] : []), ...(intent.inpaintCrop ? ['ImageCrop','CropMask','ImageScale','MaskToImage','ImageToMask'] : []), ...(intent.refine ? ['ImageScale', 'VAEEncode'] : []), ...(intent.upscaleModel || intent.refine?.upscaleModel ? ['UpscaleModelLoader', 'ImageUpscaleWithModel'] : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
   const d = intent.diffusion;
@@ -211,6 +244,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
   for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
   const loras = intent.loras ?? [];
   for (const lora of loras) {
     if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');
@@ -230,7 +264,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   for (const [field, value] of [['attention', o.attention], ['sage', o.sage], ['compile', o.compile]] as const) {
     if (value !== undefined && !allowlist[field]?.includes(value)) throw new RecipeCompileError('MISSING_CAPABILITY', `options.${field}`, 'Choice is not verified on this backend.', 'Select a choice the backend lists.');
   }
-  for (const node of [...patches.map(p => p[1]), ...(tiled ? ['VAEDecodeTiled', ...(intent.inputImage !== undefined ? ['VAEEncodeTiled'] : [])] : [])]) {
+  for (const node of [...patches.map(p => p[1]), ...(tiled ? ['VAEDecodeTiled', ...(intent.inputImage !== undefined || intent.refine ? ['VAEEncodeTiled'] : [])] : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Option node is unavailable.', 'Install the node pack or turn the option off.');
   }
   // LoraLoaders chain after the loaders; the last one feeds the sampler and both encoders.
@@ -290,7 +324,13 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     });
     graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: base, vae } };
     if (r) {
-      graph.S = { class_type: 'ImageScale', inputs: { image: base, upscale_method: 'lanczos', width: r.width, height: r.height, crop: r.crop } };
+      let scaled = base;
+      if (intent.upscaleModel) {
+        graph.UL = { class_type: 'UpscaleModelLoader', inputs: { model_name: intent.upscaleModel } };
+        graph.UM = { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['UL', 0], image: base } };
+        scaled = ['UM', 0];
+      }
+      graph.S = { class_type: 'ImageScale', inputs: { image: scaled, upscale_method: 'lanczos', width: r.width, height: r.height, crop: r.crop } };
       if (r.pad) graph.P = { class_type: 'ImagePadForOutpaint', inputs: { image: ['S', 0], ...r.pad, feathering: 0 } };
       graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: [r.pad ? 'P' : 'S', 0], vae } };
     }
@@ -300,17 +340,66 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     if (intent.inputMask) {
       // Only the painted area is resampled, then composited onto the untouched source pixels.
       graph.W = { class_type: 'LoadImageMask', inputs: { image: intent.inputMask, channel: 'red' } };
-      graph.X = { class_type: 'SetLatentNoiseMask', inputs: { samples: ['9', 0], mask: ['W', 0] } };
-      graph.Y = { class_type: 'ImageCompositeMasked', inputs: { destination: base, source: ['6', 0], x: 0, y: 0, resize_source: false, mask: ['W', 0] } };
+      let mask:ApiLink=['W',0],noiseMask:ApiLink=mask,decoded:ApiLink=['6',0];
+      if(intent.maskBlur){
+        graph.MI={class_type:'MaskToImage',inputs:{mask}};
+        graph.MB={class_type:'ImageBlur',inputs:{image:['MI',0],blur_radius:intent.maskBlur,sigma:1}};
+        graph.BM={class_type:'ImageToMask',inputs:{image:['MB',0],channel:'red'}};
+        mask=['BM',0];noiseMask=mask;
+      }
+      const c=intent.inpaintCrop;
+      if(c){
+        const {x,y,width,height,targetWidth,targetHeight}=c;
+        graph.IC={class_type:'ImageCrop',inputs:{image:base,x,y,width,height}};
+        graph.IS={class_type:'ImageScale',inputs:{image:['IC',0],upscale_method:'lanczos',width:targetWidth,height:targetHeight,crop:'disabled'}};
+        graph['9']={...graph['9'],inputs:{...graph['9'].inputs,pixels:['IS',0]}};
+        graph.MC={class_type:'CropMask',inputs:{mask,x,y,width,height}};
+        graph.CI={class_type:'MaskToImage',inputs:{mask:['MC',0]}};
+        graph.MS={class_type:'ImageScale',inputs:{image:['CI',0],upscale_method:'bilinear',width:targetWidth,height:targetHeight,crop:'disabled'}};
+        graph.NM={class_type:'ImageToMask',inputs:{image:['MS',0],channel:'red'}};
+        graph.IR={class_type:'ImageScale',inputs:{image:['6',0],upscale_method:'lanczos',width,height,crop:'disabled'}};
+        noiseMask=['NM',0];mask=['MC',0];decoded=['IR',0];
+      }
+      graph.X = { class_type: 'SetLatentNoiseMask', inputs: { samples: ['9', 0], mask: noiseMask } };
+      graph.Y = { class_type: 'ImageCompositeMasked', inputs: { destination: base, source: decoded, x: c?.x??0, y: c?.y??0, resize_source: false, mask } };
       graph['5'] = { ...graph['5'], inputs: { ...graph['5'].inputs, latent_image: ['X', 0] } };
       graph['7'] = { ...graph['7'], inputs: { ...graph['7'].inputs, images: ['Y', 0] } };
     }
+  }
+  if (intent.refine) {
+    const graph = result.graph as Record<string, ApiNode>;
+    const r = intent.refine;
+    let image = graph['7'].inputs.images as ApiLink;
+    if (r.upscaleModel) {
+      graph.RL = { class_type: 'UpscaleModelLoader', inputs: { model_name: r.upscaleModel } };
+      graph.RU = { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['RL', 0], image } };
+      image = ['RU', 0];
+    }
+    // The first pass always ends at width×height; a same-size lanczos pass would only resample.
+    if (r.upscaleModel || r.width !== intent.width || r.height !== intent.height) {
+      graph.RS = { class_type: 'ImageScale', inputs: { image, upscale_method: 'lanczos', width: r.width, height: r.height, crop: 'disabled' } };
+      image = ['RS', 0];
+    }
+    graph.RE = { class_type: tiled ? 'VAEEncodeTiled' : 'VAEEncode', inputs: { pixels: image, vae, ...tiles } };
+    graph.R5 = r.sigmas
+      ? { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['RZ', 0], latent_image: ['RE', 0] } }
+      : { class_type: 'KSampler', inputs: { ...graph['5'].inputs, latent_image: ['RE', 0], denoise: r.denoise } };
+    if (r.sigmas) graph.RZ = { class_type: 'ManualSigmas', inputs: { sigmas: r.sigmas.join(', ') } };
+    graph.R6 = { class_type: tiled ? 'VAEDecodeTiled' : 'VAEDecode', inputs: { samples: ['R5', 0], vae, ...tiles } };
+    graph['7'] = { ...graph['7'], inputs: { ...graph['7'].inputs, images: ['R6', 0] } };
   }
   // Civitai links resources only by hash from an A1111 `parameters` chunk, which core SaveImage cannot write; the DaSiWa saver (Output package) adds it beside prompt/workflow.
   if (['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'].every(node => allowlist.nodes.includes(node))) {
     const graph = result.graph as Record<string, ApiNode>;
     graph.M = { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } };
     graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph['7'].inputs.images, filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } };
+  }
+  if (intent.wildcard) {
+    const graph=result.graph as Record<string,ApiNode>;
+    graph.WP={class_type:wildcardNode,inputs:{...intent.wildcard,selection_state:JSON.stringify(intent.wildcard.selection_state),positive_input:intent.positivePrompt,negative_input:intent.negativePrompt}};
+    graph['2']={...graph['2'],inputs:{...graph['2'].inputs,text:['WP',0]}};
+    graph['3']={...graph['3'],inputs:{...graph['3'].inputs,text:['WP',1]}};
+    if (graph.M) graph.M={...graph.M,inputs:{...graph.M.inputs,text_positive:['WP',0],text_negative:['WP',1]}};
   }
   for (const node of Object.values(result.graph)) {
     for (const value of Object.values(node.inputs)) if (Array.isArray(value)) Object.freeze(value);
