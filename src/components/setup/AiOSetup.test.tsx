@@ -289,6 +289,8 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText('Installed');
+  // The success handoff switches to Studio in an effect; let it land before navigating, or it overrides the click.
+  await screen.findByRole('tab',{name:'Studio',selected:true});
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
   fireEvent.click(screen.getByRole('button',{name:'Backend'}));
   const settings=screen.getByRole('region',{name:'Settings'});
