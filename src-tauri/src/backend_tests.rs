@@ -79,6 +79,26 @@ pub(crate) fn await_state(lifecycle: &Lifecycle, state: &str) -> Status {
     }
 }
 #[test]
+fn output_naming_adapter_is_installed_and_refuses_symlinks() {
+    let (tmp, _) = fixture(SERVER);
+    install_output_naming(tmp.path()).unwrap();
+    let plugin = tmp
+        .path()
+        .join("ComfyUI/custom_nodes/deas_output_naming.py");
+    assert_eq!(
+        fs::read_to_string(&plugin).unwrap(),
+        include_str!("output_naming.py")
+    );
+    install_output_naming(tmp.path()).unwrap();
+    fs::remove_file(&plugin).unwrap();
+    let foreign = tmp.path().join("foreign.py");
+    fs::write(&foreign, "untouched").unwrap();
+    std::os::unix::fs::symlink(&foreign, &plugin).unwrap();
+    assert!(install_output_naming(tmp.path()).is_err());
+    assert_eq!(fs::read_to_string(foreign).unwrap(), "untouched");
+}
+
+#[test]
 fn a_second_lifecycle_cannot_start_the_same_environment_until_the_first_stops() {
     let (_tmp, approved) = fixture(SERVER);
     let first = Lifecycle::default();

@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { RecipeAllowlist, RunOptions } from '../../lib/execution';
-import { defaultOutputNaming, outputPrefix } from '../../lib/outputNaming';
+import { defaultOutputNaming, outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import builtinFamilies from '../../families/builtin.json';
 
 /** Remembered Options tab state; only what the backend lists is ever submitted. `attention` is `a:<ModelAttentionBackend>`, `s:<Sage mode>` or '' (launch default). `sigmas` is the custom schedule text ('' = the model's own, if any). */
 export interface OptionsPref { attention:string; vae:'full'|'tiled'; tile:number; cache:''|'EasyCache'|'LazyCache'; threshold:number; compile:string; sigmas?:string; outputNaming?:string }
 const tiles=[256,512,768,1024];
-const namingPlaceholders=['type','date_yyyy_mm_dd','time','seed','model'];
+const namingPlaceholders=['type','date_yyyy-mm-dd','time','seed','model'];
 // Threshold 0.05: the nodes' own 0.2 (tuned for video DiTs) ruined SDXL images in a real run; 0.05 kept them coherent.
 export const defaultOptions:OptionsPref={attention:'',vae:'full',tile:512,cache:'',threshold:0.05,compile:'',sigmas:'',outputNaming:defaultOutputNaming};
 /** Known model-fixed schedules come from the family plugin (e.g. Qwen Image 2.1 Turbo's saved 8-step sigmas). */
@@ -64,7 +64,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
  const sigmas=p.sigmas??'';
  const shown=sigmas||(modelSigmas?sigmaText(modelSigmas):'');
  const preset=sigmaPresets.find(f=>sigmaText(f.sigmas)===shown.trim())?.id??(shown?'custom':'');
- const naming=p.outputNaming??defaultOutputNaming;
+ const naming=outputNamingTemplate(p.outputNaming);
  const namingValid=outputPrefix(naming,{type:'image',seed:0,model:'model'})!==null;
  const namingHelp=<>{t('studio.run.opt.outputNaming.hint')}<span className="wb-help-list">{namingPlaceholders.map(k=><span key={k}><code>{`%${k}%`}</code> {outputPrefix(`%${k}%`,{type:'image',seed:42,model:'My Model.safetensors'})}</span>)}</span></>;
  return <div className="wb-options">

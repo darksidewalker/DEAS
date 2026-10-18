@@ -61,12 +61,12 @@ test('Options naming persists and resolves the submitted seed/model, rejecting u
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  dock('Options');
  const field=screen.getByRole('textbox',{name:'Output naming'}) as HTMLInputElement;
- expect(field.value).toBe('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%');
+ expect(field.value).toBe('%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%');
  fireEvent.change(screen.getByRole('spinbutton',{name:'Seed'}),{target:{value:'42'}});
  fireEvent.change(field,{target:{value:'custom/%type%/%seed%-%model%'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].outputPrefix).toBe('custom/image/42-My_Model');
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].outputPrefix).toBe('custom/image/42-My-Model');
  fireEvent.change(field,{target:{value:'../%seed%'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -157,7 +157,7 @@ test('IPC fixture: Load models → pick LoRA → Run prepares and submits one in
  await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledWith('plan'));
  const [baseUrl,intent]=vi.mocked(prepareDiagnosticJob).mock.calls[0];
  expect(baseUrl).toBe('http://127.0.0.1:7801');
- expect(intent).toMatchObject({positivePrompt:'a quiet forest',checkpoint:'b.safetensors',width:768,height:1024,loras:[{name:'style.safetensors',strength:0.7}],outputPrefix:expect.stringMatching(new RegExp(`^image/\\d{4}_\\d{2}_\\d{2}/\\d{2}-\\d{2}-\\d{2}-${intent.seed}-b$`))});
+ expect(intent).toMatchObject({positivePrompt:'a quiet forest',checkpoint:'b.safetensors',width:768,height:1024,loras:[{name:'style.safetensors',strength:0.7}],outputPrefix:expect.stringMatching(new RegExp(`^image/\\d{4}-\\d{2}-\\d{2}/\\d{2}-\\d{2}-\\d{2}-${intent.seed}-b$`))});
  expect(Object.isFrozen(intent)).toBe(true);
  expect(screen.getByRole('button',{name:/Queued/})).toBeTruthy();
  await waitFor(()=>expect((screen.getByRole('img',{name:'DEAS_0001.png'}) as HTMLImageElement).src).toBe('asset://localhost//env/ComfyUI/output/DEAS_0001.png'),{timeout:3000});

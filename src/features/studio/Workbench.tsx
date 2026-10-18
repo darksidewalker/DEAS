@@ -11,7 +11,7 @@ import { isBoolean, isString, oneOf, readPref, usePref } from '../../lib/prefere
 import { JobOutputPreview } from './JobOutputPreview';
 import { GenerationMetadata } from './GenerationMetadata';
 import type { GenerationSettings } from '../../lib/imageMetadata';
-import { defaultOutputNaming, outputPrefix } from '../../lib/outputNaming';
+import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json';
 import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
@@ -208,7 +208,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
   const target=up(only?only.size:outputSize);
   if((post||only)&&!validCanvas(target)){setError(t('studio.run.resolution.invalid'));return;}
-  const naming=outputPrefix(optionsPref.outputNaming??defaultOutputNaming,{type:'image',seed,model:checkpoint});
+  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:'image',seed,model:checkpoint});
   if(naming===null){setError(t('studio.run.opt.outputNaming.invalid'));return;}
   const inputLayers=visibleImages(layers);
   const refineSigmas=tail(refineDenoise);

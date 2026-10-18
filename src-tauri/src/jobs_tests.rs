@@ -211,7 +211,7 @@ async fn explicit_prepare_submit_and_correlated_completion() {
             "POST /comfy/prompt HTTP/1.1" => {
                 observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 assert_eq!(body.as_object().unwrap().len(),3);
-                assert_eq!(body["extra_data"],json!({"preview_method":"auto"}));
+                assert_eq!(body["extra_data"],json!({"preview_method":"auto","extra_pnginfo":{"deas_output_naming":true}}));
                 assert_eq!(body["prompt"],compile(&intent()).unwrap());
                 assert!(uuid::Uuid::parse_str(body["client_id"].as_str().unwrap()).is_ok());
                 tuple = json!([1,PROMPT_ID,body["prompt"],{"client_id":body["client_id"]},["7"]]);

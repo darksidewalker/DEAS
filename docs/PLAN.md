@@ -33,7 +33,7 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 
 ### Output naming (0.1.25)
 - [x] Persist an extensionless Output-relative naming template in Generate Options, with type/date/time/seed/model substitution before immutable job preparation.
-- [x] Apply to core and metadata image savers; validate bounded safe relative paths in TypeScript and Rust without changing existing saver counters or extensions.
+- [x] Apply to core and metadata image savers; validate bounded safe relative paths in TypeScript and Rust with collision-safe counters and unchanged extensions. DEAS-owned backend saves now use `-00001.png`, without the trailing underscore; standalone Comfy jobs remain unchanged.
 - [ ] Video/audio recipe integration remains gated on those recipes; standalone Comfy node settings are independent.
 
 ### Masked-area inpaint and blur (0.1.22)

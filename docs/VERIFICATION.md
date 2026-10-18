@@ -1,5 +1,12 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Hyphenated output naming fix (0.1.26)
+
+- Default `%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%`; upgrade only the former default and preserve custom templates/legacy date tokens. Model sanitization uses hyphens and removes separator-only leading/trailing runs.
+- An embedded helper is installed into the owned backend on Start. Only native submissions marked in `extra_data.extra_pnginfo.deas_output_naming` clean core/metadata saver results from `_00001_.png` to `-00001.png`. Collision-safe hard-link publication preserves image bytes, metadata and existing outputs; returned filenames match the actual files. The output volume must support hard links. Standalone Comfy calls remain unchanged. Restart an already-running owned backend after relaunching the rebuilt app.
+- Verified: 74 core tests, 303 UI tests, 228 native tests passed (18 native tests ignored), typecheck/frontend build, Clippy all-targets with warnings denied and Rust formatting. Naming browser IPC suite passed six locales at five widths. Real core and metadata savers wrote/decoded four CPU PNGs with consecutive clean counters; repeated handler registration and unmarked standalone naming were checked. No model or service was started by the saver probe.
+- Linux artifact rebuilt/staged at `artifacts/deas-linux-amd64`, SHA-256 `f4fcfe09235190256ed98ff627c0b9087cc08fce30184c935504b23154d12675`. Native Windows/WebKitGTK interaction and new GPU generation were not exercised; existing services were not restarted. Video/audio recipes remain unavailable.
+
 ## Output naming (0.1.25)
 
 - Generate Options persists an extensionless relative template (old Options preferences remain valid). DEAS resolves `%type%`, `%date_yyyy_mm_dd%`, `%time%`, `%seed%` and `%model%` before immutable native preparation; date/time are local submission time, model is an ASCII-safe extensionless basename. TypeScript and Rust validate safe bounded paths (512 total, 180 per segment, 255 for the subfolder), rejecting traversal, Windows device names and unresolved variables. Core and metadata savers receive the same resolved prefix.

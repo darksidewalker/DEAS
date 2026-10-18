@@ -989,7 +989,7 @@ impl Jobs {
             &client,
             &job.plan.base,
             "prompt",
-            Some(json!({"prompt":job.plan.graph,"client_id":job.client_id,"extra_data":{"preview_method":"auto"}})),
+            Some(json!({"prompt":job.plan.graph,"client_id":job.client_id,"extra_data":{"preview_method":"auto","extra_pnginfo":{"deas_output_naming":true}}})),
         )
         .await;
         match result {

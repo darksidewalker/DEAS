@@ -55,8 +55,8 @@ describe('run options', () => {
     const button = screen.getByRole('button', { name: 'Explain Output naming' });
     fireEvent.click(button);
     expect(button.getAttribute('aria-expanded')).toBe('true');
-    for (const k of ['%type%', '%date_yyyy_mm_dd%', '%time%', '%seed%', '%model%']) expect(screen.getByText(k)).toBeTruthy();
-    expect(screen.getByText('My_Model')).toBeTruthy();
+    for (const k of ['%type%', '%date_yyyy-mm-dd%', '%time%', '%seed%', '%model%']) expect(screen.getByText(k)).toBeTruthy();
+    expect(screen.getByText('My-Model')).toBeTruthy();
     fireEvent.click(button);
     expect(screen.queryByText('%seed%')).toBeNull();
     rerender(<I18nProvider><OptionsPanel value={{ ...defaultOptions, outputNaming: '../%seed%' }} onChange={vi.fn()} allow={allow} imageInput={false} onRead={vi.fn()} canRead/></I18nProvider>);

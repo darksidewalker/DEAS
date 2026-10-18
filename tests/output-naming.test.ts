@@ -1,17 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultOutputNaming, outputPrefix, safeOutputPrefix } from '../src/lib/outputNaming.ts';
+import { defaultOutputNaming, outputNamingTemplate, outputPrefix, safeOutputPrefix } from '../src/lib/outputNaming.ts';
 import { compileRecipe } from '../src/lib/execution.ts';
 
 const context={type:'image' as const,seed:42,model:'nested/My Model.v2.safetensors'};
 const now=new Date(2026,0,2,3,4,5);
 test('naming snapshots local date/time, exact seed and sanitized basename, independent of saver',()=>{
- assert.equal(outputPrefix(defaultOutputNaming,context,now),'image/2026_01_02/03-04-05-42-My_Model_v2');
- for(const type of ['image','video','audio'] as const) assert.equal(outputPrefix('%type%/%seed%-%model%',{...context,type},now),`${type}/42-My_Model_v2`);
+ assert.equal(outputPrefix(defaultOutputNaming,context,now),'image/2026-01-02/03-04-05-42-My-Model-v2');
+ for(const type of ['image','video','audio'] as const) assert.equal(outputPrefix('%type%/%seed%-%model%',{...context,type},now),`${type}/42-My-Model-v2`);
  assert.equal(outputPrefix('%seed%-%seed%',{...context,seed:Number.MAX_SAFE_INTEGER},now),'9007199254740991-9007199254740991');
- assert.equal(outputPrefix('%model%',{...context,model:'folder/模型.safetensors'},now),'_');
+ assert.equal(outputPrefix('%model%',{...context,model:'folder/模型.safetensors'},now),'model');
  for(const template of ['', '../%seed%', '/%model%', '%unknown%', '%seed', 'CON', 'a/aux.png','a/name.','a//b','a/./b','a/../b','a\\b','a:b','a\n','x'.repeat(181),`${'a'.repeat(130)}/${'b'.repeat(130)}/file`]) assert.equal(outputPrefix(template,context,now),null,template);
  assert.equal(safeOutputPrefix('x'.repeat(180)),true);
+ assert.equal(outputNamingTemplate('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%'),defaultOutputNaming);
+ assert.equal(outputNamingTemplate('custom/%date_yyyy_mm_dd%/%model%'),'custom/%date_yyyy_mm_dd%/%model%');
+ assert.equal(outputPrefix('%date_yyyy_mm_dd%',context,now),'2026_01_02');
+ assert.equal(outputPrefix('%model%',{...context,model:'My_Model_.safetensors'},now),'My-Model');
 });
 test('resolved paths feed both the core and DaSiWa metadata savers unchanged',()=>{
  const prefix=outputPrefix(defaultOutputNaming,context,now)!;

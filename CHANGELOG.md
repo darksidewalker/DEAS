@@ -4,6 +4,8 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## 0.1.26 — 2026-10-18
 
+- Use hyphens in default output dates, sanitized model names and saver counters; remove the underscore before the extension. Upgrade only the former default template, preserve custom templates and standalone Comfy naming, and avoid overwriting existing clean filenames.
+
 - Add Generate's **Post-Processing** dock tab (SwarmUI Refine / Upscale): opt-in second pass after every Run with Refiner strength, Upscale factor (grid-snapped) and an optional upscale model (`UpscaleModelLoader` + `ImageUpscaleWithModel`); **Post-process** under Run applies it alone to the shown render or edit source.
 - Rename the edit mode Resample to **Image to Image**; the Refine and Upscale edit modes are replaced by the tab. Both compilers validate the new `refine`/`upscaleModel` intent fields and check upscale models against the backend's v3 combo list. Verified with a real SDXL run on a throwaway ComfyUI (512×768 → 2× RCAN → 1024×1536 refine; Post-process 1024×1536 → 1536×2304). No new dependency.
 

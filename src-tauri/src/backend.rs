@@ -2,6 +2,35 @@
 //! Linux and Windows, matching native provisioning. No target/PID/URL IPC inputs.
 use crate::install::{Backend, Plan, VENV_BIN, VENV_PYTHON};
 use serde::Serialize;
+fn install_output_naming(root: &Path) -> Result<(), String> {
+    use crate::downloads::fs::Anchor;
+    use std::io::Write;
+    let directory = root.join("ComfyUI/custom_nodes");
+    if !directory.exists() {
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    }
+    let anchor = Anchor::open(&directory)?;
+    anchor.validate_directory(false)?;
+    let name = "deas_output_naming.py";
+    let source = include_str!("output_naming.py").as_bytes();
+    if directory.join(name).symlink_metadata().is_ok() {
+        if read_owned(&directory.join(name), 1024 * 1024)? == source {
+            return Ok(());
+        }
+        anchor.remove_partial(name);
+    }
+    let temporary = format!(".deas-naming-{}.partial", uuid::Uuid::new_v4());
+    let result = (|| {
+        let mut file = anchor.partial(&temporary)?;
+        file.write_all(source).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        anchor.validate_directory(false)?;
+        anchor.publish(&temporary, name)
+    })();
+    anchor.remove_partial(&temporary);
+    result
+}
+
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -458,6 +487,7 @@ impl Lifecycle {
         approved.validate()?;
         let root = Path::new(&approved.plan.request.storage_path);
         let environment_lock = lock_environment(root)?;
+        install_output_naming(root)?;
         let mut command = Command::new(root.join(VENV_PYTHON));
         command.args([
             "-u",

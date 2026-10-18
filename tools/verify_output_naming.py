@@ -30,12 +30,12 @@ with sync_playwright() as p:
    page.locator('[data-run-checkpoint]').wait_for()
    page.locator('[data-dock-tab=options]').click()
    field=page.get_by_role('textbox',name=t['studio.run.opt.outputNaming'],exact=True)
-   expect(field).to_have_value('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%')
+   expect(field).to_have_value('%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%')
    page.get_by_role('spinbutton',name=t['studio.run.seed'],exact=True).fill('42')
    page.locator('[data-run]').click()
    page.wait_for_function("window.__calls.some(c=>c.command==='native_job_submit')")
    intent=page.evaluate('window.__intent')
-   assert re.fullmatch(r'image/\d{4}_\d{2}_\d{2}/\d{2}-\d{2}-\d{2}-42-anima-preview',intent['outputPrefix']),intent
+   assert re.fullmatch(r'image/\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}-42-anima-preview',intent['outputPrefix']),intent
    field.fill('custom/%type%/%seed%-%model%')
    page.reload(wait_until='networkidle')
    page.locator('[data-node=studio]').click()
@@ -45,7 +45,7 @@ with sync_playwright() as p:
    expect(field).to_have_attribute('aria-invalid','true')
    page.locator('[data-run]').click()
    assert not page.evaluate("window.__calls.some(c=>c.command==='native_job_prepare')")
-   field.fill('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%')
+   field.fill('%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%')
    expect(field).to_have_attribute('aria-invalid','false')
    field.scroll_into_view_if_needed()
    assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale)
