@@ -58,7 +58,9 @@ it.each([
   const view = (endpoint: string, root: string) => <I18nProvider><PromptForge endpoint={endpoint} root={root} onSend={vi.fn()}/></I18nProvider>;
   const { rerender } = render(view('http://127.0.0.1:8188', '/env'));
   await screen.findByRole('option', { name: 'qwen' });
-  vi.mocked(invoke).mockResolvedValueOnce({ ...models, models: [{ id: 'ollama:new', label: 'new backend' }] });
+  // Command-specific: a late media thumbnail call must not consume the new model list.
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'ollama:new', label: 'new backend' }] } : base(command, args));
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'new backend' });
   expect(forgeCalls()).toHaveLength(2);

@@ -39,7 +39,10 @@ jobs:
           components: rustfmt, clippy
       - name: Linux webview build prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+        # Folder guards reject shared-writable /tmp, so tests need a private TMPDIR.
+        run: |
+          sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          mkdir -m 700 "$HOME/deas-tmp" && echo "TMPDIR=$HOME/deas-tmp" >> "$GITHUB_ENV"
       - run: npm ci
       - name: Frontend typecheck and tests on Windows
         if: runner.os == 'Windows'

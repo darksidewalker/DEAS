@@ -10,6 +10,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Repair CI blockers without weakening checks: retain the locale-safe sigma placeholder, use fixed-size EXIF byte chunks accepted by current Clippy, restore valid catalog selection after Installed view, and integrate the existing model-cache safety fix with its Linux/Windows regression tests. Preserve the last API-probe error when the readiness deadline expires, with a deterministic malformed-then-stalled fixture.
 - Bound Prompt Forge responses while streaming, reload its model list on backend/environment changes and discard late replies. Native inpaint preparation now checks every emitted crop/blur node before submission; regression tests cover these review fixes.
 - Add beginner-oriented Windows/Linux build, launch, first-setup and troubleshooting instructions to the README.
+- Make Prompt Forge find models in the configured models folder (`llm` added to the generated extra model paths). Fix CI: Linux tests run with a private `TMPDIR` (folder guards reject shared `/tmp`), the Forge reload test no longer races a thumbnail call, and release binaries build on Ubuntu 22.04 for older glibc.
 
 ## 0.1.25 — 2026-10-18
 
