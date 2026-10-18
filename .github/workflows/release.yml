@@ -32,14 +32,15 @@ jobs:
       - run: cargo build --manifest-path src-tauri/Cargo.toml --locked --release
       - name: Stage Linux binary
         if: runner.os == 'Linux'
-        run: mkdir -p dist && cp src-tauri/target/release/deas dist/deas-linux-amd64
+        run: mkdir -p release && cp src-tauri/target/release/deas release/deas-linux-amd64
       - name: Windows installer bundle
         if: runner.os == 'Windows'
-        run: npx tauri build --bundles nsis && mkdir dist && copy src-tauri\target\release\deas.exe dist\ && copy src-tauri\target\release\bundle\nsis\*.exe dist\
+        run: npx tauri build --bundles nsis && mkdir release && copy src-tauri\target\release\deas.exe release\ && copy src-tauri\target\release\bundle\nsis\*.exe release\
       - uses: actions/upload-artifact@v6
         with:
           name: deas-${{ runner.os }}
-          path: dist/*
+          # Not dist/: that is Vite's frontend output.
+          path: release/*
           if-no-files-found: error
 
   release:
