@@ -145,7 +145,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
             "images":combo(nodes, "LoadImage", "image")?,
@@ -159,7 +159,8 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
             "compile":options(nodes, "TorchCompileModel", "backend", option),
             // Core v3 node: its file combo uses the v3 form.
-            "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::model_name)
+            "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::model_name),
+            "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::model_name)
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -564,7 +565,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[], "upscaleModels":[]
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

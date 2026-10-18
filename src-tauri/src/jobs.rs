@@ -163,6 +163,9 @@ async fn get(client: &reqwest::Client, base: &reqwest::Url, path: &str) -> Resul
 }
 
 fn compile(i: &Value) -> Result<Value, String> {
+    if crate::jobs_video::is_video(i) {
+        return crate::jobs_video::compile(i);
+    }
     const FIELDS: [&str; 13] = [
         "recipeId",
         "version",
@@ -296,10 +299,20 @@ fn compile(i: &Value) -> Result<Value, String> {
     if refine.is_some_and(|r| !valid_refine(r, sigmas.is_some())) {
         return Err("Invalid refine: aligned size, denoise in (0, 1], optional listed upscale model, sigmas exactly with the first pass".into());
     }
+    // Options → Output: DaSiWa saver format/compression (used only when that saver is present).
+    let format = object.get("imageFormat");
+    let compression = object.get("imageCompression");
+    if format.is_some_and(|f| !f.as_str().is_some_and(|f| ["png", "webp"].contains(&f)))
+        || compression.is_some_and(|c| !c.as_u64().is_some_and(|c| c <= 100))
+    {
+        return Err("Invalid imageFormat (png|webp) or imageCompression (0..=100)".into());
+    }
     if object.len()
         != fields.len()
             + usize::from(upscale.is_some())
             + usize::from(refine.is_some())
+            + usize::from(format.is_some())
+            + usize::from(compression.is_some())
             + usize::from(options.is_some())
             + usize::from(wildcard.is_some())
             + usize::from(loras.is_some())
@@ -415,25 +428,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     {
         return Err("Unsafe sampler or scheduler".into());
     }
-    if !i["outputPrefix"].as_str().is_some_and(|s| {
-        s.len() <= 512
-            && s.rsplit_once('/')
-                .is_none_or(|(folder, _)| folder.len() <= 255)
-            && s.split('/').all(|p| {
-                let stem = p.split('.').next().unwrap_or("").to_ascii_lowercase();
-                !p.is_empty()
-                    && p.len() <= 180
-                    && p != "."
-                    && p != ".."
-                    && !p.ends_with('.')
-                    && p.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-                    && !matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
-                    && !(stem.len() == 4
-                        && (stem.starts_with("com") || stem.starts_with("lpt"))
-                        && stem.as_bytes()[3].is_ascii_digit())
-            })
-    }) {
+    if !i["outputPrefix"].as_str().is_some_and(safe_output_prefix) {
         return Err("Unsafe output prefix".into());
     }
     let mut graph = json!({
@@ -669,7 +664,28 @@ fn valid_sigmas(s: &Value, steps: Option<f64>) -> bool {
         && values.last() == Some(&0.0)
 }
 
-fn valid_options(o: &Value) -> bool {
+/// Output prefix folders/stem: bounded, ASCII, no traversal, no Windows device names.
+pub(crate) fn safe_output_prefix(s: &str) -> bool {
+    s.len() <= 512
+        && s.rsplit_once('/')
+            .is_none_or(|(folder, _)| folder.len() <= 255)
+        && s.split('/').all(|p| {
+            let stem = p.split('.').next().unwrap_or("").to_ascii_lowercase();
+            !p.is_empty()
+                && p.len() <= 180
+                && p != "."
+                && p != ".."
+                && !p.ends_with('.')
+                && p.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                && !matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+                && !(stem.len() == 4
+                    && (stem.starts_with("com") || stem.starts_with("lpt"))
+                    && stem.as_bytes()[3].is_ascii_digit())
+        })
+}
+
+pub(crate) fn valid_options(o: &Value) -> bool {
     let Some(map) = o.as_object() else {
         return false;
     };
@@ -698,7 +714,7 @@ fn valid_options(o: &Value) -> bool {
 
 /// Civitai links resources only by hash from an A1111 `parameters` chunk, which core
 /// `SaveImage` cannot write; the DaSiWa saver (Output package) adds it beside `prompt`/`workflow`.
-fn civitai_saver(graph: &mut Value, nodes: &Value) {
+fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
     let has = |n: &str| nodes.as_array().is_some_and(|a| a.iter().any(|v| v == n));
     if !(has("DaSiWa_MetadataImageSaver") && has("DaSiWa_MetadataConfig")) {
         return;
@@ -709,7 +725,10 @@ fn civitai_saver(graph: &mut Value, nodes: &Value) {
         graph["M"]["inputs"]["text_positive"] = json!(["WP", 0]);
         graph["M"]["inputs"]["text_negative"] = json!(["WP", 1]);
     }
-    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":"png","compression":44,"save_output":true,"metadata_config":["M",0]}});
+    // compression 44 = PNG level 4 (the saver maps 0–100 onto PNG levels / WebP quality).
+    let format = intent.get("imageFormat").cloned().unwrap_or(json!("png"));
+    let compression = intent.get("imageCompression").cloned().unwrap_or(json!(44));
+    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":format,"compression":compression,"save_output":true,"metadata_config":["M",0]}});
 }
 
 /// Model/input file identifier as ComfyUI lists it (relative to its folder): spaces and
@@ -747,7 +766,7 @@ pub(crate) fn safe_option(s: &str) -> bool {
 }
 
 /// Backend enum choice (sampler, scheduler, CLIP type): short safe ASCII, never a path.
-fn safe_choice(s: &str) -> bool {
+pub(crate) fn safe_choice(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
         && s.bytes()
@@ -799,12 +818,54 @@ impl Jobs {
         let allow = &prerequisites["allowlist"];
         let diffusion = &intent["diffusion"];
         let split = diffusion.is_object();
-        for (field, required) in [
+        let video = crate::jobs_video::is_video(&intent);
+        // Video recipes name their models/encoders/VAEs/images per family; image recipes below.
+        let mut required: Vec<(&str, Vec<&str>)> = if video {
+            crate::jobs_video::requirements(&intent)
+        } else {
+            vec![
+                (
+                    if split {
+                        "diffusionModels"
+                    } else {
+                        "checkpoints"
+                    },
+                    vec![intent["checkpoint"].as_str().unwrap()],
+                ),
+                (
+                    "textEncoders",
+                    diffusion["textEncoder"].as_str().into_iter().collect(),
+                ),
+                (
+                    "clipTypes",
+                    diffusion["clipType"].as_str().into_iter().collect(),
+                ),
+                ("vaes", diffusion["vae"].as_str().into_iter().collect()),
+                (
+                    "images",
+                    // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
+                    intent["inputImage"]
+                        .as_str()
+                        .into_iter()
+                        .chain(
+                            intent["inputLayers"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|l| l["image"].as_str()),
+                        )
+                        .filter(|s| !s.ends_with(" [output]"))
+                        .collect(),
+                ),
+            ]
+        };
+        required.extend([
             (
                 "nodes",
                 REQUIRED_NODES
                     .iter()
                     .copied()
+                    .filter(|_| !video)
                     .chain(
                         graph
                             .as_object()
@@ -812,22 +873,23 @@ impl Jobs {
                             .values()
                             .filter_map(|n| n["class_type"].as_str())
                             .filter(|name| {
-                                [
-                                    "ImageScale",
-                                    "ImageCrop",
-                                    "CropMask",
-                                    "MaskToImage",
-                                    "ImageToMask",
-                                    "ImageBlur",
-                                    "ImagePadForOutpaint",
-                                    "LoadImageMask",
-                                    "SetLatentNoiseMask",
-                                    "ImageCompositeMasked",
-                                    "VAEEncode",
-                                    "UpscaleModelLoader",
-                                    "ImageUpscaleWithModel",
-                                ]
-                                .contains(name)
+                                video
+                                    || [
+                                        "ImageScale",
+                                        "ImageCrop",
+                                        "CropMask",
+                                        "MaskToImage",
+                                        "ImageToMask",
+                                        "ImageBlur",
+                                        "ImagePadForOutpaint",
+                                        "LoadImageMask",
+                                        "SetLatentNoiseMask",
+                                        "ImageCompositeMasked",
+                                        "VAEEncode",
+                                        "UpscaleModelLoader",
+                                        "ImageUpscaleWithModel",
+                                    ]
+                                    .contains(name)
                                     || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
                                     || crate::recipe_prerequisites::OPTION_NODES.contains(name)
                                     || *name == crate::wildcard::NODE
@@ -836,45 +898,12 @@ impl Jobs {
                     .collect(),
             ),
             (
-                if split {
-                    "diffusionModels"
-                } else {
-                    "checkpoints"
-                },
-                vec![intent["checkpoint"].as_str().unwrap()],
-            ),
-            (
                 "nodes",
-                if split {
+                if split || video {
                     vec!["UNETLoader", "CLIPLoader", "VAELoader"]
                 } else {
                     vec![]
                 },
-            ),
-            (
-                "textEncoders",
-                diffusion["textEncoder"].as_str().into_iter().collect(),
-            ),
-            (
-                "clipTypes",
-                diffusion["clipType"].as_str().into_iter().collect(),
-            ),
-            ("vaes", diffusion["vae"].as_str().into_iter().collect()),
-            (
-                "images",
-                // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-                intent["inputImage"]
-                    .as_str()
-                    .into_iter()
-                    .chain(
-                        intent["inputLayers"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|l| l["image"].as_str()),
-                    )
-                    .filter(|s| !s.ends_with(" [output]"))
-                    .collect(),
             ),
             (
                 "nodes",
@@ -915,7 +944,8 @@ impl Jobs {
                     .filter_map(Value::as_str)
                     .collect(),
             ),
-        ] {
+        ]);
+        for (field, required) in required {
             let available = allow[field]
                 .as_array()
                 .ok_or("Malformed native prerequisites")?;
@@ -928,7 +958,9 @@ impl Jobs {
                 ));
             }
         }
-        civitai_saver(&mut graph, &allow["nodes"]);
+        if !video {
+            civitai_saver(&mut graph, &allow["nodes"], &intent);
+        }
         let plan = Plan {
             id: id.clone(),
             base,
@@ -1171,9 +1203,15 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
     let Some(node) = all.get("7") else {
         return Ok(vec![]);
     };
-    let images = node["images"]
-        .as_array()
-        .ok_or("Malformed diagnostic image outputs")?;
+    // Image savers list `images`; the DaSiWa video combine lists the video under `gifs` (plus frame PNGs under `images`).
+    let images: Vec<&Value> = ["images", "gifs"]
+        .iter()
+        .filter_map(|k| node.get(*k))
+        .map(|v| v.as_array().ok_or("Malformed diagnostic image outputs"))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     if images.len() > 64 {
         return Err("Too many diagnostic image outputs".into());
     }
@@ -1195,7 +1233,16 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
             {
                 return Err("Unsafe diagnostic output reference".into());
             }
-            Ok(json!({"filename":filename,"subfolder":subfolder,"type":"output"}))
+            let mut out = json!({"filename":filename,"subfolder":subfolder,"type":"output"});
+            // MIME type the combine reports (`video/webm`), so the UI can pick a player.
+            if let Some(format) = image["format"].as_str().filter(|f| {
+                f.len() <= 64
+                    && f.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"/.+-".contains(&b))
+            }) {
+                out["format"] = json!(format);
+            }
+            Ok(out)
         })
         .collect()
 }

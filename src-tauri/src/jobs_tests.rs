@@ -23,6 +23,7 @@ fn wildcard_plugin_keeps_base_prompts_and_rule_snapshot() {
     civitai_saver(
         &mut saved,
         &json!(["DaSiWa_MetadataConfig", "DaSiWa_MetadataImageSaver"]),
+        &json!({}),
     );
     assert_eq!(saved["M"]["inputs"]["text_positive"], json!(["WP", 0]));
     assert_eq!(saved["M"]["inputs"]["text_negative"], json!(["WP", 1]));
@@ -256,6 +257,57 @@ async fn explicit_prepare_submit_and_correlated_completion() {
     server.abort();
 }
 
+#[tokio::test]
+async fn video_prepare_checks_every_graph_node_and_reads_gifs_outputs() {
+    let intent = crate::jobs_video::tests::ltx();
+    let graph = compile(&intent).unwrap();
+    let mut all = json!({"UNETLoader":{"input":{"required":{"unet_name":[["LTX2/ltx.safetensors"]]}}},
+        "CLIPLoader":{"input":{"required":{"clip_name":[["gemma_3_12B_it_fp8.safetensors","ltx-2.3_text_projection_bf16.safetensors"]],"type":[["ltxv","wan","minimax"]]}}},
+        "VAELoader":{"input":{"required":{"vae_name":[["LTX2/video_vae.safetensors","LTX2/audio_vae.safetensors"]]}}},
+        "KSampler":{"input":{"required":{"sampler_name":[["euler_cfg_pp"]],"scheduler":[["linear_quadratic"]]}}}});
+    for n in graph.as_object().unwrap().values() {
+        let name = n["class_type"].as_str().unwrap();
+        if all.get(name).is_none() {
+            all[name] = json!({});
+        }
+    }
+    let without = {
+        let mut m = all.clone();
+        m.as_object_mut()
+            .unwrap()
+            .remove("DaSiWa_EnhancedVideoCombine");
+        m
+    };
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = calls.clone();
+    let (base, server) = server(move |path, _| {
+        assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+        let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        (
+            200,
+            if n == 0 { without.clone() } else { all.clone() }.to_string(),
+        )
+    })
+    .await;
+    let jobs = Jobs::default();
+    let err = jobs
+        .prepare(base.clone(), intent.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("nodes") && err.contains("DaSiWa_EnhancedVideoCombine"),
+        "{err}"
+    );
+    let plan = jobs.prepare(base, intent).await.unwrap();
+    assert_eq!(
+        plan["graph"]["7"]["class_type"],
+        "DaSiWa_EnhancedVideoCombine"
+    );
+    server.abort();
+    let out = outputs(&json!({"outputs":{"7":{"gifs":[{"filename":"x_00001.webm","subfolder":"video","type":"output","format":"video/webm","codec":"AV1"}],"images":[{"filename":"x_first.png","subfolder":"video","type":"output"}]}}})).unwrap();
+    assert_eq!(out, json!([{"filename":"x_first.png","subfolder":"video","type":"output"},{"filename":"x_00001.webm","subfolder":"video","type":"output","format":"video/webm"}]).as_array().unwrap().clone());
+}
+
 #[test]
 fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
     for field in intent().as_object().unwrap().keys() {
@@ -382,11 +434,13 @@ fn dasiwa_saver_replaces_save_image_only_when_both_nodes_exist() {
     civitai_saver(
         &mut graph,
         &json!(["SaveImage", "DaSiWa_MetadataImageSaver"]),
+        &json!({}),
     );
     assert_eq!(graph, compile(&intent()).unwrap());
     civitai_saver(
         &mut graph,
         &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+        &json!({}),
     );
     assert_eq!(graph["7"]["class_type"], "DaSiWa_MetadataImageSaver");
     assert_eq!(graph["7"]["inputs"]["filename_prefix"], "DEAS_test");
@@ -440,8 +494,16 @@ fn input_mask_resamples_only_the_painted_area_and_composites_onto_the_source() {
     civitai_saver(
         &mut saver,
         &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+        &json!({"imageFormat":"webp","imageCompression":10}),
     );
     assert_eq!(saver["7"]["inputs"]["images"], json!(["Y", 0]));
+    assert_eq!(saver["7"]["inputs"]["file_format"], "webp");
+    assert_eq!(saver["7"]["inputs"]["compression"], 10);
+    let mut formatted = with.clone();
+    formatted["imageFormat"] = json!("webp");
+    assert!(compile(&formatted).is_ok());
+    formatted["imageFormat"] = json!("gif");
+    assert!(compile(&formatted).is_err());
     for bad in [
         json!("deas-masks/x.png"),
         json!("ref.png"),
