@@ -105,7 +105,7 @@ fn pick(o: &Value, key: &str, list: &[&str]) -> bool {
     o[key].as_str().is_some_and(|v| list.contains(&v))
 }
 
-fn id(s: &str) -> bool {
+pub(crate) fn continuity_id(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 80
         && s.bytes()
@@ -215,10 +215,10 @@ fn validate_h3(h: &Value) -> Result<(), String> {
         keys_in(
             c,
             &["session", "sourceId", "capture", "action", "outputMode"],
-        ) && c["session"].as_str().is_some_and(id)
+        ) && c["session"].as_str().is_some_and(continuity_id)
             && c["sourceId"]
                 .as_str()
-                .is_some_and(|s| s.is_empty() || id(s))
+                .is_some_and(|s| s.is_empty() || continuity_id(s))
             && c["capture"].is_boolean()
             && c["action"].as_str().is_some_and(|a| a.len() <= 50_000)
             && pick(c, "outputMode", &["full", "segment"])

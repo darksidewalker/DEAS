@@ -56,6 +56,8 @@ fn main() {
             deas::native_job_prepare,
             deas::native_job_submit,
             deas::native_mask_upload,
+            deas::native_input_upload,
+            deas::native_h3_session,
             deas::native_job_status,
             deas::native_pick_directory,
             deas::native_media_list,

@@ -1397,19 +1397,46 @@ pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String
     if png.len() > 64 << 20 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Err("Mask must be a PNG of at most 64 MiB".into());
     }
-    let base = crate::validate_base_url(&base_url)?;
-    let name = format!("{}.png", uuid::Uuid::new_v4());
+    upload(&base_url, MASK_FOLDER, "png", png).await
+}
+
+const INPUT_FOLDER: &str = "deas-inputs";
+
+/// Copy a reference image the user picked in the media dock into the backend's input folder
+/// (the H3 Director resolves input-folder names only). PNG/JPEG/WebP by magic bytes, ≤ 64 MiB.
+#[tauri::command]
+pub async fn native_input_upload(base_url: String, path: String) -> Result<String, String> {
+    let meta = std::fs::metadata(&path).map_err(|_| "Reference image not found")?;
+    if !meta.is_file() || meta.len() > 64 << 20 {
+        return Err("Reference must be a file of at most 64 MiB".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|_| "Reference image unreadable")?;
+    let ext = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "jpg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "webp"
+    } else {
+        return Err("Reference must be a PNG, JPEG or WebP image".into());
+    };
+    upload(&base_url, INPUT_FOLDER, ext, bytes).await
+}
+
+async fn upload(base_url: &str, folder: &str, ext: &str, bytes: Vec<u8>) -> Result<String, String> {
+    let base = crate::validate_base_url(base_url)?;
+    let name = format!("{}.{ext}", uuid::Uuid::new_v4());
     let boundary = format!("deas-{}", uuid::Uuid::new_v4().simple());
-    let mut body = Vec::with_capacity(png.len() + 512);
+    let mut body = Vec::with_capacity(bytes.len() + 512);
     for (field, value) in [
-        ("subfolder", MASK_FOLDER),
+        ("subfolder", folder),
         ("type", "input"),
         ("overwrite", "false"),
     ] {
         body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n").as_bytes());
     }
-    body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\nContent-Type: image/png\r\n\r\n").as_bytes());
-    body.extend(&png);
+    body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes());
+    body.extend(&bytes);
     body.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
     let url = base
         .join("upload/image")
@@ -1423,13 +1450,44 @@ pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String
         .body(body)
         .send()
         .await
-        .map_err(|_| "Mask upload failed")?;
+        .map_err(|_| "Upload failed")?;
     let status = response.status();
     let value: Value = response.json().await.unwrap_or_default();
-    if !status.is_success() || value["name"] != name.as_str() || value["subfolder"] != MASK_FOLDER {
-        return Err(format!("Mask upload rejected (HTTP {status})"));
+    if !status.is_success() || value["name"] != name.as_str() || value["subfolder"] != folder {
+        return Err(format!("Upload rejected (HTTP {status})"));
     }
-    Ok(format!("{MASK_FOLDER}/{name}"))
+    Ok(format!("{folder}/{name}"))
+}
+
+/// Read-only list of the DaSiWa H3 continuity clips of one session (`clip_id`, `parent`, `frames`, `export`),
+/// so the continuity planner can pin the clip a finished step produced.
+#[tauri::command]
+pub async fn native_h3_session(base_url: String, session: String) -> Result<Value, String> {
+    if !crate::jobs_video::continuity_id(&session) {
+        return Err("Invalid continuity session".into());
+    }
+    let base = crate::validate_base_url(&base_url)?;
+    let value = get(
+        &client()?,
+        &base,
+        &format!("df_h3_continuity/session/{session}"),
+    )
+    .await?;
+    let clips = value["clips"]
+        .as_array()
+        .ok_or("Malformed continuity session")?
+        .iter()
+        .take(200)
+        .filter(|c| c["clip_id"].as_str().is_some_and(crate::jobs_video::continuity_id))
+        .map(|c| {
+            json!({"clipId":c["clip_id"],"parent":c["parent_id"].as_str().filter(|p| crate::jobs_video::continuity_id(p)),
+                "frames":c["frames"].as_u64(),"completed":c["completed_ns"].as_u64().unwrap_or(0),
+                "export":c["export"].as_object().filter(|e| e["filename"].as_str().is_some_and(|f| safe_path(f, false))).map(|e| json!({"filename":e["filename"],"subfolder":e["subfolder"].as_str().unwrap_or(""),"type":e["type"]}))})
+        })
+        .collect::<Vec<_>>();
+    Ok(
+        json!({"latestId":value["latest_id"].as_str().filter(|l| crate::jobs_video::continuity_id(l)),"clips":clips}),
+    )
 }
 
 #[cfg(test)]

@@ -17,8 +17,9 @@ pub use api::native_negotiate_api;
 pub mod jobs;
 pub mod jobs_video;
 pub use jobs::{
-    native_job_current, native_job_export, native_job_output, native_job_prepare,
-    native_job_status, native_job_submit, native_mask_upload,
+    native_h3_session, native_input_upload, native_job_current, native_job_export,
+    native_job_output, native_job_prepare, native_job_status, native_job_submit,
+    native_mask_upload,
 };
 pub mod model_families;
 pub mod recipe_prerequisites;

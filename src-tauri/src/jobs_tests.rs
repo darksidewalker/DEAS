@@ -643,6 +643,45 @@ async fn prepare_requires_only_emitted_crop_and_blur_nodes() {
 }
 
 #[tokio::test]
+async fn h3_session_is_read_only_bounded_and_input_upload_checks_magic_bytes() {
+    assert!(
+        native_h3_session("http://127.0.0.1:1/".into(), "a/b".into())
+            .await
+            .is_err()
+    );
+    let (base, server) = server(|path, _| {
+        assert_eq!(path, "GET /comfy/df_h3_continuity/session/deas-ab12 HTTP/1.1");
+        (200, json!({"latest_id":"c2","ready_count":2,"clips":[
+            {"clip_id":"c2","parent_id":"c1","frames":243,"completed_ns":20,"export":{"filename":"take_00002.webm","subfolder":"video","type":"output","kind":"full"},"status":"ready"},
+            {"clip_id":"c1","parent_id":"","frames":124,"completed_ns":10,"export":{"filename":"../x.webm","subfolder":"","type":"output"}},
+            {"clip_id":"../evil","frames":1,"completed_ns":1}]}).to_string())
+    })
+    .await;
+    let value = native_h3_session(base, "deas-ab12".into()).await.unwrap();
+    assert_eq!(
+        value,
+        json!({"latestId":"c2","clips":[
+        {"clipId":"c2","parent":"c1","frames":243,"completed":20,"export":{"filename":"take_00002.webm","subfolder":"video","type":"output"}},
+        {"clipId":"c1","parent":null,"frames":124,"completed":10,"export":null}]})
+    );
+    server.abort();
+    let dir = tempfile::tempdir().unwrap();
+    let gif = dir.path().join("a.gif");
+    std::fs::write(&gif, b"GIF89a").unwrap();
+    assert!(
+        native_input_upload("http://127.0.0.1:1/".into(), gif.to_str().unwrap().into())
+            .await
+            .is_err()
+    );
+    assert!(native_input_upload(
+        "http://127.0.0.1:1/".into(),
+        dir.path().to_str().unwrap().into()
+    )
+    .await
+    .is_err());
+}
+
+#[tokio::test]
 async fn mask_upload_posts_a_fresh_png_name_into_the_mask_folder() {
     assert!(
         native_mask_upload("http://127.0.0.1:1/".into(), b"GIF89a".to_vec())
