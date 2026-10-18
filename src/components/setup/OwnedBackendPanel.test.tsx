@@ -130,9 +130,12 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
    ['stopped',null,1],['running','http://127.0.0.1:49312',2],['running','http://127.0.0.1:49313',3],
   ] as const){
    vi.mocked(invoke).mockResolvedValue(fixture(state,endpoint));
+   const calls=vi.mocked(invoke).mock.calls.length;
    fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
+   await waitFor(()=>expect(vi.mocked(invoke).mock.calls.length).toBeGreaterThan(calls));
    await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh backend status'})).toHaveProperty('disabled',false));
-   expect(connect).toHaveBeenCalledTimes(count);
+   // The handoff runs in an effect after the status render; on slow CI it lands after the button re-enables.
+   await waitFor(()=>expect(connect).toHaveBeenCalledTimes(count));
   }
   expect(connect).toHaveBeenLastCalledWith('http://127.0.0.1:49313');
   view.rerender(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={endpoint=>connect(endpoint)}/></I18nProvider>);
