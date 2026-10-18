@@ -40,6 +40,17 @@ const isMaskGrow=(v:unknown):v is number=>isNumber(v)&&Number.isInteger(v)&&v>=0
 const isMaskBlur=(v:unknown):v is number=>isMaskGrow(v)&&v<=31;
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 const randomSeed=()=>Math.floor(Math.random()*2**32);
+/** WebKitGTK refuses <video>/<audio> on the asset:// scheme (FormatError before any request); the same bytes as a blob URL play. Browser mode keeps the plain path. */
+function useBlobSrc(src:string|undefined,active:boolean):string|undefined{
+ const [url,setUrl]=useState<string>();
+ useEffect(()=>{
+  setUrl(undefined);if(!active||!src)return;
+  let live=true,made='';
+  fetch(src).then(r=>r.blob()).then(b=>{if(!live)return;made=URL.createObjectURL(b);setUrl(made);}).catch(()=>{});
+  return()=>{live=false;if(made)URL.revokeObjectURL(made);};
+ },[src,active]);
+ return url;
+}
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
 const dockTabs=['media','models','loras','wildcards','post','options','continuity'] as const;
@@ -53,6 +64,7 @@ export interface WorkbenchProps { endpoint:string; /** Environment folders: mode
 export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const {t}=useI18n();const native=isTauri();const modelsDir=roots.models;const outputDir=roots.output;
  const [media,setMedia]=useState<MediaItem|null>(null);
+ const mediaBlob=useBlobSrc(media?.src,native&&media?.media!=='image');
  const [outputRevision,setOutputRevision]=useState(0);
  const [dockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
  const openWildcards=()=>{setDockTab('wildcards');document.querySelector<HTMLButtonElement>('[data-dock-tab="wildcards"]')?.focus();};
@@ -465,7 +477,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
         :shown.outputs.map(o=>isVideoOut(o)?<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop/>:<img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}{!isVideoOut(shown.outputs[0])&&tools(outputItem(shown.outputs[0]))}<figcaption>{original&&slider&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview">{shown.outputs.filter(isVideoOut).map(o=><video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop/>)}<figcaption>{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:<JobOutputPreview job={shown} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
-     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={media.src} controls onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={media.src} controls/>}{inputImage&&tools(media)}<figcaption>{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}</figcaption></figure>
+     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={native?mediaBlob:media.src} controls onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob:media.src} controls/>}{inputImage&&tools(media)}<figcaption>{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}</figcaption></figure>
      :!media?<p className="empty-note">{t('studio.run.empty')}</p>:null}
     </section>
     <div className="wb-prompts">

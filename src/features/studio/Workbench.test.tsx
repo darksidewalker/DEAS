@@ -17,7 +17,7 @@ beforeEach(()=>{
  localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({save:vi.fn(),restore:vi.fn(),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([0,0,0,0])}))} as unknown as CanvasRenderingContext2D);
 });
-afterEach(()=>{cleanup();vi.clearAllMocks();});
+afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals();});
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 test('wildcard dock and hammer keep base text, snapshot active rules per run and allow disabling without clearing',async()=>{
  localStorage.setItem('deas.pref.studio.run.wildcard',JSON.stringify({style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:true,selection_state:{'Art/Light/wildcards':{enabled:true,weight:1.2}}}));
@@ -427,9 +427,14 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
  fireEvent.click(screen.getByRole('button',{name:'Text → Image'}));
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  expect(aspectPicker.value).toBe('1:1');
+ // Native: the stage video plays a blob of the asset bytes (WebKitGTK rejects asset:// media), fetched once per selection.
+ vi.stubGlobal('fetch',vi.fn(async()=>({blob:async()=>new Blob(['x'],{type:'video/mp4'})})));
+ Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=>'blob:deas/1')});Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});
  fireEvent.click(screen.getByRole('button',{name:'portrait.mp4'}));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
  const video=container.querySelector('.wb-stage video')!;
+ expect(fetch).toHaveBeenCalledWith('asset://localhost//env/input/portrait.mp4');
+ await waitFor(()=>expect(video.getAttribute('src')).toBe('blob:deas/1'));
  Object.defineProperties(video,{videoWidth:{value:1080},videoHeight:{value:1920}});fireEvent.loadedMetadata(video);
  expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1024');
  expect((screen.getByLabelText('Height') as HTMLInputElement).value).toBe('1024');
