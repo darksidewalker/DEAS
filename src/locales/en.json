@@ -10,5 +10,6 @@
   "app.follow": "Follow a connection. Open a thought.",
   "app.noRun": "Nothing runs until you ask.",
   "app.instrument": "A local-first creative instrument",
-  "app.noCloud": "No cloud account. No background requests."
+  "app.update": "Update available: {list}",
+  "app.updateNodes": "DaSiWa nodes"
 }

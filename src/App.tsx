@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from './i18n/I18nProvider';
 import { inspectBackend, type BackendSnapshot } from './lib/comfy';
 import { builtinPlugins } from './lib/plugins';
@@ -10,6 +11,7 @@ import { Workbench } from './features/studio/Workbench';
 import type { Folders } from './lib/settings';
 import { oneOf, usePref } from './lib/preferences';
 const studioTabs=['generate','map'] as const;
+interface Updates {app:string|null;comfy:boolean;nodepack:boolean}
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
 const defaultDraft:DirectorDraft={direction:'',framing:'wide',mood:'natural'};
@@ -58,6 +60,11 @@ export default function App(){
  const nodes:NeuralNode[]=builtinPlugins.filter(p=>!includedIds.has(p.id)&&p.kind!=='plugin').map((p,index)=>({id:p.id,label:t(p.nameKey!),description:t(`studio.hint.${p.id}`),included:(p.includes??[]).map(id=>({id,label:t(builtinPlugins.find(part=>part.id===id)!.nameKey!)})),parentId:p.parentId,...(presentation[p.id]??{column:2,order:index}),status:t(p.id==='engine'?inspecting?'studio.status.inspecting':snapshot?'studio.status.snapshot':inspectionError?'studio.status.error':'studio.status.notInspected':p.id==='director'?'studio.status.draft':p.id==='plugins'?'studio.status.registry':'studio.status.planned')}));
  const edges:NeuralEdge[]=builtinPlugins.flatMap(p=>active===p.id?(p.suggests??[]).map(id=>({id:`suggested:${p.id}:${id}`,fromId:p.id,toId:id,kind:'suggested' as const})):[]);
  const selected=builtinPlugins.find(p=>p.id===active);
+ // Read-only once per launch; failures stay silent. The hint sends app updates to the release page, backend updates to the Backend view (Upgrade button).
+ const [updates,setUpdates]=useState<Updates|null>(null);
+ useEffect(()=>{if(!isTauri())return;let alive=true;invoke<Updates>('native_update_check').then(u=>{if(alive)setUpdates(u);},()=>{});return()=>{alive=false;};},[]);
+ const pending=updates?[updates.app&&`DEAS ${updates.app}`,updates.comfy&&'ComfyUI',updates.nodepack&&t('app.updateNodes')].filter((x):x is string=>!!x):[];
+ const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
  return <div className="studio-shell">
   <main id="workspace">
    <AiOSetup brand={<a className="wordmark" href="#workspace" aria-label={t('app.home')}><span className="brand-symbol" aria-hidden="true">✳</span> {t('app.brand')}<span className="brand-caption">{t('app.brandCaption')}</span></a>} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
@@ -85,6 +92,8 @@ export default function App(){
     </>}
     </div></div>
    </div>}/>
-  </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span><span>{t('app.noCloud')}</span><span className="footer-version">{`v${__APP_VERSION__}`}</span></footer>
+  </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span>
+   {updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
+   :<span className="footer-version">{`v${__APP_VERSION__}`}</span>}</footer>
  </div>;
 }

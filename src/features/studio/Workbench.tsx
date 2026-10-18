@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, type JobStatus } from '../../lib/jobs';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, type JobStatus } from '../../lib/jobs';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
 import { MediaLibrary, type MediaRoots } from '../media/MediaLibrary';
@@ -29,6 +29,8 @@ const dockTabs=['media','models','loras','options'] as const;
 /** Pipeline taxonomy. Only `t2i`/`i2i` have a verified native recipe today; the video ones stay listed but disabled until one exists. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
+/** Post edits of the shown image: presets of the image-to-image recipe (SwarmUI init image / refiner / refiner upscale). */
+const editModes=['resample','refine','upscale','inpaint'] as const;
 export interface WorkbenchProps { endpoint:string; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. */ roots?:MediaRoots&{models?:string} }
 /** Text-to-image workbench: settings left, preview over the prompts, queue right, bottom dock with Media · Models · LoRAs tabs. */
 export function Workbench({endpoint,roots={}}:WorkbenchProps){
@@ -71,6 +73,17 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const copySeed=async(value:number)=>{try{await navigator.clipboard.writeText(String(value));setCopyStatus(t('studio.run.seedCopied'));}catch{setCopyStatus(t('studio.run.seedCopyFailed'));}};
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
+ const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
+ const [refineDenoise,setRefineDenoise]=usePref('studio.run.refineDenoise',0.25,isNumber);
+ const [upscale,setUpscale]=usePref('studio.run.upscale',2,isNumber);
+ const [upscaleDenoise,setUpscaleDenoise]=usePref('studio.run.upscaleDenoise',0.35,isNumber);
+ const [inpaintDenoise,setInpaintDenoise]=usePref('studio.run.inpaintDenoise',0.8,isNumber);
+ const [brush,setBrush]=usePref('studio.run.brush',48,isNumber);
+ const [erase,setErase]=useState(false);const [masked,setMasked]=useState(false);
+ const maskRef=useRef<HTMLCanvasElement>(null);const stroke=useRef<{x:number;y:number}|null>(null);
+ const [strength,setStrength]=edit==='refine'?[refineDenoise,setRefineDenoise]:edit==='upscale'?[upscaleDenoise,setUpscaleDenoise]:edit==='inpaint'?[inpaintDenoise,setInpaintDenoise]:[denoise,setDenoise];
+ // Source image of each edit job, for the original/edited split view.
+ const [sources,setSources]=useState<Record<string,string>>({});const [compare,setCompare]=useState(true);const [divide,setDivide]=useState(50);
  const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');
  const live=useRef(false);const lock=useRef(false);const epoch=useRef(0);
  const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequisites(endpoint).then(e=>{if(live.current)setChoices(e.allowlist);},()=>{});};
@@ -109,8 +122,13 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const sort=(sorts as readonly string[]).includes(sortPref)?sortPref:sorts[0];
  const match=(m:LocalModel)=>m.name.toLowerCase().includes(query.trim().toLowerCase());
  const bySort=(a:LocalModel,b:LocalModel)=>sort==='size'?b.size-a.size:byName(a,b);
- // ComfyUI's LoadImage only reads its input folder, so image-to-image needs a picked image from exactly there.
- const inputImage=media?.media==='image'&&media.path&&roots.input&&media.path.startsWith(roots.input+'/')?media.path.slice(roots.input.length+1):'';
+ // ComfyUI's LoadImage reads its input folder, and its output folder through the `name [output]` annotation (resolved and contained by ComfyUI).
+ const under=(item:MediaItem|null,root?:string)=>item?.media==='image'&&item.path&&root&&item.path.startsWith(root+'/')?item.path.slice(root.length+1):'';
+ const comfyName=(item:MediaItem|null)=>under(item,roots.input)||(under(item,outputDir)&&`${under(item,outputDir)} [output]`);
+ const inputImage=comfyName(media);
+ // Extra images pasted onto the source (SwarmUI editor image layers), in source pixels; they belong to one source.
+ type Layer={name:string;src:string;x:number;y:number;width:number;height:number};
+ const [layers,setLayers]=useState<Layer[]>([]);const [inserting,setInserting]=useState(false);
  const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):id==='i2i'&&!inputImage?'studio.run.pipe.needsInput':'';
  const pipeline:Pipeline=why(pipelinePref)?'t2i':pipelinePref;
  const mediaPipeline=!pipeline.startsWith('t2');
@@ -128,7 +146,7 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
  // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
  const schedule=parseSigmas(optionsPref.sigmas??'')??family?.sigmas;
- const sigmas=schedule&&(pipeline==='i2i'?schedule.slice(-(Math.max(1,Math.round((schedule.length-1)*denoise))+1)):schedule);
+ const sigmas=schedule&&(pipeline==='i2i'?schedule.slice(-(Math.max(1,Math.round((schedule.length-1)*strength))+1)):schedule);
  const loraNames=loraModels.map(m=>m.name);
  const activeLoras=loras.filter(l=>loraNames.includes(l.name));
  const options=runOptions(optionsPref,choices);
@@ -137,7 +155,31 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
  // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
  const grid=family?.multiple??16;
  const canvas=canvasSize(aspect,resolution,{width:aspectWidth,height:aspectHeight},megapixels,{width,height},modelSize,mediaPipeline?source:undefined,grid);
- const scaled=pipeline==='i2i'&&source?scaleInput(inputScaling,source,canvas,grid):null;
+ // Refine keeps the source size; Upscale scales both edges and snaps each to the model grid (lanczos ImageScale before encoding).
+ const up=(n:number)=>Math.max(grid,Math.round(n*upscale/grid)*grid);
+ const scaled=pipeline!=='i2i'||!source?null:edit==='upscale'?{size:{width:up(source.width),height:up(source.height)},resize:{width:up(source.width),height:up(source.height),crop:'disabled' as const}}:scaleInput(edit==='refine'||edit==='inpaint'?'off':inputScaling,source,canvas,grid);
+ const preset=pipeline==='i2i'&&edit!=='resample';
+ const inpaint=pipeline==='i2i'&&edit==='inpaint';
+ // The mask canvas only lives while it is shown for one source image.
+ useEffect(()=>setMasked(false),[media?.src,inpaint,selectedJob]);
+ // object-fit: contain letterboxes the mask bitmap inside the canvas box; map the pointer into bitmap pixels.
+ const paint=(e:React.PointerEvent<HTMLCanvasElement>)=>{
+  const c=e.currentTarget,ctx=c.getContext('2d');if(!ctx)return;
+  const r=c.getBoundingClientRect(),s=Math.min(r.width/c.width,r.height/c.height);if(!(s>0))return;
+  const p={x:(e.clientX-r.left-(r.width-c.width*s)/2)/s,y:(e.clientY-r.top-(r.height-c.height*s)/2)/s};
+  ctx.globalCompositeOperation=erase?'destination-out':'source-over';ctx.strokeStyle=ctx.fillStyle='#fff';ctx.lineWidth=brush;ctx.lineCap='round';
+  if(stroke.current){ctx.beginPath();ctx.moveTo(stroke.current.x,stroke.current.y);ctx.lineTo(p.x,p.y);ctx.stroke();}
+  ctx.beginPath();ctx.arc(p.x,p.y,brush/2,0,Math.PI*2);ctx.fill();stroke.current=p;if(!erase)setMasked(true);
+ };
+ const clearMask=()=>{const c=maskRef.current;c?.getContext('2d')?.clearRect(0,0,c.width,c.height);setMasked(false);};
+ // White = repaint on black; LoadImageMask reads the red channel.
+ async function maskPng(){
+  const c=maskRef.current;if(!c)throw new Error(t('studio.run.edit.needsMask'));
+  const out=document.createElement('canvas');out.width=c.width;out.height=c.height;const ctx=out.getContext('2d');if(!ctx)throw new Error(t('studio.run.edit.needsMask'));
+  ctx.fillStyle='#000';ctx.fillRect(0,0,out.width,out.height);ctx.drawImage(c,0,0);
+  const blob=await new Promise<Blob|null>(done=>out.toBlob(done,'image/png'));if(!blob)throw new Error(t('studio.run.edit.needsMask'));
+  return new Uint8Array(await blob.arrayBuffer());
+ }
  const outputSize=scaled?.size??canvas;
  const sizeError=!validCanvas(canvas)||!validCanvas(outputSize)?'studio.run.resolution.invalid'
   :pipeline==='i2i'&&!source?'studio.run.resolution.waiting'
@@ -151,12 +193,14 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
   if(!native||lock.current||current)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   if(sizeError){setError(t(sizeError));return;}
-  const intent:DiagnosticImageIntentV1=Object.freeze({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,cfg,sampler,scheduler,outputPrefix:'DEAS',...(sigmas?{sigmas}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(pipeline==='i2i'?{inputImage,denoise,...(scaled?.resize?{inputResize:scaled.resize}:{})}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})});
+  if(inpaint&&!masked){setError(t('studio.run.edit.needsMask'));return;}
+  const intent:DiagnosticImageIntentV1=Object.freeze({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,cfg,sampler,scheduler,outputPrefix:'DEAS',...(sigmas?{sigmas}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(layers.length?{inputLayers:layers.map(({name,x,y,width,height})=>({image:name,x,y,width,height}))}:{})}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(options?{options}:{})});
   lock.current=true;setBusy(true);setError('');
   try{
-   const plan=await prepareDiagnosticJob(endpoint,intent); // native: validates against the running backend's object_info
+   const inputMask=inpaint?await uploadMask(endpoint,await maskPng()):null;
+   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...intent,inputMask}):intent); // native: validates against the running backend's object_info
    const job=await submitDiagnosticJob(plan.id); // the Run click is the authorization
-   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
+   if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(pipeline==='i2i'&&media)setSources(s=>({...s,[job.id]:media.src}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
@@ -168,8 +212,40 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
   },1000);
   return()=>window.clearTimeout(timer);
  },[current,native]); // eslint-disable-line react-hooks/exhaustive-deps
- // Picking media on the strip takes over the preview until the next job is selected.
- const pickMedia=(item:MediaItem)=>{setMedia(item);setSelectedJob('');};
+ // Picking media on the strip takes over the preview until the next job is selected; while inserting it adds a layer instead.
+ const select=(item:MediaItem)=>{setMedia(item);setSelectedJob('');setLayers([]);setInserting(false);};
+ const pickMedia=(item:MediaItem)=>{
+  if(inserting&&source&&media){
+   const name=comfyName(item);setInserting(false);
+   if(!name||layers.length>=4){setError(t('studio.run.edit.insertHint'));return;}
+   // Start at a third of the source width, centred, keeping the inserted image's own aspect.
+   const add=(ratio:number)=>{const width=Math.max(8,Math.round(source.width/3)),height=Math.max(8,Math.round(width*ratio));setLayers(list=>[...list,{name,src:item.src,width,height,x:Math.max(0,Math.round((source.width-width)/2)),y:Math.max(0,Math.round((source.height-height)/2))}]);};
+   const probe=new Image();probe.onload=()=>add(probe.naturalHeight/probe.naturalWidth||1);probe.onerror=()=>add(1);probe.src=item.src;
+   return;
+  }
+  select(item);
+ };
+ // Drag a layer to move it, its corner to resize (aspect kept); keys: arrows move, +/− resize, Delete removes.
+ const updateLayer=(i:number,next:Partial<Layer>)=>setLayers(list=>list.map((l,n)=>n===i?{...l,...next}:l));
+ const dragLayer=(e:React.PointerEvent<HTMLElement>,i:number,resize:boolean)=>{
+  e.stopPropagation();e.preventDefault();const place=e.currentTarget.closest('.wb-place');if(!place||!source)return;
+  const scale=place.getBoundingClientRect().width/source.width,start={x:e.clientX,y:e.clientY},l=layers[i];if(!(scale>0))return;
+  const move=(ev:PointerEvent)=>{const dx=Math.round((ev.clientX-start.x)/scale),dy=Math.round((ev.clientY-start.y)/scale);
+   if(resize){const width=Math.min(8192,Math.max(8,l.width+dx));updateLayer(i,{width,height:Math.min(8192,Math.max(8,Math.round(width*l.height/l.width)))});}
+   else updateLayer(i,{x:Math.min(source.width-1,Math.max(0,l.x+dx)),y:Math.min(source.height-1,Math.max(0,l.y+dy))});};
+  const stop=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',stop);};
+  window.addEventListener('pointermove',move);window.addEventListener('pointerup',stop);
+ };
+ const layerKey=(e:React.KeyboardEvent,i:number)=>{
+  const l=layers[i],step=e.shiftKey?64:8;if(!source)return;
+  const moves:Record<string,Partial<Layer>>={ArrowLeft:{x:Math.max(0,l.x-step)},ArrowRight:{x:Math.min(source.width-1,l.x+step)},ArrowUp:{y:Math.max(0,l.y-step)},ArrowDown:{y:Math.min(source.height-1,l.y+step)}};
+  const grow=e.key==='+'?step:e.key==='-'?-step:0;
+  if(e.key in moves)updateLayer(i,moves[e.key]);
+  else if(grow){const width=Math.min(8192,Math.max(8,l.width+grow));updateLayer(i,{width,height:Math.min(8192,Math.max(8,Math.round(width*l.height/l.width)))});}
+  else if(e.key==='Delete'||e.key==='Backspace')setLayers(list=>list.filter((_,n)=>n!==i));
+  else return;
+  e.preventDefault();
+ };
  // Fit the workbench into the window: height = viewport minus everything above it and the footer, so nothing scrolls.
  const shell=useRef<HTMLDivElement>(null);const [fit,setFit]=useState<number|undefined>();
  useLayoutEffect(()=>{
@@ -185,8 +261,17 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
   window.addEventListener('pointermove',move);window.addEventListener('pointerup',stop);
  };
  const shown=jobs.find(j=>j.id===selectedJob)??null;
+ const original=shown?sources[shown.id]:undefined;
  const fileSrc=(o:JobStatus['outputs'][number])=>outputDir?convertFileSrc([outputDir,o.subfolder,o.filename].filter(Boolean).join('/')):null;
  const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number,fixed?:string)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} disabled={!!fixed} title={fixed} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/></label>;
+ const outputItem=(o:JobStatus['outputs'][number]):MediaItem=>({name:o.filename,media:'image',src:fileSrc(o)!,path:[outputDir,o.subfolder,o.filename].filter(Boolean).join('/')});
+ // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
+ const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
+ const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
+  {editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(media?.src!==item.src)select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
+  {original&&media?.src!==item.src&&<button type="button" data-edit-compare aria-pressed={compare} onClick={()=>setCompare(!compare)}>{t('studio.run.edit.compare')}</button>}
+  <button type="button" data-edit-insert aria-pressed={inserting&&media?.src===item.src} disabled={noEditModel} onClick={()=>{if(media?.src!==item.src){select(item);setInserting(true);}else setInserting(!inserting);if(pipeline!=='i2i'){setEdit('resample');setPipeline('i2i');}}}>{t('studio.run.edit.insert')}</button>
+ </div>;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
  // Picking a model applies its family's starting settings (SwarmUI: per-class defaults).
  const pickModel=(m:LocalModel)=>{setCheckpoint(m.name);setResolution('model');const d=familyOf(m)?.defaults;if(d){setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);}};
@@ -213,14 +298,16 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
      <p className="wb-active"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><strong title={checkpoint}>{checkpoint||t('studio.run.noModels')}</strong><small>{t('studio.run.loras')} {activeLoras.length}</small></p>
      <div className="wb-pipelines" role="group" aria-label={t('studio.run.pipeline')}>{pipelines.map(id=>{const reason=why(id);return <button key={id} type="button" data-pipeline={id} aria-pressed={pipeline===id} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>setPipeline(id)}>{t(`studio.run.pipe.${id}`)}</button>;})}</div>
-     {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{inputImage}</strong></p>}
+     {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{inputImage}</strong></p>}
      <div className="wb-controls">
+      {preset?<>{edit==='upscale'&&num('upscale',upscale,setUpscale,1,4,0.25)}
+       {inpaint&&<>{num('brush',brush,setBrush,2,1024,2)}<div className="wb-field"><span>{t('studio.run.edit.mask')}</span><div className="wb-seed-row"><button type="button" aria-pressed={erase} onClick={()=>setErase(!erase)}>{t('studio.run.edit.erase')}</button><button type="button" onClick={clearMask}>{t('studio.run.edit.clear')}</button></div></div>{!masked&&<p className="wb-resolution-hint">{t('studio.run.edit.needsMask')}</p>}</>}{num('denoise',strength,setStrength,0,1,0.05)}<p className="wb-resolution-hint">{t('studio.run.edit.size',inpaint&&source?{width:String(source.width),height:String(source.height)}:{width:String(outputSize.width),height:String(outputSize.height)})}</p></>:<>
       <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><span className="wb-aspect-picker"><span className="wb-aspect-swatch" aria-hidden="true"><span style={{width:18*Math.min(1,swatchRatio),height:18*Math.min(1,1/swatchRatio)}}/></span><select value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='auto'||mediaPipeline).map(a=><option key={a} value={a}>{a==='auto'||a==='custom'?t(`studio.run.resolution.${a}`):a}</option>)}</select></span></label>
       <label className="wb-field"><span>{t('studio.run.resolution.title')}</span><select value={resolution} onChange={e=>setResolution(e.target.value)}>{['fixed','model',...Object.keys(resolutions),'custom'].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
       {aspect==='custom'&&<>{num('resolution.aspectWidth',aspectWidth,setAspectWidth,1,100,0.1)}{num('resolution.aspectHeight',aspectHeight,setAspectHeight,1,100,0.1)}</>}
       {resolution==='custom'&&num('resolution.megapixels',megapixels,setMegapixels,0.01,16,0.05)}
-      {num('width',canvas.width,n=>{setWidth(n);setHeight(canvas.height);setResolution('fixed');},64,8192,8)}{num('height',canvas.height,n=>{setHeight(n);setWidth(canvas.width);setResolution('fixed');},64,8192,8)}
-      {pipeline==='i2i'&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
+      {num('width',canvas.width,n=>{setWidth(n);setHeight(canvas.height);setResolution('fixed');},64,8192,8)}{num('height',canvas.height,n=>{setHeight(n);setWidth(canvas.width);setResolution('fixed');},64,8192,8)}</>}
+      {pipeline==='i2i'&&!preset&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
       {sizeError&&<p className="wb-resolution-hint error-message" role="status">{t(sizeError)}</p>}
       {num('steps',sigmas?sigmas.length-1:steps,setSteps,1,150,1,sigmas&&t('studio.run.customSchedule.hint'))}{num('cfg',cfg,setCfg,0,30,0.5)}
       {pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices)}
@@ -242,10 +329,16 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
    <div className="wb-center">
     <section className="wb-stage" aria-label={t('studio.run.preview')}>
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{shown.error&&<> · <span className="error-message">{shown.error}</span></>}</p>
-      {shown.state==='succeeded'&&shown.outputs.length>0&&(outputDir?<figure className="media-preview">{shown.outputs.map(o=><img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}<figcaption>{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:<JobOutputPreview job={shown} auto/>)}
+      {shown.state==='succeeded'&&shown.outputs.length>0&&(outputDir?<figure className="media-preview">{original&&compare?<div className="wb-compare" style={{'--divide':`${divide}%`} as React.CSSProperties}><img src={original} alt={t('studio.run.edit.original')}/><img src={fileSrc(shown.outputs[0])!} alt={shown.outputs[0].filename}/><input type="range" aria-label={t('studio.run.edit.divider')} min={0} max={100} value={divide} onChange={e=>setDivide(Number(e.target.value))}/></div>
+        :shown.outputs.map(o=><img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}{tools(outputItem(shown.outputs[0]))}<figcaption>{original&&compare&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}</figcaption></figure>:<JobOutputPreview job={shown} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
-     :media?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={media.src} controls onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={media.src} controls/>}<figcaption>{media.name}</figcaption></figure>
+     :media?<figure className="media-preview">{media.media==='image'&&(inpaint||layers.length>0)&&source?<div className="wb-compare wb-layers" style={{'--ratio':source.width/source.height} as React.CSSProperties}><div className="wb-place"><img src={media.src} alt={media.name}/>
+        {layers.map((l,i)=><div key={i} className="wb-layer" tabIndex={0} role="group" aria-label={t('studio.run.edit.layer',{name:l.name})} title={t('studio.run.edit.layerHelp')} style={{left:`${l.x/source.width*100}%`,top:`${l.y/source.height*100}%`,width:`${l.width/source.width*100}%`,height:`${l.height/source.height*100}%`}}
+         onPointerDown={e=>dragLayer(e,i,false)} onKeyDown={e=>layerKey(e,i)}><img src={l.src} alt=""/><button type="button" aria-label={t('studio.run.edit.layerRemove',{name:l.name})} onPointerDown={e=>e.stopPropagation()} onClick={()=>setLayers(list=>list.filter((_,n)=>n!==i))}>×</button><span className="wb-layer-size" aria-hidden="true" onPointerDown={e=>dragLayer(e,i,true)}/></div>)}
+        {inpaint&&<canvas ref={maskRef} key={media.src} className="wb-mask" aria-label={t('studio.run.edit.mask')} width={source.width} height={source.height}
+        onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);stroke.current=null;paint(e);}} onPointerMove={e=>{if(e.buttons&1)paint(e);}} onPointerUp={()=>{stroke.current=null;}}/>}</div></div>
+       :media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={media.src} controls onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={media.src} controls/>}{inputImage&&tools(media)}<figcaption>{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}</figcaption></figure>
      :<p className="empty-note">{t('studio.run.empty')}</p>}
     </section>
     <div className="wb-prompts">
@@ -259,7 +352,7 @@ export function Workbench({endpoint,roots={}}:WorkbenchProps){
     {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id}><button type="button" aria-current={j.id===selectedJob} data-state={j.state} onClick={()=>setSelectedJob(j.id)}>
      {outputDir&&j.state==='succeeded'&&j.outputs[0]?<img src={fileSrc(j.outputs[0])!} alt=""/>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button></li>)}</ul>}
-    <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||busy||!!current||!!sizeError} onClick={()=>void run()}>{t(current?'studio.run.running':busy?'studio.run.preparing':'studio.run.run')}</button>
+    <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||busy||!!current||!!sizeError||(inpaint&&!masked)} onClick={()=>void run()}>{t(current?'studio.run.running':busy?'studio.run.preparing':'studio.run.run')}</button>
    </section>
   </div>
   <div className="wb-dock" style={{height:dockHeight}}>

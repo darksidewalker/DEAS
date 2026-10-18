@@ -10,5 +10,5 @@ commands.allow = ["native_recipe_prerequisites"]
 
 [[permission]]
 identifier = "allow-native-diagnostic-jobs"
-description = "Prepare a bounded diagnostic image intent, explicitly submit its immutable plan, and inspect only its correlated job; job-bound PNG retrieval and explicit new-file export only; no arbitrary graphs/paths or global interrupts."
-commands.allow = ["native_job_current", "native_job_output", "native_job_export", "native_job_prepare", "native_job_submit", "native_job_status"]
+description = "Prepare a bounded diagnostic image intent, explicitly submit its immutable plan, and inspect only its correlated job; job-bound PNG retrieval and explicit new-file export only; inpaint mask PNG upload under a fresh name in the backend input folder's deas-masks; no arbitrary graphs/paths or global interrupts."
+commands.allow = ["native_job_current", "native_job_output", "native_job_export", "native_job_prepare", "native_job_submit", "native_job_status", "native_mask_upload"]

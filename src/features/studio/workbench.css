@@ -45,6 +45,29 @@
 .wb-shown { display: grid; grid-template-rows: auto minmax(0, 1fr); flex: 1; min-height: 0; }
 .wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; margin: 0; }
 .wb-stage .media-preview img, .wb-stage .media-preview video { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; }
+.wb-stage .media-preview { position: relative; }
+.wb-edit-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.wb-edit-tools button { padding: 3px 8px; font-size: 10px; border-radius: 6px; border: 1px solid #ffffff2a; background: #000000a0; color: inherit; cursor: pointer; }
+.wb-edit-tools button[aria-pressed="true"] { border-color: var(--accent, #c8762c); color: var(--accent, #c8762c); }
+.wb-edit-tools button:disabled { opacity: .45; cursor: default; }
+/* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
+.wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; }
+.wb-compare > img { grid-area: 1 / 1; }
+.wb-compare > img + img { clip-path: inset(0 0 0 var(--divide)); }
+.wb-compare::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--divide); width: 2px; background: var(--accent, #c8762c); pointer-events: none; }
+.wb-compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.wb-compare input[type="range"]:focus-visible { opacity: .4; }
+.wb-layers { container-type: size; }
+.wb-layers::after { content: none; }
+/* Exactly the image's box (contain-fit by hand), so layers and the mask map 1:1 to source pixels in percent. */
+.wb-place { position: relative; place-self: center; width: min(100cqw, 100cqh * var(--ratio)); aspect-ratio: var(--ratio); }
+.wb-place > img, .wb-place > canvas.wb-mask { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wb-place > canvas.wb-mask { opacity: .5; cursor: crosshair; touch-action: none; }
+.wb-layer { position: absolute; outline: 1px dashed var(--accent, #c8762c); cursor: move; touch-action: none; }
+.wb-layer:focus-visible { outline-style: solid; outline-width: 2px; }
+.wb-stage .media-preview .wb-layer img { object-fit: fill; pointer-events: none; }
+.wb-layer button { position: absolute; top: 2px; right: 2px; padding: 0 5px; font-size: 11px; line-height: 16px; border-radius: 4px; border: 0; background: #000000b0; color: inherit; cursor: pointer; }
+.wb-layer-size { position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; background: var(--accent, #c8762c); cursor: nwse-resize; }
 .wb-job-line { margin: 0 0 6px; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 .wb-job-line [data-state="succeeded"] { color: #83c19a; }
 .wb-job-line [data-state="failed"], .wb-job-line [data-state="unknown"] { color: #ffbaaa; }

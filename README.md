@@ -1,6 +1,6 @@
 # DEAS — Dark Engine AI Studio
 
-DEAS is a Rust/Tauri desktop studio for ComfyUI and DaSiWa tools. Setup is a tab strip — AiO installer, Provider authorization, Library, Settings — with a persistent install review panel. The studio preview shows a workspace map of connected feature blobs; selecting a blob opens its controls within the page.
+DEAS is a Rust/Tauri desktop studio for ComfyUI and DaSiWa tools. Studio, Library and Comfy share a tab band; installer, authorization, Settings & Backend and Logs are header actions. The studio preview shows a workspace map of connected feature blobs; selecting a blob opens its controls within the page.
 
 Generate seed controls offer Random/Fixed, New, ±1, Use last and the last ten submitted seeds with restore/copy. Seed settings and history survive restarts; seeds remain exact within the existing 0–9007199254740991 contract.
 
@@ -8,7 +8,7 @@ Media has a separate left-hand folder navigator. Expand arrows reveal subfolders
 
 ## Shared LLM backend
 
-After installing or reopening a DEAS environment, **Settings & Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (including its prefix, such as `http://127.0.0.1:8080/v1`). There is no global model or GGUF-path setting.
+After installing or reopening a DEAS environment, **Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (including its prefix, such as `http://127.0.0.1:8080/v1`). There is no global model or GGUF-path setting.
 
 Local language GGUFs are discovered recursively in the existing **Models folder → llm** directory (by default `<environment>/ComfyUI/models/llm`), independently of any external server. Projector files such as `mmproj` are excluded. `llama-cpp-python` runs the selected local model automatically in the managed venv, with automatic CPU/GPU offload selection, and the worker exits after each request. Optional remote model discovery adds to the local list; an unavailable remote server does not hide local models.
 
@@ -27,6 +27,12 @@ Setup is one automatic path. A top tab strip carries the Installer tab (pulsing 
 Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFeatures` components serve both setup and studio features. Roads offer light, moving cat paws and off modes, with reduced-motion support. See [primitive ownership and references](docs/NEURAL-PRIMITIVES.md).
 
 ![Install-to-studio handoff with the owned backend running — browser fixture](assets/deas-studio-handoff-fixture-1440.png)
+
+## Comfy
+
+The **Comfy** tab next to Library opens the original web editor of the running DEAS-owned backend inside the app. It uses the same installed nodes, models and configured input/output folders, not a second installation. The app header and other panels hide; the Studio/Library/Comfy band and footer remain. Returning to Studio or Library keeps the editor mounted, retaining its unsaved workflow while the endpoint stays unchanged. A backend restart can change the port and reload the editor; save workflows before restarting. While the owned backend is unavailable, Comfy shows a waiting spinner; while its frame loads, a loading spinner. The Backend header button shows Starting… and then ✓ Started from native lifecycle status. Start a stopped backend under Backend; merely opening Comfy never starts it. Stop, failure or unavailable native status removes the old frame instead of reconnecting to a revoked port.
+
+Comfy runs as an isolated, cross-origin frame without DEAS native-command permissions. Its workflow, queue, interrupt and extension actions are the original ComfyUI actions, not DEAS job-scoped controls; both views share the same backend queue. Browser-engine support still applies to clipboard and downloads. Windows HTML5 file drops into Comfy are not supported with the existing Tauri native media-drop handler; use the original ComfyUI file picker. Native Windows acceptance remains unverified.
 
 ## Studio preview
 
@@ -56,7 +62,7 @@ Most of this is not implemented. The [plugin roadmap](docs/PLUGIN-ROADMAP.md) ma
 
 ## Current development stage
 
-Current alpha: **0.1.14** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
+Current alpha: **0.1.19** — automatic setup with tab-strip review, installation-to-studio handoff, diagnostic classic jobs with PNG preview/export, the categorised Library with CivitAI browsing, per-environment folder settings, verified no-clobber folder relocation and automatic provider-token checks with a green checkmark only after a successful authenticated identity response. Completed DEAS environments can be reopened without reinstalling; the last checked environment is restored on app launch and its owned backend auto-starts by default. Turn **Auto-start backend** off under **Settings** to keep manual startup. Disabling it does not stop a running backend; foreign services are never taken over or stopped. Windows support is compiled and CI-built, not runtime-verified. Transport, media and filesystem tests use fixtures; actual model generation and native-webview media acceptance remain unverified.
 
 The first milestone builds the desktop shell, interactive studio, trusted built-in feature registry and read-only ComfyUI discovery. This is **not yet the completed AiO installer or a generation-ready Director replacement**. Unavailable execution functions are identified in the interface rather than simulated.
 
@@ -64,7 +70,7 @@ The intended AiO product ports capabilities from the [DaSiWa ComfyUI Installer](
 
 ## Execution-only backend
 
-DEAS owns every feature selection, input/settings control, media reference, job view and output playback/export. ComfyUI receives dynamically compiled API-format jobs and executes them; internal computational nodes do not define or supply the studio UX. No embedded node editor or custom-node frontend is used. A verified SDK/API adapter is preferred, with explicit endpoint binding and no automatic cloud fallback. See [execution contract and API roadmap](docs/EXECUTION-CONTRACT.md).
+DEAS owns every feature selection, input/settings control, media reference, job view and output playback/export. ComfyUI receives dynamically compiled API-format jobs and executes them; internal computational nodes do not define or supply the studio UX. This remains the Studio contract. The separate **Comfy** tab is an explicit exception: it embeds the original ComfyUI frontend, including installed custom-node extensions, without translating its controls into DEAS features. A verified SDK/API adapter is preferred, with explicit endpoint binding and no automatic cloud fallback. See [execution contract and API roadmap](docs/EXECUTION-CONTRACT.md).
 
 ### API discovery and diagnostic compilation
 

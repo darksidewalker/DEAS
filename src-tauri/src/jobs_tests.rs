@@ -297,6 +297,170 @@ fn optional_input_image_switches_to_image_to_image() {
     assert!(compile(&alone).is_err());
 }
 
+#[test]
+fn input_mask_resamples_only_the_painted_area_and_composites_onto_the_source() {
+    let mut with = intent();
+    with["inputImage"] = json!("out.png [output]");
+    with["denoise"] = json!(0.8);
+    with["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    let graph = compile(&with).unwrap();
+    assert_eq!(
+        graph["W"]["inputs"],
+        json!({"image":"deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png","channel":"red"})
+    );
+    assert_eq!(graph["5"]["inputs"]["latent_image"], json!(["X", 0]));
+    assert_eq!(graph["X"]["inputs"]["samples"], json!(["9", 0]));
+    assert_eq!(graph["Y"]["inputs"]["destination"], json!(["8", 0]));
+    assert_eq!(graph["7"]["inputs"]["images"], json!(["Y", 0]));
+    // The DaSiWa saver keeps the composite.
+    let mut saver = graph.clone();
+    civitai_saver(
+        &mut saver,
+        &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+    );
+    assert_eq!(saver["7"]["inputs"]["images"], json!(["Y", 0]));
+    for bad in [
+        json!("deas-masks/x.png"),
+        json!("ref.png"),
+        json!("deas-masks/../3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png"),
+    ] {
+        let mut v = with.clone();
+        v["inputMask"] = bad;
+        assert!(compile(&v).is_err(), "accepted {v}");
+    }
+    let mut resized = with.clone();
+    resized["inputResize"] = json!({"width":512,"height":768,"crop":"disabled"});
+    assert!(
+        compile(&resized).is_err(),
+        "mask must match the unresized source"
+    );
+    let mut no_image = intent();
+    no_image["inputMask"] = with["inputMask"].clone();
+    assert!(compile(&no_image).is_err());
+}
+
+#[tokio::test]
+async fn mask_upload_posts_a_fresh_png_name_into_the_mask_folder() {
+    assert!(
+        native_mask_upload("http://127.0.0.1:1/".into(), b"GIF89a".to_vec())
+            .await
+            .is_err()
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/comfy", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = vec![];
+        while !bytes.ends_with(b"--\r\n") {
+            let mut buf = [0; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            assert!(n > 0);
+            bytes.extend_from_slice(&buf[..n]);
+        }
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(
+            text.starts_with("POST /comfy/upload/image HTTP/1.1"),
+            "{text}"
+        );
+        let name = text
+            .split("filename=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned();
+        assert!(
+            text.contains("name=\"subfolder\"\r\n\r\ndeas-masks\r\n")
+                && text.contains("\x0c\x0d\x0e")
+        );
+        let body = json!({"name":name,"subfolder":"deas-masks","type":"input"}).to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        name
+    });
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend(b"\x0c\x0d\x0e");
+    let stored = native_mask_upload(base, png).await.unwrap();
+    assert_eq!(stored, format!("deas-masks/{}", task.await.unwrap()));
+    assert!(mask_name(&stored));
+}
+
+#[test]
+fn input_layers_paste_scaled_images_onto_the_source_before_resize_and_inpaint() {
+    let mut with = intent();
+    with["inputImage"] = json!("src.png [output]");
+    with["denoise"] = json!(0.6);
+    with["inputLayers"] = json!([{"image":"cat.png","x":10,"y":20,"width":100,"height":50},{"image":"dog.png [output]","x":0,"y":0,"width":8,"height":8}]);
+    let graph = compile(&with).unwrap();
+    assert_eq!(graph["R0"]["inputs"]["image"], json!(["I0", 0]));
+    assert_eq!(
+        graph["B0"]["inputs"],
+        json!({"destination":["8",0],"source":["R0",0],"x":10,"y":20,"resize_source":false})
+    );
+    assert_eq!(graph["B1"]["inputs"]["destination"], json!(["B0", 0]));
+    assert_eq!(graph["9"]["inputs"]["pixels"], json!(["B1", 0]));
+    let mut resized = with.clone();
+    resized["inputResize"] = json!({"width":512,"height":768,"crop":"disabled"});
+    assert_eq!(
+        compile(&resized).unwrap()["S"]["inputs"]["image"],
+        json!(["B1", 0])
+    );
+    let mut masked = with.clone();
+    masked["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    assert_eq!(
+        compile(&masked).unwrap()["Y"]["inputs"]["destination"],
+        json!(["B1", 0])
+    );
+    for bad in [
+        json!([]),
+        json!([{"image":"../x.png","x":0,"y":0,"width":8,"height":8}]),
+        json!([{"image":"x.png","x":0,"y":0,"width":0,"height":8}]),
+        json!([{"image":"x.png","x":-1,"y":0,"width":8,"height":8}]),
+        json!([{"image":"x.png","x":0,"y":0,"width":8}]),
+        json!(vec![
+            json!({"image":"x.png","x":0,"y":0,"width":8,"height":8});
+            5
+        ]),
+    ] {
+        let mut v = with.clone();
+        v["inputLayers"] = bad;
+        assert!(compile(&v).is_err(), "accepted {v}");
+    }
+    let mut no_image = intent();
+    no_image["inputLayers"] = with["inputLayers"].clone();
+    assert!(compile(&no_image).is_err());
+}
+
+#[tokio::test]
+async fn prepare_checks_input_layers_against_the_backend_list() {
+    let mut list = nodes();
+    list["ImageScale"] = json!({});
+    list["ImageCompositeMasked"] = json!({});
+    list["LoadImageMask"] = json!({});
+    list["SetLatentNoiseMask"] = json!({});
+    let (base, task) = server(move |_, _| (200, list.to_string())).await;
+    let jobs = Jobs::default();
+    let mut with = intent();
+    with["inputImage"] = json!("ref.png");
+    with["denoise"] = json!(0.6);
+    // The uploaded mask is not in object_info's top-level input list; ComfyUI checks it.
+    with["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    with["inputLayers"] = json!([{"image":"my ref ä.png","x":0,"y":0,"width":8,"height":8},{"image":"DEAS/out.png [output]","x":0,"y":0,"width":8,"height":8}]);
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["inputLayers"][0]["image"] = json!("missing.png");
+    assert!(jobs.prepare(base, with).await.is_err());
+    task.abort();
+}
+
+/// `DEAS_LIVE_COMFY=<url> DEAS_LIVE_MASK=<png> cargo test --lib live_mask_upload -- --ignored --nocapture` (throwaway backend only).
+#[tokio::test]
+#[ignore]
+async fn live_mask_upload() {
+    let base = std::env::var("DEAS_LIVE_COMFY").unwrap();
+    let png = std::fs::read(std::env::var("DEAS_LIVE_MASK").unwrap()).unwrap();
+    println!("{}", native_mask_upload(base, png).await.unwrap());
+}
+
 #[tokio::test]
 async fn prepare_validates_input_image_against_the_backend_list() {
     let (base, task) = server(|_, _| (200, nodes().to_string())).await;
@@ -306,6 +470,8 @@ async fn prepare_validates_input_image_against_the_backend_list() {
     with["denoise"] = json!(0.6);
     assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
     with["inputImage"] = json!("my ref ä.png"); // user file names with spaces/umlauts work
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["inputImage"] = json!("DEAS/out.png [output]"); // output images are resolved by ComfyUI, not object_info
     assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
     with["inputImage"] = json!("missing.png");
     assert!(jobs.prepare(base, with).await.is_err());

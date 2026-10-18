@@ -122,4 +122,13 @@
 .aio-decision-area.is-single { grid-template-columns: minmax(0, 1fr); }
 .aio-danger { border-color: #d9706b; background: #3b1d1c; color: #ffb4ad; }
 .aio-danger:hover:not(:disabled) { background: #5a2624; color: #fff; }
+/* Keep the original editor alive between visits; only Comfy owns the remaining viewport. */
+.aio-setup-header[hidden], .comfy-view[hidden] { display: none; }
+.studio-shell:has(.is-comfy) { height: 100dvh; min-height: 0; }
+.studio-shell > main:has(.is-comfy), .aio-setup.is-comfy, .is-comfy .aio-left { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.is-comfy .aio-decision-area { flex: 1 1 0; min-height: 0; align-items: stretch; gap: 0; }
+.is-comfy .aio-tabs { flex: none; }
+.comfy-loading { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; gap: .65rem; background: #171717; }
+.comfy-view { position: relative; display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.comfy-view iframe { width: 100%; flex: 1 1 0; min-height: 0; border: 0; background: #171717; }
 .aio-last-log { font-family: ui-monospace, monospace; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

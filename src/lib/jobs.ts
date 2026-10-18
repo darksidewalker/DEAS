@@ -39,6 +39,8 @@ export function prepareDiagnosticJob(baseUrl: string, intent: DiagnosticImageInt
   if (!baseUrl.trim()) return Promise.reject(new Error('An explicit backend endpoint is required.'));
   return native('native_job_prepare', { baseUrl, intent });
 }
+/** Inpaint mask PNG → backend input folder; returns its `deas-masks/<uuid>.png` name for `inputMask`. */
+export const uploadMask = (baseUrl: string, png: Uint8Array): Promise<string> => native('native_mask_upload', { baseUrl, png: Array.from(png) });
 export const submitDiagnosticJob = (planId: string): Promise<JobStatus> => native('native_job_submit', { planId, confirmed: true });
 export const readDiagnosticJobStatus = (jobId: string): Promise<JobStatus> => native('native_job_status', { jobId });
 export const readCurrentDiagnosticJob = (): Promise<JobStatus | null> => native('native_job_current', {});

@@ -191,6 +191,35 @@ fn compile(i: &Value) -> Result<Value, String> {
     if image.is_some() != object.contains_key("denoise") {
         return Err("inputImage and denoise must be given together".into());
     }
+    // `inputMask` (inpaint) is a mask this app uploaded via `native_mask_upload`, painted at the source's own size.
+    let mask = object.get("inputMask");
+    if mask
+        .is_some_and(|m| image.is_none() || resize.is_some() || !m.as_str().is_some_and(mask_name))
+    {
+        return Err("Invalid inputMask: an uploaded mask for an unresized inputImage".into());
+    }
+    // `inputLayers` paste up to 4 extra images (input or `[output]` files) onto the source, in source pixels, before encoding.
+    let layers = object.get("inputLayers");
+    if layers.is_some_and(|l| {
+        image.is_none()
+            || l.as_array().is_none_or(|a| {
+                a.is_empty()
+                    || a.len() > 4
+                    || a.iter().any(|layer| {
+                        layer.as_object().is_none_or(|o| o.len() != 5)
+                            || !layer["image"].as_str().is_some_and(model_name)
+                            || ["x", "y", "width", "height"].iter().any(|k| {
+                                !layer[*k]
+                                    .as_u64()
+                                    .is_some_and(|n| n <= 8192 && (n > 0 || ["x", "y"].contains(k)))
+                            })
+                    })
+            })
+    }) {
+        return Err(
+            "Invalid inputLayers: 1-4 {image, x, y, width, height} on an inputImage".into(),
+        );
+    }
     // `diffusion` loads `checkpoint` as a diffusion model with a separate text encoder and VAE.
     let diffusion = object.get("diffusion");
     if diffusion.is_some_and(|d| {
@@ -223,6 +252,8 @@ fn compile(i: &Value) -> Result<Value, String> {
             + usize::from(diffusion.is_some())
             + usize::from(resize.is_some())
             + usize::from(sigmas.is_some())
+            + usize::from(mask.is_some())
+            + usize::from(layers.is_some())
         || fields.iter().any(|key| !object.contains_key(*key))
     {
         return Err("Missing or unknown diagnostic intent fields".into());
@@ -403,9 +434,24 @@ fn compile(i: &Value) -> Result<Value, String> {
     }
     if let Some(image) = image {
         graph["8"] = json!({"class_type":"LoadImage","inputs":{"image":image}});
-        graph["9"] = json!({"class_type":"VAEEncode","inputs":{"pixels":["8",0],"vae":vae}});
+        // Layers are pasted in source pixels, so they come before any resize and stay under an inpaint composite.
+        // shortcut: pasted opaque (alpha ignored); feed LoadImage's inverted mask when cut-outs matter.
+        let mut base = json!(["8", 0]);
+        for (n, layer) in layers
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let (load, scale, paste) = (format!("I{n}"), format!("R{n}"), format!("B{n}"));
+            graph[&load] = json!({"class_type":"LoadImage","inputs":{"image":layer["image"]}});
+            graph[&scale] = json!({"class_type":"ImageScale","inputs":{"image":[load,0],"upscale_method":"lanczos","width":layer["width"],"height":layer["height"],"crop":"disabled"}});
+            graph[&paste] = json!({"class_type":"ImageCompositeMasked","inputs":{"destination":base,"source":[scale,0],"x":layer["x"],"y":layer["y"],"resize_source":false}});
+            base = json!([paste, 0]);
+        }
+        graph["9"] = json!({"class_type":"VAEEncode","inputs":{"pixels":base,"vae":vae}});
         if let Some(r) = resize {
-            graph["S"] = json!({"class_type":"ImageScale","inputs":{"image":["8",0],"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":r["crop"]}});
+            graph["S"] = json!({"class_type":"ImageScale","inputs":{"image":base,"upscale_method":"lanczos","width":r["width"],"height":r["height"],"crop":r["crop"]}});
             if let Some(p) = r.get("pad") {
                 graph["P"] = json!({"class_type":"ImagePadForOutpaint","inputs":{"image":["S",0],"left":p["left"],"right":p["right"],"top":p["top"],"bottom":p["bottom"],"feathering":0}});
             }
@@ -413,6 +459,14 @@ fn compile(i: &Value) -> Result<Value, String> {
                 json!([if r.get("pad").is_some() { "P" } else { "S" }, 0]);
         }
         graph["5"]["inputs"]["latent_image"] = json!(["9", 0]);
+        if let Some(m) = mask {
+            // Only the painted area is resampled, then composited onto the untouched source pixels.
+            graph["W"] = json!({"class_type":"LoadImageMask","inputs":{"image":m,"channel":"red"}});
+            graph["X"] = json!({"class_type":"SetLatentNoiseMask","inputs":{"samples":["9",0],"mask":["W",0]}});
+            graph["Y"] = json!({"class_type":"ImageCompositeMasked","inputs":{"destination":base,"source":["6",0],"x":0,"y":0,"resize_source":false,"mask":["W",0]}});
+            graph["5"]["inputs"]["latent_image"] = json!(["X", 0]);
+            graph["7"]["inputs"]["images"] = json!(["Y", 0]);
+        }
         if sigmas.is_none() {
             graph["5"]["inputs"]["denoise"] = i["denoise"].clone();
         }
@@ -483,7 +537,7 @@ fn civitai_saver(graph: &mut Value, nodes: &Value) {
         return;
     }
     graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
-    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":["6",0],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":"png","compression":44,"save_output":true,"metadata_config":["M",0]}});
+    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":"png","compression":44,"save_output":true,"metadata_config":["M",0]}});
 }
 
 /// Model/input file identifier as ComfyUI lists it (relative to its folder): spaces and
@@ -500,6 +554,15 @@ pub(crate) fn model_name(s: &str) -> bool {
                     .chars()
                     .any(|c| c.is_control() || "\\:%".contains(c))
         })
+}
+
+const MASK_FOLDER: &str = "deas-masks";
+
+/// Only names `native_mask_upload` hands out: `deas-masks/<uuid>.png`.
+fn mask_name(s: &str) -> bool {
+    s.strip_prefix("deas-masks/")
+        .and_then(|n| n.strip_suffix(".png"))
+        .is_some_and(|id| id.len() == 36 && uuid::Uuid::parse_str(id).is_ok())
 }
 
 /// Option-node enum choice as listed (`pytorch attention`, `sageattn_qk_int8_pv_fp8_cuda++`).
@@ -577,7 +640,14 @@ impl Jobs {
                             .values()
                             .filter_map(|n| n["class_type"].as_str())
                             .filter(|name| {
-                                ["ImageScale", "ImagePadForOutpaint"].contains(name)
+                                [
+                                    "ImageScale",
+                                    "ImagePadForOutpaint",
+                                    "LoadImageMask",
+                                    "SetLatentNoiseMask",
+                                    "ImageCompositeMasked",
+                                ]
+                                .contains(name)
                                     || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
                                     || crate::recipe_prerequisites::OPTION_NODES.contains(name)
                             }),
@@ -611,7 +681,19 @@ impl Jobs {
             ("vaes", diffusion["vae"].as_str().into_iter().collect()),
             (
                 "images",
-                intent["inputImage"].as_str().into_iter().collect(),
+                // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
+                intent["inputImage"]
+                    .as_str()
+                    .into_iter()
+                    .chain(
+                        intent["inputLayers"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|l| l["image"].as_str()),
+                    )
+                    .filter(|s| !s.ends_with(" [output]"))
+                    .collect(),
             ),
             (
                 "nodes",
@@ -1072,6 +1154,47 @@ pub async fn native_job_status(
 #[tauri::command]
 pub fn native_job_current(state: tauri::State<'_, Jobs>) -> Result<Value, String> {
     state.current()
+}
+
+/// Store an inpaint mask PNG drawn in the app in the backend's input folder (ComfyUI `upload/image`) under a fresh name.
+#[tauri::command]
+pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String, String> {
+    if png.len() > 64 << 20 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("Mask must be a PNG of at most 64 MiB".into());
+    }
+    let base = crate::validate_base_url(&base_url)?;
+    let name = format!("{}.png", uuid::Uuid::new_v4());
+    let boundary = format!("deas-{}", uuid::Uuid::new_v4().simple());
+    let mut body = Vec::with_capacity(png.len() + 512);
+    for (field, value) in [
+        ("subfolder", MASK_FOLDER),
+        ("type", "input"),
+        ("overwrite", "false"),
+    ] {
+        body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n").as_bytes());
+    }
+    body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\nContent-Type: image/png\r\n\r\n").as_bytes());
+    body.extend(&png);
+    body.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let url = base
+        .join("upload/image")
+        .map_err(|_| "Invalid native job endpoint")?;
+    let response = client()?
+        .post(url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Mask upload failed")?;
+    let status = response.status();
+    let value: Value = response.json().await.unwrap_or_default();
+    if !status.is_success() || value["name"] != name.as_str() || value["subfolder"] != MASK_FOLDER {
+        return Err(format!("Mask upload rejected (HTTP {status})"));
+    }
+    Ok(format!("{MASK_FOLDER}/{name}"))
 }
 
 #[cfg(test)]

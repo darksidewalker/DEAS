@@ -15,7 +15,7 @@ const advancedSwitches=['--fp16-text-enc','--disable-smart-memory','--disable-dy
 // Flag/feature → venv package it needs; mirrors native `PACKAGES`.
 const needs:Record<string,string>={'--use-sage-attention':'sageattention','--use-flash-attention':'flash_attn'};
 
-/** Settings & Backend: startup optimizations for the owned backend; applying restarts it (never during a job). */
+/** Backend: startup optimizations for the owned backend; applying restarts it (never during a job). */
 export function StartupPanel({root,onRestart}:{root:string;onRestart:()=>void}){
  const {t}=useI18n();const native=isTauri();
  const [value,setValue]=useState<Startup|null>(null);const [presets,setPresets]=useState<Record<Preset,Startup>|null>(null);const [saved,setSaved]=useState('');const [packages,setPackages]=useState<string[]>([]);

@@ -10,5 +10,6 @@
   "app.follow": "Bir bağlantıyı izleyin. Bir düşünceye kapı açın.",
   "app.noRun": "Siz istemeden hiçbir şey çalışmaz.",
   "app.instrument": "Yerel kullanımı esas alan yaratıcı bir araç",
-  "app.noCloud": "Bulut hesabı yok. Arka planda istek yok."
+  "app.update": "Güncelleme mevcut: {list}",
+  "app.updateNodes": "DaSiWa düğümleri"
 }

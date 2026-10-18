@@ -19,6 +19,10 @@ export interface DiagnosticImageIntentV1 {
   /** Image-to-image: a file name from the backend's input folder plus denoise strength (given together). */
   readonly inputImage?: string;
   readonly denoise?: number;
+  /** Inpaint mask uploaded by `native_mask_upload` (`deas-masks/<uuid>.png`, white = repaint), at the unresized source's size. */
+  readonly inputMask?: string;
+  /** Up to 4 extra images (input or `[output]` files) pasted onto the source in source pixels before encoding. */
+  readonly inputLayers?: readonly { readonly image: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }[];
   readonly inputResize?: { readonly width: number; readonly height: number; readonly crop: 'disabled' | 'center'; readonly pad?: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number } };
   /** Load `checkpoint` as a diffusion model (UNETLoader) with its own text encoder (CLIPLoader type) and VAE. */
   readonly diffusion?: { readonly textEncoder: string; readonly clipType: string; readonly vae: string };
@@ -97,7 +101,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'options', 'sigmas'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'inputLayers', 'options', 'sigmas'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -113,6 +117,12 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (Object.hasOwn(input, 'inputImage') !== Object.hasOwn(input, 'denoise')) invalid('inputImage', 'inputImage and denoise must be given together.', 'Supply both for image-to-image or neither for text-to-image.');
   if (Object.hasOwn(input, 'inputImage') && !safeModel(input.inputImage)) invalid('inputImage', 'Unsafe input image identifier.', 'Use a file name from the backend input folder.');
   if (Object.hasOwn(input, 'denoise') && !(typeof input.denoise === 'number' && Number.isFinite(input.denoise) && input.denoise >= 0 && input.denoise <= 1)) invalid('denoise', 'Denoise must be a finite number in [0, 1].', 'Supply a denoise strength between 0 and 1.');
+  if (Object.hasOwn(input, 'inputMask') && (!Object.hasOwn(input, 'inputImage') || Object.hasOwn(input, 'inputResize')
+    || !/^deas-masks\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/u.test(String(input.inputMask)))) invalid('inputMask', 'Invalid inpaint mask.', 'Upload the mask natively and use it with an unresized inputImage.');
+  const layers = input.inputLayers;
+  if (Object.hasOwn(input, 'inputLayers') && (!Object.hasOwn(input, 'inputImage') || !Array.isArray(layers) || layers.length < 1 || layers.length > 4
+    || !layers.every(l => isRecord(l) && Object.keys(l).length === 5 && safeModel(l.image) && ['x', 'y', 'width', 'height'].every(k =>
+      Number.isSafeInteger(l[k]) && (l[k] as number) <= 8192 && ((l[k] as number) > 0 || ((k === 'x' || k === 'y') && l[k] === 0)))))) invalid('inputLayers', 'Invalid image layers.', 'Supply 1-4 {image, x, y, width, height} in source pixels on an inputImage.');
   const loras = input.loras ?? [];
   if (!Array.isArray(loras) || loras.length > 8 || !loras.every(l => isRecord(l) && Object.keys(l).length === 2 && safeModel(l.name)
     && typeof l.strength === 'number' && Number.isFinite(l.strength) && Math.abs(l.strength) <= 10)) {
@@ -190,7 +200,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   const allowlist = verified as unknown as RecipeAllowlist;
   const sigmaNodes = ['RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
-  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : [])]) {
+  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
   const d = intent.diffusion;
@@ -199,7 +209,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
   if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
-  if (intent.inputImage !== undefined && !allowlist.images?.includes(intent.inputImage)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
+  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
   const loras = intent.loras ?? [];
   for (const lora of loras) {
     if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');
@@ -268,20 +279,38 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (intent.inputImage !== undefined) {
     const graph = result.graph as Record<string, ApiNode>;
     const r = intent.inputResize;
+    // Layers are pasted in source pixels, so they come before any resize and stay under an inpaint composite.
+    // shortcut: pasted opaque (alpha ignored); feed LoadImage's inverted mask when cut-outs matter.
+    let base: ApiLink = ['8', 0];
+    (intent.inputLayers ?? []).forEach((l, n) => {
+      graph[`I${n}`] = { class_type: 'LoadImage', inputs: { image: l.image } };
+      graph[`R${n}`] = { class_type: 'ImageScale', inputs: { image: [`I${n}`, 0], upscale_method: 'lanczos', width: l.width, height: l.height, crop: 'disabled' } };
+      graph[`B${n}`] = { class_type: 'ImageCompositeMasked', inputs: { destination: base, source: [`R${n}`, 0], x: l.x, y: l.y, resize_source: false } };
+      base = [`B${n}`, 0];
+    });
+    graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: base, vae } };
     if (r) {
-      graph.S = { class_type: 'ImageScale', inputs: { image: ['8', 0], upscale_method: 'lanczos', width: r.width, height: r.height, crop: r.crop } };
+      graph.S = { class_type: 'ImageScale', inputs: { image: base, upscale_method: 'lanczos', width: r.width, height: r.height, crop: r.crop } };
       if (r.pad) graph.P = { class_type: 'ImagePadForOutpaint', inputs: { image: ['S', 0], ...r.pad, feathering: 0 } };
       graph['9'] = { class_type: 'VAEEncode', inputs: { pixels: [r.pad ? 'P' : 'S', 0], vae } };
     }
     if (tiled) graph['9'] = { class_type: 'VAEEncodeTiled', inputs: { ...graph['9'].inputs, ...tiles } };
     delete graph['4'];
     graph['5'] = { ...graph['5'], inputs: { ...graph['5'].inputs, latent_image: ['9', 0], ...(intent.sigmas ? {} : { denoise: intent.denoise! }) } };
+    if (intent.inputMask) {
+      // Only the painted area is resampled, then composited onto the untouched source pixels.
+      graph.W = { class_type: 'LoadImageMask', inputs: { image: intent.inputMask, channel: 'red' } };
+      graph.X = { class_type: 'SetLatentNoiseMask', inputs: { samples: ['9', 0], mask: ['W', 0] } };
+      graph.Y = { class_type: 'ImageCompositeMasked', inputs: { destination: base, source: ['6', 0], x: 0, y: 0, resize_source: false, mask: ['W', 0] } };
+      graph['5'] = { ...graph['5'], inputs: { ...graph['5'].inputs, latent_image: ['X', 0] } };
+      graph['7'] = { ...graph['7'], inputs: { ...graph['7'].inputs, images: ['Y', 0] } };
+    }
   }
   // Civitai links resources only by hash from an A1111 `parameters` chunk, which core SaveImage cannot write; the DaSiWa saver (Output package) adds it beside prompt/workflow.
   if (['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'].every(node => allowlist.nodes.includes(node))) {
     const graph = result.graph as Record<string, ApiNode>;
     graph.M = { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } };
-    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } };
+    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph['7'].inputs.images, filename_prefix: intent.outputPrefix, file_format: 'png', compression: 44, save_output: true, metadata_config: ['M', 0] } };
   }
   for (const node of Object.values(result.graph)) {
     for (const value of Object.values(node.inputs)) if (Array.isArray(value)) Object.freeze(value);

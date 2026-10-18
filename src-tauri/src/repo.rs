@@ -1,10 +1,13 @@
-//! The DEAS GitHub repository: open it, read its star count, star it with the saved GitHub token.
+//! The DEAS GitHub repository: open it, read its star count, star it with the saved GitHub token,
+//! and the read-only update check (latest release + upstream heads of the owned checkouts).
 //! The repository is compiled in; nothing from the UI selects a URL.
 use crate::auth::AuthState;
 use reqwest::{header, Method, StatusCode, Url};
 use serde::Serialize;
+use std::path::Path;
 
 const PAGE: &str = "https://github.com/darksidewalker/DEAS";
+const RELEASES: &str = "https://github.com/darksidewalker/DEAS/releases/latest";
 const API: &str = "https://api.github.com";
 const REPO: &str = "darksidewalker/DEAS";
 
@@ -19,6 +22,115 @@ pub struct RepoStars {
 #[tauri::command]
 pub fn native_open_repo() -> Result<(), String> {
     crate::token_page::open_url(PAGE)
+}
+
+#[tauri::command]
+pub fn native_open_releases() -> Result<(), String> {
+    crate::token_page::open_url(RELEASES)
+}
+
+#[derive(Serialize, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Updates {
+    /// Tag of a newer GitHub release than this build, e.g. `v0.2.0`.
+    app: Option<String>,
+    comfy: bool,
+    nodepack: bool,
+}
+
+fn semver(tag: &str) -> Option<(u64, u64, u64)> {
+    let mut it = tag
+        .trim_start_matches('v')
+        .split('.')
+        .map(|p| p.parse().ok());
+    Some((it.next()??, it.next()??, it.next()??))
+}
+
+/// `Some(tag)` when `tag` is a newer semver than this build.
+fn newer(tag: &str) -> Option<String> {
+    (semver(tag)? > semver(env!("CARGO_PKG_VERSION"))?).then(|| tag.to_string())
+}
+
+async fn git(git: &Path, dir: &Path, args: &[&str]) -> Option<String> {
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        tokio::process::Command::new(git)
+            .args(args)
+            .current_dir(dir)
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Whether `origin/<reference>` points at a commit other than the checked-out HEAD.
+/// Unreadable/unreachable checkouts report `false`: this is a hint, never a blocker.
+async fn behind(exe: &Path, dir: &Path, reference: &str) -> bool {
+    if !dir.join(".git").is_dir() {
+        return false;
+    }
+    let (Some(head), Some(remote)) = (
+        git(exe, dir, &["rev-parse", "HEAD"]).await,
+        git(exe, dir, &["ls-remote", "origin", reference]).await,
+    ) else {
+        return false;
+    };
+    // An annotated tag lists the tag object and its peeled `^{}` commit; the commit decides.
+    let lines: Vec<&str> = remote.lines().collect();
+    let line = lines.iter().find(|l| l.ends_with("^{}")).or(lines.first());
+    match line.and_then(|l| l.get(..40)) {
+        Some(sha) => sha != head.trim(),
+        None => false,
+    }
+}
+
+#[tauri::command]
+pub async fn native_update_check(
+    auth: tauri::State<'_, AuthState>,
+    engine: tauri::State<'_, crate::install::Engine>,
+) -> Result<Updates, String> {
+    let mut updates = Updates::default();
+    if let Ok((response, _)) = call(
+        &auth,
+        Method::GET,
+        &format!("/repos/{REPO}/releases/latest"),
+    )
+    .await
+    {
+        if response.status() == StatusCode::OK {
+            if let Ok(value) = response.json::<serde_json::Value>().await {
+                updates.app = value["tag_name"].as_str().and_then(newer);
+            }
+        }
+    }
+    if let (Some(plan), Some(exe)) = (engine.approved_plan(), crate::install::git_path()) {
+        let comfy = Path::new(&plan.request.storage_path).join("ComfyUI");
+        updates.comfy = behind(&exe, &comfy, &plan.request.comfy_ref).await;
+        updates.nodepack = behind(
+            &exe,
+            &comfy.join("custom_nodes/ComfyUI-DaSiWa-Nodes"),
+            "main",
+        )
+        .await;
+    }
+    Ok(updates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_strictly_newer_release_tags_count() {
+        assert_eq!(newer("v999.0.0"), Some("v999.0.0".into()));
+        assert_eq!(newer(&format!("v{}", env!("CARGO_PKG_VERSION"))), None);
+        assert_eq!(newer("v0.0.1"), None);
+        assert_eq!(newer("nightly"), None);
+    }
 }
 
 async fn call(

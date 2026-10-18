@@ -5,12 +5,12 @@ import { Workbench } from './Workbench';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, type JobStatus } from '../../lib/jobs';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, type JobStatus } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
-vi.mock('../../lib/jobs',()=>({prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler'],schedulers:['normal']}};
 beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);});
@@ -136,6 +136,84 @@ test('IPC fixture: pipelines are gated — Image→Image needs an Input-folder i
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
+});
+
+test('IPC fixture: floating Upscale on an Output image submits a grid-snapped [output] image-to-image job and splits original | edited',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-up',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false} as JobStatus);
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'out.png'}));
+ const img=screen.getByRole('img',{name:'out.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Upscale'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Upscale'}));
+ expect(screen.getByRole('button',{name:'Image → Image',pressed:true})).toBeTruthy();
+ expect(screen.getByText('Output 1984×1216')).toBeTruthy(); // 2000×1200 snapped per edge to the SDXL 64 grid
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'out.png [output]',denoise:0.35,width:1984,height:1216,inputResize:{width:1984,height:1216,crop:'disabled'}});
+ expect(await screen.findByRole('img',{name:'Original'})).toBeTruthy();
+ expect(screen.getByRole('slider',{name:'Original / edited divider'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Compare',pressed:true}));
+ expect(screen.queryByRole('img',{name:'Original'})).toBeNull();
+});
+
+test('IPC fixture: Inpaint paints a mask over the image, uploads it and submits inputMask with the unresized source',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-in',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ vi.mocked(uploadMask).mockResolvedValue('deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png');
+ const ctx={arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),moveTo:vi.fn(),lineTo:vi.fn(),stroke:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn()};
+ const restore=[vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D),
+  vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(cb=>cb({arrayBuffer:async()=>new Uint8Array([137,80,78,71]).buffer} as Blob)), // jsdom Blob has no arrayBuffer
+  vi.spyOn(HTMLCanvasElement.prototype,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:500,height:300} as DOMRect)];
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'out.png'}));
+ const img=screen.getByRole('img',{name:'out.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Inpaint'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true); // nothing painted yet
+ const mask=screen.getByLabelText('Inpaint mask',{selector:'canvas'}) as HTMLCanvasElement;
+ mask.setPointerCapture=vi.fn(); // absent in jsdom
+ expect([mask.width,mask.height]).toEqual([1000,600]); // the source's own pixels
+ fireEvent(mask,new MouseEvent('pointerdown',{clientX:250,clientY:150,buttons:1,bubbles:true})); // jsdom has no PointerEvent coordinates
+ expect(ctx.arc).toHaveBeenCalledWith(500,300,24,0,Math.PI*2); // 500×300 box shows the 1000×600 bitmap at half scale
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(uploadMask).toHaveBeenCalledWith('http://127.0.0.1:7801',new Uint8Array([137,80,78,71]));
+ const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ expect(intent).toMatchObject({inputImage:'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8});
+ expect(intent.inputResize).toBeUndefined();
+ restore.forEach(s=>s.mockRestore());
+});
+
+test('IPC fixture: Insert pastes a picked Output image as a movable layer and submits it as inputLayers in source pixels',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
+ const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('src.png'),entry('cat.png')],truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-l',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ // jsdom never loads images: report a 2:1 picture.
+ vi.stubGlobal('Image',class{naturalWidth=200;naturalHeight=100;onload=()=>{};onerror=()=>{};set src(_:string){setTimeout(()=>this.onload());}});
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'src.png'}));
+ const img=screen.getByRole('img',{name:'src.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Insert'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Insert'}));
+ expect(screen.getByRole('button',{name:'Insert',pressed:true})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'cat.png'}));
+ const layer=await screen.findByRole('group',{name:'Inserted image cat.png [output]'});
+ expect(screen.getByRole('img',{name:'src.png'})).toBeTruthy(); // the source stays selected
+ fireEvent.keyDown(layer,{key:'ArrowRight'});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'src.png [output]',inputLayers:[{image:'cat.png [output]',x:342,y:217,width:333,height:167}]}); // centred (334,217) then ArrowRight +8
+ vi.unstubAllGlobals();
 });
 
 test('IPC fixture: families gate models and LoRAs, picking applies the family defaults and a diffusion model submits its encoder and VAE',async()=>{

@@ -36,7 +36,7 @@ test("language selection updates app, setup, studio metadata and aria without lo
   fireEvent.click(screen.getByRole("button", { name: /^Director$/i }));
   fireEvent.change(screen.getByLabelText("Shot direction"), { target: { value: "Preserve my draft" } });
   // Language lives in Settings; a pick there is marked as a custom choice.
-  fireEvent.click(screen.getByRole("button", { name: "Settings & Backend" }));
+  fireEvent.click(screen.getByRole("button", { name: "Backend" }));
   fireEvent.change(screen.getByLabelText("Language"), { target: { value: "de" } });
   expect(document.documentElement.lang).toBe("de");
   expect(screen.getByText("Eigene Wahl")).toBeTruthy();
@@ -47,7 +47,7 @@ test("language selection updates app, setup, studio metadata and aria without lo
   expect(document.querySelector(".neural-legend")).toBeNull();
   expect([...document.querySelectorAll('[data-node="director"] [data-included]')].map(part=>part.textContent)).toEqual(["Prompt Forge", "RefMods", "Kontinuität", "Ausgabe"]);
   expect(screen.getByLabelText("Bildausschnitt").textContent).toContain("Totale");
-  fireEvent.click(screen.getByRole("button", { name: "Einstellungen & Backend" }));
+  fireEvent.click(screen.getByRole("button", { name: "Backend" }));
   fireEvent.change(screen.getByLabelText("Sprache"), { target: { value: "en" } });
   fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
   expect(screen.getByLabelText("Shot direction")).toHaveProperty("value", "Preserve my draft");
@@ -57,7 +57,7 @@ test("language selection updates app, setup, studio metadata and aria without lo
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","logs","studio","optional-downloads"]);
+  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","logs","studio","optional-downloads","comfy"]);
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
@@ -94,7 +94,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   expect(screen.getByLabelText('Shot direction')).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/generate/i})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>!['native_auth_status','native_repo_stars','native_models_scan','native_media_list'].includes(c))).toEqual(['native_install_defaults','native_install_plan','native_install_start']); // read-only media/model listings of the installed root are timing-dependent and asserted in their own suites
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>!['native_auth_status','native_repo_stars','native_update_check','native_models_scan','native_media_list'].includes(c))).toEqual(['native_install_defaults','native_install_plan','native_install_start']); // read-only media/model listings of the installed root are timing-dependent and asserted in their own suites
 });
 
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {

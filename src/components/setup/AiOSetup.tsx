@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults } from '../../lib/setup';
+import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults, type NativeBackendStatus } from '../../lib/setup';
 import './setup.css';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { StartupPanel } from '../../features/settings/StartupPanel';
@@ -52,8 +52,13 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const plan=setupPlan(state);
  const signature=JSON.stringify([plan,folderDraft]);
  const planMatches=JSON.stringify(nativePlan?.request.folders??{})===JSON.stringify(folderDraft)&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
- const [view,setView]=useState<'studio'|'downloads'|'setup'|'auth'|'settings'|'logs'>('setup');
- // After success the review hides; Upgrade / Re-run installation live in Settings & Backend.
+ const [view,setView]=useState<'studio'|'downloads'|'comfy'|'setup'|'auth'|'settings'|'logs'>('setup');
+ const [backendStatus,setBackendStatus]=useState<NativeBackendStatus|null>(null);
+ const comfyEndpoint=backendStatus?.state==='running'?backendStatus.endpoint??'':'';
+ const [comfyLoaded,setComfyLoaded]=useState(false);
+ useEffect(()=>setComfyLoaded(false),[comfyEndpoint]);
+ const comfyVisited=useRef(false);if(view==='comfy')comfyVisited.current=true;
+ // After success the review hides; Upgrade / Re-run installation live in Backend.
  const succeeded=status?.state==='succeeded';const [confirmReinstall,setConfirmReinstall]=useState(false);
  // A finished upgrade/reinstall remounts the backend panel so autostart applies to the new environment.
  const updating=useRef(false);const [updates,setUpdates]=useState(0);
@@ -173,24 +178,26 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   try{await invoke('native_install_cancel');setStatus(await invoke<NativeInstallStatus>('native_install_status'));}
   catch(e){setTechnicalError(String(e));}finally{setBusy(false);}
  };
- return <section className="aio-setup" aria-label={t('setup.region')}>
-  <header className="aio-setup-header">{brand}
+ return <section className={`aio-setup${view==='comfy'?' is-comfy':''}`} aria-label={t('setup.region')}>
+  <header className="aio-setup-header" hidden={view==='comfy'}>{brand}
    <div className="aio-head-actions">
     <button type="button" data-node="setup:aio" className={`aio-tab aio-head aio-tab-installer ${installed?'is-done':'is-pending'}`} aria-pressed={view==='setup'} aria-label={t('setup.aio.label')} disabled={running||busy||pickerBusy||folderPickerBusy} onClick={()=>{setView('setup');if(!pickerLock.current&&!installed)setState(s=>transitionSetup(s,{type:'automatic'}));}}><span>{installed&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('setup.aio.label')}</span><small>{t(installed?'setup.tab.installed':'setup.aio.description')}</small></button>
     <button type="button" data-node="provider-auth" className="aio-tab aio-head" aria-label={t('downloads.auth')} disabled={folderPickerBusy} aria-pressed={view==='auth'} onClick={()=>setView('auth')}><span>{verified.length>0&&<span className="aio-tab-check" aria-hidden="true">✓</span>}{t('downloads.auth')}</span>{verified.length>0&&<small>{authProviders.filter(p=>verified.includes(p.id)).map(p=>`✓ ${p.label}`).join(' · ')}</small>}</button>
-    <button type="button" data-node="settings" className="aio-tab aio-head" disabled={folderPickerBusy} aria-pressed={view==='settings'} onClick={()=>setView('settings')}>{t('settings.button')}</button>
+    <button type="button" data-node="settings" className="aio-tab aio-head" disabled={folderPickerBusy} aria-describedby={backendStatus?.state==='starting'||backendStatus?.state==='running'?'backend-state':undefined} aria-pressed={view==='settings'} onClick={()=>setView('settings')}><span>{t('settings.button')}</span>{(backendStatus?.state==='starting'||backendStatus?.state==='running')&&<small id="backend-state" aria-hidden="true">{backendStatus.state==='running'&&<span className="aio-tab-check">✓</span>}{t(backendStatus.state==='starting'?'setup.backendStarting':'setup.backendStarted')}</small>}</button>
     <button type="button" data-node="logs" className="aio-tab aio-head" disabled={folderPickerBusy} aria-pressed={view==='logs'} onClick={()=>setView('logs')}>{t('logs.title')}</button>
     <RepoLinks canStar={verified.includes('github')}/>
    </div>
   </header>
-  {detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
+  {view!=='comfy'&&detectionError&&<p className="aio-error" role="alert">{t('setup.detectionError')}: {detectionError}</p>}
   <div className={`aio-decision-area${side?'':' is-single'}`}>
   <div className="aio-left">
   <div className="aio-tabs" role="tablist" aria-label={t('setup.decisions')}>
    <button type="button" role="tab" data-node="studio" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='studio'} onClick={()=>setView('studio')}>{t('setup.tab.studio')}</button>
    <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
+   <button type="button" role="tab" data-node="comfy" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='comfy'} onClick={()=>setView('comfy')}>{t('setup.tab.comfy')}</button>
   </div>
-  {status&&(running||view==='setup')&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.state==='succeeded'&&<p>{t('setup.installedNotReady')}</p>}{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
+  {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
+  {status&&view!=='comfy'&&(running||view==='setup')&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.state==='succeeded'&&<p>{t('setup.installedNotReady')}</p>}{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
   {/* Once opened, the Studio stays mounted (hidden) so its panels keep their state across tab switches. */}
   {studioVisited.current&&<div hidden={view!=='studio'}>{studio}</div>}
   <DownloadWorkspace view={view==='auth'||view==='downloads'?view:null} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
@@ -199,7 +206,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {view==='logs'&&<LogsPanel/>}
   {view==='settings'&&<LanguageSetting/>}
   {view==='settings'&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}<FoldersPanel root={installedRoot||(plan?.route==='managed'?plan.storagePath:defaults?.storagePath)} draft={installed?undefined:folderDraft} disabled={running||busy||folderPickerBusy} onChange={installed?setFolders:setFolderDraft}/>{installed&&(installedRoot||plan?.route==='managed')&&<div className="settings-runtime-grid"><StartupPanel root={installedRoot||(plan?.route==='managed'?plan.storagePath:'')} onRestart={()=>setRestartSignal(n=>n+1)}/><LlmPanel key={folders.models??''} root={installedRoot||(plan?.route==='managed'?plan.storagePath:'')}/></div>}</>}
-  {error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
+  {view!=='comfy'&&<>{error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}</>}
   </div>
   {/* Kept mounted (hidden) after success so backend polling and the Studio handoff continue on other tabs. */}
   {(side||installed)&&<aside className="aio-right" hidden={!side}>
@@ -233,7 +240,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
     </details>}
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
   </section>}
-  {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} locked={running} restartSignal={restartSignal} actions={<>
+  {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} onStatusChange={setBackendStatus} locked={running} restartSignal={restartSignal} actions={<>
    <button type="button" title={t('setup.upgradeHelp')} disabled={running||busy} onClick={()=>void update(false)}>{t('setup.upgrade')}</button>
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
   </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}

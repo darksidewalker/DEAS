@@ -10,5 +10,6 @@
   "app.follow": "沿着连接前行，展开一个想法。",
   "app.noRun": "未经您的指示，不会运行任何内容。",
   "app.instrument": "以本地为优先的创作工具",
-  "app.noCloud": "无需云端账号，不发送后台请求。"
+  "app.update": "有可用更新：{list}",
+  "app.updateNodes": "DaSiWa 节点"
 }

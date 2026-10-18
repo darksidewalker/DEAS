@@ -11,7 +11,7 @@ Every product feature is a plugin or plugin family. Shared runtime services rema
 ## Architecture and integration rules
 
 - **Rust/Tauri kernel:** scoped IPC, project/asset storage, credential access, file dialogs, installation plans, download transport, resource scheduling and app-owned process lifecycle.
-- **DEAS frontend:** one neural workspace with reusable feature blobs, ownership roads and inline controls. Plugins integrate with this surface, not separate dashboards, embedded legacy apps or ComfyUI widget panels.
+- **DEAS frontend:** one neural workspace with reusable feature blobs, ownership roads and inline controls. Studio plugins integrate with this surface, not separate dashboards, embedded legacy apps or ComfyUI widget panels. The standalone Comfy tab is an explicit exception for the original owned-backend editor, not a Studio plugin integration pattern.
 - **Execution adapters:** ComfyUI for inference recipes; managed Python workers for training/enhancement/tagging; scoped FFmpeg/FFprobe for media; explicit Ollama/OpenAI-compatible services for language/vision tasks. Rust orchestrates; it does not replace Python/PyTorch model computation.
 - **Data-first extensions:** validated TOML/JSON manifests, resource catalogs, model-family recipes, prompts and locale dictionaries. Adding ordinary resources or recipe metadata should not require frontend-specific code. New transport or computational behavior requires a reviewed adapter, not arbitrary executable manifest fields.
 - **Plugin lifecycle:** available → selected → planned → installed → verified → enabled, with explicit blocked/failed/update states. Installed, enabled and generation-ready are different facts. A bundled dependency is installed once, even when several plugins use it.

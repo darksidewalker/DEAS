@@ -180,6 +180,35 @@ test('inputImage + denoise compile image-to-image through LoadImage/VAEEncode, v
   rejects({ ...i2i, denoise: 1.5 }, verified, 'INVALID_INPUT', 'denoise');
 });
 
+test('inputMask inpaints an [output] image: noise mask on the encoded source, composite onto it, same as native', () => {
+  const mask = 'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png';
+  const inpaint = { ...intent, inputImage: 'out.png [output]', denoise: 0.8, inputMask: mask };
+  const verified = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'], images: [] };
+  const graph = compileRecipe(inpaint, verified).graph;
+  assert.deepEqual(graph.W.inputs, { image: mask, channel: 'red' });
+  assert.deepEqual(graph['5'].inputs.latent_image, ['X', 0]);
+  assert.deepEqual(graph.Y.inputs.destination, ['8', 0]);
+  assert.deepEqual(graph['7'].inputs.images, ['Y', 0]);
+  assert.deepEqual(compileRecipe(inpaint, { ...verified, nodes: [...verified.nodes, 'DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'] }).graph['7'].inputs.images, ['Y', 0]);
+  rejects(inpaint, { ...verified, nodes: verified.nodes.filter(n => n !== 'SetLatentNoiseMask') }, 'MISSING_CAPABILITY', 'SetLatentNoiseMask');
+  for (const bad of [{ inputMask: 'ref.png' }, { inputMask: 'deas-masks/x.png' }, { inputResize: { width: 512, height: 768, crop: 'disabled' } }]) rejects({ ...inpaint, ...bad }, verified, 'INVALID_INPUT', 'inputMask');
+  rejects({ ...intent, inputMask: mask }, verified, 'INVALID_INPUT', 'inputMask');
+});
+
+test('inputLayers paste scaled images onto the source before resize and inpaint, same as native', () => {
+  const layered = { ...intent, inputImage: 'src.png [output]', denoise: 0.6, inputLayers: [{ image: 'cat.png', x: 10, y: 20, width: 100, height: 50 }, { image: 'dog.png [output]', x: 0, y: 0, width: 8, height: 8 }] };
+  const verified = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'ImageScale', 'ImageCompositeMasked', 'LoadImageMask', 'SetLatentNoiseMask'], images: ['cat.png'] };
+  const graph = compileRecipe(layered, verified).graph;
+  assert.deepEqual(graph.B0.inputs, { destination: ['8', 0], source: ['R0', 0], x: 10, y: 20, resize_source: false });
+  assert.deepEqual(graph.B1.inputs.destination, ['B0', 0]);
+  assert.deepEqual(graph['9'].inputs.pixels, ['B1', 0]);
+  assert.deepEqual(compileRecipe({ ...layered, inputResize: { width: 512, height: 768, crop: 'disabled' } }, verified).graph.S.inputs.image, ['B1', 0]);
+  assert.deepEqual(compileRecipe({ ...layered, inputMask: 'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png' }, verified).graph.Y.inputs.destination, ['B1', 0]);
+  rejects(layered, { ...verified, images: [] }, 'MISSING_MODEL', 'inputImage');
+  for (const bad of [[], [{ image: '../x.png', x: 0, y: 0, width: 8, height: 8 }], [{ image: 'x.png', x: -1, y: 0, width: 8, height: 8 }], [{ image: 'x.png', x: 0, y: 0, width: 0, height: 8 }], Array(5).fill({ image: 'x.png', x: 0, y: 0, width: 8, height: 8 })]) rejects({ ...layered, inputLayers: bad }, verified, 'INVALID_INPUT', 'inputLayers');
+  rejects({ ...intent, inputLayers: layered.inputLayers }, verified, 'INVALID_INPUT', 'inputLayers');
+});
+
 test('inputResize builds scale/pad chains and requires only the used optional nodes', () => {
   const image = { ...intent, inputImage: 'ref.png', denoise: 0.6 };
   const lists = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'ImageScale', 'ImagePadForOutpaint'], images: ['ref.png'] };

@@ -15,7 +15,7 @@ The final product provisions ComfyUI through a native Rust installer ported from
 
 ## Execution-only backend ownership
 
-DEAS owns feature selection, inputs/settings, media, validation, queue/progress and output playback/export. ComfyUI only receives and executes dynamically compiled API-format jobs; its internal computational nodes are not the source of DEAS UI controls. No embedded ComfyUI editor, node widget forms or node-side previews. Prefer a verified SDK/API adapter with explicit local endpoint binding; retain a separate classic API adapter when v2 is absent. SDK availability, beta proxy requirements, job/output ownership and safety gates are specified in [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md).
+DEAS owns feature selection, inputs/settings, media, validation, queue/progress and output playback/export. ComfyUI only receives and executes dynamically compiled API-format jobs; its internal computational nodes are not the source of DEAS UI controls. The Studio does not embed ComfyUI controls. The standalone **Comfy** tab is the explicit exception, exposing the original owned-backend editor and installed frontend extensions without converting them into Studio controls. Prefer a verified SDK/API adapter with explicit local endpoint binding; retain a separate classic API adapter when v2 is absent. SDK availability, beta proxy requirements, job/output ownership and safety gates are specified in [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md).
 
 Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No foreign-service start/adoption, cloud fallback or assumption of generation readiness; owned-backend autostart follows the Settings preference.
 
@@ -31,6 +31,13 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 
 ## Milestones and acceptance checklist
 
+### Original ComfyUI tab (0.1.19)
+- [x] Comfy beside Library: original owned-backend frontend and installed extensions; only shared tab band and footer remain visible.
+- [x] Preserve editor/Studio across tab switches; revoke the editor endpoint after Stop/failure/lost native status.
+- [x] Waiting/loading spinner plus native Starting… / ✓ Started hints in the Backend header button, localized in all six languages.
+- [x] Focused UI tests, responsive browser fixtures, read-only real frontend and WebKitGTK rendering; rebuild/stage Linux artifact.
+- [ ] Windows HTML5 file drops/native interaction and original editor generation acceptance remain unverified/unsupported as documented.
+
 ### Shared discovered LLM models (0.1.18)
 - [x] Move LLM endpoint settings right of Startup optimizations; no global remote model, local path, context, GPU-layer or fallback controls.
 - [x] Always discover local language GGUFs from the configured models folder's llm directory; add configured server models without hiding local choices on remote failure.
@@ -38,7 +45,7 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 - [x] Verify discovery/inference/native/UI/browser coverage and rebuild the Linux artifact.
 
 ### Shared LLM backend (0.1.17, superseded by per-request discovery)
-- [x] Settings & Backend: per-environment local llama-cpp-python, Ollama or OpenAI-compatible API configuration and explicit test completion.
+- [x] Backend: per-environment local llama-cpp-python, Ollama or OpenAI-compatible API configuration and explicit test completion.
 - [x] Shared native completion service and TypeScript caller for PromptForge/prompt writers; bounded transport and GGUF fallback only on server unavailability.
 - [x] Verify transport fixtures, local worker inference, frontend tests and responsive localized rendering; build the Linux artifact.
 - [ ] Full model-specific PromptForge writer, streaming/cancellation/review/apply and API-key authentication remain separate work.

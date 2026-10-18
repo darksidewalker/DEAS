@@ -467,6 +467,9 @@ impl Lifecycle {
             "--port",
             &port.to_string(),
             "--disable-auto-launch",
+            // ComfyUI's default origin middleware answers the Comfy tab's cross-site iframe navigation with 403; CORS mode replaces it.
+            "--enable-cors-header",
+            "tauri://localhost",
         ]);
         match approved.plan.request.backend {
             Backend::Cpu => {

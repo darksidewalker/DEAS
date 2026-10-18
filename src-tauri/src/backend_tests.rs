@@ -4,6 +4,7 @@ pub(crate) const SERVER: &str = r#"
 import json,sys,http.server,socketserver,time,os
 args=sys.argv[1:]
 assert '--disable-auto-launch' in args
+assert args[args.index('--enable-cors-header')+1]=='tauri://localhost'
 assert args[args.index('--listen')+1]=='127.0.0.1'
 assert '--cpu' in args
 assert os.environ.get('PYTHONPATH') is None

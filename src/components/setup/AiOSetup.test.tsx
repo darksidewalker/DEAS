@@ -28,6 +28,59 @@ function nativeFixture(){
 async function ready(){mount();open();await waitFor(()=>expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe(request.storagePath));await screen.findByRole('button',{name:'Start install'});}
 function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 describe('automatic-first installation — read-only mock IPC fixtures',()=>{
+ it('opens Comfy beside Library without starting a backend and preserves Studio',()=>{
+  render(<I18nProvider><AiOSetup brand={<span>DEAS brand</span>} studio={<input aria-label="Studio draft" defaultValue="keep me"/>} onConnectExisting={vi.fn()}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+  const draft=screen.getByLabelText('Studio draft');
+  const tabs=screen.getAllByRole('tab');expect(tabs.map(x=>x.textContent)).toEqual(['Studio','Library','Comfy']);
+  fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
+  expect(screen.getByRole('status').textContent).toContain('Waiting for backend');
+  expect(document.querySelector('.comfy-loading .aio-spinner')).not.toBeNull();
+  expect(screen.queryByRole('button',{name:'Backend'})).toBeNull();
+  expect(screen.queryByLabelText('Studio draft')).not.toBeNull();
+  expect(draft.closest('[hidden]')).not.toBeNull();
+  expect(document.querySelector('iframe')).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+  expect(screen.getByLabelText('Studio draft')).toBe(draft);
+  expect(draft.closest('[hidden]')).toBeNull();
+  expect(screen.getByRole('button',{name:'Backend'})).toBeTruthy();
+ });
+ it('loads only the owned running endpoint and keeps the editor mounted across tab switches',async()=>{
+  nativeFixture();
+  vi.mocked(invoke).mockImplementation(async(c,args)=>{
+   if(c==='native_install_defaults')return defaults;
+   if(c==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);
+   if(c==='native_install_start')return {state:'succeeded',logs:[],error:null};
+   if(c==='native_backend_stop')return {state:'stopped',endpoint:null,logs:[],error:null,generationReady:false};
+   if(c==='native_backend_status')return {state:'running',endpoint:'http://127.0.0.1:49312',logs:[],error:null,generationReady:false};
+   if(c==='native_download_catalog')return {version:1,providers:[],entries:[]};
+   throw Error('Unexpected IPC '+c);
+  });
+  mount();open();await screen.findByRole('button',{name:'Start install'});click('Start install');
+  await waitFor(()=>expect(screen.getByRole('button',{name:'AiO installer'}).className).toContain('is-done'));
+  fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
+  expect(document.querySelector('iframe')).toBeNull();
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Refresh backend status');
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Stop owned backend'})).not.toBeNull());
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Backend'}).textContent).toContain('✓Started'));
+  fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
+  const frame=screen.getByTitle('ComfyUI workflow editor');
+  expect(frame.getAttribute('src')).toBe('http://127.0.0.1:49312');
+  expect(screen.getByRole('status').textContent).toContain('Loading ComfyUI');
+  fireEvent.load(frame);expect(screen.queryByRole('status')).toBeNull();
+  expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
+  fireEvent.click(screen.getByRole('tab',{name:'Library'}));
+  expect(frame.closest('[hidden]')).not.toBeNull();
+  fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
+  expect(screen.getByTitle('ComfyUI workflow editor')).toBe(frame);
+  expect(frame.closest('[hidden]')).toBeNull();
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start'||c==='native_backend_stop')).toBe(false);
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Stop owned backend');
+  await waitFor(()=>expect(document.querySelector('iframe')).toBeNull());
+  fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
+  expect(screen.getByRole('status').textContent).toContain('Waiting for backend');
+ });
  it('autostarts after successful fresh provisioning but never before install consent',async()=>{
   nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');
   vi.mocked(invoke).mockImplementation(async(c,args)=>{
@@ -40,6 +93,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start')).toBe(false);
   click('Start install');await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
   expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_backend_start')).toHaveLength(1);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Backend'}).textContent).toContain('Starting…'));
  });
  it('restores and autostarts a checked remembered environment by default',async()=>{
   nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');localStorage.setItem('deas.pref.install.root','"/custom/env"');
@@ -56,10 +110,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start')).toBe(false);
  });
  it('defaults backend autostart on and remembers the Settings switch being disabled',async()=>{
-  localStorage.removeItem('deas.pref.backend.autostart');const first=mount();click('Settings & Backend');
+  localStorage.removeItem('deas.pref.backend.autostart');const first=mount();click('Backend');
   const toggle=screen.getByRole('switch',{name:'Auto-start backend'});expect(toggle.getAttribute('aria-checked')).toBe('true');
   fireEvent.click(toggle);await waitFor(()=>expect(localStorage.getItem('deas.pref.backend.autostart')).toBe('false'));
-  first.unmount();mount();click('Settings & Backend');expect(screen.getByRole('switch',{name:'Auto-start backend'}).getAttribute('aria-checked')).toBe('false');
+  first.unmount();mount();click('Backend');expect(screen.getByRole('switch',{name:'Auto-start backend'}).getAttribute('aria-checked')).toBe('false');
  });
  it('recognizes a chosen environment root without nesting another environment directory',async()=>{
   nativeFixture();
@@ -136,7 +190,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?{...plan((args as {request:NativeInstallRequest}).request),id:`plan-${++id}`}:{state:'succeeded',stepId:null,logs:[],error:null});
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await waitFor(()=>expect(installed).toHaveBeenCalledTimes(1));
   expect(JSON.parse(localStorage.getItem('deas.pref.install.root')!)).toBe(request.storagePath);expect(screen.queryByLabelText('Director')).toBeNull();open();open();
-  // Re-runs moved to Settings & Backend: reopening the installer neither shows the review nor replays success.
+  // Re-runs moved to Backend: reopening the installer neither shows the review nor replays success.
   expect(screen.queryByLabelText('Director')).toBeNull();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
   await new Promise(r=>setTimeout(r,300));expect(installed).toHaveBeenCalledTimes(1);
  });
@@ -230,13 +284,13 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   await ready();click('Choose Models folder');await waitFor(()=>expect(screen.getByText('/real/models')).toBeTruthy());
   await waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{...request,folders:{models:'/real/models'}}}));
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_write'||c==='native_settings_move'||c==='native_install_start')).toBe(false);
-  fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Backend'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
  });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText('Installed');
   const before=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').length;
-  fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));
+  fireEvent.click(screen.getByRole('button',{name:'Backend'}));
   const settings=screen.getByRole('region',{name:'Settings'});
   await waitFor(()=>expect((settings.querySelector('button') as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(settings.querySelector('button')!);await screen.findByText('/new/models');click('Save folders');

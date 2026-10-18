@@ -10,5 +10,6 @@
   "app.follow": "つながりをたどり、発想を広げよう。",
   "app.noRun": "指示するまで、何も実行されません。",
   "app.instrument": "ローカルを中心にした創作ツール",
-  "app.noCloud": "クラウドアカウント不要。バックグラウンドでのリクエストもありません。"
+  "app.update": "更新があります: {list}",
+  "app.updateNodes": "DaSiWa ノード"
 }

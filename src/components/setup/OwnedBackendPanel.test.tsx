@@ -12,6 +12,18 @@ afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
 const fixture=(state:'starting'|'running'|'failed'|'stopped',endpoint:string|null=null)=>({state,endpoint,logs:['mock IPC fixture log'],error:null,generationReady:false});
 const mount=(succeeded=false,connect=vi.fn())=>render(<I18nProvider><OwnedBackendPanel installSucceeded={succeeded} onConnectExisting={connect}/></I18nProvider>);
 describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU verification',()=>{
+ it.each(['failed','ipc-error'] as const)('revokes the embedded editor endpoint after %s and on unmount',async(state)=>{
+  const endpoint=vi.fn();
+  vi.mocked(invoke).mockResolvedValue(fixture('running','http://127.0.0.1:49312'));
+  const view=render(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={vi.fn()} onStatusChange={endpoint}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
+  await waitFor(()=>expect(endpoint).toHaveBeenLastCalledWith(expect.objectContaining({state:'running',endpoint:'http://127.0.0.1:49312'})));
+  if(state==='ipc-error')vi.mocked(invoke).mockRejectedValue(Error('IPC unavailable'));
+  else vi.mocked(invoke).mockResolvedValue(fixture('failed'));
+  fireEvent.click(screen.getByRole('button',{name:'Refresh backend status'}));
+  await waitFor(()=>expect(endpoint).toHaveBeenLastCalledWith(state==='ipc-error'?null:expect.objectContaining({state:'failed'})));
+  endpoint.mockClear();view.unmount();expect(endpoint).toHaveBeenCalledWith(null);
+ });
  it('autostarts once after checking native status and never restarts after explicit stop',async()=>{
   vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':'stopped'));
   const view=render(<StrictMode><I18nProvider><OwnedBackendPanel installSucceeded autoStart onConnectExisting={vi.fn()}/></I18nProvider></StrictMode>);
@@ -156,7 +168,7 @@ async function installFixture(result:'succeeded'|'failed') {
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
  it('exposes a separate explicit backend start only after succeeded install',async()=>{
   await installFixture('succeeded');
-  // Success moves to the Studio tab; a second installer click no longer reopens the review: re-runs live in Settings & Backend.
+  // Success moves to the Studio tab; a second installer click no longer reopens the review: re-runs live in Backend.
   const installer=()=>fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
   await screen.findByRole('tab',{name:'Studio',selected:true});
   installer();expect(screen.getByRole('button',{name:'Start owned backend'})).toBeTruthy();installer();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
@@ -174,7 +186,7 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   await installFixture('succeeded');
   const base=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_update'?{state:'succeeded',stepId:null,logs:['mock update fixture'],error:null}:base(command,args));
-  fireEvent.click(screen.getByRole('button',{name:'Settings & Backend'}));
+  fireEvent.click(screen.getByRole('button',{name:'Backend'}));
   expect(screen.getByRole('switch',{name:'Auto-start backend'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Re-run installation'}));
   expect(screen.getByRole('alertdialog').textContent).toMatch(/overwrites the installation/);

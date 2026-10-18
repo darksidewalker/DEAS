@@ -258,6 +258,7 @@ select:hover {
   color: #818e93;
 }
 .footer-version { margin-left: auto; }
+button.footer-version.is-update { background: none; border: 0; padding: 0; color: var(--accent, #c8762c); font: inherit; cursor: pointer; }
 .footer-divider {
   color: var(--copper);
   margin: 0 9px;

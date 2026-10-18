@@ -10,5 +10,6 @@
   "app.follow": "Folge einer Verbindung. Entfalte eine Idee.",
   "app.noRun": "Nichts läuft ohne deinen Auftrag.",
   "app.instrument": "Ein kreatives Werkzeug mit lokalem Fokus",
-  "app.noCloud": "Kein Cloud-Konto. Keine Hintergrundanfragen."
+  "app.update": "Update verfügbar: {list}",
+  "app.updateNodes": "DaSiWa-Nodes"
 }

@@ -4,7 +4,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import type { NativeBackendStatus } from '../../lib/setup';
 
 /** `children` (e.g. the autostart switch) render above the action row; `actions` extend it; `locked` disables lifecycle buttons while the environment is being changed; each `restartSignal` change restarts a running backend (stopped stays stopped). */
-export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=false,children,actions,locked=false,restartSignal=0}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean;restartSignal?:number}) {
+export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusChange,autoStart=false,children,actions,locked=false,restartSignal=0}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;onStatusChange?:(status:NativeBackendStatus|null)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean;restartSignal?:number}) {
  const {t}=useI18n();
  const native=isTauri();
  const [status,setStatus]=useState<NativeBackendStatus|null>(null);
@@ -22,6 +22,8 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,autoStart=
   connectedEndpoint.current=endpoint;
   onConnectExisting(endpoint);
  },[native,status,onConnectExisting]);
+ useEffect(()=>{onStatusChange?.(native?status:null);},[native,status,onStatusChange]);
+ useEffect(()=>()=>onStatusChange?.(null),[onStatusChange]);
  useEffect(()=>{
   live.current=true;
   return ()=>{live.current=false;epoch.current++;};

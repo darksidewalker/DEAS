@@ -17,7 +17,7 @@ pub use api::native_negotiate_api;
 pub mod jobs;
 pub use jobs::{
     native_job_current, native_job_export, native_job_output, native_job_prepare,
-    native_job_status, native_job_submit,
+    native_job_status, native_job_submit, native_mask_upload,
 };
 pub mod model_families;
 pub mod recipe_prerequisites;
@@ -35,7 +35,10 @@ pub use media_metadata::native_media_metadata;
 pub mod token_page;
 pub use token_page::native_open_token_page;
 pub mod repo;
-pub use repo::{native_open_repo, native_repo_star, native_repo_stars};
+pub use repo::{
+    native_open_releases, native_open_repo, native_repo_star, native_repo_stars,
+    native_update_check,
+};
 pub mod folder_operations;
 pub mod settings;
 pub use folder_operations::{native_settings_move, FolderOperations};

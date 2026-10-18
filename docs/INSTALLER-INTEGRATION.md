@@ -7,7 +7,7 @@ ComfyUI is the baseline. Director is one explicitly selected package including P
 
 ## Execution-only runtime
 
-DEAS owns all feature selections, input controls, media references and result presentation/export. ComfyUI receives dynamically compiled jobs through a verified SDK/API adapter and executes them. No embedded node editor, node widget forms or custom-node preview panels supply the DEAS UX. Computational nodes may remain internal recipe implementation details. See [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md) for endpoint binding, SDK beta/proxy constraints, classic fallback, assets/jobs, isolation and the next installer/lifecycle gates.
+DEAS owns all feature selections, input controls, media references and result presentation/export. ComfyUI receives dynamically compiled jobs through a verified SDK/API adapter and executes them. No embedded node controls supply the Studio UX. The separate Comfy tab is an explicit exception and opens the original frontend of the same owned installation, without another install or service. Computational nodes may remain internal recipe implementation details. See [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md) for endpoint binding, SDK beta/proxy constraints, classic fallback, assets/jobs, isolation and the next installer/lifecycle gates.
 
 ## Native boundary
 Tauri exposes narrow native commands for immutable plan creation, explicit confirmed start, bounded status and cancellation. The frontend cannot submit arbitrary shell commands or executable paths. Native code validates every request independently of TypeScript.

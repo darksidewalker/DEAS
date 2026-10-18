@@ -2,7 +2,7 @@
 
 ## Product decision
 
-DEAS owns the entire product interface: feature/package selection, model and VAE pickers, prompts, reference media, RefMods, continuity controls, timelines, settings, validation, queue presentation, progress, previews, playback and exported results. ComfyUI is an execution service, not the studio interface. Do not embed its web editor, node widgets, custom-node HTML/JavaScript panels or node-side upload/preview UI.
+DEAS owns the entire product interface: feature/package selection, model and VAE pickers, prompts, reference media, RefMods, continuity controls, timelines, settings, validation, queue presentation, progress, previews, playback and exported results. ComfyUI is an execution service, not the studio interface. Within Studio, do not embed its web editor, node widgets, custom-node HTML/JavaScript panels or node-side upload/preview UI. The separate **Comfy** tab is an explicit exception: embed the original owned-backend frontend in a cross-origin frame, with no DEAS native-command permissions. Keep only the shared tab band and footer visible; preserve editor state across tab switches. Comfy actions use the backend directly (including its shared queue/global interrupt), not the DEAS job-scoped adapter. A changed endpoint reloads the editor; save workflows before a backend restart.
 
 ComfyUI may still execute built-in/custom computational nodes internally. A computational node is an implementation detail of a recipe, not a DEAS feature or its visual control. The DEAS graph describes feature ownership, not a mirrored ComfyUI execution graph. Required-node introspection diagnoses backend compatibility; it must not generate the product UI from node input/widget definitions.
 
@@ -83,7 +83,7 @@ Loading a preview and exporting are separate explicit actions. The studio uses l
 - `src/components/setup/AiOSetup.tsx`, setup locales/tests, `src/lib/setup.ts`: explicit backend controls only following actual successful provisioning; start/status/error handling, no generation claim or automatic foreign-service action.
 - Future `src/lib/execution.ts` and `tests/execution.test.ts`: typed job/domain contract and deterministic recipe compiler; validate inputs and unknown capability/model failures before submission.
 - Future native API/asset adapter modules: exact endpoint binding, bounded JSON/media access, correlated jobs and isolated cancellation with HTTP fixtures.
-- UI/browser tests: all controls and outputs are DEAS-owned, no embedded editor/network navigation to ComfyUI `/`, no submission without explicit Run; preserve stable selection geometry and content-anchored confirmation.
+- UI/browser tests: Studio controls and outputs are DEAS-owned, no editor navigation from Studio, no submission without explicit Run; the separate Comfy tab may navigate its frame to the owned endpoint `/` and exposes original ComfyUI controls; preserve stable selection geometry and content-anchored confirmation.
 - Gates: `npm run typecheck`, `npm test`, `npm run build`, Cargo test/clippy/fmt/release; targeted browser checks and real native rendering. Fixture passes must be labelled as fixture evidence.
 
 ## Sources
