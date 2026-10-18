@@ -4,18 +4,24 @@ import { forgeError, forgeModels, writePrompt, type ForgeModels } from '../../li
 import { isString, usePref } from '../../lib/preferences';
 import './forge.css';
 
-/** The node pack's model list for one backend; read once per endpoint/root, on demand. */
+/** The node pack's model list for one backend; read once per endpoint/root/LLM setting, on demand. */
 export function useForgeModels(endpoint: string, root?: string) {
   const [list, setList] = useState<ForgeModels | null>(null);
   const [error, setError] = useState('');
   const [model, setModel] = usePref('forge.model', '', isString);
+  const [rev, setRev] = useState(0);
   const scope = useRef<{ active: boolean; loaded: boolean; pending: boolean } | null>(null);
+  useEffect(() => {
+    const bump = () => setRev(n => n + 1);
+    window.addEventListener('deas:llm-changed', bump);
+    return () => window.removeEventListener('deas:llm-changed', bump);
+  }, []);
   useEffect(() => {
     const current = { active: true, loaded: false, pending: false };
     scope.current = current;
     setList(null); setError('');
     return () => { current.active = false; };
-  }, [endpoint, root]);
+  }, [endpoint, root, rev]);
   const load = () => {
     const current = scope.current;
     if (!current?.active || current.loaded || current.pending || !root) return;
@@ -33,7 +39,7 @@ export function useForgeModels(endpoint: string, root?: string) {
   };
   const usable = list?.models.filter(m => !m.disabled) ?? [];
   // A remembered model only counts while the backend still lists it.
-  return { list, error, load, usable, model: usable.some(m => m.id === model) ? model : usable[0]?.id ?? '', setModel };
+  return { list, error, load, rev, usable, model: usable.some(m => m.id === model) ? model : usable[0]?.id ?? '', setModel };
 }
 
 export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels> }) {
@@ -60,7 +66,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const [undo, setUndo] = useState<string | null>(null);
   const [blind, setBlind] = useState(false);
   const disabled = !root || !dialect;
-  useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => { if (!open) { setBrief(value); setResult(''); setError(''); setChoosing(!!onWildcards); } setOpen(!open); };
   const write = async () => {
     setBusy(true); setError(''); setResult(''); setBlind(false);

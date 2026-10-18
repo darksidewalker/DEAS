@@ -68,6 +68,17 @@ it.each([
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:new');
 });
 
+it('forge and hammer reload models after the LLM backend setting changes', async () => {
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Anima" value="" onApply={vi.fn()}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getAllByRole('option', { name: 'qwen' })).toHaveLength(2));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'openai:new', label: 'new server' }] } : base(command, args));
+  act(() => { window.dispatchEvent(new Event('deas:llm-changed')); });
+  await waitFor(() => expect(screen.getAllByRole('option', { name: 'new server' })).toHaveLength(2));
+  expect(forgeCalls()).toHaveLength(4);
+});
+
 it('reloads models when the backend changes with the hammer open', async () => {
   const view = (endpoint: string) => <I18nProvider><ForgeButton endpoint={endpoint} root="/env" dialect="Anima" value="idea" onApply={vi.fn()}/></I18nProvider>;
   const { rerender } = render(view('http://127.0.0.1:8188'));

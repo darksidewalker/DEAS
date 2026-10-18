@@ -76,9 +76,12 @@ function EnvironmentLlmPanel({ root }: { root: string }) {
         const next = await invoke<LlmConfig>('native_llm_write', { root, config });
         if (epoch.current !== token) return;
         setConfig(next); setSaved(next); setMessage(true);
+        window.dispatchEvent(new Event('deas:llm-changed'));
         await refresh(token);
-      } else if (action === 'refresh') await refresh(token);
-      else if (model) {
+      } else if (action === 'refresh') {
+        window.dispatchEvent(new Event('deas:llm-changed'));
+        await refresh(token);
+      } else if (model) {
         const next = await generateLlm(root, { model: { id: model.id, provider: model.provider }, system: t('llm.test.system'), prompt: prompt.trim() || t('llm.test.defaultPrompt'), maxTokens: 64, temperature: 0.2 });
         if (epoch.current === token) setResult(next);
       }

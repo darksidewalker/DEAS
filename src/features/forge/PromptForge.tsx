@@ -34,7 +34,7 @@ export function PromptForge({ endpoint, root, inputDir, onSend }: { endpoint: st
   const [blind, setBlind] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (root) forge.load(); }, [root, endpoint]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (root) forge.load(); }, [root, endpoint, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const h3 = target === H3, limit = maxPictures(target, mode);
   const shown = pictures.slice(0, limit);
   // ComfyUI and the node pack read pictures from the input folder only.
