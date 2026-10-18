@@ -156,7 +156,7 @@ Local language GGUFs are discovered recursively in the existing **Models folder 
 
 Prompt Forge writes or enhances prompts in the dialect of the selected model. It runs in the DaSiWa node pack on the owned backend (the same code as the **LLM Prompt Writer** node and the H3 Director's Forge); DEAS sends it the endpoint saved under **Backend → LLM backend**. Models come from `ComfyUI/models/llm` plus that server.
 
-- **Hammer in the prompt field (Generate):** choose LLM Prompt Forge or Presets & Wildcards. The LLM mode writes or enhances the current prompt for the selected model's family (Illustrious/SDXL, Anima, Krea 2), in Image to Image and Inpaint also lets a vision model read the source picture (input or output folder; a model without vision writes from the text and says so), shows the result for review, applies it on **Apply**, and keeps one **Undo**. Families without a prompt dialect disable only the LLM mode; wildcards need no LLM.
+- **Hammer in the prompt field (Generate):** choose LLM Prompt Forge or Presets & Wildcards. The LLM mode writes or enhances the current prompt for the selected model's family (Illustrious/SDXL, Anima, Krea 2), in Image to Image and Inpaint also lets a vision model read the source picture (input or output folder; a model without vision writes from the text and says so), shows the result for review, applies it on **Apply**, and keeps one **Undo**. With Presets & Wildcards active, the idea starts as the current prompt plus the resolved picks (node pack 0.5.31 or newer), so the LLM writes around them. Families without a prompt dialect disable only the LLM mode; wildcards need no LLM.
 - **Prompt Forge tab:** the same writers for every family plus Wan 2.2, LTX 2.3 and MiniMax H3, with Detail and Creativity, reference pictures from the input folder (read by a vision model), and **Send to Generate** for the prompt and an optional negative prompt. H3 offers T2VA, I2VA, FL2VA, L2VA and REF2VA with Duration, Shots and labelled pictures (Character 1–4, Place, Style, First/Last frame); H3 has no Generate recipe yet.
 
 Needs DaSiWa node pack 0.5.30 or newer on the backend (**Backend → Upgrade**). Not included: streaming/cancel, H3 cast cards and people boxes, video/audio references and continuity drafts.
@@ -189,7 +189,7 @@ Comfy runs as an isolated, cross-origin frame without DEAS native-command permis
 
 ## Studio preview
 
-A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock. Runnable image recipes remain separate from the visible but disabled video pipeline choices. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
+A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock; the Models and LoRAs tabs show a subfolder tree of the models folder that filters the tiles. Runnable image recipes remain separate from the visible but disabled video pipeline choices. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
 
 ![Media library with a loaded preview — browser fixture](assets/deas-media-start-1440.png)
 

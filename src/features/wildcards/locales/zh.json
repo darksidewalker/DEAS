@@ -27,5 +27,6 @@
   "wildcards.negative": "负向",
   "wildcards.baseNotice": "基础提示词；生成时会添加已启用的通配符规则。",
   "wildcards.wildcards": "通配符",
-  "wildcards.presets": "预设"
+  "wildcards.presets": "预设",
+  "wildcards.preview": "预览"
 }

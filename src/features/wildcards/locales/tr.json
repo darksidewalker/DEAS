@@ -27,5 +27,6 @@
   "wildcards.negative": "Negatif",
   "wildcards.baseNotice": "Temel istem; etkin wildcard kuralları üretimde eklenir.",
   "wildcards.wildcards": "Wildcard",
-  "wildcards.presets": "Ön ayarlar"
+  "wildcards.presets": "Ön ayarlar",
+  "wildcards.preview": "Önizleme"
 }

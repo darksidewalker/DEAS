@@ -14,6 +14,8 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Add beginner-oriented Windows/Linux build, launch, first-setup and troubleshooting instructions to the README.
 - Make Prompt Forge find models in the configured models folder (`llm` added to the generated extra model paths). Fix CI: Linux tests run with a private `TMPDIR` (folder guards reject shared `/tmp`), the Forge reload test no longer races a thumbnail call, and release binaries build on Ubuntu 22.04 for older glibc.
 - Prompt Forge: a 405 (ComfyUI's GET-only static route answering a missing node-pack route) now shows the node-pack upgrade hint instead of a bare status, and every Forge failure is written to Logs. The Prompt Writer route ships in DaSiWa nodes 0.5.30. CI: Windows Clippy no longer fails on a Linux-only test helper; workflow actions moved to their Node 24 majors.
+- The **Models** and **LoRAs** docks show a subfolder tree (built from the scanned names, like the media navigator) that filters the tiles; the pick is kept per tab and the tree only appears when the folder has subfolders.
+- The hammer's LLM mode starts from the current prompt **plus the active wildcard picks**: with Presets & Wildcards active, DEAS asks the node pack (`POST /dasiwa/wildcard-preset-prompt-builder/build`, DaSiWa nodes 0.5.31) for the resolved positive string of the saved seed/reroll and appends it to the idea. Auto-reroll runs still pick again at run time.
 - Windows: canonical paths no longer carry the `\\?\` prefix (`dunce`, already in the dependency tree), so reopening an existing environment works and ComfyUI gets plain `--output-directory`/model paths; Windows test expectations follow the canonical form.
 
 ## 0.1.25 — 2026-10-18

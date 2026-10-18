@@ -27,5 +27,6 @@
   "wildcards.negative": "Negativ",
   "wildcards.baseNotice": "Basisprompt; aktive Wildcard-Regeln werden bei der Generierung ergänzt.",
   "wildcards.wildcards": "Wildcards",
-  "wildcards.presets": "Presets"
+  "wildcards.presets": "Presets",
+  "wildcards.preview": "Vorschau"
 }

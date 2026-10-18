@@ -45,6 +45,42 @@ pub(crate) fn validate(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// The node resolves validated rules outside the graph: `{positive, negative}` as the run would use them.
+#[tauri::command]
+pub async fn native_wildcard_build(base_url: String, rules: Value) -> Result<Value, String> {
+    validate(&rules)?;
+    let url = crate::validate_base_url(&base_url)?
+        .join("dasiwa/wildcard-preset-prompt-builder/build")
+        .map_err(|_| "Invalid backend URL")?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| "Cannot create wildcard client")?;
+    let response = client
+        .post(url)
+        .json(&rules)
+        .send()
+        .await
+        .map_err(|_| "Wildcard build request failed")?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "{} Wildcard build unavailable",
+            response.status().as_u16()
+        ));
+    }
+    let value: Value = response
+        .json()
+        .await
+        .map_err(|_| "Invalid wildcard build JSON")?;
+    if !(value["positive"].is_string() && value["negative"].is_string()) {
+        return Err("Invalid wildcard build result".into());
+    }
+    Ok(value)
+}
+
 /// Return raw JSON to retain the library's category order without changing serde_json globally.
 #[tauri::command]
 pub async fn native_wildcard_library(base_url: String) -> Result<String, String> {

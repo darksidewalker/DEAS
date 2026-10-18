@@ -26,7 +26,8 @@ export function WildcardPanel({endpoint,value,onChange,enabled,onEnabled}:{endpo
   const text=subject[`${prefix}_${kind}`]??[];
   return text.length?[{category,subject:subject.subject,kind,text,key:`${category}/${subject.subject}/${kind}`}]:[];
  })));
- const selected=entries.filter(e=>value.selection_state[e.key]?.enabled).length;
+ const used=entries.filter(e=>value.selection_state[e.key]?.enabled);
+ const negative=(category:string)=>category.toLowerCase().includes('negative prompt');
  const update=(patch:Partial<WildcardRules>)=>onChange({...value,...patch});
  const select=(key:string,patch:{enabled?:boolean;weight?:number})=>update({selection_state:{...value.selection_state,[key]:{...(value.selection_state[key]??{enabled:false,weight:1}),...patch}}});
  const randomSelect=()=>{const candidates=[...entries],state:WildcardRules['selection_state']={};const count=Math.min(candidates.length,1+randomIndex(10));
@@ -45,11 +46,11 @@ export function WildcardPanel({endpoint,value,onChange,enabled,onEnabled}:{endpo
    <button type="button" onClick={()=>setRevision(n=>n+1)}>{t('wildcards.reload')}</button>
    <input type="search" value={query} aria-label={t('wildcards.search')} placeholder={t('wildcards.search')} onChange={e=>setQuery(e.target.value)}/>
   </div>
-  <p className="wildcard-help">{t('wildcards.help')} <strong role="status">{t('wildcards.selected',{count:selected})}</strong></p>
-  {error?<p className="error-message" role="alert">{error}</p>:!library?<p role="status">{t('wildcards.loading')}</p>:entries.length===0?<p>{t('wildcards.empty')}</p>:<div className="wildcard-categories">
+  <p className="wildcard-help">{t('wildcards.help')} <strong role="status">{t('wildcards.selected',{count:used.length})}</strong></p>
+  {error?<p className="error-message" role="alert">{error}</p>:!library?<p role="status">{t('wildcards.loading')}</p>:entries.length===0?<p>{t('wildcards.empty')}</p>:<div className="wildcard-body"><div className="wildcard-categories">
    {Object.keys(library).map(category=>{const list=entries.filter(e=>e.category===category&&`${category} ${e.subject} ${e.text.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));if(!list.length)return null;const count=entries.filter(e=>e.category===category&&value.selection_state[e.key]?.enabled).length;
     return <details key={category} className={count?'is-selected':''} open={query.trim()?true:undefined}>
-     <summary><span>{category}</span><small>{t(category.toLowerCase().includes('negative prompt')?'wildcards.negative':'wildcards.positive')}</small>{count>0&&<strong>{t('wildcards.selected',{count})}</strong>}</summary>
+     <summary><span>{category}</span><small>{t(negative(category)?'wildcards.negative':'wildcards.positive')}</small>{count>0&&<strong>{t('wildcards.selected',{count})}</strong>}</summary>
      {kinds.map(kind=>{const items=list.filter(e=>e.kind===kind);return items.length>0&&<div key={kind} className="wildcard-section"><h4>{t(`wildcards.${kind}`)}</h4>{items.map(e=>{const state=value.selection_state[e.key];const label=`${e.subject} · ${t(`wildcards.${kind}`)}`;return <div key={e.key} className="wildcard-row">
       <label className="wildcard-check"><input type="checkbox" checked={state?.enabled??false} aria-label={label} onChange={event=>select(e.key,{enabled:event.target.checked})}/>{e.subject}</label>
       <input type="number" min={-10} max={10} step={0.05} value={state?.weight??1} aria-label={t('wildcards.weight',{name:label})} onChange={event=>{const n=Number(event.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)select(e.key,{weight:Math.round(n*100)/100});}}/>
@@ -57,6 +58,11 @@ export function WildcardPanel({endpoint,value,onChange,enabled,onEnabled}:{endpo
      </div>;})}</div>;})}
     </details>;
    })}
-  </div>}
+  </div>
+  <aside className="wildcard-preview" aria-label={t('wildcards.preview')}><h3>{t('wildcards.preview')}</h3>
+   {[false,true].map(neg=>{const side=used.filter(e=>negative(e.category)===neg);return side.length>0&&<div key={String(neg)}><h4>{t(neg?'wildcards.negative':'wildcards.positive')}</h4><ul>
+    {side.map(e=>{const weight=value.selection_state[e.key].weight;return <li key={e.key}><strong>{e.subject} · {t(`wildcards.${e.kind}`)}{weight!==1&&` ×${weight}`}</strong> {e.text.join(', ')}</li>;})}
+   </ul></div>;})}
+  </aside></div>}
  </section>;
 }

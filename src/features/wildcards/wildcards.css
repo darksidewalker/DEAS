@@ -7,6 +7,13 @@
 .wildcard-toolbar button { border: 1px solid #7c9cac4d; border-radius: 5px; background: var(--surface); color: var(--chalk); }
 .wildcards .wildcard-check { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wildcards input[type=checkbox] { width: auto; flex: none; }
+.wildcard-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: start; }
+.wildcard-preview { position: sticky; top: 0; border: 1px solid #7c9cac4d; border-radius: 6px; padding: 6px 8px; max-height: 70vh; overflow: auto; }
+.wildcard-preview h3 { margin: 0; font-size: 12px; color: #83c19a; }
+.wildcard-preview h4 { margin: 6px 0 2px; color: var(--copper); }
+.wildcard-preview ul { margin: 0; padding-left: 1.2em; }
+.wildcard-preview li { overflow-wrap: anywhere; color: var(--muted); }
+.wildcard-preview li strong { color: var(--chalk); }
 .wildcard-help { margin: 0; color: var(--muted); }
 .wildcard-help strong, .wildcard-categories summary strong { color: #83c19a; }
 .wildcard-categories { display: grid; gap: 5px; }
@@ -22,4 +29,4 @@
 .wildcard-row small { color: var(--muted); overflow-wrap: anywhere; }
 .wildcard-badge { padding: 1px 5px; border: 1px solid #83c19a; border-radius: 4px; color: #83c19a; background: var(--surface); font-size: 10px; text-transform: none; letter-spacing: 0; }
 .wildcard-prompt-status { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 11px; }
-@media (max-width: 600px) { .wildcard-row { grid-template-columns: minmax(0, 1fr) 4.5rem; } .wildcard-row small { grid-column: 1 / -1; } }
+@media (max-width: 600px) { .wildcard-body { grid-template-columns: minmax(0, 1fr); } .wildcard-row { grid-template-columns: minmax(0, 1fr) 4.5rem; } .wildcard-row small { grid-column: 1 / -1; } }

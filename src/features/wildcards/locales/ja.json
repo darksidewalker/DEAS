@@ -27,5 +27,6 @@
   "wildcards.negative": "ネガティブ",
   "wildcards.baseNotice": "基本プロンプト。生成時に有効なワイルドカード規則が追加されます。",
   "wildcards.wildcards": "ワイルドカード",
-  "wildcards.presets": "プリセット"
+  "wildcards.presets": "プリセット",
+  "wildcards.preview": "プレビュー"
 }

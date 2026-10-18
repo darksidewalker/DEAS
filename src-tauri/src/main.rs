@@ -79,6 +79,7 @@ fn main() {
             deas::native_llm_models,
             deas::native_forge,
             deas::native_wildcard_library,
+            deas::native_wildcard_build,
             deas::native_files_present,
             deas::native_detect_hardware,
             deas::native_install_defaults,

@@ -36,6 +36,18 @@ it('hammer enhances the prompt in the model dialect, applies after review and un
   expect(apply).toHaveBeenLastCalledWith('girl in rain');
 });
 
+it('hammer joins the resolved wildcard picks to the idea', async () => {
+  const rules = { style: 'Booru', seed: 7, reroll: 3, token_budget: 200, auto_reroll: false, selection_state: { 'Art/Light/wildcards': { enabled: true, weight: 1.2 } } } as const;
+  const build = vi.fn(async (_: unknown) => ({ positive: '(red light:1.2)', negative: '' }));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_wildcard_build' ? build(a) : base(c, a));
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Anima" value="girl in rain" onApply={vi.fn()} onWildcards={vi.fn()} wildcard={rules}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  fireEvent.click(screen.getByRole('button', { name: 'LLM · Prompt Forge' }));
+  await waitFor(() => expect((screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }) as HTMLTextAreaElement).value).toBe('girl in rain, (red light:1.2)'));
+  expect(build).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:8188', rules });
+});
+
 it('hammer sends the image-to-image source and says when the model could not see it', async () => {
   render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Krea2" value="" image="DEAS_00001_.png [output]" onApply={vi.fn()}/></I18nProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, forgeModels, writePrompt, type ForgeModels } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
@@ -54,7 +56,7 @@ export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels
 }
 
 /** Hammer in a prompt field: write or enhance that prompt in the selected model's dialect, review, then apply (undoable). */
-export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onWildcards?: () => void }) {
+export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules }) {
   const { t } = useI18n();
   const forge = useForgeModels(endpoint, root);
   const [open, setOpen] = useState(false);
@@ -67,7 +69,14 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const [blind, setBlind] = useState(false);
   const disabled = !root || !dialect;
   useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggle = () => { if (!open) { setBrief(value); setResult(''); setError(''); setChoosing(!!onWildcards); } setOpen(!open); };
+  const toggle = () => {
+    if (!open) {
+      setBrief(value); setResult(''); setError(''); setChoosing(!!onWildcards);
+      // Same resolution the run gets for this reroll; auto-reroll runs pick again.
+      if (wildcard) invoke<{ positive: string }>('native_wildcard_build', { baseUrl: endpoint, rules: wildcard }).then(r => setBrief(b => [b, r.positive].filter(s => s.trim()).join(', ')), e => setError(String(e)));
+    }
+    setOpen(!open);
+  };
   const write = async () => {
     setBusy(true); setError(''); setResult(''); setBlind(false);
     try {

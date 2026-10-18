@@ -16,6 +16,8 @@ it('loads the original library, preserves independent preset/wildcard weights an
  fireEvent.click(screen.getByRole('checkbox',{name:'Lighting · Wildcards'}));
  fireEvent.change(screen.getByRole('spinbutton',{name:'Weight: Lighting · Wildcards'}),{target:{value:'1.2'}});
  fireEvent.click(screen.getByRole('checkbox',{name:'Lighting · Presets'}));
+ expect(screen.getByText('Lighting · Wildcards ×1.2').parentElement?.textContent).toBe('Lighting · Wildcards ×1.2 {red|blue} light');
+ expect(screen.getByText('Lighting · Presets').parentElement?.textContent).toBe('Lighting · Presets cinematic');
  fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
  fireEvent.click(screen.getByRole('checkbox',{name:'New picks on every generation'}));
  const r=JSON.parse(screen.getByTestId('rules').textContent!);
