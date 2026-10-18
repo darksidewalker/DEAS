@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift（音频）",
   "studio.run.video.lastFrame": "末帧",
   "studio.run.video.lastFrameHint": "可选：用图片上的「⟶ 末帧」按钮将其设为结束画面。",
-  "studio.run.video.needsOutput": "请在媒体面板打开环境的 Output 文件夹以播放视频。",
   "studio.run.video.settings": "视频设置",
   "studio.run.cont.session": "会话",
   "studio.run.cont.newSession": "新会话",

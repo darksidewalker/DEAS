@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift audio",
   "studio.run.video.lastFrame": "Last frame",
   "studio.run.video.lastFrameHint": "Optional: mark an image as the last frame with its ⟶ Last frame button.",
-  "studio.run.video.needsOutput": "Open the environment's output folder in the Media dock to play the video.",
   "studio.run.video.settings": "Video settings",
   "studio.run.cont.session": "Session",
   "studio.run.cont.newSession": "New session",

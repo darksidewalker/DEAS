@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift audio",
   "studio.run.video.lastFrame": "Dernière image",
   "studio.run.video.lastFrameHint": "Optionnel : marquez une image comme dernière image avec son bouton ⟶ Dernière image.",
-  "studio.run.video.needsOutput": "Ouvrez le dossier Output de l'environnement dans le dock Médias pour lire la vidéo.",
   "studio.run.video.settings": "Réglages vidéo",
   "studio.run.cont.session": "Session",
   "studio.run.cont.newSession": "Nouvelle session",

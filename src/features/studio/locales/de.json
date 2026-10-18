@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift Audio",
   "studio.run.video.lastFrame": "Letztes Bild",
   "studio.run.video.lastFrameHint": "Optional: ein Bild über seinen Knopf ⟶ Letztes Bild als Endbild setzen.",
-  "studio.run.video.needsOutput": "Öffne den Output-Ordner der Umgebung im Medien-Dock, um das Video abzuspielen.",
   "studio.run.video.settings": "Video-Einstellungen",
   "studio.run.cont.session": "Session",
   "studio.run.cont.newSession": "Neue Session",

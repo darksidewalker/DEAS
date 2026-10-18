@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift ses",
   "studio.run.video.lastFrame": "Son kare",
   "studio.run.video.lastFrameHint": "İsteğe bağlı: bir görseli ⟶ Son kare düğmesiyle son kare olarak işaretleyin.",
-  "studio.run.video.needsOutput": "Videoyu oynatmak için Medya rıhtımında ortamın Output klasörünü açın.",
   "studio.run.video.settings": "Video ayarları",
   "studio.run.cont.session": "Oturum",
   "studio.run.cont.newSession": "Yeni oturum",

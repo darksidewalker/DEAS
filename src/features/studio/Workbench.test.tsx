@@ -559,7 +559,7 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({recipeId:'video-generation',family:'ltx-2',model:'LTX2/ltx.safetensors',textEncoder:'gemma_3_12B_it_fp8.safetensors',vae:'LTX2/LTX23_video_vae_bf16.safetensors',frames:49,frameRate:24,firstFrame:'ref.png',output:{codec:'Auto',container:'Auto',quality:20},ltx:{textProjection:'ltx-2.3_text_projection_bf16.safetensors',audioVae:'LTX2/LTX23_audio_vae_bf16.safetensors',passes:1}});
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).not.toHaveProperty('imageFormat');
- await waitFor(()=>expect(document.querySelector('.wb-stage video')?.getAttribute('src')).toBe('asset://localhost//env/ComfyUI/output/video/x_00001.webm'));
+ await waitFor(()=>expect(document.querySelector('.wb-stage video')?.getAttribute('src')).toBe('http://127.0.0.1:7801/view?filename=x_00001.webm&subfolder=video&type=output'));
  expect(screen.queryByRole('tab',{name:'Continuity'})).toBeNull();
 });
 

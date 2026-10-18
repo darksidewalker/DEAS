@@ -364,7 +364,6 @@
   "studio.run.video.shiftAudio": "Shift（音声）",
   "studio.run.video.lastFrame": "最終フレーム",
   "studio.run.video.lastFrameHint": "任意：画像の「⟶ 最終フレーム」ボタンで終端画像に指定できます。",
-  "studio.run.video.needsOutput": "動画を再生するには、メディアドックで環境の Output フォルダーを開いてください。",
   "studio.run.video.settings": "動画設定",
   "studio.run.cont.session": "セッション",
   "studio.run.cont.newSession": "新しいセッション",
