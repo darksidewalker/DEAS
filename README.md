@@ -189,7 +189,7 @@ Comfy runs as an isolated, cross-origin frame without DEAS native-command permis
 
 ## Studio preview
 
-A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock; the Models and LoRAs tabs show a subfolder tree of the models folder that filters the tiles. Runnable image recipes remain separate from the visible but disabled video pipeline choices. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
+A successful approved installation opens the studio with **Generate** and **Workspace map** tabs. Generate has model-family selection, LoRAs, prompts, a session queue and a resizable Media/Models/LoRAs dock; the Models and LoRAs tabs show a subfolder tree of the models folder that filters the tiles. Image recipes and, for LTX 2.3, Wan 2.2 and MiniMax H3 models, **Text → Video** / **Image → Video** share the same controls; Video → Video and Multi-reference stay visible but disabled. The media library accepts drops and native folder browsing; selecting media loads its preview. The workspace map shows the Engine, Director and plugin hierarchy.
 
 ![Media library with a loaded preview — browser fixture](assets/deas-media-start-1440.png)
 
@@ -224,6 +224,12 @@ Image-to-image takes an image from the environment’s **Input** folder. Choose 
 Auto-Aspect is offered only in media-input pipelines; browsing an image or video in a text-input pipeline does not change its aspect or block Run. Unknown model families do not advertise a native size; explicit dimensions stay available. Image/video-to-video and multi-reference recipes, and automatic chaining between different models, are not implemented; the video pipeline buttons remain disabled rather than advertising execution support.
 
 ![Generate resolution controls — browser IPC fixture, not generation proof](assets/deas-workbench-fixture-1440.png)
+
+### Video generation
+
+Picking an LTX 2.3, Wan 2.2 or MiniMax H3 model enables the video pipelines when the matching text encoder, VAE and (for LTX and H3) audio VAE are present in the models folder; Wan additionally needs its LOW counterpart beside the HIGH file. The graph is compiled natively from the owner's DaSiWa workflows, not from ComfyUI's templates: LTX uses the Gemma text projection, separate video/audio VAEs, first/last-frame guides and an optional 2- or 3-pass latent upscale chain; Wan runs its high/low split with per-model shift and a refiner step; MiniMax H3 drives the DaSiWa Director and Director Guide (T2VA, I2VA, L2VA, FL2VA) with the Segment Prepare/Decode/Publish nodes. Seconds and FPS set the frame count on each model's grid (LTX/Wan `8k+1`, H3 `17k+5` at 24 fps), shown before Run. An image's **Last frame** button marks the closing frame. Output goes through the DaSiWa Enhanced Video Combine; **Options → Output format** chooses codec, container, bit depth, quality, audio codec/bitrate, first/last-frame PNGs and the image saver's PNG/WebP format and compression. **Options → Chunking (video)** adds the KJNodes feed-forward chunking with the workflows' headroom table. Finished videos play in the stage when the environment's output folder is known.
+
+**Continuity** (MiniMax H3 only) is its own dock tab: plan segments with their seconds and next action, then **Run next** or **Run all**. The first take is captured as a checkpoint under a DEAS session; each later step pins the clip the previous one produced (read back from the node pack's session listing) and sends only the new seconds and the action. REF2VA, RefMods, image inpaint, join clips and transitions are not offered yet. Graphs validate offline against the real ComfyUI checkout (`tools/validate_video_graphs.py`); real model runs are not yet verified.
 
 ## All-in-one vision — early alpha
 

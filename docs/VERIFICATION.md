@@ -1,5 +1,12 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Video recipes and continuity planner (0.1.27)
+
+- Native `video-generation` intent compiled per family (`src-tauri/src/jobs_video.rs`) from the owner's DaSiWa workflow wiring; 7 native unit tests pin the LTX single-/multi-pass, Wan high/low and H3 Director/Guide/Segment/Publish graphs plus the Director's `timeline_data`/`continuity` JSON contract; a fixture test checks native prepare refuses a backend lacking `DaSiWa_EnhancedVideoCombine` and parses `gifs` outputs; `native_h3_session` and `native_input_upload` have bounded fixture tests.
+- `tools/validate_video_graphs.py` loaded the real ComfyUI checkout with its custom nodes (no server, CPU, no model weights) and ran `execution.validate_prompt` on all three graphs: `h3: valid=True outputs=['P','7']`, `ltx: valid=True` (2-pass with first-frame guide), `wan: valid=True` (FLF2V with chunking). This proves node names, input names and link types, not generation.
+- Frontend: 77 core tests (frame grids 81/121/49/124/56, chunk formula, planner order/clip pinning), 306 UI tests incl. an LTX Image → Video IPC fixture (video intent, 49 frames, `<video>` in the stage) and an H3 fixture (reference upload, I2VA, planner Run all pinning `root1` → `kid1`), typecheck, build; native 237 tests, Clippy all-targets with denied warnings, rustfmt.
+- Not verified: any real LTX/Wan/H3 generation, actual checkpoint capture by the node pack, native webview video playback, Wan LOW-file pairing on real folders beyond the owner's `_HIGH_`/`_LOW_` names. The H3 `continuity` block relies on the node pack's private v3 settings keys read today (`session`, `source_id`, `capture`, `output_mode`, `continuation_prompt`).
+
 ## Hyphenated output naming fix (0.1.26)
 
 - Default `%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%`; upgrade only the former default and preserve custom templates/legacy date tokens. Model sanitization uses hyphens and removes separator-only leading/trailing runs.

@@ -34,7 +34,7 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 ### Output naming (0.1.25)
 - [x] Persist an extensionless Output-relative naming template in Generate Options, with type/date/time/seed/model substitution before immutable job preparation.
 - [x] Apply to core and metadata image savers; validate bounded safe relative paths in TypeScript and Rust with collision-safe counters and unchanged extensions. DEAS-owned backend saves now use `-00001.png`, without the trailing underscore; standalone Comfy jobs remain unchanged.
-- [ ] Video/audio recipe integration remains gated on those recipes; standalone Comfy node settings are independent.
+- [x] Video recipes use the same template with `%type%` = `video`; the DaSiWa Enhanced Video Combine receives the prefix (0.1.27). Standalone Comfy node settings are independent.
 
 ### Masked-area inpaint and blur (0.1.22)
 - [x] Opt-in context crop with integer grow (0–512), model-grid processing dimensions and original-coordinate recompositing; default off.
@@ -111,7 +111,7 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 - [x] Director-style aspect/resolution selectors, additional ultrawide/portrait ratios, custom aspect/megapixels/exact dimensions, persisted controls and reference metadata aspect limited to media-input pipelines. One native/model-default resolution derives from the active family; the aspect swatch is inside the picker.
 - [x] Image-to-image scaling before the next model's VAE encode: Off, Auto, Target, Fit, Fill/crop and Fit/pad; matching native/preview validation and effective output dimensions.
 - [x] Core/UI/native targeted tests, real ComfyUI CPU transform execution and responsive browser fixtures in six locales/five widths.
-- [ ] Video/multi-reference recipe execution and automatic multi-model pipeline chaining; controls do not establish these capabilities.
+- [x] Text/Image → Video recipes for LTX 2.3, Wan 2.2 (image-to-video) and MiniMax H3 compiled natively from the owner's DaSiWa workflow wiring (0.1.27); offline `validate_prompt` against the real ComfyUI checkout. Real model runs, Video → Video, multi-reference and multi-model chaining remain unverified/unimplemented.
 - [ ] Real model/GPU generation acceptance and native-webview input-scaling click-through.
 
 ### M0 — Repository and architecture
@@ -307,12 +307,12 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 - [ ] Complete negotiated SDK/v2 and classic execution adapters; explicit endpoint/no cloud defaults, no ComfyUI editor dependency.
 - [x] Native read-only v2/classic negotiation with explicit endpoint, bounded real HTTP fixtures, distinct failures and localized desktop action.
 - [x] Versioned pure diagnostic text-to-image compiler with explicit capability/model allowlists and deterministic built-in graphs; not a Director recipe.
-- [ ] Compile versioned DEAS feature intent dynamically to internal API graphs, not mirrored node-widget forms.
+- [x] Compile versioned DEAS feature intent dynamically to internal API graphs, not mirrored node-widget forms: image intent plus the family-discriminated `video-generation` intent (`src-tauri/src/jobs_video.rs`).
 - [ ] Own input asset upload, correlated job status/cancellation and verified output download in DEAS.
 - [ ] Media import, reference labels, trim and serialization.
 - [ ] Model/VAE selection and validated execution recipes.
 - [ ] Prompt Forge streaming/cancel/review/apply.
-- [ ] RefMods and continuity including source pinning and publishing successful exports.
+- [x] Continuity planner: planned H3 segments run in order, each pinning the checkpoint clip the previous step produced (read-only session listing), with the DaSiWa Segment Prepare/Decode/Publish nodes in the graph. Not yet: RefMods, REF2VA/Image Inpaint, join clips, transitions, real-run acceptance.
 - [ ] Queue, progress, cancellation and actionable node errors.
 - [ ] Playback and original-file export tested in the actual native webview.
 - [ ] Existing workflow/reference-pack roundtrip migration tests.

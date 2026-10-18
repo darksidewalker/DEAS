@@ -73,9 +73,9 @@ Loading a preview and exporting are separate explicit actions. The studio uses l
 - [x] Explicit diagnostic classic native prepare/submit/status plus read-only current-session job recovery; bounded HTTP fixtures and localized IPC/browser checks, not model-generation acceptance.
 - [x] Indexed native PNG retrieval, bounded full decoding, original-byte cache, explicit local Blob preview and safe new-file Linux export; HTTP/filesystem/browser fixtures only.
 - [ ] Complete capability-negotiated SDK/classic execution adapters.
-- [ ] Versioned recipes and dynamic API graph compilation from UX intent.
+- [x] Versioned recipes and dynamic API graph compilation from UX intent: image recipe and the family-discriminated video recipe (LTX 2.3 / Wan 2.2 / MiniMax H3 through the DaSiWa Director), fixture-verified and validated offline with ComfyUI's `validate_prompt`; no real-model acceptance yet.
 - [ ] DEAS-owned input/output assets, job correlation/cancellation and result playback/export.
-- [ ] A real Director recipe accepted on a newly provisioned compatible backend.
+- [ ] A real Director recipe accepted on a newly provisioned compatible backend (the H3 graph compiles and validates; generation remains unverified).
 
 ## Verification targets and likely files
 
