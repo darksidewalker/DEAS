@@ -113,9 +113,7 @@ fn llm_root(root: &Path) -> Result<std::path::PathBuf, String> {
         return Err("Models folder must be absolute".into());
     }
     // The configured root may be an ordinary symlink alias to an external model collection.
-    let base = base
-        .canonicalize()
-        .map_err(|_| "Local models folder is unavailable")?;
+    let base = dunce::canonicalize(base).map_err(|_| "Local models folder is unavailable")?;
     let llm = base.join("llm");
     match std::fs::symlink_metadata(&llm) {
         Ok(m) if m.is_dir() && !m.file_type().is_symlink() => Ok(llm),
@@ -359,9 +357,7 @@ fn resolve_local(root: &Path, id: &str) -> Result<std::path::PathBuf, String> {
             return Err("Local model symlinks are not allowed".into());
         }
     }
-    let actual = path
-        .canonicalize()
-        .map_err(|_| "Local model is unavailable")?;
+    let actual = dunce::canonicalize(path).map_err(|_| "Local model is unavailable")?;
     if !actual.starts_with(&base) || !actual.is_file() || !language_gguf(&actual) {
         return Err("Invalid local GGUF model".into());
     }

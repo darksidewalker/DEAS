@@ -258,7 +258,7 @@ async fn remote_errors_are_redacted_without_fallback_policy() {
     let error = remote(
         &config(Provider::Ollama, url),
         &request(),
-        Duration::from_secs(2),
+        Duration::from_secs(10), // Windows retries a refused loopback connect for ~2 s
     )
     .await
     .err()
@@ -527,7 +527,7 @@ fn model_scan_filters_projectors_hidden_invalid_and_traversal() {
     assert_eq!(found[0].id, "nested/模型 file.gguf");
     assert_eq!(
         resolve_local(root.path(), &found[0].id).unwrap(),
-        base.join(&found[0].id)
+        dunce::canonicalize(base.join(&found[0].id)).unwrap()
     );
     for id in [
         "projector.gguf",

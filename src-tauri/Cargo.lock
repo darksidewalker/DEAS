@@ -772,6 +772,7 @@ name = "deas"
 version = "0.1.26"
 dependencies = [
  "base64 0.22.1",
+ "dunce",
  "flate2",
  "futures-util",
  "keyring",

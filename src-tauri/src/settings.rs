@@ -134,12 +134,14 @@ mod tests {
     use super::*;
     #[test]
     fn settings_roundtrip_validation_and_backend_args() {
-        let root = tempfile::tempdir().unwrap();
-        let models = tempfile::tempdir().unwrap();
-        assert_eq!(read(root.path()).unwrap(), Folders::default());
-        assert!(backend_args(root.path()).unwrap().is_empty());
+        // Saved folders are canonical (Windows: long names, no \\?\ prefix), so compare against that form.
+        let (root_dir, models_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let root = dunce::canonicalize(root_dir.path()).unwrap();
+        let models = dunce::canonicalize(models_dir.path()).unwrap();
+        assert_eq!(read(root.as_path()).unwrap(), Folders::default());
+        assert!(backend_args(root.as_path()).unwrap().is_empty());
         assert!(write(
-            root.path(),
+            root.as_path(),
             Folders {
                 models: Some("relative".into()),
                 ..Default::default()
@@ -147,48 +149,48 @@ mod tests {
         )
         .is_err());
         assert!(write(
-            root.path(),
+            root.as_path(),
             Folders {
-                input: Some(root.path().join("missing").to_str().unwrap().into()),
+                input: Some(root.as_path().join("missing").to_str().unwrap().into()),
                 ..Default::default()
             }
         )
         .is_err());
         let saved = write(
-            root.path(),
+            root.as_path(),
             Folders {
-                models: Some(models.path().to_str().unwrap().into()),
-                output: Some(root.path().to_str().unwrap().into()),
+                models: Some(models.as_path().to_str().unwrap().into()),
+                output: Some(root.as_path().to_str().unwrap().into()),
                 input: None,
             },
         )
         .unwrap();
-        assert_eq!(read(root.path()).unwrap(), saved);
-        let args = backend_args(root.path()).unwrap();
+        assert_eq!(read(root.as_path()).unwrap(), saved);
+        let args = backend_args(root.as_path()).unwrap();
         assert_eq!(
             args[0..2],
             [
                 "--output-directory".to_owned(),
-                root.path().to_str().unwrap().to_owned()
+                root.as_path().to_str().unwrap().to_owned()
             ]
         );
         assert_eq!(args[2], "--extra-model-paths-config");
         let yaml = std::fs::read_to_string(&args[3]).unwrap();
         assert!(yaml.starts_with(&format!(
             "deas:\n  base_path: {}\n  checkpoints: checkpoints\n",
-            serde_json::to_string(models.path().to_str().unwrap()).unwrap()
+            serde_json::to_string(models.as_path().to_str().unwrap()).unwrap()
         )));
         assert!(yaml.contains("  loras: loras\n"));
         assert!(yaml.contains("  llm: llm\n"));
         let present = native_files_present(vec![
             args[3].clone(),
-            root.path().join("nope").to_str().unwrap().into(),
+            root.as_path().join("nope").to_str().unwrap().into(),
         ])
         .unwrap();
         assert_eq!(present, vec![true, false]);
         assert!(native_files_present(vec!["relative".into()]).is_err());
         assert!(native_settings_read("relative".into()).is_err());
-        drop(models);
-        assert!(backend_args(root.path()).is_err());
+        drop(models_dir);
+        assert!(backend_args(root.as_path()).is_err());
     }
 }

@@ -239,7 +239,7 @@ pub(crate) fn git_path() -> Option<PathBuf> {
                 .map(|p| p.join(if cfg!(windows) { "git.exe" } else { "git" }))
                 .find(|p| p.is_file())
         })
-        .and_then(|p| std::fs::canonicalize(p).ok())
+        .and_then(|p| dunce::canonicalize(p).ok())
 }
 impl Engine {
     /// The plan of the currently approved (installed or reopened) environment, if any.
@@ -290,13 +290,13 @@ impl Engine {
         if !path.is_absolute() || input.split(['/', '\\']).any(|s| s == ".." || s == ".") {
             return Err("Existing environment needs an absolute path without traversal".into());
         }
-        let root = std::fs::canonicalize(path)
+        let root = dunce::canonicalize(path)
             .map_err(|e| format!("Existing environment is unavailable: {e}"))?;
         let bytes = crate::backend::read_owned(&root.join("deas-plan.json"), 1024 * 1024)
             .map_err(|_| "This folder is not a complete DEAS environment; choose a new directory or a completed DEAS installation".to_string())?;
         let mut plan: Plan = serde_json::from_slice(&bytes)
             .map_err(|_| "Existing DEAS plan is invalid".to_string())?;
-        let persisted_root = std::fs::canonicalize(&plan.request.storage_path)
+        let persisted_root = dunce::canonicalize(&plan.request.storage_path)
             .map_err(|e| format!("Recorded environment location is unavailable: {e}"))?;
         if persisted_root != root
             || plan.reopen_id.is_some()
@@ -1011,11 +1011,11 @@ async fn checkout(
 // uv normally links the venv executable to managed Python. Materialize a regular
 // copy so launch never follows an interpreter symlink or escapes this runtime.
 fn own_interpreter(root: &Path, python: &Path) -> Result<(), String> {
-    let resolved = std::fs::canonicalize(python).map_err(|e| e.to_string())?;
-    // Windows: uv places a regular trampoline .exe inside the venv (canonicalize adds the
-    // \\?\ prefix, so compare canonical roots); Linux: a symlink into the managed runtime.
+    let resolved = dunce::canonicalize(python).map_err(|e| e.to_string())?;
+    // Windows: uv places a regular trampoline .exe inside the venv, so compare canonical
+    // roots; Linux: a symlink into the managed runtime.
     let inside = |folder: &str| {
-        std::fs::canonicalize(root.join(folder)).is_ok_and(|base| resolved.starts_with(base))
+        dunce::canonicalize(root.join(folder)).is_ok_and(|base| resolved.starts_with(base))
     };
     if !inside("runtime/python") && !(cfg!(windows) && inside("venv")) {
         return Err("Venv interpreter is not inside the approved managed runtime".into());
@@ -1152,7 +1152,7 @@ async fn update(
     cancel: &Arc<AtomicBool>,
     reinstall: bool,
 ) -> Result<(), String> {
-    let root = std::fs::canonicalize(&plan.request.storage_path).map_err(|e| e.to_string())?;
+    let root = dunce::canonicalize(&plan.request.storage_path).map_err(|e| e.to_string())?;
     let uv = root.join(if cfg!(windows) {
         "runtime/uv.exe"
     } else {

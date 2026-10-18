@@ -45,7 +45,7 @@ mod platform {
         if !path.is_absolute() || !path.is_dir() {
             return Err("Folder must be an existing absolute directory".into());
         }
-        let real = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+        let real = dunce::canonicalize(path).map_err(|e| e.to_string())?;
         #[cfg(windows)]
         if !crate::win::is_directory(&crate::win::open_no_follow(&real)?)? {
             return Err("Folder must be a directory".into());
@@ -137,7 +137,7 @@ mod platform {
         if !path.is_absolute() {
             return Err("Folder must be absolute".into());
         }
-        let real = fs::canonicalize(path).map_err(|e| error(path, e))?;
+        let real = dunce::canonicalize(path).map_err(|e| error(path, e))?;
         safe_path(&real)?;
         Ok(real)
     }

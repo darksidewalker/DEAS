@@ -20,6 +20,7 @@ toml = "0.8"
 flate2 = "1"
 tar = "0.4"
 uuid = { version = "1", features = ["v4"] }
+dunce = "1"
 rfd = "0.17.2"
 keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }

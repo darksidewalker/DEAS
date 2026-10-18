@@ -14,8 +14,8 @@ fn selected_directory(path: Option<PathBuf>) -> Result<Option<String>, String> {
         return Err("The chooser did not return an existing absolute directory".into());
     }
     // The chooser may return a symlink alias; bind the real parent before planning.
-    let path = std::fs::canonicalize(path)
-        .map_err(|e| format!("Cannot resolve selected directory: {e}"))?;
+    let path =
+        dunce::canonicalize(path).map_err(|e| format!("Cannot resolve selected directory: {e}"))?;
     path.to_str()
         .map(|value| Some(value.to_owned()))
         .ok_or_else(|| "The selected directory cannot be represented as a UTF-8 path".into())
@@ -48,7 +48,13 @@ mod tests {
         let selected = selected_directory(Some(parent.path().to_owned()))
             .unwrap()
             .unwrap();
-        assert_eq!(selected, parent.path().to_str().unwrap());
+        assert_eq!(
+            selected,
+            dunce::canonicalize(parent.path())
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
         assert!(!parent.path().join("deas-environment").exists());
         assert!(selected_directory(Some(parent.path().join("missing"))).is_err());
         let file = parent.path().join("not-a-directory");
