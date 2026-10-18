@@ -31,6 +31,13 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 
 ## Milestones and acceptance checklist
 
+### Layered image editing (0.1.20)
+- [x] Extend Generate's existing preview with cursor-anchored zoom, Fit/100%, pan and source-pixel image/mask interaction.
+- [x] Selectable thumbnails, independent mask visibility/erase/clear, visible-only inserts, image ordering and active-image handles; round/square brush and numeric/range diameter controls.
+- [x] Preserve draft ownership across edit modes, result selection and Generate/map navigation; source changes reset it, submitted snapshots stay immutable.
+- [x] Focused UI regression tests and Chromium real-pixel/PNG fixture checks; six languages at five widths. No execution-contract or service-lifecycle changes.
+- [ ] Native WebKitGTK pointer interaction and new real GPU inpaint acceptance; persisted editor projects, undo and transparent-cutout compositing remain separate work.
+
 ### Original ComfyUI tab (0.1.19)
 - [x] Comfy beside Library: original owned-backend frontend and installed extensions; only shared tab band and footer remain visible.
 - [x] Preserve editor/Studio across tab switches; revoke the editor endpoint after Stop/failure/lost native status.

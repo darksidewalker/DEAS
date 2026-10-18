@@ -1,0 +1,51 @@
+.sie { display:flex; flex-direction:column; min-width:0; min-height:0; height:100%; container-type:inline-size; color:var(--chalk); }
+.sie-tools { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; flex:none; padding:4px 0 6px; }
+.sie button { color:inherit; background:var(--surface); border:1px solid #435256; border-radius:4px; padding:4px 6px; font-size:11px; }
+.sie button[aria-pressed="true"] { border-color:var(--copper); background:#2a3b39; }
+.sie button:disabled { opacity:.45; }
+.sie :focus-visible { outline:2px solid var(--copper); outline-offset:2px; }
+.sie-tools label { display:flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); }
+.sie-tools input[type="number"] { width:4.3rem; padding:3px; }
+.sie-tools input[type="range"] { width:5rem; padding:0; }
+.sie-seg { display:inline-flex; }
+.sie .sie-seg > button { border-radius:0; margin-left:-1px; }
+.sie .sie-seg > button:first-child { border-radius:5px 0 0 5px; margin-left:0; }
+.sie .sie-seg > button:last-child { border-radius:0 5px 5px 0; }
+.sie .sie-tool { display:inline-flex; align-items:center; gap:5px; min-height:28px; padding:4px 9px; font-size:12px; cursor:pointer; }
+.sie .sie-tool:hover:not(:disabled) { background:#26343a; }
+.sie .sie-tool[aria-pressed="true"] { color:var(--copper); }
+.sie-tool svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.sie-shape { width:11px; height:11px; border:1.6px solid currentColor; }
+.sie-shape.is-round { border-radius:50%; }
+.sie-viewport[data-tool="brush"],.sie-viewport[data-tool="erase"] { cursor:none; }
+.sie-viewport[data-tool="pan"] { cursor:grab; }
+.sie-viewport[data-tool="pan"]:active { cursor:grabbing; }
+.sie-viewport[data-tool="off"] { cursor:not-allowed; }
+.sie-viewport[data-tool="select"] .sie-image { cursor:move; }
+/* Two-tone ring stays visible on light and dark pixels; min size keeps tiny brushes findable. */
+.sie-cursor { position:absolute; box-sizing:border-box; pointer-events:none; min-width:4px; min-height:4px; transform:translate(-50%,-50%); border:1px solid #fff; box-shadow:0 0 0 1px #000,inset 0 0 0 1px #000; border-radius:50%; }
+.sie-cursor.is-square { border-radius:0; }
+.sie-cursor.is-erase { border-style:dashed; }
+.sie-cursor[hidden] { display:none; }
+.sie-view { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; margin-left:auto; }
+.sie-body { display:grid; grid-template-columns:minmax(0,1fr) 132px; flex:1; min-height:160px; min-width:0; gap:6px; }
+.sie-viewport { position:relative; overflow:hidden; min-width:0; min-height:0; touch-action:none; background:repeating-conic-gradient(#182124 0% 25%,#202c30 0% 50%) 0 / 16px 16px; }
+.sie-world { position:absolute; left:0; top:0; transform-origin:0 0; }
+.sie .sie-world .sie-base,.sie .sie-world .sie-mask { position:absolute; inset:0; width:100%; height:100%; max-width:none; max-height:none; object-fit:fill; pointer-events:none; }
+.sie-image { position:absolute; touch-action:none; }
+.sie .sie-image img { width:100%; height:100%; max-width:none; max-height:none; object-fit:fill; pointer-events:none; }
+.sie-image.is-selected { outline:1px dashed var(--copper); }
+.sie .sie-image .sie-resize { position:absolute; right:0; bottom:0; padding:0; min-width:16px; min-height:16px; cursor:nwse-resize; }
+.sie-rail { min-width:0; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+.sie-rail ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+.sie-rail li { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:2px; align-items:center; }
+.sie-rail li > button:first-child { min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; }
+.sie .sie-rail img,.sie .sie-rail canvas { width:44px; height:36px; object-fit:contain; background:#11171a; flex:none; }
+.sie-rail li span { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
+@container (max-width:520px) {
+  .sie-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,1fr) auto; }
+  .sie-rail { flex-direction:row; max-height:112px; overflow:auto; }
+  .sie-rail ul { flex-direction:row; }
+  .sie-rail li { width:110px; flex:none; }
+  .sie-rail > button { flex:none; max-width:100px; }
+}

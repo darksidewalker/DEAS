@@ -2,6 +2,13 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](docs/VERIFICATION.md); the roadmap in [docs/PLAN.md](docs/PLAN.md).
 
+## 0.1.20 — 2026-10-18
+
+- Extend the existing Generate image editor with cursor-anchored zoom, Fit/100%, panning, selectable image/mask thumbnails, visible-only layer submission, image reordering and selected-image move/resize handles. Add up to four independent repaint masks, a shared numeric/range brush diameter, round/square brushes, active-mask erase/clear and preview-only mask opacity. Masks remain source-sized and merge to the existing native PNG upload contract.
+- The brush shows its real shape and zoomed size as the pointer inside the view; tools (Select/Brush/Erase/Pan) and brush shape are icon buttons, and brush, mask and overlay controls appear only in Inpaint.
+- Preserve edit drafts through edit-mode, result and Studio/map navigation; add Return to edit draft. Snapshot mask pixels and image geometry before asynchronous upload. Reject model-grid-incompatible inpaint source sizes instead of silently rounding, and reject failed/stale insert image loads without guessed geometry. No new drawing dependency, execution schema or backend lifecycle change. Opaque insertion and ephemeral drafts remain limitations.
+- Browser evidence uses real canvas pixels and fixture IPC, not model inference. Native WebKitGTK interaction and new GPU-generation acceptance remain unverified; see docs/VERIFICATION.md for results and independently reproduced baseline failures.
+
 ## 0.1.19 — 2026-10-18
 
 - The footer version checks once per launch, read-only, whether a newer DEAS GitHub release exists and whether the owned ComfyUI or DaSiWa-nodes checkout is behind its upstream branch (`git ls-remote` against the checked-out HEAD). A pending update shows `v… ↑` with the list in its tooltip; clicking opens the release page for an app update, otherwise the Backend view with its Upgrade button. Nothing is downloaded or installed automatically.

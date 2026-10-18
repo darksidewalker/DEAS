@@ -54,6 +54,21 @@ test("language selection updates app, setup, studio metadata and aria without lo
   expect(screen.getByLabelText("Framing")).toHaveProperty("value", "wide");
 });
 
+test('Generate preserves the same workbench across map and top-level tab navigation',()=>{
+ localStorage.setItem(LOCALE_STORAGE_KEY,'en');
+ const view=render(<I18nProvider><App/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+ const workbench=view.container.querySelector('[data-workbench]');
+ expect(workbench).toBeTruthy();
+ fireEvent.click(screen.getByRole('tab',{name:'Workspace map'}));
+ expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
+ fireEvent.click(screen.getByRole('tab',{name:'Generate'}));
+ expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
+ fireEvent.click(screen.getByRole('tab',{name:'Library'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+ expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
+});
+
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);

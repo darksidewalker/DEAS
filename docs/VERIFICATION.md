@@ -1,5 +1,28 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Layered Studio image editor (0.1.20)
+
+- Production frontend build and TypeScript check pass. The existing native layer-composite and mask-composite Rust tests each pass without recipe/transport changes. Focused editor/Workbench/App UI: 43 tests pass; pure editor and recipe-compiler tests: 25 pass. Integration covers draft retention, exact inpaint source dimensions, model-grid rejection and stale/failed insert loads.
+- `tools/verify_inpaint.py http://127.0.0.1:1421` passes against an isolated Vite Workbench fixture with real Chromium canvases. It decodes the actual PNG bytes delivered to `native_mask_upload`: exact 1024×640 dimensions, opaque alpha, white repaint/black preserve, round/square interiors, continuous strokes, independent mask erase/hide/clear and empty-mask Run gating. It checks cursor-anchored wheel zoom, source-pixel image dragging/resizing at Fit and 200%, complete draft retention on same-source reselection, hidden-image omission, mask snapshots held across asynchronous upload, mask cap/delete/re-add, cancelled strokes and real failed/deferred image decoding. IPC preparation/submission is explicitly mocked; no model was loaded or job sent to a real backend.
+- Six locales at 1440/1024/768/390/320px have no horizontal overflow; desktop 960px-height fixtures have no page-height overflow. `assets/deas-inpaint-fixture-{1440,320}.png` are real browser fixture captures, not generated media. Full App navigation retention is covered independently by UI tests, not by the isolated Workbench HTML.
+- Full UI currently has 272 passing tests and the pre-existing Installed VAE → catalog-selection failure. Core currently has 65 passing tests and the pre-existing OptionsPanel unreferenced-placeholder audit failure. Both failures were reproduced independently from a clean `git archive HEAD` baseline with the same dependencies; unrelated Downloads/OptionsPanel production code was not changed. Full suites are therefore **not green**.
+- Independent review found and verified the same-source reselection correction: parent mask/layer state and retained editor pixels now remain one draft. The integration regression waits for the inserted layer and Select tool to become active before keyboard movement; five consecutive focused-suite runs then each passed all 43 tests. This repeated check addresses the observed test timing race, not native performance acceptance.
+- Native WebKitGTK interaction, Windows runtime and new GPU-generation/image-quality acceptance remain unverified. Four 16MP mask layers plus preview/export canvases can consume hundreds of MB; no undo/history snapshots are allocated. Inserts retain the existing opaque backend behavior, and masks remain an unsaved per-source draft. No user backend/service was restarted or stopped.
+
+Reproduce the focused checks:
+
+```sh
+node --experimental-strip-types --test tests/image-editor.test.ts tests/execution.test.ts
+npm run test:ui -- src/features/studio/StudioImageEditor.test.tsx src/features/studio/Workbench.test.tsx src/App.test.tsx
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml input_layers_paste_scaled_images_onto_the_source_before_resize_and_inpaint
+cargo test --manifest-path src-tauri/Cargo.toml input_mask_resamples_only_the_painted_area_and_composites_onto_the_source
+# Start an isolated Vite server on an unused port; do not replace a user's server.
+npm run dev -- --port 1421
+# In another terminal, with the existing Playwright Python environment:
+python tools/verify_inpaint.py http://127.0.0.1:1421
+```
+
 ## Original ComfyUI tab and backend status hints (0.1.19)
 
 - Comfy sits next to Library and embeds only the native-reported running owned endpoint in a cross-origin sandboxed iframe. The app header, other panels and install status hide; the tab band/footer remain. The editor and Studio survive tab switches. Stop/failure/unknown native status or backend-panel removal revokes the old frame; native state is propagated separately from the existing connection handoff.

@@ -71,7 +71,7 @@ export default function App(){
     <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
     <div className="studio-columns">
     <div className="studio-main">
-    {tab==='generate'&&<Workbench endpoint={endpoint} roots={roots}/>}
+    <div className="studio-generate-host" hidden={tab!=='generate'}><Workbench endpoint={endpoint} roots={roots}/></div>
     {tab==='map'&&<>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>

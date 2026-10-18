@@ -24,16 +24,16 @@ function Thumb({entry}:{entry:MediaEntry}){
 }
 /** Renders only the tile rows in view plus two spare rows; unmeasured (jsdom, empty) renders everything. `folder` changes scroll back to the top. */
 function Tiles<T>({items,render,folder,...rest}:{items:T[];render:(item:T)=>React.ReactNode;folder:string}&React.HTMLAttributes<HTMLUListElement>){
- const ul=useRef<HTMLUListElement>(null);
+ // The scroll box owns the height (flex); the padding spacers sit on the inner ul. Padding on a flex item cannot shrink, so the item grows to it and the ResizeObserver loops (flicker).
+ const box=useRef<HTMLDivElement>(null);
  const [view,setView]=useState({top:0,height:0,cols:0,rowH:1});
- // Only re-render on real changes: the padding below alters the content box, so a content-box ResizeObserver would loop (flicker).
- const measure=()=>{const el=ul.current,li=el?.firstElementChild as HTMLElement|null;if(!el||!li?.offsetWidth)return;const gap=6;const next={top:el.scrollTop,height:el.clientHeight,cols:Math.max(1,Math.floor((el.clientWidth+gap)/(li.offsetWidth+gap))),rowH:li.offsetHeight+gap};setView(v=>v.top===next.top&&v.height===next.height&&v.cols===next.cols&&v.rowH===next.rowH?v:next);};
- useLayoutEffect(()=>{if(ul.current)ul.current.scrollTop=0;},[folder]);
- useLayoutEffect(()=>{measure();if(typeof ResizeObserver==='undefined'||!ul.current)return;const ro=new ResizeObserver(measure);ro.observe(ul.current,{box:'border-box'});return()=>ro.disconnect();},[items.length]);
+ const measure=()=>{const el=box.current,li=el?.firstElementChild?.firstElementChild as HTMLElement|null;if(!el||!li?.offsetWidth)return;const gap=6;const next={top:el.scrollTop,height:el.clientHeight,cols:Math.max(1,Math.floor((el.clientWidth+gap)/(li.offsetWidth+gap))),rowH:li.offsetHeight+gap};setView(v=>v.top===next.top&&v.height===next.height&&v.cols===next.cols&&v.rowH===next.rowH?v:next);};
+ useLayoutEffect(()=>{if(box.current)box.current.scrollTop=0;},[folder]);
+ useLayoutEffect(()=>{measure();if(typeof ResizeObserver==='undefined'||!box.current)return;const ro=new ResizeObserver(measure);ro.observe(box.current);return()=>ro.disconnect();},[items.length]);
  const rows=view.cols?Math.ceil(items.length/view.cols):0;
  const first=view.cols?Math.min(Math.max(0,rows-1),Math.max(0,Math.floor(view.top/view.rowH)-2)):0;
  const last=view.cols?Math.min(rows,Math.ceil((view.top+view.height)/view.rowH)+2):rows;
- return <ul ref={ul} onScroll={measure} style={view.cols?{paddingTop:2+first*view.rowH,paddingBottom:4+(rows-last)*view.rowH}:undefined} {...rest}>{(view.cols?items.slice(first*view.cols,last*view.cols):items).map(render)}</ul>;
+ return <div ref={box} className="media-scroll" onScroll={measure}><ul style={view.cols?{paddingTop:2+first*view.rowH,paddingBottom:4+(rows-last)*view.rowH}:undefined} {...rest}>{(view.cols?items.slice(first*view.cols,last*view.cols):items).map(render)}</ul></div>;
 }
 /** Environment folders the backend reads from and writes to; shown as quick chips. */
 export interface MediaRoots { input?: string; output?: string }
