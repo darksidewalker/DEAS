@@ -428,7 +428,7 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  expect(aspectPicker.value).toBe('1:1');
  // Native: the stage video plays a blob of the asset bytes (WebKitGTK rejects asset:// media), fetched once per selection.
- vi.stubGlobal('fetch',vi.fn(async()=>({blob:async()=>new Blob(['x'],{type:'video/mp4'})})));
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,blob:async()=>new Blob(['x'],{type:'video/mp4'})})));
  Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=>'blob:deas/1')});Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});
  fireEvent.click(screen.getByRole('button',{name:'portrait.mp4'}));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);

@@ -4,6 +4,8 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## 0.1.27 — 2026-10-18
 
+- Fix desktop CSP permissions for dock asset fetches and loopback backend video URLs; report fetch/player errors in the caption. Native playback now starts, but an observed GStreamer Matroska demuxer assertion still crashes WebKitWebProcess. Video playback and audible audio remain unaccepted (see verification notes).
+
 - Add **Text → Video** and **Image → Video** for LTX 2.3, Wan 2.2 (image-to-video, high/low split) and MiniMax H3 (DaSiWa Director/Guide, T2VA/I2VA/L2VA/FL2VA). The native `video-generation` intent is compiled per family from the owner's DaSiWa workflow wiring; family data (`builtin.json`) carries encoder/VAE patterns, defaults and fps. Seconds/FPS snap frames to each model's grid; an image's **Last frame** button sets the closing frame; LTX offers an optional 2-/3-pass latent upscale chain.
 - Options tab: **Output format** card (DaSiWa Enhanced Video Combine codec/container/bit depth/quality/audio, first/last-frame PNGs, image saver PNG/WebP + compression) and **Chunking (video)** headroom (KJNodes feed-forward chunking). Both compilers accept `imageFormat`/`imageCompression` for the image saver.
 - **Continuity** dock tab for MiniMax H3: planned segments with seconds and next action, run one or all; the first take is captured, later steps pin the previous clip via the read-only `native_h3_session` command. New `native_input_upload` copies dock references into the backend input folder (`deas-inputs/`).
