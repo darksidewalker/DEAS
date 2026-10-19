@@ -88,4 +88,6 @@ The map shows built-in feature hierarchy. Engine offers read-only negotiation/pr
 
 ## Prerequisites and troubleshooting
 
+MiniMax H3 references uploaded into `deas-inputs/` do not appear in ComfyUI's top-level image combo. DEAS accepts these references after path validation; the backend loader/Director checks the actual file. If an older app reports `Diagnostic images are not available on this backend: deas-inputs/…`, relaunch the rebuilt app; no backend upgrade is needed for this fix.
+
 Use a checked running backend, compatible models and required nodes. Run snapshots immutable settings; edits do not mutate active jobs. Read blockers before retrying and never silently repeat uncertain submissions. Job-scoped cancellation, persistent editor projects and broad Windows/model acceptance remain open. See [Logs](LOGS.md), [verification](VERIFICATION.md) and [the plan](IMPLEMENTATION-STATUS.md).

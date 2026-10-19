@@ -1,5 +1,13 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## MiniMax H3 uploaded-reference preparation fix
+
+- Reproduced the exact reported `Diagnostic images are not available on this backend: deas-inputs/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png` error with a native HTTP fixture before the fix; the same H3 prepare regression now passes and preserves the compiled graph exactly. The fixture permits only `GET /comfy/object_info`, proving preparation does not submit a job.
+- `Jobs::prepare` no longer requires image names in the managed `deas-inputs/` namespace to appear in `LoadImage`'s top-level-only combo. Compiler path validation, model/node/sampler checks, ordinary missing-image/layer rejection and backend-side file checks remain intact.
+- Gates passed: `npm run typecheck`; `npm test` (80 core, 321 UI); locked Cargo tests (247 passed, 20 ignored across three suites), strict all-targets Clippy, formatting check, `bash build-linux.sh` and `git diff --check`.
+- Linux artifact staged at `artifacts/deas-linux-amd64`, SHA-256 `3dd25a02d226d5275c559d7b2f90da3ec27b8984957c6d67f8e7a59617300e59`. Quit and relaunch the app to load the fix; no backend upgrade is required. The artifact includes the existing working-tree frontend changes; these were not reverted or authored by this fix.
+- No GPU generation, native-window interaction/playback, Windows runtime, model downloads or live-service restart performed. The existing video-playback crash remains outside this preparation fix. No commit, push or version bump.
+
 ## Video → Video, multi-reference, H3 image edit and editor polish (0.1.28)
 
 - Native compiler tests: `ltx_video_to_video_guides_the_trimmed_source_and_keyframes_at_their_frames`, `h3_ref2va_puts_images_videos_and_audio_on_the_director_timeline`, `minimax_h3_edits_the_crop_as_first_frame_and_composites_frame_zero_back`, `reference_files_are_sniffed_by_magic_bytes`.

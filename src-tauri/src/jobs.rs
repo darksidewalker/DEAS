@@ -1086,7 +1086,11 @@ impl Jobs {
                 .ok_or("Malformed native prerequisites")?;
             if let Some(missing) = required
                 .iter()
-                .find(|name| !available.iter().any(|v| v.as_str() == Some(**name)))
+                // LoadImage lists only top-level files; the backend loader/Director validates DEAS-uploaded references.
+                .find(|name| {
+                    !(field == "images" && name.starts_with("deas-inputs/"))
+                        && !available.iter().any(|v| v.as_str() == Some(**name))
+                })
             {
                 return Err(format!(
                     "Diagnostic {field} are not available on this backend: {missing}"

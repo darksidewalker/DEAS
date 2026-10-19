@@ -4,6 +4,8 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## Unreleased
 
+- Fix MiniMax H3 Image → Video preparation rejecting uploaded `deas-inputs/` reference images: ComfyUI's top-level image combo is not a complete input inventory. Keep path validation and backend-side file checks.
+
 - Docs: consolidated video/reference/Director-parity working plan in `docs/VIDEO-PLAN.md` (reference picking rework, References tab with the Director media view, full H3 Prompt Forge, Continuity overlay, GPU acceptance).
 
 ## 0.1.28 — 2026-10-19

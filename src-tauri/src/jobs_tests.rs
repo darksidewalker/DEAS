@@ -258,6 +258,35 @@ async fn explicit_prepare_submit_and_correlated_completion() {
 }
 
 #[tokio::test]
+async fn h3_prepare_accepts_uploaded_reference_outside_top_level_image_combo() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["h3"]["references"][0]["image"] =
+        json!("deas-inputs/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png");
+    let graph = compile(&intent).unwrap();
+    let mut all = nodes();
+    all["UNETLoader"] = json!({"input":{"required":{"unet_name":[[intent["model"]]]}}});
+    all["CLIPLoader"] =
+        json!({"input":{"required":{"clip_name":[[intent["textEncoder"]]],"type":[["minimax"]]}}});
+    all["VAELoader"] =
+        json!({"input":{"required":{"vae_name":[[intent["vae"],intent["h3"]["audioVae"]]]}}});
+    all["KSampler"]["input"]["required"]["scheduler"] = json!([["simple"]]);
+    for node in graph.as_object().unwrap().values() {
+        let name = node["class_type"].as_str().unwrap();
+        if all.get(name).is_none() {
+            all[name] = json!({});
+        }
+    }
+    let (base, task) = server(move |path, _| {
+        assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+        (200, all.to_string())
+    })
+    .await;
+    let result = Jobs::default().prepare(base, intent).await;
+    task.abort();
+    assert_eq!(result.unwrap()["graph"], graph);
+}
+
+#[tokio::test]
 async fn video_prepare_checks_every_graph_node_and_reads_gifs_outputs() {
     let intent = crate::jobs_video::tests::ltx();
     let graph = compile(&intent).unwrap();

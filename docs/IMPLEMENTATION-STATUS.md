@@ -1,5 +1,7 @@
 # DEAS consolidated implementation status and plan
 
+MiniMax H3 upload-preparation fix: native preparation no longer treats `LoadImage`'s top-level combo as a complete inventory of `deas-inputs/` references. Exact-error HTTP regression and native/frontend gates are recorded in [verification](VERIFICATION.md#minimax-h3-uploaded-reference-preparation-fix). No new GPU or platform acceptance is claimed.
+
 ## Authority and evidence
 
 This is the **single current planning/status index** for DEAS. Video pipelines, media references and MiniMax H3 Director parity have their own working plan, [VIDEO-PLAN.md](VIDEO-PLAN.md). It consolidates [PLAN.md](PLAN.md), [PLUGIN-ROADMAP.md](PLUGIN-ROADMAP.md), [NEXT-SESSION.md](NEXT-SESSION.md), [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md), [INSTALLER-INTEGRATION.md](INSTALLER-INTEGRATION.md), download/auth/localization contracts and [VERIFICATION.md](VERIFICATION.md). Older files retain detailed contracts and historical records; their stale checkboxes are not a competing current backlog. [PROJECT-RULES.md](PROJECT-RULES.md) and [COMFYUI-RULES.md](COMFYUI-RULES.md) govern implementation.
