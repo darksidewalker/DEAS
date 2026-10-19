@@ -108,7 +108,8 @@ test('Engine mounts the localized diagnostic panel without probing; endpoint edi
   vi.mocked(checkRecipePrerequisites).mockResolvedValue(fixture);
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
-  fireEvent.click(screen.getByRole('tab', { name: 'Workspace map' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Run Plan' }));
+  fireEvent.click(screen.getByText('Engine diagnostics & legacy workspace'));
   fireEvent.click(screen.getByRole('button', { name: 'Engine' }));
   expect(document.querySelector('[data-recipe-prerequisites]')).toBeTruthy();
   expect(checkRecipePrerequisites).not.toHaveBeenCalled();

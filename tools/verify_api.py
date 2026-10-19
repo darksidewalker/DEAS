@@ -19,6 +19,7 @@ with sync_playwright() as p:
         set_locale(page, 'en')
         page.locator('[data-node="studio"]').click()
         page.locator('[data-studio-tab="map"]').click()
+        page.locator('.run-plan-diagnostics > summary').click()
         page.get_by_role('button', name='Engine', exact=True).click()
         panel = page.locator('[data-api-negotiation]')
         assert panel.get_by_role('button', name='Check execution API', exact=True).count() == 1

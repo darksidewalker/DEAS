@@ -6,6 +6,11 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 - Fix MiniMax H3 Image → Video preparation rejecting uploaded `deas-inputs/` reference images: ComfyUI's top-level image combo is not a complete input inventory. Keep path validation and backend-side file checks.
 
+## 0.1.29 — 2026-10-19
+
+- Replace Studio Workspace map with **Run Plan / Ablaufplan**, a live read-only stage/settings/output preview derived from the same image/video intent builders as Run. Show optional image refine/upscale, LoRAs, masks/input preparation, wildcard rules, video-family passes/audio and output choices; label values that only resolve at Run. No workflow editor, runtime tracking, automatic uploads or generation.
+- Preserve saved `map` tab selections, the mounted Generate draft/editor, and Engine/legacy workspace diagnostics in an expandable section. Update all six locales, navigation fixtures and Studio guide.
+
 - Docs: consolidated video/reference/Director-parity working plan in `docs/VIDEO-PLAN.md` (reference picking rework, References tab with the Director media view, full H3 Prompt Forge, Continuity overlay, GPU acceptance).
 
 ## 0.1.28 — 2026-10-19

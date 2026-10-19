@@ -75,9 +75,9 @@ export default function App(){
     <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
     <div className="studio-columns">
     <div className="studio-main">
-    <div className="studio-generate-host" hidden={tab!=='generate'}><Workbench endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
+    <div className="studio-generate-host" hidden={tab==='forge'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
     {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
-    {tab==='map'&&<>
+    {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>
      <div className="field-footer"><span>{t('studio.hierarchy')}</span><span>{t('studio.yourProcess')}</span></div></section>
@@ -94,7 +94,7 @@ export default function App(){
      </div>}
     </section>}
     <aside className="studio-note"><span className="note-index">{t('studio.firstConnection')}</span><p>{t('studio.firstHelp')}</p><span className="note-end" aria-hidden="true">↖</span></aside>
-    </>}
+    </details>}
     </div></div>
    </div>}/>
   </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span>

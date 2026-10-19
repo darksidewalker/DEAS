@@ -10,7 +10,7 @@
 | AiO installer, Backend lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
-| Studio → Workspace map, Engine diagnostics and local Director draft | [Studio map](STUDIO.md#workspace-map-and-engine-diagnostics) |
+| Studio → Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
 | Media dock, navigation, preview and embedded metadata | [Media](MEDIA.md) |
 | Library → Catalog / Installed and provider authorization | [Library and authorization](LIBRARY.md) |
 | Original Comfy editor and workflow import | [Comfy tab](COMFY.md) |

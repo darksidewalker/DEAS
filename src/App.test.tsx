@@ -21,7 +21,8 @@ function renderStudio() {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
-  fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Run Plan" }));
+  fireEvent.click(screen.getByText('Engine diagnostics & legacy workspace'));
   return view;
 }
 
@@ -60,7 +61,7 @@ test('Generate preserves the same workbench across map and top-level tab navigat
  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
  const workbench=view.container.querySelector('[data-workbench]');
  expect(workbench).toBeTruthy();
- fireEvent.click(screen.getByRole('tab',{name:'Workspace map'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Run Plan'}));
  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
  fireEvent.click(screen.getByRole('tab',{name:'Generate'}));
  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
@@ -80,8 +81,8 @@ test("first entry shows only AiO and keeps the studio behind an honest preview c
   expect(screen.getByRole("button", { name: "Run" })).toBeTruthy();
   expect(screen.getByRole("complementary", { name: "Media" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "Workspace map" }));
-  expect(screen.getByRole("group", { name: "Connected studio features" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Run Plan" }));
+  expect(screen.getByRole('region', {name:'Run Plan'})).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
 });
 
@@ -103,8 +104,9 @@ test.each([false,true])("successful native install reveals studio without an ext
   expect(screen.queryByRole('tablist',{name:'Studio areas'})).toBeNull();
   fireEvent.click(start);
   expect(await screen.findByRole('complementary',{name:'Media'})).toBeTruthy();
-  fireEvent.click(screen.getByRole('tab',{name:'Workspace map'}));
-  expect(screen.getByRole('group',{name:'Connected studio features'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab',{name:'Run Plan'}));
+  expect(screen.getByRole('region',{name:'Run Plan'})).toBeTruthy();
+  fireEvent.click(screen.getByText('Engine diagnostics & legacy workspace'));
   fireEvent.click(screen.getByRole('button',{name:'Director'}));
   expect(screen.getByLabelText('Shot direction')).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();

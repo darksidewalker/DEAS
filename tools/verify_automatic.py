@@ -7,7 +7,8 @@ from deas_locale import set_locale
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
 strings = {locale: json.loads((root / f'src/components/setup/locales/{locale}.json').read_text()) for locale in ('de','en','fr','ja','tr','zh')}
-fixture = r"""window.isTauri=true; window.__calls=[]; window.__installState='running';
+fixture = r"""window.isTauri=true; window.__calls=[]; window.__installState='running';window.__started=false;
+localStorage.setItem('deas.pref.backend.autostart','false');
 window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
 window.__calls.push({command,args});
 if(command==='native_media_list') return {path:'/fixture',parent:null,entries:[],truncated:false};
@@ -16,8 +17,8 @@ if(command==='native_pick_directory') return '/real/custom-models';
 if(command==='native_install_defaults') return {storagePath:'/executable-folder/deas-environment',backend:'nvidia',hardware:{name:'RTX fixture'},warnings:[]};
 if(command==='native_install_plan') return {id:'fixture-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:Object.entries(args.request.options).filter(([,v])=>v).map(([k])=>k),canExecute:!Object.values(args.request.options).some(Boolean)};
 if(command==='native_install_start'||command==='native_install_status') return {state:window.__installState,stepId:'fixture-only',logs:[],error:null};
-if(command==='native_backend_start') return {state:'starting',endpoint:null,logs:[],error:null,generationReady:false};
-if(command==='native_backend_status') return {state:'running',endpoint:'http://127.0.0.1:49173',logs:[],error:null,generationReady:false};
+if(command==='native_backend_start'){window.__started=true;return {state:'starting',endpoint:null,logs:[],error:null,generationReady:false};}
+if(command==='native_backend_status') return {state:window.__started?'running':'stopped',endpoint:window.__started?'http://127.0.0.1:49173':null,logs:[],error:null,generationReady:false};
 throw Error('Unexpected fixture command '+command);
 }};"""
 results=[]
@@ -89,7 +90,9 @@ with sync_playwright() as p:
                 page.locator('#studio-workspace').wait_for()
                 page.locator('[data-studio-tab="map"]').click()
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==0
-                assert page.locator('[data-node="director"]').count()==1
+                assert page.locator('.run-plan').is_visible()
+                page.locator('.run-plan-diagnostics > summary').click()
+                page.locator('[data-node="engine"] > button').click()
                 # Success switches to Studio; the backend lifecycle lives on the installer view, without the review.
                 page.locator('[data-node="setup:aio"]').click()
                 assert page.locator('.aio-auto-review').count()==0
@@ -97,7 +100,7 @@ with sync_playwright() as p:
                 page.locator('[data-node="studio"]').click()
                 page.wait_for_function("document.querySelector('#endpoint')?.value==='http://127.0.0.1:49173'")
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==1
-                assert not page.evaluate("__calls.some(x=>/inspect|prerequisites|negotiate/.test(x.command))")
+                assert not page.evaluate("__calls.some(x=>/native_comfy_inspect|negotiate|job_submit/.test(x.command))")  # Workbench reads sampler choices automatically; no explicit diagnostic/generation action
                 for locale in strings:
                     set_locale(page,locale,'[data-node="studio"]')
                     assert page.locator('#endpoint').input_value()=='http://127.0.0.1:49173'

@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, type JobStatus, type JobIntent } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, isVideoIntent, videoFrames, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { RunPlan } from './RunPlan';
 import { ContinuityPlanner } from './ContinuityPlanner';
 import { defaultPlan, isContinuityPlan, nextStep, resolveClip, type ContinuityPlan } from '../../lib/continuity';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
@@ -67,9 +68,9 @@ const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
 /** Edits of the shown image: plain image-to-image (`resample`) or inpaint; refine/upscale live in the Post-Processing tab. */
 const editModes=['resample','inpaint'] as const;
-export interface WorkbenchProps { endpoint:string; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. */ roots?:MediaRoots&{models?:string}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number} }
+export interface WorkbenchProps { endpoint:string; planVisible?:boolean; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. */ roots?:MediaRoots&{models?:string}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number} }
 /** Text-to-image workbench: settings left, preview over the prompts, queue right, bottom dock with Media · Models · LoRAs tabs. */
-export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
+export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:WorkbenchProps){
  const {t}=useI18n();const native=isTauri();const modelsDir=roots.models;const outputDir=roots.output;
  const [media,setMedia]=useState<MediaItem|null>(null);
  const mediaBlob=useBlobSrc(media?.src,native&&media?.media!=='image');const [mediaFault,setMediaFault]=useState('');
@@ -268,6 +269,18 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const readMediaSize=(width:number,height:number)=>{if(media&&width>0&&height>0)setMediaSize({src:media.src,width,height});};
  const current=jobs.find(j=>j.state==='queued'||j.state==='running');
  const replace=(next:JobStatus)=>setJobs(list=>list.map(j=>j.id===next.id?next:j));
+ function buildImageIntent(naming:string,out:VideoOutput,only?:{image:string;size:Size}):DiagnosticImageIntentV1{
+  const target=up(only?only.size:outputSize);
+  const refinePass=post&&!h3Image;
+  const inputLayers=visibleImages(layers);
+  const refineSigmas=tail(refineDenoise);
+  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio}}:{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
+  const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
+  return Object.freeze(only
+   ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
+   :{...common,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,...(sigmas?{sigmas}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),
+    ...(refinePass?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{}),...(tiled?{tiled}:{})}}:{})});
+ }
  /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
  /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
  async function run(only?:{image:string;size:Size;src:string;item:MediaItem},step?:{index:number;all:boolean}){
@@ -284,13 +297,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   const out=optionsPref.output??defaultVideoOutput;
   if(isVideo&&!only){await runVideo(naming,out,step);return;}
   const inputLayers=visibleImages(layers);
-  const refineSigmas=tail(refineDenoise);
-  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio}}:{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
-  const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
-  const intent:DiagnosticImageIntentV1=Object.freeze(only
-   ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
-   :{...common,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,...(sigmas?{sigmas}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),
-    ...(refinePass?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{}),...(tiled?{tiled}:{})}}:{})});
+  const intent=buildImageIntent(naming,out,only);
   const from=only?.item??(pipeline==='i2i'?media:null);
   lock.current=true;setBusy(true);setError('');
   try{
@@ -311,29 +318,23 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
- async function runVideo(naming:string,out:VideoOutput,step?:{index:number;all:boolean}){
-  if(!videoFamily||!family||!split||!model)return;
-  const cont=step?nextStep(plan):null;
-  if(step&&cont?.index!==step.index){setError(t('studio.run.cont.stale'));return;}
+ function buildVideoIntent(vf:VideoFamily,naming:string,out:VideoOutput,nameOf:(item:MediaItem,force?:boolean)=>string,cont:ReturnType<typeof nextStep>=null):VideoIntentV1{
   const seconds=cont?plan.steps[cont.index].seconds:video.seconds;
-  const count=videoFrames(videoFamily,seconds,fps);
+  const count=videoFrames(vf,seconds,fps);
   const chunks=optionsPref.chunkHeadroom?chunkCount(count,outputSize.width,outputSize.height,optionsPref.chunkHeadroom):undefined;
   const {imageFormat,imageCompression,...output}=out;void imageFormat;void imageCompression;
   const base={recipeId:'video-generation',version:1,positivePrompt:positive,negativePrompt:negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
    ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{})} as const;
-  lock.current=true;setBusy(true);setError('');
-  try{
    let intent:VideoIntentV1;
    const last=frameVideo&&lastFrameName?{lastFrame:lastFrameName}:{};
    // Dock files outside the ComfyUI input/output folders (and every video, which core LoadVideo reads from the input root) are copied there.
-   const nameOf=async(item:MediaItem)=>comfyName(item)||uploadInput(endpoint,item.path!);
-   if(videoFamily==='ltx-2'){
-    const source=pipeline==='v2v'&&media?.path?{sourceVideo:await uploadInput(endpoint,media.path)}:{};
-    const keyframes=pipeline==='ref2v'?await Promise.all(refs.map(async r=>({image:await nameOf(r.item),frame:Math.min(count-1,Math.round(r.second*fps)),strength:r.strength}))):[];
+   if(vf==='ltx-2'){
+    const source=pipeline==='v2v'&&media?.path?{sourceVideo:nameOf(media,true)}:{};
+    const keyframes=pipeline==='ref2v'?refs.map(r=>({image:nameOf(r.item),frame:Math.min(count-1,Math.round(r.second*fps)),strength:r.strength})):[];
     intent={...base,...(pipeline==='i2v'?{firstFrame:inputImage}:{}),...last,...source,family:'ltx-2',ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{}),
      ...(keyframes.length?{keyframes}:{}),...('sourceVideo' in source?{sourceStrength}:{})}};
    }
-   else if(videoFamily==='wan')intent={...base,firstFrame:inputImage,...last,family:'wan',wan:{lowModel:lowOf(model,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
+   else if(vf==='wan')intent={...base,firstFrame:inputImage,...last,family:'wan',wan:{lowModel:lowOf(model!,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
    else if(pipeline==='v2v'||pipeline==='ref2v'){
     // H3 has no video-to-video mode: both run REF2VA, the source video (with or without its sound) as a video reference.
     const picks:VideoRef[]=pipeline==='v2v'&&media?[{item:media,second:0,strength:1,mediaMode:sourceAudio?'video_audio':'video'}]:refs;
@@ -342,18 +343,31 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
     for(const r of picks){
      const type=r.item.media as 'image'|'video'|'audio';
      const lane=type==='video'&&r.mediaMode==='audio'?'audio':type;
-     items.push({type,file:await uploadInput(endpoint,r.item.path!),slot:lanes[lane]=(lanes[lane]??-1)+1,...(type==='video'?{mediaMode:r.mediaMode}:{})});
+     items.push({type,file:nameOf(r.item,true),slot:lanes[lane]=(lanes[lane]??-1)+1,...(type==='video'?{mediaMode:r.mediaMode}:{})});
     }
     intent={...base,family:'minimax-h3',h3:{mode:'REF2VA',audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:[],media:items}};
    }
    else{
     // The Director owns H3 references; they must live in the backend input folder, so dock files are copied there explicitly.
     const refs:{slot:0|1;image:string}[]=[];
-    if(pipeline==='i2v'&&media?.path)refs.push({slot:0,image:await uploadInput(endpoint,media.path)});
-    if(lastFrame?.path)refs.push({slot:1,image:await uploadInput(endpoint,lastFrame.path)});
+    if(pipeline==='i2v'&&media?.path)refs.push({slot:0,image:nameOf(media,true)});
+    if(lastFrame?.path)refs.push({slot:1,image:nameOf(lastFrame,true)});
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{})}};
    }
+   return intent;
+ }
+ async function runVideo(naming:string,out:VideoOutput,step?:{index:number;all:boolean}){
+  if(!videoFamily||!family||!split||!model)return;
+  const cont=step?nextStep(plan):null;
+  if(step&&cont?.index!==step.index){setError(t('studio.run.cont.stale'));return;}
+  lock.current=true;setBusy(true);setError('');
+  try{
+   const uploads=new Set<string>();
+   const identify=(item:MediaItem,force=false)=>{const name=!force&&comfyName(item);if(name)return name;uploads.add(item.path!);return item.path!;};
+   const draft=buildVideoIntent(videoFamily,naming,out,identify,cont);
+   const names=new Map(await Promise.all([...uploads.keys()].map(async path=>[path,await uploadInput(endpoint,path)] as const)));
+   const intent=uploads.size?buildVideoIntent(videoFamily,naming,out,(item,force=false)=>(!force&&comfyName(item))||names.get(item.path!)!,cont):draft;
    const prepared=await prepareDiagnosticJob(endpoint,Object.freeze(intent));
    const job=await submitDiagnosticJob(prepared.id);
    if(live.current){
@@ -494,7 +508,14 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  };
  const tile=(m:LocalModel,pressed:boolean,onClick:()=>void,extra?:React.ReactNode,reason='')=><li key={`${m.category}/${m.name}`}><button type="button" aria-label={m.name} aria-pressed={pressed} disabled={!!reason} title={reason?t(reason):m.name} onClick={onClick}>{m.info?.civitai?.preview?<img src={m.info.civitai.preview} alt="" loading="lazy"/>:<span className="wb-thumb" aria-hidden="true">◆</span>}<span className="wb-tile-name">{shortName(m.name)}</span>{familyOf(m)&&<small className="wb-family">{familyOf(m)!.name}</small>}</button>{extra}</li>;
  const pick=(id:string,value:string,list:readonly string[],set:(v:string)=>void,onFocus?:()=>void)=><label key={id} className="wb-field"><span>{t(id)}</span><select value={value} onFocus={onFocus} onPointerDown={onFocus} onChange={e=>set(e.target.value)}>{(list.includes(value)?list:[value,...list]).map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
- return <div className="workbench" data-workbench ref={shell} style={{height:fit}}>
+ const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isVideo?'video':'image',seed,model:checkpoint});
+ const preview=planVisible&&naming!==null?(isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
+ const planNotices=[t('studio.plan.validation'),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError)]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[t('studio.run.opt.unread')]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[])];
+ const inputNotes=[...(inpaint?[t('studio.plan.mask',{blur:String(maskBlur),grow:String(maskGrow),crop:t(inpaintOnlyMasked?'studio.plan.yes':'studio.plan.no')})]:[]),...(pipeline==='i2i'&&layers.some(l=>l.visible)?[t('studio.plan.layersPending')]:[]),...(isVideo?[t('studio.plan.uploadPending')]:[])];
+ return <>
+ {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
+ <div hidden={planVisible}>
+ <div className="workbench" data-workbench ref={shell} style={{height:fit}}>
   <div className="wb-body">
    <aside className="wb-side">
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
@@ -617,5 +638,5 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
     {models&&dockTab==='loras'&&(loraNames.length===0?<p className="media-help">{t('studio.run.noLoras')}</p>:<div className="media-browser">{folderTree(loraModels)}<ul className="wb-tiles wb-loras">{loraModels.filter(match).sort(bySort).map(m=>{const on=loras.find(l=>l.name===m.name);return tile(m,!!on,()=>toggleLora(m.name,!on),on&&<input type="number" aria-label={t('studio.run.strength',{name:m.name})} value={on.strength} min={-10} max={10} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)setLoras(loras.map(l=>l.name===m.name?{...l,strength:n}:l));}}/>);})}</ul></div>)}
    </section>}
   </div>
- </div>;
+ </div></div></>;
 }

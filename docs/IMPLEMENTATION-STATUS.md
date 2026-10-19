@@ -1,5 +1,9 @@
 # DEAS consolidated implementation status and plan
 
+## Current authoring preview (0.1.29)
+
+Studio **Run Plan / Ablaufplan** replaces Workspace map with a live read-only preview from the exact Workbench image/video intent builders used by the main Run action. Optional input/mask/layer preparation, model/LoRAs/options, prompts/wildcards, generation, image refine/upscale, video-family/audio and output choices are exposed; upload/default/Auto values remain explicitly unresolved. Saved `map` tabs and mounted editor drafts survive. The former Engine/local Director workspace remains expandable diagnostics, not an execution graph. See [usage and boundaries](STUDIO.md#run-plan-and-engine-diagnostics) and [verification](VERIFICATION.md#run-plan-authoring-preview-0129). This does not complete the roadmap's editable planner, runtime tracking, persistent projects, or native/model/platform acceptance.
+
 MiniMax H3 upload-preparation fix: native preparation no longer treats `LoadImage`'s top-level combo as a complete inventory of `deas-inputs/` references. Exact-error HTTP regression and native/frontend gates are recorded in [verification](VERIFICATION.md#minimax-h3-uploaded-reference-preparation-fix). No new GPU or platform acceptance is claimed.
 
 ## Authority and evidence

@@ -206,7 +206,7 @@ Every numeric value DEAS sends to a model must be valid for that model, not just
 
 ### Simplified automatic setup and media start page (0.1.6)
 - [x] Automatic setup asks only for the storage folder and the optional Director package; backend, optional packages and Git ref live under Advanced options. The native plan is prepared automatically after each edit; Start install stays the single explicit authorization and shows a one-line summary with full details collapsed.
-- [x] Studio start page with top tabs (Video, Image, Workspace map) and a media library side panel: native read-only folder listing with symlinked folders, OS drag & drop (paths) and browser drag & drop (files), image/video/audio preview through the asset protocol. The library is registered as the `media` plugin; `plugin`-kind entries mount as panels, not as graph nodes.
+- [x] Studio start page with top tabs (Generate, Prompt Forge, Run Plan; legacy `map` preference preserved) and a media library side panel: native read-only folder listing with symlinked folders, OS drag & drop (paths) and browser drag & drop (files), image/video/audio preview through the asset protocol. The library is registered as the `media` plugin; `plugin`-kind entries mount as panels, not as graph nodes.
 - [ ] Native click-through of the media library (asset preview, OS drop) is unverified; only listing, scope semantics and browser rendering are tested. Video/Image tabs hold no inference yet.
 
 ### Single-path setup, credential bubble and categorised downloads (0.1.6)

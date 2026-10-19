@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
+import { defaultOptions } from './OptionsPanel';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
@@ -818,4 +819,54 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
  expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3}});
  expect(intent).not.toHaveProperty('refine');
+});
+
+
+test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exact next Run intent without preparing, uploading or losing draft state (%s)',async family=>{
+ const m=(category:string,name:string,f?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(f?{family:f}:{})});
+ const list=family==='image'?[m('checkpoints','base.safetensors','sdxl'),m('loras','style.safetensors','sdxl')]
+  :family==='ltx-2'?[m('unet','ltx.safetensors',family),m('text_encoders','gemma_3_12B_it_fp8.safetensors'),m('text_encoders','ltx-2.3_text_projection_bf16.safetensors'),m('vae','LTX23_video_vae_bf16.safetensors'),m('vae','LTX23_audio_vae_bf16.safetensors')]
+  :family==='wan'?[m('diffusion_models','wan_high_noise.safetensors',family),m('diffusion_models','wan_low_noise.safetensors',family),m('text_encoders','umt5_xxl_fp8.safetensors'),m('vae','wan_2.1_vae.safetensors')]
+  :[m('diffusion_models','h3.safetensors',family),m('text_encoders','qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'),m('vae','minimax_h3_video_vae_fp16.safetensors'),m('vae','minimax_h3_audio_vae_fp32.safetensors')];
+ vi.mocked(scanModels).mockResolvedValue(list);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const options={...defaultOptions,outputNaming:'test/%seed%'};
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify(options));
+ localStorage.setItem('deas.pref.studio.run.seed','42');
+ localStorage.setItem('deas.pref.studio.run.seedMode',JSON.stringify('fixed'));
+ localStorage.setItem('deas.pref.studio.run.positive',JSON.stringify('live forest'));
+ localStorage.setItem('deas.pref.studio.run.post','true');
+ localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
+ if(family==='image'){
+  localStorage.setItem('deas.pref.studio.run.upscale','2');
+  localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name:'style.safetensors',strength:0.7}]));
+  localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
+ }
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'same-plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'same-job',baseUrl:evidence.baseUrl,promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input',output:'/output'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(scanModels).toHaveBeenCalled());
+ if(family!=='image')choosePipe(family==='wan'?'Image → Video':'Text → Video');
+ if(family==='wan'){
+  fireEvent.click(screen.getByRole('button',{name:'Input'}));
+  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+  const ref=screen.getByRole('img',{name:'ref.png'});
+  Object.defineProperties(ref,{naturalWidth:{value:720},naturalHeight:{value:1280}});fireEvent.load(ref);
+ }
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'edited live forest'}});
+ const shell=view.container.querySelector('[data-workbench]');
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ const shown=()=>JSON.parse(view.container.querySelector('[data-plan-intent]')!.textContent!);
+ expect(shown()).toMatchObject({positivePrompt:'edited live forest',seed:42,outputPrefix:'test/42'});
+ const preview=shown();
+ if(family==='image')expect(preview).toMatchObject({refine:{width:2048,height:2048},loras:[{name:'style.safetensors',strength:0.7}],wildcard:expect.any(Object)});
+ else {expect(preview.family).toBe(family);expect(preview.refine).toBeUndefined();expect(preview.wildcard).toBeUndefined();expect(screen.getByRole('region',{name:'Run Plan'}).querySelector('[data-plan-stage="refine"]')).toBeNull();}
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ expect(view.container.querySelector('[data-workbench]')).toBe(shell);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toEqual(preview);
 });

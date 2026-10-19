@@ -28,6 +28,7 @@ with sync_playwright() as p:
             set_locale(page, 'en')
             page.locator('[data-node="studio"]').click()
             page.locator('[data-studio-tab="map"]').click()
+            page.locator('.run-plan-diagnostics > summary').click()
             page.locator('[data-node="engine"] > button').click()
             panel = page.locator('[data-recipe-prerequisites]')
             panel.wait_for()

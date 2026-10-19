@@ -41,13 +41,15 @@ with sync_playwright() as p:
         set_locale(page, 'en')
         page.locator('[data-node="studio"]').click()
         page.locator('[data-studio-tab="map"]').click()
+        page.locator('.run-plan-diagnostics > summary').click()
         page.locator('[data-node="engine"] > button').click()
-        assert page.evaluate('__calls.length') == 0
+        before_check = page.evaluate('__calls.length')
+        assert not page.evaluate("__calls.some(c=>/^native_job_/.test(c.command))")
         page.locator('[data-recipe-check]').click()
         page.locator('[data-recipe-compile]').click()
         jobs = page.locator('[data-diagnostic-jobs]')
         jobs.wait_for()
-        assert page.evaluate('__calls.length') == 1, 'Compile must not prepare or submit'
+        assert page.evaluate('__calls.length') == before_check + 1, 'Only the explicit prerequisite check may perform IPC; compile must not prepare or submit'
         jobs.locator('[data-job-prepare]').click()
         consent = jobs.locator('[data-job-consent]')
         consent.wait_for()
