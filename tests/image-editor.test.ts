@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds,floodRegion} from '../src/features/studio/imageEditor.ts';
+import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds,floodRegion,uncoveredCells} from '../src/features/studio/imageEditor.ts';
+test('uncoveredCells returns the frame area no picture covers (outpaint), clipped to the frame',()=>{
+ assert.deepEqual(uncoveredCells([{x:0,y:0,width:100,height:60}],100,60),[]);
+ assert.deepEqual(uncoveredCells([{x:-20,y:0,width:100,height:60}],100,60),[{x:80,y:0,width:20,height:60}]);
+ assert.deepEqual(uncoveredCells([{x:-50,y:-50,width:500,height:500}],100,60),[]); // larger than the frame
+ // two pictures side by side cover the frame together; a gap between them stays uncovered
+ assert.deepEqual(uncoveredCells([{x:0,y:0,width:50,height:60},{x:50,y:0,width:50,height:60}],100,60),[]);
+ assert.deepEqual(uncoveredCells([{x:0,y:0,width:40,height:60},{x:50,y:0,width:50,height:60}],100,60),[{x:40,y:0,width:10,height:60}]);
+ assert.equal(uncoveredCells([],10,10).length,1);
+});
 test('magic wand selects only the connected area within tolerance and stops at edges',()=>{
  // 5×3: left block dark (10), a bright wall (200) at x=2, right block dark again (12); one near-dark pixel (40) at (1,1).
  const w=5,h=3,data=new Uint8ClampedArray(w*h*4);

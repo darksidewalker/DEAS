@@ -64,6 +64,21 @@ test('base image exposes brushes and can be moved like an inserted image',()=>{
  const canvas=base.querySelector('canvas')!;expect(context(canvas).pixels.size).toBe(0);
 });
 
+test('Inpaint: moving the base off the source frame outpaints the uncovered part without a painted mask',async()=>{
+ const {ref,onMask}=mount();
+ expect(document.querySelector('[data-source-frame]')).not.toBeNull();
+ expect(onMask).toHaveBeenLastCalledWith(false);
+ fireEvent.click(screen.getByRole('button',{name:'Select'}));
+ const base=screen.getByRole('group',{name:'Base image'});
+ fireEvent.keyDown(base,{key:'ArrowLeft'});
+ expect(base.style.left).toBe('-8px'); // may leave the frame now
+ expect(onMask).toHaveBeenLastCalledWith(true);
+ expect(ref.current!.imageEdited()).toBe(true);
+ expect(ref.current!.maskBounds(0)).toEqual({x:1016,y:0,width:8,height:640});
+ fireEvent.keyDown(base,{key:'ArrowRight'});
+ expect(onMask).toHaveBeenLastCalledWith(false);
+});
+
 test('base and inserted images reorder by drag and keyboard buttons without mixing mask rows',()=>{
  const view=controlled();view.rerender(view.ui([a,b]));
  const row=(name:string)=>screen.getByRole('button',{name}).closest('li')!;

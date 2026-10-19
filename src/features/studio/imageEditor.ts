@@ -31,6 +31,17 @@ export function maskBounds(data:Uint8ClampedArray,width:number,height:number,pad
  left=Math.max(0,left-padding);top=Math.max(0,top-padding);right=Math.min(width,right+1+padding);bottom=Math.min(height,bottom+1+padding);
  return {x:left,y:top,width:right-left,height:bottom-top};
 }
+type Rect={x:number;y:number;width:number;height:number};
+/** Parts of the width×height source frame that no rectangle covers (the outpaint area), as disjoint grid cells. */
+export function uncoveredCells(rects:readonly Rect[],width:number,height:number):Rect[]{
+ const edges=(size:number,a:(r:Rect)=>number,b:(r:Rect)=>number)=>[...new Set([0,size,...rects.flatMap(r=>[a(r),a(r)+b(r)]).map(v=>Math.max(0,Math.min(size,v)))])].sort((p,q)=>p-q);
+ const xs=edges(width,r=>r.x,r=>r.width),ys=edges(height,r=>r.y,r=>r.height),out:Rect[]=[];
+ for(let j=0;j+1<ys.length;j++)for(let i=0;i+1<xs.length;i++){
+  const cx=(xs[i]+xs[i+1])/2,cy=(ys[j]+ys[j+1])/2;
+  if(!rects.some(r=>cx>r.x&&cx<r.x+r.width&&cy>r.y&&cy<r.y+r.height))out.push({x:xs[i],y:ys[j],width:xs[i+1]-xs[i],height:ys[j+1]-ys[j]});
+ }
+ return out;
+}
 export function visibleImages(layers:readonly ImageLayer[]){
  return layers.filter(l=>l.visible).map(({name,x,y,width,height})=>({image:name,x,y,width,height}));
 }
@@ -50,9 +61,10 @@ export async function flattenLayer(l:ImageLayer):Promise<Uint8Array|null>{
  return new Uint8Array(await blob.arrayBuffer());
 }
 /** Snapshot image strokes/geometry before decoding; masks never enter this composite. */
-export async function flattenImages(layers:readonly ImageLayer[],width:number,height:number):Promise<Uint8Array>{
+export async function flattenImages(layers:readonly ImageLayer[],width:number,height:number,fill?:string):Promise<Uint8Array>{
  const c=document.createElement('canvas');c.width=width;c.height=height;
  const ctx=c.getContext('2d');if(!ctx)throw new Error('canvas');
+ if(fill){ctx.fillStyle=fill;ctx.fillRect(0,0,width,height);}
  const snapshot=layers.filter(l=>l.visible).map(l=>{
   if(!l.paint)return {...l};
   const paint=document.createElement('canvas');paint.width=l.paint.width;paint.height=l.paint.height;

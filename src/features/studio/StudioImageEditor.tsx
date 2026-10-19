@@ -1,7 +1,7 @@
 import {useEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {oneOf,usePref} from '../../lib/preferences';
-import {sourcePoint,zoomAt,stampStroke,maskBounds,floodRegion,flattenImages,hasPaint,type ImageLayer,type Point,type View} from './imageEditor';
+import {sourcePoint,zoomAt,stampStroke,maskBounds,floodRegion,flattenImages,hasPaint,uncoveredCells,type ImageLayer,type Point,type View} from './imageEditor';
 import {MEDIA_DRAG,draggedItem,type MediaItem} from '../../lib/media';
 import './imageEditor.css';
 export interface EditorHandle{imagePng:()=>Promise<Uint8Array|null>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
@@ -52,7 +52,11 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   const [baseIndex,setBaseIndex]=useState(0);
   const images=[...layers];images.splice(Math.min(baseIndex,images.length),0,base);
   const updateImages=(next:ImageLayer[])=>{const i=next.findIndex(l=>l.id==='base');setBase(next[i]??{...base,visible:false});setBaseIndex(Math.max(0,i));onLayers(next.filter(l=>l.id!=='base'));};
-  const imageEdited=()=>!base.visible||base.x!==0||base.y!==0||base.width!==source.width||base.height!==source.height||baseIndex>0||hasPaint(base.paint);
+  const imageEdited=()=>!base.visible||base.x!==0||base.y!==0||base.width!==source.width||base.height!==source.height||baseIndex>0||hasPaint(base.paint)||layers.some(l=>l.x<0||l.y<0);
+  // Inpaint: frame (source size) areas no visible picture covers are outpainted.
+  const outpaint=maskMode?uncoveredCells(images.filter(l=>l.visible),source.width,source.height):[];
+  const outpaintRef=useRef(outpaint.length>0);outpaintRef.current=outpaint.length>0;
+  const report=(painted:boolean)=>onMask(painted||outpaintRef.current);
   const draggedLayer=useRef<string|null>(null);
   const activeMask=masks.find(m=>`mask:${m.n}`===active);
   const activeImage=images.find(l=>l.id===active);
@@ -77,7 +81,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     try{const ctx=mask.canvas.getContext('2d');if(!ctx)throw Error();
       const data=ctx.getImageData(0,0,source.width,source.height).data;
       mask.content=false;for(let i=3;i<data.length;i+=4)if(data[i]){mask.content=true;break;}
-      onMask(masksRef.current.some(m=>m.visible&&m.content));redraw();
+      report(masksRef.current.some(m=>m.visible&&m.content));redraw();
     }catch{fail();}
   }
   function sourcePixels(){
@@ -119,19 +123,22 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     if(!maskMode)setTool('select');
     priorMaskMode.current=maskMode;
   },[maskMode]);
-  useEffect(()=>{onMask(masks.some(m=>m.visible&&m.content));redraw();},[masks]);
+  useEffect(()=>{report(masks.some(m=>m.visible&&m.content));redraw();},[masks]);
+  useEffect(()=>{report(masksRef.current.some(m=>m.visible&&m.content));},[outpaint.length>0]);
   const previousImageIds=useRef(new Set(layers.map(l=>l.id)));
   useEffect(()=>{const added=layers.find(l=>!previousImageIds.current.has(l.id));previousImageIds.current=new Set(layers.map(l=>l.id));if(added){setActive(added.id);setTool('select');}},[layers]);
   useEffect(()=>()=>{gesture.current=null;},[]);
   function maskCanvas(){
     finish();const c=document.createElement('canvas');c.width=source.width;c.height=source.height;
     const ctx=c.getContext('2d');if(!ctx)throw new Error(label('canvasError'));
-    if(!masksRef.current.some(m=>m.visible&&m.content))throw new Error(label('emptyMask'));
+    if(!masksRef.current.some(m=>m.visible&&m.content)&&!outpaint.length)throw new Error(label('emptyMask'));
     ctx.fillStyle='#000';ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle='#fff';for(const r of outpaint)ctx.fillRect(r.x,r.y,r.width,r.height);
     for(const m of masksRef.current)if(m.visible)ctx.drawImage(m.canvas,0,0);
     return c;
   }
-  useImperativeHandle(ref,()=>({imageEdited,imagePng:()=>{finish();return imageEdited()?flattenImages(images,source.width,source.height):Promise.resolve(null);},maskBounds:(padding)=>{
+  useImperativeHandle(ref,()=>({imageEdited,imagePng:()=>{finish();// Outpaint area starts neutral grey (like ImagePadForOutpaint) so denoise below 1 does not pull it to black.
+    return imageEdited()?flattenImages(images,source.width,source.height,outpaint.length?'#808080':undefined):Promise.resolve(null);},maskBounds:(padding)=>{
     const c=maskCanvas(),bounds=maskBounds(c.getContext('2d')!.getImageData(0,0,c.width,c.height).data,c.width,c.height,padding);
     if(!bounds)throw new Error(label('emptyMask'));
     return bounds;
@@ -177,7 +184,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     if(g.kind==='paint'){stampStroke(g.ctx,g.map(g.last),g.map(p),g.diameter*g.k,g.shape,g.erase,g.color);g.last=p;if(g.mask)redraw();return;}
     const dx=Math.round(p.x-g.start.x),dy=Math.round(p.y-g.start.y),l=g.layer;
     const width=Math.max(8,Math.min(8192,l.width+dx));
-    updateImages(images.map(v=>v.id!==l.id?v:g.kind==='move'?{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy))}:{...v,width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}));
+    updateImages(images.map(v=>v.id!==l.id?v:g.kind==='move'?{...v,x:Math.max(1-l.width,Math.min(source.width-1,l.x+dx)),y:Math.max(1-l.height,Math.min(source.height-1,l.y+dy))}:{...v,width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}));
   }
   function imageKey(e:React.KeyboardEvent,l:ImageLayer){
     if(tool!=='select')return;const step=e.shiftKey?64:8;
@@ -185,7 +192,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();updateImages(images.filter(v=>v.id!==l.id));setActive('base');return;}
     const grow=e.key==='+'?step:e.key==='-'?-step:0;if(!dx&&!dy&&!grow)return;e.preventDefault();
     const width=Math.max(8,Math.min(8192,l.width+grow));
-    updateImages(images.map(v=>v.id!==l.id?v:{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy)),...(grow?{width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}:{})}));
+    updateImages(images.map(v=>v.id!==l.id?v:{...v,x:Math.max(1-l.width,Math.min(source.width-1,l.x+dx)),y:Math.max(1-l.height,Math.min(source.height-1,l.y+dy)),...(grow?{width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}:{})}));
   }
   function reorder(delta:number){
     const swap=<T,>(list:T[],i:number)=>{const j=i+delta;if(i<0||j<0||j>=list.length)return null;const next=[...list];[next[i],next[j]]=[next[j],next[i]];return next;};
@@ -217,7 +224,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
        {palette.map(c=><button key={c} type="button" className="sie-swatch" aria-label={c} aria-pressed={color===c} style={{background:c}} onClick={()=>setColor(c)}/>)}
       </span>}
       {maskMode&&activeMask&&<label>{label('maskValue')}<input type="range" className="sie-gray" min={0} max={255} value={gray} style={{'--gray':`rgb(${gray},${gray},${gray})`} as React.CSSProperties} onChange={e=>setGray(Number(e.target.value))}/></label>}
-      <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){const ctx=l.paint.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,l.paint.width,l.paint.height);return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;onMask(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>
+      <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){const ctx=l.paint.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,l.paint.width,l.paint.height);return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;report(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>
       </>
       <span className="sie-view">
       <button type="button" aria-label={label('zoomOut')} onClick={()=>{finish();auto.current=false;setView(v=>zoomAt(v,{x:(viewport.current?.clientWidth??0)/2,y:(viewport.current?.clientHeight??0)/2},v.scale/1.25));}}>−</button>
@@ -232,6 +239,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
         <div ref={world} className="sie-world" data-testid="editor-world" style={{width:source.width,height:source.height,transform:`translate(${view.x}px, ${view.y}px) scale(${view.scale})`}}>
           {images.filter(l=>l.visible).map(l=><div className={`sie-image${active===l.id?' is-selected':''}`} key={l.id} role="group" aria-label={l.id==='base'?label('base'):t('studio.run.edit.layer',{name:l.name})} tabIndex={0} data-layer={l.id} style={{left:l.x,top:l.y,width:l.width,height:l.height,pointerEvents:tool==='select'?'auto':'none'}} onFocus={()=>setActive(l.id)} onPointerDown={e=>begin(e,l)} onKeyDown={e=>imageKey(e,l)}><img src={l.src} alt={l.id==='base'?source.name:''} draggable={false}/>{l.paint&&<Mounted node={l.paint}/>}{active===l.id&&tool==='select'&&<button className="sie-resize" type="button" aria-label={t('studio.editor.resize',{name:l.name})} onPointerDown={e=>begin(e,l,true)}>↘</button>}</div>)}
           <canvas ref={overlay} className="sie-mask" aria-label={t('studio.run.edit.mask')} width={source.width} height={source.height} style={{opacity:maskMode?opacity/100:0}}/>
+          {maskMode&&<div className="sie-frame" data-source-frame aria-hidden="true" style={{outlineWidth:1/view.scale}}/>}
         </div>
         {painting&&brushEnabled&&<div ref={cursor} className={`sie-cursor is-${shape}${tool==='erase'?' is-erase':''}`} hidden aria-hidden="true" style={{width:diameter*view.scale,height:diameter*view.scale}}/>}
       </div>

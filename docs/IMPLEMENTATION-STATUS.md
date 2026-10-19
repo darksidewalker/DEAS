@@ -1,5 +1,9 @@
 # DEAS consolidated implementation status and plan
 
+## Source release 0.1.31
+
+The 0.1.31 source contains the bounded Director group/identity/order/manual-box/detection slices, earlier editor/outpaint and prompt-control work, and release-staging fixes. Older Unreleased slice headings below retain their verification anchors and are included in this version. This is not completion of the overall roadmap: pose/frame-mode Cast, video playback, real vision/GPU quality, performance and native-platform acceptance remain open. Local unsigned artifact provenance and compatibility limitations belong to the release manifest/notes; a source tag does not prove target-runtime acceptance.
+
 ## Current authoring preview (0.1.29)
 
 Studio **Run Plan / Ablaufplan** replaces Workspace map with a live read-only preview from the exact Workbench image/video intent builders used by the main Run action. Optional input/mask/layer preparation, model/LoRAs/options, prompts/wildcards, generation, image refine/upscale, video-family/audio and output choices are exposed; upload/default/Auto values remain explicitly unresolved. Saved `map` tabs and mounted editor drafts survive. The former Engine/local Director workspace remains expandable diagnostics, not an execution graph. See [usage and boundaries](STUDIO.md#run-plan-and-engine-diagnostics) and [verification](VERIFICATION.md#run-plan-authoring-preview-0129). This does not complete the roadmap's editable planner, runtime tracking, persistent projects, or native/model/platform acceptance.
@@ -17,6 +21,22 @@ Removed the Unix-only Python `signal.alarm` from the ComfyUI import probe; the n
 ## Editable base image and layer drag ordering
 
 Base image and inserted images share paint, move/resize and visibility controls; image rows (including the base) and mask rows support drag ordering within their own stacks. A changed base is baked with visible inserts once into the source-sized input PNG; the mask stays separate. Originals are preserved. Regression tests cover brush/geometry/order/failure paths and submitted intents. Verified: 80 core and 351 UI tests, frontend typecheck/build, plus real Chromium interaction and PNG pixel assertions for base paint/move/resize/hide/order and immutable upload snapshots. The broader responsive fixture sweep remains blocked by Media header/dock pointer interception after the desktop capture; no all-width acceptance is claimed. No native WebKitGTK/WebView2 or GPU render was run. See [image editing](STUDIO.md#image-editing).
+
+## Director group labels (W3b2c1, Unreleased)
+
+H3 REF2VA reference labels now include the Director's seven left-to-right groups and individual Characters 1–32. Implicit labels skip group members; packs and Forge requests preserve their order, and the hammer exposes one Cast card per character. No native IPC or generation graph change. [Video plan](VIDEO-PLAN.md) splits the remaining who/order/people-box and pose/frame-card work into W3b2c2/3. See [verification](VERIFICATION.md#director-group-labels-w3b2c1-unreleased); real vision/model and native-platform acceptance remain open.
+
+## Character selection and spatial order (W3b2c2a, Unreleased)
+
+H3 REF2VA Character/group references now expose **People & order**: choose identities in tap order and horizontal, vertical, depth or no spatial order. Forge requests, Cast cards and Director packs share these values. No generation-intent/compiler change or new native command. [Verification](VERIFICATION.md#character-selection-and-order-w3b2c2a-unreleased) separates UI/native HTTP fixtures and real node-pack parsing from unperformed inference/native-platform acceptance. People boxes and detection are implemented as bounded slices below; W3b2c3 pose/frame cards remain open.
+
+## Manual people boxes (W3b2c2b1, Unreleased)
+
+H3 REF2VA Character/group references now support manual normalized people boxes with pointer/keyboard move and resize, unique numbering, remove and Director pack round trips. Forge/Cast use box identities; original images and generation graphs stay unchanged. A fixed, path-free native diagnostic routes decode failures to shared Logs. [Verification](VERIFICATION.md#manual-people-boxes-w3b2c2b1-unreleased) records browser geometry/cancellation and native logging/HTTP fixtures. Real vision quality, native-platform interaction and performance acceptance remain open; bounded detection is described below.
+
+## Find people (W3b2c2b2, Unreleased, bounded)
+
+Character references can explicitly invoke the selected vision model and apply candidate boxes separately. Existing IDs survive when counts match; late/stale results are rejected, and Cancel targets only the detection UUID. Native validation bounds input paths/UUIDs and normalized response geometry, strips raw model text and sends sanitized request-correlated diagnostics to shared Logs. Cancellation requests are best effort, not GPU-stop guarantees. [Verification](VERIFICATION.md#find-people-w3b2c2b2-unreleased) distinguishes IPC/HTTP fixtures and Windows cross-compilation from unperformed real vision/native-platform acceptance. The overall implementation plan is not complete; pose/frame-mode Cast, other video work and real GPU acceptance remain open.
 
 ## Authority and evidence
 
@@ -65,7 +85,7 @@ Source paths below are relative to the DEAS repository. “Remaining” includes
 | Director and continuity | **Partial.** `ContinuityPlanner.tsx`, `src/lib/continuity.ts`, `Workbench.tsx::{runVideo,pinClip}`, `jobs.rs::native_h3_session`; ordered H3 segments and previous-clip pinning | Full Director authoring, verified capture/continuation, RefMods asset domain, REF2VA/inpaint generation modes, joined clips/transitions and durable handoffs; the map's local Director draft is not this full product |
 | Prompt Forge / shared LLM | **Partial.** `llm.rs`, `src/lib/forge.ts`, `src/features/forge/`; local/remote discovery, model dialects, text/vision route forwarding, review/apply/undo and Send to Generate | Streaming/cancellation, cast/people boxes, richer video/audio references and continuity drafts; broad native/platform interaction; remote API-key support where absent |
 | Presets, wildcards and seeds | **Partial overall; existing controls implemented.** `wildcard.rs`, `src/lib/wildcard.ts`, Workbench, `outputNaming.ts`; reproducible seed controls and installed-node library with weights/budgets | Custom-library editing/import, versioned cross-feature smart presets, compatibility explanations and measured hardware-aware recommendations |
-| Image editing | **Partial.** `StudioImageEditor.tsx`, `imageEditor.ts`, `jobs.rs::compile`; layers/masks, zoom/pan, sizing, crop-inpaint-composite, blur and a colour-tolerance magic wand (`floodRegion`) | Persisted projects, undo, transparent inserts, broader outpaint/instruction edit paths (source frame and full-size drop: [§3.7](#37-image-editor-source-frame-for-outpainting-and-full-size-image-drop)), model-based masking ([§3.5](#35-smart-masking-and-imagevideo-prompt-references)) and native/GPU quality acceptance |
+| Image editing | **Partial.** `StudioImageEditor.tsx`, `imageEditor.ts`, `jobs.rs::compile`; layers/masks, zoom/pan, sizing, crop-inpaint-composite, blur and a colour-tolerance magic wand (`floodRegion`) | Persisted projects, undo, transparent inserts, instruction edit paths (outpaint source frame and full-size drop: [§3.7](#37-image-editor-source-frame-for-outpainting-and-full-size-image-drop); outpaint seam quality open), model-based masking ([§3.5](#35-smart-masking-and-imagevideo-prompt-references)) and native/GPU quality acceptance |
 | Editable end-to-end planner — M4c | **Missing general system.** H3 sequential Run-all is a narrow building block | Persistent operation graph, asset revisions, downstream invalidation, intermediate replacement, review/pause/resume, batch/restart recovery and general mix-and-match pipelines |
 | Media browser/player/domain — M4b | **Partial.** `media.rs`, `media_metadata.rs`, `MediaLibrary.tsx`; folders, thumbnails, metadata and output presentation | Durable asset registry, project provenance/revisions, collections/tags/search and shared compatibility proxies; native video playback currently has a recorded crash |
 | Output and export | **Partial.** `jobs_outputs.rs::Jobs::{output,export_to}`, metadata/naming savers, `jobs_video.rs::combine`; bounded PNG retrieval/cache/no-clobber export and video graph saving | General verified video/audio transfer/Save As/export; Workbench video `/view` playback is not app-owned immutable asset ingestion; native A/V acceptance remains open |
@@ -205,17 +225,17 @@ Acceptance:
 
 ### 3.7 Image editor: source frame for outpainting and full-size image drop
 
-**Status: planned, not implemented.** Owner request.
+**Status: implemented.** Owner request. Real run (Illustrious SDXL checkpoint, 1040×1520 frame, picture moved 256 px left, denoise 1, Mask Blur 8, compiled by `compileRecipe`, ComfyUI 0.42 from the DEAS environment): pixels outside the outpaint area came back bit-identical, the strip was fully generated in the scene's palette. With a plain checkpoint and SetLatentNoiseMask the new strip does not continue the subject, and the seam is visible; better context (an inpaint model or InpaintModelConditioning, wider blur) is a quality follow-up, not part of this item.
 
-**Source frame.** In Inpaint, draw the original image resolution as a thin, low-contrast border on the canvas. The frame stays fixed while the image can be moved partly outside it. The frame is the processing area: the job only uses what lies inside it. Uncovered parts of the frame become the area to outpaint, and image pixels moved outside the frame are not sent. With the image still covering the whole frame, the existing inpaint graph and output stay unchanged.
+**Source frame.** In Inpaint, `StudioImageEditor` draws the source resolution as a thin outline (`.sie-frame`, inside the transformed world, so it follows zoom/pan and is never exported). Pictures may be moved partly outside it (positions clamp to keep at least one pixel inside). The client already flattens the picture stack to the frame (`flattenImages` at source size), so pixels outside are not sent. `uncoveredCells` (`imageEditor.ts`) finds the frame areas no visible picture covers; they are added white to the exported mask (Run is enabled without a painted mask) and filled neutral grey (`#808080`, like core `ImagePadForOutpaint`) in the flattened image. Both compilers are unchanged: the outpaint area reaches them as an ordinary `inputImage` + `inputMask` through the existing inpaint / crop-inpaint-composite path. While the pictures cover the whole frame, nothing changes.
 
-**Drop import at original size.** Dragging an image into the editor view currently inserts a tiny layer. `Workbench.tsx::insertLayer` scales every insert to at most a third of the source width (`source.width/3`). A dropped image should be inserted at its original pixel size, centered on the drop point, and scaled down only when it exceeds the 8192 px limit.
+**Drop import at original size.** `Workbench.tsx::insertLayer` inserts dock images at `naturalWidth`/`naturalHeight`, scaled down only above 8192 px, centred on the drop point.
 
 Acceptance:
-- [ ] The frame is drawn at the source resolution and follows zoom/pan. It can be told apart from layer and mask outlines, and it is not burned into the output.
-- [ ] Moving the image changes only what the frame covers. The job input is cropped/padded to the frame, and frame areas the image does not cover get an outpaint mask through the existing crop-inpaint-composite path in both compilers. Coordinates are mapped through the same source-pixel transform as the brush.
-- [ ] Dropped images keep `naturalWidth`/`naturalHeight` (capped only at 8192 px). Inserts from the dock and from OS files behave the same way, and the existing four-layer limit and error messages still apply.
-- [ ] Regressions in `tests/execution.test.ts` and `src-tauri/src/jobs_tests.rs` for frame crop/pad and outpaint mask, and UI tests for frame drawing and full-size insert. A real inpaint/outpaint run on the owned backend. Update `docs/STUDIO.md` and the six locales where new text is added.
+- [x] The frame is drawn at the source resolution and follows zoom/pan. It can be told apart from layer and mask outlines, and it is not burned into the output.
+- [x] Moving the image changes only what the frame covers. The job input is cropped/padded to the frame, and frame areas the image does not cover get an outpaint mask through the existing crop-inpaint-composite path in both compilers. Coordinates are mapped through the same source-pixel transform as the brush.
+- [x] Dropped images keep `naturalWidth`/`naturalHeight` (capped only at 8192 px); the four-layer limit and error messages still apply. The editor has no OS-file drop path; OS files reach it through the Media dock.
+- [x] Tests: `tests/image-editor.test.ts` (`uncoveredCells`), `StudioImageEditor.test.tsx` (frame, outpaint mask without painting), `Workbench.test.tsx` (full-size insert), `tools/verify_inpaint.py` (exported grey fill + white outpaint mask). No compiler change, so no new `execution.test.ts`/`jobs_tests.rs` cases. Real outpaint run: see Status.
 
 ## 4. Remaining plugin-platform work
 

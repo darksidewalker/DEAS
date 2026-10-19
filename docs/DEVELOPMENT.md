@@ -36,6 +36,8 @@ Before initializing GTK/WebKit on Linux, DEAS keeps WebKit's GPU renderer usable
 
 It embeds the frontend and does not require a Vite server. It still requires compatible Linux system/webview libraries; this is not yet a signed portable AiO release. See [verification and limitations](VERIFICATION.md).
 
+For a publishable release folder, commit the reviewed sources first, then run `./build-linux.sh --release` from a clean checkout. The version destination must not already exist; existing release assets are preserved instead of being mixed into a new build. The manifest lists only targets built in that invocation. This command bundles deb/AppImage, cross-builds the Windows portable ZIP (using `7z`) and NSIS installer with `cargo xwin` when installed, and stages everything under `artifacts/releases/v<version>/` with a generated `BUILD-MANIFEST.json` and `SHA256SUMS`. The Windows cross-build is bundled with `tauri bundle` rather than rebuilt outside cargo-xwin's SDK environment. `build-windows.cmd --release` stages a fresh Windows-only version folder and refuses an existing destination; complete provenance and publish notes separately before publishing.
+
 Browser acceptance checks can be repeated with a Python environment containing Playwright and Pillow:
 
 ```sh

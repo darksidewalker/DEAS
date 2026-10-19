@@ -634,7 +634,6 @@ async fn discovery_keeps_local_models_with_remote_success_or_failure() {
     assert_eq!(result.models.len(), 1);
     assert!(result.warnings.is_empty());
 }
-#[cfg(target_os = "linux")]
 fn http_sequence(
     responses: Vec<(u16, Value)>,
 ) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {
@@ -819,13 +818,173 @@ async fn forge_bounds_declared_and_chunked_responses_before_buffering() {
     }
 }
 
+#[tokio::test]
+async fn forge_preserves_character_selection_and_order_for_writer_and_cast() {
+    let root = tempfile::tempdir().unwrap();
+    for route in ["h3", "cast"] {
+        for axis in ["y", "z", "none"] {
+            let references = json!([{
+                "kind": "image", "path": "pair.png", "easy_role": "character-2",
+                "picture_kinds": ["character"], "who": [2, 4], "who_axis": axis,
+                "boxes": [{"n":4,"box":[0.1,0.1,0.4,0.8]},{"n":2,"box":[0.6,0.1,0.9,0.8]}]
+            }]);
+            let (url, server) = http_sequence(vec![(200, json!({"text":"fixture"}))]);
+            let body = json!({"mode":"REF2VA", "references":references, "character":2});
+            native_forge(
+                url,
+                root.path().to_string_lossy().into(),
+                route.into(),
+                body,
+            )
+            .await
+            .unwrap();
+            let calls = server.join().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].1["references"], references);
+            assert_eq!(calls[0].1["character"], 2);
+            assert_eq!(calls[0].1["settings"], json!({}));
+        }
+    }
+}
+
+#[tokio::test]
+async fn people_detection_validates_native_requests_responses_and_redacts_failures() {
+    let root = tempfile::tempdir().unwrap();
+    let body = json!({"model":"vision:model","path":"nested/pair.png","request_id":uuid::Uuid::new_v4().to_string()});
+    let valid = json!({"people":[{"box":[0.1,0.2,0.4,0.8],"label":"private model text"}],"raw":"private raw"});
+    let (url, server) = http_sequence(vec![(200, valid)]);
+    let out = native_forge(
+        url,
+        root.path().to_string_lossy().into(),
+        "people".into(),
+        body.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out, json!({"people":[{"box":[0.1,0.2,0.4,0.8]}]}));
+    let calls = server.join().unwrap();
+    assert_eq!(calls[0].0, "POST /prefix/dasiwa/h3/forge/people HTTP/1.1");
+    assert_eq!(calls[0].1["path"], "nested/pair.png");
+    for path in [
+        "../private.png",
+        "/private.png",
+        "C:/private.png",
+        "a\\\\b.png",
+        "pair.png [output]",
+    ] {
+        let mut bad = body.clone();
+        bad["path"] = json!(path);
+        let err = native_forge(
+            "http://127.0.0.1:1".into(),
+            root.path().to_string_lossy().into(),
+            "people".into(),
+            bad,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err, "Invalid people detection request");
+    }
+    for reply in [
+        json!({}),
+        json!({"people":[{"box":[0,0,0.01,1]}]}),
+        json!({"people":[{"box":[0,0,2,1]}]}),
+        json!({"people":[{"box":[0,0,1]}]}),
+    ] {
+        let (url, server) = http_sequence(vec![(200, reply)]);
+        let err = native_forge(
+            url,
+            root.path().to_string_lossy().into(),
+            "people".into(),
+            body.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err, "Invalid people detection response");
+        server.join().unwrap();
+    }
+    for (field, value) in [
+        ("request_id", json!("not-a-uuid")),
+        ("model", json!("")),
+        ("model", json!(42)),
+        ("path", json!("")),
+    ] {
+        let mut bad = body.clone();
+        bad[field] = value;
+        let err = native_forge(
+            "http://127.0.0.1:1".into(),
+            root.path().to_string_lossy().into(),
+            "people".into(),
+            bad,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err, "Invalid people detection request");
+    }
+    for reply in [
+        json!({"people":vec![json!({"box":[0,0,1,1]});33]}),
+        json!({"people":[{"box":[0.6,0,0.9,1]},{"box":[0,0,0.4,1]}]}),
+        json!({"people":[{"box":[false,0,1,1]}]}),
+    ] {
+        let (url, server) = http_sequence(vec![(200, reply)]);
+        assert_eq!(
+            native_forge(
+                url,
+                root.path().to_string_lossy().into(),
+                "people".into(),
+                body.clone()
+            )
+            .await
+            .unwrap_err(),
+            "Invalid people detection response"
+        );
+        server.join().unwrap();
+    }
+    let (url, server) = http_sequence(vec![(200, json!({"people":[]}))]);
+    assert_eq!(
+        native_forge(
+            url,
+            root.path().to_string_lossy().into(),
+            "people".into(),
+            body.clone()
+        )
+        .await
+        .unwrap(),
+        json!({"people":[]})
+    );
+    server.join().unwrap();
+    for (status, code) in [(503, "backend"), (422, "cancelled"), (409, "busy")] {
+        let (url, server) = http_sequence(vec![(
+            status,
+            json!({"error":code,"message":"private hf_secret_token"}),
+        )]);
+        let err = native_forge(
+            url,
+            root.path().to_string_lossy().into(),
+            "people".into(),
+            body.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert!(!err.contains("hf_secret_token"));
+        server.join().unwrap();
+        let level = if code == "cancelled" { "INFO" } else { "ERROR" };
+        assert!(crate::logs::native_logs(0).iter().any(|e| e.text
+            == format!(
+                "{level}: Prompt Forge people request={}: {err}",
+                body["request_id"].as_str().unwrap()
+            )
+            && !e.text.contains("hf_secret_token")));
+    }
+}
+
 #[test]
 fn forge_forwards_only_node_pack_routes_with_the_saved_endpoint() {
     assert_eq!(forge_route("write").unwrap(), "dasiwa/llm/write");
     assert_eq!(forge_route("h3").unwrap(), "dasiwa/h3/forge");
     assert_eq!(forge_route("cancel").unwrap(), "dasiwa/h3/forge/cancel");
     assert_eq!(forge_route("cast").unwrap(), "dasiwa/h3/forge/cast");
-    assert!(forge_route("../prompt").is_err() && forge_route("people").is_err());
+    assert_eq!(forge_route("people").unwrap(), "dasiwa/h3/forge/people");
+    assert!(forge_route("../prompt").is_err() && forge_route("/people").is_err());
     let ollama = LlmConfig {
         provider: Provider::Ollama,
         base_url: "http://127.0.0.1:11434".into(),

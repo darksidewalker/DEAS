@@ -412,7 +412,7 @@ test.each([{cropped:false,paintBase:false},{cropped:true,paintBase:false},{cropp
  if(cropped){expect(intent.maskBlur).toBe(8);expect(intent.inpaintCrop).toEqual({x:0,y:0,width:41,height:41,targetWidth:1024,targetHeight:1024});}
  else{expect(intent.maskBlur).toBe(4);expect(intent.inpaintCrop).toBeUndefined();}
  if(paintBase){expect(intent.inputLayers).toBeUndefined();expect(uploadMask).toHaveBeenCalledTimes(2);}
- else expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:350,y:235,width:341,height:171}]);
+ else expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:420,y:270,width:200,height:100}]); // original size, centred then moved
  // The edit job opens side by side: the same editor stays live on the left, no return needed.
  expect(screen.queryByRole('button',{name:'Return to edit draft'})).toBeNull();
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
@@ -452,7 +452,7 @@ test('IPC fixture: dropping a dock tile pastes the Output image as a movable lay
  fireEvent.keyDown(layer,{key:'ArrowRight'});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'src.png [output]',inputLayers:[{image:'cat.png [output]',x:342,y:217,width:333,height:167}]}); // centred (334,217) then ArrowRight +8
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'src.png [output]',inputLayers:[{image:'cat.png [output]',x:408,y:250,width:200,height:100}]}); // original size centred (400,250) then ArrowRight +8
  vi.unstubAllGlobals();
 });
 

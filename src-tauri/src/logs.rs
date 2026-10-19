@@ -69,6 +69,18 @@ fn after(seq: u64) -> Vec<Entry> {
     s.entries.range(start..).cloned().collect()
 }
 
+/// Fixed, path-free UI diagnostic; cannot append arbitrary frontend text.
+#[tauri::command]
+pub fn native_logs_people_image_error() {
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+        return;
+    }
+    *last = Some(std::time::Instant::now());
+    push(Source::Deas, "ERROR: Studio PeopleBoxes image-load: reference image could not be decoded; box editing disabled (repeats limited to once per minute)");
+}
+
 /// Entries newer than `after` (0 = everything still retained).
 #[tauri::command]
 pub fn native_logs(after: u64) -> Vec<Entry> {
@@ -100,6 +112,20 @@ pub async fn native_logs_export(title: String, text: String) -> Result<bool, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn people_image_error_is_fixed_shared_and_rate_limited() {
+        native_logs_people_image_error();
+        native_logs_people_image_error();
+        let entries = native_logs(0);
+        let reports: Vec<_> = entries
+            .iter()
+            .filter(|e| e.text.starts_with("ERROR: Studio PeopleBoxes image-load:"))
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, Source::Deas);
+        assert!(!reports[0].text.contains("private.png"));
+    }
 
     #[test]
     fn incremental_reads_and_byte_cap() {

@@ -201,8 +201,8 @@ with sync_playwright() as p:
     expect(page.get_by_role('button',name='Run',exact=True)).to_be_enabled()
     assert page.get_by_test_id('editor-world').evaluate('(el,old)=>el===old',editor_node)
     page.locator('.sie-image:not([data-layer="base"])').press('ArrowRight')
-    # Make the handle reachable at 200% without relying on offscreen clicks.
-    for _ in range(25):
+    # Make the handle reachable at 200% without relying on offscreen clicks (the 200 px insert keeps its original size).
+    for _ in range(7):
         page.locator('.sie-image:not([data-layer="base"])').press('-')
     for zoom in ('fit','double'):
         click_tool(page, 'Fit' if zoom == 'fit' else '100%')
@@ -318,9 +318,10 @@ with sync_playwright() as p:
     assert base.evaluate('(el)=>[parseFloat(el.style.left),parseFloat(el.style.top)]') == [32,16]
     intent = export_mask(page)
     assert 'inputLayers' not in intent and intent['inputImage'].startswith('deas-masks/')
-    assert pixels(page, [[128,80]], -2)['values'] == [[255,255,255,255]]
+    # Moving the base off the source frame outpaints the uncovered strip: white in the mask, neutral grey in the image.
+    assert pixels(page, [[128,80],[0,0],[200,300]], -2)['values'] == [[255,255,255,255],[255,255,255,255],[0,0,0,255]]
     result = pixels(page, [[288,176],[512,320],[0,0]])
-    assert result['values'] == [[0,122,255,255],[255,0,0,255],[0,0,0,0]], result
+    assert result['values'] == [[0,122,255,255],[255,0,0,255],[128,128,128,255]], result
     assert (result['width'],result['height']) == (1024,640)
     # Actual HTML5 row drag raises the moved base above the inserted picture.
     rail = page.locator('.sie-rail')
@@ -351,7 +352,7 @@ with sync_playwright() as p:
     assert pixels(page, [[288,176]])['values'] == [[85,85,85,255]]
     click_tool(page, 'Hide Base image')
     export_mask(page)
-    assert pixels(page, [[512,320],[128,80]])['values'] == [[255,0,0,255],[0,0,0,0]]
+    assert pixels(page, [[512,320],[128,80]])['values'] == [[255,0,0,255],[128,128,128,255]] # hidden base: the uncovered frame is outpainted (grey)
     click_tool(page, 'Show Base image')
     assert page.evaluate('window.__unexpected') == []
     assert not errors, errors

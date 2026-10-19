@@ -201,12 +201,204 @@ test('Director picture labels: chosen labels stay, the rest take the next free C
  expect(fromPack(pack,'/env/in')!.adds.map(a=>[a.label,a.instructions])).toEqual([[undefined,undefined],['character-1',undefined],['place','the old harbour'],['custom','the coat']]);
 });
 
+test('Director groups reserve their character numbers, keep left-to-right order in Forge and packs, and ignore unknown groups',()=>{
+ const refs=[refAt('pair.png','image',{label:'group-21'}),refAt('single.png','image'),refAt('other.png','image',{label:'group-13'})];
+ expect(forgeLabels(refs)).toEqual(['group-21','character-4','group-13']);
+ const ctx=h3ForgeContext({pipeline:'ref2v',media:null,lastFrame:null,refs,sourceAudio:false,seconds:5,canvas:{width:64,height:64},inputRoot:'/env/in'});
+ expect(ctx.easy).toBe(true);
+ expect(ctx.references[0]).toEqual({kind:'image',path:'pair.png',role:'subject',subject_group:'',easy_role:'group-21'});
+ const {pack}=toPack(refs,'/env/in');
+ expect(fromPack(pack,'/env/in')!.adds.map(a=>a.label)).toEqual(['group-21',undefined,'group-13']);
+ expect(forgeLabels([refAt('bad.png','image',{label:'group-99'}),refAt('auto.png','image')])).toEqual(['character-1','character-2']);
+});
+
+test('nine references with a group can assign characters above nine using the Director subject groups',()=>{
+ const refs=[refAt('group.png','image',{label:'group-123'}),...Array.from({length:8},(_,i)=>refAt(`${i}.png`,'image'))];
+ const ctx=h3ForgeContext({pipeline:'ref2v',media:null,lastFrame:null,refs,sourceAudio:false,seconds:5,canvas:{width:64,height:64},inputRoot:'/env/in'});
+ expect(ctx.references.at(-1)).toMatchObject({easy_role:'character-11',subject_group:'K'});
+ const {pack}=toPack([refAt('last.png','image',{label:'character-32'})],'/env/in');
+ expect(fromPack(pack,'/env/in')!.adds[0].label).toBe('character-32');
+});
+
+test.each(['y','z','none'] as const)('explicit character order %s reaches Forge and Director packs while reserving the actual members',axis=>{
+ const refs=[refAt('pair.png','image',{label:'character-2',who:[2,4],whoAxis:axis}),refAt('auto.png','image')];
+ const ctx=h3ForgeContext({pipeline:'ref2v',media:null,lastFrame:null,refs,sourceAudio:false,seconds:5,canvas:{width:64,height:64},inputRoot:'/env/in'});
+ expect(ctx.references[0]).toMatchObject({easy_role:'character-2',picture_kinds:['character'],who:[2,4],who_axis:axis});
+ expect(forgeLabels([...refs,refAt('auto2.png','image')])).toEqual(['character-2','character-1','character-3']);
+ const {pack}=toPack(refs,'/env/in');
+ expect(pack.items[0]).toMatchObject({forge_kinds:'character',forge_who:'2,4',forge_who_axis:axis});
+ expect(fromPack(pack,'/env/in')!.adds[0]).toMatchObject({label:'character-2',who:[2,4],whoAxis:axis});
+});
+
+test('the character buttons keep tap order, retain one character, and a new label clears overrides',()=>{
+ const onChange=vi.fn();let refs=[refAt('a.png','image',{label:'character-2'})];
+ const view=()=> <I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()}/></I18nProvider>;
+ const {rerender}=render(view());
+ fireEvent.click(screen.getByText('People & order'));
+ fireEvent.click(screen.getByRole('button',{name:'Character 4 in a.png'}));
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({who:[2,4]});
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.change(screen.getByLabelText('Character order in a.png'),{target:{value:'z'}});
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({who:[2,4],whoAxis:'z'});
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.click(screen.getByRole('button',{name:'Character 2 in a.png'}));
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({who:[4],label:'character-4'});
+ refs=onChange.mock.lastCall![0];rerender(view());
+ expect(screen.getByRole('button',{name:'Character 4 in a.png'})).toHaveProperty('disabled',true);
+ fireEvent.change(screen.getByLabelText('Forge label of a.png'),{target:{value:'place'}});
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({label:'place',who:undefined,whoAxis:undefined});
+});
+
+test('spatial order updates the legacy label without claiming left-to-right for a vertical group',()=>{
+ const onChange=vi.fn();let refs=[refAt('pair.png','image',{label:'group-21'})];
+ const view=()=> <I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()}/></I18nProvider>;
+ const {rerender}=render(view());fireEvent.click(screen.getByText('People & order'));
+ fireEvent.change(screen.getByLabelText('Character order in pair.png'),{target:{value:'y'}});
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({label:'character-2',who:[2,1],whoAxis:'y'});
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.change(screen.getByLabelText('Character order in pair.png'),{target:{value:'x'}});
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({label:'group-21',who:[2,1],whoAxis:undefined});
+});
+
+test('pack who metadata rejects malformed, duplicate and out-of-range character numbers',()=>{
+ for(const who of ['2,2','0,4','33','2.5','2,no','']){
+  const p={dasiwa_minimax_h3_reference_pack:true,items:[{type:'image',value:'a.png',forge_label:'character-2',forge_kinds:'character',forge_who:who}]};
+  const read=fromPack(p,'/env/in')!;
+  expect(read.invalid).toBe(1);expect(read.adds[0]).not.toHaveProperty('who');
+ }
+});
+
+test('people boxes reach Forge and Director packs, reserve their identities and reject malformed geometry',()=>{
+ const boxes=[{n:4,box:[0.1,0.2,0.4,0.8] as [number,number,number,number]},{n:2,box:[0.6,0.2,0.9,0.8] as [number,number,number,number]}];
+ const refs=[refAt('pair.png','image',{label:'character-1',boxes}),refAt('auto.png','image')];
+ const ctx=h3ForgeContext({pipeline:'ref2v',media:null,lastFrame:null,refs,sourceAudio:false,seconds:5,canvas:{width:64,height:64},inputRoot:'/env/in'});
+ expect(ctx.references[0]).toMatchObject({boxes});
+ expect(forgeLabels(refs)).toEqual(['character-1','character-1']); // only boxed identities 2 and 4 are reserved
+ const {pack}=toPack(refs,'/env/in');
+ expect(pack.items[0]).toHaveProperty('forge_boxes',JSON.stringify(boxes));
+ expect(fromPack(pack,'/env/in')!.adds[0]).toMatchObject({boxes});
+ for(const bad of [[{n:1,box:[0,0,0.01,1]}],[{n:1,box:[0,0,2,1]}],[{n:1,box:[0.5,0,0.1,1]}],[boxes[0],boxes[0]]]){
+  const loaded=fromPack({...pack,items:[{...pack.items[0],forge_boxes:JSON.stringify(bad)}]},'/env/in')!;
+  expect(loaded.invalid).toBe(1);expect(loaded.adds[0]).not.toHaveProperty('boxes');
+ }
+});
+
+test('manual people boxes can be added, moved by keyboard, renumbered and removed; image failure disables editing',async()=>{
+ const onChange=vi.fn();let refs=[refAt('pair.png','image',{label:'character-1'})];
+ const view=()=> <I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()}/></I18nProvider>;
+ const {rerender}=render(view());
+ expect(document.querySelector('[data-people-image]')).toBeNull();
+ fireEvent.click(screen.getByText('People & order'));
+ const add=await screen.findByRole('button',{name:'Add person box'});
+ expect(add).toHaveProperty('disabled',true);
+ fireEvent.load(document.querySelector('[data-people-image]')!);
+ fireEvent.click(add);
+ expect(onChange.mock.lastCall![0][0].boxes).toEqual([{n:1,box:[0.25,0.25,0.75,0.75]}]);
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.keyDown(screen.getByRole('button',{name:'Move person box 1'}),{key:'ArrowRight'});
+ expect(onChange.mock.lastCall![0][0].boxes[0].box).toEqual([0.26,0.25,0.76,0.75]);
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.change(screen.getByLabelText('Character number for box 1'),{target:{value:'4'}});
+ expect(onChange.mock.lastCall![0][0].boxes[0].n).toBe(4);
+ expect(onChange.mock.lastCall![0][0].label).toBe('character-4');
+ refs=onChange.mock.lastCall![0];rerender(view());
+ fireEvent.click(screen.getByRole('button',{name:'Remove person box 4'}));
+ expect(onChange.mock.lastCall![0][0].boxes).toEqual([]);
+ fireEvent.error(document.querySelector('[data-people-image]')!);
+ expect(screen.getByRole('alert').textContent).toContain('Could not load');expect(add).toHaveProperty('disabled',true);
+});
+
+test('people-image decode errors reach shared native Logs once, without sending the image path',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockClear().mockResolvedValue(undefined);
+ mount([refAt('private.png','image',{label:'character-1'})]);
+ fireEvent.click(screen.getByText('People & order'));
+ await screen.findByRole('button',{name:'Add person box'});
+ fireEvent.error(document.querySelector('[data-people-image]')!);fireEvent.error(document.querySelector('[data-people-image]')!);
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_logs_people_image_error')).toEqual([['native_logs_people_image_error']]);
+});
+
+test('Find people preserves existing identities and boxes until explicit Apply',async()=>{
+ vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  const route=(a as {route?:string})?.route;
+  if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
+  if(c==='native_forge'&&route==='people')return {people:[{box:[0.1,0.1,0.4,0.9]},{box:[0.6,0.1,0.9,0.9]}]};
+  return {cancelled:true};
+ });
+ const refs=[refAt('pair.png','image',{label:'character-4',who:[4,2]})],onChange=vi.fn();
+ render(<I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()} inputRoot="/env/in" endpoint="http://127.0.0.1:7801" root="/env"/></I18nProvider>);
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_forge')).toHaveLength(0);
+ fireEvent.click(screen.getByText('People & order'));
+ await screen.findByRole('option',{name:'Vision fixture'});
+ fireEvent.click(screen.getByRole('button',{name:'Find people'}));
+ const apply=await screen.findByRole('button',{name:'Use detected boxes (replace current)'});
+ expect(onChange).not.toHaveBeenCalled();
+ const call=vi.mocked(invoke).mock.calls.find(([,a])=>(a as {route?:string})?.route==='people')![1] as {body:Record<string,unknown>};
+ expect(call.body).toMatchObject({model:'vision:model',path:'pair.png'});expect(call.body.request_id).toMatch(/^[a-f0-9-]{36}$/);
+ fireEvent.click(apply);
+ expect(onChange.mock.lastCall![0][0].boxes).toEqual([{n:4,box:[0.1,0.1,0.4,0.9]},{n:2,box:[0.6,0.1,0.9,0.9]}]);
+});
+
+test('Find people cancellation discards late results and reference edits invalidate candidates',async()=>{
+ let resolve!:(v:unknown)=>void;
+ vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  const route=(a as {route?:string})?.route;
+  if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
+  if(c==='native_forge'&&route==='people')return new Promise(r=>{resolve=r;});
+  return {cancelled:true};
+ });
+ let refs=[refAt('pair.png','image',{label:'character-1'})];const onChange=vi.fn();
+ const view=()=> <I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()} inputRoot="/env/in" endpoint="http://127.0.0.1:7801" root="/env"/></I18nProvider>;
+ const {rerender}=render(view());fireEvent.click(screen.getByText('People & order'));await screen.findByRole('option',{name:'Vision fixture'});
+ fireEvent.click(screen.getByRole('button',{name:'Find people'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Cancel'}));
+ expect(vi.mocked(invoke).mock.calls.some(([,a])=>(a as {route?:string})?.route==='cancel')).toBe(true);
+ resolve({people:[{box:[0,0,1,1]}]});
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Use detected boxes (replace current)'})).toBeNull());
+ fireEvent.click(screen.getByRole('button',{name:'Find people'}));resolve({people:[{box:[0,0,1,1]}]});
+ await screen.findByRole('button',{name:'Use detected boxes (replace current)'});
+ refs=[{...refs[0],who:[2],label:'character-2'}];rerender(view());
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Use detected boxes (replace current)'})).toBeNull());expect(onChange).not.toHaveBeenCalled();
+});
+
+test.each(['empty','vision','busy','busy422'])('Find people %s leaves existing manual boxes unchanged',async outcome=>{
+ vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  const route=(a as {route?:string})?.route;
+  if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
+  if(route==='people'){if(outcome==='empty')return {people:[]};throw Error(outcome==='vision'?'422 People detection failed (no_vision)':outcome==='busy422'?'422 People detection failed (busy)':'409 People detection failed (busy)');}
+  return {cancelled:true};
+ });
+ const onChange=vi.fn();
+ render(<I18nProvider><ReferencesPanel refs={[refAt('pair.png','image',{label:'character-1',boxes:[{n:1,box:[0,0,1,1]}]})]} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()} inputRoot="/env/in" endpoint="http://127.0.0.1:7801" root="/env"/></I18nProvider>);
+ fireEvent.click(screen.getByText('People & order'));await screen.findByRole('option',{name:'Vision fixture'});
+ fireEvent.click(screen.getByRole('button',{name:'Find people'}));
+ if(outcome==='empty')await screen.findByText('No people found. Current boxes are unchanged; use manual boxes instead.');else {const alert=await screen.findByRole('alert');expect(alert.textContent).toBe(outcome==='vision'?'Choose a vision-capable model to find people.':'The backend is busy. Retry after the workflow or Forge finishes.');}
+ expect(onChange).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Use detected boxes (replace current)'})).toBeNull();
+});
+
+test('closing People & order cancels only its pending detection request',async()=>{
+ vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  const route=(a as {route?:string})?.route;
+  if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
+  if(route==='people')return new Promise(()=>{});
+  return {cancelled:true};
+ });
+ render(<I18nProvider><ReferencesPanel refs={[refAt('pair.png','image',{label:'character-1'})]} onChange={vi.fn()} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()} inputRoot="/env/in" endpoint="http://127.0.0.1:7801" root="/env"/></I18nProvider>);
+ fireEvent.click(screen.getByText('People & order'));await screen.findByRole('option',{name:'Vision fixture'});fireEvent.click(screen.getByRole('button',{name:'Find people'}));
+ const sent=vi.mocked(invoke).mock.calls.find(([,a])=>(a as {route?:string})?.route==='people')![1] as {body:{request_id:string}};
+ fireEvent.click(screen.getByText('People & order'));
+ await waitFor(()=>expect(vi.mocked(invoke).mock.calls.some(([,a])=>(a as {route?:string;body?:{request_id:string}})?.route==='cancel'&&(a as {body:{request_id:string}}).body.request_id===sent.body.request_id)).toBe(true));
+});
+
 test('the panel edits the picture label and instructions',()=>{
  const onChange=vi.fn();
  render(<I18nProvider><ReferencesPanel refs={[refAt('a.png','image')]} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={vi.fn()} onInsert={vi.fn()}/></I18nProvider>);
  const select=screen.getByLabelText('Forge label of a.png') as HTMLSelectElement;
  expect(select.value).toBe('character-1');
  expect(screen.getByRole('option',{name:'Character 1'})).toBeTruthy();
+ expect(screen.getByRole('option',{name:'Character 32'})).toHaveProperty('value','character-32');
+ expect(screen.getByRole('option',{name:'Characters 2 + 1 (left → right)'})).toHaveProperty('value','group-21');
+ fireEvent.change(select,{target:{value:'group-21'}});
+ expect(onChange.mock.lastCall![0][0]).toMatchObject({label:'group-21'});
  fireEvent.change(select,{target:{value:'style'}});
  expect(onChange.mock.lastCall![0][0]).toMatchObject({label:'style'});
  fireEvent.change(screen.getByLabelText('Forge instructions for a.png'),{target:{value:'the brush strokes'}});

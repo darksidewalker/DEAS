@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
-import { cancelForge, forgeError, forgeH3, forgeModels, readCast, writePrompt, type ForgeModels, type H3Reference } from '../../lib/forge';
+import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, readCast, writePrompt, type ForgeModels, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import './forge.css';
 
@@ -74,7 +74,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   // A draft fits only the run it was written for: mode, duration, canvas, references and model (as the Director checks on Apply).
   const seeing = !!h3?.easy && see;
   // Cast & scene cards (labelled REF2VA pictures): one per Character number, place and style the labels name.
-  const castKeys = h3?.easy ? [...new Set(h3.references.flatMap(r => r.easy_role?.startsWith('character-') ? [r.easy_role.slice(10)] : r.easy_role === 'place' || r.easy_role === 'style' ? [r.easy_role] : []))].sort((a, b) => (Number(a) || 99) - (Number(b) || 99)) : [];
+  const castKeys = h3?.easy ? [...new Set(h3.references.flatMap(r => r.easy_role === 'place' || r.easy_role === 'style' ? [r.easy_role] : (r.boxes?.length?r.boxes.map(b=>String(b.n)):r.picture_kinds?.includes('character')&&r.who?.length?r.who.map(String):labelCharacters(r.easy_role))))].sort((a, b) => (Number(a) || 99) - (Number(b) || 99)) : [];
   const [cards, setCards] = useState<Record<string, string>>({});
   const [reading, setReading] = useState('');
   const readRequest = useRef<object | null>(null);

@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-logs"
-description = "Read the in-memory app/backend/installer log and save a user-chosen text export."
-commands.allow = ["native_logs", "native_logs_export"]
+description = "Read shared logs, export user-selected text, and report a fixed path-free people-image decode error."
+commands.allow = ["native_logs", "native_logs_export", "native_logs_people_image_error"]

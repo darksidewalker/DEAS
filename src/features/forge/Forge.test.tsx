@@ -307,6 +307,34 @@ it.each(['replace', 'reorder'])('discards a Cast read after reference %s, includ
   expect(read().disabled).toBe(false);
 });
 
+it('H3 group cards deduplicate characters without changing reference order, support Read and exclude removed characters from Write', async () => {
+ const refs = [{ kind: 'image' as const, path: 'pair.png', easy_role: 'group-21' }, { kind: 'image' as const, path: 'trio.png', easy_role: 'group-123' }];
+ const base = vi.mocked(invoke).getMockImplementation()!;
+ vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as { route: string }).route === 'cast' ? Promise.resolve({ text: 'adult woman, red coat' }) : base(c, a));
+ const view = (references: typeof refs) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a meeting" onApply={vi.fn()} h3={{ mode:'REF2VA', duration:5, canvas:{width:64,height:64}, references, easy:true }}/></I18nProvider>;
+ const { rerender } = render(view(refs));
+ fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+ await screen.findByRole('option', { name: 'qwen' });
+ expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.getAttribute('data-forge-read'))).toEqual(['1', '2', '3']);
+ fireEvent.click(document.querySelector('[data-forge-read="2"]')!);
+ await waitFor(() => expect((screen.getByLabelText('Card of Character 2') as HTMLTextAreaElement).value).toBe('adult woman, red coat'));
+ expect(forgeCalls().find(c => c.route === 'cast')!.body).toMatchObject({ character:2, references:refs });
+ fireEvent.change(screen.getByLabelText('Card of Character 3'), { target:{value:'no longer present'} });
+ rerender(view([refs[0]]));
+ expect(screen.queryByLabelText('Card of Character 3')).toBeNull();
+ fireEvent.click(screen.getByRole('button', { name:'Write' }));
+ await screen.findByRole('textbox', { name:'Result' });
+ expect(forgeCalls().find(c => c.route === 'h3')!.body.references).toEqual([refs[0]]);
+ expect(forgeCalls().find(c => c.route === 'h3')!.body.cast).toEqual({2:'adult woman, red coat'});
+});
+
+it.each(['who','boxes'])('H3 explicit %s overrides the legacy label when choosing Cast cards',async source=>{
+ render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="adults meet" onApply={vi.fn()} h3={{mode:'REF2VA',duration:5,canvas:{width:64,height:64},easy:true,references:[{kind:'image',easy_role:'character-1',...(source==='boxes'?{boxes:[{n:4,box:[0.1,0.1,0.4,0.8] as [number,number,number,number]},{n:2,box:[0.6,0.1,0.9,0.8] as [number,number,number,number]}]}:{picture_kinds:['character'],who:[4,2],who_axis:'z' as const})}]}}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+ await screen.findByRole('option',{name:'qwen'});
+ expect([...document.querySelectorAll('[data-forge-read]')].map(b=>b.getAttribute('data-forge-read'))).toEqual(['2','4']);
+});
+
 it('H3 cast cards: one per labelled Character / place, Read fills a card, filled cards travel as cast', async () => {
   const refs = [{ kind: 'image' as const, path: 'b.png', role: 'subject', subject_group: 'B', easy_role: 'character-2' }, { kind: 'image' as const, path: 'a.png', role: 'subject', subject_group: 'A', easy_role: 'character-1' }, { kind: 'image' as const, path: 'p.png', role: 'subject', subject_group: '', easy_role: 'place' }];
   const run = { mode: 'REF2VA', duration: 5, canvas: { width: 64, height: 64 }, references: refs, easy: true };

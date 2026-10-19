@@ -2,8 +2,16 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
-## Unreleased
+## 0.1.31 — 2026-10-19
 
+- Fix release staging: Windows error handling no longer exits unconditionally; new version directories cannot reuse stale assets, target manifests describe the artifacts actually built, and release staging requires a clean source snapshot.
+- Fix minimum-size person-box edits so their generated geometry remains valid for the strict Director contract and pack round trips.
+- H3 REF2VA **Find people**: explicit vision request, candidate-only results and separate apply; preserve matching character identities, discard stale/cancelled replies, and request scoped best-effort stops. Native request/response validation and sanitized request-correlated logging; no real vision acceptance claimed.
+- H3 REF2VA: manual people boxes on character-reference pictures — move/resize, keyboard controls, renumber/remove, Director pack storage and Cast crop identities. Originals stay unchanged. Image-load failures reach shared Logs through a fixed path-free, rate-limited native diagnostic; detection is a separate explicit vision action.
+- H3 REF2VA character references: **People & order** selects character identities in tap order plus horizontal, vertical, depth or no spatial order. Forge requests, Cast cards and Director packs retain the selection; changing a picture label clears overrides.
+- MiniMax H3 Prompt Forge: seven ordered group labels for reference pictures, automatic character numbering that skips group members, and individual Cast cards for every member. Packs retain group labels; individual labels now cover the Director's Characters 1–32 without changing the nine-picture limit.
+- Image editor: images dropped from the Media dock keep their original pixel size (capped at 8192 px) instead of shrinking to a third of the picture.
+- Inpaint: outpainting — a source frame outline marks the processed area; pictures can be moved partly outside it, and frame areas no picture covers are outpainted (added to the mask, filled neutral grey).
 - Generate: prompt fields are three lines taller and get **Copy** (⧉) and **Clear** (✕) buttons under the expand button.
 - Fix "Command plugin:event|listen not allowed by ACL" in the native app when opening the References tab and the Media dock: the main window capability now grants event listen/unlisten, so dropping files from the file manager works there.
 

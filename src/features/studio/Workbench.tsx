@@ -423,7 +423,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const runPlan=(all:boolean)=>{const next=nextStep(plan);if(!next||videoFamily!=='minimax-h3'||!frameVideo)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  // Picking media on the strip takes over the preview until the next job is selected.
  const select=(item:MediaItem)=>{setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
- // A dock tile dropped on the editor becomes a layer centred on the drop point (image-to-image only).
+ // A dock tile dropped on the editor becomes a layer at its original size, centred on the drop point (image-to-image only).
  const insertLayer=(item:MediaItem,at:{x:number;y:number})=>{
   if(!source||!media)return;
   const name=comfyName(item),version=sourceEpoch.current;
@@ -433,10 +433,10 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   probe.onload=()=>{
    if(!live.current||sourceEpoch.current!==version)return;
    if(!(probe.naturalWidth>0&&probe.naturalHeight>0)){setError(t('studio.editor.insertFailed'));return;}
-   const scale=Math.min(source.width/3/probe.naturalWidth,source.height/probe.naturalHeight,8192/probe.naturalWidth,8192/probe.naturalHeight);
+   const scale=Math.min(1,8192/probe.naturalWidth,8192/probe.naturalHeight); // original pixel size, capped at the 8192 px layer limit
    const width=Math.max(8,Math.round(probe.naturalWidth*scale)),height=Math.max(8,Math.round(probe.naturalHeight*scale));
    const cx=Number.isFinite(at.x)?at.x:source.width/2,cy=Number.isFinite(at.y)?at.y:source.height/2;
-   const layer:ImageLayer={id:crypto.randomUUID(),name,src:item.src,visible:true,width,height,x:Math.max(0,Math.min(source.width-1,Math.round(cx-width/2))),y:Math.max(0,Math.min(source.height-1,Math.round(cy-height/2)))};
+   const layer:ImageLayer={id:crypto.randomUUID(),name,src:item.src,visible:true,width,height,x:Math.max(1-width,Math.min(source.width-1,Math.round(cx-width/2))),y:Math.max(1-height,Math.min(source.height-1,Math.round(cy-height/2)))};
    setLayers(list=>list.length>=4?list:[...list,layer]);
   };
   probe.onerror=()=>{if(live.current&&sourceEpoch.current===version)setError(t('studio.editor.insertFailed'));};
@@ -680,7 +680,7 @@ const promptTools=forgeContext&&<>
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
    </div></section>}
-   {dockTab==='references'&&refsTab&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.references')}><ReferencesPanel refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)}/></section>}
+   {dockTab==='references'&&refsTab&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.references')}><ReferencesPanel endpoint={endpoint} root={root} refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)}/></section>}
    {dockTab==='continuity'&&videoFamily==='minimax-h3'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.continuity')}><ContinuityPlanner plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||!isVideo||!!sizeError}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>

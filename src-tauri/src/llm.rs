@@ -766,6 +766,7 @@ fn forge_route(route: &str) -> Result<&'static str, String> {
         "h3" => "dasiwa/h3/forge",
         "cancel" => "dasiwa/h3/forge/cancel",
         "cast" => "dasiwa/h3/forge/cast",
+        "people" => "dasiwa/h3/forge/people",
         "write" => "dasiwa/llm/write",
         _ => return Err("Unknown Prompt Forge route".into()),
     })
@@ -778,12 +779,28 @@ pub async fn native_forge(
     route: String,
     body: Value,
 ) -> Result<Value, String> {
+    let correlation = if route == "people" {
+        body["request_id"]
+            .as_str()
+            .filter(|id| id.len() == 36 && uuid::Uuid::parse_str(id).is_ok())
+            .map(|id| format!(" request={id}"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     forge(&base_url, &root, &route, body)
         .await
         .inspect_err(|e| {
             crate::logs::push(
                 crate::logs::Source::Deas,
-                &format!("ERROR: Prompt Forge {route}: {e}"),
+                &format!(
+                    "{}: Prompt Forge {route}{correlation}: {e}",
+                    if route == "people" && e.ends_with("People detection cancelled") {
+                        "INFO"
+                    } else {
+                        "ERROR"
+                    }
+                ),
             )
         })
 }
@@ -791,6 +808,31 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
     let path = forge_route(route)?;
     if !body.is_object() {
         return Err("Invalid Prompt Forge request".into());
+    }
+    if route == "people" {
+        let invalid = "Invalid people detection request";
+        let model = body["model"].as_str().ok_or(invalid)?;
+        let path = body["path"].as_str().ok_or(invalid)?;
+        let id = body["request_id"].as_str().ok_or(invalid)?;
+        if model.trim().is_empty()
+            || model.len() > 1024
+            || model.chars().any(char::is_control)
+            || path.is_empty()
+            || path.len() > 4096
+            || path.starts_with('/')
+            || path.contains(['\\', ':'])
+            || path.chars().any(char::is_control)
+            || path
+                .split('/')
+                .any(|p| p.is_empty() || p == "." || p == "..")
+            || path.ends_with(" [output]")
+            || path.ends_with(" [temp]")
+            || id.len() != 36
+            || uuid::Uuid::parse_str(id).is_err()
+        {
+            return Err(invalid.into());
+        }
+        body = json!({"model":model,"path":path,"request_id":id});
     }
     body["settings"] = forge_settings(&read(Path::new(root))?);
     let url = crate::validate_base_url(base_url)?
@@ -827,6 +869,46 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         bytes.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    if route == "people" {
+        if !status.is_success() {
+            let code = value["error"].as_str().unwrap_or("");
+            let reason = match code {
+                "cancelled" => "People detection cancelled",
+                "no_vision" => "People detection failed (no_vision)",
+                "busy" => "People detection failed (busy)",
+                _ => "People detection failed",
+            };
+            return Err(format!("{} {reason}", status.as_u16()));
+        }
+        let invalid = "Invalid people detection response";
+        let people = value["people"].as_array().ok_or(invalid)?;
+        if people.len() > 32 {
+            return Err(invalid.into());
+        }
+        let mut last = -1.0;
+        let mut out = Vec::new();
+        for person in people {
+            let b = person["box"].as_array().ok_or(invalid)?;
+            if b.len() != 4 {
+                return Err(invalid.into());
+            }
+            let b: Vec<f64> = b
+                .iter()
+                .map(|v| {
+                    v.as_f64()
+                        .filter(|n| n.is_finite() && *n >= 0.0 && *n <= 1.0)
+                        .ok_or(invalid)
+                })
+                .collect::<Result<_, _>>()?;
+            let center = b[0] + b[2];
+            if b[2] - b[0] < 0.02 || b[3] - b[1] < 0.02 || center < last {
+                return Err(invalid.into());
+            }
+            last = center;
+            out.push(json!({"box":b}));
+        }
+        return Ok(json!({"people":out}));
+    }
     if status.is_success() {
         Ok(value)
     } else {

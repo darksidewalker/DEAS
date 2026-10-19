@@ -213,6 +213,17 @@
 .wb-ref-actions { display: flex; gap: 2px; }
 .wb-ref-actions button { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
 .wb-ref-actions button:hover:not(:disabled) { color: var(--accent, #c8762c); }
+.wb-ref-more .wb-ref-actions { flex-wrap: wrap; }
+.people-detector { display: grid; gap: 4px; min-width: 0; }
+.people-boxes { display: grid; gap: 4px; min-width: 0; }
+.people-box-picture { position: relative; width: 100%; }
+.people-box-picture > img { display: block; width: 100%; height: auto; }
+.people-box-picture > svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.people-box-picture rect { fill: rgba(200,118,44,.12); stroke: var(--accent, #c8762c); stroke-width: 1.5px; vector-effect: non-scaling-stroke; cursor: move; }
+.people-box-picture rect:focus { stroke: var(--chalk); outline: none; }
+.people-box-picture rect.people-box-handle { fill: var(--accent, #c8762c); cursor: nwse-resize; }
+.people-box-number { position: absolute; padding: 2px; color: var(--chalk); font-size: 12px; line-height: 1; text-shadow: 0 1px 2px #111; pointer-events: none; }
+.wb-ref-more .wb-ref-actions button[aria-pressed="true"] { color: var(--accent, #c8762c); box-shadow: inset 0 -1px currentColor; }
 .wb-ref strong img { width: 2.4rem; height: 1.6rem; margin-right: 6px; object-fit: cover; border-radius: 3px; vertical-align: middle; }
 .wb-ref .error-message { grid-column: 1 / -1; margin: 0; font-size: 11px; }
 .wb-refs-panel.is-dragging { outline: 2px dashed var(--accent, #c8762c); outline-offset: -2px; }
