@@ -82,6 +82,18 @@ The target planner is import/reference → prompt → generate → inspect/compa
 - Downloads need integrity evidence, dependency/version identities and applicable license consent. A downloaded workflow does not authorize execution. Preserve third-party notices; check redistribution and model/SDK terms separately.
 - Log effective settings, versions, capability decisions, job identity and actionable errors without credentials. Never fabricate progress, readiness, benchmarks or tests.
 
+### Shared logging for every plugin and implementation
+
+- Every plugin, feature and integration MUST route its operational diagnostics, warnings and errors through the **host application's shared logging service**. Private plugin-only logs, browser console output or terminal output alone do not satisfy this requirement.
+- In DEAS, React/TypeScript feature errors, Rust operations and managed worker/backend diagnostics MUST reach the central Logs view through the existing bounded native logging path. Frontend error forwarding must use a narrow, validated IPC boundary; it must not grant arbitrary file/log writes or bypass redaction and size limits.
+- ComfyUI integrations MUST use the target ComfyUI/Python logging mechanism. When DEAS owns that backend, its diagnostics must also be captured by DEAS. Other host applications use their own logging facilities and adapter boundaries; this rule does not authorize attaching to, changing or adopting a foreign service.
+- Entries MUST identify the originating plugin/component, severity and operation, plus job/request identity when available. Preserve useful error causes and bounded stack/process diagnostics without credentials, authorization headers or unnecessary sensitive prompt/media data. Retain the true origin when forwarding worker/backend errors.
+- User-facing errors complement logging; a toast, inline message or rejected promise does not replace a diagnostic entry. Do not swallow failures or report success after failure. Expected cancellation is a separate outcome, not an error by default.
+- Repeated polling/retry errors MUST be deduplicated or rate-limited while preserving the first cause, recurrence information and recovery/terminal outcome. Avoid logging the same propagated failure independently at every layer. Keep buffers and payloads bounded; logging failures must not cause recursion, block the UI or conceal the original failure.
+- Each integration MUST test representative validation, execution, transport and worker failures as applicable, proving they reach the correct host log with origin/severity/correlation intact and secrets excluded. Test cancellation and repeated-error behavior too; a console assertion alone is not shared-log acceptance.
+
+These are mandatory implementation/acceptance requirements, **not a claim of complete existing coverage**. The current source/level-filtered Logs view is a foundation; per-plugin structured context and end-to-end error coverage still require an audit. See [Logs](LOGS.md).
+
 ## 9. Documentation ownership and README scope
 
 - Every user-facing feature, plugin and tab MUST have maintained user documentation under the repository-root `docs/` directory (`../docs/` relative to `src/`), with a discoverable page or clearly named section. Do not write documentation outside the repository based on a caller's working directory.
