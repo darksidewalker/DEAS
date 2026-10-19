@@ -27,6 +27,7 @@
 - [Project rules, goals and dependencies](PROJECT-RULES.md)
 - [ComfyUI integration/coexistence rules](COMFYUI-RULES.md)
 - [Consolidated current status and implementation plan](IMPLEMENTATION-STATUS.md)
+- [Video, references and Director parity — working plan](VIDEO-PLAN.md)
 - [Development, builds and diagnostic API](DEVELOPMENT.md)
 - [Execution ownership and trust boundaries](EXECUTION-CONTRACT.md)
 - [Installer integration ledger](INSTALLER-INTEGRATION.md) and [native IPC reference](../src-tauri/README.md)

@@ -2,6 +2,10 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased
+
+- Docs: consolidated video/reference/Director-parity working plan in `docs/VIDEO-PLAN.md` (reference picking rework, References tab with the Director media view, full H3 Prompt Forge, Continuity overlay, GPU acceptance).
+
 ## 0.1.28 — 2026-10-19
 
 - MiniMax H3 **Image → Image / Inpaint** (Director *Image Inpaint* mode via the `fl2va` model): native `MiniMaxH3ImageToVideo` 5-frame pass with the source (or masked crop) as first frame, frame 0 as result, DEAS mask composite; intent `h3Edit {shiftVideo, shiftAudio}`. Plan noted: H3 Continuity planner moves into its own Director-style overlay.
