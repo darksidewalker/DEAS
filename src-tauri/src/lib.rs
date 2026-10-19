@@ -34,7 +34,9 @@ pub mod directory;
 pub use directory::native_pick_directory;
 pub mod media;
 pub mod media_metadata;
-pub use media::{native_media_describe, native_media_list, native_media_thumbnail};
+pub use media::{
+    native_media_describe, native_media_list, native_media_reveal, native_media_thumbnail,
+};
 pub use media_metadata::native_media_metadata;
 pub mod token_page;
 pub use token_page::native_open_token_page;

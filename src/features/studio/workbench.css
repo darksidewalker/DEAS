@@ -1,28 +1,31 @@
 .workbench { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
 .wb-body { display: flex; gap: 10px; flex: 1; min-height: 0; }
-.wb-side { flex: 0 0 15rem; min-width: 0; overflow: hidden auto; }
+.wb-side { flex: 0 0 17rem; min-width: 0; overflow: hidden auto; }
 .wb-center { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; min-height: 0; }
-.wb-metadata { flex: 0 0 clamp(12rem, 19vw, 20rem); min-width: 0; min-height: 0; overflow: auto; padding: .7rem; border: 1px solid #435256; border-radius: 1rem; background: #1c2427; }
+.wb-metadata { min-width: 0; min-height: 0; overflow: auto; padding: .7rem; border: 1px solid #435256; border-radius: 1rem; background: #1c2427; }
+/* Opened from the preview's Metadata button: floats over the right side of the stage. */
+.wb-stage > .wb-metadata { position: absolute; top: 32px; right: 8px; bottom: 8px; z-index: 3; width: min(22rem, calc(100% - 16px)); box-shadow: 0 8px 28px #000000b0; }
 .wb-metadata h3 { margin: 0 0 .6rem; font-size: .9rem; }
 .wb-metadata dl { margin: 0; font-size: .75rem; line-height: 1.45; }
 .wb-metadata dl > div { margin-bottom: .5rem; overflow-wrap: anywhere; }
 .wb-metadata dt { color: var(--muted); font-size: .68rem; }
 .wb-metadata dd { margin: 0; white-space: pre-wrap; user-select: text; }
-.wb-queue { flex: 0 0 7.5rem; min-height: 0; display: flex; flex-direction: column; }
+.wb-queue { flex: 0 0 9.5rem; min-height: 0; display: flex; flex-direction: column; }
 .wb-prompts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; flex: none; }
 .wb-prompt { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-prompt textarea { height: 5.2rem; resize: none; padding: 8px 10px; font-size: 13px; line-height: 1.4; text-transform: none; letter-spacing: 0; }
 .wb-negative textarea { color: #c9b4b4; }
-.wb-pipelines { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: .6rem; }
-.wb-pipelines button { padding: 3px 8px; border: 1px solid #7c9cac4d; border-radius: .6rem; background: transparent; color: var(--muted); font-size: .7rem; }
-.wb-pipelines button[aria-pressed="true"] { background: #2a4a3a; border-color: #83c19a; color: var(--chalk); }
-.wb-pipelines button:disabled { opacity: .45; }
+.wb-field.wb-pipeline { margin-bottom: .6rem; }
+.wb-field.wb-pipeline select { padding: 6px 8px; font-size: 13px; font-weight: 600; }
 .wb-active { display: flex; flex-direction: column; gap: 1px; margin: 0 0 .6rem; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-active strong { color: var(--chalk); text-transform: none; letter-spacing: 0; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wb-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: end; }
+.wb-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: start; } /* start: a slider under one field must not shift its neighbour */
 .wb-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-field input, .wb-field select { width: 100%; min-width: 0; padding: 5px 7px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.wb-field input.wb-slider { height: 14px; padding: 0; border: 0; background: transparent; accent-color: var(--copper, #c8865a); cursor: pointer; }
 .wb-seed, .wb-wide, .wb-resolution-hint { grid-column: 1 / -1; }
+/* Label · field · slider rows are shared by both columns (subgrid), so a wrapped label never pushes its field below its neighbour's. */
+.wb-controls > .wb-field:not(.wb-seed) { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: 3px; align-content: start; }
 .wb-aspect-picker { position: relative; }
 .wb-aspect-picker select { width: 100%; padding-left: 30px; }
 .wb-aspect-swatch { position: absolute; left: 7px; top: 0; bottom: 0; width: 18px; display: grid; place-items: center; pointer-events: none; }
@@ -39,26 +42,32 @@
 /* Pinned to the bottom of the queue column. */
 .wb-run.aio-confirm-button { width: 100%; margin: 6px 0 0; margin-top: auto; justify-content: center; min-height: 40px; padding: 8px 6px; border: 1px solid #83c19a; border-radius: 10px; background: #286145; color: #f2fff6; font-size: 13px; font-weight: 600; }
 .wb-run.aio-confirm-button:hover:not(:disabled) { background: #347953; }
-.wb-queue .wb-run-post { width: 100%; margin: 6px 0 0; justify-content: center; min-height: 32px; border: 1px solid #83c19a; border-radius: 10px; color: #cdeed8; font-size: 12px; }
-.wb-queue .wb-run-post:disabled { opacity: .5; }
 /* The preview takes whatever height is left; images scale into it instead of pushing the page. */
-.wb-stage { flex: 1; min-height: 0; padding: 10px 12px; border: 1px solid #ffffff12; border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+.wb-stage { position: relative; flex: 1; min-height: 0; padding: 10px 12px; border: 1px solid #ffffff12; border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+/* Close and the Run blocker share a top strip so they never cover editor or compare controls. */
+.wb-stage:has(> .wb-stage-close) { padding-top: 30px; }
+.wb-stage-close { position: absolute; top: 5px; right: 8px; z-index: 2; width: 22px; height: 22px; padding: 0; border: 1px solid #ffffff2a; border-radius: 50%; background: #000000a0; color: inherit; font-size: 11px; line-height: 1; cursor: pointer; }
+.wb-stage-close:hover { border-color: var(--accent, #c8762c); color: var(--accent, #c8762c); }
+.wb-stage-meta { position: absolute; top: 5px; right: 38px; z-index: 2; height: 22px; padding: 0 9px; border: 1px solid #ffffff2a; border-radius: 11px; background: #000000a0; color: inherit; font-size: 11px; cursor: pointer; }
+.wb-stage-meta[aria-pressed="true"] { border-color: var(--accent, #c8762c); color: var(--accent, #c8762c); }
+.wb-stage-hint { position: absolute; top: 5px; left: 12px; z-index: 2; width: fit-content; max-width: calc(100% - 170px); margin: 0; padding: 2px 10px; border: 1px solid #e0a08066; border-radius: 8px; background: #1c2427e6; color: #ffd2b8; font-size: .78rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
 /* Grid rows instead of nested column flex: WebKit lets a flexed <img> keep its intrinsic height and it overflowed the stage. */
 .wb-shown { display: grid; grid-template-rows: auto minmax(0, 1fr); flex: 1; min-height: 0; }
 .wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; margin: 0; }
 .wb-stage .media-preview img, .wb-stage .media-preview video { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; }
 .wb-stage .media-preview { position: relative; }
-/* Modes sit left, nearest the settings column; view options (compare) sit right. */
+/* Modes and view options (Slider, Full view) sit together on the left, nearest the settings column. */
 .wb-edit-tools { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
 .wb-edit-tools > * { pointer-events: auto; }
-.wb-edit-view { margin-left: auto; }
 .wb-edit-tools button { padding: 3px 8px; font-size: 10px; border-radius: 6px; border: 1px solid #ffffff2a; background: #000000a0; color: inherit; cursor: pointer; }
 .wb-edit-tools button[aria-pressed="true"] { border-color: var(--accent, #c8762c); color: var(--accent, #c8762c); }
 .wb-edit-tools button:disabled { opacity: .45; cursor: default; }
 /* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
-.wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; }
-.wb-compare > img { grid-area: 1 / 1; }
-.wb-compare > img + img { clip-path: inset(0 0 0 var(--divide)); }
+.wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; overflow: hidden; }
+.wb-compare > img, .wb-compare-top { grid-area: 1 / 1; }
+/* The edited picture is clipped by its untransformed wrapper, so zooming (CompareView) never moves the divider. */
+.wb-compare-top { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; clip-path: inset(0 0 0 var(--divide)); pointer-events: none; }
+.wb-compare img { transform-origin: 0 0; }
 .wb-compare::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--divide); width: 2px; background: var(--accent, #c8762c); pointer-events: none; }
 .wb-compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .wb-compare input[type="range"]:focus-visible { opacity: .4; }
@@ -68,9 +77,10 @@
 .wb-editor-host > .wb-edit-tools { position:static; justify-content:flex-start; flex-wrap:wrap; padding:4px 0; }
 .wb-editor-caption { font-size:.7rem; color:var(--muted); overflow-wrap:anywhere; }
 .wb-editor-host[hidden] { display:none; }
-.wb-stage.wb-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
+/* An explicit row: an implicit auto row grows to a large render's intrinsic height and the halves overflow each other. */
+.wb-stage.wb-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:10px; }
 .wb-return-draft { align-self:flex-start; flex:none; margin-bottom:6px; padding:4px 8px; font-size:.75rem; }
-@media (max-width:900px) { .wb-editor-host { min-height:360px; } .wb-stage.wb-split { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:900px) { .wb-editor-host { min-height:360px; } .wb-stage.wb-split { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } }
 .wb-job-line { margin: 0 0 6px; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 .wb-job-line [data-state="succeeded"] { color: #83c19a; }
 .wb-job-line [data-state="failed"], .wb-job-line [data-state="unknown"] { color: #ffbaaa; }
@@ -82,8 +92,12 @@
 .wb-queue button[aria-current="true"], .wb-tiles button[aria-pressed="true"] { border-color: #83c19a; background: #2a4a3a; }
 .wb-queue img, .wb-tiles img, .wb-thumb { width: 5.6rem; height: 4rem; border-radius: .35rem; object-fit: cover; background: #11171a; display: grid; place-items: center; color: var(--muted); font-size: 1.3rem; }
 .wb-queue button[data-state="failed"] .wb-thumb, .wb-queue button[data-state="unknown"] .wb-thumb { color: #ffbaaa; }
+.wb-queue button { width: 100%; }
+.wb-queue img, .wb-queue .wb-thumb { width: 100%; height: 5.4rem; }
 .wb-queue-text { display: flex; flex-direction: column; width: 100%; min-width: 0; font-size: .68rem; }
-.wb-queue-text small, .wb-tile-name { width: 100%; font-size: .68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-queue-text small { width: 100%; font-size: .68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two readable lines at a fixed height, so every tile row stays the same size. */
+.wb-tile-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; width: 100%; height: 2.4em; overflow: hidden; overflow-wrap: anywhere; font-size: .74rem; line-height: 1.2; color: #c9d6d9; }
 .wb-tiles button[aria-pressed="true"] .wb-tile-name { color: var(--chalk); }
 .wb-family { font-size: .6rem; color: var(--copper, #c8865a); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .wb-tiles button:disabled { opacity: .4; cursor: not-allowed; }
@@ -125,5 +139,37 @@
 .wb-option-row input[type="number"] { width: 5rem; flex: none; }
 .wb-option-row .wb-sigmas { flex: 1 1 0; min-width: 0; padding: 3px 6px; font-size: .78rem; font-family: ui-monospace, monospace; }
 [data-option="sigmas"] select { width: auto; flex: none; max-width: 45%; }
-@media (max-width: 900px) { .workbench { height: auto !important; } .wb-body { flex-direction: column; } .wb-side, .wb-queue, .wb-metadata { flex: none; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
+@media (max-width: 900px) { .workbench { height: auto !important; } .wb-body { flex-direction: column; } .wb-side, .wb-queue, .wb-metadata { flex: none; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }
+
+/* Dock views (pref studio.dock.view): tiles = default above; thumbs = large previews; list = one name per row. */
+.wb-dock[data-view="thumbs"] .wb-tiles button { width: 10rem; }
+.wb-dock[data-view="thumbs"] .wb-tiles img, .wb-dock[data-view="thumbs"] .wb-tiles .wb-thumb { width: 9.6rem; height: 7rem; }
+.wb-dock[data-view="list"] .wb-tiles { flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.wb-dock[data-view="list"] .wb-tiles li { flex-direction: row; gap: 6px; }
+.wb-dock[data-view="list"] .wb-tiles button { flex-direction: row; gap: 8px; width: 100%; flex: 1; min-width: 0; text-align: left; }
+.wb-dock[data-view="list"] .wb-tiles img, .wb-dock[data-view="list"] .wb-tiles .wb-thumb { flex: none; width: 2.2rem; height: 1.6rem; font-size: .8rem; }
+.wb-dock[data-view="list"] .wb-tile-name { flex: 1; -webkit-line-clamp: 1; height: auto; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; display: block; }
+.wb-dock[data-view="list"] .wb-family { flex: none; }
+.wb-stage > .empty-note { margin: auto; text-align: center; }
+.wb-stage > .empty-note[role="status"] { color: #ffd2b8; font-size: .9rem; }
+.wb-zoomable { cursor: zoom-in; }
+/* Full-window picture view (ImageViewer): toolbar row over a pannable, zoomable box. */
+.wb-viewer { position: fixed; inset: 0; z-index: 100; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #0b0f10; }
+.wb-viewer-tools { display: flex; align-items: center; gap: 6px; padding: 8px 12px; }
+.wb-viewer-name { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; color: var(--muted); }
+.wb-viewer-tools button { min-width: 30px; padding: 4px 9px; border: 1px solid #435256; border-radius: 6px; background: var(--surface); color: inherit; font-size: 12px; }
+.wb-viewer-box { position: relative; overflow: hidden; cursor: grab; touch-action: none; background: repeating-conic-gradient(#182124 0% 25%, #202c30 0% 50%) 0 / 16px 16px; }
+.wb-viewer-box:active { cursor: grabbing; }
+.wb-viewer-box img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; user-select: none; }
+
+/* Multi-reference list: name + remove on one row, its per-reference fields below. */
+.wb-refs { display: grid; gap: 4px; font-size: 12px; }
+.wb-refs > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.wb-ref { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px; align-items: center; padding: 4px 6px; border: 1px solid #ffffff14; border-radius: 6px; }
+.wb-ref strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.wb-ref > button { padding: 0 6px; border: 0; background: transparent; color: var(--muted); }
+.wb-ref > button:hover { color: var(--accent, #c8762c); }
+.wb-ref label { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
+.wb-ref select, .wb-ref input { width: 100%; min-width: 0; padding: 3px 6px; font-size: 12px; }
+.wb-ref select { grid-column: 1 / -1; }

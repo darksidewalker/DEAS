@@ -1,6 +1,7 @@
 {
   "media.title": "メディア",
   "media.openFolder": "フォルダーを開く…",
+  "media.reveal": "フォルダーで開く",
   "media.pickTitle": "メディアフォルダーを選択",
   "media.dropHelp": "ファイルやフォルダーをここにドロップするか、参照してください。コピーも移動もされません。",
   "media.browserHelp": "ブラウザープレビュー：ファイルをここにドロップ。フォルダー参照はデスクトップアプリが必要です。",

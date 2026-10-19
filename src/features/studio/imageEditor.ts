@@ -5,7 +5,7 @@ export function zoomAt(v:View,p:Point,wanted:number):View{
 export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diameter:number,shape:BrushShape,erase:boolean,color='#fff'){
  // Clip the segment, not each endpoint: outside drags must not loop over off-canvas miles.
  const dx=b.x-a.x,dy=b.y-a.y,r=diameter/2;
- if(![a.x,a.y,b.x,b.y,dx,dy,diameter].every(Number.isFinite)||diameter<2||diameter>1024)return;
+ if(![a.x,a.y,b.x,b.y,dx,dy,diameter].every(Number.isFinite)||diameter<1||diameter>1024)return;
  let lo=0,hi=1;
  for(const [p,q] of [[-dx,a.x+r],[dx,ctx.canvas.width+r-a.x],[-dy,a.y+r],[dy,ctx.canvas.height+r-a.y]]){
   if(p===0){if(q<0)return;continue;}
@@ -50,6 +50,19 @@ export async function flattenLayer(l:ImageLayer):Promise<Uint8Array|null>{
  return new Uint8Array(await blob.arrayBuffer());
 }
 export type BrushShape='round'|'square';
+/** Magic-wand region: pixels 4-connected to (x,y) whose RGB channels each differ from the seed by at most `tolerance` (0–255). 1 = selected. */
+export function floodRegion(data:Uint8ClampedArray,width:number,height:number,x:number,y:number,tolerance:number):Uint8Array{
+ const out=new Uint8Array(width*height);
+ if(x<0||y<0||x>=width||y>=height)return out;
+ const s=(y*width+x)*4,r=data[s],g=data[s+1],b=data[s+2];
+ const near=(p:number)=>{const o=p*4;return Math.abs(data[o]-r)<=tolerance&&Math.abs(data[o+1]-g)<=tolerance&&Math.abs(data[o+2]-b)<=tolerance;};
+ const stack=[y*width+x];out[stack[0]]=1;
+ while(stack.length){
+  const p=stack.pop()!,px=p%width;
+  for(const q of [px>0?p-1:-1,px<width-1?p+1:-1,p-width,p+width])if(q>=0&&q<out.length&&!out[q]&&near(q)){out[q]=1;stack.push(q);}
+ }
+ return out;
+}
 export function sourcePoint(clientX:number,clientY:number,r:{left:number;top:number;width:number;height:number},width:number,height:number):Point{
  return {x:(clientX-r.left)*width/r.width,y:(clientY-r.top)*height/r.height};
 }

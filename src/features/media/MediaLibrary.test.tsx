@@ -15,6 +15,19 @@ const mount=(onSelect=vi.fn())=>{render(<I18nProvider><MediaLibrary selected={nu
 /** Listing calls only: image tiles additionally ask `native_media_thumbnail`. */
 const lists=()=>vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_media_list').map(([,a])=>a);
 describe('media library plugin — IPC fixtures, not real filesystem access',()=>{
+ it('right-click on a file offers Open in folder, which asks native to reveal that path; Escape closes the menu',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockImplementation(async c=>c==='native_media_thumbnail'?'/cache/thumb.png':c==='native_media_reveal'?null:home);
+  mount();
+  const tile=await screen.findByRole('button',{name:'a.png'});
+  fireEvent.contextMenu(tile,{clientX:10,clientY:10});
+  fireEvent.keyDown(window,{key:'Escape'});
+  expect(screen.queryByRole('menu')).toBeNull();
+  fireEvent.contextMenu(tile,{clientX:10,clientY:10});
+  fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem',{name:'Open in folder'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_reveal',{path:'/home/u/a.png'}));
+  expect(screen.queryByRole('menu')).toBeNull();
+ });
  it('keeps folders in a separate expandable navigator, navigates by name and leaves tiles file-only',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const treeHome={...home,path:'/tree',parent:'/',entries:[{...entry('photos','directory'),path:'/tree/photos'}, {...entry('top.png','file','image'),path:'/tree/top.png'}]};

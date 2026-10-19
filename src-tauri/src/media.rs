@@ -247,6 +247,46 @@ pub fn native_media_describe(paths: Vec<String>) -> Result<Vec<MediaEntry>, Stri
 }
 
 /// Thumbnail path for one image (decoded on the blocking pool); the UI falls back to the original on error.
+/// Opens the folder holding a browsed file in the system file manager (Windows and macOS also select
+/// the file). The path is passed as one argument, never through a shell, and must exist.
+#[tauri::command]
+pub fn native_media_reveal(path: String) -> Result<(), String> {
+    let file = absolute(&path)?
+        .canonicalize()
+        .map_err(|e| format!("{path}: {e}"))?;
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let dir = if file.is_dir() {
+            file.as_path()
+        } else {
+            file.parent().ok_or("No parent folder")?
+        };
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(dir);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(format!("/select,{}", file.display()));
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(&file);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| {
+        let text = format!("Could not open the folder: {e}");
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!("[error] media reveal: {text}"),
+        );
+        text
+    })
+}
+
 #[tauri::command]
 pub async fn native_media_thumbnail(app: tauri::AppHandle, path: String) -> Result<String, String> {
     use tauri::Manager;
@@ -336,6 +376,9 @@ mod tests {
         let dropped = native_media_describe(vec![real.to_str().unwrap().into()]).unwrap();
         assert_eq!(dropped[0].kind, "directory");
         assert!(native_media_describe(vec!["relative".into()]).is_err());
+        // Reveal refuses relative and missing paths before anything is spawned.
+        assert!(native_media_reveal("relative".into()).is_err());
+        assert!(native_media_reveal(root.path().join("nope").to_str().unwrap().into()).is_err());
     }
 
     #[test]

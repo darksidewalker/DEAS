@@ -51,6 +51,7 @@ with sync_playwright() as p:
    # Editing the next job must not change the selected job's native snapshot.
    page.locator('[data-dock-tab=wildcards]').click()
    panel.get_by_role('button',name=t['wildcards.clear'],exact=True).click()
+   if page.locator('[data-metadata-toggle][aria-pressed=false]').count():page.locator('[data-metadata-toggle]').click()
    metadata=page.locator('.wb-metadata')
    expect(metadata.get_by_text('Character Selection/1 Girl/presets (1.2)',exact=True)).to_be_visible()
    metadata.locator('[data-metadata-apply]').click()

@@ -398,6 +398,138 @@ fn h3_drives_director_guide_segment_nodes_and_publish() {
     );
 }
 
+#[test]
+fn ltx_video_to_video_guides_the_trimmed_source_and_keyframes_at_their_frames() {
+    let mut i = ltx();
+    i["sourceVideo"] = json!("deas-input-1.mp4");
+    i["ltx"]["sourceStrength"] = json!(0.8);
+    i["ltx"]["keyframes"] = json!([{"image":"b.png","frame":48,"strength":0.6},{"image":"c.png [output]","frame":-1,"strength":1}]);
+    let g = compile(&i).unwrap();
+    assert_eq!(
+        g["SV"],
+        json!({"class_type":"LoadVideo","inputs":{"file":"deas-input-1.mp4"}})
+    );
+    assert_eq!(
+        g["SVT"]["inputs"],
+        json!({"image":["SVC",0],"batch_index":0,"length":121})
+    );
+    assert_eq!(g["SVS"]["inputs"]["crop"], "center");
+    assert_eq!(
+        g["SVP"]["inputs"],
+        json!({"image":["SVS",0],"img_compression":18})
+    );
+    // Source first, then keyframes in order, each chained into the next guide.
+    let guide = |n: &str| {
+        (
+            g[n]["inputs"]["image"].clone(),
+            g[n]["inputs"]["frame_idx"].clone(),
+            g[n]["inputs"]["strength"].clone(),
+        )
+    };
+    assert_eq!(guide("G1"), (json!(["SVP", 0]), json!(0), json!(0.8)));
+    assert_eq!(guide("G2"), (json!(["K1P", 0]), json!(48), json!(0.6)));
+    assert_eq!(guide("G3"), (json!(["K2P", 0]), json!(-1), json!(1.0)));
+    assert_eq!(g["G2"]["inputs"]["latent"], json!(["G1", 2]));
+    assert_eq!(g["K2"]["inputs"]["image"], "c.png [output]");
+    assert_eq!(g["CR"]["class_type"], "LTXVCropGuides");
+    // Multipass: half-size copies for pass 1, full guides re-added in pass 2.
+    i["ltx"]["passes"] = json!(2);
+    i["ltx"]["spatialUpscaler"] = json!("up.safetensors");
+    let g = compile(&i).unwrap();
+    assert_eq!(g["G1"]["inputs"]["image"], json!(["SVH", 0]));
+    assert_eq!(g["G1b"]["inputs"]["image"], json!(["SVP", 0]));
+    assert_eq!(g["G3b"]["inputs"]["strength"], json!(1.0));
+    let req = requirements(&i);
+    assert_eq!(
+        req.iter().find(|r| r.0 == "images").unwrap().1,
+        vec!["b.png"]
+    );
+    for (path, value) in [
+        ("sourceVideo", json!("sub/a.mp4")),
+        ("sourceStrength", json!(1.5)),
+        ("keyframes", json!([])),
+        (
+            "keyframes",
+            json!([{"image":"b.png","frame":121,"strength":1}]),
+        ),
+        (
+            "keyframes",
+            json!([{"image":"../b.png","frame":0,"strength":1}]),
+        ),
+    ] {
+        let mut bad = i.clone();
+        if path == "sourceVideo" {
+            bad[path] = value
+        } else {
+            bad["ltx"][path] = value
+        }
+        assert!(compile(&bad).is_err(), "accepted {path}");
+    }
+    let mut lone = ltx();
+    lone["ltx"]["sourceStrength"] = json!(1);
+    assert!(compile(&lone).is_err(), "strength without a source video");
+    let mut foreign = h3();
+    foreign["sourceVideo"] = json!("deas-input-1.mp4");
+    assert!(compile(&foreign).is_err(), "sourceVideo is LTX only");
+}
+
+#[test]
+fn h3_ref2va_puts_images_videos_and_audio_on_the_director_timeline() {
+    let mut i = h3();
+    i["model"] = json!("MiniMaxH3/ref2va_turbo.safetensors");
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([
+        {"type":"image","file":"deas-inputs/a.png","slot":0},
+        {"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"video_audio","trimStart":1,"trimEnd":6},
+        {"type":"audio","file":"deas-inputs/s.wav","slot":1}
+    ]);
+    let g = compile(&i).unwrap();
+    let d = &g["D"]["inputs"];
+    assert_eq!(d["mode"], "REF2VA");
+    assert_eq!(d["ref2va_model"], json!(["1", 0]));
+    assert!(d.get("fl2va_model").is_none());
+    let t: Value = serde_json::from_str(d["timeline_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        t["items"],
+        json!([
+            {"id":"m0","type":"image","value":"deas-inputs/a.png","slot":0,"order":0,"enabled":true},
+            {"id":"m1","type":"video","value":"deas-input-v.mp4","slot":0,"order":1,"enabled":true,"media_mode":"video_audio","trim_start":1,"trim_end":6},
+            {"id":"m2","type":"audio","value":"deas-inputs/s.wav","slot":1,"order":2,"enabled":true}
+        ])
+    );
+    let req = requirements(&i);
+    assert_eq!(
+        req.iter().find(|r| r.0 == "images").unwrap().1,
+        vec!["deas-inputs/a.png"]
+    );
+    let item = |v: Value| json!([v]);
+    for media in [
+        json!([]),
+        item(json!({"type":"audio","file":"deas-inputs/s.wav","slot":0})), // audio alone
+        item(json!({"type":"image","file":"a.png","slot":0})),             // not uploaded
+        item(json!({"type":"image","file":"deas-inputs/a.png","slot":9})), // lane has 0..8
+        item(json!({"type":"image","file":"deas-inputs/a.png","slot":0,"trimStart":1})),
+        item(json!({"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"loop"})),
+        item(json!({"type":"video","file":"deas-input-v.mp4","slot":0,"trimStart":5,"trimEnd":2})),
+        json!([{"type":"image","file":"deas-inputs/a.png","slot":0},{"type":"image","file":"deas-inputs/b.png","slot":0}]),
+        json!((0..4)
+            .map(|n| json!({"type":"video","file":"deas-input-v.mp4","slot":n}))
+            .collect::<Vec<_>>()),
+    ] {
+        let mut bad = i.clone();
+        bad["h3"]["media"] = media.clone();
+        assert!(compile(&bad).is_err(), "accepted {media}");
+    }
+    let mut cont = i.clone();
+    cont["h3"]["continuity"] =
+        json!({"session":"s1","sourceId":"clip_1","capture":false,"action":"","outputMode":"full"});
+    assert!(compile(&cont).is_err(), "REF2VA continuation");
+    let mut stray = h3();
+    stray["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/a.png","slot":0}]);
+    assert!(compile(&stray).is_err(), "media outside REF2VA");
+}
+
 /// `cargo test --lib dump_video_graphs -- --ignored --nocapture` prints the three graphs for an offline
 /// `execution.validate_prompt` run against the real ComfyUI checkout (see the deas-development skill).
 #[test]
@@ -410,8 +542,16 @@ fn dump_video_graphs() {
     let mut w = wan();
     w["lastFrame"] = json!("ref.png");
     w["chunks"] = json!(2);
+    let mut v2v = ltx();
+    v2v["sourceVideo"] = json!("source.mp4");
+    v2v["ltx"]["sourceStrength"] = json!(0.8);
+    v2v["ltx"]["keyframes"] = json!([{"image":"ref.png","frame":48,"strength":0.6}]);
+    let mut r = h3();
+    r["h3"]["mode"] = json!("REF2VA");
+    r["h3"]["references"] = json!([]);
+    r["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/a.png","slot":0},{"type":"video","file":"deas-input-source.mp4","slot":0,"mediaMode":"video"}]);
     println!(
         "{}",
-        json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap()})
+        json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap()})
     );
 }

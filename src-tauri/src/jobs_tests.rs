@@ -525,6 +525,89 @@ fn input_mask_resamples_only_the_painted_area_and_composites_onto_the_source() {
 }
 
 #[test]
+fn minimax_h3_edits_the_crop_as_first_frame_and_composites_frame_zero_back() {
+    let mut i = intent();
+    i["checkpoint"] = json!("MiniMaxH3/fl2va.safetensors");
+    i["diffusion"] = json!({"textEncoder":"qwen3vl_32b_minimax_h3.safetensors","clipType":"minimax","vae":"MiniMaxH3/video_vae.safetensors"});
+    i["h3Edit"] = json!({"shiftVideo":10,"shiftAudio":3});
+    (i["steps"], i["cfg"], i["scheduler"]) = (json!(4), json!(1), json!("simple"));
+    i["inputImage"] = json!("out.png [output]");
+    i["denoise"] = json!(1);
+    i["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    i["maskBlur"] = json!(4);
+    i["inpaintCrop"] =
+        json!({"x":40,"y":20,"width":120,"height":80,"targetWidth":1024,"targetHeight":768});
+    let g = compile(&i).unwrap();
+    for gone in ["2", "3", "9", "X", "4"] {
+        assert!(g.get(gone).is_none(), "{gone} left in the H3 graph");
+    }
+    assert_eq!(
+        g["HE"]["inputs"],
+        json!({"clip":["C",0],"vae":["V",0],"prompt":"a cat","width":1024,"height":768,"length":5,"first_frame":["IS",0]})
+    );
+    assert_eq!(
+        g["SS"]["inputs"],
+        json!({"model":["1",0],"shift_video":10,"shift_audio":3})
+    );
+    assert_eq!(
+        g["B"]["inputs"],
+        json!({"model":["SS",0],"conditioning":["HE",0]})
+    );
+    assert_eq!(
+        g["Z"]["inputs"],
+        json!({"model":["SS",0],"scheduler":"simple","steps":4,"denoise":1.0})
+    );
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["HE", 1]));
+    assert_eq!(g["6"]["inputs"]["samples"], json!(["SEP", 0]));
+    assert_eq!(
+        g["F"]["inputs"],
+        json!({"image":["6",0],"batch_index":0,"length":1})
+    );
+    // Frame 0 replaces the image decode everywhere: rescaled to the crop, composited through the mask.
+    assert_eq!(g["IR"]["inputs"]["image"], json!(["F", 0]));
+    assert_eq!(g["Y"]["inputs"]["source"], json!(["IR", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["Y", 0]));
+    // Without mask: the whole picture, frame 0 saved directly.
+    let mut plain = i.clone();
+    for k in ["inputMask", "maskBlur", "inpaintCrop"] {
+        plain.as_object_mut().unwrap().remove(k);
+    }
+    plain["width"] = json!(1024);
+    let g = compile(&plain).unwrap();
+    assert_eq!(g["HE"]["inputs"]["first_frame"], json!(["8", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["F", 0]));
+    let mut off = plain.clone();
+    off["width"] = json!(1000);
+    assert!(compile(&off).is_err(), "H3 canvas off its 32 px grid");
+    for (k, v) in [
+        ("h3Edit", Value::Null),
+        ("sigmas", json!([1.0, 0.5, 0.2, 0.1, 0.0])),
+        ("refine", json!({"width":1024,"height":768,"denoise":0.3})),
+    ] {
+        let mut bad = plain.clone();
+        if v.is_null() {
+            bad.as_object_mut().unwrap().remove(k);
+        } else {
+            bad[k] = v;
+        }
+        assert!(compile(&bad).is_err(), "accepted {k}");
+    }
+    let mut text = plain.clone();
+    text.as_object_mut().unwrap().remove("inputImage");
+    text.as_object_mut().unwrap().remove("denoise");
+    assert!(
+        compile(&text).is_err(),
+        "H3 image recipe needs an input image"
+    );
+    let mut foreign = intent();
+    foreign["h3Edit"] = json!({"shiftVideo":10,"shiftAudio":3});
+    assert!(
+        compile(&foreign).is_err(),
+        "h3Edit outside the minimax encoder"
+    );
+}
+
+#[test]
 fn inpaint_crop_and_blur_use_model_resolution_and_restore_original_coordinates() {
     let mut i = intent();
     i["inputImage"] = json!("out.png [output]");
@@ -679,6 +762,38 @@ async fn h3_session_is_read_only_bounded_and_input_upload_checks_magic_bytes() {
     )
     .await
     .is_err());
+}
+
+#[test]
+fn reference_files_are_sniffed_by_magic_bytes() {
+    let mut mp4 = vec![0, 0, 0, 0x18];
+    mp4.extend(b"ftypisom");
+    let mut mov = vec![0, 0, 0, 0x14];
+    mov.extend(b"ftypqt  ");
+    let mut m4a = vec![0, 0, 0, 0x1c];
+    m4a.extend(b"ftypM4A ");
+    let mut webm = b"\x1a\x45\xdf\xa3\x9f\x42\x82\x84".to_vec();
+    webm.extend(b"webm");
+    for (head, want) in [
+        (b"\x89PNG\r\n\x1a\n".to_vec(), Some(("image", "png"))),
+        (b"RIFF\0\0\0\0WEBPVP8 ".to_vec(), Some(("image", "webp"))),
+        (b"RIFF\0\0\0\0WAVEfmt ".to_vec(), Some(("audio", "wav"))),
+        (mp4, Some(("video", "mp4"))),
+        (mov, Some(("video", "mov"))),
+        (m4a, Some(("audio", "m4a"))),
+        (webm, Some(("video", "webm"))),
+        (
+            b"\x1a\x45\xdf\xa3\x9f\x42\x82\x88matroska".to_vec(),
+            Some(("video", "mkv")),
+        ),
+        (b"ID3\x04".to_vec(), Some(("audio", "mp3"))),
+        (b"fLaC".to_vec(), Some(("audio", "flac"))),
+        (b"OggS".to_vec(), Some(("audio", "ogg"))),
+        (b"GIF89a".to_vec(), None),
+        (vec![], None),
+    ] {
+        assert_eq!(crate::jobs::sniff_media(&head), want);
+    }
 }
 
 #[tokio::test]
@@ -1460,4 +1575,19 @@ fn preview_frames_need_known_format_and_magic() {
     assert!(preview_frame(&[0, 0, 0, 1, 0, 0, 0, 2, 0xFF, 0xD8, 0xFF]).is_none());
     assert!(preview_frame(&[0, 0, 0, 4, 0, 0, 0, 1, 0xFF, 0xD8, 0xFF]).is_none());
     assert!(preview_frame(&[0, 0, 0, 1]).is_none());
+}
+
+/// `cargo test --lib dump_h3_edit_graph -- --ignored --nocapture` prints the H3 image edit for `tools/validate_video_graphs.py`.
+#[test]
+#[ignore]
+fn dump_h3_edit_graph() {
+    let mut i = intent();
+    i["checkpoint"] = json!("MiniMaxH3/fl2va.safetensors");
+    i["diffusion"] = json!({"textEncoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","clipType":"minimax","vae":"MiniMaxH3/video_vae.safetensors"});
+    i["h3Edit"] = json!({"shiftVideo":10,"shiftAudio":3});
+    (i["width"], i["height"], i["scheduler"]) = (json!(1024), json!(768), json!("simple"));
+    i["inputImage"] = json!("ref.png");
+    i["denoise"] = json!(1);
+    i["inputResize"] = json!({"width":1024,"height":768,"crop":"center"});
+    println!("{}", json!({"h3_edit": compile(&i).unwrap()}));
 }

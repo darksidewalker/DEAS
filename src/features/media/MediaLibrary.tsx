@@ -30,13 +30,13 @@ function Thumb({entry}:{entry:MediaEntry}){
  return src===convertFileSrc(entry.path)&&/\.(webp|gif|apng)$/i.test(entry.name)?<Still src={src}/>:<img src={src} alt="" loading="lazy" decoding="async"/>;
 }
 /** Renders only the tile rows in view plus two spare rows; unmeasured (jsdom, empty) renders everything. `folder` changes scroll back to the top. */
-function Tiles<T>({items,render,folder,...rest}:{items:T[];render:(item:T)=>React.ReactNode;folder:string}&React.HTMLAttributes<HTMLUListElement>){
+function Tiles<T>({items,render,folder,layout,...rest}:{items:T[];render:(item:T)=>React.ReactNode;folder:string;layout:MediaView}&React.HTMLAttributes<HTMLUListElement>){
  // The scroll box owns the height (flex); the padding spacers sit on the inner ul. Padding on a flex item cannot shrink, so the item grows to it and the ResizeObserver loops (flicker).
  const box=useRef<HTMLDivElement>(null);
  const [view,setView]=useState({top:0,height:0,cols:0,rowH:1});
  const measure=()=>{const el=box.current,li=el?.firstElementChild?.firstElementChild as HTMLElement|null;if(!el||!li?.offsetWidth)return;const gap=6;const next={top:el.scrollTop,height:el.clientHeight,cols:Math.max(1,Math.floor((el.clientWidth+gap)/(li.offsetWidth+gap))),rowH:li.offsetHeight+gap};setView(v=>v.top===next.top&&v.height===next.height&&v.cols===next.cols&&v.rowH===next.rowH?v:next);};
  useLayoutEffect(()=>{if(box.current)box.current.scrollTop=0;},[folder]);
- useLayoutEffect(()=>{measure();if(typeof ResizeObserver==='undefined'||!box.current)return;const ro=new ResizeObserver(measure);ro.observe(box.current);return()=>ro.disconnect();},[items.length]);
+ useLayoutEffect(()=>{measure();if(typeof ResizeObserver==='undefined'||!box.current)return;const ro=new ResizeObserver(measure);ro.observe(box.current);return()=>ro.disconnect();},[items.length,layout]); // another view changes tile size without resizing the box
  const rows=view.cols?Math.ceil(items.length/view.cols):0;
  const first=view.cols?Math.min(Math.max(0,rows-1),Math.max(0,Math.floor(view.top/view.rowH)-2)):0;
  const last=view.cols?Math.min(rows,Math.ceil((view.top+view.height)/view.rowH)+2):rows;
@@ -45,9 +45,11 @@ function Tiles<T>({items,render,folder,...rest}:{items:T[];render:(item:T)=>Reac
 /** Environment folders the backend reads from and writes to; shown as quick chips. */
 export interface MediaRoots { input?: string; output?: string }
 export type MediaSort='date'|'name'|'size';
-export interface MediaLibraryProps { selected: MediaItem|null; onSelect: (item: MediaItem) => void; roots?: MediaRoots; /** Bump after a generation finished so an open output folder re-lists. */ outputRevision?: number; /** Case-insensitive name filter. */ filter?: string; /** Files by newest, name or largest; folders live in the navigator. */ sort?: MediaSort }
+export const mediaViews=['tiles','thumbs','list'] as const;
+export type MediaView=typeof mediaViews[number];
+export interface MediaLibraryProps { selected: MediaItem|null; onSelect: (item: MediaItem) => void; roots?: MediaRoots; /** Bump after a generation finished so an open output folder re-lists. */ outputRevision?: number; /** Case-insensitive name filter. */ filter?: string; /** Files by newest, name or largest; folders live in the navigator. */ sort?: MediaSort; /** Tiles, large thumbnails or a name list. */ view?: MediaView }
 /** Media library plugin: read-only folder browsing plus drag & drop. Nothing is copied or moved. */
-export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter='',sort='date'}:MediaLibraryProps){
+export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter='',sort='date',view='tiles'}:MediaLibraryProps){
  const {t}=useI18n();
  const native=isTauri();
  const [listing,setListing]=useState<MediaListing|null>(null);
@@ -61,6 +63,13 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  const [dropped,setDropped]=useState<MediaItem[]>([]);
  const [error,setError]=useState('');
  const [dragging,setDragging]=useState(false);
+ // Right-click menu on a file tile: open its folder in the system file manager (native only).
+ const [menu,setMenu]=useState<{x:number;y:number;path:string}|null>(null);
+ useEffect(()=>{if(!menu)return;const close=()=>setMenu(null);const key=(e:KeyboardEvent)=>{if(e.key==='Escape')close();};
+  window.addEventListener('click',close);window.addEventListener('keydown',key);window.addEventListener('resize',close);window.addEventListener('scroll',close,true);
+  return()=>{window.removeEventListener('click',close);window.removeEventListener('keydown',key);window.removeEventListener('resize',close);window.removeEventListener('scroll',close,true);};},[menu]);
+ const onMenu=(path?:string)=>native&&path?(e:React.MouseEvent)=>{e.preventDefault();setMenu({x:e.clientX,y:e.clientY,path});}:undefined;
+ const reveal=(path:string)=>{setMenu(null);invoke('native_media_reveal',{path}).catch(e=>setError(String(e)));};
  const version=useRef(0);
  const [depth,setDepth]=usePref('media.depth',3,isDepth);
  const open=async(path:string,levels=depth)=>{
@@ -120,7 +129,7 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  };
  // Only images get real thumbnails: video elements would open one GStreamer pipeline per tile in WebKitGTK.
  const thumb=(media:string|null,src:string|null)=>media==='image'&&src?<img src={src} alt="" loading="lazy"/>:<span className="media-glyph" aria-hidden="true">{media==='video'?'▶':media==='audio'?'♪':'▸'}</span>;
- return <aside className={`media-library${dragging?' is-dragging':''}`} aria-label={t('media.title')}
+ return <aside className={`media-library${dragging?' is-dragging':''}`} data-view={view} aria-label={t('media.title')}
   onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)}
   onDrop={e=>{e.preventDefault();setDragging(false);addDropped([...e.dataTransfer.files].map(itemFromFile));}}>
   <header className="media-header"><h2>{t('media.title')}</h2>
@@ -134,9 +143,10 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
     <ul>{treeRoot&&folderBranch(treeRoot,crumbs(treeRoot).at(-1)?.label??treeRoot)}</ul>
    </nav>}
    <div className="media-files">
-  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.map((item,i)=><li key={`${item.src}-${i}`}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable={item.media==='image'} onDragStart={e=>dragItem(e.dataTransfer,item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button></li>)}</ul>}
+  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.map((item,i)=><li key={`${item.src}-${i}`}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable={item.media==='image'} onDragStart={e=>dragItem(e.dataTransfer,item)} onContextMenu={onMenu(item.path)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button></li>)}</ul>}
   {error&&<p className="media-error" role="alert">{error}</p>}
-  {listing&&<Tiles folder={listing.path} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable={entry.media==='image'} onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button></li>}/>}
+  {listing&&<Tiles folder={listing.path} layout={view} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable={entry.media==='image'} onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onContextMenu={onMenu(entry.path)} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button></li>}/>}
+  {menu&&<div className="media-menu" role="menu" aria-label={t('media.reveal')} style={{left:Math.min(menu.x,window.innerWidth-200),top:Math.min(menu.y,window.innerHeight-48)}}><button type="button" role="menuitem" autoFocus onClick={()=>reveal(menu.path)}>{t('media.reveal')}</button></div>}
   <p className="media-help">{listing&&!visible.length&&!error?t('media.empty'):listing?.truncated?t('media.truncated'):t(native?'media.dropHelp':'media.browserHelp')}</p>
    </div>
   </div>

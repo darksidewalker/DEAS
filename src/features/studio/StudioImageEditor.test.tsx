@@ -172,6 +172,10 @@ test('mask coverage survives edit-mode changes and only visible independent mask
  fireEvent.click(screen.getByRole('button',{name:'Show Mask 2'}));expect(onMask).toHaveBeenLastCalledWith(true);
  view.rerender(ui(false));view.rerender(ui(true));
  expect(screen.getByRole('button',{name:'Brush',pressed:true})).toBeTruthy();
+ fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'73'}});
+ expect(screen.getByText('75%')).toBeTruthy(); // snaps to the 75 % stop
+ fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'40'}});
+ expect(screen.getByText('40%')).toBeTruthy(); // between stops stays free
  fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'0'}});
  await ref.current!.maskPng();expect(exports).toEqual([64]);
  fireEvent.click(screen.getByRole('button',{name:'Mask 2'}));fireEvent.click(screen.getByRole('button',{name:'Clear'}));
@@ -202,4 +206,19 @@ test('painting counts actual mock coverage, exports synchronously and erases to 
  await expect(ref.current!.maskPng()).rejects.toThrow('Paint a visible mask');
  paint(vp);fireEvent.click(screen.getByRole('button',{name:'Erase'}));paint(vp);
  expect(onMask).toHaveBeenLastCalledWith(false);
+});
+
+test('Ctrl+wheel resizes the brush while painting; a plain wheel still zooms',()=>{
+ render(<I18nProvider><StudioImageEditor source={source} layers={[]} onLayers={()=>{}} maskMode onMask={()=>{}} onInsert={()=>{}}/></I18nProvider>);
+ const diameter=()=>(screen.getByRole('spinbutton',{name:'Brush diameter (px)'}) as HTMLInputElement).value;
+ const viewport=document.querySelector('[data-editor-viewport]')!;
+ act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,ctrlKey:true,cancelable:true}));});
+ expect(diameter()).toBe('53'); // 48·e^0.1
+ act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:100,cancelable:true}));});
+ expect(diameter()).toBe('53');
+ expect(screen.getByText('50%')).toBeTruthy(); // overlay opacity shows its value
+ fireEvent.click(screen.getByRole('button',{name:'Magic wand'}));
+ expect(screen.getByRole('slider',{name:'Tolerance'})).toBeTruthy();
+ act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,ctrlKey:true,cancelable:true}));});
+ expect(diameter()).toBe('53'); // no brush active: Ctrl+wheel does not resize
 });

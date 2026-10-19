@@ -1,6 +1,7 @@
 """Offline validation of the DEAS video graphs against the real ComfyUI checkout (no server, no GPU, custom nodes loaded).
 Model/file names are swapped for ones the extra-model-paths config lists so combo checks pass; the point is node names, input names and link types."""
 import asyncio, json, sys, os
+GRAPHS = sys.argv[1] if len(sys.argv) > 1 else '/home/darksidewalker/.hermes/cache/scratch/deas_video_graphs.json'  # read before argv is replaced for ComfyUI
 sys.argv = ['probe', '--cpu', '--extra-model-paths-config', '/data/Downloads/deas-environment/deas-models.yaml']
 os.chdir('/data/GitHub/ComfyUI'); sys.path.insert(0, '/data/GitHub/ComfyUI')
 import comfy.options; comfy.options.enable_args_parsing()
@@ -12,7 +13,7 @@ from app.assets.manager import default_asset_manager
 server.PromptServer(loop, default_asset_manager())  # custom nodes register routes on PromptServer.instance at import time
 import nodes, execution
 loop.run_until_complete(nodes.init_extra_nodes(init_custom_nodes=True))
-graphs = json.load(open(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else '/home/darksidewalker/.hermes/cache/scratch/deas_video_graphs.json'))
+graphs = json.load(open(GRAPHS))
 first = lambda kind: (folder_paths.get_filename_list(kind) or ['MISSING'])[0]
 pick = {'unet': [n for n in folder_paths.get_filename_list('diffusion_models')], 'te': folder_paths.get_filename_list('text_encoders'), 'vae': folder_paths.get_filename_list('vae'), 'img': folder_paths.get_filename_list('input') if 'input' in folder_paths.folder_names_and_paths else [], 'lup': folder_paths.get_filename_list('latent_upscale_models')}
 def sub(name, wants):
@@ -26,6 +27,15 @@ swap = {'LTX2/ltx.safetensors': sub(['ltx'], 'unet'), 'WAN22/high.safetensors': 
         'ltx-2.3-spatial-upscaler-x2-1.1.safetensors': sub(['spatial'], 'lup')}
 images = sorted(os.listdir(folder_paths.get_input_directory()))
 image = next((f for f in images if f.lower().endswith(('.png', '.jpg', '.webp'))), 'MISSING')
+# Video-to-video needs a top-level input video (core LoadVideo lists only those): a scratch input folder with a
+# 1 s ffmpeg test clip, so the real input folder stays untouched.
+scratch = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'deas-validate-input')
+os.makedirs(scratch, exist_ok=True)
+import shutil, subprocess
+shutil.copy(os.path.join(folder_paths.get_input_directory(), image), os.path.join(scratch, image))
+if not os.path.exists(os.path.join(scratch, 'source.mp4')):
+    subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=24:duration=1', '-pix_fmt', 'yuv420p', os.path.join(scratch, 'source.mp4')], check=True)
+folder_paths.set_input_directory(scratch)
 ok = True
 for family, g in graphs.items():
     text = json.dumps(g)

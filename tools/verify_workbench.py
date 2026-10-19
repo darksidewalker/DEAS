@@ -97,6 +97,7 @@ with sync_playwright() as p:
         assert intent['loras'] == [{'name': 'style/film-grain.safetensors', 'strength': 1}], intent
         page.wait_for_function("window.__polls>=2")
         page.locator('.wb-stage img').wait_for()  # native PNG transfer fallback: no environment is installed in this fixture
+        wb.locator('[data-metadata-toggle]').click()  # metadata is an overlay on the preview
         metadata = wb.get_by_role('region', name='Generation metadata')
         assert metadata.get_by_text('13.31 s', exact=True).count() == 1
         assert metadata.get_by_text(intent['positivePrompt'], exact=True).count() == 1
@@ -104,7 +105,7 @@ with sync_playwright() as p:
         assert metadata.get_by_text(intent['positivePrompt'], exact=True).count() == 1
         if width >= 1024:
             stage, info, queue = [wb.locator(s).bounding_box() for s in ('.wb-stage', '.wb-metadata', '.wb-queue')]
-            assert stage['x'] + stage['width'] <= info['x'] and info['x'] + info['width'] <= queue['x']
+            assert stage['x'] <= info['x'] and info['x'] + info['width'] <= stage['x'] + stage['width'] <= queue['x']
             assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
         page.locator('[data-dock-tab="media"]').click()
         wb.get_by_role('button', name='DEAS_0001.png', exact=True).click()

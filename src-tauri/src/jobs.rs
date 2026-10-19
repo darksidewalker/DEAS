@@ -10,6 +10,16 @@ mod job_outputs;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
+/// MiniMax H3 image edit (the Director's "Image Inpaint" mode, built from the native node it calls).
+pub(crate) const H3_EDIT_NODES: [&str; 7] = [
+    "MiniMaxH3ImageToVideo",
+    "MiniMaxH3SigmaShift",
+    "BasicScheduler",
+    "BasicGuider",
+    "SamplerCustomAdvanced",
+    "LTXVSeparateAVLatent",
+    "ImageFromBatch",
+];
 const REQUIRED_NODES: [&str; 6] = [
     "CheckpointLoaderSimple",
     "CLIPTextEncode",
@@ -273,6 +283,31 @@ fn compile(i: &Value) -> Result<Value, String> {
     }) {
         return Err("Invalid diffusion: expected {textEncoder, clipType, vae}".into());
     }
+    // `h3Edit` (MiniMax H3 sigma shifts) marks the H3 image edit; it belongs exactly to the `minimax` text encoder.
+    let h3 = object.get("h3Edit");
+    let h3_family = diffusion.is_some_and(|d| d["clipType"] == "minimax");
+    if h3_family != h3.is_some()
+        || h3.is_some_and(|h| {
+            h.as_object().is_none_or(|o| o.len() != 2)
+                || !["shiftVideo", "shiftAudio"].iter().all(|k| {
+                    h[*k]
+                        .as_f64()
+                        .is_some_and(|n| n.is_finite() && (0.01..=100.0).contains(&n))
+                })
+        })
+    {
+        return Err(
+            "Invalid h3Edit: {shiftVideo, shiftAudio} exactly for the MiniMax H3 encoder".into(),
+        );
+    }
+    if h3.is_some()
+        && (image.is_none() || object.contains_key("sigmas") || object.contains_key("refine"))
+    {
+        return Err(
+            "MiniMax H3 edits an inputImage; custom sigmas and the refine pass are not supported"
+                .into(),
+        );
+    }
     // Workbench Options: model patches and tiled VAE; absent or empty compiles the plain graph.
     let options = object.get("options");
     let wildcard = object.get("wildcard");
@@ -318,6 +353,7 @@ fn compile(i: &Value) -> Result<Value, String> {
             + usize::from(loras.is_some())
             + 2 * usize::from(image.is_some())
             + usize::from(diffusion.is_some())
+            + usize::from(h3.is_some())
             + usize::from(resize.is_some())
             + usize::from(sigmas.is_some())
             + usize::from(mask.is_some())
@@ -626,6 +662,9 @@ fn compile(i: &Value) -> Result<Value, String> {
         graph["R6"] = json!({"class_type":"VAEDecode","inputs":{"samples":["R5",0],"vae":vae}});
         graph["7"]["inputs"]["images"] = json!(["R6", 0]);
     }
+    if let Some(h) = h3 {
+        h3_edit(&mut graph, i, h)?;
+    }
     if let Some(tile) = o.get("vaeTile") {
         // Spatial tiles; the temporal values are the node defaults (used by video VAEs only).
         let tiles = json!({"tile_size":tile,"overlap":64,"temporal_size":64,"temporal_overlap":8});
@@ -645,6 +684,65 @@ fn compile(i: &Value) -> Result<Value, String> {
         }
     }
     Ok(graph)
+}
+
+/// MiniMax H3 has no image latent: like the DaSiWa Director's "Image Inpaint" mode, the picture that would be
+/// encoded becomes the first frame of a native 5-frame pass (prompt encoded by `MiniMaxH3ImageToVideo`, no negative),
+/// sampled with the H3 sigma shift, and frame 0 of the decode replaces the image decode. Mask, crop, layers and
+/// the composite stay as built, so only the painted area changes.
+fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
+    let pixels = graph["9"]["inputs"]["pixels"].clone();
+    let c = &i["inpaintCrop"];
+    let (w, hgt) = if c.is_object() {
+        (c["targetWidth"].clone(), c["targetHeight"].clone())
+    } else {
+        (i["width"].clone(), i["height"].clone())
+    };
+    if [&w, &hgt]
+        .iter()
+        .any(|n| n.as_u64().is_none_or(|n| n % 32 != 0))
+    {
+        return Err("MiniMax H3 edits need a canvas on its 32 px grid".into());
+    }
+    let model = graph["5"]["inputs"]["model"].clone();
+    let clip = graph["2"]["inputs"]["clip"].clone();
+    let vae = graph["6"]["inputs"]["vae"].clone();
+    let text = graph["2"]["inputs"]["text"].clone();
+    let g = graph.as_object_mut().unwrap();
+    for id in ["2", "3", "9", "X"] {
+        g.remove(id);
+    }
+    // The decode feeds every former consumer of node 6 (saver, crop rescale, composite) through frame 0.
+    for node in g.values_mut() {
+        for v in node["inputs"].as_object_mut().unwrap().values_mut() {
+            if *v == json!(["6", 0]) {
+                *v = json!(["F", 0]);
+            }
+        }
+    }
+    g.insert("HE".into(), json!({"class_type":"MiniMaxH3ImageToVideo","inputs":{"clip":clip,"vae":vae,"prompt":text,"width":w,"height":hgt,"length":5,"first_frame":pixels}}));
+    g.insert("SS".into(), json!({"class_type":"MiniMaxH3SigmaShift","inputs":{"model":model,"shift_video":h["shiftVideo"],"shift_audio":h["shiftAudio"]}}));
+    g.insert(
+        "N".into(),
+        json!({"class_type":"RandomNoise","inputs":{"noise_seed":i["seed"]}}),
+    );
+    g.insert(
+        "Q".into(),
+        json!({"class_type":"KSamplerSelect","inputs":{"sampler_name":i["sampler"]}}),
+    );
+    g.insert("Z".into(), json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":1.0}}));
+    g.insert(
+        "B".into(),
+        json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":["HE",0]}}),
+    );
+    g.insert("5".into(), json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["B",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":["HE",1]}}));
+    g.insert(
+        "SEP".into(),
+        json!({"class_type":"LTXVSeparateAVLatent","inputs":{"av_latent":["5",0]}}),
+    );
+    g.get_mut("6").unwrap()["inputs"]["samples"] = json!(["SEP", 0]);
+    g.insert("F".into(), json!({"class_type":"ImageFromBatch","inputs":{"image":["6",0],"batch_index":0,"length":1}}));
+    Ok(())
 }
 
 fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
@@ -927,6 +1025,7 @@ impl Jobs {
                                     ]
                                     .contains(name)
                                     || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
+                                    || H3_EDIT_NODES.contains(name)
                                     || crate::recipe_prerequisites::OPTION_NODES.contains(name)
                                     || *name == crate::wildcard::NODE
                             }),
@@ -1433,35 +1532,86 @@ pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String
     if png.len() > 64 << 20 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Err("Mask must be a PNG of at most 64 MiB".into());
     }
-    upload(&base_url, MASK_FOLDER, "png", png).await
+    upload(&base_url, MASK_FOLDER, "", "png", png).await
 }
 
 const INPUT_FOLDER: &str = "deas-inputs";
 
-/// Copy a reference image the user picked in the media dock into the backend's input folder
-/// (the H3 Director resolves input-folder names only). PNG/JPEG/WebP by magic bytes, ≤ 64 MiB.
-#[tauri::command]
-pub async fn native_input_upload(base_url: String, path: String) -> Result<String, String> {
-    let meta = std::fs::metadata(&path).map_err(|_| "Reference image not found")?;
-    if !meta.is_file() || meta.len() > 64 << 20 {
-        return Err("Reference must be a file of at most 64 MiB".into());
-    }
-    let bytes = std::fs::read(&path).map_err(|_| "Reference image unreadable")?;
-    let ext = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "png"
-    } else if bytes.starts_with(b"\xff\xd8\xff") {
-        "jpg"
-    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        "webp"
+/// Kind and extension of a reference file by its magic bytes: images (PNG/JPEG/WebP), videos (MP4/MOV, WebM/MKV)
+/// and audio (WAV, MP3, FLAC, Ogg, M4A). Anything else is refused.
+pub(crate) fn sniff_media(head: &[u8]) -> Option<(&'static str, &'static str)> {
+    let at = |i: usize, m: &[u8]| head.get(i..i + m.len()) == Some(m);
+    Some(if at(0, b"\x89PNG\r\n\x1a\n") {
+        ("image", "png")
+    } else if at(0, b"\xff\xd8\xff") {
+        ("image", "jpg")
+    } else if at(0, b"RIFF") && at(8, b"WEBP") {
+        ("image", "webp")
+    } else if at(0, b"RIFF") && at(8, b"WAVE") {
+        ("audio", "wav")
+    } else if at(4, b"ftyp") {
+        match head.get(8..12) {
+            Some(b"M4A ") => ("audio", "m4a"),
+            Some(b"qt  ") => ("video", "mov"),
+            _ => ("video", "mp4"),
+        }
+    } else if at(0, b"\x1a\x45\xdf\xa3") {
+        // EBML: the DocType string sits in the first header bytes.
+        if head.windows(4).any(|w| w == b"webm") {
+            ("video", "webm")
+        } else {
+            ("video", "mkv")
+        }
+    } else if at(0, b"ID3") || (head.len() > 1 && head[0] == 0xff && head[1] & 0xe0 == 0xe0) {
+        ("audio", "mp3")
+    } else if at(0, b"fLaC") {
+        ("audio", "flac")
+    } else if at(0, b"OggS") {
+        ("audio", "ogg")
     } else {
-        return Err("Reference must be a PNG, JPEG or WebP image".into());
-    };
-    upload(&base_url, INPUT_FOLDER, ext, bytes).await
+        return None;
+    })
 }
 
-async fn upload(base_url: &str, folder: &str, ext: &str, bytes: Vec<u8>) -> Result<String, String> {
+/// Copy a reference file the user picked in the media dock into the backend's input folder (the H3 Director
+/// and core `LoadVideo` resolve input-folder names only). Images/audio go to `deas-inputs/`; videos to the input
+/// root as `deas-input-<uuid>.<ext>`, because core `LoadVideo` lists top-level input files only.
+#[tauri::command]
+pub async fn native_input_upload(base_url: String, path: String) -> Result<String, String> {
+    let meta = std::fs::metadata(&path).map_err(|_| "Reference file not found")?;
+    let mut head = [0u8; 64];
+    let n = std::io::Read::read(
+        &mut std::fs::File::open(&path).map_err(|_| "Reference file unreadable")?,
+        &mut head,
+    )
+    .map_err(|_| "Reference file unreadable")?;
+    let (kind, ext) = sniff_media(&head[..n])
+        .ok_or("Reference must be a PNG, JPEG or WebP image, an MP4/MOV/WebM/MKV video or WAV/MP3/FLAC/Ogg/M4A audio")?;
+    // shortcut: the whole file is held in memory for the multipart body; stream it if larger references are needed.
+    let limit: u64 = if kind == "image" { 64 << 20 } else { 512 << 20 };
+    if !meta.is_file() || meta.len() > limit {
+        return Err(format!(
+            "Reference must be a file of at most {} MiB",
+            limit >> 20
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|_| "Reference file unreadable")?;
+    if kind == "video" {
+        upload(&base_url, "", "deas-input-", ext, bytes).await
+    } else {
+        upload(&base_url, INPUT_FOLDER, "", ext, bytes).await
+    }
+}
+
+async fn upload(
+    base_url: &str,
+    folder: &str,
+    prefix: &str,
+    ext: &str,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     let base = crate::validate_base_url(base_url)?;
-    let name = format!("{}.{ext}", uuid::Uuid::new_v4());
+    let name = format!("{prefix}{}.{ext}", uuid::Uuid::new_v4());
     let boundary = format!("deas-{}", uuid::Uuid::new_v4().simple());
     let mut body = Vec::with_capacity(bytes.len() + 512);
     for (field, value) in [
@@ -1492,7 +1642,11 @@ async fn upload(base_url: &str, folder: &str, ext: &str, bytes: Vec<u8>) -> Resu
     if !status.is_success() || value["name"] != name.as_str() || value["subfolder"] != folder {
         return Err(format!("Upload rejected (HTTP {status})"));
     }
-    Ok(format!("{folder}/{name}"))
+    Ok(if folder.is_empty() {
+        name
+    } else {
+        format!("{folder}/{name}")
+    })
 }
 
 /// Read-only list of the DaSiWa H3 continuity clips of one session (`clip_id`, `parent`, `frames`, `export`),

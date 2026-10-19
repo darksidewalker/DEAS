@@ -1,6 +1,7 @@
 {
   "media.title": "Media",
   "media.openFolder": "Open folder…",
+  "media.reveal": "Open in folder",
   "media.pickTitle": "Choose a media folder",
   "media.dropHelp": "Drop files or folders here, or browse. Nothing is copied or moved.",
   "media.browserHelp": "Browser preview: drop files here. Folder browsing needs the desktop app.",

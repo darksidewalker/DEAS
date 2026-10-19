@@ -24,8 +24,9 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 7] = [
+const OPTIONAL: [&str; 8] = [
     "outputPrefix",
+    "sourceVideo",
     "output",
     "loras",
     "options",
@@ -46,9 +47,12 @@ pub(crate) const CONTAINERS: [&str; 6] = [
 pub(crate) const BIT_DEPTHS: [&str; 3] = ["Auto", "8-bit", "10-bit"];
 pub(crate) const AUDIO_CODECS: [&str; 4] = ["Auto", "AAC", "Opus", "MP3"];
 pub(crate) const AUDIO_BITRATES: [&str; 7] = ["64k", "96k", "128k", "160k", "192k", "256k", "320k"];
-const H3_MODES: [&str; 4] = ["T2VA", "I2VA", "L2VA", "FL2VA"];
+const H3_MODES: [&str; 5] = ["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA"];
+/// DaSiWa Director REF2VA lanes (slots per lane) and media modes of a video item.
+const H3_LANES: [(&str, u64); 3] = [("image", 9), ("video", 3), ("audio", 3)];
+const H3_MEDIA_MODES: [&str; 3] = ["video", "audio", "video_audio"];
 /// Every class the three graphs can emit; prepare() checks each against object_info.
-pub(crate) const VIDEO_NODES: [&str; 32] = [
+pub(crate) const VIDEO_NODES: [&str; 35] = [
     "DualCLIPLoader",
     "LoraLoaderModelOnly",
     "RandomNoise",
@@ -61,6 +65,9 @@ pub(crate) const VIDEO_NODES: [&str; 32] = [
     "ModelSamplingSD3",
     "ImageScale",
     "LoadImage",
+    "LoadVideo",
+    "GetVideoComponents",
+    "ImageFromBatch",
     "LTXVConditioning",
     "EmptyLTXVLatentVideo",
     "LTXVEmptyLatentAudio",
@@ -151,11 +158,44 @@ fn finite(v: &Value, min: f64, max: f64) -> bool {
         .is_some_and(|n| n.is_finite() && (min..=max).contains(&n))
 }
 
-fn validate_ltx(l: &Value) -> Result<(), String> {
+fn validate_ltx(l: &Value, frames: u64, source: bool) -> Result<(), String> {
     let passes = l["passes"].as_u64().unwrap_or(0);
+    // Keyframes (multi-reference): an image at a pixel frame (-1 = last) with its guide strength.
+    let keyframes_ok = l.get("keyframes").is_none_or(|k| {
+        k.as_array().is_some_and(|a| {
+            !a.is_empty()
+                && a.len() <= 8
+                && a.iter().all(|x| {
+                    keys_in(x, &["image", "frame", "strength"])
+                        && x["image"].as_str().is_some_and(model_name)
+                        && x["frame"]
+                            .as_i64()
+                            .is_some_and(|f| f == -1 || (0..frames as i64).contains(&f))
+                        && finite(&x["strength"], 0.0, 1.0)
+                })
+        })
+    });
+    if !keyframes_ok {
+        return Err(
+            "Invalid ltx.keyframes: 1-8 {image, frame 0..frames-1 or -1, strength 0-1}".into(),
+        );
+    }
+    if source != l.get("sourceStrength").is_some()
+        || l.get("sourceStrength")
+            .is_some_and(|s| !finite(s, 0.0, 1.0))
+    {
+        return Err("ltx.sourceStrength (0-1) belongs exactly to a sourceVideo".into());
+    }
     if keys_in(
         l,
-        &["textProjection", "audioVae", "passes", "spatialUpscaler"],
+        &[
+            "textProjection",
+            "audioVae",
+            "passes",
+            "spatialUpscaler",
+            "keyframes",
+            "sourceStrength",
+        ],
     ) && ["textProjection", "audioVae"]
         .iter()
         .all(|k| l[*k].as_str().is_some_and(model_name))
@@ -189,8 +229,17 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     let mode = h["mode"]
         .as_str()
         .filter(|m| H3_MODES.contains(m))
-        .ok_or("Unsupported H3 mode (REF2VA and Image Inpaint are not recipes yet)")?;
+        .ok_or("Unsupported H3 mode (Image Inpaint is not a recipe yet)")?;
     let refs = h["references"].as_array().cloned().unwrap_or_default();
+    if (mode == "REF2VA") != h.get("media").is_some() {
+        return Err("h3.media belongs exactly to REF2VA".into());
+    }
+    if mode == "REF2VA" {
+        validate_h3_media(&h["media"])?;
+        if c_source(h) {
+            return Err("REF2VA starts a new take; continuation is not supported".into());
+        }
+    }
     let slots: Vec<u64> = refs.iter().filter_map(|r| r["slot"].as_u64()).collect();
     // Director slot semantics: I2VA = slot 0, L2VA = slot 1, FL2VA = {0,1}, T2VA = none.
     let slots_ok = refs.len() == slots.len()
@@ -201,7 +250,7 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                     .is_some_and(|s| s.starts_with("deas-inputs/") && model_name(s))
         })
         && match mode {
-            "T2VA" => slots.is_empty(),
+            "T2VA" | "REF2VA" => slots.is_empty(),
             "I2VA" => slots == [0],
             "L2VA" => slots == [1],
             _ => {
@@ -232,6 +281,7 @@ fn validate_h3(h: &Value) -> Result<(), String> {
             "shiftAudio",
             "references",
             "continuity",
+            "media",
         ],
     ) && h["audioVae"].as_str().is_some_and(model_name)
         && finite(&h["shiftVideo"], 0.01, 100.0)
@@ -243,6 +293,81 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     } else {
         Err("Invalid h3: {mode, audioVae, shiftVideo, shiftAudio, references[{slot, image in deas-inputs/}], continuity?}".into())
     }
+}
+
+fn c_source(h: &Value) -> bool {
+    h["continuity"]["sourceId"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty())
+}
+
+/// REF2VA timeline media, mirroring the DaSiWa Director limits: ≤ 9 images, ≤ 3 videos, ≤ 3 audio, ≤ 12 files;
+/// audio needs an image or video; unique slots per lane. Clip durations (2–15 s) are checked by the node.
+fn validate_h3_media(m: &Value) -> Result<(), String> {
+    let items = m
+        .as_array()
+        .filter(|a| !a.is_empty() && a.len() <= 12)
+        .ok_or("h3.media: 1-12 items")?;
+    let mut used: Vec<(&str, u64)> = vec![];
+    let (mut videos, mut audio, mut visual) = (0, 0, 0);
+    for x in items {
+        let kind = x["type"].as_str().unwrap_or_default();
+        let mode = x.get("mediaMode").and_then(Value::as_str);
+        let trims = ["trimStart", "trimEnd"]
+            .iter()
+            .all(|k| x.get(*k).is_none_or(|t| finite(t, 0.0, 3600.0)))
+            && match (x["trimStart"].as_f64(), x["trimEnd"].as_f64()) {
+                (Some(a), Some(b)) => a < b,
+                _ => true,
+            };
+        let ok = keys_in(
+            x,
+            &["type", "file", "slot", "mediaMode", "trimStart", "trimEnd"],
+        ) && x["file"].as_str().is_some_and(|f| {
+            (f.starts_with("deas-inputs/") || f.starts_with("deas-input-")) && model_name(f)
+        }) && match kind {
+            "image" => mode.is_none() && x.get("trimStart").is_none() && x.get("trimEnd").is_none(),
+            "video" => mode.is_none_or(|m| H3_MEDIA_MODES.contains(&m)) && trims,
+            "audio" => mode.is_none() && trims,
+            _ => false,
+        };
+        // A video used as sound only sits in the audio lane.
+        let lane = if kind == "video" && mode == Some("audio") {
+            "audio"
+        } else {
+            kind
+        };
+        let slot = x["slot"].as_u64();
+        let max = H3_LANES
+            .iter()
+            .find(|(l, _)| *l == lane)
+            .map_or(0, |(_, n)| *n);
+        if !ok || !slot.is_some_and(|s| s < max) || used.contains(&(lane, slot.unwrap())) {
+            return Err("Invalid h3.media item: {type image|video|audio, file in deas-inputs/, slot unique per lane, mediaMode? (video), trimStart/trimEnd? (video/audio)}".into());
+        }
+        used.push((lane, slot.unwrap()));
+        match (kind, mode) {
+            ("image", _) => visual += 1,
+            ("video", Some("audio")) => audio += 1,
+            ("video", Some("video_audio")) => {
+                videos += 1;
+                audio += 1;
+                visual += 1;
+            }
+            ("video", _) => {
+                videos += 1;
+                visual += 1;
+            }
+            _ => audio += 1,
+        }
+    }
+    if videos > 3 || audio > 3 {
+        return Err("REF2VA allows at most 3 videos and 3 audio clips".into());
+    }
+    if audio > 0 && visual == 0 {
+        return Err("REF2VA audio needs an image or video reference".into());
+    }
+    Ok(())
 }
 
 /// Family-specific block key.
@@ -279,6 +404,14 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         {
             return Err(format!("Invalid {f}"));
         }
+    }
+    if i.get("sourceVideo").is_some_and(|v| {
+        // core LoadVideo lists top-level input files only.
+        !v.as_str()
+            .is_some_and(|s| model_name(s) && !s.contains('/'))
+    }) || (i.get("sourceVideo").is_some() && family != "ltx-2")
+    {
+        return Err("sourceVideo: a top-level input video, LTX only".into());
     }
     for f in ["model", "textEncoder", "vae", "firstFrame", "lastFrame"] {
         if let Some(v) = i.get(f) {
@@ -341,7 +474,7 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         return Err("Unsafe output prefix".into());
     }
     match family {
-        "ltx-2" => validate_ltx(&i["ltx"])?,
+        "ltx-2" => validate_ltx(&i["ltx"], frames, i.get("sourceVideo").is_some())?,
         "wan" => validate_wan(&i["wan"], steps)?,
         _ => validate_h3(&i["h3"])?,
     }
@@ -455,15 +588,15 @@ fn ltx_pass(
     video: Value,
     audio: Value,
     model: &Value,
-    guides: &[(Value, i64)],
+    guides: &[(Value, i64, f64)],
     steps: Value,
     denoise: f64,
     i: &Value,
 ) -> (Value, Value) {
     let (mut cond, mut latent) = (json!(["CN"]), video);
-    for (n, (image, idx)) in guides.iter().enumerate() {
+    for (n, (image, idx, strength)) in guides.iter().enumerate() {
         let id = format!("G{}{suffix}", n + 1);
-        g[&id] = json!({"class_type":"LTXVAddGuide","inputs":{"positive":[cond[0].clone(),0],"negative":[cond[0].clone(),1],"vae":["V",0],"latent":latent,"image":image,"frame_idx":idx,"strength":1.0}});
+        g[&id] = json!({"class_type":"LTXVAddGuide","inputs":{"positive":[cond[0].clone(),0],"negative":[cond[0].clone(),1],"vae":["V",0],"latent":latent,"image":image,"frame_idx":idx,"strength":strength}});
         cond = json!([id]);
         latent = json!([id, 2]);
     }
@@ -520,18 +653,47 @@ fn ltx(i: &Value) -> Value {
     g["3"] =
         json!({"class_type":"CLIPTextEncode","inputs":{"text":i["negativePrompt"],"clip":clip}});
     g["CN"] = json!({"class_type":"LTXVConditioning","inputs":{"positive":["2",0],"negative":["3",0],"frame_rate":i["frameRate"]}});
-    // Guides the way the Director adds them: first frame at 0, last frame at -1, after LTXVPreprocess(img_compression 18).
+    // Guides the way the Director adds them, after LTXVPreprocess(img_compression 18): a source video as one
+    // multi-frame guide at 0 (video-to-video), first frame at 0, keyframe images at their frame, last frame at -1.
+    let mut sources: Vec<(String, Value, i64, f64)> = vec![];
+    if let Some(video) = i.get("sourceVideo") {
+        g["SV"] = json!({"class_type":"LoadVideo","inputs":{"file":video}});
+        g["SVC"] = json!({"class_type":"GetVideoComponents","inputs":{"video":["SV",0]}});
+        // shortcut: source frames are taken at the file's own rate (as the WhatDreamsCost Director does); resample when fps differ noticeably.
+        g["SVT"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["SVC",0],"batch_index":0,"length":i["frames"]}});
+        g["SVS"] = json!({"class_type":"ImageScale","inputs":{"image":["SVT",0],"upscale_method":"lanczos","width":i["width"],"height":i["height"],"crop":"center"}});
+        sources.push((
+            "SV".into(),
+            json!(["SVS", 0]),
+            0,
+            l["sourceStrength"].as_f64().unwrap(),
+        ));
+    }
+    for (key, src, idx) in [("firstFrame", "8", 0i64), ("lastFrame", "9", -1)] {
+        if let Some(name) = i.get(key) {
+            let scaled = input_image(&mut g, src, name, &i["width"], &i["height"]);
+            sources.push((src.into(), scaled, idx, 1.0));
+        }
+    }
+    for (n, k) in l["keyframes"].as_array().into_iter().flatten().enumerate() {
+        let src = format!("K{}", n + 1);
+        let scaled = input_image(&mut g, &src, &k["image"], &i["width"], &i["height"]);
+        sources.push((
+            src,
+            scaled,
+            k["frame"].as_i64().unwrap(),
+            k["strength"].as_f64().unwrap(),
+        ));
+    }
     let mut full = vec![];
     let mut half = vec![];
-    for (key, src, idx) in [("firstFrame", "8", 0i64), ("lastFrame", "9", -1)] {
-        let Some(name) = i.get(key) else { continue };
-        let scaled = input_image(&mut g, src, name, &i["width"], &i["height"]);
+    for (src, scaled, idx, strength) in sources {
         g[&format!("{src}P")] =
             json!({"class_type":"LTXVPreprocess","inputs":{"image":scaled,"img_compression":18}});
-        full.push((json!([format!("{src}P"), 0]), idx));
+        full.push((json!([format!("{src}P"), 0]), idx, strength));
         if passes > 1 {
             g[&format!("{src}H")] = json!({"class_type":"ImageScale","inputs":{"image":[format!("{src}P"),0],"upscale_method":"lanczos","width":w1,"height":h1,"crop":"disabled"}});
-            half.push((json!([format!("{src}H"), 0]), idx));
+            half.push((json!([format!("{src}H"), 0]), idx, strength));
         }
     }
     let guides = if passes > 1 { &half } else { &full };
@@ -639,13 +801,27 @@ fn wan(i: &Value) -> Result<Value, String> {
 
 fn h3(i: &Value) -> Value {
     let h = &i["h3"];
-    let items: Vec<Value> = h["references"]
+    let mut items: Vec<Value> = h["references"]
         .as_array()
         .into_iter()
         .flatten()
         .enumerate()
         .map(|(n, r)| json!({"id":format!("ref{}",r["slot"]),"type":"image","value":r["image"],"slot":r["slot"],"order":n,"enabled":true}))
         .collect();
+    // REF2VA timeline media (Director item contract: value = input-relative file, trims in seconds).
+    for (n, m) in h["media"].as_array().into_iter().flatten().enumerate() {
+        let mut item = json!({"id":format!("m{n}"),"type":m["type"],"value":m["file"],"slot":m["slot"],"order":n,"enabled":true});
+        for (from, to) in [
+            ("mediaMode", "media_mode"),
+            ("trimStart", "trim_start"),
+            ("trimEnd", "trim_end"),
+        ] {
+            if let Some(v) = m.get(from) {
+                item[to] = v.clone();
+            }
+        }
+        items.push(item);
+    }
     // Director continuity contract (v3): an empty source_id is a new take; parse_settings fills the rest.
     let c = &h["continuity"];
     let continuity = if c["sourceId"].as_str().is_some_and(|s| !s.is_empty()) {
@@ -674,7 +850,13 @@ fn h3(i: &Value) -> Value {
     );
     // Director rounds duration·24 up to the 17k+5 grid, which `frames` already satisfies; in continuity it means new seconds.
     g["D"] = json!({"class_type":"MiniMaxH3Director","inputs":{"mode":h["mode"],"prompt":i["positivePrompt"],"width":i["width"],"height":i["height"],
-        "duration":i["frames"].as_f64().unwrap() / 24.0,"ref_image_size":"match","timeline_data":timeline.to_string(),"builder_state":"","frame_rate":i["frameRate"],"fl2va_model":model}});
+        "duration":i["frames"].as_f64().unwrap() / 24.0,"ref_image_size":"match","timeline_data":timeline.to_string(),"builder_state":"","frame_rate":i["frameRate"]}});
+    // The Director pulls only the socket of its mode: ref2va_model for REF2VA, fl2va_model otherwise.
+    g["D"]["inputs"][if h["mode"] == "REF2VA" {
+        "ref2va_model"
+    } else {
+        "fl2va_model"
+    }] = model;
     g["G"] = json!({"class_type":"MiniMaxH3DirectorGuide","inputs":{"clip":["C",0],"vae":["V",0],"guide":["D",0],"audio_vae":["AV",0]}});
     g["SS"] = json!({"class_type":"MiniMaxH3SigmaShift","inputs":{"model":["D",5],"shift_video":h["shiftVideo"],"shift_audio":h["shiftAudio"]}});
     g["Z"] = json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":1.0}});
@@ -728,6 +910,21 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
                         .into_iter()
                         .flatten()
                         .filter_map(|r| r["image"].as_str()),
+                )
+                .chain(
+                    b["keyframes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|k| k["image"].as_str()),
+                )
+                .chain(
+                    b["media"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|m| m["type"] == "image")
+                        .filter_map(|m| m["file"].as_str()),
                 )
                 .filter(|s| !s.ends_with(" [output]"))
                 .collect(),

@@ -1,6 +1,7 @@
 {
   "media.title": "Medien",
   "media.openFolder": "Ordner öffnen…",
+  "media.reveal": "Im Ordner öffnen",
   "media.pickTitle": "Medienordner wählen",
   "media.dropHelp": "Dateien oder Ordner hierher ziehen oder durchsuchen. Nichts wird kopiert oder verschoben.",
   "media.browserHelp": "Browser-Vorschau: Dateien hierher ziehen. Ordner durchsuchen geht nur in der Desktop-App.",

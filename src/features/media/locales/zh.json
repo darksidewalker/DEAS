@@ -1,6 +1,7 @@
 {
   "media.title": "媒体",
   "media.openFolder": "打开文件夹…",
+  "media.reveal": "在文件夹中打开",
   "media.pickTitle": "选择媒体文件夹",
   "media.dropHelp": "将文件或文件夹拖到此处，或浏览。不会复制或移动任何内容。",
   "media.browserHelp": "浏览器预览：将文件拖到此处。浏览文件夹需要桌面应用。",

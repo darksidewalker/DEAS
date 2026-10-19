@@ -35,6 +35,8 @@ export interface DiagnosticImageIntentV1 {
   readonly inputResize?: { readonly width: number; readonly height: number; readonly crop: 'disabled' | 'center'; readonly pad?: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number } };
   /** Load `checkpoint` as a diffusion model (UNETLoader) with its own text encoder (CLIPLoader type) and VAE. */
   readonly diffusion?: { readonly textEncoder: string; readonly clipType: string; readonly vae: string };
+  /** MiniMax H3 image edit (native compiler only): sigma shifts; the native graph samples the source as the first frame of a 5-frame pass. */
+  readonly h3Edit?: { readonly shiftVideo: number; readonly shiftAudio: number };
   /** Workbench Options: model patches (one attention backend, step cache, torch.compile) and tiled VAE. */
   readonly options?: RunOptions;
   /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */

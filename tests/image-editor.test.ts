@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds} from '../src/features/studio/imageEditor.ts';
+import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds,floodRegion} from '../src/features/studio/imageEditor.ts';
+test('magic wand selects only the connected area within tolerance and stops at edges',()=>{
+ // 5×3: left block dark (10), a bright wall (200) at x=2, right block dark again (12); one near-dark pixel (40) at (1,1).
+ const w=5,h=3,data=new Uint8ClampedArray(w*h*4);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){const v=x===2?200:x>2?12:x===1&&y===1?40:10;data.set([v,v,v,255],(y*w+x)*4);}
+ const pick=(t:number)=>[...floodRegion(data,w,h,0,0,t)].map((v,i)=>v?i:-1).filter(i=>i>=0);
+ assert.deepEqual(pick(0),[0,1,5,10,11]); // (1,1)=40 is outside tolerance 0
+ assert.deepEqual(pick(30),[0,1,5,6,10,11]); // now included; the bright wall still blocks the right block
+ assert.equal(pick(255).length,15);
+ assert.equal(floodRegion(data,w,h,-1,0,10).some(Boolean),false);
+});
 test('mask bounds include disconnected pixels, context and blur support, clipped at image edges',()=>{
  const data=new Uint8ClampedArray(10*8*4);
  const paint=(x:number,y:number)=>{data[(y*10+x)*4]=255;};

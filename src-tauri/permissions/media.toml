@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-media"
-description = "Read-only folder listing, description of dropped paths and cached image thumbnails (written only into the app cache directory) for the media library."
-commands.allow = ["native_media_list", "native_media_describe", "native_media_thumbnail", "native_media_metadata"]
+description = "Read-only folder listing, description of dropped paths and cached image thumbnails (written only into the app cache directory) for the media library, and opening a browsed file's folder in the system file manager."
+commands.allow = ["native_media_list", "native_media_describe", "native_media_thumbnail", "native_media_metadata", "native_media_reveal"]

@@ -8,9 +8,9 @@ The Media dock browses configured Input/Output folders and previews local image/
 
 ## Browse and select
 
-A separate left folder navigator expands children on demand; clicking a folder name changes the displayed files. Breadcrumbs/parent navigation, Input/Output shortcuts, depth (1–5, default 3), search and sorting help locate media. Tiles contain files rather than folders. Symlink/hidden-tree descent remains restricted. Search/sort in the dock also serves Models/LoRAs without changing their stored selections.
+A separate left folder navigator expands children on demand; clicking a folder name changes the displayed files. Breadcrumbs/parent navigation, Input/Output shortcuts, depth (1–5, default 3), search and sorting help locate media. Tiles contain files rather than folders. Symlink/hidden-tree descent remains restricted. Search/sort and the **View** picker (Tiles, Large thumbnails, List) in the dock also serve Models/LoRAs without changing their stored selections.
 
-Images use native cached thumbnails where available; animated WebP/GIF tiles show a still frame to avoid persistent decoder/repaint work. Only visible tile rows plus spare rows render. Selecting a file loads its preview and bounded embedded metadata; OS-dropped files can also be inspected. Source files are not rewritten by browsing.
+Images use native cached thumbnails where available; animated WebP/GIF tiles show a still frame to avoid persistent decoder/repaint work. Only visible tile rows plus spare rows render. Selecting a file loads its preview and bounded embedded metadata; OS-dropped files can also be inspected. Right-click a file for **Open in folder**: the system file manager opens the folder that contains it (on Windows and macOS with the file selected). Source files are not rewritten by browsing.
 
 ## Working with media
 

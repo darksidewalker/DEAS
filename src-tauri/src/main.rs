@@ -63,6 +63,7 @@ fn main() {
             deas::native_media_list,
             deas::native_media_describe,
             deas::native_media_thumbnail,
+            deas::native_media_reveal,
             deas::native_media_metadata,
             deas::native_open_token_page,
             deas::native_open_repo,

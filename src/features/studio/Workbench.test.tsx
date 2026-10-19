@@ -19,6 +19,9 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals();});
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+// The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
+const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
+const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipe(name).value}});
 // HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
 const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
  fireEvent.dragStart(screen.getByRole('button',{name}),{dataTransfer:dt});fireEvent.drop(document.querySelector('[data-editor-viewport]')!,{dataTransfer:dt});};
@@ -44,7 +47,10 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  fireEvent.click(screen.getByRole('button',{name:'New picks'}));
  expect(first.wildcard?.reroll).toBe(3);
  fireEvent.change(screen.getByRole('spinbutton',{name:'Wildcard seed'}),{target:{value:'9'}});
- fireEvent.click(screen.getByRole('button',{name:'Use these settings'}));
+ // Metadata is an overlay opened from the preview, not a permanent column.
+ expect(screen.queryByRole('region',{name:'Generation metadata'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Metadata'}));
+ fireEvent.click(within(screen.getByRole('region',{name:'Generation metadata'})).getByRole('button',{name:'Use these settings'}));
  expect((screen.getByRole('spinbutton',{name:'Wildcard seed'}) as HTMLInputElement).value).toBe('7');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Disable wildcards'}));
@@ -191,6 +197,11 @@ test('model and LoRA docks get a subfolder tree from the scanned names that filt
  dock('Models');expect(within(screen.getByRole('navigation',{name:'Folders'})).getByRole('button',{name:'sdxl'}).getAttribute('aria-current')).toBe('location');
  fireEvent.click(within(screen.getByRole('navigation',{name:'Folders'})).getByRole('button',{name:'Models'}));
  expect(screen.getByRole('button',{name:'sd15/old.safetensors'})).toBeTruthy();
+ // Tiles print the short name; the full path stays the accessible name. The view choice is remembered.
+ expect(screen.getByRole('button',{name:'sd15/old.safetensors'}).querySelector('.wb-tile-name')!.textContent).toBe('old');
+ fireEvent.change(screen.getByRole('combobox',{name:'View'}),{target:{value:'list'}});
+ expect(document.querySelector('.wb-dock')!.getAttribute('data-view')).toBe('list');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.dock.view')!)).toBe('list');
 });
 
 test('IPC fixture: Image→Image is clickable without an image but greys Run and names the missing input; with an Input-folder image it submits inputImage+denoise; video pipelines stay disabled',async()=>{
@@ -200,21 +211,74 @@ test('IPC fixture: Image→Image is clickable without an image but greys Run and
  vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
  vi.mocked(readDiagnosticJobStatus).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
- await screen.findByRole('button',{name:'Text → Image',pressed:true});
- const i2i=screen.getByRole('button',{name:'Image → Image'});
- expect(i2i.hasAttribute('disabled')).toBe(false);
- for(const name of ['Text → Video','Image → Video','Video → Video','Multi-reference → Video'])expect(screen.getByRole('button',{name}).hasAttribute('disabled')).toBe(true);
- fireEvent.click(i2i);
+ await screen.findByRole('option',{name:'Text → Image',selected:true});
+ expect(pipe('Image → Image').disabled).toBe(false);
+ for(const name of ['Text → Video','Image → Video','Video → Video','Multi-reference → Video'])expect(pipe(name).disabled).toBe(true);
+ choosePipe('Image → Image');
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- expect(screen.getAllByText('Pick an image from the Input or Output folder in the Media dock.').length).toBe(2);
+ // The missing pick is named once, on the preview, not in the settings column.
+ expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick an image from the Input or Output folder in the Media dock.');
+ expect(screen.getAllByText('Pick an image from the Input or Output folder in the Media dock.').length).toBe(1);
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1920},naturalHeight:{value:1080}});fireEvent.load(ref);
+ // The slider under a number field drives the same value.
+ fireEvent.change(screen.getByLabelText('Denoise').parentElement!.querySelector('input.wb-slider')!,{target:{value:'0.3'}});
+ expect((screen.getByLabelText('Denoise') as HTMLInputElement).value).toBe('0.3');
  fireEvent.change(screen.getByLabelText('Denoise'),{target:{value:'0.4'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
+ // ✕ on the preview drops the pick (and the shown job): the stage names the missing input again.
+ fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ expect(screen.queryByRole('img',{name:'ref.png'})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Close preview'})).toBeNull();
+ expect(screen.getByRole('button',{name:'ref.png'}).getAttribute('aria-current')).toBe('false');
+ expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick an image from the Input or Output folder in the Media dock.');
+});
+
+test('IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ let made=0;
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`job-${++made}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await screen.findByRole('option',{name:'Text → Image',selected:true});
+ fireEvent.click(await screen.findByRole('button',{name:'out.png'}));
+ const img=screen.getByRole('img',{name:'out.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await screen.findByRole('img',{name:'DEAS_0001.png'});
+ expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(true); // text pipeline: the render takes the stage
+ choosePipe('Image → Image');
+ fireEvent.click(screen.getByRole('button',{name:/Succeeded/}));
+ expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
+ expect(document.querySelector('.wb-stage')?.classList.contains('wb-split')).toBe(true);
+ fireEvent.click(screen.getByRole('img',{name:'DEAS_0001.png'}));
+ const dialog=screen.getByRole('dialog',{name:'DEAS_0001.png'});
+ expect(within(dialog).getByRole('button',{name:'Fit'})).toBeTruthy();
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(screen.queryByRole('dialog')).toBeNull();
+ // An edit job remembers its source: after ✕ a queue pick brings it back into the editor instead of asking for a pick.
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledTimes(2));
+ fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ expect(document.querySelector('.wb-editor-host')).toBeNull();
+ fireEvent.click(screen.getAllByRole('button',{name:/Succeeded/})[0]); // newest first = the image-to-image job
+ const back=await screen.findByRole('img',{name:'out.png'});
+ Object.defineProperties(back,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(back);
+ await waitFor(()=>expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false));
+ expect(screen.queryByText('Pick an image from the Input or Output folder in the Media dock.')).toBeNull();
+ // Slider compare zooms with the wheel at the cursor; double-click resets.
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Slider'}));
+ const compare=document.querySelector<HTMLElement>('.wb-compare')!;
+ act(()=>{compare.dispatchEvent(new WheelEvent('wheel',{deltaY:-500,clientX:10,clientY:10,cancelable:true}));});
+ expect(Number(compare.dataset.zoom)).toBeGreaterThan(1);
+ fireEvent.doubleClick(compare);
+ expect(compare.dataset.zoom).toBe('1.00');
 });
 
 test('IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run',async()=>{
@@ -231,6 +295,9 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(screen.queryByRole('button',{name:'Upscale'})).toBeNull();
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
  fireEvent.change(screen.getByLabelText('Upscale factor'),{target:{value:'2'}});
+ // Post-process lives in the preview toolbar and only in the image edit modes (a video model would get an image job).
+ expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Post-process'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
@@ -248,10 +315,11 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  fireEvent.click(screen.getByRole('button',{name:'Slider',pressed:true}));
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
  // Instant again on the shown render: its submitted size is the source.
- fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Post-process'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({inputImage:'DEAS_0001.png [output]',width:3968,height:2432});
  // Opt-in: every Run gets the refine pass at the upscaled grid size.
+ choosePipe('Text → Image');expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  expect(screen.getByRole('tab',{name:/Post-Processing/}).textContent).toContain('✓');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -265,7 +333,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaTiledDiffusion']}});
  cleanup();
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
- await screen.findByRole('button',{name:'Text → Image',pressed:true});
+ await screen.findByRole('option',{name:'Text → Image',selected:true});
  const box=await screen.findByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
  await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(false));
  fireEvent.click(box);
@@ -428,7 +496,7 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
   {name:'portrait.mp4',path:'/env/input/portrait.mp4',kind:'file',symlink:false,media:'video',size:1,modified:2},
  ],truncated:false}));
  const {container}=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
- await screen.findByRole('button',{name:'Text → Image',pressed:true});
+ await screen.findByRole('option',{name:'Text → Image',selected:true});
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  const aspectPicker=screen.getByLabelText('Aspect ratio') as HTMLSelectElement;
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
@@ -437,12 +505,12 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
  const image=screen.getByRole('img',{name:'wide.png'});
  Object.defineProperties(image,{naturalWidth:{value:1920},naturalHeight:{value:1080}});fireEvent.load(image);
  expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1024');
- fireEvent.click(screen.getByRole('button',{name:'Image → Image'}));
+ choosePipe('Image → Image');
  expect(Array.from(aspectPicker.options,o=>o.value)).toContain('auto');
  expect(aspectPicker.value).toBe('auto');
  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'target'}});
  expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1344');
- fireEvent.click(screen.getByRole('button',{name:'Text → Image'}));
+ choosePipe('Text → Image');
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  expect(aspectPicker.value).toBe('1:1');
  // Native: the stage video plays a blob of the asset bytes (WebKitGTK rejects asset:// media), fetched once per selection.
@@ -459,7 +527,7 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
  expect(container.querySelector('.wb-resolution-summary')).toBeNull();
  expect(container.querySelector('.wb-aspect-picker .wb-aspect-swatch')).not.toBeNull();
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
- expect(screen.getByRole('button',{name:'Image → Video'}).hasAttribute('disabled')).toBe(true);
+ expect(pipe('Image → Video').disabled).toBe(true);
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'640'}});
  fireEvent.change(screen.getByLabelText('Height'),{target:{value:'480'}});
  fireEvent.click(screen.getByRole('button',{name:'wide.png'}));
@@ -533,10 +601,10 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'resolution-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'fixture',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
- await screen.findByRole('button',{name:'Text → Image',pressed:true});
+ await screen.findByRole('option',{name:'Text → Image',selected:true});
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));
- fireEvent.click(screen.getByRole('button',{name:'Image → Image'}));
+ choosePipe('Image → Image');
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'model'}});
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  const ref=screen.getByRole('img',{name:'wide.png'});
@@ -567,13 +635,12 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'x_00001.webm',subfolder:'video',type:'output',format:'video/webm'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
- const i2v=await screen.findByRole('button',{name:'Image → Video'});
- await waitFor(()=>expect(screen.getByRole('button',{name:'Text → Video'}).hasAttribute('disabled')).toBe(false));
- expect(i2v.hasAttribute('disabled')).toBe(false);
- expect(screen.getByRole('button',{name:'Video → Video'}).hasAttribute('disabled')).toBe(true);
+ await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
+ expect(pipe('Image → Video').disabled).toBe(false);
+ expect(pipe('Video → Video').disabled).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
- fireEvent.click(i2v);
+ choosePipe('Image → Video');
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(ref);
@@ -603,7 +670,7 @@ test('IPC fixture: MiniMax H3 uploads dock references for the Director and the c
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
- fireEvent.click(await screen.findByRole('button',{name:'Image → Video'}));
+ await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);
  expect((screen.getByLabelText('FPS') as HTMLInputElement).disabled).toBe(true);
@@ -625,4 +692,130 @@ test('IPC fixture: MiniMax H3 uploads dock references for the Director and the c
  expect(steps[1]).toMatchObject({sourceId:'root1',capture:true,action:'she turns around'});
  await waitFor(()=>expect(screen.getByText('kid1')).toBeTruthy(),{timeout:5000});
  expect(readH3Session).toHaveBeenCalledWith('http://127.0.0.1:7801',expect.stringMatching(/^deas-[0-9a-f]{8}$/));
+});
+
+const ltxModels=[
+ {category:'unet',name:'LTX2/ltx.safetensors',path:'/m/unet/LTX2/ltx.safetensors',size:1,info:null,family:'ltx-2'},
+ {category:'text_encoders',name:'gemma_3_12B_it_fp8.safetensors',path:'/m/text_encoders/gemma.safetensors',size:1,info:null},
+ {category:'text_encoders',name:'ltx-2.3_text_projection_bf16.safetensors',path:'/m/text_encoders/proj.safetensors',size:1,info:null},
+ {category:'vae',name:'LTX2/LTX23_video_vae_bf16.safetensors',path:'/m/vae/v.safetensors',size:1,info:null},
+ {category:'vae',name:'LTX2/LTX23_audio_vae_bf16.safetensors',path:'/m/vae/a.safetensors',size:1,info:null}] as const;
+const mediaEntries=[
+ {name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1},
+ {name:'clip.mp4',path:'/env/ComfyUI/input/clip.mp4',kind:'file',symlink:false,media:'video',size:1,modified:2},
+ {name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',kind:'file',symlink:false,media:'audio',size:1,modified:3}];
+const loadVideo=(name:string)=>{const v=document.querySelector<HTMLVideoElement>(`.wb-stage video`)!;Object.defineProperties(v,{videoWidth:{value:1280},videoHeight:{value:704}});fireEvent.loadedMetadata(v);void name;};
+
+test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference → Video sends image keyframes at their seconds',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-u.mp4':'deas-inputs/u.png');
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
+ expect(pipe('Multi-reference → Video').disabled).toBe(false);
+ choosePipe('Video → Video');
+ expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick a video from the Media dock as the source.');
+ fireEvent.click(screen.getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));
+ loadVideo('clip.mp4');
+ fireEvent.change(screen.getByLabelText('Source strength'),{target:{value:'0.7'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801','/env/ComfyUI/input/clip.mp4');
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',sourceVideo:'deas-input-u.mp4',width:1280,height:704,ltx:{sourceStrength:0.7}});
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).not.toHaveProperty('firstFrame');
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
+ // Multi-reference: images only for LTX (no reference button on a video), placed at a second with a strength.
+ choosePipe('Multi-reference → Video');
+ expect(screen.queryByRole('button',{name:'Add as reference'})).toBeNull();
+ expect(screen.getByText('Add at least one reference with its “Add as reference” button.')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'ref.png'}));
+ const img=await screen.findByRole('img',{name:'ref.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(img);
+ fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
+ expect(screen.getByRole('group',{name:'References'})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('Second of ref.png'),{target:{value:'1'}});
+ fireEvent.change(screen.getByLabelText('Strength of ref.png'),{target:{value:'0.5'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
+ const second=vi.mocked(prepareDiagnosticJob).mock.calls[1][1];
+ expect(second).toMatchObject({family:'ltx-2',ltx:{keyframes:[{image:'ref.png',frame:24,strength:0.5}]}});
+ expect(second).not.toHaveProperty('sourceVideo');
+ fireEvent.click(screen.getByRole('button',{name:'Remove reference ref.png'}));
+ expect(screen.getByText('Select images in the Media dock and press “Add as reference”; each guides the video from its second on.')).toBeTruthy();
+});
+
+test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video as REF2VA timeline media',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3_ref2va.safetensors',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-v.mp4':path.endsWith('.wav')?'deas-inputs/s.wav':'deas-inputs/i.png');
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-h',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
+ choosePipe('Video → Video');
+ fireEvent.click(screen.getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));
+ loadVideo('clip.mp4');
+ fireEvent.click(screen.getByRole('checkbox',{name:'Use the source sound'}));
+ expect(screen.queryByText('MiniMax H3 runs these as REF2VA; pick a REF2VA checkpoint for best results.')).toBeNull();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'minimax-h3',h3:{mode:'REF2VA',references:[],media:[{type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'video_audio'}]}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
+ // Multi-reference: the video (sound only), an image and an audio clip; slots count per lane.
+ choosePipe('Multi-reference → Video');
+ fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
+ fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
+ fireEvent.click(screen.getByRole('button',{name:'voice.wav'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
+ fireEvent.click(screen.getByRole('button',{name:'ref.png'}));
+ const img=await screen.findByRole('img',{name:'ref.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
+ fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({h3:{mode:'REF2VA',media:[
+  {type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'audio'},{type:'audio',file:'deas-inputs/s.wav',slot:1},{type:'image',file:'deas-inputs/i.png',slot:0}]}});
+});
+
+test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit: shifts instead of denoise, no refine pass',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-e',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ localStorage.setItem('deas.pref.studio.run.post',JSON.stringify(true)); // refine after every run is on, but H3 skips it
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
+ choosePipe('Image → Image');
+ fireEvent.click(screen.getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+ const img=await screen.findByRole('img',{name:'ref.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
+ expect(screen.queryByLabelText('Denoise')).toBeNull();
+ expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
+ fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3}});
+ expect(intent).not.toHaveProperty('refine');
 });

@@ -1,6 +1,7 @@
 {
   "media.title": "Medya",
   "media.openFolder": "Klasör aç…",
+  "media.reveal": "Klasörde aç",
   "media.pickTitle": "Medya klasörü seç",
   "media.dropHelp": "Dosya veya klasörleri buraya bırakın ya da göz atın. Hiçbir şey kopyalanmaz veya taşınmaz.",
   "media.browserHelp": "Tarayıcı önizlemesi: dosyaları buraya bırakın. Klasörlerde gezinmek masaüstü uygulaması gerektirir.",

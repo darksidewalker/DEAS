@@ -1,5 +1,12 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Video → Video, multi-reference, H3 image edit and editor polish (0.1.28)
+
+- Native compiler tests: `ltx_video_to_video_guides_the_trimmed_source_and_keyframes_at_their_frames`, `h3_ref2va_puts_images_videos_and_audio_on_the_director_timeline`, `minimax_h3_edits_the_crop_as_first_frame_and_composites_frame_zero_back`, `reference_files_are_sniffed_by_magic_bytes`.
+- Offline `execution.validate_prompt` against the local ComfyUI checkout with custom nodes (`tools/validate_video_graphs.py`, scratch input folder with a 1 s ffmpeg clip): LTX, LTX v2v+keyframes, Wan, H3, H3 REF2VA and H3 image edit graphs all valid. This proves node names, inputs and link types only.
+- UI: Vitest IPC fixtures for LTX v2v/ref2v intents, H3 REF2VA media lanes, H3 image edit intent, queue restore of an edit draft, slider-compare zoom, full view, dock views, magic wand (Chromium browser fixture: mask exported left half white, right black at the colour edge).
+- Not performed: any real GPU generation of the new paths (does H3 frame 0 carry the edit; LTX v2v source fps ≠ target fps is not resampled), native-app interaction of the new UI, Windows runtime. The recorded video playback crash remains open.
+
 ## Documentation migration and NVIDIA probe maintenance (2026-10-19, 0.1.27 unchanged)
 
 - Migrated the detailed README into indexed user/developer guides under `docs/`; added News/Credits and preserved every historical changelog release entry with only documentation-path normalization. Root `CHANGELOG.md` is a compatibility pointer. Project-local rules and consolidated status distinguish source, historical evidence and open acceptance.
