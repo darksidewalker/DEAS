@@ -165,6 +165,8 @@
   "studio.run.positive": "Prompt",
   "studio.run.positiveHint": "Was du sehen möchtest…",
   "studio.run.negative": "Negativer Prompt",
+  "studio.run.prompt.expand": "{name} in einem schwebenden Editor öffnen",
+  "studio.run.prompt.close": "Editor schließen",
   "studio.run.negativeHint": "Was vermieden werden soll…",
   "studio.run.width": "Breite",
   "studio.run.height": "Höhe",

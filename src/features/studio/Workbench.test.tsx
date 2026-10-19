@@ -870,3 +870,20 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toEqual(preview);
 });
+
+test('prompt fields expand into a floating editor that edits the same text and closes with Escape',async()=>{
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801"/></I18nProvider>);
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'a castle'}});
+ fireEvent.click(screen.getByRole('button',{name:'Expand Prompt into a floating editor'}));
+ const big=within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('textbox',{name:'Prompt'}) as HTMLTextAreaElement;
+ expect(big.value).toBe('a castle');
+ fireEvent.change(big,{target:{value:'a castle at dawn'}});
+ expect((document.querySelector('[data-run-positive]') as HTMLTextAreaElement).value).toBe('a castle at dawn');
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(screen.queryByRole('dialog',{name:'Prompt'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Expand Negative prompt into a floating editor'}));
+ fireEvent.change(within(screen.getByRole('dialog',{name:'Negative prompt'})).getByRole('textbox'),{target:{value:'blurry'}});
+ expect((document.querySelector('[data-run-negative]') as HTMLTextAreaElement).value).toBe('blurry');
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Negative prompt'})).getByRole('button',{name:'Close editor'}));
+ expect(screen.queryByRole('dialog')).toBeNull();
+});

@@ -4,6 +4,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## Unreleased
 
+- Generate: **expand** buttons on the prompt and negative prompt open a large floating, draggable and resizable editor for long prompts; it edits the same field (Escape/✕ closes).
 - Fix MiniMax H3 Image → Video preparation rejecting uploaded `deas-inputs/` reference images: ComfyUI's top-level image combo is not a complete input inventory. Keep path validation and backend-side file checks.
 
 ## 0.1.29 — 2026-10-19

@@ -165,6 +165,8 @@
   "studio.run.positive": "Prompt",
   "studio.run.positiveHint": "What you want to see…",
   "studio.run.negative": "Negative prompt",
+  "studio.run.prompt.expand": "Expand {name} into a floating editor",
+  "studio.run.prompt.close": "Close editor",
   "studio.run.negativeHint": "What to avoid…",
   "studio.run.width": "Width",
   "studio.run.height": "Height",

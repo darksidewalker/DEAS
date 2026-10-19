@@ -165,6 +165,8 @@
   "studio.run.positive": "Prompt",
   "studio.run.positiveHint": "Ce que vous voulez voir…",
   "studio.run.negative": "Prompt négatif",
+  "studio.run.prompt.expand": "Ouvrir {name} dans un éditeur flottant",
+  "studio.run.prompt.close": "Fermer l’éditeur",
   "studio.run.negativeHint": "Ce qu'il faut éviter…",
   "studio.run.width": "Largeur",
   "studio.run.height": "Hauteur",

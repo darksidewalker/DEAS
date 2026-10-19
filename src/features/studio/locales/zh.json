@@ -165,6 +165,8 @@
   "studio.run.positive": "提示词",
   "studio.run.positiveHint": "你想看到的内容…",
   "studio.run.negative": "负面提示词",
+  "studio.run.prompt.expand": "在浮动编辑器中展开{name}",
+  "studio.run.prompt.close": "关闭编辑器",
   "studio.run.negativeHint": "需要避免的内容…",
   "studio.run.width": "宽度",
   "studio.run.height": "高度",

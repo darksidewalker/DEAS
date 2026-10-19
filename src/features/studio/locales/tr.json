@@ -165,6 +165,8 @@
   "studio.run.positive": "Prompt",
   "studio.run.positiveHint": "Görmek istediğin…",
   "studio.run.negative": "Negatif prompt",
+  "studio.run.prompt.expand": "{name} alanını yüzen düzenleyicide aç",
+  "studio.run.prompt.close": "Düzenleyiciyi kapat",
   "studio.run.negativeHint": "Kaçınılacaklar…",
   "studio.run.width": "Genişlik",
   "studio.run.height": "Yükseklik",

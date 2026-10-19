@@ -165,6 +165,8 @@
   "studio.run.positive": "プロンプト",
   "studio.run.positiveHint": "見たいもの…",
   "studio.run.negative": "ネガティブプロンプト",
+  "studio.run.prompt.expand": "{name} をフローティングエディターで開く",
+  "studio.run.prompt.close": "エディターを閉じる",
   "studio.run.negativeHint": "避けたいもの…",
   "studio.run.width": "幅",
   "studio.run.height": "高さ",
