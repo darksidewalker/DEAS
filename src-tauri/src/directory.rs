@@ -33,9 +33,88 @@ pub async fn native_pick_directory(title: String) -> Result<Option<String>, Stri
     selected_directory(chosen.map(|handle| handle.path().to_owned()))
 }
 
+/// JSON documents the user saves or opens through OS dialogs (e.g. Director reference packs): small and well-formed only.
+const MAX_JSON_FILE: u64 = 1024 * 1024;
+
+fn checked_json(text: &str) -> Result<(), String> {
+    if text.len() as u64 > MAX_JSON_FILE {
+        return Err("JSON file exceeds 1 MiB".into());
+    }
+    serde_json::from_str::<serde_json::Value>(text)
+        .map(drop)
+        .map_err(|e| format!("Not a JSON document: {e}"))
+}
+
+/// Save dialog for one JSON document; cancellation is `false`, nothing else is written.
+#[tauri::command]
+pub async fn native_json_save(title: String, name: String, text: String) -> Result<bool, String> {
+    validate_title(&title)?;
+    if name.len() > 120
+        || !name.ends_with(".json")
+        || name.contains(['/', '\\'])
+        || name.chars().any(char::is_control)
+    {
+        return Err("Invalid JSON file name".into());
+    }
+    checked_json(&text)?;
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title(title)
+        .add_filter("JSON", &["json"])
+        .set_file_name(name)
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    std::fs::write(file.path(), text).map_err(|e| format!("Cannot write JSON file: {e}"))?;
+    Ok(true)
+}
+
+fn read_json(path: &std::path::Path) -> Result<String, String> {
+    let size = std::fs::metadata(path)
+        .map_err(|e| format!("Cannot read JSON file: {e}"))?
+        .len();
+    if size > MAX_JSON_FILE {
+        return Err("JSON file exceeds 1 MiB".into());
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read JSON file: {e}"))?;
+    checked_json(&text)?;
+    Ok(text)
+}
+
+/// Open dialog for one JSON document; returns its text (validated JSON, ≤ 1 MiB) or `None` on cancel.
+#[tauri::command]
+pub async fn native_json_open(title: String) -> Result<Option<String>, String> {
+    validate_title(&title)?;
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title(title)
+        .add_filter("JSON", &["json"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    read_json(file.path()).map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_files_are_size_capped_and_must_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let ok = dir.path().join("pack.json");
+        std::fs::write(&ok, r#"{"items":[]}"#).unwrap();
+        assert_eq!(read_json(&ok).unwrap(), r#"{"items":[]}"#);
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "not json").unwrap();
+        assert!(read_json(&bad).is_err());
+        let big = dir.path().join("big.json");
+        std::fs::write(&big, vec![b' '; MAX_JSON_FILE as usize + 1]).unwrap();
+        assert!(read_json(&big).unwrap_err().contains("1 MiB"));
+        assert!(checked_json("[1,").is_err());
+    }
 
     #[test]
     fn cancellation_is_not_a_path_or_error() {

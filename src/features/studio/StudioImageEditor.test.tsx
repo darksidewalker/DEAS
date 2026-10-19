@@ -41,6 +41,57 @@ function mount(){
   render(<I18nProvider><StudioImageEditor ref={ref} source={source} layers={[]} onLayers={onLayers} maskMode onMask={onMask} onInsert={vi.fn()}/></I18nProvider>);
   return {ref,onLayers,onMask};
 }
+test.each([undefined,'invalid', '125','40','0'])('opacity defaults to 75% and preserves valid saved values (%s)',saved=>{
+ if(saved!==undefined)localStorage.setItem('deas.pref.studio.editor.overlay',saved);
+ mount();const expected=saved==='40'?'40':saved==='0'?'0':'75';
+ expect((screen.getByRole('slider',{name:'Opacity (%)'}) as HTMLInputElement).value).toBe(expected);
+ expect((document.querySelector('.sie-mask') as HTMLCanvasElement).style.opacity).toBe(String(Number(expected)/100));
+});
+
+test('base image exposes brushes and can be moved like an inserted image',()=>{
+ mount();fireEvent.click(screen.getByRole('button',{name:'Base image'}));
+ const brush=screen.getByRole('button',{name:'Brush'});
+ expect(brush.hasAttribute('disabled')).toBe(false);
+ fireEvent.click(brush);fireEvent.click(screen.getByRole('button',{name:'#007aff'}));
+ const vp=document.querySelector('[data-editor-viewport]')!;paint(vp);
+ expect(document.querySelector('[data-layer="base"] .sie-paint canvas')).not.toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Select'}));
+ const base=document.querySelector('[data-layer="base"]')!;
+ pointer(base,'pointerdown',10,10);pointer(vp,'pointermove',30,20);pointer(vp,'pointerup',30,20);
+ expect((base as HTMLElement).style.left).toBe('20px');
+ expect((base as HTMLElement).style.top).toBe('10px');
+ fireEvent.click(screen.getByRole('button',{name:'Clear'}));
+ const canvas=base.querySelector('canvas')!;expect(context(canvas).pixels.size).toBe(0);
+});
+
+test('base and inserted images reorder by drag and keyboard buttons without mixing mask rows',()=>{
+ const view=controlled();view.rerender(view.ui([a,b]));
+ const row=(name:string)=>screen.getByRole('button',{name}).closest('li')!;
+ const dt={types:['application/x-deas-editor-layer'],setData:vi.fn(),getData:vi.fn()};
+ fireEvent.dragStart(row('Base image'),{dataTransfer:dt});fireEvent.drop(row('b.png'),{dataTransfer:dt});
+ expect([...document.querySelectorAll('[data-layer]')].map(el=>el.getAttribute('data-layer'))).toEqual(['a','b','base']);
+ fireEvent.click(screen.getByRole('button',{name:'Base image'}));
+ fireEvent.click(screen.getByRole('button',{name:'Lower selected image'}));
+ expect([...document.querySelectorAll('[data-layer]')].map(el=>el.getAttribute('data-layer'))).toEqual(['a','base','b']);
+ fireEvent.dragStart(row('a.png'),{dataTransfer:dt});fireEvent.drop(row('Mask 1'),{dataTransfer:dt});
+ expect([...document.querySelectorAll('[data-layer]')].map(el=>el.getAttribute('data-layer'))).toEqual(['a','base','b']);
+ fireEvent.click(screen.getByRole('button',{name:'Hide Base image'}));
+ expect(document.querySelector('[data-layer="base"]')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Show Base image'}));
+ expect(document.querySelector('[data-layer="base"]')).not.toBeNull();
+});
+
+test('unchanged base avoids export; changed base propagates image-load failures',async()=>{
+ const {ref}=mount();const fetcher=vi.fn(async()=>({ok:false,status:404}));vi.stubGlobal('fetch',fetcher);
+ try{
+  await expect(ref.current!.imagePng()).resolves.toBeNull();expect(fetcher).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Base image'}));
+  fireEvent.keyDown(document.querySelector('[data-layer="base"]')!,{key:'ArrowRight'});
+  expect(ref.current!.imageEdited()).toBe(true);
+  await expect(ref.current!.imagePng()).rejects.toThrow('Image load failed: 404');
+ }finally{vi.unstubAllGlobals();}
+});
+
 test('brush diameter and shape controls reject invalid preference values',()=>{
   localStorage.setItem('deas.pref.studio.run.brush','-1');mount();
   expect((screen.getByRole('spinbutton',{name:'Brush diameter (px)'}) as HTMLInputElement).value).toBe('48');
@@ -59,8 +110,8 @@ test('brush cursor follows the pointer at screen diameter and inpaint controls s
  fireEvent.click(screen.getByRole('button',{name:'Square'}));expect(document.querySelector('.sie-cursor.is-square')).toBeTruthy();
  view.rerender(view.ui([],false));
  expect(document.querySelector('.sie-cursor')).toBeNull();
- for(const name of ['Brush','Erase','Add mask','Clear','Square','Mask 1'])expect(screen.queryByRole('button',{name})).toBeNull();
- expect(screen.queryByRole('slider',{name:'Mask overlay (%)'})).toBeNull();
+ for(const name of ['Add mask','Mask 1'])expect(screen.queryByRole('button',{name})).toBeNull();
+ expect(screen.queryByRole('slider',{name:'Opacity (%)'})).toBeNull();
  expect(screen.getByRole('button',{name:'Select',pressed:true})).toBeTruthy();
 });
 test('independent mask rows can be added hidden deleted and capped',()=>{
@@ -96,7 +147,7 @@ test('insert selection and selected-only handles survive reorder and nonselected
  fireEvent.click(screen.getByRole('button',{name:'a.png'}));
  view.rerender(view.ui([b,a]));view.rerender(view.ui([a]));
  expect(screen.getByRole('button',{name:'a.png',pressed:true})).toBeTruthy();
- const image=document.querySelector('.sie-image')!;
+ const image=document.querySelector('[data-layer="a"]')!;
  fireEvent.keyDown(image,{key:'ArrowRight'});expect(view.onLayers.mock.lastCall![0][0].x).toBe(8);
  fireEvent.keyDown(image,{key:'+'});expect(view.onLayers.mock.lastCall![0][0].width).toBe(40);
  fireEvent.keyDown(image,{key:'Delete'});expect(view.onLayers).toHaveBeenLastCalledWith([]);
@@ -119,7 +170,7 @@ test('brush paints the selected picture in its own pixels with the chosen colour
 });
 test('pointer capture moves and resizes images in source coordinates, cancel stops motion',()=>{
  const view=controlled();view.rerender(view.ui([a]));
- const image=document.querySelector('.sie-image')!,vp=document.querySelector('[data-editor-viewport]')!;
+ const image=document.querySelector('[data-layer="a"]')!,vp=document.querySelector('[data-editor-viewport]')!;
  pointer(image,'pointerdown',10,10);pointer(vp,'pointermove',30,20);
  expect(view.onLayers.mock.lastCall![0][0]).toMatchObject({x:20,y:10});
  expect(vp.setPointerCapture).toHaveBeenCalledWith(1);
@@ -172,11 +223,11 @@ test('mask coverage survives edit-mode changes and only visible independent mask
  fireEvent.click(screen.getByRole('button',{name:'Show Mask 2'}));expect(onMask).toHaveBeenLastCalledWith(true);
  view.rerender(ui(false));view.rerender(ui(true));
  expect(screen.getByRole('button',{name:'Brush',pressed:true})).toBeTruthy();
- fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'73'}});
+ fireEvent.change(screen.getByRole('slider',{name:'Opacity (%)'}),{target:{value:'73'}});
  expect(screen.getByText('75%')).toBeTruthy(); // snaps to the 75 % stop
- fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'40'}});
+ fireEvent.change(screen.getByRole('slider',{name:'Opacity (%)'}),{target:{value:'40'}});
  expect(screen.getByText('40%')).toBeTruthy(); // between stops stays free
- fireEvent.change(screen.getByRole('slider',{name:'Mask overlay (%)'}),{target:{value:'0'}});
+ fireEvent.change(screen.getByRole('slider',{name:'Opacity (%)'}),{target:{value:'0'}});
  await ref.current!.maskPng();expect(exports).toEqual([64]);
  fireEvent.click(screen.getByRole('button',{name:'Mask 2'}));fireEvent.click(screen.getByRole('button',{name:'Clear'}));
  expect(onMask).toHaveBeenLastCalledWith(false);
@@ -216,7 +267,7 @@ test('Ctrl+wheel resizes the brush while painting; a plain wheel still zooms',()
  expect(diameter()).toBe('53'); // 48·e^0.1
  act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:100,cancelable:true}));});
  expect(diameter()).toBe('53');
- expect(screen.getByText('50%')).toBeTruthy(); // overlay opacity shows its value
+ expect(screen.getByText('75%')).toBeTruthy(); // overlay opacity shows its value
  fireEvent.click(screen.getByRole('button',{name:'Magic wand'}));
  expect(screen.getByRole('slider',{name:'Tolerance'})).toBeTruthy();
  act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,ctrlKey:true,cancelable:true}));});

@@ -329,6 +329,20 @@ fn h3_drives_director_guide_segment_nodes_and_publish() {
         json!([{"id":"ref0","type":"image","value":"deas-inputs/a.png","slot":0,"order":0,"enabled":true}])
     );
     assert_eq!(timeline["resolution"]["input_scaling"], "Fill and crop");
+    // The Director's input scaling is optional, from its fixed list only.
+    let mut scaled = h3();
+    scaled["h3"]["inputScaling"] = json!("Long side with divisible crop");
+    let g = compile(&scaled).unwrap();
+    let timeline: Value =
+        serde_json::from_str(g["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        timeline["resolution"]["input_scaling"],
+        "Long side with divisible crop"
+    );
+    for bad in [json!("fill and crop"), json!(""), json!(1)] {
+        scaled["h3"]["inputScaling"] = bad;
+        assert!(compile(&scaled).is_err());
+    }
     assert_eq!(
         timeline["continuity"],
         json!({"version":3,"session":"deas","capture":false,"output_mode":"full"})
@@ -554,4 +568,44 @@ fn dump_video_graphs() {
         "{}",
         json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap()})
     );
+}
+
+#[test]
+fn h3_ref2va_refmods_reach_the_timeline_and_may_stand_alone() {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    // RefMods alone (no timeline media) are a valid REF2VA set; with them, audio no longer needs a picture.
+    i["h3"]["media"] = json!([{"type":"audio","file":"deas-inputs/s.wav","slot":0}]);
+    i["h3"]["refmods"] = json!([{"slot":1,"name":"chars/hero","strength":0.8,"description":"the hero"},{"slot":3,"name":"place","strength":1}]);
+    let g = compile(&i).unwrap();
+    let t: Value =
+        serde_json::from_str(g["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        t["refmods"],
+        json!([{"slot":1,"name":"chars/hero","enabled":true,"strength":0.8,"description":"the hero"},{"slot":3,"name":"place","enabled":true,"strength":1,"description":""}])
+    );
+    i["h3"]["media"] = json!([]);
+    assert!(compile(&i).is_ok());
+    for rows in [
+        json!([]),
+        json!([{"slot":0,"name":"a","strength":1}]),
+        json!([{"slot":1,"name":"a","strength":1},{"slot":1,"name":"b","strength":1}]),
+        json!([{"slot":1,"name":"../a","strength":1}]),
+        json!([{"slot":1,"name":"a","strength":0}]),
+        json!([{"slot":1,"name":"a","strength":1.5}]),
+        json!([{"slot":1,"name":"a","strength":1,"enabled":false}]),
+        json!((1..=9)
+            .map(|n| json!({"slot":n,"name":"a","strength":1}))
+            .collect::<Vec<_>>()),
+    ] {
+        i["h3"]["refmods"] = rows;
+        assert!(compile(&i).is_err());
+    }
+    // RefMods are REF2VA-only; without them an empty media list stays invalid.
+    let mut other = h3();
+    other["h3"]["refmods"] = json!([{"slot":1,"name":"a","strength":1}]);
+    assert!(compile(&other).is_err());
+    i["h3"].as_object_mut().unwrap().remove("refmods");
+    assert!(compile(&i).is_err());
 }

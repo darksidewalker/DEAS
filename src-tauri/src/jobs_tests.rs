@@ -1620,3 +1620,21 @@ fn dump_h3_edit_graph() {
     i["inputResize"] = json!({"width":1024,"height":768,"crop":"center"});
     println!("{}", json!({"h3_edit": compile(&i).unwrap()}));
 }
+
+#[test]
+fn h3_refmod_library_keeps_safe_names_known_kinds_and_bounded_descriptions() {
+    let long = "x".repeat(2500);
+    let listed = refmod_entries(&json!([
+        {"name":"chars/hero","kind":"image","kinds":["image","audio"],"description":long,"tokens":12,"mtime":1.0},
+        {"name":"../escape","kinds":["image"]},
+        {"name":"odd","kinds":["latent"]},
+        {"name":"empty","kinds":[]},
+        {"name":"bare"}
+    ]));
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["name"], "chars/hero");
+    assert_eq!(listed[0]["kinds"], json!(["image", "audio"]));
+    assert_eq!(listed[0]["description"].as_str().unwrap().len(), 2000);
+    assert!(listed[0].get("tokens").is_none());
+    assert_eq!(refmod_entries(&json!({"error":"x"})), json!([]));
+}

@@ -40,6 +40,8 @@ Failures reject with `{code,endpoint,message}`: invalidEndpoint, authentication,
 
 `native_pick_directory({title})` opens the actual platform directory chooser (XDG portal on Linux) and returns an existing absolute directory or `null` on cancellation. Only the local main webview may call it. It does not create a target or start provisioning. The UI selects an existing parent and specifies a new environment subfolder because the installer refuses existing targets. UTF-8 paths are returned exactly; invalid titles/paths fail explicitly. Browser mode has no fabricated native picker.
 
+`native_json_save({title,name,text})` / `native_json_open({title})` (permission `allow-native-json-file`) save or open one user-chosen JSON document through the OS file dialogs, e.g. DaSiWa Director reference packs. Both directions cap the document at 1 MiB and require it to parse as JSON; the suggested save name must end in `.json` without path separators. Cancellation returns `false` / `null`; nothing else is read or written.
+
 The Linux portal dialog was independently opened, visually inspected in folder-only mode, and cancelled using the actual dialog close action; the explicit interactive smoke test passed. Tests also verify cancellation, directory/file distinction and no target creation. Windows/macOS runtime dialog acceptance remains unverified.
 
 ## Automatic recommendations (read-only)

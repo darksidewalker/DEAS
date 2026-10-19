@@ -2,8 +2,27 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
-## Unreleased
+## 0.1.30 — 2026-10-19
 
+- Fix late cancelled Forge responses/errors clearing a replacement request, stale Cast reads applying to changed references, and RefMod pack loading/saving after library discovery or without timeline media.
+- Image editor: unlock the base image for colour brushes, stroke erasing/clearing, move/resize and visibility; reorder base/inserts or mask rows by drag-and-drop. Run submits changed base compositions as a snapshotted input PNG with the inpaint mask kept separate.
+
+- Fix installation consent being falsely blocked when native folder fields are serialized in a different order; compare Models/Input/Output paths by value.
+- Image editor: rename mask overlay to **Opacity (%)**, default 75%; retain saved user values. Regional image prompting is added to the roadmap only, not implemented.
+- Fix Windows installation failing at Verify with `AttributeError: module 'signal' has no attribute 'alarm'`: enforce the ComfyUI probe's 120-second limit in the native process runner, retaining cancellation and owned-process cleanup on Linux/Windows.
+
+- Generate references: right-click a Media dock tile → **Add as reference** / **Remove reference** (Multi-reference → Video) or **Use as source video** (Video → Video); entries that the model cannot take (LTX: images only) or that exceed the Director limits (9 images, 3 videos, 3 sound tracks, 12 files) are disabled with the reason. Referenced tiles show an accent border and a badge (`@ 2.5 s` for LTX; the Director's exact prompt labels `<Picture N>`, `<Video N> <Audio M>`, `<Audio N>` for MiniMax H3) in every dock view and on the preview. New media type filter **All / Images / Videos / Audio** beside Sort/View (remembered).
+- Generate: new **References** dock tab for Multi-reference → Video — Director lanes, reorder within a lane, remove, LTX Second/Strength, H3 Picture/Sound use, Start/End trims (sent as REF2VA `trim_start`/`trim_end`; 2–15 s checked before Run), **Insert label** into the prompt and a Director limit meter. The settings column now shows only the reference count with **Edit**.
+- Generate references: drag Media dock tiles (any type) onto the **References** tab button or the open tab, or drop files from the file manager onto the open tab; drag a card's name onto another card of its lane to reorder. Reference cards are compact (thumbnail beside the name).
+- Generate (MiniMax H3): **Input scaling** select with the Director's seven modes for reference pictures/videos (and first/last frames); default stays Fill and crop. New optional intent field `h3.inputScaling`, validated natively against the Director's list.
+- Generate references (MiniMax H3): **Save pack… / Load pack (add)… / Load pack (replace)…** in the Director's reference-pack JSON format, so packs move between DEAS and the ComfyUI Director node; **Clear** empties the list. New native commands `native_json_save` / `native_json_open` (OS dialogs, ≤ 1 MiB, JSON only; permission `allow-native-json-file`).
+- Generate references (MiniMax H3): **RefMods** — read the backend's RefMod library, add up to 8 with strength and description, insert `<RefMod N>` into the prompt; sent as Director `timeline_data.refmods` and kept in reference packs. New native command `native_h3_refmods` (read-only `GET /dasiwa/refmods`) and optional intent `h3.refmods`.
+- Generate (MiniMax H3 video): the prompt hammer is the Director's Prompt Forge for the current run — mode, duration, output canvas and references as the run will use them, Detail/Creativity, Shots with per-shot boxes, Regenerate, **Cancel** and the last three drafts, which cannot be applied once the run settings change. `native_forge` allows the node pack's `cancel` route.
+- Generate references (MiniMax H3): Director picture labels (Character 1–9, Place, Style, First/Last frame, Pose, Custom) and per-reference Forge instructions in the References tab; the hammer uses the Director's label writer when all references are pictures and offers **Let the model see the pictures**; labels and instructions travel in reference packs (`forge_label`, `forge_instructions`).
+- Generate (MiniMax H3 video): Director prompt helpers below the prompt — **Insert prompt structure**, **Insert [Shot N]**, and **Prefill labels & summary** for REF2VA (labels in node order, RefMods last; fills only empty sections).
+- Generate references (MiniMax H3): **More for Prompt Forge** per reference — Description (used by Prefill), Keep and Ignore (sent to the Forge, saved in packs as `forge_keep`/`forge_drop`).
+- Generate (MiniMax H3): Director **Cast & scene cards** in the hammer for labelled pictures — Read (vision model) or write a card per Character, Place and Style; filled cards are sent with the draft. `native_forge` allows the node pack's `cast` route.
+- Fix: the Media right-click menu closed immediately when the clicked tile was partly scrolled out of view.
 - Generate: **expand** buttons on the prompt and negative prompt open a large floating, draggable and resizable editor for long prompts; it edits the same field (Escape/✕ closes).
 - Fix MiniMax H3 Image → Video preparation rejecting uploaded `deas-inputs/` reference images: ComfyUI's top-level image combo is not a complete input inventory. Keep path validation and backend-side file checks.
 

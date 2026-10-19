@@ -156,3 +156,172 @@ it('maps a missing node-pack route (404, or 405 from ComfyUI static) to the upgr
   expect(forgeError('4050 x')).toBe('4050 x');
   expect(forgeError('500 boom')).toBe('500 boom');
 });
+
+it('H3 hammer is the Director Forge for the run: context, shots, detail/creativity, cancel, drafts that go stale with the run', async () => {
+  const apply = vi.fn();
+  const run = { mode: 'REF2VA', duration: 5, canvas: { width: 1024, height: 576 }, references: [{ kind: 'image' as const, path: 'a.png', role: 'subject', subject_group: '' }, { kind: 'video' as const, role: 'motion', stream: 'both' as const }], easy: false };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let release: (v: unknown) => void = () => {};
+  let hold = false;
+  vi.mocked(invoke).mockImplementation((c, a) => {
+    const { route } = a as { route: string };
+    if (c === 'native_forge' && route === 'cancel') return Promise.resolve({ cancelled: true });
+    if (c === 'native_forge' && route === 'h3' && hold) return new Promise(r => { release = r; });
+    return base(c, a);
+  });
+  const view = (h3: typeof run) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a duel" onApply={apply} h3={h3}/></I18nProvider>;
+  const { rerender } = render(view(run));
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  expect(document.querySelector('[data-forge-run]')!.textContent).toBe('REF2VA · 5 s · 1024×576 · 2 references');
+  fireEvent.change(document.querySelector('[data-forge-shots]')!, { target: { value: '2' } });
+  fireEvent.change(document.querySelector('[data-forge-shot="2"]')!, { target: { value: 'close-up' } });
+  fireEvent.change(screen.getByRole('slider', { name: 'Creativity 5' }), { target: { value: '9' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
+  const body = forgeCalls().find(c => c.route === 'h3')!.body;
+  expect(body).toMatchObject({ model: 'ollama:qwen', mode: 'REF2VA', brief: 'a duel', duration: 5, shots: 2, shot_briefs: ['', 'close-up'], detail: 5, creativity: 'daring', references: run.references, easy: false, output_canvas: { width: 1024, height: 576 } });
+  expect(typeof body.request_id).toBe('string');
+  // Another canvas: the draft no longer fits, Apply waits for a new draft; the history marks it.
+  rerender(view({ ...run, canvas: { width: 576, height: 1024 } }));
+  expect(screen.getByRole('status').textContent).toContain('written for other settings');
+  expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Draft 1 ⚠' })).toBeTruthy();
+  // Regenerate while the LLM runs can be cancelled with the same request id.
+  hold = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+  const pending = forgeCalls().filter(c => c.route === 'h3').at(-1)!.body.request_id;
+  expect(forgeCalls().at(-1)).toMatchObject({ route: 'cancel', body: { request_id: pending } });
+  await act(async () => { release({ simple_prompt: 'late', warnings: [] }); });
+  expect((screen.getByRole('textbox', { name: 'Result' }) as HTMLTextAreaElement).value).toBe('H3 structured prompt'); // a cancelled answer is dropped
+  hold = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
+  await waitFor(() => expect(screen.getAllByRole('button', { name: /^Draft \d/ }).length).toBe(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(apply).toHaveBeenLastCalledWith('H3 structured prompt');
+});
+
+it('H3 hammer offers "see the pictures" only for labelled pictures and sends easy/see_pictures', async () => {
+  const run = { mode: 'REF2VA', duration: 5, canvas: { width: 1024, height: 576 }, references: [{ kind: 'image' as const, path: 'a.png', role: 'subject', subject_group: 'A', easy_role: 'character-1' }], easy: true };
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a walk" onApply={vi.fn()} h3={run}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Let the model see the pictures (needs a vision model)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
+  expect(forgeCalls().find(c => c.route === 'h3')!.body).toMatchObject({ easy: true, see_pictures: true, references: run.references });
+  cleanup();
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="" onApply={vi.fn()} h3={{ ...run, easy: false }}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  expect(screen.queryByRole('checkbox')).toBeNull();
+});
+
+it.each(['success', 'error', 'cancel error'])('cancelled H3 request A cannot disturb pending B after late A %s', async outcome => {
+  const pending = () => {
+    let resolve!: (value: unknown) => void, reject!: (error: Error) => void;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+  };
+  const a = pending(), b = pending(), cancellation = pending();
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let writes = 0;
+  vi.mocked(invoke).mockImplementation((c, args) => {
+    const route = (args as { route: string }).route;
+    if (c === 'native_forge' && route === 'h3') return (++writes === 1 ? a : b).promise as ReturnType<typeof invoke>;
+    if (c === 'native_forge' && route === 'cancel') return cancellation.promise as ReturnType<typeof invoke>;
+    return base(c, args);
+  });
+  const run = { mode: 'T2VA', duration: 5, canvas: { width: 64, height: 64 }, references: [], easy: false };
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a walk" onApply={vi.fn()} h3={run}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+
+  await act(async () => {
+    if (outcome === 'success') a.resolve({ simple_prompt: 'stale A', warnings: [] });
+    else if (outcome === 'error') a.reject(new Error('stale A error'));
+    else cancellation.reject(new Error('stale cancel error'));
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Result' })).toBeNull();
+  await act(async () => { b.resolve({ simple_prompt: 'current B', warnings: [] }); });
+  expect((screen.getByRole('textbox', { name: 'Result' }) as HTMLTextAreaElement).value).toBe('current B');
+  expect(screen.getAllByRole('button', { name: /^Draft \d/ })).toHaveLength(1);
+  // A's cancel failure must also stay stale after B has finished.
+  await act(async () => { cancellation.reject(new Error('late cancel error')); });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('reports a cancellation failure while the cancelled request still owns the UI', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let reject!: (error: Error) => void;
+  const cancellation = new Promise((_, no) => { reject = no; });
+  vi.mocked(invoke).mockImplementation((c, args) => {
+    const route = (args as { route: string }).route;
+    if (c === 'native_forge' && route === 'h3') return new Promise(() => {}) as ReturnType<typeof invoke>;
+    if (c === 'native_forge' && route === 'cancel') return cancellation as ReturnType<typeof invoke>;
+    return base(c, args);
+  });
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a walk" onApply={vi.fn()} h3={{ mode: 'T2VA', duration: 5, canvas: { width: 64, height: 64 }, references: [], easy: false }}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await act(async () => { reject(new Error('cancel failed')); });
+  expect(screen.getByRole('alert').textContent).toBe('cancel failed');
+  expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it.each(['replace', 'reorder'])('discards a Cast read after reference %s, including stale errors and cleanup during a new read', async change => {
+  const pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, args) => c === 'native_forge' && (args as { route: string }).route === 'cast'
+    ? new Promise((resolve, reject) => { pending.push({ resolve, reject }); }) as ReturnType<typeof invoke> : base(c, args));
+  const refs = [{ kind: 'image' as const, path: 'a.png', easy_role: 'character-1' }, { kind: 'image' as const, path: 'b.png', easy_role: 'character-2' }];
+  const run = { mode: 'REF2VA', duration: 5, canvas: { width: 64, height: 64 }, references: refs, easy: true };
+  const view = (references: typeof refs) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a walk" onApply={vi.fn()} h3={{ ...run, references }}/></I18nProvider>;
+  const { rerender } = render(view(refs));
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  const read = () => document.querySelector('[data-forge-read="1"]') as HTMLButtonElement;
+  fireEvent.change(screen.getByLabelText('Card of Character 1'), { target: { value: 'manual card' } });
+  fireEvent.click(read());
+  const changed = change === 'replace' ? [{ ...refs[0], path: 'new.png' }, refs[1]] : [...refs].reverse();
+  rerender(view(changed));
+  expect(read().disabled).toBe(false);
+  fireEvent.click(read());
+  await act(async () => { pending[0].resolve({ text: 'stale card' }); });
+  expect((screen.getByLabelText('Card of Character 1') as HTMLTextAreaElement).value).toBe('manual card');
+  expect(read().disabled).toBe(true); // the new read still owns the busy state
+  rerender(view(refs));
+  fireEvent.click(read());
+  await act(async () => { pending[1].reject(new Error('stale read error')); });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(read().disabled).toBe(true);
+  await act(async () => { pending[2].resolve({ text: 'current card' }); });
+  expect((screen.getByLabelText('Card of Character 1') as HTMLTextAreaElement).value).toBe('current card');
+  expect(read().disabled).toBe(false);
+});
+
+it('H3 cast cards: one per labelled Character / place, Read fills a card, filled cards travel as cast', async () => {
+  const refs = [{ kind: 'image' as const, path: 'b.png', role: 'subject', subject_group: 'B', easy_role: 'character-2' }, { kind: 'image' as const, path: 'a.png', role: 'subject', subject_group: 'A', easy_role: 'character-1' }, { kind: 'image' as const, path: 'p.png', role: 'subject', subject_group: '', easy_role: 'place' }];
+  const run = { mode: 'REF2VA', duration: 5, canvas: { width: 64, height: 64 }, references: refs, easy: true };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as { route: string }).route === 'cast' ? Promise.resolve({ text: 'tall woman, red coat' }) : base(c, a));
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a duel" onApply={vi.fn()} h3={run}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.getAttribute('data-forge-read'))).toEqual(['1', '2', 'place']);
+  fireEvent.click(document.querySelector('[data-forge-read="1"]')!);
+  await waitFor(() => expect((screen.getByLabelText('Card of Character 1') as HTMLTextAreaElement).value).toBe('tall woman, red coat'));
+  expect(forgeCalls().find(c => c.route === 'cast')!.body).toMatchObject({ model: 'ollama:qwen', mode: 'REF2VA', character: 1, references: refs, brief: 'a duel', redo: false });
+  fireEvent.change(screen.getByLabelText('Card of Place'), { target: { value: '  old  harbour ' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
+  expect(forgeCalls().find(c => c.route === 'h3')!.body.cast).toEqual({ 1: 'tall woman, red coat', place: 'old  harbour' });
+  expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.textContent)).toEqual(['Read again', 'Read', 'Read again']); // filled cards are read again (`redo`)
+});

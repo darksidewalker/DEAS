@@ -823,7 +823,9 @@ async fn forge_bounds_declared_and_chunked_responses_before_buffering() {
 fn forge_forwards_only_node_pack_routes_with_the_saved_endpoint() {
     assert_eq!(forge_route("write").unwrap(), "dasiwa/llm/write");
     assert_eq!(forge_route("h3").unwrap(), "dasiwa/h3/forge");
-    assert!(forge_route("../prompt").is_err() && forge_route("cancel").is_err());
+    assert_eq!(forge_route("cancel").unwrap(), "dasiwa/h3/forge/cancel");
+    assert_eq!(forge_route("cast").unwrap(), "dasiwa/h3/forge/cast");
+    assert!(forge_route("../prompt").is_err() && forge_route("people").is_err());
     let ollama = LlmConfig {
         provider: Provider::Ollama,
         base_url: "http://127.0.0.1:11434".into(),

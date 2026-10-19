@@ -53,6 +53,9 @@ export const uploadMask = (baseUrl: string, png: Uint8Array): Promise<string> =>
 export const uploadInput = (baseUrl: string, path: string): Promise<string> => native('native_input_upload', { baseUrl, path });
 export interface H3Clip { clipId: string; parent: string | null; frames: number | null; completed: number; export: { filename: string; subfolder: string; type: string } | null }
 /** Read-only DaSiWa continuity session listing (clips newest first). */
+/** One DaSiWa RefMod library entry (`models/refmods`), read-only. */
+export interface RefModEntry { name: string; kinds: ('image' | 'video' | 'audio')[]; description: string }
+export const readRefMods = (baseUrl: string): Promise<RefModEntry[]> => native('native_h3_refmods', { baseUrl });
 export const readH3Session = (baseUrl: string, session: string): Promise<{ latestId: string | null; clips: H3Clip[] }> => native('native_h3_session', { baseUrl, session });
 export const submitDiagnosticJob = (planId: string): Promise<JobStatus> => native('native_job_submit', { planId, confirmed: true });
 export const readDiagnosticJobStatus = (jobId: string): Promise<JobStatus> => native('native_job_status', { jobId });

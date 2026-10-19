@@ -1684,6 +1684,45 @@ pub async fn native_h3_session(base_url: String, session: String) -> Result<Valu
     )
 }
 
+/// Read-only DaSiWa RefMod library (`GET /dasiwa/refmods`, files in `models/refmods`): names, member kinds and
+/// descriptions only, so the References tab can offer them; the Director loads the files itself at run time.
+#[tauri::command]
+pub async fn native_h3_refmods(base_url: String) -> Result<Value, String> {
+    let base = crate::validate_base_url(&base_url)?;
+    Ok(refmod_entries(
+        &get(&client()?, &base, "dasiwa/refmods").await?,
+    ))
+}
+
+fn refmod_entries(v: &Value) -> Value {
+    let kinds = ["image", "video", "audio"];
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .take(500)
+        .filter(|e| e["name"].as_str().is_some_and(model_name))
+        .filter_map(|e| {
+            let members: Vec<&str> = e["kinds"]
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            (!members.is_empty()
+                && members.len() <= 16
+                && members.iter().all(|k| kinds.contains(k)))
+            .then(|| {
+                let description: String = e["description"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(2000)
+                    .collect();
+                json!({"name":e["name"],"kinds":members,"description":description})
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
 mod tests;

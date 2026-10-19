@@ -51,6 +51,16 @@ const H3_MODES: [&str; 5] = ["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA"];
 /// DaSiWa Director REF2VA lanes (slots per lane) and media modes of a video item.
 const H3_LANES: [(&str, u64); 3] = [("image", 9), ("video", 3), ("audio", 3)];
 const H3_MEDIA_MODES: [&str; 3] = ["video", "audio", "video_audio"];
+/// Director `timeline_data.resolution.input_scaling` values (`helper_minimax_h3_director.py::INPUT_SCALING_MODES`).
+const H3_INPUT_SCALING: [&str; 7] = [
+    "Off",
+    "Auto",
+    "Target",
+    "Fit",
+    "Fill and crop",
+    "Fit and pad",
+    "Long side with divisible crop",
+];
 /// Every class the three graphs can emit; prepare() checks each against object_info.
 pub(crate) const VIDEO_NODES: [&str; 35] = [
     "DualCLIPLoader",
@@ -234,8 +244,15 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     if (mode == "REF2VA") != h.get("media").is_some() {
         return Err("h3.media belongs exactly to REF2VA".into());
     }
+    let refmods = h.get("refmods").is_some();
+    if refmods && mode != "REF2VA" {
+        return Err("h3.refmods belong to REF2VA".into());
+    }
+    if refmods {
+        validate_refmods(&h["refmods"])?;
+    }
     if mode == "REF2VA" {
-        validate_h3_media(&h["media"])?;
+        validate_h3_media(&h["media"], refmods)?;
         if c_source(h) {
             return Err("REF2VA starts a new take; continuation is not supported".into());
         }
@@ -282,8 +299,11 @@ fn validate_h3(h: &Value) -> Result<(), String> {
             "references",
             "continuity",
             "media",
+            "inputScaling",
+            "refmods",
         ],
     ) && h["audioVae"].as_str().is_some_and(model_name)
+        && (h.get("inputScaling").is_none() || pick(h, "inputScaling", &H3_INPUT_SCALING))
         && finite(&h["shiftVideo"], 0.01, 100.0)
         && finite(&h["shiftAudio"], 0.01, 100.0)
         && slots_ok
@@ -291,7 +311,7 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("Invalid h3: {mode, audioVae, shiftVideo, shiftAudio, references[{slot, image in deas-inputs/}], continuity?}".into())
+        Err("Invalid h3: {mode, audioVae, shiftVideo, shiftAudio, references[{slot, image in deas-inputs/}], continuity?, inputScaling?}".into())
     }
 }
 
@@ -303,10 +323,40 @@ fn c_source(h: &Value) -> bool {
 
 /// REF2VA timeline media, mirroring the DaSiWa Director limits: ≤ 9 images, ≤ 3 videos, ≤ 3 audio, ≤ 12 files;
 /// audio needs an image or video; unique slots per lane. Clip durations (2–15 s) are checked by the node.
-fn validate_h3_media(m: &Value) -> Result<(), String> {
+/// Director RefMod rows (`_load_refmod_rows`): 1–8 unique slots 1–8, a library name, strength in (0, 1]
+/// (the node skips 0), optional description. DEAS sends enabled rows only.
+fn validate_refmods(r: &Value) -> Result<(), String> {
+    let rows = r
+        .as_array()
+        .filter(|a| !a.is_empty() && a.len() <= 8)
+        .ok_or("h3.refmods: 1-8 rows")?;
+    let mut slots = vec![];
+    for x in rows {
+        let slot = x["slot"].as_u64().filter(|s| (1..=8).contains(s));
+        let ok = keys_in(x, &["slot", "name", "strength", "description"])
+            && slot.is_some_and(|s| !slots.contains(&s))
+            && x["name"]
+                .as_str()
+                .is_some_and(|n| model_name(n) && n != "None" && n != "(none)")
+            && x["strength"].as_f64().is_some_and(|s| s > 0.0 && s <= 1.0)
+            && x.get("description")
+                .is_none_or(|d| d.as_str().is_some_and(|d| d.chars().count() <= 2000));
+        if !ok {
+            return Err(
+                "Invalid h3.refmods row: {slot 1-8 unique, name, strength (0, 1], description?}"
+                    .into(),
+            );
+        }
+        slots.extend(slot);
+    }
+    Ok(())
+}
+
+/// REF2VA timeline media; with RefMods the media list may be empty (RefMods count as visual references for audio).
+fn validate_h3_media(m: &Value, refmods: bool) -> Result<(), String> {
     let items = m
         .as_array()
-        .filter(|a| !a.is_empty() && a.len() <= 12)
+        .filter(|a| (refmods || !a.is_empty()) && a.len() <= 12)
         .ok_or("h3.media: 1-12 items")?;
     let mut used: Vec<(&str, u64)> = vec![];
     let (mut videos, mut audio, mut visual) = (0, 0, 0);
@@ -364,7 +414,7 @@ fn validate_h3_media(m: &Value) -> Result<(), String> {
     if videos > 3 || audio > 3 {
         return Err("REF2VA allows at most 3 videos and 3 audio clips".into());
     }
-    if audio > 0 && visual == 0 {
+    if audio > 0 && visual == 0 && !refmods {
         return Err("REF2VA audio needs an image or video reference".into());
     }
     Ok(())
@@ -829,8 +879,19 @@ fn h3(i: &Value) -> Value {
     } else {
         json!({"version":3,"session":c.get("session").cloned().unwrap_or(json!("deas")),"capture":c.get("capture").cloned().unwrap_or(json!(false)),"output_mode":c.get("outputMode").cloned().unwrap_or(json!("full"))})
     };
-    // DEAS already chose the canvas; the Director only fills/crops the references to it.
-    let timeline = json!({"version":1,"items":items,"prompt_blocks":[],"resolution":{"input_scaling":"Fill and crop"},"continuity":continuity});
+    // DEAS already chose the canvas; by default the Director fills/crops the references to it.
+    let scaling = h
+        .get("inputScaling")
+        .cloned()
+        .unwrap_or(json!("Fill and crop"));
+    let mut timeline = json!({"version":1,"items":items,"prompt_blocks":[],"resolution":{"input_scaling":scaling},"continuity":continuity});
+    // RefMods (saved REF2VA references in models/refmods), loaded by the Director itself.
+    if let Some(rows) = h["refmods"].as_array() {
+        timeline["refmods"] = rows
+            .iter()
+            .map(|r| json!({"slot":r["slot"],"name":r["name"],"enabled":true,"strength":r["strength"],"description":r.get("description").cloned().unwrap_or(json!(""))}))
+            .collect();
+    }
     let mut g = json!({
         "1":{"class_type":"UNETLoader","inputs":{"unet_name":i["model"],"weight_dtype":"default"}},
         "C":{"class_type":"CLIPLoader","inputs":{"clip_name":i["textEncoder"],"type":"minimax"}},

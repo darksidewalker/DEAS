@@ -286,6 +286,42 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_write'||c==='native_settings_move'||c==='native_install_start')).toBe(false);
   fireEvent.click(screen.getByRole('button',{name:'Backend'}));expect(screen.getAllByText('/real/models')).toHaveLength(1);expect(screen.queryByRole('button',{name:'Save folders'})).toBeNull();
  });
+ it.each([{keys:['models']},{keys:['output','models','input']}])('can start after choosing folders in $keys order and a native serialization round trip',async({keys})=>{
+  nativeFixture();let selected='';let id=0;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_pick_directory')return `/real/${selected}`;
+   if(command==='native_install_plan'){
+    const r=(args as {request:NativeInstallRequest}).request;
+    const folders=r.folders?Object.fromEntries(['models','input','output'].filter(key=>r.folders?.[key as keyof typeof r.folders]).map(key=>[key,r.folders![key as keyof typeof r.folders]])):undefined;
+    return {...plan({...r,...(folders?{folders}:{})}),id:`plan-${++id}`};
+   }
+   return {state:'running',stepId:'python',logs:[],error:null};
+  });
+  await ready();
+  for(const key of keys){
+   selected=key;click(`Choose ${key==='models'?'Models':key==='input'?'Input':'Output'} folder`);
+   await waitFor(()=>expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(false));
+  }
+  const calls=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan');
+  const latestId=`plan-${calls.length}`;
+  click('Start install');await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_install_start',{planId:latestId,confirmed:true}));
+ });
+ it.each(['models','input','output'] as const)('refuses a native plan with a different %s folder',async(key)=>{
+  nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_pick_directory')return '/chosen';
+   if(command==='native_install_plan'){
+    const r=(args as {request:NativeInstallRequest}).request;
+    return plan(r.folders?{...r,folders:{...r.folders,[key]:'/unexpected'}}:r);
+   }
+   return null;
+  });
+  await ready();click(`Choose ${key==='models'?'Models':key==='input'?'Input':'Output'} folder`);
+  await waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('native_install_plan',{request:{...request,folders:{[key]:'/chosen'}}}));
+  expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(true);
+  click('Start install');expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+ });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByText('Installed');

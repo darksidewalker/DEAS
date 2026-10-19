@@ -89,12 +89,12 @@ def export_mask(page):
 
 
 def geometry(page):
-    return page.locator('.sie-image').evaluate('(el)=>Object.fromEntries(["left","top","width","height"].map(k=>[k,parseFloat(el.style[k])]))')
+    return page.locator('.sie-image:not([data-layer="base"])').evaluate('(el)=>Object.fromEntries(["left","top","width","height"].map(k=>[k,parseFloat(el.style[k])]))')
 
 
 def drag_image(page, dx, dy):
     world = page.get_by_test_id('editor-world').bounding_box()
-    image = page.locator('.sie-image').bounding_box()
+    image = page.locator('.sie-image:not([data-layer="base"])').bounding_box()
     assert world and image
     scale = world['width'] / 1024
     page.mouse.move(image['x'] + image['width'] / 2, image['y'] + image['height'] / 2)
@@ -142,7 +142,7 @@ with sync_playwright() as p:
     page.get_by_role('spinbutton', name='Brush diameter (px)', exact=True).fill('80')
     click_tool(page, 'Square')
     paint(page, 256, 160)
-    page.get_by_role('slider', name='Mask overlay (%)', exact=True).fill('0')
+    page.get_by_role('slider', name='Opacity (%)', exact=True).fill('0')
     intent = export_mask(page)
     assert (intent['width'], intent['height']) == (1024, 640)
     assert 'inputResize' not in intent
@@ -197,13 +197,13 @@ with sync_playwright() as p:
     # Reselecting the same source must preserve the entire draft, not just canvas pixels.
     editor_node = page.get_by_test_id('editor-world').element_handle()
     page.get_by_role('button',name='base.png',exact=True).click()
-    expect(page.locator('.sie-image')).to_have_count(1)
+    expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
     expect(page.get_by_role('button',name='Run',exact=True)).to_be_enabled()
     assert page.get_by_test_id('editor-world').evaluate('(el,old)=>el===old',editor_node)
-    page.locator('.sie-image').press('ArrowRight')
+    page.locator('.sie-image:not([data-layer="base"])').press('ArrowRight')
     # Make the handle reachable at 200% without relying on offscreen clicks.
     for _ in range(25):
-        page.locator('.sie-image').press('-')
+        page.locator('.sie-image:not([data-layer="base"])').press('-')
     for zoom in ('fit','double'):
         click_tool(page, 'Fit' if zoom == 'fit' else '100%')
         if zoom == 'double':
@@ -287,7 +287,7 @@ with sync_playwright() as p:
     page.get_by_role('button',name='other.png',exact=True).click()
     page.evaluate('window.__releaseProbe();window.__restoreImage()')
     page.wait_for_function('window.__probeDone')
-    assert page.locator('.sie-image').count()==0
+    assert page.locator('.sie-image:not([data-layer="base"])').count()==0
     page.route('**/missing-insert.png',lambda route:route.fulfill(status=404,body=''))
     page.evaluate('''()=>{const NativeImage=window.Image,desc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
       window.__restoreImage=()=>{window.Image=NativeImage;};
@@ -296,7 +296,64 @@ with sync_playwright() as p:
     drop_tile(page,'cat.png')
     expect(page.get_by_role('alert')).to_have_text('This image could not be loaded for insertion.')
     page.evaluate('window.__restoreImage()')
-    assert page.locator('.sie-image').count()==0
+    assert page.locator('.sie-image:not([data-layer="base"])').count()==0
+    assert not errors, errors
+    # The base uses the same paint/transform stack; exported pixels must match the preview.
+    open_editor(page)
+    click_tool(page, 'Fit')
+    paint(page, 128, 80)
+    drop_tile(page, 'cat.png')
+    click_tool(page, 'Base image')
+    click_tool(page, 'Brush')
+    click_tool(page, '#007aff')
+    paint(page, 256, 160)
+    click_tool(page, 'Select')
+    world = page.get_by_test_id('editor-world').bounding_box()
+    scale = world['width'] / 1024
+    page.mouse.move(world['x'] + 100*scale, world['y'] + 100*scale)
+    page.mouse.down()
+    page.mouse.move(world['x'] + 132*scale, world['y'] + 116*scale, steps=3)
+    page.mouse.up()
+    base = page.locator('[data-layer="base"]')
+    assert base.evaluate('(el)=>[parseFloat(el.style.left),parseFloat(el.style.top)]') == [32,16]
+    intent = export_mask(page)
+    assert 'inputLayers' not in intent and intent['inputImage'].startswith('deas-masks/')
+    assert pixels(page, [[128,80]], -2)['values'] == [[255,255,255,255]]
+    result = pixels(page, [[288,176],[512,320],[0,0]])
+    assert result['values'] == [[0,122,255,255],[255,0,0,255],[0,0,0,0]], result
+    assert (result['width'],result['height']) == (1024,640)
+    # Actual HTML5 row drag raises the moved base above the inserted picture.
+    rail = page.locator('.sie-rail')
+    rail.get_by_role('button',name='Base image',exact=True).drag_to(rail.get_by_role('button',name='cat.png [output]',exact=True))
+    assert page.locator('[data-layer]').evaluate_all('(els)=>els.map(el=>el.dataset.layer)').pop() == 'base'
+    export_mask(page)
+    assert pixels(page, [[512,320]])['values'] == [[85,85,85,255]]
+    # Image strokes are snapshotted before a delayed mask upload, not when it completes.
+    click_tool(page, 'Base image')
+    click_tool(page, 'Brush')
+    old_uploads = page.evaluate('window.__uploads.length')
+    old_plans = page.evaluate('window.__plans.length')
+    page.evaluate('window.__holdUpload=true')
+    click_tool(page, 'Run')
+    page.wait_for_function('(n)=>window.__uploads.length===n+1&&window.__releaseUpload!==null', arg=old_uploads)
+    paint(page, 400, 400)
+    page.evaluate('window.__holdUpload=false;window.__releaseUpload();window.__releaseUpload=null')
+    page.wait_for_function('(n)=>window.__plans.length===n+1', arg=old_plans)
+    assert pixels(page, [[400,400]])['values'] == [[85,85,85,255]]
+    export_mask(page)
+    assert pixels(page, [[400,400]])['values'] == [[0,122,255,255]]
+    # Resize and keyboard movement share source-pixel geometry; clearing only removes paint.
+    click_tool(page, 'Base image')
+    base.press('+')
+    assert base.evaluate('(el)=>parseFloat(el.style.width)') == 1032
+    click_tool(page, 'Clear')
+    export_mask(page)
+    assert pixels(page, [[288,176]])['values'] == [[85,85,85,255]]
+    click_tool(page, 'Hide Base image')
+    export_mask(page)
+    assert pixels(page, [[512,320],[128,80]])['values'] == [[255,0,0,255],[0,0,0,0]]
+    click_tool(page, 'Show Base image')
+    assert page.evaluate('window.__unexpected') == []
     assert not errors, errors
     page.close()
     # Layout smoke at all widths/locales; no fake screenshot files.
@@ -313,7 +370,7 @@ with sync_playwright() as p:
             assert not page.evaluate('document.documentElement.scrollHeight>innerHeight+1'), width
         if width in (1440,320):
             drop_tile(page,'cat.png')
-            expect(page.locator('.sie-image')).to_have_count(1)
+            expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
             click_tool(page,'Mask 1')
             click_tool(page,'Fit')
             paint(page,256,160,(384,240))

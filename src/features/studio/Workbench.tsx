@@ -2,15 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, type JobStatus, type JobIntent } from '../../lib/jobs';
-import { chunkCount, defaultVideoOutput, isVideoIntent, videoFrames, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus, type JobIntent } from '../../lib/jobs';
+import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { RunPlan } from './RunPlan';
 import { ContinuityPlanner } from './ContinuityPlanner';
 import { defaultPlan, isContinuityPlan, nextStep, resolveClip, type ContinuityPlan } from '../../lib/continuity';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
-import { MediaLibrary, mediaViews, type MediaRoots, type MediaView } from '../media/MediaLibrary';
-import type { MediaItem } from '../../lib/media';
+import { ReferencesPanel, directorTags, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
+import { MediaLibrary, mediaTypes, mediaViews, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
+import { draggedItem, MEDIA_DRAG, type MediaItem } from '../../lib/media';
 import { isBoolean, isString, oneOf, readPref, usePref } from '../../lib/preferences';
 import { JobOutputPreview } from './JobOutputPreview';
 import { GenerationMetadata } from './GenerationMetadata';
@@ -24,6 +25,7 @@ import { ImageViewer } from './ImageViewer';
 import { CompareView } from './CompareView';
 import { PromptOverlay } from './PromptOverlay';
 import { ForgeButton } from '../forge/ForgeButton';
+import { applyRefPrefill, nextShot, promptStructure, refPrefill } from '../../lib/h3Prompt';
 import { dialectOf } from '../../lib/forge';
 import { WildcardPanel } from '../wildcards/WildcardPanel';
 import { defaultWildcard, isWildcardRules } from '../../lib/wildcard';
@@ -44,8 +46,8 @@ const isMaskGrow=(v:unknown):v is number=>isNumber(v)&&Number.isInteger(v)&&v>=0
 const isMaskBlur=(v:unknown):v is number=>isMaskGrow(v)&&v<=31;
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 const isUnit=(v:unknown):v is number=>typeof v==='number'&&v>=0&&v<=1;
-/** A Multi-reference → Video pick: LTX uses images at a second with a guide strength; H3 (REF2VA) also takes videos/audio. */
-interface VideoRef { item:MediaItem; second:number; strength:number; mediaMode:'video'|'audio'|'video_audio' }
+/** Locale keys of the Director scaling modes (shared with the image input-scaling labels). */
+const h3ScalingKey:Record<H3Scaling,string>={Off:'off',Auto:'auto',Target:'target',Fit:'fit','Fill and crop':'crop','Fit and pad':'pad','Long side with divisible crop':'long'};
 const videoPipelines:readonly string[]=['t2v','i2v','v2v','ref2v'];
 const randomSeed=()=>Math.floor(Math.random()*2**32);
 /** WebKitGTK media needs a blob URL; asset fetches also need connect-src permission in the app CSP. */
@@ -63,7 +65,7 @@ function useBlobSrc(src:string|undefined,active:boolean):{url?:string;error?:str
 const mediaError=(e:React.SyntheticEvent<HTMLMediaElement>)=>{const m=e.currentTarget.error;return m?`error ${m.code}${m.message?`: ${m.message}`:''}`:'';};
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
-const dockTabs=['media','models','loras','wildcards','post','options','continuity'] as const;
+const dockTabs=['media','references','models','loras','wildcards','post','options','continuity'] as const;
 /** Pipeline taxonomy. `t2i`/`i2i` (images) and `t2v`/`i2v` (LTX, Wan, MiniMax H3 per family data) have native recipes; `v2v`/`ref2v` stay listed but disabled. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
@@ -82,6 +84,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const [dockHeight,setDockHeight]=usePref('studio.dock.height',220,isNumber);
  const [sortPref,setSort]=usePref('studio.dock.sort','date',oneOf('date','name','size'));
  const [dockView,setDockView]=usePref<MediaView>('studio.dock.view','tiles',oneOf(...mediaViews));
+ const [dockType,setDockType]=usePref<MediaType>('studio.dock.type','all',oneOf(...mediaTypes));
  const [query,setQuery]=useState('');
  const [models,setModels]=useState<LocalModel[]|null>(null);
  const [busy,setBusy]=useState(false);const [error,setError]=useState('');
@@ -120,10 +123,11 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
  const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
- const [refs,setRefs]=useState<VideoRef[]>([]);
+ const [refs,setRefs]=useState<VideoRef[]>([]);const [refmods,setRefmods]=useState<RefMod[]>([]);
  const [detached,setDetached]=useState<'positive'|'negative'|null>(null);
  const [sourceStrength,setSourceStrength]=usePref('studio.run.video.sourceStrength',1,isUnit);
  const [sourceAudio,setSourceAudio]=usePref('studio.run.video.sourceAudio',false,isBoolean);
+ const [h3Scaling,setH3Scaling]=usePref<H3Scaling>('studio.run.video.h3Scaling','Fill and crop',oneOf(...h3Scalings));
  // MiniMax H3 continuity plan (own dock tab): steps run one by one, each pinning the clip the previous one produced.
  const [plan,setPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
  const planRun=useRef<{index:number;all:boolean}|null>(null);const [autoPlan,setAutoPlan]=useState(false);const [resolving,setResolving]=useState(false);
@@ -210,9 +214,6 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):'';
  const pipeline:Pipeline=why(pipelinePref)?'t2i':pipelinePref;
  // What the pipeline still needs picked: an image (i2i/i2v), a video (v2v) or at least one reference (ref2v).
- const needsInput=(pipeline==='i2i'||pipeline==='i2v')&&!inputImage?'studio.run.pipe.needsInput'
-  :pipeline==='v2v'&&!(media?.media==='video'&&media.path)?'studio.run.pipe.needsVideo'
-  :pipeline==='ref2v'&&!refs.length?'studio.run.pipe.needsRefs':'';
  const mediaPipeline=!pipeline.startsWith('t2');
  const isVideo=videoPipelines.includes(pipeline);
  // First/last-frame and the H3 continuity planner belong to text/image-to-video only.
@@ -228,6 +229,10 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const textEncoder=split?.encoders.includes(textEncoderPref)?textEncoderPref:split?.encoders[0]??'';
  const vae=split?.vaes.includes(vaePref)?vaePref:split?.vaes[0]??'';
  const videoFamily=family?.video?family.id as VideoFamily:undefined;
+ const needsInput=(pipeline==='i2i'||pipeline==='i2v')&&!inputImage?'studio.run.pipe.needsInput'
+  :pipeline==='v2v'&&!(media?.media==='video'&&media.path)?'studio.run.pipe.needsVideo'
+  :pipeline==='ref2v'&&!refs.length&&!(videoFamily==='minimax-h3'&&refmods.length)?'studio.run.pipe.needsRefs'
+  :pipeline==='ref2v'?refsProblem(refs):'';
  const fps=family?.video?.fixedFps?family.video.fps:video.fps;
  const frames=videoFamily?videoFrames(videoFamily,video.seconds,fps):0;
  const audioVae=split?.audioVaes.includes(video.audioVae)?video.audioVae:split?.audioVaes[0]??'';
@@ -310,11 +315,14 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
    const inpaintCrop=bounds&&target?{...bounds,targetWidth:target.width,targetHeight:target.height}:null;
    const maskSnapshot=editing?editorRef.current?.maskPng():null;
    if(editing&&!maskSnapshot)throw new Error(t('studio.run.edit.needsMask'));
-   const inputMask=maskSnapshot?await uploadMask(endpoint,await maskSnapshot):null;
-   // Painted layers go up flattened (same PNG upload as masks) and replace their file name.
-   const painted=only||pipeline!=='i2i'?[]:await Promise.all(layers.filter(l=>l.visible).map(async l=>{const png=await flattenLayer(l);return png?await uploadMask(endpoint,png):l.name;}));
-   const withLayers=painted.some((name,i)=>name!==inputLayers[i].image)?{...intent,inputLayers:inputLayers.map((l,i)=>({...l,image:painted[i]}))}:intent;
-   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...withLayers,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}):withLayers); // native: validates against the running backend's object_info
+   const imageSnapshot=!only&&pipeline==='i2i'?editorRef.current?.imagePng():null;
+   const [maskPng,imagePng]=await Promise.all([maskSnapshot,imageSnapshot]);
+   const inputMask=maskPng?await uploadMask(endpoint,maskPng):null;
+   // A changed base needs the complete image stack baked once, with the mask kept separate.
+   const painted=imagePng||only||pipeline!=='i2i'?[]:await Promise.all(layers.filter(l=>l.visible).map(async l=>{const png=await flattenLayer(l);return png?await uploadMask(endpoint,png):l.name;}));
+   const withLayers=imagePng?{...intent,inputImage:await uploadMask(endpoint,imagePng)}:painted.some((name,i)=>name!==inputLayers[i].image)?{...intent,inputLayers:inputLayers.map((l,i)=>({...l,image:painted[i]}))}:{...intent};
+   if(imagePng)delete withLayers.inputLayers;
+   const plan=await prepareDiagnosticJob(endpoint,Object.freeze(inputMask?{...withLayers,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}:withLayers)); // native: validates against the running backend's object_info
    const job=await submitDiagnosticJob(plan.id); // the Run click is the authorization
    if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(from)setSources(s=>({...s,[job.id]:from}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
@@ -328,6 +336,8 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   const base={recipeId:'video-generation',version:1,positivePrompt:positive,negativePrompt:negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
    ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{})} as const;
    let intent:VideoIntentV1;
+   // The Director's default canvas fit for DEAS stays implicit, so unchanged intents stay byte-identical.
+   const scaling=h3Scaling!=='Fill and crop'?{inputScaling:h3Scaling}:{};
    const last=frameVideo&&lastFrameName?{lastFrame:lastFrameName}:{};
    // Dock files outside the ComfyUI input/output folders (and every video, which core LoadVideo reads from the input root) are copied there.
    if(vf==='ltx-2'){
@@ -340,14 +350,11 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
    else if(pipeline==='v2v'||pipeline==='ref2v'){
     // H3 has no video-to-video mode: both run REF2VA, the source video (with or without its sound) as a video reference.
     const picks:VideoRef[]=pipeline==='v2v'&&media?[{item:media,second:0,strength:1,mediaMode:sourceAudio?'video_audio':'video'}]:refs;
-    const lanes:Record<string,number>={};
-    const items=[];
-    for(const r of picks){
-     const type=r.item.media as 'image'|'video'|'audio';
-     const lane=type==='video'&&r.mediaMode==='audio'?'audio':type;
-     items.push({type,file:nameOf(r.item,true),slot:lanes[lane]=(lanes[lane]??-1)+1,...(type==='video'?{mediaMode:r.mediaMode}:{})});
-    }
-    intent={...base,family:'minimax-h3',h3:{mode:'REF2VA',audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:[],media:items}};
+    const slots=slotsOf(picks);
+    const items=picks.map((r,i)=>({type:r.item.media as 'image'|'video'|'audio',file:nameOf(r.item,true),slot:slots[i],...(r.item.media==='video'?{mediaMode:r.mediaMode}:{}),
+     ...(r.item.media!=='image'&&r.trimStart!==undefined?{trimStart:r.trimStart}:{}),...(r.item.media!=='image'&&r.trimEnd!==undefined?{trimEnd:r.trimEnd}:{})}));
+    intent={...base,family:'minimax-h3',h3:{mode:'REF2VA',audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:[],media:items,...scaling,
+     ...(pipeline==='ref2v'&&refmods.length?{refmods:refmods.map((r,i)=>({slot:i+1,name:r.name,strength:r.strength,...(r.description.trim()?{description:r.description.trim()}:{})}))}:{})}};
    }
    else{
     // The Director owns H3 references; they must live in the backend input folder, so dock files are copied there explicitly.
@@ -355,7 +362,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
     if(pipeline==='i2v'&&media?.path)refs.push({slot:0,image:nameOf(media,true)});
     if(lastFrame?.path)refs.push({slot:1,image:nameOf(lastFrame,true)});
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
-    intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{})}};
+    intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
    return intent;
  }
@@ -451,7 +458,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  // e.g. after ✕ or browsing elsewhere; an open draft with masks or inserted layers is never replaced.
  const pickJob=(j:JobStatus)=>{
   setSelectedJob(j.id);const from=sources[j.id];
-  if(!from||media?.src===from.src||(media&&(masked||layers.length>0)))return;
+  if(!from||media?.src===from.src||(media&&(masked||layers.length>0||editorRef.current?.imageEdited())))return;
   sourceEpoch.current++;setMedia(from);setLayers([]);setMasked(false);
   if(j.intent&&!isVideoIntent(j.intent)&&j.intent.inputImage){setPipeline('i2i');setEdit(j.intent.inputMask?'inpaint':'resample');}
  };
@@ -478,6 +485,40 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   :media?.src===item.src&&inputImage&&source?{image:inputImage,size:source,src:media.src,item:media}:null;
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
+ // References: LTX keyframes are images; H3 REF2VA also takes videos and audio within the Director limits. Returns why an item cannot be added.
+ const isRef=(item:MediaItem)=>refs.some(r=>r.item.src===item.src);
+ const refBlock=(item:MediaItem,list=refs)=>videoFamily!=='minimax-h3'?(item.media==='image'?'':'studio.run.video.refImagesOnly'):h3Full(list,item)?'studio.run.video.refFull':'';
+ // Adds in order; already referenced or path-less (browser) items are skipped, refused ones are named with the reason.
+ const addRefs=(adds:RefAdd[],replace=false)=>{
+  let next=replace?[]:refs;const refused:string[]=[];
+  for(const {item,...rest} of adds){if(!item.path||next.some(r=>r.item.src===item.src))continue;
+   const ref:VideoRef={item,second:next.length?video.seconds:0,strength:1,mediaMode:'video',...rest};
+   // Limits count the reference as it will be used (a pack may bring a sound-only video).
+   const why=videoFamily!=='minimax-h3'?refBlock(item,next):over(refCounts([...next,ref]))?'studio.run.video.refFull':'';
+   if(why)refused.push(`${item.name}: ${t(why)}`);else next=[...next,ref];}
+  setRefs(next);if(refused.length)setError(refused.join(' · '));
+ };
+ const toggleRef=(item:MediaItem)=>isRef(item)?setRefs(refs.filter(r=>r.item.src!==item.src)):addRefs([{item}]);
+ // H3 badges are the Director's own prompt labels, so what the dock shows is what the prompt may reference.
+ const refTags=directorTags(refs);
+ const refLabel=(r:VideoRef,i:number)=>videoFamily==='ltx-2'?t('studio.run.video.mark.at',{second:String(r.second)}):refTags[i];
+ const refsTab=pipeline==='ref2v'&&(videoFamily==='ltx-2'||videoFamily==='minimax-h3');
+ useEffect(()=>{if(dockTab==='references'&&!refsTab)setDockTab('media');},[dockTab,refsTab]); // eslint-disable-line react-hooks/exhaustive-deps
+ const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:[]);
+ const mediaActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
+  :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),onClick:()=>select(item)}]:[];
+ const stageMark=media?.path&&marks.get(media.path);
+ // MiniMax H3 video: the hammer is the Director's Prompt Forge for this run (same mode/references the intent gets).
+ const forgeContext=videoFamily==='minimax-h3'&&isVideo?h3ForgeContext({pipeline,media,lastFrame,refs,sourceAudio,seconds:video.seconds,canvas:outputSize,inputRoot:roots.input}):undefined;
+ // Director prompt helpers: insert at the cursor of the positive prompt (else append), like the node's toolbar.
+ const insertPrompt=(text:string)=>{const el=document.getElementById('run-positive') as HTMLTextAreaElement|null;const at=el&&document.activeElement===el?el.selectionStart:positive.length;setPositive(positive.slice(0,at)+text+positive.slice(at));};
+ const prefill=()=>{
+  if(refmods.some(r=>!r.kinds?.length)){setError(t('studio.run.prompt.prefillKinds'));return;}
+  const picks=pipeline==='v2v'?(media?.media==='video'?[{type:'video' as const,slot:0,mediaMode:sourceAudio?'video_audio' as const:'video' as const}]:[]):prefillItems(refs);
+  const fields=refPrefill(picks,pipeline==='ref2v'?refmods.map((r,i)=>({slot:i+1,kinds:r.kinds!,description:r.description})):[]);
+  if(!fields){setError(t('studio.run.prompt.prefillEmpty'));return;}
+  setPositive(applyRefPrefill(positive,fields));
+ };
  const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(media?.src!==item.src)select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
   {/* Post-process (refine/upscale alone) only in the image edit modes: the active checkpoint is then an image model. */}
@@ -485,7 +526,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   {item.media==='image'&&<button type="button" data-view-full onClick={()=>setViewer({src:item.src,alt:item.name})}>{t('studio.run.viewer.open')}</button>}
   {frameVideo&&item.media==='image'&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {/* LTX keyframes are images; H3 REF2VA also takes videos and audio. */}
-  {pipeline==='ref2v'&&item.path&&(item.media==='image'||videoFamily==='minimax-h3')&&(()=>{const on=refs.some(r=>r.item.src===item.src);return <button type="button" data-edit-ref aria-pressed={on} onClick={()=>setRefs(on?refs.filter(r=>r.item.src!==item.src):[...refs,{item,second:refs.length?video.seconds:0,strength:1,mediaMode:'video'}])}>{t('studio.run.video.addRef')}</button>;})()}
+  {pipeline==='ref2v'&&item.path&&(item.media==='image'||videoFamily==='minimax-h3')&&<button type="button" data-edit-ref aria-pressed={isRef(item)} disabled={!isRef(item)&&!!refBlock(item)} title={!isRef(item)&&refBlock(item)?t(refBlock(item)):undefined} onClick={()=>toggleRef(item)}>{t('studio.run.video.addRef')}</button>}
   {original&&media?.src!==item.src&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
  </div>;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
@@ -541,19 +582,12 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
         <label className="wb-field"><span>{t('studio.run.video.passes')}</span><select value={video.passes} onChange={e=>setVideo({...video,passes:Number(e.target.value) as VideoPref['passes']})}>{[1,2,3].map(n=><option key={n} value={n} disabled={n>1&&!(choices?.latentUpscaleModels?.length||!choices)}>{n}</option>)}</select></label>
         {video.passes>1&&pick('studio.run.video.upscaler',video.upscaler||choices?.latentUpscaleModels?.[0]||'',choices?.latentUpscaleModels??[],v=>setVideo({...video,upscaler:v}),loadChoices)}</>}
        {videoFamily==='wan'&&<>{num('video.shiftHigh',video.shiftHigh,n=>setVideo({...video,shiftHigh:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.shiftLow',video.shiftLow,n=>setVideo({...video,shiftLow:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.refinerStep',Math.min(video.refinerStep,steps-1),n=>setVideo({...video,refinerStep:clamp(Math.round(n),1,Math.max(1,steps-1))}),1,Math.max(1,steps-1),1)}</>}
-       {videoFamily==='minimax-h3'&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
+       {videoFamily==='minimax-h3'&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}
+        {/* The Director scales every reference picture/video (incl. first/last frame) to the canvas with this mode. */}
+        {(pipeline!=='t2v'||!!lastFrame)&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select data-h3-scaling value={h3Scaling} title={t(`studio.run.resolution.hint.${h3ScalingKey[h3Scaling]}`)} onChange={e=>setH3Scaling(e.target.value as H3Scaling)}>{h3Scalings.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${h3ScalingKey[s]}`)}</option>)}</select></label><p className="wb-resolution-hint wb-wide">{t(`studio.run.resolution.hint.${h3ScalingKey[h3Scaling]}`)}</p></>}</>}
        {pipeline==='v2v'&&(videoFamily==='ltx-2'?num('video.sourceStrength',sourceStrength,n=>setSourceStrength(clamp(n,0,1)),0,1,0.05,undefined,true)
         :<label className="wb-field wb-wide"><span><input type="checkbox" style={{width:'auto'}} checked={sourceAudio} onChange={e=>setSourceAudio(e.target.checked)}/>{t('studio.run.video.sourceAudio')}</span></label>)}
-       {pipeline==='ref2v'&&<div className="wb-refs wb-wide" role="group" aria-label={t('studio.run.video.refs')}>
-        <span>{t('studio.run.video.refs')} · {refs.length}</span>
-        {refs.length===0&&<p className="wb-resolution-hint">{t(videoFamily==='minimax-h3'?'studio.run.video.refsHintH3':'studio.run.video.refsHint')}</p>}
-        {refs.map((r,n)=>{const set=(x:Partial<VideoRef>)=>setRefs(refs.map((y,m)=>m===n?{...y,...x}:y));return <div key={r.item.src} className="wb-ref">
-         <strong title={r.item.path}>{r.item.name}</strong><button type="button" aria-label={t('studio.run.video.removeRef',{name:r.item.name})} onClick={()=>setRefs(refs.filter((_,m)=>m!==n))}>✕</button>
-         {videoFamily==='ltx-2'&&<><label><span>{t('studio.run.video.refSecond')}</span><input type="number" aria-label={t('studio.run.video.refSecondOf',{name:r.item.name})} min={0} max={video.seconds} step={0.1} value={r.second} onChange={e=>set({second:clamp(Number(e.target.value)||0,0,video.seconds)})}/></label>
-          <label><span>{t('studio.run.video.refStrength')}</span><input type="number" aria-label={t('studio.run.video.refStrengthOf',{name:r.item.name})} min={0} max={1} step={0.05} value={r.strength} onChange={e=>set({strength:clamp(Number(e.target.value)||0,0,1)})}/></label></>}
-         {videoFamily==='minimax-h3'&&r.item.media==='video'&&<select aria-label={t('studio.run.video.refMode',{name:r.item.name})} value={r.mediaMode} onChange={e=>set({mediaMode:e.target.value as VideoRef['mediaMode']})}>{(['video','video_audio','audio'] as const).map(m=><option key={m} value={m}>{t(`studio.run.video.mode.${m}`)}</option>)}</select>}
-        </div>;})}
-       </div>}
+       {refsTab&&<p className="wb-active wb-wide"><span>{t('studio.run.video.refs')} · {refs.length}</span><button type="button" className="wb-dock-action" data-open-references onClick={()=>setDockTab('references')}>{t('studio.run.video.editRefs')}</button></p>}
        {videoFamily==='minimax-h3'&&(pipeline==='v2v'||pipeline==='ref2v')&&!/ref2va/i.test(checkpoint)&&<p className="wb-resolution-hint wb-wide">{t('studio.run.video.ref2vaHint')}</p>}
        {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
       </>}
@@ -585,7 +619,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
     <section className={`wb-stage${sideBySide?' wb-split':''}`} aria-label={t('studio.run.preview')}>
      {(media||shown)&&<button type="button" className="wb-stage-close" data-preview-close aria-label={t('studio.run.close')} title={t('studio.run.close')} onClick={closePreview}>✕</button>}
      {(media||shown)&&<button type="button" className="wb-stage-meta" data-metadata-toggle aria-pressed={metaOpen} onClick={()=>setMetaOpen(!metaOpen)}>{t('studio.run.metadata.button')}</button>}
-     {(media||shown)&&hint&&<p className="wb-stage-hint" role="status">{t(hint)}</p>}
+     {(media||shown)&&(hint||(!shown&&stageMark))&&<div className="wb-stage-notes">{!shown&&stageMark&&<span className="media-mark wb-stage-mark">{stageMark}</span>}{hint&&<p className="wb-stage-hint" role="status">{t(hint)}</p>}</div>}
      {(media||shown)&&metaOpen&&<GenerationMetadata job={shown} media={shown?null:media} onApply={applySettings}/>}
      {editableSource&&media&&<div className="wb-editor-host" hidden={!!shown&&!editorLeft}>
       <StudioImageEditor key={media.src} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked} onInsert={insertLayer} layout={sideBySide?'split':'full'}/>
@@ -603,9 +637,12 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
      {viewer&&<ImageViewer src={viewer.src} alt={viewer.alt} onClose={()=>setViewer(null)}/>}
     </section>
     <div className="wb-prompts">
-     <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button><ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined}/></div>
+     <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/>{forgeContext&&<div className="wb-prompt-tools">
+      <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
+      <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
+      {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</div>}<button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button><ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext}/></div>
      <div className="wb-prompt wb-negative"><label htmlFor="run-negative">{t('studio.run.negative')}</label><textarea id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button></div>
-     {detached&&<PromptOverlay key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined}/>}</PromptOverlay>}
+     {detached&&<PromptOverlay key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext}/>}</PromptOverlay>}
     </div>
     {wildcardEnabled&&<div className="wildcard-prompt-status"><button type="button" className="wildcard-badge" title={t('wildcards.baseNotice')} onClick={()=>setDockTab('wildcards')}>{t(wildcard.auto_reroll?'wildcards.activeAuto':'wildcards.active')}</button><button type="button" className="wildcard-badge" onClick={()=>setWildcardEnabled(false)}>{t('wildcards.disable')}</button></div>}
    </div>
@@ -619,12 +656,15 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   </div>
   <div className="wb-dock" data-view={dockView} style={{height:dockHeight}}>
    <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} onPointerDown={dragDock}/>
-   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>id!=='continuity'||videoFamily==='minimax-h3').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
-    {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&dockTab!=='continuity'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
+   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>(id!=='continuity'||videoFamily==='minimax-h3')&&(id!=='references'||refsTab)).map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options'||id==='post')loadChoices();}}
+     // Media tiles live in another tab of this dock, so the References tab button itself takes the drop.
+     {...(id==='references'?{onDragOver:(e:React.DragEvent)=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();},onDrop:(e:React.DragEvent)=>{const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();addRefs([{item}]);}}}:{})}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
+    {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&dockTab!=='continuity'&&dockTab!=='references'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
     <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select>
+    {dockTab==='media'&&<select className="wb-dock-sort" data-dock-type aria-label={t('studio.run.dock.type')} value={dockType} onChange={e=>setDockType(e.target.value as MediaType)}>{mediaTypes.map(v=><option key={v} value={v}>{t(`studio.run.dock.type.${v}`)}</option>)}</select>}
     <select className="wb-dock-sort" data-dock-view aria-label={t('studio.run.view')} value={dockView} onChange={e=>setDockView(e.target.value as MediaView)}>{mediaViews.map(v=><option key={v} value={v}>{t(`studio.run.view.${v}`)}</option>)}</select></>}
     {(dockTab==='models'||dockTab==='loras')&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
-   {dockTab==='media'&&<MediaLibrary selected={media} onSelect={select} roots={roots} outputRevision={outputRevision} filter={query} sort={sort} view={dockView}/>}
+   {dockTab==='media'&&<MediaLibrary selected={media} onSelect={select} roots={roots} outputRevision={outputRevision} filter={query} sort={sort} view={dockView} type={dockType} marks={marks} actions={mediaActions}/>}
    {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
    {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
@@ -633,6 +673,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
    </div></section>}
+   {dockTab==='references'&&refsTab&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.references')}><ReferencesPanel refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)}/></section>}
    {dockTab==='continuity'&&videoFamily==='minimax-h3'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.continuity')}><ContinuityPlanner plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||!isVideo||!!sizeError}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>

@@ -17,8 +17,8 @@ pub use api::native_negotiate_api;
 pub mod jobs;
 pub mod jobs_video;
 pub use jobs::{
-    native_h3_session, native_input_upload, native_job_current, native_job_export,
-    native_job_output, native_job_prepare, native_job_status, native_job_submit,
+    native_h3_refmods, native_h3_session, native_input_upload, native_job_current,
+    native_job_export, native_job_output, native_job_prepare, native_job_status, native_job_submit,
     native_mask_upload,
 };
 pub mod model_families;
@@ -31,7 +31,7 @@ pub use backend::{native_backend_start, native_backend_status, native_backend_st
 pub mod hardware;
 pub use hardware::native_detect_hardware;
 pub mod directory;
-pub use directory::native_pick_directory;
+pub use directory::{native_json_open, native_json_save, native_pick_directory};
 pub mod media;
 pub mod media_metadata;
 pub use media::{

@@ -1,15 +1,16 @@
 import {useEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {oneOf,usePref} from '../../lib/preferences';
-import {sourcePoint,zoomAt,stampStroke,maskBounds,floodRegion,type ImageLayer,type Point,type View} from './imageEditor';
+import {sourcePoint,zoomAt,stampStroke,maskBounds,floodRegion,flattenImages,hasPaint,type ImageLayer,type Point,type View} from './imageEditor';
 import {MEDIA_DRAG,draggedItem,type MediaItem} from '../../lib/media';
 import './imageEditor.css';
-export interface EditorHandle{maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
+export interface EditorHandle{imagePng:()=>Promise<Uint8Array|null>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
 type Mask={id:string;n:number;visible:boolean;canvas:HTMLCanvasElement;content:boolean};
 export type Props={ref?:Ref<EditorHandle>;source:{src:string;name:string;width:number;height:number};layers:ImageLayer[];onLayers:(layers:ImageLayer[])=>void;maskMode:boolean;onMask:(present:boolean)=>void;/** A dock tile dropped onto the picture, with the drop point in source pixels. */onInsert:(item:MediaItem,at:Point)=>void;/** A change (e.g. entering side by side) refits the picture even after zooming. */layout?:string};
 const diameterOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=1&&v<=1024;
 // Mask overlay snaps to common opacities when dragged within 3 % of them; other values stay free.
 const overlayStops=[10,25,50,75];
+const LAYER_DRAG='application/x-deas-editor-layer';
 const snapOverlay=(n:number)=>overlayStops.find(v=>Math.abs(v-n)<=3)??n;
 const toleranceOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=0&&v<=255;
 const opacityOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=0&&v<=100;
@@ -40,18 +41,23 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   const pixels=useRef<{src:string;data:Promise<ImageData>}|null>(null);
   const [diameter,setDiameter]=usePref('studio.run.brush',48,diameterOK);
   const [shape,setShape]=usePref('studio.editor.shape','round',oneOf('round','square'));
-  const [opacity,setOpacity]=usePref('studio.editor.overlay',50,opacityOK);
+  const [opacity,setOpacity]=usePref('studio.editor.overlay',75,opacityOK);
   const [color,setColor]=usePref('studio.editor.color','#ff3b30',hexOK);const [hex,setHex]=useState(color);useEffect(()=>setHex(color),[color]);
   const [gray,setGray]=usePref('studio.editor.maskValue',255,grayOK);
   const [masks,setMasks]=useState<Mask[]>(()=>[newMask(1,source.width,source.height)]);
   const nextMask=useRef(2),[active,setActive]=useState('mask:1'),[revision,setRevision]=useState(0),[error,setError]=useState('');
   const masksRef=useRef(masks);masksRef.current=masks;
   const gesture=useRef<null|{pointer:number;kind:'paint';ctx:CanvasRenderingContext2D;mask?:Mask;map:(p:Point)=>Point;k:number;last:Point;erase:boolean;diameter:number;shape:'round'|'square';color:string}|{pointer:number;kind:'pan';start:Point;view:View}|{pointer:number;kind:'move'|'resize';start:Point;layer:ImageLayer}>(null);
+  const [base,setBase]=useState<ImageLayer>(()=>({id:'base',name:source.name,src:source.src,x:0,y:0,width:source.width,height:source.height,visible:true}));
+  const [baseIndex,setBaseIndex]=useState(0);
+  const images=[...layers];images.splice(Math.min(baseIndex,images.length),0,base);
+  const updateImages=(next:ImageLayer[])=>{const i=next.findIndex(l=>l.id==='base');setBase(next[i]??{...base,visible:false});setBaseIndex(Math.max(0,i));onLayers(next.filter(l=>l.id!=='base'));};
+  const imageEdited=()=>!base.visible||base.x!==0||base.y!==0||base.width!==source.width||base.height!==source.height||baseIndex>0||hasPaint(base.paint);
+  const draggedLayer=useRef<string|null>(null);
   const activeMask=masks.find(m=>`mask:${m.n}`===active);
-  const activeImage=layers.find(l=>l.id===active);
-  // The brush paints the active rail row: a mask (inpaint) or an inserted picture (any mode).
+  const activeImage=images.find(l=>l.id===active);
+  // All pictures, including the base, use the same brush and transform path.
   const brushEnabled=(maskMode&&!!activeMask?.visible)||!!activeImage?.visible;
-  const paintable=maskMode||layers.length>0;
   const painting=tool==='brush'||tool==='erase';
   const brushWheel=useRef<{diameter:number;set:(n:number)=>void}|null>(null);brushWheel.current=painting&&brushEnabled?{diameter,set:setDiameter}:null;
   function track(e:React.PointerEvent){const c=cursor.current,r=viewport.current?.getBoundingClientRect();if(c&&r){c.style.left=`${e.clientX-r.left}px`;c.style.top=`${e.clientY-r.top}px`;c.hidden=false;}}
@@ -125,7 +131,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     for(const m of masksRef.current)if(m.visible)ctx.drawImage(m.canvas,0,0);
     return c;
   }
-  useImperativeHandle(ref,()=>({maskBounds:(padding)=>{
+  useImperativeHandle(ref,()=>({imageEdited,imagePng:()=>{finish();return imageEdited()?flattenImages(images,source.width,source.height):Promise.resolve(null);},maskBounds:(padding)=>{
     const c=maskCanvas(),bounds=maskBounds(c.getContext('2d')!.getImageData(0,0,c.width,c.height).data,c.width,c.height,padding);
     if(!bounds)throw new Error(label('emptyMask'));
     return bounds;
@@ -150,7 +156,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
       // Strokes live at the picture's own pixel size so moving or resizing the layer never resamples them.
       const c=l.paint??(()=>{const img=world.current?.querySelector<HTMLImageElement>(`[data-layer="${l.id}"] img`);const c=document.createElement('canvas');c.width=img?.naturalWidth||l.width;c.height=img?.naturalHeight||l.height;return c;})();
       const ctx=c.getContext('2d');if(!ctx){fail();return;}
-      if(!l.paint)onLayers(layers.map(v=>v.id===l.id?{...v,paint:c}:v));
+      if(!l.paint)updateImages(images.map(v=>v.id===l.id?{...v,paint:c}:v));
       const k=c.width/l.width,map=(q:Point)=>({x:(q.x-l.x)*k,y:(q.y-l.y)*c.height/l.height});
       gesture.current={pointer:e.pointerId,kind:'paint',ctx,map,k,last:p,erase:tool==='erase',diameter,shape,color};
       stampStroke(ctx,map(p),map(p),diameter*k,shape,tool==='erase',color);
@@ -171,27 +177,36 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     if(g.kind==='paint'){stampStroke(g.ctx,g.map(g.last),g.map(p),g.diameter*g.k,g.shape,g.erase,g.color);g.last=p;if(g.mask)redraw();return;}
     const dx=Math.round(p.x-g.start.x),dy=Math.round(p.y-g.start.y),l=g.layer;
     const width=Math.max(8,Math.min(8192,l.width+dx));
-    onLayers(layers.map(v=>v.id!==l.id?v:g.kind==='move'?{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy))}:{...v,width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}));
+    updateImages(images.map(v=>v.id!==l.id?v:g.kind==='move'?{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy))}:{...v,width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}));
   }
   function imageKey(e:React.KeyboardEvent,l:ImageLayer){
     if(tool!=='select')return;const step=e.shiftKey?64:8;
     const dx=e.key==='ArrowRight'?step:e.key==='ArrowLeft'?-step:0,dy=e.key==='ArrowDown'?step:e.key==='ArrowUp'?-step:0;
-    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();onLayers(layers.filter(v=>v.id!==l.id));setActive('base');return;}
+    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();updateImages(images.filter(v=>v.id!==l.id));setActive('base');return;}
     const grow=e.key==='+'?step:e.key==='-'?-step:0;if(!dx&&!dy&&!grow)return;e.preventDefault();
     const width=Math.max(8,Math.min(8192,l.width+grow));
-    onLayers(layers.map(v=>v.id!==l.id?v:{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy)),...(grow?{width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}:{})}));
+    updateImages(images.map(v=>v.id!==l.id?v:{...v,x:Math.max(0,Math.min(source.width-1,l.x+dx)),y:Math.max(0,Math.min(source.height-1,l.y+dy)),...(grow?{width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}:{})}));
   }
   function reorder(delta:number){
     const swap=<T,>(list:T[],i:number)=>{const j=i+delta;if(i<0||j<0||j>=list.length)return null;const next=[...list];[next[i],next[j]]=[next[j],next[i]];return next;};
     if(activeMask){const next=swap(masks,masks.indexOf(activeMask));if(next)setMasks(next);return;}
-    const next=swap(layers,layers.findIndex(l=>l.id===active));if(next)onLayers(next);
+    const next=swap(images,images.findIndex(l=>l.id===active));if(next)updateImages(next);
   }
-  const stack=activeMask?masks:layers,stackId=(x:Mask|ImageLayer)=>'n' in x?`mask:${x.n}`:x.id;
-  function row(id:string,name:string,thumb:React.ReactNode,visible:boolean,choose:()=>void,toggle?:()=>void,remove?:()=>void){return <li key={id}><button type="button" aria-pressed={active===id} onClick={()=>{finish();setActive(id);choose();}}>{thumb}<span>{name}</span></button>{toggle&&<button type="button" aria-label={t(`studio.editor.${visible?'hide':'show'}`,{name})} className="sie-eye" onClick={()=>{finish();toggle();}}><Icon d={visible?icons.eye:icons.eyeOff}/></button>}{remove&&<button type="button" aria-label={t('studio.editor.remove',{name})} onClick={()=>{finish();remove();}}>×</button>}</li>;}
+  const stack=activeMask?masks:images,stackId=(x:Mask|ImageLayer)=>'n' in x?`mask:${x.n}`:x.id;
+  function dropLayer(e:React.DragEvent,target:string){
+    const id=draggedLayer.current;if(!id||id===target)return;
+    const fromMask=masks.findIndex(m=>`mask:${m.n}`===id),toMask=masks.findIndex(m=>`mask:${m.n}`===target);
+    const fromImage=images.findIndex(l=>l.id===id),toImage=images.findIndex(l=>l.id===target);
+    if((fromMask<0||toMask<0)&&(fromImage<0||toImage<0))return;
+    e.preventDefault();e.stopPropagation();finish();draggedLayer.current=null;
+    if(fromMask>=0&&toMask>=0){const next=[...masks];next.splice(toMask,0,next.splice(fromMask,1)[0]);setMasks(next);}
+    else{const next=[...images];next.splice(toImage,0,next.splice(fromImage,1)[0]);updateImages(next);}
+  }
+  function row(id:string,name:string,thumb:React.ReactNode,visible:boolean,choose:()=>void,toggle?:()=>void,remove?:()=>void){return <li key={id} draggable onDragStart={e=>{finish();draggedLayer.current=id;e.dataTransfer.setData(LAYER_DRAG,id);e.dataTransfer.effectAllowed='move';}} onDragEnd={()=>{draggedLayer.current=null;}} onDragOver={e=>{if(draggedLayer.current&&e.dataTransfer.types.includes(LAYER_DRAG)){e.preventDefault();e.dataTransfer.dropEffect='move';}}} onDrop={e=>dropLayer(e,id)}><button type="button" aria-pressed={active===id} onClick={()=>{finish();setActive(id);choose();}}>{thumb}<span>{name}</span></button>{toggle&&<button type="button" aria-label={t(`studio.editor.${visible?'hide':'show'}`,{name})} className="sie-eye" onClick={()=>{finish();toggle();}}><Icon d={visible?icons.eye:icons.eyeOff}/></button>}{remove&&<button type="button" aria-label={t('studio.editor.remove',{name})} onClick={()=>{finish();remove();}}>×</button>}</li>;}
   return <section className="sie" aria-label={label('title')}>
     <div className="sie-tools" role="toolbar" aria-label={label('title')}>
-      <span className="sie-seg">{(maskMode?['select','brush','erase','wand','pan'] as const:paintable?['select','brush','erase','pan'] as const:['select','pan'] as const).map(v=><button type="button" className="sie-tool" key={v} aria-pressed={tool===v} disabled={((v==='brush'||v==='erase')&&!brushEnabled)||(v==='wand'&&!activeMask?.visible)} onClick={()=>{finish();setTool(v);}}><Icon d={icons[v]}/>{label(v)}</button>)}</span>
-      {paintable&&<>
+      <span className="sie-seg">{(maskMode?['select','brush','erase','wand','pan'] as const:['select','brush','erase','pan'] as const).map(v=><button type="button" className="sie-tool" key={v} aria-pressed={tool===v} disabled={((v==='brush'||v==='erase')&&!brushEnabled)||(v==='wand'&&!activeMask?.visible)} onClick={()=>{finish();setTool(v);}}><Icon d={icons[v]}/>{label(v)}</button>)}</span>
+      <>
       {tool==='wand'&&maskMode&&<label title={label('wandHelp')}>{label('tolerance')}<input type="range" aria-label={label('tolerance')} min={0} max={255} value={tolerance} onChange={e=>setTolerance(Number(e.target.value))}/><output>{tolerance}</output></label>}
       <label>{label('diameter')}<input type="number" min={1} max={1024} value={diameter} onChange={e=>{const n=Number(e.target.value);if(diameterOK(n))setDiameter(n);}}/></label>
       <input type="range" className="sie-diameter" aria-label={label('diameter')} min={1} max={1024} value={diameter} onChange={e=>setDiameter(Number(e.target.value))}/>
@@ -202,8 +217,8 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
        {palette.map(c=><button key={c} type="button" className="sie-swatch" aria-label={c} aria-pressed={color===c} style={{background:c}} onClick={()=>setColor(c)}/>)}
       </span>}
       {maskMode&&activeMask&&<label>{label('maskValue')}<input type="range" className="sie-gray" min={0} max={255} value={gray} style={{'--gray':`rgb(${gray},${gray},${gray})`} as React.CSSProperties} onChange={e=>setGray(Number(e.target.value))}/></label>}
-      <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){l.paint.getContext('2d')?.clearRect(0,0,l.paint.width,l.paint.height);return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;onMask(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>
-      </>}
+      <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){const ctx=l.paint.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,l.paint.width,l.paint.height);return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;onMask(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>
+      </>
       <span className="sie-view">
       <button type="button" aria-label={label('zoomOut')} onClick={()=>{finish();auto.current=false;setView(v=>zoomAt(v,{x:(viewport.current?.clientWidth??0)/2,y:(viewport.current?.clientHeight??0)/2},v.scale/1.25));}}>−</button>
       <button type="button" onClick={()=>{finish();fit();}}>{label('fit')}</button>
@@ -215,8 +230,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     <div className="sie-body">
       <div ref={viewport} className="sie-viewport" data-editor-viewport data-tool={painting&&!brushEnabled?'off':tool} onPointerDown={e=>{track(e);begin(e);}} onPointerMove={move} onPointerLeave={()=>{if(cursor.current)cursor.current.hidden=true;}} onPointerUp={e=>{if(gesture.current?.pointer===e.pointerId)finish();}} onPointerCancel={finish} onLostPointerCapture={finish} onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();}} onDrop={e=>{const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();finish();onInsert(item,point(e));}}}>
         <div ref={world} className="sie-world" data-testid="editor-world" style={{width:source.width,height:source.height,transform:`translate(${view.x}px, ${view.y}px) scale(${view.scale})`}}>
-          <img className="sie-base" src={source.src} alt={source.name} draggable={false}/>
-          {layers.filter(l=>l.visible).map(l=><div className={`sie-image${active===l.id?' is-selected':''}`} key={l.id} role="group" aria-label={t('studio.run.edit.layer',{name:l.name})} tabIndex={0} data-layer={l.id} style={{left:l.x,top:l.y,width:l.width,height:l.height,pointerEvents:tool==='select'?'auto':'none'}} onFocus={()=>setActive(l.id)} onPointerDown={e=>begin(e,l)} onKeyDown={e=>imageKey(e,l)}><img src={l.src} alt="" draggable={false}/>{l.paint&&<Mounted node={l.paint}/>}{active===l.id&&tool==='select'&&<button className="sie-resize" type="button" aria-label={t('studio.editor.resize',{name:l.name})} onPointerDown={e=>begin(e,l,true)}>↘</button>}</div>)}
+          {images.filter(l=>l.visible).map(l=><div className={`sie-image${active===l.id?' is-selected':''}`} key={l.id} role="group" aria-label={l.id==='base'?label('base'):t('studio.run.edit.layer',{name:l.name})} tabIndex={0} data-layer={l.id} style={{left:l.x,top:l.y,width:l.width,height:l.height,pointerEvents:tool==='select'?'auto':'none'}} onFocus={()=>setActive(l.id)} onPointerDown={e=>begin(e,l)} onKeyDown={e=>imageKey(e,l)}><img src={l.src} alt={l.id==='base'?source.name:''} draggable={false}/>{l.paint&&<Mounted node={l.paint}/>}{active===l.id&&tool==='select'&&<button className="sie-resize" type="button" aria-label={t('studio.editor.resize',{name:l.name})} onPointerDown={e=>begin(e,l,true)}>↘</button>}</div>)}
           <canvas ref={overlay} className="sie-mask" aria-label={t('studio.run.edit.mask')} width={source.width} height={source.height} style={{opacity:maskMode?opacity/100:0}}/>
         </div>
         {painting&&brushEnabled&&<div ref={cursor} className={`sie-cursor is-${shape}${tool==='erase'?' is-erase':''}`} hidden aria-hidden="true" style={{width:diameter*view.scale,height:diameter*view.scale}}/>}
@@ -224,8 +238,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
       <aside className="sie-rail" aria-label={label('layers')}>
         {maskMode&&<button type="button" disabled={masks.length>=4} onClick={()=>{finish();const n=nextMask.current++;setMasks(v=>[...v,newMask(n,source.width,source.height)]);setActive(`mask:${n}`);setTool('brush');}}>{label('addMask')}</button>}
         <ul>{maskMode&&[...masks].reverse().map(m=>{const name=t('studio.editor.mask',{n:String(m.n)});return row(`mask:${m.n}`,name,<Thumbnail mask={m} revision={revision}/>,m.visible,()=>setTool('brush'),()=>setMasks(v=>v.map(x=>x.id===m.id?{...x,visible:!x.visible}:x)),()=>{setMasks(v=>v.filter(x=>x.id!==m.id));if(active===`mask:${m.n}`){setActive('base');setTool('select');}});})}
-          {[...layers].reverse().map(l=>row(l.id,l.name,<img src={l.src} alt=""/>,l.visible,()=>setTool('select'),()=>onLayers(layers.map(x=>x.id===l.id?{...x,visible:!x.visible}:x)),()=>{onLayers(layers.filter(x=>x.id!==l.id));if(active===l.id)setActive('base');}))}
-          {row('base',label('base'),<img src={source.src} alt=""/>,true,()=>setTool('select'))}</ul>
+          {[...images].reverse().map(l=>row(l.id,l.id==='base'?label('base'):l.name,<img src={l.src} alt=""/>,l.visible,()=>setTool('select'),()=>updateImages(images.map(x=>x.id===l.id?{...x,visible:!x.visible}:x)),l.id==='base'?undefined:()=>{updateImages(images.filter(x=>x.id!==l.id));if(active===l.id)setActive('base');}))}</ul>
         <button type="button" disabled={(!activeImage&&!activeMask)||stackId(stack.at(-1)!)===active} onClick={()=>reorder(1)}>{label('raise')}</button>
         <button type="button" disabled={(!activeImage&&!activeMask)||stackId(stack[0])===active} onClick={()=>reorder(-1)}>{label('lower')}</button>
       </aside>

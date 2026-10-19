@@ -49,6 +49,25 @@ export async function flattenLayer(l:ImageLayer):Promise<Uint8Array|null>{
  const blob=await new Promise<Blob|null>(done=>c.toBlob(done,'image/png'));if(!blob)throw new Error('canvas');
  return new Uint8Array(await blob.arrayBuffer());
 }
+/** Snapshot image strokes/geometry before decoding; masks never enter this composite. */
+export async function flattenImages(layers:readonly ImageLayer[],width:number,height:number):Promise<Uint8Array>{
+ const c=document.createElement('canvas');c.width=width;c.height=height;
+ const ctx=c.getContext('2d');if(!ctx)throw new Error('canvas');
+ const snapshot=layers.filter(l=>l.visible).map(l=>{
+  if(!l.paint)return {...l};
+  const paint=document.createElement('canvas');paint.width=l.paint.width;paint.height=l.paint.height;
+  const ctx=paint.getContext('2d');if(!ctx)throw new Error('canvas');ctx.drawImage(l.paint,0,0);
+  return {...l,paint};
+ });
+ for(const l of snapshot){
+  const response=await fetch(l.src);if(!response.ok)throw new Error(`Image load failed: ${response.status}`);
+  const bitmap=await createImageBitmap(await response.blob());
+  try{ctx.drawImage(bitmap,l.x,l.y,l.width,l.height);}finally{bitmap.close();}
+  if(l.paint)ctx.drawImage(l.paint,l.x,l.y,l.width,l.height);
+ }
+ const blob=await new Promise<Blob|null>(done=>c.toBlob(done,'image/png'));if(!blob)throw new Error('canvas');
+ return new Uint8Array(await blob.arrayBuffer());
+}
 export type BrushShape='round'|'square';
 /** Magic-wand region: pixels 4-connected to (x,y) whose RGB channels each differ from the seed by at most `tolerance` (0–255). 1 = selected. */
 export function floodRegion(data:Uint8ClampedArray,width:number,height:number,x:number,y:number,tolerance:number):Uint8Array{

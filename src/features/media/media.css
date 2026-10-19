@@ -50,3 +50,9 @@
 .media-menu { position: fixed; z-index: 50; min-width: 11rem; padding: 4px; border: 1px solid #627477; border-radius: .5rem; background: #1c2427; box-shadow: 0 6px 20px #000000b0; }
 .media-menu button { display: block; width: 100%; padding: .35rem .6rem; border: 0; border-radius: .35rem; background: transparent; color: inherit; font-size: .8rem; text-align: left; }
 .media-menu button:hover, .media-menu button:focus-visible { background: #2a4a3a; }
+.media-menu button:disabled { background: transparent; color: var(--muted); }
+.media-menu small { display: block; font-size: .7rem; }
+/* Reference marks: an accent border and a label badge, in every view. */
+.media-list li[data-mark] { position: relative; }
+.media-list li[data-mark] > button { border-color: var(--accent, #c8762c); }
+.media-mark { position: absolute; top: 4px; right: 4px; padding: 0 5px; border-radius: .3rem; background: var(--accent, #c8762c); color: #11171a; font-size: .62rem; font-weight: 600; pointer-events: none; white-space: nowrap; }

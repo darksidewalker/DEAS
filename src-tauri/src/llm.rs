@@ -764,6 +764,8 @@ fn forge_route(route: &str) -> Result<&'static str, String> {
     Ok(match route {
         "models" => "dasiwa/h3/forge/models",
         "h3" => "dasiwa/h3/forge",
+        "cancel" => "dasiwa/h3/forge/cancel",
+        "cast" => "dasiwa/h3/forge/cast",
         "write" => "dasiwa/llm/write",
         _ => return Err("Unknown Prompt Forge route".into()),
     })

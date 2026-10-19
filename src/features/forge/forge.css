@@ -27,3 +27,6 @@
 .forge-check input { width: auto; flex: none; }
 .forge-media { min-height: 12rem; }
 @media (max-width: 900px) { .forge-tab { grid-template-columns: minmax(0, 1fr); } }
+.forge-cast { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 4px 6px; border: 1px solid rgba(228,228,222,.16); border-radius: 6px; }
+.forge-cast legend { font-size: 11px; color: var(--muted); }
+.forge-cast button { margin-left: 6px; padding: 0 6px; font-size: 11px; }

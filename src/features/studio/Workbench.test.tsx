@@ -6,12 +6,12 @@ import { defaultOptions } from './OptionsPanel';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, type JobStatus } from '../../lib/jobs';
+import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
-vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),readRefMods:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler'],schedulers:['normal']}};
 beforeEach(()=>{
@@ -344,7 +344,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[3][1].refine).toEqual({width:2048,height:2048,denoise:0.25,tiled:{tileWidth:1024,tileHeight:1024,overlap:128}});
 });
 
-test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits crop/blur only when enabled (%s)',async(cropped)=>{
+test.each([{cropped:false,paintBase:false},{cropped:true,paintBase:false},{cropped:false,paintBase:true}])('IPC fixture: Inpaint preserves draft and submits edited base ($cropped, $paintBase)',async({cropped,paintBase})=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('out.png'),entry('cat.png')],truncated:false}));
@@ -388,15 +388,23 @@ test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits cr
  expect(screen.getByRole('group',{name:'Inserted image cat.png [output]'})).toBe(layer);
  expect(screen.getByLabelText('Inpaint mask',{selector:'canvas'})).toBe(mask);
  expect(document.querySelector('[data-editor-viewport]')).toBe(viewport);
+ if(paintBase){
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,blob:async()=>new Blob()})));
+  vi.stubGlobal('createImageBitmap',vi.fn(async()=>({close:vi.fn()})));
+  fireEvent.click(screen.getByRole('button',{name:'Base image'}));fireEvent.click(screen.getByRole('button',{name:'Brush'}));
+  fireEvent(viewport,new MouseEvent('pointerdown',{clientX:200,clientY:100,buttons:1,bubbles:true}));
+  fireEvent(viewport,new MouseEvent('pointerup',{clientX:200,clientY:100,bubbles:true}));
+ }
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
  expect(uploadMask).toHaveBeenCalledWith('http://127.0.0.1:7801',new Uint8Array([137,80,78,71]));
  const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
- expect(intent).toMatchObject({inputImage:'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8,width:1024,height:640});
+ expect(intent).toMatchObject({inputImage:paintBase?'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png':'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8,width:1024,height:640});
  expect(intent.inputResize).toBeUndefined();
  if(cropped){expect(intent.maskBlur).toBe(8);expect(intent.inpaintCrop).toEqual({x:0,y:0,width:41,height:41,targetWidth:1024,targetHeight:1024});}
  else{expect(intent.maskBlur).toBe(4);expect(intent.inpaintCrop).toBeUndefined();}
- expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:350,y:235,width:341,height:171}]);
+ if(paintBase){expect(intent.inputLayers).toBeUndefined();expect(uploadMask).toHaveBeenCalledTimes(2);}
+ else expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:350,y:235,width:341,height:171}]);
  // The edit job opens side by side: the same editor stays live on the left, no return needed.
  expect(screen.queryByRole('button',{name:'Return to edit draft'})).toBeNull();
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
@@ -704,7 +712,12 @@ const ltxModels=[
 const mediaEntries=[
  {name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1},
  {name:'clip.mp4',path:'/env/ComfyUI/input/clip.mp4',kind:'file',symlink:false,media:'video',size:1,modified:2},
- {name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',kind:'file',symlink:false,media:'audio',size:1,modified:3}];
+ {name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',kind:'file',symlink:false,media:'audio',size:1,modified:3},
+ {name:'a2.wav',path:'/env/ComfyUI/input/a2.wav',kind:'file',symlink:false,media:'audio',size:1,modified:4},
+ {name:'a3.wav',path:'/env/ComfyUI/input/a3.wav',kind:'file',symlink:false,media:'audio',size:1,modified:5}];
+/** Right-click a Media dock tile and return its menu. */
+const menuOf=(name:string)=>{fireEvent.contextMenu(screen.getByRole('button',{name}),{clientX:5,clientY:5});return within(screen.getByRole('menu',{name}));};
+const markOf=(name:string)=>screen.getByRole('button',{name}).closest('li')!.dataset.mark;
 const loadVideo=(name:string)=>{const v=document.querySelector<HTMLVideoElement>(`.wb-stage video`)!;Object.defineProperties(v,{videoWidth:{value:1280},videoHeight:{value:704}});fireEvent.loadedMetadata(v);void name;};
 
 test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference → Video sends image keyframes at their seconds',async()=>{
@@ -720,8 +733,12 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  choosePipe('Video → Video');
  expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick a video from the Media dock as the source.');
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
- fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));
+ await screen.findByRole('button',{name:'clip.mp4'});
+ expect(menuOf('ref.png').queryByRole('menuitem',{name:'Use as source video'})).toBeNull();fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use as source video'}));
  loadVideo('clip.mp4');
+ expect(markOf('clip.mp4')).toBe('Source video');
+ expect(document.querySelector('.wb-stage-mark')?.textContent).toBe('Source video');
  fireEvent.change(screen.getByLabelText('Source strength'),{target:{value:'0.7'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -734,21 +751,41 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  choosePipe('Multi-reference → Video');
  expect(screen.queryByRole('button',{name:'Add as reference'})).toBeNull();
  expect(screen.getByText('Add at least one reference with its “Add as reference” button.')).toBeTruthy();
+ const blocked=menuOf('clip.mp4').getByRole('menuitem',{name:/Add as reference/}) as HTMLButtonElement;
+ expect(blocked.disabled).toBe(true);expect(blocked.textContent).toContain('LTX takes images as references only.');
+ fireEvent.keyDown(window,{key:'Escape'});
  fireEvent.click(screen.getByRole('button',{name:'ref.png'}));
  const img=await screen.findByRole('img',{name:'ref.png'});
  Object.defineProperties(img,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(img);
  fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
- expect(screen.getByRole('group',{name:'References'})).toBeTruthy();
+ expect(markOf('ref.png')).toBe('@ 0 s');
+ fireEvent.click(screen.getByRole('button',{name:'Edit'}));
+ expect(screen.getByRole('tab',{name:'References'}).getAttribute('aria-selected')).toBe('true');
+ // A dock video dropped on the tab is refused with the reason (LTX references are images).
+ const clip={name:'clip.mp4',path:'/env/ComfyUI/input/clip.mp4',media:'video',src:'asset://localhost//env/ComfyUI/input/clip.mp4'};
+ fireEvent.drop(document.querySelector('[data-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(clip)}});
+ expect(screen.getByRole('alert').textContent).toBe('clip.mp4: LTX takes images as references only.');
+ // The References tab button takes dock drops too (the Media tab is the drag source).
+ const voice={name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',media:'audio',src:'asset://localhost//env/ComfyUI/input/voice.wav'};
+ fireEvent.drop(screen.getByRole('tab',{name:'References'}),{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(voice)}});
+ expect(screen.getByRole('alert').textContent).toBe('voice.wav: LTX takes images as references only.');
  fireEvent.change(screen.getByLabelText('Second of ref.png'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('Strength of ref.png'),{target:{value:'0.5'}});
+ expect(screen.queryByRole('button',{name:/Insert/})).toBeNull(); // Director labels are H3-only
+ fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ expect(markOf('ref.png')).toBe('@ 1 s');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
  const second=vi.mocked(prepareDiagnosticJob).mock.calls[1][1];
  expect(second).toMatchObject({family:'ltx-2',ltx:{keyframes:[{image:'ref.png',frame:24,strength:0.5}]}});
  expect(second).not.toHaveProperty('sourceVideo');
- fireEvent.click(screen.getByRole('button',{name:'Remove reference ref.png'}));
- expect(screen.getByText('Select images in the Media dock and press “Add as reference”; each guides the video from its second on.')).toBeTruthy();
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Remove reference ref.png'}));
+ expect(markOf('ref.png')).toBeUndefined();
+ // Leaving Multi-reference hides the References tab and falls back to Media.
+ fireEvent.click(screen.getByRole('button',{name:'Edit'}));choosePipe('Video → Video');
+ expect(screen.queryByRole('tab',{name:'References'})).toBeNull();
+ await waitFor(()=>expect(screen.getByRole('tab',{name:'Media'}).getAttribute('aria-selected')).toBe('true'));
 });
 
 test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video as REF2VA timeline media',async()=>{
@@ -779,18 +816,63 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  choosePipe('Multi-reference → Video');
  fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));
  fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
+ fireEvent.click(screen.getByRole('button',{name:'Edit'}));
  fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
- fireEvent.click(screen.getByRole('button',{name:'voice.wav'}));
- fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Add as reference'}));
  fireEvent.click(screen.getByRole('button',{name:'ref.png'}));
  const img=await screen.findByRole('img',{name:'ref.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
  fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
+ expect(document.querySelector('.wb-stage-mark')?.textContent).toBe('<Picture 1>');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({h3:{mode:'REF2VA',media:[
   {type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'audio'},{type:'audio',file:'deas-inputs/s.wav',slot:1},{type:'image',file:'deas-inputs/i.png',slot:0}]}});
+ // Badges are the Director's prompt labels; the third sound track fills the audio lane, so a fourth is refused with the reason.
+ expect([markOf('clip.mp4'),markOf('voice.wav'),markOf('ref.png')]).toEqual(['<Audio 1>','<Audio 2>','<Picture 1>']);
+ fireEvent.click(menuOf('a2.wav').getByRole('menuitem',{name:'Add as reference'}));
+ const full=menuOf('a3.wav').getByRole('menuitem',{name:/Add as reference/}) as HTMLButtonElement;
+ expect(full.disabled).toBe(true);expect(full.textContent).toContain('Director limit reached');
+ fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Remove reference voice.wav'}));
+ expect(markOf('voice.wav')).toBeUndefined();expect(markOf('a2.wav')).toBe('<Audio 2>');
+ // References tab: a too-short trim blocks Run with the reason; a valid one reaches h3.media; labels go into the prompt.
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
+ fireEvent.click(screen.getByRole('tab',{name:'References'}));
+ expect(screen.getByText('Images 1/9 · Videos 0/3 · Sound 2/3 · Files 3/12')).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('Start of a2.wav'),{target:{value:'1'}});
+ fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'2'}});
+ expect(screen.getByRole('alert').textContent).toBe('A trimmed clip must last 2–15 s (end after start).');
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'4.5'}});
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'a singer'}});
+ fireEvent.click(screen.getByRole('button',{name:'Insert <Audio 2> into the prompt'}));
+ // Director input scaling: the default Fill and crop stays implicit; another mode is sent.
+ expect((vi.mocked(prepareDiagnosticJob).mock.calls[1][1] as unknown as {h3:object}).h3).not.toHaveProperty('inputScaling');
+ fireEvent.change(document.querySelector('[data-h3-scaling]')!,{target:{value:'Fit and pad'}});
+ // RefMods: read the backend library on demand, add one; it travels as a Director RefMod row.
+ vi.mocked(readRefMods).mockResolvedValue([{name:'chars/hero',kinds:['image'],description:'the hero'}]);
+ fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));
+ expect(readRefMods).toHaveBeenCalledWith('http://127.0.0.1:7801');
+ fireEvent.change(screen.getByLabelText('Strength of chars/hero'),{target:{value:'0.6'}});
+ expect(screen.getByText('Fit the whole reference and pad to the canvas.')).toBeTruthy();
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('a singer <Audio 2>');
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[2][1]).toMatchObject({h3:{media:[
+  {type:'video',slot:0,mediaMode:'audio'},{type:'image',slot:0},{type:'audio',slot:1,trimStart:1,trimEnd:4.5}],inputScaling:'Fit and pad',refmods:[{slot:1,name:'chars/hero',strength:0.6,description:'the hero'}]}});
+ expect((vi.mocked(prepareDiagnosticJob).mock.calls[2][1] as unknown as {h3:{media:object[]}}).h3.media[0]).not.toHaveProperty('trimStart');
+ // Director prompt helpers: Prefill fills the REF2VA sections around the written text (RefMod after the timeline media); [Shot N] numbers on.
+ fireEvent.click(screen.getByRole('button',{name:'Prefill labels & summary'}));
+ const prompt=()=>(screen.getByLabelText('Prompt') as HTMLTextAreaElement).value;
+ expect(prompt()).toMatch(/^subject_definitions:\n<Picture 1> is an image reference.*\n<Audio 1> is the audio track selected from a video.*\n<Audio 2> is an audio reference.*\n<Picture 2> is a saved image reference \(RefMod 1\) User description: the hero\./);
+ expect(prompt()).toContain('detailed_description:\na singer <Audio 2>');
+ fireEvent.click(screen.getByRole('button',{name:'Insert [Shot N]'}));
+ expect(prompt().endsWith('[Shot 1] ')).toBe(true);
 });
 
 test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit: shifts instead of denoise, no refine pass',async()=>{

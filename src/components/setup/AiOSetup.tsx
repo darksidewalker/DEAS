@@ -52,7 +52,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const [folders,setFolders]=useState<Folders>({});const [folderDraft,setFolderDraft]=useState<Folders>({});
  const plan=setupPlan(state);
  const signature=JSON.stringify([plan,folderDraft]);
- const planMatches=JSON.stringify(nativePlan?.request.folders??{})===JSON.stringify(folderDraft)&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
+ const planMatches=(['models','input','output'] as const).every(key=>nativePlan?.request.folders?.[key]===folderDraft[key])&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
  const [view,setView]=useState<'studio'|'downloads'|'comfy'|'setup'|'auth'|'settings'|'logs'>('setup');
  const [backendStatus,setBackendStatus]=useState<NativeBackendStatus|null>(null);
  const comfyEndpoint=backendStatus?.state==='running'?backendStatus.endpoint??'':'';

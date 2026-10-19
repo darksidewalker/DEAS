@@ -1,0 +1,226 @@
+import { useEffect, useRef, useState } from 'react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { useI18n } from '../../i18n/I18nProvider';
+import { describeMedia, draggedItem, itemFromEntry, MEDIA_DRAG, type MediaItem } from '../../lib/media';
+import type { RefModEntry } from '../../lib/jobs';
+import type { H3Reference } from '../../lib/forge';
+import type { H3Context } from '../forge/ForgeButton';
+
+/** A Multi-reference → Video pick: LTX uses images at a second with a guide strength; H3 (REF2VA) also takes videos/audio, optionally trimmed (seconds). */
+export interface VideoRef { item:MediaItem; second:number; strength:number; mediaMode:'video'|'audio'|'video_audio'; trimStart?:number; trimEnd?:number;
+ /** Director Forge picture label (REF2VA images; unset = next free Character); `instructions` = what to take from this reference. */ label?:string; instructions?:string;
+ /** Forge keep / drop details (`forge_keep`/`forge_drop`) and the prefill's user description (the Director's `prompt`, not in packs). */ keep?:string; drop?:string; description?:string }
+/** Director picture labels DEAS offers (subset of `PICTURE_LABELS`; groups are not offered yet). */
+export const pictureLabels=[...Array.from({length:9},(_,i)=>`character-${i+1}`),'place','style','first-frame','last-frame','pose','custom'];
+/** Forge labels per reference as the Director assigns them (`pictureLabels`): a chosen label is kept, other images take the next free Character number; non-images get none. */
+export const forgeLabels=(refs:VideoRef[])=>{
+ const used=new Set(refs.flatMap(r=>r.item.media==='image'&&r.label?.startsWith('character-')?[Number(r.label.slice(10))]:[]));
+ const take=()=>{let n=1;while(used.has(n))n++;used.add(n);return `character-${n}`;};
+ return refs.map(r=>r.item.media!=='image'?'':r.label&&pictureLabels.includes(r.label)?r.label:take());
+};
+const labelRole=(label:string)=>label.startsWith('character-')?{role:'subject',subject_group:'ABCDEFGHI'[Number(label.slice(10))-1]??label}:{role:({style:'style','first-frame':'keyframe','last-frame':'keyframe',pose:'pose',custom:'custom'} as Record<string,string>)[label]??'subject',subject_group:''};
+type Lane='image'|'video'|'audio';
+/** Director lane of a reference: a video used only as sound sits in the audio lane. */
+export const laneOf=(r:VideoRef):Lane=>r.item.media==='video'&&r.mediaMode==='audio'?'audio':r.item.media as Lane;
+/** Slot per lane in list order — the Director's `<Picture N>`/`<Video N>`/`<Audio N>` numbering is slot + 1. */
+export const slotsOf=(refs:VideoRef[])=>{const used:Record<string,number>={};return refs.map(r=>used[laneOf(r)]=(used[laneOf(r)]??-1)+1);};
+const tagName={image:'Picture',video:'Video',audio:'Audio'} as const;
+/** Director prompt labels per reference (`<Picture 1>`, `<Video 2> <Audio 1>`), numbered as the node loads media: images, then video items
+ * (picture and/or sound), then audio files, each by slot — the same order as the Director's own label prefill. */
+export const directorTags=(refs:VideoRef[])=>{
+ const slots=slotsOf(refs);const rank={image:0,video:1,audio:2} as Record<string,number>;const n={image:0,video:0,audio:0};const out=refs.map(()=>[] as string[]);
+ for(const i of refs.map((_,i)=>i).sort((a,b)=>rank[refs[a].item.media??'']-rank[refs[b].item.media??'']||slots[a]-slots[b]||a-b)){
+  const r=refs[i];const kinds=r.item.media==='video'?(['video','audio'] as const).filter(k=>k==='video'?r.mediaMode!=='audio':r.mediaMode!=='video'):[r.item.media as 'image'|'audio'];
+  for(const k of kinds)out[i].push(`<${tagName[k]} ${++n[k]}>`);
+ }
+ return out.map(x=>x.join(' '));
+};
+/** Director Forge references in node order (`forgeReferences`): images as subjects (REF2VA) or keyframes, videos as motion with their sound stream, audio;
+ * `path` only for files in the input folder (the node reads pictures from there), clip length only when both trims are set. */
+export function forgeReferences(refs:VideoRef[],mode:string,inputRoot?:string):H3Reference[]{
+ const slots=slotsOf(refs);const rank={image:0,video:1,audio:2} as Record<string,number>;
+ const root=inputRoot?inputRoot.replace(/\\/g,'/').replace(/\/+$/,'')+'/':'';
+ const rel=(r:VideoRef)=>{const p=(r.item.path??'').replace(/\\/g,'/');return root&&p.startsWith(root)?{path:p.slice(root.length)}:{};};
+ const length=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined?{duration_seconds:r.trimEnd-r.trimStart}:{};
+ const labels=forgeLabels(refs);
+ return refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).map(({r}):H3Reference=>
+  ({...(r.item.media==='image'?{kind:'image' as const,...rel(r),...(mode==='REF2VA'?{...labelRole(labels[refs.indexOf(r)]),easy_role:labels[refs.indexOf(r)]}:{role:'keyframe',subject_group:''})}
+  :r.item.media==='video'?{kind:'video' as const,role:'motion',stream:r.mediaMode==='audio'?'audio' as const:r.mediaMode==='video_audio'?'both' as const:'video' as const,...length(r)}
+  :{kind:'audio' as const,...length(r)}),...(r.instructions?.trim()?{instructions:r.instructions.trim()}:{}),...(r.keep?.trim()?{keep:r.keep.trim()}:{}),...(r.drop?.trim()?{drop:r.drop.trim()}:{})}));
+}
+/** What the Director Forge gets for a MiniMax H3 video run: the mode and references the intent will carry (REF2VA for
+ * Video → Video and Multi-reference, else the first/last-frame mode), the duration and the exact output canvas. */
+export function h3ForgeContext(o:{pipeline:string;media:MediaItem|null;lastFrame:MediaItem|null;refs:VideoRef[];sourceAudio:boolean;seconds:number;canvas:{width:number;height:number};inputRoot?:string}):H3Context{
+ const ref=(item:MediaItem,mediaMode:VideoRef['mediaMode']='video'):VideoRef=>({item,second:0,strength:1,mediaMode});
+ const base={duration:o.seconds,canvas:{width:o.canvas.width,height:o.canvas.height}};
+ if(o.pipeline==='v2v'||o.pipeline==='ref2v'){
+  const picks=o.pipeline==='v2v'?(o.media?.media==='video'?[ref(o.media,o.sourceAudio?'video_audio':'video')]:[]):o.refs;
+  // Picture labels (the Director's easy mode) apply when every reference is a labelled picture.
+  return {...base,mode:'REF2VA',references:forgeReferences(picks,'REF2VA',o.inputRoot),easy:picks.length>0&&picks.every(r=>r.item.media==='image')};
+ }
+ const first=o.pipeline==='i2v'&&o.media?.media==='image'?o.media:null;
+ const frames=[first,o.lastFrame].flatMap(i=>i?[ref(i)]:[]);
+ return {...base,mode:first&&o.lastFrame?'FL2VA':first?'I2VA':o.lastFrame?'L2VA':'T2VA',references:forgeReferences(frames,'I2VA',o.inputRoot),easy:false};
+}
+/** Timeline references in the Director prefill's order (images, video items, audio files; each by slot). */
+export const prefillItems=(refs:VideoRef[])=>{const slots=slotsOf(refs);const rank={image:0,video:1,audio:2} as Record<string,number>;
+ return refs.map((r,i)=>({type:r.item.media as Lane,slot:slots[i],mediaMode:r.mediaMode,description:r.description??'',i})).sort((a,b)=>rank[a.type]-rank[b.type]||a.slot-b.slot||a.i-b.i).map(({i:_,...x})=>x);};
+/** Counts the Director limits apply to; a video with sound counts as video and sound track (as native validation does). */
+export const refCounts=(refs:VideoRef[])=>({images:refs.filter(r=>r.item.media==='image').length,videos:refs.filter(r=>r.item.media==='video'&&r.mediaMode!=='audio').length,
+ audio:refs.filter(r=>r.item.media==='audio'||(r.item.media==='video'&&r.mediaMode!=='video')).length,files:refs.length});
+export const over=(c:ReturnType<typeof refCounts>)=>c.files>12||c.images>9||c.videos>3||c.audio>3;
+/** Director REF2VA limits: 9 images, 3 videos, 3 sound tracks, 12 files. */
+export const h3Full=(refs:VideoRef[],item:MediaItem)=>over(refCounts([...refs,{item,second:0,strength:1,mediaMode:'video'}]));
+/** The Director takes 2–15 s per clip; checkable here only when both trim ends are set (the node checks the rest). */
+export const badTrim=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined&&!(r.trimEnd-r.trimStart>=2&&r.trimEnd-r.trimStart<=15);
+/** Why the reference list cannot run as is (locale key), else ''. */
+export const refsProblem=(refs:VideoRef[])=>over(refCounts(refs))?'studio.run.video.refFull':refs.some(badTrim)?'studio.run.video.trimInvalid':'';
+/** A RefMod row (saved REF2VA reference in `models/refmods`); its Director slot is its position + 1. */
+export interface RefMod { name:string; strength:number; description:string; /** Library media kinds; unknown for rows loaded from a pack until the library is read. */ kinds?:string[] }
+/** A reference to add; omitted fields take the defaults (picture-only video, untrimmed). */
+export type RefAdd={item:MediaItem}&Partial<Pick<VideoRef,'mediaMode'|'trimStart'|'trimEnd'|'label'|'instructions'|'keep'|'drop'>>;
+const PACK='dasiwa_minimax_h3_reference_pack';
+const rank={image:0,video:1,audio:2} as Record<string,number>;
+const slash=(p:string)=>p.replace(/\\/g,'/');
+/** A Director reference pack (its `saveReferencePack` "files" format): items hold input-folder-relative names, so references outside the input folder are skipped and named. */
+export function toPack(refs:VideoRef[],inputRoot:string,refmods:RefMod[]=[]){
+ const root=slash(inputRoot).replace(/\/+$/,'')+'/';const slots=slotsOf(refs);const ranks:Record<string,number>={};const skipped:string[]=[];
+ const items=refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).flatMap(({r})=>{
+  const path=slash(r.item.path??'');if(!path.startsWith(root)){skipped.push(r.item.name);return [];}
+  const type=r.item.media as Lane;
+  return [{type,value:path.slice(root.length),...(type==='video'?{media_mode:r.mediaMode}:{}),...(type==='image'&&r.label?{forge_label:r.label}:{}),...(r.instructions?.trim()?{forge_instructions:r.instructions.trim()}:{}),...(r.keep?.trim()?{forge_keep:r.keep.trim()}:{}),...(r.drop?.trim()?{forge_drop:r.drop.trim()}:{}),...(r.trimStart!==undefined?{trim_start:r.trimStart}:{}),...(r.trimEnd!==undefined?{trim_end:r.trimEnd}:{}),_rank:ranks[type]=(ranks[type]??-1)+1}];
+ });
+  const rows=refmods.map((r,i)=>({slot:i+1,name:r.name,enabled:true,strength:r.strength,description:r.description}));
+ return {pack:{[PACK]:true,schema_version:1,saved_at:new Date().toISOString(),model_mode:'REF2VA',items,...(rows.length?{refmods:rows}:{})},skipped};
+}
+const safeValue=(v:unknown):v is string=>typeof v==='string'&&v.length>0&&v.length<=1024&&!/^[\\/]|^[A-Za-z]:|\\|[\u0000-\u001f]/.test(v)&&v.split('/').every(s=>s&&s!=='.'&&s!=='..');
+const seconds=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>0&&v<=3600?v:undefined;
+/** Reads a Director reference pack into input-folder paths in Director order (type, then rank); unsafe names are dropped and counted. */
+export function fromPack(json:unknown,inputRoot:string):{adds:{path:string;mediaMode?:VideoRef['mediaMode'];trimStart?:number;trimEnd?:number;label?:string;instructions?:string;keep?:string;drop?:string}[];refmods:RefMod[];invalid:number}|null{
+ const p=json as {[PACK]?:unknown;items?:unknown;refmods?:unknown};
+ if(!p||typeof p!=='object'||p[PACK]!==true||!Array.isArray(p.items))return null;
+ const root=slash(inputRoot).replace(/\/+$/,'');let invalid=0;
+ const items=(p.items as Record<string,unknown>[]).filter(x=>{const ok=!!x&&typeof x==='object'&&typeof x.type==='string'&&x.type in rank&&safeValue(x.value);if(!ok)invalid++;return ok;})
+  .sort((a,b)=>rank[a.type as string]-rank[b.type as string]||(Number(a._rank)||0)-(Number(b._rank)||0));
+ // Enabled RefMod rows in slot order; the slot itself is re-derived from the position (DEAS keeps them packed).
+ const strengthOf=(r:Record<string,unknown>)=>r.strength===undefined||r.strength===''?1:Number(r.strength); // the Director defaults to 1 and accepts numeric strings
+ const refmods=(Array.isArray(p.refmods)?p.refmods as Record<string,unknown>[]:[]).filter(r=>r&&typeof r==='object'&&r.enabled!==false).filter(r=>{const ok=safeValue(r.name)&&strengthOf(r)>0&&strengthOf(r)<=1;if(!ok)invalid++;return ok;})
+  .sort((a,b)=>Number(a.slot)-Number(b.slot)).slice(0,8).map(r=>({name:r.name as string,strength:strengthOf(r),description:typeof r.description==='string'?r.description.slice(0,2000):''}));
+ return {invalid,refmods,adds:items.map(x=>({path:`${root}/${x.value}`,...(x.type==='video'&&['video','audio','video_audio'].includes(x.media_mode as string)?{mediaMode:x.media_mode as VideoRef['mediaMode']}:{}),
+  ...(x.type!=='image'&&seconds(x.trim_start)!==undefined?{trimStart:seconds(x.trim_start)}:{}),...(x.type!=='image'&&seconds(x.trim_end)!==undefined?{trimEnd:seconds(x.trim_end)}:{}),
+  ...(x.type==='image'&&pictureLabels.includes(x.forge_label as string)?{label:x.forge_label as string}:{}),...(typeof x.forge_instructions==='string'&&x.forge_instructions.trim()?{instructions:x.forge_instructions.slice(0,4000)}:{}),...(typeof x.forge_keep==='string'&&x.forge_keep.trim()?{keep:x.forge_keep.slice(0,2000)}:{}),...(typeof x.forge_drop==='string'&&x.forge_drop.trim()?{drop:x.forge_drop.slice(0,2000)}:{})}))};
+}
+const lanes:Record<string,Lane[]>={'minimax-h3':['image','video','audio'],'ltx-2':['image']};
+
+export interface ReferencesPanelProps { refs:VideoRef[]; onChange:(refs:VideoRef[])=>void; family:'ltx-2'|'minimax-h3'; /** Video length: LTX reference seconds stay inside it. */ seconds:number; /** Adds references in order (dropped tiles/files, loaded packs); `replace` starts from an empty list. */ onAdd:(adds:RefAdd[],replace?:boolean)=>void; /** ComfyUI input folder: Director packs name files relative to it. */ inputRoot?:string; label:(r:VideoRef,i:number)=>string; /** Append a Director label such as `<Picture 1>` to the prompt. */ onInsert:(label:string)=>void; /** H3 RefMod rows (Director slots 1–8 in order). */ refmods?:RefMod[]; onRefmods?:(rows:RefMod[])=>void; /** Reads the backend's RefMod library on demand. */ library?:()=>Promise<RefModEntry[]> }
+/** References dock tab: the Multi-reference → Video list in Director lanes, edited in place (order, use, trims, LTX second/strength). */
+export function ReferencesPanel({refs,onChange,family,seconds,label,onAdd,onInsert,inputRoot,refmods=[],onRefmods,library}:ReferencesPanelProps){
+ const {t}=useI18n();
+ const box=useRef<HTMLDivElement>(null);const [error,setError]=useState('');const [hovering,setHovering]=useState(false);
+ const add=useRef(onAdd);add.current=onAdd;
+ // Native webviews deliver OS file drops as paths for the whole window; only drops over this tab add references.
+ useEffect(()=>{
+  if(!isTauri())return;
+  let alive=true,unlisten:(()=>void)|undefined;
+  const inside=(p:{x:number;y:number})=>{const r=box.current?.getBoundingClientRect(),x=p.x/devicePixelRatio,y=p.y/devicePixelRatio;return !!r&&x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;};
+  void getCurrentWebview().onDragDropEvent(e=>{
+   if(e.payload.type==='leave'){setHovering(false);return;}
+   setHovering(e.payload.type!=='drop'&&inside(e.payload.position));
+   if(e.payload.type==='drop'&&inside(e.payload.position))describeMedia(e.payload.paths).then(entries=>add.current(entries.map(itemFromEntry).flatMap(item=>item?[{item}]:[])),err=>setError(String(err)));
+  }).then(stop=>{if(alive)unlisten=stop;else stop();},err=>{if(alive)setError(String(err));});
+  return()=>{alive=false;unlisten?.();};
+ },[]);
+ const dragged=useRef(-1); // card being reordered by drag
+ const [status,setStatus]=useState('');
+ // RefMod library: read on demand (a backend round trip), then picked from a list.
+ const [entries,setEntries]=useState<RefModEntry[]|null>(null);const [pick,setPick]=useState('');
+ const readLibrary=()=>{setError('');library?.().then(list=>{setEntries(list);setPick(list[0]?.name??'');
+  // Rows from a pack learn their media kinds here (the prefill needs them).
+  if(refmods.some(r=>!r.kinds))onRefmods?.(refmods.map(r=>({...r,kinds:r.kinds??list.find(e=>e.name===r.name)?.kinds})));},e=>setError(String(e)));};
+ const setRow=(n:number,x:Partial<RefMod>)=>onRefmods?.(refmods.map((r,m)=>m===n?{...r,...x}:r));
+ // Director reference packs: same JSON as the node's Save/Load (files only), so packs move between DEAS and ComfyUI.
+ const save=async()=>{
+  const {pack,skipped}=toPack(refs,inputRoot!,refmods);setError('');
+  try{const saved=await invoke<boolean>('native_json_save',{title:t('studio.run.video.packSave'),name:'minimax-h3-files-pack.json',text:JSON.stringify(pack,null,2)});
+   setStatus(saved?t('studio.run.video.packSaved',{count:String(pack.items.length)})+(skipped.length?` · ${t('studio.run.video.packSkipped',{names:skipped.join(', ')})}`:''):'');}
+  catch(e){setError(String(e));}
+ };
+ const load=async(replace:boolean)=>{
+  setError('');setStatus('');
+  try{
+   const text=await invoke<string|null>('native_json_open',{title:t(replace?'studio.run.video.packReplace':'studio.run.video.packAdd')});if(text===null)return;
+   const read=fromPack(JSON.parse(text),inputRoot!);if(!read){setError(t('studio.run.video.packInvalid'));return;}
+   // Missing files are reported, never added (the Director checks existence the same way before loading).
+   const found=await Promise.all(read.adds.map(a=>describeMedia([a.path]).then(([e])=>e?itemFromEntry(e):null,()=>null)));
+   const adds=read.adds.flatMap(({path:_,...a},i)=>{const item=found[i];return item?[{item,...a}]:[];});
+   onAdd(adds,replace);
+   if(onRefmods&&(replace||read.refmods.length))onRefmods([...(replace?[]:refmods),...read.refmods.map(r=>({...r,kinds:entries?.find(e=>e.name===r.name)?.kinds}))].slice(0,8));
+   const missing=read.adds.length-adds.length+read.invalid;
+   setStatus(t('studio.run.video.packLoaded',{count:String(adds.length)})+(missing?` · ${t('studio.run.video.packMissing',{count:String(missing)})}`:''));
+  }catch(e){setError(String(e));}
+ };
+ const h3=family==='minimax-h3';const c=refCounts(refs);
+ const set=(n:number,x:Partial<VideoRef>)=>onChange(refs.map((r,m)=>m===n?{...r,...x}:r));
+ // Order matters only inside a lane (slot numbers), so a move swaps with the nearest item of the same lane.
+ const neighbour=(n:number,d:-1|1)=>{for(let m=n+d;m>=0&&m<refs.length;m+=d)if(laneOf(refs[m])===laneOf(refs[n]))return m;return -1;};
+ const move=(n:number,d:-1|1)=>{const m=neighbour(n,d);if(m<0)return;const next=[...refs];[next[n],next[m]]=[next[m],next[n]];onChange(next);};
+ const time=(n:number,key:'trimStart'|'trimEnd',value:string)=>{const v=value===''?undefined:Math.min(3600,Math.max(0,Number(value)));set(n,{[key]:Number.isFinite(v)?v:undefined});};
+ const tags=directorTags(refs);const labels=forgeLabels(refs);
+ // Dropping a card on another card of its lane moves it there; a dock tile dropped anywhere on the tab is added.
+ const dropOn=(e:React.DragEvent,target:number)=>{const from=dragged.current;dragged.current=-1;if(from<0||from===target||laneOf(refs[from])!==laneOf(refs[target]))return;e.preventDefault();e.stopPropagation();const next=refs.filter((_,m)=>m!==from);next.splice(next.indexOf(refs[target])+(from<target?1:0),0,refs[from]);onChange(next);};
+ return <div ref={box} className={`wb-refs-panel${hovering?' is-dragging':''}`} data-references
+ onDragOver={e=>{if(dragged.current>=0||e.dataTransfer.types.includes(MEDIA_DRAG)){e.preventDefault();setHovering(dragged.current<0);}}} onDragLeave={()=>setHovering(false)}
+ onDrop={e=>{setHovering(false);const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();onAdd([{item}]);}}}>
+  {error&&<p className="error-message" role="alert">{error}</p>}
+  <div className="wb-ref-toolbar">
+   {h3&&isTauri()&&inputRoot&&<><button type="button" className="wb-dock-action" disabled={!refs.length&&!refmods.length} onClick={()=>void save()}>{t('studio.run.video.packSave')}</button>
+    <button type="button" className="wb-dock-action" onClick={()=>void load(false)}>{t('studio.run.video.packAdd')}</button>
+    <button type="button" className="wb-dock-action" onClick={()=>void load(true)}>{t('studio.run.video.packReplace')}</button></>}
+   <button type="button" className="wb-dock-action" disabled={!refs.length} onClick={()=>{onChange([]);setStatus('');}}>{t('studio.run.video.refsClear')}</button>
+   {status&&<span role="status">{status}</span>}
+  </div>
+  <p className="media-help">{t('studio.run.video.refsDrop')}</p>
+  {h3&&<p className={`wb-ref-meter${over(c)?' error-message':''}`}>{t('studio.run.video.refMeter',{images:String(c.images),videos:String(c.videos),audio:String(c.audio),files:String(c.files)})}</p>}
+  {!refs.length&&<p className="media-help">{t(h3?'studio.run.video.refsHintH3':'studio.run.video.refsHint')}</p>}
+  <div className="wb-lanes">{lanes[family].map(lane=><section key={lane} className="wb-lane" aria-label={t(`studio.run.dock.type.${lane}`)}>
+   {h3&&<h4>{t(`studio.run.dock.type.${lane}`)}</h4>}
+   <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
+    {/* The name row is the drag handle, so text selection in the fields below keeps working. */}
+    <strong title={r.item.path} draggable onDragStart={e=>{dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}}>{r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
+    <span className="wb-ref-actions">
+     <button type="button" aria-label={t('studio.run.video.moveEarlier',{name:r.item.name})} disabled={neighbour(n,-1)<0} onClick={()=>move(n,-1)}>←</button>
+     <button type="button" aria-label={t('studio.run.video.moveLater',{name:r.item.name})} disabled={neighbour(n,1)<0} onClick={()=>move(n,1)}>→</button>
+     {h3&&<button type="button" aria-label={t('studio.run.video.insertLabel',{label:tags[n]})} title={t('studio.run.video.insertLabel',{label:tags[n]})} onClick={()=>onInsert(tags[n])}>{t('studio.run.video.insert')}</button>}
+     <button type="button" aria-label={t('studio.run.video.removeRef',{name:r.item.name})} onClick={()=>onChange(refs.filter((_,m)=>m!==n))}>✕</button>
+    </span>
+    {!h3&&<><label><span>{t('studio.run.video.refSecond')}</span><input type="number" aria-label={t('studio.run.video.refSecondOf',{name:r.item.name})} min={0} max={seconds} step={0.1} value={r.second} onChange={e=>set(n,{second:Math.min(seconds,Math.max(0,Number(e.target.value)||0))})}/></label>
+     <label><span>{t('studio.run.video.refStrength')}</span><input type="number" aria-label={t('studio.run.video.refStrengthOf',{name:r.item.name})} min={0} max={1} step={0.05} value={r.strength} onChange={e=>set(n,{strength:Math.min(1,Math.max(0,Number(e.target.value)||0))})}/></label></>}
+    {/* Director Forge: which picture label (REF2VA) and what to take from this reference. */}
+    {h3&&r.item.media==='image'&&<select data-ref-label aria-label={t('studio.run.video.labelOf',{name:r.item.name})} value={labels[n]} onChange={e=>set(n,{label:e.target.value})}>{pictureLabels.map(l=><option key={l} value={l}>{t(`forge.role.${l.replace(/-\d$/,'')}`,{n:l.slice(10)})}</option>)}</select>}
+    {h3&&<input type="text" data-ref-instructions aria-label={t('studio.run.video.instructionsOf',{name:r.item.name})} placeholder={t(labels[n]==='custom'?'studio.run.video.instructionsNeeded':'studio.run.video.instructions')} maxLength={4000} value={r.instructions??''} onChange={e=>set(n,{instructions:e.target.value})}/>}
+    {h3&&<details className="wb-ref-more"><summary>{t('studio.run.video.refDetails')}</summary>
+     {(['description','keep','drop'] as const).map(key=><label key={key}><span>{t(`studio.run.video.ref.${key}`)}</span><input type="text" aria-label={t(`studio.run.video.ref.${key}Of`,{name:r.item.name})} maxLength={2000} value={r[key]??''} onChange={e=>set(n,{[key]:e.target.value})}/></label>)}
+    </details>}
+    {h3&&r.item.media==='video'&&<select aria-label={t('studio.run.video.refMode',{name:r.item.name})} value={r.mediaMode} onChange={e=>set(n,{mediaMode:e.target.value as VideoRef['mediaMode']})}>{(['video','video_audio','audio'] as const).map(m=><option key={m} value={m}>{t(`studio.run.video.mode.${m}`)}</option>)}</select>}
+    {h3&&r.item.media!=='image'&&<>{(['trimStart','trimEnd'] as const).map(key=><label key={key}><span>{t(`studio.run.video.${key}`)}</span><input type="number" aria-label={t(`studio.run.video.${key}Of`,{name:r.item.name})} min={0} max={3600} step={0.1} placeholder={t(key==='trimStart'?'studio.run.video.trimFromStart':'studio.run.video.trimToEnd')} value={r[key]??''} onChange={e=>time(n,key,e.target.value)}/></label>)}
+     {badTrim(r)&&<p className="error-message" role="alert">{t('studio.run.video.trimInvalid')}</p>}</>}
+   </li>)}</ul>
+  </section>)}
+  {h3&&onRefmods&&<section className="wb-lane" aria-label={t('studio.run.video.refmods')} data-refmods>
+   <h4>{t('studio.run.video.refmods')} · {`${refmods.length}/8`}</h4>
+   <div className="wb-ref-toolbar">{entries===null?<button type="button" className="wb-dock-action" disabled={!library} onClick={readLibrary}>{t('studio.run.video.refmodsRead')}</button>
+    :entries.length===0?<span>{t('studio.run.video.refmodsNone')}</span>
+    :<><select aria-label={t('studio.run.video.refmods')} value={pick} onChange={e=>setPick(e.target.value)}>{entries.map(e=><option key={e.name} value={e.name}>{e.name} ({e.kinds.join(' + ')})</option>)}</select>
+     <button type="button" className="wb-dock-action" disabled={!pick||refmods.length>=8} onClick={()=>onRefmods([...refmods,{name:pick,strength:1,description:entries.find(e=>e.name===pick)?.description??'',kinds:entries.find(e=>e.name===pick)?.kinds}])}>{t('studio.run.video.refmodAdd')}</button></>}</div>
+   <ul>{refmods.map((r,n)=><li key={n} className="wb-ref" data-refmod={r.name}>
+    <strong title={r.name}><span className="media-mark">{`<RefMod ${n+1}>`}</span> {r.name}</strong>
+    <span className="wb-ref-actions"><button type="button" aria-label={t('studio.run.video.insertLabel',{label:`<RefMod ${n+1}>`})} onClick={()=>onInsert(`<RefMod ${n+1}>`)}>{t('studio.run.video.insert')}</button>
+     <button type="button" aria-label={t('studio.run.video.removeRef',{name:r.name})} onClick={()=>onRefmods(refmods.filter((_,m)=>m!==n))}>✕</button></span>
+    <label><span>{t('studio.run.video.refStrength')}</span><input type="number" aria-label={t('studio.run.video.refStrengthOf',{name:r.name})} min={0.05} max={1} step={0.05} value={r.strength} onChange={e=>setRow(n,{strength:Math.min(1,Math.max(0.05,Number(e.target.value)||1))})}/></label>
+    <label><span>{t('studio.run.video.refmodDescription')}</span><input type="text" aria-label={t('studio.run.video.refmodDescriptionOf',{name:r.name})} maxLength={2000} value={r.description} onChange={e=>setRow(n,{description:e.target.value})}/></label>
+   </li>)}</ul>
+  </section>}
+  </div>
+ </div>;
+}

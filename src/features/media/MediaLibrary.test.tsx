@@ -24,6 +24,11 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   fireEvent.keyDown(window,{key:'Escape'});
   expect(screen.queryByRole('menu')).toBeNull();
   fireEvent.contextMenu(tile,{clientX:10,clientY:10});
+  fireEvent.scroll(window); // focus scrolling the tile into view must not close the menu; the wheel does
+  expect(screen.getByRole('menu')).toBeTruthy();
+  fireEvent.wheel(window);
+  expect(screen.queryByRole('menu')).toBeNull();
+  fireEvent.contextMenu(tile,{clientX:10,clientY:10});
   fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem',{name:'Open in folder'}));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_reveal',{path:'/home/u/a.png'}));
   expect(screen.queryByRole('menu')).toBeNull();
@@ -125,6 +130,27 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   rerender(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} sort="name"/></I18nProvider>);expect(names()).toEqual(['a.png','b.png']);
   rerender(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} sort="size"/></I18nProvider>);expect(names()).toEqual(['a.png','b.png']);
   rerender(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} filter="B."/></I18nProvider>);expect(names()).toEqual(['b.png']);
+ });
+ it('filters by media type, badges marked files beside their button and adds host menu entries (blocked ones say why)',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  const mixed={path:'/home/u',parent:'/home',entries:[entry('a.png','file','image'),entry('c.mp4','file','video'),entry('s.wav','file','audio')],truncated:false};
+  vi.mocked(invoke).mockImplementation(async c=>c==='native_media_list'?mixed:'/cache/t.png');
+  const names=()=>within(screen.getByRole('list',{name:'Folder contents'})).getAllByRole('button').map(b=>b.title);
+  const add=vi.fn();
+  const props={selected:null,onSelect:vi.fn(),marks:new Map([['/home/u/c.mp4','Video 1']]),actions:(i:{name:string})=>[{label:'Add',onClick:add},{label:'Full',onClick:add,blocked:i.name==='a.png'?'limit reached':undefined}]};
+  const {rerender}=render(<I18nProvider><MediaLibrary {...props}/></I18nProvider>);
+  await screen.findByRole('button',{name:'u',current:'location'});
+  expect(names()).toEqual(['a.png','c.mp4','s.wav']);
+  expect(screen.getByRole('button',{name:'c.mp4'}).closest('li')!.dataset.mark).toBe('Video 1');
+  expect(screen.getByText('Video 1').classList.contains('media-mark')).toBe(true);
+  fireEvent.contextMenu(screen.getByRole('button',{name:'a.png'}),{clientX:5,clientY:5});
+  const menu=within(screen.getByRole('menu',{name:'a.png'}));
+  expect(menu.getAllByRole('menuitem').map(b=>b.textContent)).toEqual(['Add','Fulllimit reached','Open in folder']);
+  expect((menu.getByRole('menuitem',{name:/Full/}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(menu.getByRole('menuitem',{name:'Add'}));
+  expect(add).toHaveBeenCalledTimes(1);expect(screen.queryByRole('menu')).toBeNull();
+  rerender(<I18nProvider><MediaLibrary {...props} type="video"/></I18nProvider>);expect(names()).toEqual(['c.mp4']);
+  rerender(<I18nProvider><MediaLibrary {...props} type="audio"/></I18nProvider>);expect(names()).toEqual(['s.wav']);
  });
  it('shows native listing errors without inventing entries',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockRejectedValue('/home/u: permission denied');

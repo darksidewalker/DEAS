@@ -2,3 +2,8 @@
 identifier = "allow-native-pick-directory"
 description = "Open an OS folder chooser for an existing parent directory; never create files or start installation."
 commands.allow = ["native_pick_directory"]
+
+[[permission]]
+identifier = "allow-native-json-file"
+description = "Save or open one user-chosen JSON document (at most 1 MiB, must parse) through OS dialogs, e.g. Director reference packs."
+commands.allow = ["native_json_save", "native_json_open"]

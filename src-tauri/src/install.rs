@@ -42,9 +42,8 @@ const NODEPACK: &str = "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes.g
 pub(crate) mod torch_profile;
 // --help exits before imports. Initialize actual core/nodes without binding a
 // listener, then assert the selected package registered its required nodes.
-const COMFY_PROBE: &str = r#"import sys,signal,json
+const COMFY_PROBE: &str = r#"import sys,json
 backend,selected=sys.argv[1:]
-signal.alarm(120)
 sys.argv=['main.py','--disable-auto-launch'] + (['--cpu'] if backend=='cpu' else ['--cuda-device','0'])
 import main,nodes
 main.start_comfyui()
@@ -714,6 +713,27 @@ async fn run(
     inner: &Arc<Mutex<Inner>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<String, String> {
+    run_with_timeout(
+        program,
+        args,
+        cwd,
+        root,
+        inner,
+        cancel,
+        Duration::from_secs(3600),
+    )
+    .await
+}
+
+async fn run_with_timeout(
+    program: &Path,
+    args: &[&str],
+    cwd: &Path,
+    root: &Path,
+    inner: &Arc<Mutex<Inner>>,
+    cancel: &Arc<AtomicBool>,
+    timeout: Duration,
+) -> Result<String, String> {
     cancelled(cancel)?;
     let mut command = Command::new(program);
     command
@@ -746,7 +766,7 @@ async fn run(
         child.stderr.take().ok_or("Missing stderr")?,
         inner.clone(),
     ));
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3600);
+    let deadline = tokio::time::Instant::now() + timeout;
     let status = loop {
         if cancel.load(Ordering::SeqCst) || tokio::time::Instant::now() > deadline {
             #[cfg(unix)]
@@ -763,11 +783,10 @@ async fn run(
             stdout.abort();
             stderr.abort();
             return Err(if cancel.load(Ordering::SeqCst) {
-                "Cancelled; partial installation retained"
+                "Cancelled; partial installation retained".into()
             } else {
-                "Command timed out after one hour"
-            }
-            .into());
+                format!("Command timed out after {} seconds", timeout.as_secs())
+            });
         }
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
             break status;
@@ -1371,7 +1390,7 @@ async fn packages(
         cancel,
     )
     .await?;
-    run(
+    run_with_timeout(
         &python,
         &[
             "-c",
@@ -1391,6 +1410,7 @@ async fn packages(
         root,
         inner,
         cancel,
+        Duration::from_secs(120),
     )
     .await?;
     cancelled(cancel)?;
@@ -1843,6 +1863,34 @@ mod tests {
     }
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    async fn real_runner_enforces_short_timeout_without_deleting_partial_install() {
+        let tmp = scratch();
+        prepare_dirs(tmp.path()).unwrap();
+        std::fs::write(tmp.path().join("retained.txt"), "keep").unwrap();
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let start = std::time::Instant::now();
+        let error = run_with_timeout(
+            Path::new("/usr/bin/sleep"),
+            &["30"],
+            tmp.path(),
+            tmp.path(),
+            &inner,
+            &cancel,
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, "Command timed out after 1 seconds");
+        assert!(start.elapsed() < Duration::from_secs(3));
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("retained.txt")).unwrap(),
+            "keep"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
     async fn real_runner_cancels_and_reaps_owned_process() {
         let tmp = scratch();
         prepare_dirs(tmp.path()).unwrap();
@@ -2002,6 +2050,33 @@ mod tests {
         println!("{}", serde_json::to_string(&plan).unwrap());
         assert!(!Path::new(&plan.request.storage_path).exists());
         assert!(engine.start(&plan.id, false).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn comfy_probe_runs_without_unix_signal_alarm() {
+        let tmp = scratch();
+        prepare_dirs(tmp.path()).unwrap();
+        std::fs::write(tmp.path().join("main.py"), "def start_comfyui(): pass\n").unwrap();
+        std::fs::write(tmp.path().join("nodes.py"), "NODE_CLASS_MAPPINGS = {}\n").unwrap();
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let probe = format!("import signal; del signal.alarm\n{COMFY_PROBE}");
+        for backend in ["cpu", "nvidia"] {
+            let result = run(
+                Path::new("/usr/bin/python3"),
+                &["-c", &probe, backend, "core"],
+                tmp.path(),
+                tmp.path(),
+                &inner,
+                &cancel,
+            )
+            .await
+            .unwrap();
+            let result: serde_json::Value = serde_json::from_str(result.trim()).unwrap();
+            assert_eq!(result["coreImported"], true);
+            assert_eq!(result["generationReady"], false);
+        }
     }
 
     #[cfg(target_os = "linux")]
