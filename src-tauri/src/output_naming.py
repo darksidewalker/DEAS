@@ -8,44 +8,72 @@ import folder_paths
 import nodes
 from server import PromptServer
 
+# `prefix_00001_.png` (image savers), `prefix_00001_audio.webm` and its `-first-frame.png` (video combine).
+SAVED = re.compile(r"(.+)_(\d{5,})_?(audio)?(.*)\.(\w+)")
+SAVERS = ("SaveImage", "DaSiWa_MetadataImageSaver", "DaSiWa_EnhancedVideoCombine")
+
+
+def publish(files):
+    """Hard-link one save's files to `prefix-00001[-audio]...` at the first counter free for all of them."""
+    counter = int(files[0][1].group(2))
+    while True:
+        done = []
+        try:
+            for source, match in files:
+                prefix, _, audio, rest, extension = match.groups()
+                target = source.with_name(f"{prefix}-{counter:05}{'-audio' if audio else ''}{rest}.{extension}")
+                # A hard link publishes without overwriting an existing output, on Linux and Windows.
+                os.link(source, target)
+                done.append(target)
+            break
+        except FileExistsError:
+            for target in done:
+                target.unlink()
+            counter += 1
+    for source, _ in files:
+        source.unlink()
+    return {source.name: target.name for (source, _), target in zip(files, done)}
+
 
 def wrap_save(save):
     @functools.wraps(save)
-    def save_images(self, *args, **kwargs):
+    def run(self, *args, **kwargs):
         result = save(self, *args, **kwargs)
         if not (kwargs.get("extra_pnginfo") or {}).get("deas_output_naming"):
             return result
-        for image in result.get("ui", {}).get("images", []):
-            if image["type"] != "output":
-                continue
-            match = re.fullmatch(r"(.+)_(\d+)_\.(png|webp|jpg|jpeg)", image["filename"])
-            if not match:
-                continue
-            folder = Path(folder_paths.get_output_directory()) / image["subfolder"]
-            source = folder / image["filename"]
-            prefix, counter, extension = match.groups()
-            counter = int(counter)
-            while True:
-                filename = f"{prefix}-{counter:05}.{extension}"
-                try:
-                    # A hard link publishes without overwriting an existing output, on Linux and Windows.
-                    os.link(source, folder / filename)
-                    break
-                except FileExistsError:
-                    counter += 1
-            source.unlink()
-            image["filename"] = filename
+        ui = result.get("ui", {})
+        assets = [a for key in ("images", "gifs") for a in ui.get(key, []) if a["type"] == "output"]
+        groups = {}
+        for asset in assets:
+            match = SAVED.fullmatch(asset["filename"])
+            if match:
+                path = Path(folder_paths.get_output_directory()) / asset["subfolder"] / asset["filename"]
+                groups.setdefault((asset["subfolder"], match.group(1), match.group(2)), {})[path] = match
+        renamed = {}
+        for group in groups.values():
+            renamed.update(publish(list(group.items())))
+        for asset in assets:
+            asset["filename"] = renamed.get(asset["filename"], asset["filename"])
+        if "result" in result:
+            # The video combine also returns its saved path (read by the continuity publisher).
+            result["result"] = tuple(
+                os.path.join(os.path.dirname(v), renamed[os.path.basename(v)])
+                if isinstance(v, str) and os.path.basename(v) in renamed else v
+                for v in result["result"]
+            )
         return result
-    return save_images
+    return run
 
 
 def prepare(data):
     if data.get("extra_data", {}).get("extra_pnginfo", {}).get("deas_output_naming"):
-        for name in ("SaveImage", "DaSiWa_MetadataImageSaver"):
+        for name in SAVERS:
             cls = nodes.NODE_CLASS_MAPPINGS.get(name)
-            if cls and not getattr(cls.save_images, "_deas_naming", False):
-                cls.save_images = wrap_save(cls.save_images)
-                cls.save_images._deas_naming = True
+            save = getattr(cls, cls.FUNCTION) if cls else None
+            if save and not getattr(save, "_deas_naming", False):
+                wrapped = wrap_save(save)
+                wrapped._deas_naming = True
+                setattr(cls, cls.FUNCTION, wrapped)
     return data
 
 

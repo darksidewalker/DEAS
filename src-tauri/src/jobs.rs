@@ -297,7 +297,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     // `refine` is a second pass after the first decode (SwarmUI refiner/upscale).
     let refine = object.get("refine");
     if refine.is_some_and(|r| !valid_refine(r, sigmas.is_some())) {
-        return Err("Invalid refine: aligned size, denoise in (0, 1], optional listed upscale model, sigmas exactly with the first pass".into());
+        return Err("Invalid refine: aligned size, denoise in (0, 1], optional listed upscale model, sigmas exactly with the first pass, tiled {tileWidth, tileHeight, overlap} aligned to 8 with overlap below the tile".into());
     }
     // Options → Output: DaSiWa saver format/compression (used only when that saver is present).
     let format = object.get("imageFormat");
@@ -590,6 +590,22 @@ fn compile(i: &Value) -> Result<Value, String> {
             image = json!(["RS", 0]);
         }
         graph["RE"] = json!({"class_type":"VAEEncode","inputs":{"pixels":image,"vae":vae}});
+        // Tiled: the refine sampler gets the model through the tiling patch (its own guider on the sigmas path); the first pass keeps the plain model.
+        let mut guider = json!(["G", 0]);
+        let mut model = if r.get("sigmas").is_some() {
+            graph["G"]["inputs"]["model"].clone()
+        } else {
+            graph["5"]["inputs"]["model"].clone()
+        };
+        if let Some(t) = r.get("tiled") {
+            graph["RT"] = json!({"class_type":"DaSiWaTiledDiffusion","inputs":{"model":model,"tile_width":t["tileWidth"],"tile_height":t["tileHeight"],"overlap":t["overlap"]}});
+            model = json!(["RT", 0]);
+            if r.get("sigmas").is_some() {
+                graph["RG"] = graph["G"].clone();
+                graph["RG"]["inputs"]["model"] = model.clone();
+                guider = json!(["RG", 0]);
+            }
+        }
         if let Some(s) = r.get("sigmas") {
             let list = s
                 .as_array()
@@ -600,9 +616,10 @@ fn compile(i: &Value) -> Result<Value, String> {
                 .collect::<Vec<_>>()
                 .join(", ");
             graph["RZ"] = json!({"class_type":"ManualSigmas","inputs":{"sigmas":list}});
-            graph["R5"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["G",0],"sampler":["Q",0],"sigmas":["RZ",0],"latent_image":["RE",0]}});
+            graph["R5"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":guider,"sampler":["Q",0],"sigmas":["RZ",0],"latent_image":["RE",0]}});
         } else {
             graph["R5"] = graph["5"].clone();
+            graph["R5"]["inputs"]["model"] = model;
             graph["R5"]["inputs"]["latent_image"] = json!(["RE", 0]);
             graph["R5"]["inputs"]["denoise"] = r["denoise"].clone();
         }
@@ -636,10 +653,29 @@ fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
             .is_some_and(|n| (64..=8192).contains(&n) && n % 8 == 0)
     };
     r.as_object().is_some_and(|o| {
-        o.keys()
-            .all(|k| ["width", "height", "denoise", "upscaleModel", "sigmas"].contains(&k.as_str()))
-            && o.contains_key("sigmas") == first_sigmas
+        o.keys().all(|k| {
+            [
+                "width",
+                "height",
+                "denoise",
+                "upscaleModel",
+                "sigmas",
+                "tiled",
+            ]
+            .contains(&k.as_str())
+        }) && o.contains_key("sigmas") == first_sigmas
     }) && edge("width")
+        && r.get("tiled").is_none_or(|t| {
+            let px = |k: &str| {
+                t[k].as_u64()
+                    .filter(|n| (64..=8192).contains(n) && n % 8 == 0)
+            };
+            t.as_object().is_some_and(|o| o.len() == 3)
+                && px("tileWidth")
+                    .zip(px("tileHeight"))
+                    .zip(t["overlap"].as_u64())
+                    .is_some_and(|((w, h), ov)| ov % 8 == 0 && ov < w.min(h))
+        })
         && edge("height")
         && r["width"].as_u64().unwrap() * r["height"].as_u64().unwrap() <= 16_777_216
         && r["denoise"].as_f64().is_some_and(|d| d > 0.0 && d <= 1.0)
@@ -749,7 +785,7 @@ pub(crate) fn model_name(s: &str) -> bool {
 
 const MASK_FOLDER: &str = "deas-masks";
 
-/// Only names `native_mask_upload` hands out: `deas-masks/<uuid>.png`.
+/// Only names `native_mask_upload` hands out: `deas-masks/<uuid>.png` (inpaint masks and flattened painted layers).
 fn mask_name(s: &str) -> bool {
     s.strip_prefix("deas-masks/")
         .and_then(|n| n.strip_suffix(".png"))
@@ -854,7 +890,7 @@ impl Jobs {
                                 .flatten()
                                 .filter_map(|l| l["image"].as_str()),
                         )
-                        .filter(|s| !s.ends_with(" [output]"))
+                        .filter(|s| !s.ends_with(" [output]") && !mask_name(s))
                         .collect(),
                 ),
             ]

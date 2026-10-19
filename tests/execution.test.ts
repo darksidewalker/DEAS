@@ -229,6 +229,10 @@ test('inputLayers paste scaled images onto the source before resize and inpaint,
   rejects(layered, { ...verified, images: [] }, 'MISSING_MODEL', 'inputImage');
   for (const bad of [[], [{ image: '../x.png', x: 0, y: 0, width: 8, height: 8 }], [{ image: 'x.png', x: -1, y: 0, width: 8, height: 8 }], [{ image: 'x.png', x: 0, y: 0, width: 0, height: 8 }], Array(5).fill({ image: 'x.png', x: 0, y: 0, width: 8, height: 8 })]) rejects({ ...layered, inputLayers: bad }, verified, 'INVALID_INPUT', 'inputLayers');
   rejects({ ...intent, inputLayers: layered.inputLayers }, verified, 'INVALID_INPUT', 'inputLayers');
+  // A flattened painted layer is uploaded like a mask; object_info never lists that subfolder.
+  const painted = 'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png';
+  assert.equal(compileRecipe({ ...layered, inputLayers: [{ image: painted, x: 0, y: 0, width: 8, height: 8 }] }, verified).graph.I0.inputs.image, painted);
+  rejects({ ...layered, inputLayers: [{ image: 'deas-masks/not-a-uuid.png', x: 0, y: 0, width: 8, height: 8 }] }, verified, 'MISSING_MODEL', 'inputImage');
 });
 
 test('inputResize builds scale/pad chains and requires only the used optional nodes', () => {
@@ -322,6 +326,17 @@ test('refine pass and source upscale model mirror the native compiler', () => {
   assert.deepEqual(same.RE.inputs.pixels, ['6', 0]);
   rejects({ ...intent, refine: { width: 1024, height: 1536, denoise: 0.3, upscaleModel: 'missing.pth' } }, lists, 'MISSING_MODEL', 'upscaleModel');
   for (const bad of [{ width: 1001, height: 768, denoise: 0.3 }, { width: 512, height: 768, denoise: 0 }, { width: 512, height: 768, denoise: 0.3, extra: 1 }, { width: 512, height: 768, denoise: 0.3, sigmas: [0.5, 0] }]) rejects({ ...intent, refine: bad }, lists, 'INVALID_INPUT', 'refine');
+  // Tiled refine: the DaSiWa tiling patch feeds only the refine sampler; the first pass keeps the plain model.
+  const tiled = { tileWidth: 1024, tileHeight: 1024, overlap: 128 };
+  const tg = compileRecipe({ ...intent, refine: { width: 2048, height: 2048, denoise: 0.3, tiled } }, { ...lists, nodes: [...lists.nodes, 'DaSiWaTiledDiffusion'] }).graph;
+  assert.deepEqual(tg.RT, { class_type: 'DaSiWaTiledDiffusion', inputs: { model: tg['5'].inputs.model, tile_width: 1024, tile_height: 1024, overlap: 128 } });
+  assert.deepEqual(tg.R5.inputs, { ...tg['5'].inputs, model: ['RT', 0], latent_image: ['RE', 0], denoise: 0.3 });
+  const ts = compileRecipe({ ...intent, steps: 2, sigmas: [1, 0.5, 0], refine: { width: 2048, height: 2048, denoise: 0.3, sigmas: [0.5, 0], tiled } }, { ...lists, nodes: [...lists.nodes, 'DaSiWaTiledDiffusion', 'ManualSigmas', 'SamplerCustomAdvanced', 'CFGGuider', 'KSamplerSelect', 'RandomNoise'] }).graph;
+  assert.deepEqual(ts.RG.inputs, { ...ts.G.inputs, model: ['RT', 0] });
+  assert.deepEqual(ts.R5.inputs.guider, ['RG', 0]);
+  assert.deepEqual(ts['5'].inputs.guider, ['G', 0]);
+  rejects({ ...intent, refine: { width: 2048, height: 2048, denoise: 0.3, tiled } }, lists, 'MISSING_CAPABILITY', 'DaSiWaTiledDiffusion');
+  for (const bad of [{ ...tiled, overlap: 1024 }, { ...tiled, overlap: 12 }, { ...tiled, tileWidth: 1004 }, { tileWidth: 1024, tileHeight: 1024 }]) rejects({ ...intent, refine: { width: 2048, height: 2048, denoise: 0.3, tiled: bad } }, lists, 'INVALID_INPUT', 'refine');
   const src = compileRecipe({ ...intent, inputImage: 'ref.png', denoise: 0.35, inputResize: { width: 512, height: 768, crop: 'disabled' }, upscaleModel: '2x-Sharp.safetensors' }, lists).graph;
   assert.deepEqual(src.UM.inputs.image, ['8', 0]);
   assert.deepEqual(src.S.inputs.image, ['UM', 0]);

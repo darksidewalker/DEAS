@@ -58,8 +58,8 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
  const attentions=[...(allow?.attention??[]).map(a=>`a:${a}`),...(allow?.sage??[]).map(s=>`s:${s}`)];
  const h3=family!=='minimax-h3'?'studio.run.opt.cache.h3Only':has('SpectrumApplyMiniMaxH3')?'studio.run.pipe.noRecipe':'studio.run.opt.missing.h3';
  // Help sits behind "?" to keep the grid dense; an invalid value stays visible below the control.
- const card=(id:string,control:React.ReactNode,note:React.ReactNode,error?:string)=><div className="wb-option" data-option={id}>
-  <span>{t(`studio.run.opt.${id}`)}<button type="button" className="wb-help" aria-label={t('studio.run.opt.help',{name:t(`studio.run.opt.${id}`)})} aria-expanded={help===id} aria-controls={`opt-help-${id}`} onClick={()=>setHelp(help===id?'':id)}>?</button></span>
+ const card=(id:string,control:React.ReactNode,note:React.ReactNode,error?:string,reset?:()=>void)=><div className="wb-option" data-option={id}>
+  <span>{t(`studio.run.opt.${id}`)}{reset&&<button type="button" className="wb-reset" aria-label={t('studio.run.opt.reset',{name:t(`studio.run.opt.${id}`)})} onClick={reset}>{t('studio.run.opt.default')}</button>}<button type="button" className="wb-help" aria-label={t('studio.run.opt.help',{name:t(`studio.run.opt.${id}`)})} aria-expanded={help===id} aria-controls={`opt-help-${id}`} onClick={()=>setHelp(help===id?'':id)}>?</button></span>
   {control}{error&&<small role="alert">{error}</small>}{help===id&&<small id={`opt-help-${id}`} className="wb-help-text">{note}</small>}</div>;
  // The field shows the schedule in use: the typed override, else the model's own; a preset pick fills the text.
  const modelSigmas=sigmaPresets.find(f=>f.id===family)?.sigmas;
@@ -72,7 +72,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
  const namingHelp=<>{t('studio.run.opt.outputNaming.hint')}<span className="wb-help-list">{namingPlaceholders.map(k=><span key={k}><code>{`%${k}%`}</code> {outputPrefix(`%${k}%`,{type:'image',seed:42,model:'My Model.safetensors'})}</span>)}</span></>;
  return <div className="wb-options">
   {!allow&&<p className="media-help wb-options-read">{t('studio.run.opt.unread')} <button type="button" className="wb-dock-action" disabled={!canRead} onClick={onRead}>{t('studio.run.opt.read')}</button></p>}
-  {card('outputNaming',<input type="text" aria-label={t('studio.run.opt.outputNaming')} aria-invalid={!namingValid} value={naming} maxLength={512} spellCheck={false} onChange={e=>set({outputNaming:e.target.value})}/>,namingHelp,namingValid?undefined:t('studio.run.opt.outputNaming.invalid'))}
+  {card('outputNaming',<input type="text" aria-label={t('studio.run.opt.outputNaming')} aria-invalid={!namingValid} value={naming} maxLength={512} spellCheck={false} onChange={e=>set({outputNaming:e.target.value})}/>,namingHelp,namingValid?undefined:t('studio.run.opt.outputNaming.invalid'),()=>set({outputNaming:defaultOutputNaming}))}
   {card('attention',<select aria-label={t('studio.run.opt.attention')} value={p.attention} onChange={e=>set({attention:e.target.value})}>
    <option value="">{t('studio.run.opt.attention.default')}</option>
    {keep(attentions,p.attention).map(v=><option key={v} value={v} disabled={!attentions.includes(v)}>{v.startsWith('s:')?`Sage · ${v.slice(2)}`:v.slice(2)}</option>)}
@@ -98,7 +98,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
    <label><span>{t('studio.run.opt.output.imageFormat')}</span><select value={out.imageFormat} onChange={e=>setOut({imageFormat:e.target.value as VideoOutput['imageFormat']})}>{(["png","webp"] as const).map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}</select></label>
    <label><span>{t('studio.run.opt.output.imageCompression')}</span><input type="number" value={out.imageCompression} min={0} max={100} step={1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=0&&n<=100)setOut({imageCompression:n});}}/></label>
    {(['saveFirstFrame','saveLastFrame'] as const).map(k=><label key={k} className="wb-option-row"><input type="checkbox" checked={out[k]} onChange={e=>setOut({[k]:e.target.checked})}/>{t(`studio.run.opt.output.${k}`)}</label>)}
-  </div>,t('studio.run.opt.output.hint'))}
+  </div>,t('studio.run.opt.output.hint'),undefined,()=>set({output:defaultVideoOutput}))}
   {card('compile',<select aria-label={t('studio.run.opt.compile')} value={p.compile} disabled={off('TorchCompileModel')||kitchen(p)} onChange={e=>set({compile:e.target.value})}><option value="">{t('studio.run.opt.off')}</option>{keep([...(allow?.compile??[])],p.compile).map(b=><option key={b} value={b} disabled={!allow?.compile?.includes(b)}>{b}</option>)}</select>,missing('TorchCompileModel')||t(kitchen(p)?'studio.run.opt.compile.kitchen':'studio.run.opt.compile.hint'))}
  </div>;
 }

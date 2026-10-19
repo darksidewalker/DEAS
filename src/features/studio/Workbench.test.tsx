@@ -19,6 +19,9 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals();});
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+// HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
+const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
+ fireEvent.dragStart(screen.getByRole('button',{name}),{dataTransfer:dt});fireEvent.drop(document.querySelector('[data-editor-viewport]')!,{dataTransfer:dt});};
 test('wildcard dock and hammer keep base text, snapshot active rules per run and allow disabling without clearing',async()=>{
  localStorage.setItem('deas.pref.studio.run.wildcard',JSON.stringify({style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:true,selection_state:{'Art/Light/wildcards':{enabled:true,weight:1.2}}}));
  vi.mocked(invoke).mockImplementation(async c=>c==='native_wildcard_library'?JSON.stringify({categories:{Art:[{subject:'Light',booru_wildcards:['{red|blue} light']}]}}):{entries:[],truncated:false});
@@ -190,7 +193,7 @@ test('model and LoRA docks get a subfolder tree from the scanned names that filt
  expect(screen.getByRole('button',{name:'sd15/old.safetensors'})).toBeTruthy();
 });
 
-test('IPC fixture: pipelines are gated — Image→Image needs an Input-folder image and submits inputImage+denoise; video pipelines stay disabled',async()=>{
+test('IPC fixture: Image→Image is clickable without an image but greys Run and names the missing input; with an Input-folder image it submits inputImage+denoise; video pipelines stay disabled',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
@@ -199,12 +202,13 @@ test('IPC fixture: pipelines are gated — Image→Image needs an Input-folder i
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await screen.findByRole('button',{name:'Text → Image',pressed:true});
  const i2i=screen.getByRole('button',{name:'Image → Image'});
- expect(i2i.hasAttribute('disabled')).toBe(true);
+ expect(i2i.hasAttribute('disabled')).toBe(false);
  for(const name of ['Text → Video','Image → Video','Video → Video','Multi-reference → Video'])expect(screen.getByRole('button',{name}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(i2i);
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect(screen.getAllByText('Pick an image from the Input or Output folder in the Media dock.').length).toBe(2);
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
- expect(i2i.hasAttribute('disabled')).toBe(false);
- fireEvent.click(i2i);
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1920},naturalHeight:{value:1080}});fireEvent.load(ref);
  fireEvent.change(screen.getByLabelText('Denoise'),{target:{value:'0.4'}});
@@ -255,6 +259,20 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  const third=vi.mocked(prepareDiagnosticJob).mock.calls[2][1];
  expect(third.refine).toEqual({width:2048,height:2048,denoise:0.25});
  expect(third.inputImage).toBeUndefined();
+ // Tiled refine is offered only when the backend lists the DaSiWa node; tiles = SDXL native 1024², overlap 128 on the 64 grid.
+ const tiledBox=screen.getByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
+ expect(tiledBox.hasAttribute('disabled')).toBe(true);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaTiledDiffusion']}});
+ cleanup();
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await screen.findByRole('button',{name:'Text → Image',pressed:true});
+ const box=await screen.findByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
+ await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(false));
+ fireEvent.click(box);
+ expect(screen.getByText('Samples the refine pass in 1024×1024 tiles with 128 px overlap blended every step — the model’s native size, so large outputs stay sharp and seamless.')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(4));
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[3][1].refine).toEqual({width:2048,height:2048,denoise:0.25,tiled:{tileWidth:1024,tileHeight:1024,overlap:128}});
 });
 
 test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits crop/blur only when enabled (%s)',async(cropped)=>{
@@ -276,7 +294,7 @@ test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits cr
  await waitFor(()=>expect(screen.getByRole('button',{name:'Inpaint'}).hasAttribute('disabled')).toBe(false));
  expect(screen.queryByRole('checkbox',{name:'Inpaint only masked'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
- expect((screen.getByRole('spinbutton',{name:'Mask Blur (px)'}) as HTMLInputElement).value).toBe('0');
+ expect((screen.getByRole('spinbutton',{name:'Mask Blur (px)'}) as HTMLInputElement).value).toBe('4');
  if(cropped){fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Shrink Grow (px)'}),{target:{value:'32'}});fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});}
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true); // nothing painted yet
  const mask=screen.getByLabelText('Inpaint mask',{selector:'canvas'}) as HTMLCanvasElement;
@@ -289,8 +307,7 @@ test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits cr
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Insert'}));
- fireEvent.click(screen.getByRole('button',{name:'cat.png'}));
+ dropTile('cat.png');
  const layer=await screen.findByRole('group',{name:'Inserted image cat.png [output]'});
  await waitFor(()=>{
   expect(layer.classList.contains('is-selected')).toBe(true);
@@ -309,7 +326,7 @@ test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits cr
  expect(intent).toMatchObject({inputImage:'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8,width:1024,height:640});
  expect(intent.inputResize).toBeUndefined();
  if(cropped){expect(intent.maskBlur).toBe(8);expect(intent.inpaintCrop).toEqual({x:0,y:0,width:41,height:41,targetWidth:1024,targetHeight:1024});}
- else{expect(intent.maskBlur).toBeUndefined();expect(intent.inpaintCrop).toBeUndefined();}
+ else{expect(intent.maskBlur).toBe(4);expect(intent.inpaintCrop).toBeUndefined();}
  expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:350,y:235,width:341,height:171}]);
  // The edit job opens side by side: the same editor stays live on the left, no return needed.
  expect(screen.queryByRole('button',{name:'Return to edit draft'})).toBeNull();
@@ -328,7 +345,7 @@ test.each([false,true])('IPC fixture: Inpaint preserves its draft and submits cr
  vi.unstubAllGlobals();
 });
 
-test('IPC fixture: Insert pastes a picked Output image as a movable layer and submits it as inputLayers in source pixels',async()=>{
+test('IPC fixture: dropping a dock tile pastes the Output image as a movable layer and submits it as inputLayers in source pixels',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('src.png'),entry('cat.png')],truncated:false}));
@@ -340,10 +357,11 @@ test('IPC fixture: Insert pastes a picked Output image as a movable layer and su
  fireEvent.click(await screen.findByRole('button',{name:'src.png'}));
  const img=screen.getByRole('img',{name:'src.png'});
  Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
- await waitFor(()=>expect(screen.getByRole('button',{name:'Insert'}).hasAttribute('disabled')).toBe(false));
- fireEvent.click(screen.getByRole('button',{name:'Insert'}));
- expect(screen.getByRole('button',{name:'Insert',pressed:true})).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'cat.png'}));
+ await screen.findByRole('button',{name:'Image to Image'});
+ fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
+ await waitFor(()=>expect(document.querySelector('[data-editor-viewport]')).not.toBeNull());
+ dropTile('cat.png');
+ expect(screen.getByRole('button',{name:'Image to Image',pressed:true})).toBeTruthy();
  const layer=await screen.findByRole('group',{name:'Inserted image cat.png [output]'});
  expect(screen.getByRole('img',{name:'src.png'})).toBeTruthy(); // the source stays selected
  fireEvent.keyDown(layer,{key:'ArrowRight'});
@@ -465,7 +483,7 @@ test('Inpaint rejects a source outside the model grid instead of silently roundi
  expect(uploadMask).not.toHaveBeenCalled();
 });
 
-test.each(['late','error'])('Insert %s loading cannot create a guessed or stale image layer',async(mode)=>{
+test.each(['late','error'])('Dropped tile %s loading cannot create a guessed or stale image layer',async(mode)=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/out/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('base.png'),entry('cat.png'),entry('other.png')],truncated:false}));
@@ -476,8 +494,8 @@ test.each(['late','error'])('Insert %s loading cannot create a guessed or stale 
   fireEvent.click(await screen.findByRole('button',{name:'base.png'}));
   const img=screen.getByRole('img',{name:'base.png'});
   Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
-  fireEvent.click(screen.getByRole('button',{name:'Insert'}));
-  fireEvent.click(screen.getByRole('button',{name:'cat.png'}));
+  await waitFor(()=>expect(document.querySelector('[data-editor-viewport]')).not.toBeNull());
+  dropTile('cat.png');
   if(mode==='late'){
    fireEvent.click(screen.getByRole('button',{name:'other.png'}));
    const other=screen.getByRole('img',{name:'other.png'});
@@ -551,11 +569,12 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  const i2v=await screen.findByRole('button',{name:'Image → Video'});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Text → Video'}).hasAttribute('disabled')).toBe(false));
- expect(i2v.hasAttribute('disabled')).toBe(true);
+ expect(i2v.hasAttribute('disabled')).toBe(false);
  expect(screen.getByRole('button',{name:'Video → Video'}).hasAttribute('disabled')).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
  fireEvent.click(i2v);
+ expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(ref);
  fireEvent.change(screen.getByLabelText('Seconds'),{target:{value:'2'}});

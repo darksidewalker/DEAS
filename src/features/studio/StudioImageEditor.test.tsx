@@ -38,7 +38,7 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const source={src:'data:image/png;base64,AA==',name:'base.png',width:1024,height:640};
 function mount(){
   const ref=createRef<EditorHandle>();const onLayers=vi.fn(),onMask=vi.fn();
-  render(<I18nProvider><StudioImageEditor ref={ref} source={source} layers={[]} onLayers={onLayers} maskMode onMask={onMask}/></I18nProvider>);
+  render(<I18nProvider><StudioImageEditor ref={ref} source={source} layers={[]} onLayers={onLayers} maskMode onMask={onMask} onInsert={vi.fn()}/></I18nProvider>);
   return {ref,onLayers,onMask};
 }
 test('brush diameter and shape controls reject invalid preference values',()=>{
@@ -86,7 +86,7 @@ const a={id:'a',name:'a.png',src:'data:image/png;base64,AA==',x:0,y:0,width:32,h
 const b={...a,id:'b',name:'b.png'};
 function controlled(){
  const onLayers=vi.fn(),onMask=vi.fn();
- const ui=(layers:typeof a[],maskMode=true)=><I18nProvider><StudioImageEditor source={source} layers={layers} onLayers={onLayers} maskMode={maskMode} onMask={onMask}/></I18nProvider>;
+ const ui=(layers:typeof a[],maskMode=true)=><I18nProvider><StudioImageEditor source={source} layers={layers} onLayers={onLayers} maskMode={maskMode} onMask={onMask} onInsert={vi.fn()}/></I18nProvider>;
  const view=render(ui([]));return {...view,onLayers,onMask,ui};
 }
 test('insert selection and selected-only handles survive reorder and nonselected deletion',()=>{
@@ -100,6 +100,22 @@ test('insert selection and selected-only handles survive reorder and nonselected
  fireEvent.keyDown(image,{key:'ArrowRight'});expect(view.onLayers.mock.lastCall![0][0].x).toBe(8);
  fireEvent.keyDown(image,{key:'+'});expect(view.onLayers.mock.lastCall![0][0].width).toBe(40);
  fireEvent.keyDown(image,{key:'Delete'});expect(view.onLayers).toHaveBeenLastCalledWith([]);
+});
+test('brush paints the selected picture in its own pixels with the chosen colour; mask strokes use the grey value',()=>{
+ const view=controlled();view.rerender(view.ui([{...a,x:100,y:50,width:200,height:100}],false));
+ fireEvent.click(screen.getByRole('button',{name:'a.png'}));fireEvent.click(screen.getByRole('button',{name:'Brush'}));
+ fireEvent.click(screen.getByRole('button',{name:'#007aff'}));
+ const vp=document.querySelector('[data-editor-viewport]')!;
+ pointer(vp,'pointerdown',200,100);pointer(vp,'pointerup',200,100); // the mocked world is 1:1, so source (200,100) = layer-local (100,50)
+ const paint=view.onLayers.mock.lastCall![0][0].paint as HTMLCanvasElement;
+ expect([paint.width,paint.height]).toEqual([200,100]);
+ const ctx=context(paint);expect(ctx.fillStyle).toBe('#007aff');expect(ctx.pixels.has(50*200+100)).toBe(true);
+ fireEvent.change(screen.getByRole('textbox',{name:'Hex'}),{target:{value:'#00FF00'}});
+ expect((document.querySelector('input[type=color]') as HTMLInputElement).value).toBe('#00ff00');
+ view.rerender(view.ui([a],true));fireEvent.click(screen.getByRole('button',{name:'Mask 1'}));
+ fireEvent.change(screen.getByRole('slider',{name:'Mask value (black–white)'}),{target:{value:'128'}});
+ pointer(vp,'pointerdown',10,10);pointer(vp,'pointerup',10,10);
+ expect(view.onMask).toHaveBeenLastCalledWith(true);
 });
 test('pointer capture moves and resizes images in source coordinates, cancel stops motion',()=>{
  const view=controlled();view.rerender(view.ui([a]));
@@ -145,7 +161,7 @@ test('clear reports an unavailable mask context without silently discarding its 
 
 test('mask coverage survives edit-mode changes and only visible independent masks export',async()=>{
  const ref=createRef<EditorHandle>(),onMask=vi.fn(),onLayers=vi.fn();
- const ui=(maskMode:boolean)=><I18nProvider><StudioImageEditor ref={ref} source={source} layers={[]} onLayers={onLayers} maskMode={maskMode} onMask={onMask}/></I18nProvider>;
+ const ui=(maskMode:boolean)=><I18nProvider><StudioImageEditor ref={ref} source={source} layers={[]} onLayers={onLayers} maskMode={maskMode} onMask={onMask} onInsert={vi.fn()}/></I18nProvider>;
  const view=render(ui(true)),vp=document.querySelector('[data-editor-viewport]')!;
  fireEvent.change(screen.getByRole('spinbutton',{name:'Brush diameter (px)'}),{target:{value:'8'}});
  fireEvent.click(screen.getByRole('button',{name:'Square'}));

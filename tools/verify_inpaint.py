@@ -49,6 +49,11 @@ def click_tool(page, name):
     page.get_by_role('button', name=name, exact=True).click()
 
 
+def drop_tile(page, name):
+    """HTML5 drag of a dock tile onto the editor viewport (the only way to insert a layer)."""
+    page.get_by_role('button', name=name, exact=True).drag_to(page.locator('[data-editor-viewport]'))
+
+
 def paint(page, x, y, end=None):
     r = page.get_by_test_id('editor-world').bounding_box()
     assert r and r['width'] > 0 and r['height'] > 0
@@ -145,7 +150,7 @@ with sync_playwright() as p:
     result = pixels(page, [[256, 160], [300, 160], [220, 124]])
     assert (result['width'], result['height']) == (1024, 640)
     assert result['opaque'] and result['values'] == [[255,255,255,255],[0,0,0,255],[255,255,255,255]], result
-    assert 'maskBlur' not in intent and 'inpaintCrop' not in intent
+    assert intent['maskBlur'] == 4 and 'inpaintCrop' not in intent
     page.get_by_role('checkbox', name='Inpaint only masked', exact=True).check()
     page.get_by_role('spinbutton', name='Mask Shrink Grow (px)', exact=True).fill('32')
     page.get_by_role('spinbutton', name='Mask Blur (px)', exact=True).fill('8')
@@ -185,8 +190,7 @@ with sync_playwright() as p:
     click_tool(page, 'Show Mask 2')
     expect(page.get_by_role('button', name='Run', exact=True)).to_be_enabled()
     # Add an opaque image while the mask document stays alive.
-    click_tool(page, 'Insert')
-    page.get_by_role('button', name='cat.png', exact=True).click()
+    drop_tile(page, 'cat.png')
     expect(page.locator('.sie-rail').get_by_role('button', name='cat.png [output]', exact=True)).to_have_attribute('aria-pressed', 'true')
     assert page.locator('.sie-image.is-selected').count() == 1
     assert page.locator('.sie-resize').count() == 1
@@ -274,13 +278,12 @@ with sync_playwright() as p:
     page.mouse.up()
     export_mask(page)
     assert pixels(page,[[768,480]])['values'][0]==[0,0,0,255]
-    # Delay real Image decoding only for the Insert probe; normal <img> elements still load.
+    # Delay real Image decoding only for the drop probe; normal <img> elements still load.
     page.evaluate('''()=>{const NativeImage=window.Image,desc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
       window.__probeDone=false;window.__restoreImage=()=>{window.Image=NativeImage;};
       window.Image=function(){const img=new NativeImage();img.addEventListener('load',()=>window.__probeDone=true);Object.defineProperty(img,'src',{set(url){window.__releaseProbe=()=>desc.set.call(img,url);}});return img;};
     }''')
-    click_tool(page,'Insert')
-    page.get_by_role('button',name='cat.png',exact=True).click()
+    drop_tile(page,'cat.png')
     page.get_by_role('button',name='other.png',exact=True).click()
     page.evaluate('window.__releaseProbe();window.__restoreImage()')
     page.wait_for_function('window.__probeDone')
@@ -290,8 +293,7 @@ with sync_playwright() as p:
       window.__restoreImage=()=>{window.Image=NativeImage;};
       window.Image=function(){const img=new NativeImage();Object.defineProperty(img,'src',{set(){desc.set.call(img,'/missing-insert.png');}});return img;};
     }''')
-    click_tool(page,'Insert')
-    page.get_by_role('button',name='cat.png',exact=True).click()
+    drop_tile(page,'cat.png')
     expect(page.get_by_role('alert')).to_have_text('This image could not be loaded for insertion.')
     page.evaluate('window.__restoreImage()')
     assert page.locator('.sie-image').count()==0
@@ -310,8 +312,7 @@ with sync_playwright() as p:
         if width >= 1024:
             assert not page.evaluate('document.documentElement.scrollHeight>innerHeight+1'), width
         if width in (1440,320):
-            click_tool(page,'Insert')
-            page.get_by_role('button',name='cat.png',exact=True).click()
+            drop_tile(page,'cat.png')
             expect(page.locator('.sie-image')).to_have_count(1)
             click_tool(page,'Mask 1')
             click_tool(page,'Fit')

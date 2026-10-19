@@ -91,4 +91,14 @@ describe('output and chunking cards', () => {
     // Chunking and output never enter the image/video `options` block; the Workbench reads them directly.
     expect(runOptions({ ...defaultOptions, chunkHeadroom: 3 }, allow)).toBeUndefined();
   });
+
+  it('restore the output and naming defaults without touching other options', () => {
+    const onChange = vi.fn();
+    const custom = { ...defaultOptions, compile: 'inductor', outputNaming: 'x/%seed%', output: { ...defaultOptions.output!, codec: 'AV1' as const } };
+    render(<I18nProvider><OptionsPanel value={custom} onChange={onChange} allow={allow} imageInput={false} onRead={() => {}} canRead/></I18nProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Output naming defaults' }));
+    expect(onChange).toHaveBeenLastCalledWith({ ...custom, outputNaming: defaultOptions.outputNaming });
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Output format defaults' }));
+    expect(onChange).toHaveBeenLastCalledWith({ ...custom, output: defaultOptions.output });
+  });
 });

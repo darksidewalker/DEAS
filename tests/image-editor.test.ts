@@ -21,6 +21,11 @@ test('square strokes fill the path and restore erasing state',()=>{
  stampStroke(ctx as unknown as CanvasRenderingContext2D,{x:10,y:10},{x:18,y:10},8,'square',true);
  assert.deepEqual(calls[1],[6,6,8,8]);assert.deepEqual(calls.at(-2),[14,6,8,8]);assert.deepEqual(calls.at(-1),['restore']);
 });
+test('strokes take a colour, white by default',()=>{
+ const ctx={canvas:{width:100,height:100},save(){},restore(){},fillRect(){},globalCompositeOperation:'source-over',fillStyle:''};
+ stampStroke(ctx as unknown as CanvasRenderingContext2D,{x:10,y:10},{x:10,y:10},8,'square',false);assert.equal(ctx.fillStyle,'#fff');
+ stampStroke(ctx as unknown as CanvasRenderingContext2D,{x:10,y:10},{x:10,y:10},8,'square',false,'rgb(128,128,128)');assert.equal(ctx.fillStyle,'rgb(128,128,128)');
+});
 test('visibleImages omits hidden images and UI fields',()=>{
  assert.deepEqual(visibleImages([{id:'a',name:'cat.png',src:'x',x:4,y:8,width:32,height:16,visible:true},{id:'b',name:'dog.png',src:'y',x:0,y:0,width:8,height:8,visible:false}]),[{image:'cat.png',x:4,y:8,width:32,height:16}]);
 });

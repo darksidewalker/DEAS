@@ -789,6 +789,11 @@ async fn prepare_checks_input_layers_against_the_backend_list() {
     with["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
     with["inputLayers"] = json!([{"image":"my ref ä.png","x":0,"y":0,"width":8,"height":8},{"image":"DEAS/out.png [output]","x":0,"y":0,"width":8,"height":8}]);
     assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    // A flattened painted layer carries the mask-upload name; only the exact uuid form passes.
+    with["inputLayers"][0]["image"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_ok());
+    with["inputLayers"][0]["image"] = json!("deas-masks/other.png");
+    assert!(jobs.prepare(base.clone(), with.clone()).await.is_err());
     with["inputLayers"][0]["image"] = json!("missing.png");
     assert!(jobs.prepare(base, with).await.is_err());
     task.abort();
@@ -838,11 +843,40 @@ fn refine_pass_upscales_resizes_and_resamples_after_the_first_decode() {
         ("denoise", json!(0)),
         ("upscaleModel", json!("../x.pth")),
         ("extra", json!(1)),
+        (
+            "tiled",
+            json!({"tileWidth":1024,"tileHeight":1024,"overlap":1024}),
+        ),
+        (
+            "tiled",
+            json!({"tileWidth":1024,"tileHeight":1024,"overlap":12}),
+        ),
+        (
+            "tiled",
+            json!({"tileWidth":1004,"tileHeight":1024,"overlap":64}),
+        ),
+        ("tiled", json!({"tileWidth":1024,"tileHeight":1024})),
     ] {
         let mut v = i.clone();
         v["refine"][k] = bad;
         assert!(compile(&v).is_err(), "accepted {k}");
     }
+    // Tiled refine: the DaSiWa tiling patch feeds only the refine sampler (own guider on the sigmas path).
+    i["refine"]["tiled"] = json!({"tileWidth":1024,"tileHeight":1024,"overlap":128});
+    let g = compile(&i).unwrap();
+    assert_eq!(
+        g["RT"]["inputs"],
+        json!({"model":g["G"]["inputs"]["model"],"tile_width":1024,"tile_height":1024,"overlap":128})
+    );
+    assert_eq!(g["RG"]["inputs"]["model"], json!(["RT", 0]));
+    assert_eq!(g["R5"]["inputs"]["guider"], json!(["RG", 0]));
+    assert_eq!(g["5"]["inputs"]["guider"], json!(["G", 0]));
+    i.as_object_mut().unwrap().remove("sigmas");
+    i["refine"].as_object_mut().unwrap().remove("sigmas");
+    let g = compile(&i).unwrap();
+    assert_eq!(g["RT"]["inputs"]["model"], g["5"]["inputs"]["model"]);
+    assert_eq!(g["R5"]["inputs"]["model"], json!(["RT", 0]));
+    assert!(g.get("RG").is_none());
 }
 
 #[test]

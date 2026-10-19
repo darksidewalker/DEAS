@@ -20,6 +20,11 @@
 - Owner ran a real MiniMax H3 I2VA job (`video/2026-10-18/…_00001_audio.webm`, AV1/Opus, 768×992, 5.18 s) through DEAS; the native job reached `succeeded` with the `gifs` output. A WebKitGTK 2.x probe (`WEBKIT_DEBUG=Media`) shows `<video src="asset://…">` fails with `FormatError` before any scheme request, while the same file over the backend's `/view` HTTP URL reaches `playing`; the stage therefore uses `/view` for job outputs; for dock media (any folder) it fetches the asset bytes once and plays a `blob:` URL, which the same probe plays (4/4 runs reached `playing`; one run hit a transient decoder `MEDIA_ERR_DECODE`, independent of the source). The Options → Output card's label/control grid is a `div` (the `.wb-option > span` flex rule had collapsed it).
 - Not verified: real LTX/Wan generation, actual checkpoint capture by the node pack, in-app playback after this change (probe only), Wan LOW-file pairing on real folders beyond the owner's `_HIGH_`/`_LOW_` names. The H3 `continuity` block relies on the node pack's private v3 settings keys read today (`session`, `source_id`, `capture`, `output_mode`, `continuation_prompt`).
 
+## Hyphen-only video names and output defaults (unreleased)
+
+- The owned-backend adapter now also wraps `DaSiWa_EnhancedVideoCombine` (via each saver's `FUNCTION`): a save's files (video + frame exports) move together to the first counter free for all of them, and the returned `result` path (consumed by the H3 continuity publisher) is rewritten. `%date_yyyy_mm_dd%` upgrades to the hyphen token in any template.
+- Verified: `tools/verify_output_naming_node.py` with the owned environment's venv/ComfyUI on CPU wrote four clean PNGs and two real VP9/Opus WebM saves with first-frame exports; the second video collided at the combine's counter 1 and was published as `-00002-audio.webm`; no underscore leftovers, returned path matched the file. 78 core tests, 307 UI tests (new Default-button test), typecheck passed. Not verified: browser/WebKitGTK rendering of the buttons, a GPU job through a restarted owned backend.
+
 ## Hyphenated output naming fix (0.1.26)
 
 - Default `%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%`; upgrade only the former default and preserve custom templates/legacy date tokens. Model sanitization uses hyphens and removes separator-only leading/trailing runs.

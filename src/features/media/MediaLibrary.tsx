@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
-import { describeMedia, itemFromEntry, itemFromFile, listMedia, type MediaEntry, type MediaItem, type MediaListing } from '../../lib/media';
+import { describeMedia, dragItem, itemFromEntry, itemFromFile, listMedia, type MediaEntry, type MediaItem, type MediaListing } from '../../lib/media';
 import { usePref } from '../../lib/preferences';
 import './media.css';
 const depths=[1,2,3,4,5];
@@ -134,9 +134,9 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
     <ul>{treeRoot&&folderBranch(treeRoot,crumbs(treeRoot).at(-1)?.label??treeRoot)}</ul>
    </nav>}
    <div className="media-files">
-  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.map((item,i)=><li key={`${item.src}-${i}`}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button></li>)}</ul>}
+  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.map((item,i)=><li key={`${item.src}-${i}`}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable={item.media==='image'} onDragStart={e=>dragItem(e.dataTransfer,item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button></li>)}</ul>}
   {error&&<p className="media-error" role="alert">{error}</p>}
-  {listing&&<Tiles folder={listing.path} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button></li>}/>}
+  {listing&&<Tiles folder={listing.path} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable={entry.media==='image'} onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button></li>}/>}
   <p className="media-help">{listing&&!visible.length&&!error?t('media.empty'):listing?.truncated?t('media.truncated'):t(native?'media.dropHelp':'media.browserHelp')}</p>
    </div>
   </div>

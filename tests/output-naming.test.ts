@@ -13,8 +13,9 @@ test('naming snapshots local date/time, exact seed and sanitized basename, indep
  for(const template of ['', '../%seed%', '/%model%', '%unknown%', '%seed', 'CON', 'a/aux.png','a/name.','a//b','a/./b','a/../b','a\\b','a:b','a\n','x'.repeat(181),`${'a'.repeat(130)}/${'b'.repeat(130)}/file`]) assert.equal(outputPrefix(template,context,now),null,template);
  assert.equal(safeOutputPrefix('x'.repeat(180)),true);
  assert.equal(outputNamingTemplate('%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%'),defaultOutputNaming);
- assert.equal(outputNamingTemplate('custom/%date_yyyy_mm_dd%/%model%'),'custom/%date_yyyy_mm_dd%/%model%');
- assert.equal(outputPrefix('%date_yyyy_mm_dd%',context,now),'2026_01_02');
+ assert.equal(outputNamingTemplate('custom/%date_yyyy_mm_dd%/%model%'),'custom/%date_yyyy-mm-dd%/%model%');
+ assert.equal(outputNamingTemplate(undefined),defaultOutputNaming);
+ assert.equal(outputPrefix(outputNamingTemplate('%date_yyyy_mm_dd%'),context,now),'2026-01-02');
  assert.equal(outputPrefix('%model%',{...context,model:'My_Model_.safetensors'},now),'My-Model');
 });
 test('resolved paths feed both the core and DaSiWa metadata savers unchanged',()=>{

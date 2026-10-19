@@ -2,7 +2,7 @@ export function zoomAt(v:View,p:Point,wanted:number):View{
  const scale=Math.max(.05,Math.min(16,wanted)),ratio=scale/v.scale;
  return {scale,x:p.x-(p.x-v.x)*ratio,y:p.y-(p.y-v.y)*ratio};
 }
-export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diameter:number,shape:BrushShape,erase:boolean){
+export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diameter:number,shape:BrushShape,erase:boolean,color='#fff'){
  // Clip the segment, not each endpoint: outside drags must not loop over off-canvas miles.
  const dx=b.x-a.x,dy=b.y-a.y,r=diameter/2;
  if(![a.x,a.y,b.x,b.y,dx,dy,diameter].every(Number.isFinite)||diameter<2||diameter>1024)return;
@@ -15,7 +15,7 @@ export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diamete
  b={x:a.x+dx*hi,y:a.y+dy*hi};a={x:a.x+dx*lo,y:a.y+dy*lo};
  const count=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/Math.max(1,diameter/4)));
  ctx.save();
- try{ctx.globalCompositeOperation=erase?'destination-out':'source-over';ctx.fillStyle='#fff';
+ try{ctx.globalCompositeOperation=erase?'destination-out':'source-over';ctx.fillStyle=color;
   for(let i=0;i<=count;i++){
    const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count;
    if(shape==='square')ctx.fillRect(x-diameter/2,y-diameter/2,diameter,diameter);
@@ -36,7 +36,19 @@ export function visibleImages(layers:readonly ImageLayer[]){
 }
 export type Point={x:number;y:number};
 export type View={scale:number;x:number;y:number};
-export type ImageLayer={id:string;name:string;src:string;x:number;y:number;width:number;height:number;visible:boolean};
+/** `paint` holds brush strokes at the picture's own pixel size; the run flattens them over the picture. */
+export type ImageLayer={id:string;name:string;src:string;x:number;y:number;width:number;height:number;visible:boolean;paint?:HTMLCanvasElement};
+export const hasPaint=(c?:HTMLCanvasElement)=>{const d=c?.getContext('2d')?.getImageData(0,0,c.width,c.height).data;if(!d)return false;for(let i=3;i<d.length;i+=4)if(d[i])return true;return false;};
+/** PNG of the layer picture with its strokes on top, or null when nothing was painted. */
+export async function flattenLayer(l:ImageLayer):Promise<Uint8Array|null>{
+ if(!l.paint||!hasPaint(l.paint))return null;
+ const img=new Image();img.src=l.src;await img.decode();
+ const c=document.createElement('canvas');c.width=l.paint.width;c.height=l.paint.height;
+ const ctx=c.getContext('2d');if(!ctx)throw new Error('canvas');
+ ctx.drawImage(img,0,0,c.width,c.height);ctx.drawImage(l.paint,0,0);
+ const blob=await new Promise<Blob|null>(done=>c.toBlob(done,'image/png'));if(!blob)throw new Error('canvas');
+ return new Uint8Array(await blob.arrayBuffer());
+}
 export type BrushShape='round'|'square';
 export function sourcePoint(clientX:number,clientY:number,r:{left:number;top:number;width:number;height:number},width:number,height:number):Point{
  return {x:(clientX-r.left)*width/r.width,y:(clientY-r.top)*height/r.height};

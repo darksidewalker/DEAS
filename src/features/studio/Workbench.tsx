@@ -23,7 +23,7 @@ import { ForgeButton } from '../forge/ForgeButton';
 import { dialectOf } from '../../lib/forge';
 import { WildcardPanel } from '../wildcards/WildcardPanel';
 import { defaultWildcard, isWildcardRules } from '../../lib/wildcard';
-import { visibleImages, type ImageLayer } from './imageEditor';
+import { flattenLayer, visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
 /** Data-only family plugin (also read natively for header detection): loader, runnable pipelines, encoder/VAE file patterns, starting settings. */
 interface Family { id:string; name:string; multiple?:number; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]} }
@@ -117,13 +117,14 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
  // Post-Processing (SwarmUI Refine / Upscale): opt-in second pass after every run, or applied alone to the shown image.
  const [post,setPost]=usePref('studio.run.post',false,isBoolean);
+ const [postTiled,setPostTiled]=usePref('studio.run.post.tiled',false,isBoolean);
  const [refineDenoise,setRefineDenoise]=usePref('studio.run.refineDenoise',0.25,isNumber);
  const [upscale,setUpscale]=usePref('studio.run.upscale',1,isNumber);
  const [upscaleModelPref,setUpscaleModel]=usePref('studio.run.upscaleModel','',isString);
  const [inpaintDenoise,setInpaintDenoise]=usePref('studio.run.inpaintDenoise',0.8,isNumber);
  const [inpaintOnlyMasked,setInpaintOnlyMasked]=usePref('studio.run.inpaintOnlyMasked',false,isBoolean);
  const [maskGrow,setMaskGrow]=usePref('studio.run.maskGrow',8,isMaskGrow);
- const [maskBlur,setMaskBlur]=usePref('studio.run.maskBlur',0,isMaskBlur);
+ const [maskBlur,setMaskBlur]=usePref('studio.run.maskBlur',4,isMaskBlur);
  const [masked,setMasked]=useState(false);
  const editorRef=useRef<EditorHandle>(null);
  const sourceEpoch=useRef(0);
@@ -186,9 +187,12 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const comfyName=(item:MediaItem|null)=>under(item,roots.input)||(under(item,outputDir)&&`${under(item,outputDir)} [output]`);
  const inputImage=comfyName(media);
  // Extra images pasted onto the source (SwarmUI editor image layers), in source pixels; they belong to one source.
- const [layers,setLayers]=useState<ImageLayer[]>([]);const [inserting,setInserting]=useState(false);
- const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):(id==='i2i'||id==='i2v')&&!inputImage?'studio.run.pipe.needsInput':'';
+ const [layers,setLayers]=useState<ImageLayer[]>([]);
+ // Image pipelines stay clickable without an input; the missing picture only greys Run and names what to pick.
+// A chip whose pipeline the remembered model cannot run picks the first compatible model (with its family defaults).
+ const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):'';
  const pipeline:Pipeline=why(pipelinePref)?'t2i':pipelinePref;
+ const needsInput=(pipeline==='i2i'||pipeline==='i2v')&&!inputImage;
  const mediaPipeline=!pipeline.startsWith('t2');
  const isVideo=pipeline==='t2v'||pipeline==='i2v';
  const aspect=aspectPref==='auto'&&!mediaPipeline?'1:1':aspectPref;
@@ -225,12 +229,16 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const canvas=canvasSize(aspect,resolution,{width:aspectWidth,height:aspectHeight},megapixels,{width,height},modelSize,mediaPipeline?source:undefined,grid);
  // Post-processing scales both edges and snaps each to the model grid.
  const up=(s:Size):Size=>({width:Math.max(grid,Math.round(s.width*upscale/grid)*grid),height:Math.max(grid,Math.round(s.height*upscale/grid)*grid)});
+ // Tiled refine: tiles at the model's native size, overlap an eighth of the shorter edge (at least 64 px), all on the model grid.
+ const snap=(n:number)=>Math.max(grid,Math.round(n/grid)*grid);
+ const tiled=postTiled&&choices?.nodes?.includes('DaSiWaTiledDiffusion')?{tileWidth:snap(modelSize.width),tileHeight:snap(modelSize.height),overlap:snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8))}:null;
  const inpaint=pipeline==='i2i'&&edit==='inpaint';
  const scaled=pipeline!=='i2i'||!source?null:scaleInput(inpaint?'off':inputScaling,source,canvas,grid);
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
  const outputSize=inpaint&&source?source:(scaled?.size??canvas);
  const sizeError=inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
+  :needsInput?'studio.run.pipe.needsInput'
   :!validCanvas(outputSize)?'studio.run.resolution.invalid'
   :(pipeline==='i2i'||pipeline==='i2v')&&!source?'studio.run.resolution.waiting'
   :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&media&&media.media!=='audio'&&!source?'studio.run.resolution.waiting':'';
@@ -260,7 +268,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   const intent:DiagnosticImageIntentV1=Object.freeze(only
    ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
    :{...common,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,...(sigmas?{sigmas}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),
-    ...(post?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{})}}:{})});
+    ...(post?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{}),...(tiled?{tiled}:{})}}:{})});
   const from=only?.src??(pipeline==='i2i'?media?.src:undefined);
   lock.current=true;setBusy(true);setError('');
   try{
@@ -272,7 +280,10 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
    const maskSnapshot=editing?editorRef.current?.maskPng():null;
    if(editing&&!maskSnapshot)throw new Error(t('studio.run.edit.needsMask'));
    const inputMask=maskSnapshot?await uploadMask(endpoint,await maskSnapshot):null;
-   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...intent,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}):intent); // native: validates against the running backend's object_info
+   // Painted layers go up flattened (same PNG upload as masks) and replace their file name.
+   const painted=only||pipeline!=='i2i'?[]:await Promise.all(layers.filter(l=>l.visible).map(async l=>{const png=await flattenLayer(l);return png?await uploadMask(endpoint,png):l.name;}));
+   const withLayers=painted.some((name,i)=>name!==inputLayers[i].image)?{...intent,inputLayers:inputLayers.map((l,i)=>({...l,image:painted[i]}))}:intent;
+   const plan=await prepareDiagnosticJob(endpoint,inputMask?Object.freeze({...withLayers,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}):withLayers); // native: validates against the running backend's object_info
    const job=await submitDiagnosticJob(plan.id); // the Run click is the authorization
    if(live.current){setJobs(list=>[job,...list].slice(0,20));setSelectedJob(job.id);if(from)setSources(s=>({...s,[job.id]:from}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));if(seedMode==='random')setSeed(randomSeed());}
   }catch(e){if(live.current)setError(e instanceof Error?e.message:String(e));}
@@ -340,19 +351,22 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   void run(undefined,{index:next.index,all:true});
  },[autoPlan,current,busy,resolving,plan]); // eslint-disable-line react-hooks/exhaustive-deps
  const runPlan=(all:boolean)=>{const next=nextStep(plan);if(!next||videoFamily!=='minimax-h3'||!isVideo)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
- // Picking media on the strip takes over the preview until the next job is selected; while inserting it adds a layer instead.
- const select=(item:MediaItem)=>{setSelectedJob('');setInserting(false);if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
- const pickMedia=(item:MediaItem)=>{
-  if(!inserting||!source||!media){select(item);return;}
-  const name=comfyName(item),version=sourceEpoch.current;setInserting(false);
+ // Picking media on the strip takes over the preview until the next job is selected.
+ const select=(item:MediaItem)=>{setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
+ // A dock tile dropped on the editor becomes a layer centred on the drop point (image-to-image only).
+ const insertLayer=(item:MediaItem,at:{x:number;y:number})=>{
+  if(!source||!media)return;
+  const name=comfyName(item),version=sourceEpoch.current;
   if(!name||item.media!=='image'||layers.length>=4){setError(t('studio.run.edit.insertHint'));return;}
+  if(pipeline!=='i2i'){setEdit('resample');setPipeline('i2i');}
   const probe=new Image();
   probe.onload=()=>{
    if(!live.current||sourceEpoch.current!==version)return;
    if(!(probe.naturalWidth>0&&probe.naturalHeight>0)){setError(t('studio.editor.insertFailed'));return;}
    const scale=Math.min(source.width/3/probe.naturalWidth,source.height/probe.naturalHeight,8192/probe.naturalWidth,8192/probe.naturalHeight);
    const width=Math.max(8,Math.round(probe.naturalWidth*scale)),height=Math.max(8,Math.round(probe.naturalHeight*scale));
-   const layer:ImageLayer={id:crypto.randomUUID(),name,src:item.src,visible:true,width,height,x:Math.max(0,Math.round((source.width-width)/2)),y:Math.max(0,Math.round((source.height-height)/2))};
+   const cx=Number.isFinite(at.x)?at.x:source.width/2,cy=Number.isFinite(at.y)?at.y:source.height/2;
+   const layer:ImageLayer={id:crypto.randomUUID(),name,src:item.src,visible:true,width,height,x:Math.max(0,Math.min(source.width-1,Math.round(cx-width/2))),y:Math.max(0,Math.min(source.height-1,Math.round(cy-height/2)))};
    setLayers(list=>list.length>=4?list:[...list,layer]);
   };
   probe.onerror=()=>{if(live.current&&sourceEpoch.current===version)setError(t('studio.editor.insertFailed'));};
@@ -391,7 +405,6 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
  const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
   {editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(media?.src!==item.src)select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
-  <button type="button" data-edit-insert aria-pressed={inserting&&media?.src===item.src} disabled={noEditModel} onClick={()=>{if(media?.src!==item.src){select(item);setInserting(true);}else setInserting(!inserting);if(pipeline!=='i2i'){setEdit('resample');setPipeline('i2i');}}}>{t('studio.run.edit.insert')}</button>
   {isVideo&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {original&&media?.src!==item.src&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
  </div>;
@@ -422,7 +435,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
    <aside className="wb-side">
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
      <p className="wb-active"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><strong title={checkpoint}>{checkpoint||t('studio.run.noModels')}</strong><small>{t('studio.run.loras')} {activeLoras.length}</small></p>
-     <div className="wb-pipelines" role="group" aria-label={t('studio.run.pipeline')}>{pipelines.map(id=>{const reason=why(id);return <button key={id} type="button" data-pipeline={id} aria-pressed={pipeline===id} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>setPipeline(id)}>{t(`studio.run.pipe.${id}`)}</button>;})}</div>
+     <div className="wb-pipelines" role="group" aria-label={t('studio.run.pipeline')}>{pipelines.map(id=>{const reason=why(id);return <button key={id} type="button" data-pipeline={id} aria-pressed={pipeline===id} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>{setPipeline(id);if(!allModels.some(m=>m.name===checkpointPref&&!blocked(m,id)))pickModel(allModels.find(m=>!blocked(m,id))!);}}>{t(`studio.run.pipe.${id}`)}</button>;})}</div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{inputImage}</strong></p>}
     {pipeline==='i2v'&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{inputImage}</strong></p>}
      <div className="wb-controls">
@@ -435,11 +448,11 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
       {isVideo&&family?.video&&split&&<>
        {num('video.seconds',video.seconds,n=>setVideo({...video,seconds:clamp(n,0.5,15)}),0.5,15,0.5)}{num('video.fps',fps,n=>setVideo({...video,fps:clamp(n,1,120)}),1,120,1,family.video.fixedFps?t('studio.run.video.fixedFps',{fps:String(family.video.fps)}):undefined)}
        <p className="wb-resolution-hint wb-wide">{t('studio.run.video.length',{frames:String(frames),seconds:((frames-1)/fps).toFixed(2)})}</p>
-       {videoFamily==='ltx-2'&&<>{pick('studio.run.video.textProjection',textProjection,split.projections,v=>setVideo({...video,textProjection:v}))}{pick('studio.run.video.audioVae',audioVae,split.audioVaes,v=>setVideo({...video,audioVae:v}))}
+       {videoFamily==='ltx-2'&&<>{pick('studio.run.video.textProjection',textProjection,split.projections,v=>setVideo({...video,textProjection:v}))}
         <label className="wb-field"><span>{t('studio.run.video.passes')}</span><select value={video.passes} onChange={e=>setVideo({...video,passes:Number(e.target.value) as VideoPref['passes']})}>{[1,2,3].map(n=><option key={n} value={n} disabled={n>1&&!(choices?.latentUpscaleModels?.length||!choices)}>{n}</option>)}</select></label>
         {video.passes>1&&pick('studio.run.video.upscaler',video.upscaler||choices?.latentUpscaleModels?.[0]||'',choices?.latentUpscaleModels??[],v=>setVideo({...video,upscaler:v}),loadChoices)}</>}
        {videoFamily==='wan'&&<>{num('video.shiftHigh',video.shiftHigh,n=>setVideo({...video,shiftHigh:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.shiftLow',video.shiftLow,n=>setVideo({...video,shiftLow:clamp(n,0.5,20)}),0.5,20,0.5)}{num('video.refinerStep',Math.min(video.refinerStep,steps-1),n=>setVideo({...video,refinerStep:clamp(Math.round(n),1,Math.max(1,steps-1))}),1,Math.max(1,steps-1),1)}</>}
-       {videoFamily==='minimax-h3'&&<>{pick('studio.run.video.audioVae',audioVae,split.audioVaes,v=>setVideo({...video,audioVae:v}))}{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
+       {videoFamily==='minimax-h3'&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
        <p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>
       </>}
       {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',denoise,setDenoise,0,1,0.05)}</>}
@@ -454,7 +467,7 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
       {pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices)}
       {sigmas?<label className="wb-field"><span>{t('studio.recipe.scheduler')}</span><select value="custom" disabled title={t('studio.run.customSchedule.hint')}><option value="custom">{t('studio.run.customSchedule')}</option></select></label>
        :pick('studio.recipe.scheduler',scheduler,choices?.schedulers??[],setScheduler,loadChoices)}
-      {split&&<>{pick('studio.run.textEncoder',textEncoder,split.encoders,setTextEncoder)}{pick('studio.run.vae',vae,split.vaes,setVae)}</>}
+      {split&&<>{pick('studio.run.textEncoder',textEncoder,split.encoders,setTextEncoder)}{pick('studio.run.vae',vae,split.vaes,setVae)}{isVideo&&family?.audioVaes&&pick('studio.run.video.audioVae',audioVae,split.audioVaes,v=>setVideo({...video,audioVae:v}))}</>}
       <div className="wb-field wb-seed">
        <label><span>{t('studio.run.seed')}</span><input aria-label={t('studio.run.seed')} type="number" inputMode="numeric" value={seed} min={0} max={Number.MAX_SAFE_INTEGER} step={1} onChange={e=>{const n=Number(e.target.value);if(isSeed(n))fixedSeed(n);}}/></label>
        <div className="wb-seed-row"><button type="button" aria-label={t('studio.run.seedDecrease')} onClick={()=>fixedSeed(seed===0?Number.MAX_SAFE_INTEGER:seed-1)}>−</button><button type="button" aria-label={t('studio.run.seedIncrease')} onClick={()=>fixedSeed(seed===Number.MAX_SAFE_INTEGER?0:seed+1)}>+</button>{(['random','fixed'] as const).map(mode=><button key={mode} type="button" aria-pressed={seedMode===mode} onClick={()=>setSeedMode(mode)}>{t(`studio.run.seedMode.${mode}`)}</button>)}<button type="button" aria-label={t('studio.run.newSeed')} title={t('studio.run.newSeed')} onClick={()=>setSeed(randomSeed())}>⟳</button></div>
@@ -470,8 +483,8 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
    <div className="wb-center">
     <section className={`wb-stage${sideBySide?' wb-split':''}`} aria-label={t('studio.run.preview')}>
      {editableSource&&media&&<div className="wb-editor-host" hidden={!!shown&&!editorLeft}>
-      <StudioImageEditor key={media.src} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked}/>
-      {inputImage&&tools(media)}<span className="wb-editor-caption">{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}</span>
+      <StudioImageEditor key={media.src} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked} onInsert={insertLayer}/>
+      {inputImage&&tools(media)}<span className="wb-editor-caption">{media.name} · {t('studio.run.edit.insertHint')}</span>
      </div>}
      {sideBySide&&!editorLeft&&<figure className="media-preview"><img src={original} alt={t('studio.run.edit.original')}/></figure>}
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
@@ -480,8 +493,8 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
         :shown.outputs.map(o=>isVideoOut(o)?<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} src={fileSrc(o)!} alt={o.filename}/>)}{!isVideoOut(shown.outputs[0])&&tools(outputItem(shown.outputs[0]))}<figcaption>{original&&slider&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview">{shown.outputs.filter(isVideoOut).map(o=><video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}<figcaption>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
-     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}{inputImage&&tools(media)}<figcaption>{media.name}{inserting&&<> · {t('studio.run.edit.insertHint')}</>}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
-     :!media?<p className="empty-note">{t('studio.run.empty')}</p>:null}
+     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img src={media.src} alt={media.name} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}{inputImage&&tools(media)}<figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
+     :!media?<p className="empty-note">{t(needsInput?'studio.run.pipe.needsInput':'studio.run.empty')}</p>:null}
     </section>
     <div className="wb-prompts">
      <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined}/></div>
@@ -501,14 +514,15 @@ export function Workbench({endpoint,roots={},root,incoming}:WorkbenchProps){
   </div>
   <div className="wb-dock" style={{height:dockHeight}}>
    <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} onPointerDown={dragDock}/>
-   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>id!=='continuity'||videoFamily==='minimax-h3').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
+   <div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>id!=='continuity'||videoFamily==='minimax-h3').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}
     {dockTab!=='options'&&dockTab!=='wildcards'&&dockTab!=='post'&&dockTab!=='continuity'&&<><input type="search" className="wb-dock-search" data-dock-search aria-label={t('studio.run.dock.search')} placeholder={t('studio.run.dock.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
     <select className="wb-dock-sort" data-dock-sort aria-label={t('studio.run.dock.sort')} value={sort} onChange={e=>setSort(e.target.value as typeof sortPref)}>{sorts.map(s=><option key={s} value={s}>{t(`studio.run.sort.${s}`)}</option>)}</select></>}
     {(dockTab==='models'||dockTab==='loras')&&<button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button>}</div>
-   {dockTab==='media'&&<MediaLibrary selected={media} onSelect={pickMedia} roots={roots} outputRevision={outputRevision} filter={query} sort={sort}/>}
+   {dockTab==='media'&&<MediaLibrary selected={media} onSelect={select} roots={roots} outputRevision={outputRevision} filter={query} sort={sort}/>}
    {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
    {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+    <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>

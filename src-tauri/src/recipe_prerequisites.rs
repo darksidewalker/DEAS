@@ -47,8 +47,9 @@ pub(crate) const SIGMA_NODES: [&str; 5] = [
 ];
 /// Workbench Options patches (attention, step caches, compile, tiled VAE);
 /// each one is offered only when the backend lists it.
-pub(crate) const OPTION_NODES: [&str; 8] = [
+pub(crate) const OPTION_NODES: [&str; 9] = [
     "ModelAttentionBackend",
+    "DaSiWaTiledDiffusion",
     "PathchSageAttentionKJ",
     "EasyCache",
     "LazyCache",

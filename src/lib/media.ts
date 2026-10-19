@@ -15,6 +15,12 @@ export function itemFromEntry(entry:MediaEntry):MediaItem|null {
  if(entry.kind!=='file'||!entry.media)return null;
  return {name:entry.name,path:entry.path,media:entry.media,src:isTauri()?convertFileSrc(entry.path):entry.path};
 }
+/** In-app drag of a dock tile (HTML5 DnD); external file drops carry no such entry. */
+export const MEDIA_DRAG='application/x-deas-media';
+export const dragItem=(dt:DataTransfer,item:MediaItem)=>dt.setData(MEDIA_DRAG,JSON.stringify(item));
+export function draggedItem(dt:DataTransfer):MediaItem|null {
+ try{const v=JSON.parse(dt.getData(MEDIA_DRAG)||'null');return v&&typeof v.src==='string'&&typeof v.name==='string'&&['image','video','audio'].includes(v.media)?v:null;}catch{return null;}
+}
 export function itemFromFile(file:File):MediaItem|null {
  const media=file.type.split('/')[0];
  if(media!=='image'&&media!=='video'&&media!=='audio')return null;

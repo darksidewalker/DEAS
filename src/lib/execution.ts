@@ -1,6 +1,9 @@
 import { safeOutputPrefix } from './outputNaming.ts';
 import { isWildcardRules, wildcardNode, type WildcardRules } from './wildcard.ts';
 /** DEAS-owned diagnostic intent, not a Director/video recipe or widget schema. */
+/** Names `native_mask_upload` hands out (`deas-masks/<uuid>.png`): masks and flattened painted layers; object_info never lists that subfolder. */
+export const isUploadedMask = (name: string) => /^deas-masks\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/u.test(name);
+
 export interface DiagnosticImageIntentV1 {
   readonly recipeId: 'checkpoint-text-to-image-diagnostic';
   readonly version: 1;
@@ -41,7 +44,9 @@ export interface DiagnosticImageIntentV1 {
   /** Image-to-image: upscale model run on the source before `inputResize`, which then sets the exact size. */
   readonly upscaleModel?: string;
   /** Post pass after the first decode (SwarmUI refiner/upscale): optional upscale model, exact resize, second sampling at `denoise` with the same model, prompts and seed; `sigmas` is required exactly when the first pass has them. */
-  readonly refine?: { readonly width: number; readonly height: number; readonly denoise: number; readonly upscaleModel?: string; readonly sigmas?: readonly number[] };
+  readonly refine?: { readonly width: number; readonly height: number; readonly denoise: number; readonly upscaleModel?: string; readonly sigmas?: readonly number[];
+    /** Sample the refine pass in overlapping latent tiles (DaSiWa Tiled Diffusion): tile = the model's native size, overlap blended per step. */
+    readonly tiled?: { readonly tileWidth: number; readonly tileHeight: number; readonly overlap: number } };
   /** Options → Output: DaSiWa saver file format and 0–100 compression (PNG level / WebP quality); core SaveImage ignores them. */
   readonly imageFormat?: 'png' | 'webp';
   readonly imageCompression?: number;
@@ -135,7 +140,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (Object.hasOwn(input, 'inputImage') && !safeModel(input.inputImage)) invalid('inputImage', 'Unsafe input image identifier.', 'Use a file name from the backend input folder.');
   if (Object.hasOwn(input, 'denoise') && !(typeof input.denoise === 'number' && Number.isFinite(input.denoise) && input.denoise >= 0 && input.denoise <= 1)) invalid('denoise', 'Denoise must be a finite number in [0, 1].', 'Supply a denoise strength between 0 and 1.');
   if (Object.hasOwn(input, 'inputMask') && (!Object.hasOwn(input, 'inputImage') || Object.hasOwn(input, 'inputResize')
-    || !/^deas-masks\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/u.test(String(input.inputMask)))) invalid('inputMask', 'Invalid inpaint mask.', 'Upload the mask natively and use it with an unresized inputImage.');
+    || !isUploadedMask(String(input.inputMask)))) invalid('inputMask', 'Invalid inpaint mask.', 'Upload the mask natively and use it with an unresized inputImage.');
   if (Object.hasOwn(input, 'maskBlur') && (!input.inputMask || !Number.isSafeInteger(input.maskBlur) || (input.maskBlur as number) < 0 || (input.maskBlur as number) > 31 || (input.maskBlur as number) >= Math.min(input.width as number,input.height as number))) invalid('maskBlur','Invalid mask blur.','Use an integer radius 0..31 smaller than the source edges, with inputMask.');
   if (Object.hasOwn(input,'inpaintCrop')) {
     const c=input.inpaintCrop;
@@ -218,10 +223,11 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (Object.hasOwn(input, 'refine')) {
     const r = input.refine;
     const edge = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 64 && (v as number) <= 8192 && (v as number) % 8 === 0;
-    if (!isRecord(r) || Object.keys(r).some(k => !['width', 'height', 'denoise', 'upscaleModel', 'sigmas'].includes(k)) || !edge(r.width) || !edge(r.height)
+    const tiledOK = (v: unknown) => isRecord(v) && Object.keys(v).length === 3 && edge(v.tileWidth) && edge(v.tileHeight) && Number.isSafeInteger(v.overlap) && (v.overlap as number) >= 0 && (v.overlap as number) % 8 === 0 && (v.overlap as number) < Math.min(v.tileWidth as number, v.tileHeight as number);
+    if (!isRecord(r) || Object.keys(r).some(k => !['width', 'height', 'denoise', 'upscaleModel', 'sigmas', 'tiled'].includes(k)) || !edge(r.width) || !edge(r.height) || (Object.hasOwn(r, 'tiled') && !tiledOK(r.tiled))
       || (r.width as number) * (r.height as number) > 16_777_216 || !(typeof r.denoise === 'number' && r.denoise > 0 && r.denoise <= 1)
       || (Object.hasOwn(r, 'upscaleModel') && !safeModel(r.upscaleModel)) || Object.hasOwn(r, 'sigmas') !== (s !== undefined) || (Object.hasOwn(r, 'sigmas') && !schedule(r.sigmas))) {
-      invalid('refine', 'Invalid refine pass.', 'Supply aligned width/height (at most 16,777,216 pixels), denoise in (0, 1], an optional listed upscale model, and sigmas exactly when the first pass has them.');
+      invalid('refine', 'Invalid refine pass.', 'Supply aligned width/height (at most 16,777,216 pixels), denoise in (0, 1], an optional listed upscale model, sigmas exactly when the first pass has them, and tiled {tileWidth, tileHeight, overlap} aligned to 8 with overlap below the tile.');
     }
   }
   const prefix = input.outputPrefix;
@@ -239,7 +245,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   const allowlist = verified as unknown as RecipeAllowlist;
   if (intent.wildcard&&!allowlist.nodes.includes(wildcardNode)) throw new RecipeCompileError('MISSING_CAPABILITY',wildcardNode,'Wildcard plugin is unavailable.','Install the DaSiWa node pack or disable wildcards.');
   const sigmaNodes = ['RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
-  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : []), ...(intent.maskBlur ? ['MaskToImage','ImageBlur','ImageToMask'] : []), ...(intent.inpaintCrop ? ['ImageCrop','CropMask','ImageScale','MaskToImage','ImageToMask'] : []), ...(intent.refine ? ['ImageScale', 'VAEEncode'] : []), ...(intent.upscaleModel || intent.refine?.upscaleModel ? ['UpscaleModelLoader', 'ImageUpscaleWithModel'] : [])]) {
+  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : []), ...(intent.maskBlur ? ['MaskToImage','ImageBlur','ImageToMask'] : []), ...(intent.inpaintCrop ? ['ImageCrop','CropMask','ImageScale','MaskToImage','ImageToMask'] : []), ...(intent.refine ? ['ImageScale', 'VAEEncode'] : []), ...(intent.refine?.tiled ? ['DaSiWaTiledDiffusion'] : []), ...(intent.upscaleModel || intent.refine?.upscaleModel ? ['UpscaleModelLoader', 'ImageUpscaleWithModel'] : [])]) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
   const d = intent.diffusion;
@@ -249,7 +255,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
   if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
   for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
   const loras = intent.loras ?? [];
   for (const lora of loras) {
@@ -387,9 +393,16 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
       image = ['RS', 0];
     }
     graph.RE = { class_type: tiled ? 'VAEEncodeTiled' : 'VAEEncode', inputs: { pixels: image, vae, ...tiles } };
+    // Tiled: the refine sampler gets the model through the tiling patch (its own guider on the sigmas path); the first pass keeps the plain model.
+    let guider: ApiLink = ['G', 0], model = (r.sigmas ? graph.G : graph['5']).inputs.model as ApiLink;
+    if (r.tiled) {
+      graph.RT = { class_type: 'DaSiWaTiledDiffusion', inputs: { model, tile_width: r.tiled.tileWidth, tile_height: r.tiled.tileHeight, overlap: r.tiled.overlap } };
+      model = ['RT', 0];
+      if (r.sigmas) { graph.RG = { ...graph.G, inputs: { ...graph.G.inputs, model } }; guider = ['RG', 0]; }
+    }
     graph.R5 = r.sigmas
-      ? { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['RZ', 0], latent_image: ['RE', 0] } }
-      : { class_type: 'KSampler', inputs: { ...graph['5'].inputs, latent_image: ['RE', 0], denoise: r.denoise } };
+      ? { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider, sampler: ['Q', 0], sigmas: ['RZ', 0], latent_image: ['RE', 0] } }
+      : { class_type: 'KSampler', inputs: { ...graph['5'].inputs, model, latent_image: ['RE', 0], denoise: r.denoise } };
     if (r.sigmas) graph.RZ = { class_type: 'ManualSigmas', inputs: { sigmas: r.sigmas.join(', ') } };
     graph.R6 = { class_type: tiled ? 'VAEDecodeTiled' : 'VAEDecode', inputs: { samples: ['R5', 0], vae, ...tiles } };
     graph['7'] = { ...graph['7'], inputs: { ...graph['7'].inputs, images: ['R6', 0] } };

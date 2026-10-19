@@ -1,7 +1,7 @@
 export const defaultOutputNaming='%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%';
 
-/** Upgrade only the former default; keep user-authored templates unchanged. */
-export const outputNamingTemplate=(value?:string)=>value===undefined||value==='%type%/%date_yyyy_mm_dd%/%time%-%seed%-%model%'?defaultOutputNaming:value;
+/** Names use only `-` separators: the retired underscore date token upgrades in place, the rest of a user template stays. */
+export const outputNamingTemplate=(value?:string)=>value?.replaceAll('%date_yyyy_mm_dd%','%date_yyyy-mm-dd%')??defaultOutputNaming;
 
 /** Resolved prefixes only: no backend %-expansion, traversal or Windows device paths. Mirrored in jobs.rs. */
 export function safeOutputPrefix(value:unknown):value is string {
@@ -16,7 +16,6 @@ export function outputPrefix(template:string,context:{type:'image'|'video'|'audi
  const model=context.model.split(/[\\/]/).pop()!.replace(/\.[^.]+$/,'').replace(/[^A-Za-z0-9-]+/g,'-').slice(0,120).replace(/^-+|-+$/g,'')||'model';
  const values:Record<string,string>={type:context.type,seed:String(context.seed),model,
   'date_yyyy-mm-dd':`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`,
-  date_yyyy_mm_dd:`${now.getFullYear()}_${pad(now.getMonth()+1)}_${pad(now.getDate())}`,
   time:`${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`};
  const resolved=template.replace(/%([^%]+)%/g,(token,key:string)=>values[key]??token);
  return safeOutputPrefix(resolved)?resolved:null;
