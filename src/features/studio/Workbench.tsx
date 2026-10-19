@@ -125,6 +125,11 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
  const [refs,setRefs]=useState<VideoRef[]>([]);const [refmods,setRefmods]=useState<RefMod[]>([]);
  const [detached,setDetached]=useState<'positive'|'negative'|null>(null);
+ const [copiedPrompt,setCopiedPrompt]=useState<'positive'|'negative'|null>(null);
+ // Copy + clear sit under the expand button of each prompt field.
+ const promptActions=(kind:'positive'|'negative',value:string,set:(v:string)=>void)=>{const name=t(`studio.run.${kind}`);return <>
+  <button type="button" className="wb-prompt-expand wb-prompt-copy" data-prompt-copy={kind} aria-label={t('studio.run.prompt.copy',{name})} title={t('studio.run.prompt.copy',{name})} disabled={!value} onClick={()=>void navigator.clipboard.writeText(value).then(()=>{setCopiedPrompt(kind);setTimeout(()=>setCopiedPrompt(c=>c===kind?null:c),1500);},()=>setError(t('studio.run.prompt.copyFailed')))}>{copiedPrompt===kind?'✓':'⧉'}</button>
+  <button type="button" className="wb-prompt-expand wb-prompt-clear" data-prompt-clear={kind} aria-label={t('studio.run.prompt.clear',{name})} title={t('studio.run.prompt.clear',{name})} disabled={!value} onClick={()=>set('')}>✕</button></>;};
  const [sourceStrength,setSourceStrength]=usePref('studio.run.video.sourceStrength',1,isUnit);
  const [sourceAudio,setSourceAudio]=usePref('studio.run.video.sourceAudio',false,isBoolean);
  const [h3Scaling,setH3Scaling]=usePref<H3Scaling>('studio.run.video.h3Scaling','Fill and crop',oneOf(...h3Scalings));
@@ -510,7 +515,7 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
  const stageMark=media?.path&&marks.get(media.path);
  // MiniMax H3 video: the hammer is the Director's Prompt Forge for this run (same mode/references the intent gets).
  const forgeContext=videoFamily==='minimax-h3'&&isVideo?h3ForgeContext({pipeline,media,lastFrame,refs,sourceAudio,seconds:video.seconds,canvas:outputSize,inputRoot:roots.input}):undefined;
- // Director prompt helpers: insert at the cursor of the positive prompt (else append), like the node's toolbar.
+ // Insert at the cursor of the positive prompt (else append), like the node's toolbar.
  const insertPrompt=(text:string)=>{const el=document.getElementById('run-positive') as HTMLTextAreaElement|null;const at=el&&document.activeElement===el?el.selectionStart:positive.length;setPositive(positive.slice(0,at)+text+positive.slice(at));};
  const prefill=()=>{
   if(refmods.some(r=>!r.kinds?.length)){setError(t('studio.run.prompt.prefillKinds'));return;}
@@ -518,7 +523,12 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
   const fields=refPrefill(picks,pipeline==='ref2v'?refmods.map((r,i)=>({slot:i+1,kinds:r.kinds!,description:r.description})):[]);
   if(!fields){setError(t('studio.run.prompt.prefillEmpty'));return;}
   setPositive(applyRefPrefill(positive,fields));
- };
+};
+// Director prompt helpers live inside the hammer panel (H3 video only); insert at the cursor of the positive prompt (else append), like the node's toolbar.
+const promptTools=forgeContext&&<>
+ <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
+ <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
+ {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
  const tools=(item:MediaItem)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(media?.src!==item.src)select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
   {/* Post-process (refine/upscale alone) only in the image edit modes: the active checkpoint is then an image model. */}
@@ -637,12 +647,9 @@ export function Workbench({endpoint,roots={},root,incoming,planVisible=false}:Wo
      {viewer&&<ImageViewer src={viewer.src} alt={viewer.alt} onClose={()=>setViewer(null)}/>}
     </section>
     <div className="wb-prompts">
-     <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/>{forgeContext&&<div className="wb-prompt-tools">
-      <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
-      <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
-      {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</div>}<button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button><ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext}/></div>
-     <div className="wb-prompt wb-negative"><label htmlFor="run-negative">{t('studio.run.negative')}</label><textarea id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button></div>
-     {detached&&<PromptOverlay key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext}/>}</PromptOverlay>}
+     <div className="wb-prompt"><label htmlFor="run-positive">{t('studio.run.positive')}</label><textarea id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/></div>
+     <div className="wb-prompt wb-negative"><label htmlFor="run-negative">{t('studio.run.negative')}</label><textarea id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button>{promptActions('negative',negative,setNegative)}</div>
+     {detached&&<PromptOverlay key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>}</PromptOverlay>}
     </div>
     {wildcardEnabled&&<div className="wildcard-prompt-status"><button type="button" className="wildcard-badge" title={t('wildcards.baseNotice')} onClick={()=>setDockTab('wildcards')}>{t(wildcard.auto_reroll?'wildcards.activeAuto':'wildcards.active')}</button><button type="button" className="wildcard-badge" onClick={()=>setWildcardEnabled(false)}>{t('wildcards.disable')}</button></div>}
    </div>

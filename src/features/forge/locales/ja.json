@@ -37,6 +37,7 @@
   "forge.picture": "画像",
   "forge.blind": "このモデルは画像を見られないため、テキストだけから作成しました。",
   "forge.references": "参照 {count} 件",
+  "forge.tools": "プロンプトツール",
   "forge.shot": "ショット {n}",
   "forge.cancel": "キャンセル",
   "forge.regenerate": "再生成",

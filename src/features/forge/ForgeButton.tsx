@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -61,8 +61,8 @@ const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.is
 const isShots = (v: unknown): v is string | number => v === 'Auto' || isNumber(v);
 
 /** Hammer in a prompt field: write or enhance that prompt in the selected model's dialect, review, then apply (undoable).
- * With `h3`, it is the Director's Prompt Forge for the current run: Shots, Detail, Creativity, Cancel and the last three drafts. */
-export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3 }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context }) {
+ * With `h3`, it is the Director's Prompt Forge for the current run: Shots, Detail, Creativity, Cancel, the last three drafts and the `tools` prompt helpers. */
+export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
   const { t } = useI18n();
   const forge = useForgeModels(endpoint, root);
   const [shots, setShots] = usePref<string | number>('forge.h3.shots', 'Auto', isShots);
@@ -144,6 +144,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
     </button>
     {undo !== null && !open && <button type="button" className="forge-undo" data-forge-undo onClick={() => { onApply(undo); setUndo(null); }}>{t('forge.undo')}</button>}
     {open && <div className="forge-pop" role="dialog" aria-label={t('forge.button')} onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}>
+      {h3 && tools && <div className="forge-row" role="group" aria-label={t('forge.tools')}>{tools}</div>}
       {choosing ? <>
         <button type="button" disabled={disabled} title={disabled ? t(!root ? 'forge.noBackend' : 'forge.noDialect') : undefined} onClick={() => setChoosing(false)}>{t('wildcards.llm')}</button>
         <button type="button" onClick={() => { setOpen(false); onWildcards?.(); }}>{t('wildcards.title')}</button>

@@ -37,6 +37,7 @@
   "forge.picture": "Resim",
   "forge.blind": "Bu model resimleri göremiyor; yalnızca metinden yazdı.",
   "forge.references": "{count} referans",
+  "forge.tools": "İstemci araçları",
   "forge.shot": "Çekim {n}",
   "forge.cancel": "İptal",
   "forge.regenerate": "Yeniden yaz",

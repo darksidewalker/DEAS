@@ -4,6 +4,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## Unreleased
 
+- Generate: prompt fields are three lines taller and get **Copy** (⧉) and **Clear** (✕) buttons under the expand button.
 - Fix "Command plugin:event|listen not allowed by ACL" in the native app when opening the References tab and the Media dock: the main window capability now grants event listen/unlisten, so dropping files from the file manager works there.
 
 ## 0.1.30 — 2026-10-19
@@ -23,7 +24,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Generate references (MiniMax H3): **RefMods** — read the backend's RefMod library, add up to 8 with strength and description, insert `<RefMod N>` into the prompt; sent as Director `timeline_data.refmods` and kept in reference packs. New native command `native_h3_refmods` (read-only `GET /dasiwa/refmods`) and optional intent `h3.refmods`.
 - Generate (MiniMax H3 video): the prompt hammer is the Director's Prompt Forge for the current run — mode, duration, output canvas and references as the run will use them, Detail/Creativity, Shots with per-shot boxes, Regenerate, **Cancel** and the last three drafts, which cannot be applied once the run settings change. `native_forge` allows the node pack's `cancel` route.
 - Generate references (MiniMax H3): Director picture labels (Character 1–9, Place, Style, First/Last frame, Pose, Custom) and per-reference Forge instructions in the References tab; the hammer uses the Director's label writer when all references are pictures and offers **Let the model see the pictures**; labels and instructions travel in reference packs (`forge_label`, `forge_instructions`).
-- Generate (MiniMax H3 video): Director prompt helpers below the prompt — **Insert prompt structure**, **Insert [Shot N]**, and **Prefill labels & summary** for REF2VA (labels in node order, RefMods last; fills only empty sections).
+- Generate (MiniMax H3 video): Director prompt helpers inside the hammer panel — **Insert prompt structure**, **Insert [Shot N]**, and **Prefill labels & summary** for REF2VA (labels in node order, RefMods last; fills only empty sections).
 - Generate references (MiniMax H3): **More for Prompt Forge** per reference — Description (used by Prefill), Keep and Ignore (sent to the Forge, saved in packs as `forge_keep`/`forge_drop`).
 - Generate (MiniMax H3): Director **Cast & scene cards** in the hammer for labelled pictures — Read (vision model) or write a card per Character, Place and Style; filled cards are sent with the draft. `native_forge` allows the node pack's `cast` route.
 - Fix: the Media right-click menu closed immediately when the clicked tile was partly scrolled out of view.

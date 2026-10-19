@@ -13,7 +13,7 @@
 .wb-queue { flex: 0 0 9.5rem; min-height: 0; display: flex; flex-direction: column; }
 .wb-prompts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; flex: none; }
 .wb-prompt { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.wb-prompt textarea { height: 5.2rem; resize: none; padding: 8px 10px; font-size: 13px; line-height: 1.4; text-transform: none; letter-spacing: 0; }
+.wb-prompt textarea { height: calc(5.2rem + 4.2em); /* +3 lines at line-height 1.4 */ resize: none; padding: 8px 10px; font-size: 13px; line-height: 1.4; text-transform: none; letter-spacing: 0; }
 .wb-negative textarea { color: #c9b4b4; }
 .wb-field.wb-pipeline { margin-bottom: .6rem; }
 .wb-field.wb-pipeline select { padding: 6px 8px; font-size: 13px; font-weight: 600; }
@@ -192,6 +192,9 @@
 .wb-prompt-expand { position: absolute; top: 18px; right: 6px; width: 24px; height: 24px; padding: 0; border: 1px solid rgba(228,228,222,.16); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; }
 .wb-prompt-expand:hover, .wb-prompt-expand[aria-pressed="true"] { color: var(--copper, #c8865a); }
 .wb-prompt:has(.wb-prompt-expand) textarea { padding-right: 36px; }
+.wb-prompt-copy { top: 46px; }
+.wb-prompt-clear { top: 74px; }
+.wb-prompt-expand:disabled { opacity: .4; cursor: default; }
 /* Detached prompt: floating window, first centred and large; drag by the bar, resize at the corner. */
 .wb-prompt-overlay { position: fixed; left: 50%; top: 8vh; z-index: 90; transform: translateX(-50%); display: flex; flex-direction: column; width: min(1100px, 92vw); height: min(72vh, 900px); min-width: 320px; min-height: 180px; resize: both; overflow: hidden; border: 1px solid #627477; border-radius: 12px; background: #1c2427; box-shadow: 0 18px 60px #000000c0; }
 .wb-prompt-overlay-bar { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; cursor: move; user-select: none; border-bottom: 1px solid #ffffff14; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
@@ -215,8 +218,6 @@
 .wb-refs-panel.is-dragging { outline: 2px dashed var(--accent, #c8762c); outline-offset: -2px; }
 .wb-ref strong[draggable="true"] { cursor: grab; }
 .wb-ref-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-.wb-prompt-tools { display: flex; flex-wrap: wrap; gap: 4px; text-transform: none; letter-spacing: 0; }
-.wb-prompt-tools button { padding: 1px 8px; font-size: 11px; }
 .wb-ref-more { grid-column: 1 / -1; font-size: 11px; }
 .wb-ref-more summary { cursor: pointer; color: var(--muted); }
 .wb-ref-more label { display: flex; gap: 6px; align-items: center; margin-top: 3px; }

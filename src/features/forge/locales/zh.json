@@ -37,6 +37,7 @@
   "forge.picture": "图片",
   "forge.blind": "此模型无法查看图片，仅根据文本编写。",
   "forge.references": "{count} 个参考",
+  "forge.tools": "提示词工具",
   "forge.shot": "镜头 {n}",
   "forge.cancel": "取消",
   "forge.regenerate": "重新生成",

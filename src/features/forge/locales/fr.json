@@ -37,6 +37,7 @@
   "forge.picture": "Image",
   "forge.blind": "Ce modèle ne voit pas les images ; il a écrit à partir du texte seul.",
   "forge.references": "{count} références",
+  "forge.tools": "Outils du prompt",
   "forge.shot": "Plan {n}",
   "forge.cancel": "Annuler",
   "forge.regenerate": "Régénérer",

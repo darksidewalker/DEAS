@@ -117,6 +117,14 @@ test('seed controls restore submitted seeds, preserve mode on New and wrap exact
  fireEvent.click(screen.getByRole('button',{name:'Copy seed 42'}));
  await waitFor(()=>expect(writeText).toHaveBeenCalledWith('42'));
  expect(screen.getByRole('status').textContent).toBe('Seed copied');
+ const promptBox=screen.getByLabelText('Prompt') as HTMLTextAreaElement;const before=promptBox.value;
+ fireEvent.change(promptBox,{target:{value:'a red fox'}});
+ fireEvent.click(screen.getByRole('button',{name:'Copy Prompt'}));
+ await waitFor(()=>expect(writeText).toHaveBeenCalledWith('a red fox'));
+ fireEvent.click(screen.getByRole('button',{name:'Clear Prompt'}));
+ expect(promptBox.value).toBe('');
+ expect((screen.getByRole('button',{name:'Clear Prompt'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(promptBox,{target:{value:before}});
  fireEvent.click(screen.getByRole('button',{name:'Random'}));
  vi.mocked(submitDiagnosticJob).mockResolvedValueOnce({id:'seed-job-2',baseUrl:evidence.baseUrl,promptId:'p2',state:'succeeded',outputs:[],error:null,generationReady:false});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -794,12 +802,12 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
- vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>_c==='native_forge'?({models:[{id:'m',label:'M'}],errors:{},creativity:['x'],shot_counts:['Auto'],default_shots:'Auto'}):({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-v.mp4':path.endsWith('.wav')?'deas-inputs/s.wav':'deas-inputs/i.png');
  vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-h',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
  vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
- render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
  choosePipe('Video → Video');
  fireEvent.click(screen.getByRole('button',{name:'Input'}));
@@ -866,7 +874,9 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[2][1]).toMatchObject({h3:{media:[
   {type:'video',slot:0,mediaMode:'audio'},{type:'image',slot:0},{type:'audio',slot:1,trimStart:1,trimEnd:4.5}],inputScaling:'Fit and pad',refmods:[{slot:1,name:'chars/hero',strength:0.6,description:'the hero'}]}});
  expect((vi.mocked(prepareDiagnosticJob).mock.calls[2][1] as unknown as {h3:{media:object[]}}).h3.media[0]).not.toHaveProperty('trimStart');
- // Director prompt helpers: Prefill fills the REF2VA sections around the written text (RefMod after the timeline media); [Shot N] numbers on.
+ // Director prompt helpers live in the hammer panel: open it, pick the LLM step. Prefill fills the REF2VA sections around the written text (RefMod after the timeline media); [Shot N] numbers on.
+ fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+ fireEvent.click(screen.getByRole('button',{name:'LLM · Prompt Forge'}));
  fireEvent.click(screen.getByRole('button',{name:'Prefill labels & summary'}));
  const prompt=()=>(screen.getByLabelText('Prompt') as HTMLTextAreaElement).value;
  expect(prompt()).toMatch(/^subject_definitions:\n<Picture 1> is an image reference.*\n<Audio 1> is the audio track selected from a video.*\n<Audio 2> is an audio reference.*\n<Picture 2> is a saved image reference \(RefMod 1\) User description: the hero\./);

@@ -37,6 +37,7 @@
   "forge.picture": "Bild",
   "forge.blind": "Dieses Modell kann keine Bilder sehen; es hat nur aus dem Text geschrieben.",
   "forge.references": "{count} Referenzen",
+  "forge.tools": "Prompt-Werkzeuge",
   "forge.shot": "Shot {n}",
   "forge.cancel": "Abbrechen",
   "forge.regenerate": "Neu schreiben",
