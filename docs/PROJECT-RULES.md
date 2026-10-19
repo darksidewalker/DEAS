@@ -30,6 +30,14 @@ Automation recommends and prepares; users retain control of settings, resources,
 - Use existing shared auth, download, folder, asset, job, output, model-family and locale services. Promote a helper only when another real caller needs it; do not build one-use generic frameworks.
 - Shared functions/scripts must take explicit parameters, return structured results and avoid hidden global state, UI assumptions and hard-coded user paths. Preserve cancellation, validation and errors when extracting reusable behavior.
 
+### Cross-project changes and upstream pull requests
+
+- Depending on another project does not authorize changing it. First use its supported public APIs, extension points and configuration; keep DEAS-specific behavior in the DEAS adapter when possible.
+- If a feature requires changes in a dependency/reference project, implement those changes in that project's own repository on a separate branch and submit a focused **upstream pull request where applicable**, following its contribution/review process. A private/closed project may require its equivalent reviewed change request; document why an upstream PR is unavailable rather than silently patching installed files. Editing another repository and publishing a PR still require explicit authorization; a DEAS feature request alone does not grant it.
+- Preserve the other project's standalone behavior, existing callers, workflows, defaults and Linux/Windows support. Prefer additive APIs and explicit opt-in behavior over DEAS-specific global patches or breaking interface changes. A necessary breaking change requires coordinated approval, versioning and migration—not a unilateral integration shortcut.
+- Test the upstream change in that project's own suite, including unchanged standalone/other-consumer behavior, and test the DEAS integration separately. Cross-project work is not done merely because DEAS passes while the dependency regresses.
+- Record the upstream repository, PR/change-request link, exact compatible commit/release and acceptance evidence in the integration documentation. Keep the dependent feature blocked or clearly experimental until its required revision is available and verified. A submitted or merged PR is not automatically a released/installed dependency; never silently track an unreviewed branch, force-update a user's checkout or claim upstream acceptance before it occurs.
+
 ## 4. Linux and Windows are required targets
 
 - Every implementation MUST have a Linux and Windows path, or explicitly report a capability-specific unsupported state before execution. A platform-specific accelerator is an optional capability, not grounds to make the application itself platform-specific.
