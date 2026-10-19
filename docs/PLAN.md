@@ -1,5 +1,7 @@
 # DEAS — Dark Engine AI Studio
 
+> Historical milestone ledger. Current cross-feature status and priorities are consolidated in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md). [PROJECT-RULES.md](PROJECT-RULES.md) governs new work; later verified implementation supersedes stale unchecked entries here.
+
 ## Alpha vision and plugin roadmap
 
 DEAS is an early-alpha all-in-one replacement for the owner's separate installer, generation frontend, prompting, training, enhancement, comparison and media tools. Most of the final product is not implemented. The intended Rust/Tauri application owns a complete image/video authoring experience, an editable end-to-end media planner, a player/organizer and optional backend/model/resource setup. Every feature belongs to a versioned plugin family; small trusted shared kernel services avoid duplicate runtimes, credentials and queues.

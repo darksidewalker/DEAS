@@ -1,0 +1,37 @@
+# Prompt Forge, LLM settings, presets and wildcards
+
+[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+
+## Shared LLM backend
+
+After installing or reopening a DEAS environment, **Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (such as `http://127.0.0.1:8080`; `/v1` is appended when missing, like the DaSiWa node pack does). There is no global model or GGUF-path setting.
+
+Local language GGUFs are discovered recursively in the existing **Models folder → llm** directory (by default `<environment>/ComfyUI/models/llm`), independently of any external server. Projector files such as `mmproj` are excluded. `llama-cpp-python` runs the selected local model automatically in the managed venv, with automatic CPU/GPU offload selection, and the worker exits after each request. Optional remote model discovery adds to the local list; an unavailable remote server does not hide local models.
+
+**Test model** lists discovered local and remote models together and chooses a model only for that test request, without saving a default. A failed request never silently switches to another model. Opening settings reads model lists but never generates text. No server, package or model is installed or downloaded by this panel. API-key authentication remains separate work.
+
+![Shared LLM backend settings — browser IPC fixture, not a live server reply](../assets/deas-llm-fixture-1440.png)
+
+
+## Prompt Forge
+
+Prompt Forge writes or enhances prompts in the dialect of the selected model. It runs in the DaSiWa node pack on the owned backend (the same code as the **LLM Prompt Writer** node and the H3 Director's Forge); DEAS sends it the endpoint saved under **Backend → LLM backend**. Models come from `ComfyUI/models/llm` plus that server.
+
+- **Hammer in the prompt field (Generate):** choose LLM Prompt Forge or Presets & Wildcards. The LLM mode writes or enhances the current prompt for the selected model's family (Illustrious/SDXL, Anima, Krea 2), in Image to Image and Inpaint also lets a vision model read the source picture (input or output folder; a model without vision writes from the text and says so), shows the result for review, applies it on **Apply**, and keeps one **Undo**. With Presets & Wildcards active, the idea starts as the current prompt plus the resolved picks (node pack 0.5.31 or newer), so the LLM writes around them. Families without a prompt dialect disable only the LLM mode; wildcards need no LLM.
+- **Prompt Forge tab:** the same writers for every family plus Wan 2.2, LTX 2.3 and MiniMax H3, with Detail and Creativity, reference pictures from the input folder (read by a vision model), and **Send to Generate** for the prompt and an optional negative prompt. H3 offers T2VA, I2VA, FL2VA, L2VA and REF2VA with Duration, Shots and labelled pictures (Character 1–4, Place, Style, First/Last frame); H3 Generate has a separate bounded recipe; Forge offers more modes than generation currently supports. See [video generation](STUDIO.md#video-generation).
+
+Needs DaSiWa node pack 0.5.30 or newer on the backend (**Backend → Upgrade**). Not included: streaming/cancel, H3 cast cards and people boxes, video/audio references and continuity drafts.
+
+
+## Presets & Wildcards
+
+Generate's **Presets & Wildcards** dock tab sits beside LoRAs and also opens from the hammer. It reads the installed DaSiWa node's library, with searchable categories, independent preset/wildcard selections and weights, Booru/natural-language style, its own seed and an estimated token budget per positive/negative side. Positive/negative placement follows the original library categories.
+
+Activation is opt-in and remembered with the rules. Manual or Forge-written prompts remain the base text; the original `DaSiWa_WildcardPresetPromptBuilder` runs before both text encoders and appends the selected fragments. **New picks** rerolls alternatives; **Random select** explicitly replaces the selection with 1–10 available entries. **New picks on every generation** rerolls alternatives only, never the selected subjects. The original node handles weighting, category order and budget pruning; DEAS has no second prompt-expansion engine.
+
+An active badge beside the prompts opens the rules; **Disable wildcards** stops applying them without clearing the selection or base text. Job metadata records the submitted rules independently of later edits; **Use these settings** restores a job's rules, while applying ordinary image metadata disables augmentation to avoid adding it twice to an already resolved prompt. With the DaSiWa metadata saver installed, output PNG metadata receives the exact evaluated positive/negative strings. The text fields and job intent show base text, not a prediction of a future random pick. Missing library/node support reports an error instead of silently dropping active rules. Custom libraries remain managed by the node pack; after changing its file, restart that backend as documented by the node.
+
+
+## Troubleshooting and boundaries
+
+Review Backend → Upgrade for missing node-pack routes; this changes only the approved owned environment. Check discovery, selected model/provider and vision support when requests fail. Active wildcards require their library/node and fail closed. Writer output is a suggestion for review, not quality/adherence proof. Keep secrets out of prompts/reports. See [Logs](LOGS.md) and [verification](VERIFICATION.md).

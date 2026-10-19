@@ -1,12 +1,14 @@
 # DEAS — All-in-one plugin studio roadmap
 
+> Architectural background and feature inventory. Use [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) for the current consolidated plan, source-project integration criteria and delivery state; follow [PROJECT-RULES.md](PROJECT-RULES.md) and [COMFYUI-RULES.md](COMFYUI-RULES.md).
+
 ## Vision and alpha status
 
 DEAS should consolidate the owner's separate installer, generation, prompting, training, enhancement, comparison and media tools into one lightweight Rust/Tauri application with a cohesive DEAS-owned web frontend. It is an **early alpha**: most of this product is missing. Existing component tests and a working shell are not evidence of a complete installer, editor or generation pipeline.
 
 The eventual experience is: set up the required backends, select optional features/resources, author a media project, execute it end to end, inspect results, edit at any intermediate stage and continue from the appropriate point. The app should automate repetitive technical work while keeping consent, costs, licenses, destructive actions and errors visible.
 
-Every product feature is a plugin or plugin family. Shared runtime services remain a small trusted kernel rather than duplicate implementations inside every plugin. Setup is not a one-time gate: **installing, enabling, disabling and updating optional features must remain available after setup**, without reinstalling the app or discarding projects.
+Every product feature is a plugin or plugin family. Shared runtime services remain a small trusted kernel rather than duplicate implementations inside every plugin. Setup is not a one-time gate: **installing, removing and updating optional features must remain available after setup**, without reinstalling the app or discarding projects.
 
 ## Architecture and integration rules
 
@@ -14,7 +16,7 @@ Every product feature is a plugin or plugin family. Shared runtime services rema
 - **DEAS frontend:** one neural workspace with reusable feature blobs, ownership roads and inline controls. Studio plugins integrate with this surface, not separate dashboards, embedded legacy apps or ComfyUI widget panels. The standalone Comfy tab is an explicit exception for the original owned-backend editor, not a Studio plugin integration pattern.
 - **Execution adapters:** ComfyUI for inference recipes; managed Python workers for training/enhancement/tagging; scoped FFmpeg/FFprobe for media; explicit Ollama/OpenAI-compatible services for language/vision tasks. Rust orchestrates; it does not replace Python/PyTorch model computation.
 - **Data-first extensions:** validated TOML/JSON manifests, resource catalogs, model-family recipes, prompts and locale dictionaries. Adding ordinary resources or recipe metadata should not require frontend-specific code. New transport or computational behavior requires a reviewed adapter, not arbitrary executable manifest fields.
-- **Plugin lifecycle:** available → selected → planned → installed → verified → enabled, with explicit blocked/failed/update states. Installed, enabled and generation-ready are different facts. A bundled dependency is installed once, even when several plugins use it.
+- **Plugin lifecycle:** available → selected → planned → installed → capability-verified → recipe-ready, with explicit blocked/failed/update states. Installed components are included automatically, without a second enable action; installation and execution readiness remain different facts. A bundled dependency is installed once, even when several plugins use it.
 - **Plugin contract:** stable ID/version, ownership, DE/EN labels, dependencies, backend capabilities, resource/catalog references, input/output domain schemas, project migrations, permission requests, hardware/platform limits and verification checks. Arbitrary third-party executable/UI plugins require a separate isolation and trust model.
 - **Shared identities:** project, asset, recipe revision, model digest, job and output IDs connect all features. Plugins exchange validated assets and intentions rather than raw host paths or private widget state.
 - **Runtime isolation:** conflicting Torch/TensorRT/training stacks may use separate managed environments. Never force every backend into the ComfyUI venv. Existing external services are connected only explicitly and are never implicitly stopped or updated.
@@ -34,8 +36,9 @@ Everything below is a target design unless an implementation is explicitly recor
 | RefMods and continuity | Director/nodepack and DEAS project domain | Reference labels, pinned source assets, continuity state, versioned successful handoffs between shots | Shared media/project registry and compatible recipe adapters |
 | Image editor | Nodepack crop/inpaint/composite and PromptForge edit reference | Non-destructive crop/resize/masks, layers, inpainting/outpainting and instruction-based edits | Asset revisions, GPU recipe packs and deterministic local compositing where appropriate |
 | Video editor | New DEAS authoring surface; Director and media tools as references | Timeline/shot assembly, image/video/audio lanes, trims, splits, transitions, overlays and editable intermediate results | Shared edit decisions, proxies, FFmpeg and model-specific generation/enhancement plugins |
-| Video enhancement | TrueVideoEnhancer | Upscale and interpolation as standalone actions or planner stages, previews and cancellation | Managed Python workers, Spandrel/ONNX/TensorRT/RIFE as declared by each profile; bounded memory and encoding |
-| Media comparison | simple-video-compare | A/B image/video results, synchronized playback/scrubbing and before/after evaluation | Shared player/proxy service, frame/time alignment, FFprobe metadata; originals remain untouched |
+| Video enhancement | DaSiWa-TrueVideoEnhancer | Upscale and interpolation as standalone actions or planner stages, previews and cancellation | Managed Python workers, Spandrel/ONNX/TensorRT/RIFE as declared by each profile; bounded memory and encoding |
+| Media comparison | DaSiWa-simple-video-compare, current Rust/libmpv desktop | A/B image/video results, synchronized playback/scrubbing and before/after evaluation | Shared player/proxy service, frame/time alignment, FFprobe metadata; originals remain untouched |
+| Video assembly | DaSiWa-simple-rtx-video-assambler | Ordered sources, spatial layouts and safe audio/video composition/export | Rust FFmpeg planning, stream/encoder preflight and shared media/output services |
 | Training and datasets | DaSiWa-TrainFlow | Dataset preparation, tagging/captions, training profiles, previews, checkpoints and resume; publish trained assets to the library | Managed sd-scripts/Musubi workers, profile-specific isolated dependencies and GPU scheduling |
 | Media player and organizer | DEAS shared domain, compare/output references | Library, folders/collections, metadata/search, playback, thumbnails, tags, provenance and project linkage | Native asset access and compatible proxy playback; originals and exports remain separate |
 | Output/export | Nodepack Metadata Image Saver and Enhanced Video Combine | Image/video/audio exports, codec/container controls, generation metadata, first/last frame assets and privacy controls | Scoped FFmpeg/encoders, output ownership and actual native-webview playback verification |
@@ -49,7 +52,7 @@ The Director setup package may include Prompt Forge, RefMods, Continuity and Out
 
 ### DaSiWa-TrainFlow → training and dataset plugins
 
-Use the existing profile/settings behavior as a reference for LoRA, applicable LoKr and textual-inversion training, auto-calculation, optimizer-aware defaults, previews, state resume, model metadata and dataset caption/tag/resize preparation. Initial families to investigate are Anima, SDXL/Pony/Illustrious, LTX, Wan and Krea. Preserve their differing supported options instead of applying one generic training form to every architecture.
+Use the actual local `/data/GitHub/DaSiWa-TrainFlow` profile/settings/runtime source, especially `internal/trainer/profiles.go`, `config.go`, `musubi.go`, `manager.go` and `normalizer.go`. Exposed profiles are Anima, SDXL/Pony/Illustrious, LTX 2.3, Wan 2.2 and Krea 2; preserve their required models, training grids, optimizer/cache/sample/state behavior. Textual inversion is restricted to sd-scripts profiles, normalization is manual-only, and current Musubi launching is single-process/single-machine. Applicable LoKr modes need profile-specific checks. See the [consolidated training plan](IMPLEMENTATION-STATUS.md#34-lora-creationtraining-dasiwa-trainflow) for limitations and acceptance gates.
 
 Rebuild orchestration and controls in Rust/Tauri/DEAS. Reuse the appropriate Python training stacks rather than bundle the old Go trainer UI. Connect trained outputs and sampled previews to the same media/model registry used by generation. Do not inherit upstream performance or hardware support as DEAS verification.
 
@@ -57,7 +60,7 @@ Rebuild orchestration and controls in Rust/Tauri/DEAS. Reuse the appropriate Pyt
 
 Plan native orchestration for real AI upscaling, model-scale-aware multi-pass processing, interpolation to supported target frame rates, tiled fallbacks, cache identities, bounded decode/process/encode streaming, audio/subtitle handling and actual previews/cancellation.
 
-Its documented inference path is NVIDIA-first. AMD/Intel/CPU/HDR/restoration/scene-detection capabilities need independent adapters and tests; controls or accepted flags are not implementation proof. Resolve source documentation inconsistencies, including queue behavior, against code before porting. Separate TensorRT/training/Comfy dependency profiles where required.
+The actual reference is `/data/GitHub/DaSiWa-TrueVideoEnhancer`: `backend/custom_pipeline.py` implements restore → spatial upscale → temporal interpolation → SDR-to-HDR, with independent AI/NVIDIA spatial and RIFE/NVIDIA temporal choices. Use its render contracts and bounded streaming behavior, not only older README claims. The dependency stack is CUDA/NVIDIA-oriented; AI/RIFE work in SDR even with higher-precision transport. Rust owns orchestration and shared media/jobs; narrowly justified Python workers retain specialized inference. Separate enhancement/training/Comfy profiles. The [consolidated enhancement plan](IMPLEMENTATION-STATUS.md#31-video-post-production-dasiwa-truevideoenhancer) records combinations, real-run gates and platform limits.
 
 ### ComfyUI-DaSiWa-Nodes → domain features and internal recipe capabilities
 
@@ -89,7 +92,11 @@ The supplied GitHub URL was unavailable during planning; the local `/data/GitHub
 
 ### simple-video-compare → compare/player plugin
 
-Reimplement native file selection/drop handling, two-source playback and metadata inspection within DEAS. Share pinned FFmpeg/probe provisioning and compatibility proxies with the player/editor instead of starting the old standalone Go server. Synchronized timeline/frame controls, split/wipe modes and image comparison are DEAS targets, not assumed verified features of the referenced repository. Test actual WebKitGTK playback and codec fallback, not just Chromium.
+Use `/data/GitHub/DaSiWa-simple-video-compare`, whose current desktop implementation is Rust/Tauri/libmpv, not the legacy Go server retained in its tree. Inspect `src-tauri/src/native.rs`, `embedded.rs`, `embedded_windows.rs` and `runtime.rs` for side/wipe/blend/difference modes, seek/frame-step, audio and runtime handling. Reuse the native boundaries with shared DEAS media services; retain platform-specific paths and the 8-bit comparison limitation. Test actual Linux and Windows native playback. See the [consolidated comparison plan](IMPLEMENTATION-STATUS.md#32-video-comparison-dasiwa-simple-video-compare).
+
+### DaSiWa-simple-rtx-video-assambler → assembly/export plugin
+
+Use `/data/GitHub/DaSiWa-simple-rtx-video-assambler/vid_tool.py` as a behavioral reference for ordered sources/labels, spatial row/column/grid layouts, fit modes, audio selection/mixing and AV1 export. Implement native orchestration/filter planning in Rust using FFmpeg, not a PySide6 sidecar. Probe real streams/encoders and correct the reference's silent-input audio assumption, invalid preset assumptions and overwrite-prone output handling. Spatial composition and temporal montage are distinct operations. See the [consolidated assembly plan](IMPLEMENTATION-STATUS.md#33-video-assembly-dasiwa-simple-rtx-video-assambler).
 
 ## End-to-end editable media planner
 
@@ -128,9 +135,10 @@ Before reuse/distribution, inventory upstream code/model/media licenses and pres
 
 ## References and evidence boundaries
 
-- [DaSiWa-TrainFlow](https://github.com/darksidewalker/DaSiWa-TrainFlow): supplied repository README context.
-- [TrueVideoEnhancer](https://github.com/darksidewalker/TrueVideoEnhancer): supplied repository README context; limitations retained.
+- `/data/GitHub/DaSiWa-TrainFlow`: actual local profile/config/runtime/trainer source inspected for the consolidated plan.
+- `/data/GitHub/DaSiWa-TrueVideoEnhancer`: actual local composable pipeline, render contract, streaming and worker source inspected.
 - [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes): supplied README plus retrieved raw README; versions differ, so source verification precedes porting.
 - [PromptForge](https://github.com/darksidewalker/PromptForge): supplied link unavailable; local README read as reference, not proof of public availability.
-- [simple-video-compare](https://github.com/darksidewalker/simple-video-compare): supplied repository README context.
+- `/data/GitHub/DaSiWa-simple-video-compare`: actual current Rust/Tauri/libmpv desktop source inspected, distinct from legacy Go code.
+- `/data/GitHub/DaSiWa-simple-rtx-video-assambler`: actual source ordering, FFmpeg filters, audio and export behavior inspected.
 - [Implementation checklist](PLAN.md), [execution ownership](EXECUTION-CONTRACT.md), [download/auth contract](DOWNLOAD-PLUGINS.md), [verified state](VERIFICATION.md).

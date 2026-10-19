@@ -1,5 +1,14 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Documentation migration and NVIDIA probe maintenance (2026-10-19, 0.1.27 unchanged)
+
+- Migrated the detailed README into indexed user/developer guides under `docs/`; added News/Credits and preserved every historical changelog release entry with only documentation-path normalization. Root `CHANGELOG.md` is a compatibility pointer. Project-local rules and consolidated status distinguish source, historical evidence and open acceptance.
+- User authorized publication of all current source/docs changes, including the pre-existing `install_torch.rs` probe fix. Read-only NVIDIA discovery now retains host driver environment and captures bounded stdout/stderr/raw exit diagnostics. Regression cases cover inherited environment, the reported Windows RTX 4080 query and process failure/output bounds; this is not actual Windows NVML acceptance.
+- Fresh local gates: `npm run typecheck`, `npm test` (78 core and 306 UI tests), `npm run build`; `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`; `cargo test --manifest-path src-tauri/Cargo.toml --locked` (242 passed, 19 ignored across three suites); strict locked all-targets Clippy; `bash build-linux.sh`. All exited successfully. Vite still warns about mixed static/dynamic Tauri imports and the large frontend chunk.
+- Linux artifact rebuilt/staged at `artifacts/deas-linux-amd64`, SHA-256 `7f39b450ee8e23430cb9b96183ca14e6bfb90459405828292adfa2fef6ebc53c`. The running app was not restarted; relaunch is needed to load this inode. Artifacts remain ignored build output, not a new tagged release.
+- Independent static review found no blocking correctness/security regression in the NVIDIA probe diff. Nonblocking limits: its environment-inheritance fixture assumes a Unicode HOME without CSV separators; full environment inheritance trusts the local driver executable; Windows reader joins/descendant-held pipe handles and actual Windows process behavior remain unverified. The Windows-reported RTX 4080 case is parser/profile evidence only.
+- No model downloads, real GPU generation/training, playback/native pointer interaction, live service control or Windows runtime tests were performed. The recorded video playback crash/audio uncertainty remains open. Local `.hermes/` planning state is excluded from publication; no plan/history data was deleted.
+
 ## Video recipes and continuity planner (0.1.27)
 
 - Native-app follow-up: CSP now permits asset fetches in `connect-src` and owned-backend loopback URLs in `media-src`; the previous policy blocked both playback paths. The owner confirmed video starts after this fix, but WebKitWebProcess then aborts with `gst_matroska_demux_search_cluster: assertion failed: (id == GST_MATROSKA_ID_CLUSTER)` in `matroska-demux.c:2216`. **Open crash: playback is not accepted as working; audible audio is not confirmed.** This is a checkpoint, not a playback-complete release.

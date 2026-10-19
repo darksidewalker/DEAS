@@ -1,5 +1,7 @@
 # Resume DEAS development
 
+> Historical handoff (0.1.10), not the current priority list. Start with [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) and [PROJECT-RULES.md](PROJECT-RULES.md); retain the notes below as historical troubleshooting context, not newly reproduced failures.
+
 ## Current boundary
 
 The 0.1.10 source gathers persistent/verified provider authorization, checked environment reopening, default-on backend autostart with a Settings opt-out, installed-model metadata, remembered UI choices and system-language selection. It retains per-environment folders, folder alias resolution and verified no-clobber relocation (`settings_move.rs`). Windows support is merged and CI-built, not runtime-verified. The source of truth is `docs/PLAN.md`; verification evidence is in `docs/VERIFICATION.md`; per-version changes in `CHANGELOG.md`.
