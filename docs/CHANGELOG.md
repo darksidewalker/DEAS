@@ -7,6 +7,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Define Rust-first, atomic/reusable plugin, Linux/Windows, ComfyUI coexistence and performance requirements in project-local contributor rules; consolidate the current implementation plan and real reference-project integration gates.
 - Move detailed setup, feature/tab and developer documentation from README into indexed `docs/` guides; add News/Credits and migrate the complete changelog history with a root compatibility pointer. Correct stale video/grid/auth/navigation claims without claiming new runtime acceptance.
 - NVIDIA discovery keeps the host driver environment for NVML and captures bounded stdout/stderr with raw process exit diagnostics; add host-environment, Windows-reported query and failure/output-bound regression cases.
+- Fix the app freezing when **Templates** is opened in the Comfy tab on Linux: WebKitGTK composites ComfyUI's blurred dialog backdrop in software, which pinned the compositor thread at 100 % over the animated thumbnails. The Comfy frame now renders overlays without backdrop blur.
 
 ## 0.1.27 — 2026-10-18
 

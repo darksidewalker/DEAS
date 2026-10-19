@@ -31,6 +31,10 @@ test('bridge validates graphs, rejects overlapping loads and reports load failur
  r.app.loadGraphData.mockRejectedValueOnce(new Error('failed'));await r.send({type:'deas:load',id:'four',workflow,name:'a.png'});
  expect(r.parent.postMessage).toHaveBeenLastCalledWith({type:'deas:error',id:'four'},'tauri://localhost');
 });
+test('bridge disables backdrop blur inside the Comfy frame',()=>{
+ receiver();document.dispatchEvent(new Event('DOMContentLoaded'));
+ expect([...document.head.querySelectorAll('style')].some(s=>s.textContent?.includes('backdrop-filter:none!important'))).toBe(true);
+});
 test('each acknowledged import uses a distinct workflow name even for the same media',async()=>{
  const r=receiver();await r.send({type:'deas:probe',id:'one'});
  expect(r.parent.postMessage).toHaveBeenLastCalledWith({type:'deas:ready',id:'one'},'tauri://localhost');

@@ -4,6 +4,8 @@
  const allowed=new Set(['tauri://localhost','http://tauri.localhost','https://tauri.localhost']);
  // Development origin is supplied only by debug builds.
  if(typeof DEAS_DEV_ORIGIN!=='undefined')allowed.add(DEAS_DEV_ORIGIN);
+ // WebKitGTK composites backdrop-filter in software: ComfyUI's blurred dialog masks over animated thumbnails (Templates) pin the compositor at 100% and freeze the app.
+ document.addEventListener('DOMContentLoaded',()=>document.head.append(Object.assign(document.createElement('style'),{textContent:'*,*::before,*::after{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}'})));
  let loading=false;
  window.addEventListener('message',async event=>{
   const data=event.data;
