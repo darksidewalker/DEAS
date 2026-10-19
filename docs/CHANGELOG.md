@@ -2,6 +2,10 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased
+
+- Fix "Command plugin:event|listen not allowed by ACL" in the native app when opening the References tab and the Media dock: the main window capability now grants event listen/unlisten, so dropping files from the file manager works there.
+
 ## 0.1.30 — 2026-10-19
 
 - Fix late cancelled Forge responses/errors clearing a replacement request, stale Cast reads applying to changed references, and RefMod pack loading/saving after library discovery or without timeline media.

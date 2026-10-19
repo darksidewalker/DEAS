@@ -29,6 +29,7 @@ This is the shared, resumable plan for Generate's video pipelines, media referen
 | W4 H3 Continuity planner as its own overlay | Open | below |
 | W5 Real GPU acceptance of V2/V3 | Open — needs owner consent and GPU time | below |
 | W6 Later recipe features | Backlog | below |
+| W7 References in the main view for every video mode (no dock tab) | Open — owner request | below |
 
 Suggested order: W3b2c → W2c → W3c with W4, with W5 whenever GPU time is available. W2 builds on W1's reference list and lane numbering; W3 and W4 reuse W2's reference model.
 
@@ -145,6 +146,14 @@ On a throwaway ComfyUI on another port (never the owner's running backend, never
 
 ## W6 Later recipe features
 Director **Create RefMod** (encode references into `models/refmods` via `DaSiWaH3RefModExport`), LTX keep source audio (audio VAE encode + 3-D noise mask), LTX IC-LoRA control (depth/pose/canny via `iclora_parameters` on core `LTXVAddGuide`), LTX per-segment prompts (needs the GPL Prompt Relay patch, explicit opt-in only), LTX retake, source-fps resampling, H3 Image Inpaint as a separate pipeline label, H3 continuity from an imported video, join clips / transitions, Wan T2V/S2V, per-model Wan LoRA lists, job cancel.
+
+## W7 References in the main view
+Owner request: viewing and editing references must not live in a dock tab. Today Multi-reference → Video edits its references in the **References** dock tab (W2a), and Image → Video and first/last frame show the start image and `lastFrame` only as the stage preview, a toolbar toggle and a settings-column hint (`Workbench.tsx`). Instead, the references that belong to the current mode are always shown and editable in the main view (the stage), in every video mode:
+- Image → Video: the start image. First/last frame (FL2VA, LTX, Text → Video with a last frame): first and last frame side by side. Video → Video: the source video. Multi-reference → Video: the lanes Images / Videos / Audio with RefMods.
+- The mode decides which slots are shown; empty slots are visible as drop/pick targets. Every slot supports replace (drop from the Media dock or the OS, pick), remove and, where the mode reads them, reorder, trims, V/A/V+A, strength/second, labels with **Insert label**, packs and Clear — the current W2 functions moved, not rewritten.
+- The References dock tab is removed; the dock keeps Media. Media dock right-click **Add as reference** / marks (W1) stay.
+- Keep `refs`, `lastFrame` and the intent shape unchanged, so Run, packs, Forge context and native validation stay the same; this is a UI move.
+- Acceptance: component tests per mode for which slots are shown, replace/remove/reorder, unchanged intents (existing `ReferencesPanel`/`Workbench` tests moved, not dropped); browser screenshots 1440/1100 for each mode; locale keys for new text in all six locales; `docs/STUDIO.md` updated.
 
 ## How to verify
 - Frontend: `npx tsc --noEmit -p .`, `npx vitest run`, `node --experimental-strip-types --test tests/*.test.ts`.
