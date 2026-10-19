@@ -198,4 +198,6 @@
 .wb-prompt-overlay-bar { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; cursor: move; user-select: none; border-bottom: 1px solid #ffffff14; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .wb-prompt-overlay-bar small { margin-left: auto; text-transform: none; font-variant-numeric: tabular-nums; }
 .wb-prompt-overlay-bar button { width: 24px; height: 24px; padding: 0; border: 1px solid #ffffff2a; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.wb-prompt-overlay-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.wb-prompt-overlay-body:has(.forge-anchor) textarea { padding-right: 44px; }
 .wb-prompt-overlay textarea { flex: 1; min-height: 0; margin: 0; padding: 12px 14px; border: 0; border-radius: 0; resize: none; background: transparent; font-size: 14px; line-height: 1.55; }

@@ -878,9 +878,15 @@ test('prompt fields expand into a floating editor that edits the same text and c
  const big=within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('textbox',{name:'Prompt'}) as HTMLTextAreaElement;
  expect(big.value).toBe('a castle');
  fireEvent.change(big,{target:{value:'a castle at dawn'}});
+ expect(within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('button',{name:'Prompt Forge'})).toBeTruthy();
  expect((document.querySelector('[data-run-positive]') as HTMLTextAreaElement).value).toBe('a castle at dawn');
  fireEvent.keyDown(window,{key:'Escape'});
  expect(screen.queryByRole('dialog',{name:'Prompt'})).toBeNull();
+ // Both directions: the inline field feeds the open editor too.
+ fireEvent.click(screen.getByRole('button',{name:'Expand Prompt into a floating editor'}));
+ fireEvent.change(document.querySelector('[data-run-positive]')!,{target:{value:'inline edit'}});
+ expect((within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('textbox',{name:'Prompt'}) as HTMLTextAreaElement).value).toBe('inline edit');
+ fireEvent.keyDown(window,{key:'Escape'});
  fireEvent.click(screen.getByRole('button',{name:'Expand Negative prompt into a floating editor'}));
  fireEvent.change(within(screen.getByRole('dialog',{name:'Negative prompt'})).getByRole('textbox'),{target:{value:'blurry'}});
  expect((document.querySelector('[data-run-negative]') as HTMLTextAreaElement).value).toBe('blurry');
