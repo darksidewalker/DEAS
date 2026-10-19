@@ -106,18 +106,17 @@ pub fn parse(output: &str) -> Result<Hardware, String> {
 pub fn probe() -> Result<Hardware, String> {
     probe_program("nvidia-smi", Duration::from_secs(5))
 }
-fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
+fn probe_command(program: &str) -> Command {
     let mut command = Command::new(program);
     command
         .args([
             "--query-gpu=uuid,name,driver_version,compute_cap",
             "--format=csv,noheader,nounits",
         ])
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        // NVML uses the host driver environment; this query performs no installation.
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -128,7 +127,10 @@ fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(crate::win::CREATE_NO_WINDOW);
     }
-    let mut child = command.spawn().map_err(|e| format!("NVIDIA_DRIVER: cannot run nvidia-smi ({e}); install/repair the NVIDIA driver and re-plan"))?;
+    command
+}
+fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
+    let mut child = probe_command(program).spawn().map_err(|e| format!("NVIDIA_DRIVER: cannot run nvidia-smi ({e}); install/repair the NVIDIA driver and re-plan"))?;
     let stdout = child
         .stdout
         .take()
@@ -136,6 +138,14 @@ fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
     let reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         stdout.take(16385).read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("NVIDIA_GPU: missing probe stderr")?;
+    let error_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.take(16385).read_to_end(&mut bytes).map(|_| bytes)
     });
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -160,13 +170,24 @@ fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
         .join()
         .map_err(|_| "NVIDIA_GPU: probe reader failed")?
         .map_err(|e| e.to_string())?;
-    if !status?.success() {
-        return Err(
-            "NVIDIA_DRIVER: nvidia-smi failed; repair driver/device permissions and re-plan".into(),
-        );
-    }
-    if bytes.len() > 16384 {
+    let errors = error_reader
+        .join()
+        .map_err(|_| "NVIDIA_GPU: probe stderr reader failed")?
+        .map_err(|e| e.to_string())?;
+    let status = status?;
+    if bytes.len() > 16384 || errors.len() > 16384 {
         return Err("NVIDIA_GPU: probe output exceeds limit".into());
+    }
+    if !status.success() {
+        return Err(format!(
+            "NVIDIA_DRIVER: nvidia-smi failed ({status}, raw code {}); stdout: {}; stderr: {}",
+            status
+                .code()
+                .map(|code| format!("{:#010x}", code as u32))
+                .unwrap_or_else(|| "none".into()),
+            String::from_utf8_lossy(&bytes).trim(),
+            String::from_utf8_lossy(&errors).trim(),
+        ));
     }
     parse(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
 }
@@ -210,6 +231,23 @@ mod tests {
         assert!(parse("").is_err());
         assert!(parse("GPU-a, A, 615.1, 12.0\nGPU-b, B, 615.1, 12.0").is_err());
     }
+    #[cfg(unix)]
+    #[test]
+    fn probe_inherits_host_driver_environment() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let program = root.path().join("nvidia-smi");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf 'GPU-env, %s, 617.42, 8.9\\n' \"$HOME\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let expected = std::env::var("HOME").unwrap();
+        assert!(!expected.is_empty());
+        let hardware = probe_program(program.to_str().unwrap(), Duration::from_secs(1)).unwrap();
+        assert_eq!(hardware.name, expected);
+    }
     #[test]
     #[ignore = "Read-only live NVIDIA preflight; no installation"]
     fn live_nvidia_preflight() {
@@ -217,6 +255,40 @@ mod tests {
         let torch = select(&hardware).unwrap();
         println!("{}", serde_json::to_string(&hardware).unwrap());
         println!("{}", serde_json::to_string(&torch).unwrap());
+    }
+    #[test]
+    fn reported_windows_4080_query_passes_unchanged() {
+        let hardware = parse(
+            "GPU-3a261b54-349e-40a0-c826-4f5cdd2cbdec, NVIDIA GeForce RTX 4080, 617.42, 8.9\r\n",
+        )
+        .unwrap();
+        assert_eq!(hardware.name, "NVIDIA GeForce RTX 4080");
+        assert_eq!(select(&hardware).unwrap().cuda.as_deref(), Some("13.0"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn probe_returns_real_process_diagnostics() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let program = root.path().join("nvidia-smi");
+        std::fs::write(&program, "#!/bin/sh\nprintf 'driver diagnostic on stdout'\nprintf 'driver diagnostic on stderr' >&2\nexit 9\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = probe_program(program.to_str().unwrap(), Duration::from_secs(1)).unwrap_err();
+        assert!(error.contains("0x00000009"), "{error}");
+        assert!(
+            error.contains("stdout: driver diagnostic on stdout"),
+            "{error}"
+        );
+        assert!(
+            error.contains("stderr: driver diagnostic on stderr"),
+            "{error}"
+        );
+        std::fs::write(&program, "#!/bin/sh\nexec /usr/bin/yes diagnostic >&2\n").unwrap();
+        let start = Instant::now();
+        let error =
+            probe_program(program.to_str().unwrap(), Duration::from_millis(100)).unwrap_err();
+        assert!(error.contains("exceeds limit") || error.contains("timed out"));
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
     #[cfg(unix)]
     #[test]
