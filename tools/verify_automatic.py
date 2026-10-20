@@ -32,7 +32,7 @@ with sync_playwright() as p:
             if native: page.add_init_script(fixture)
             page.goto(url, wait_until='networkidle')
             set_locale(page,'en')
-            page.locator('[data-node="setup:aio"]').click()
+            page.locator('[data-node="settings"]').click()
             assert page.locator('button[data-setup-mode="guided"]').count()==0
             storage=page.locator('#auto-storage')
             backend=page.locator('#auto-backend')
@@ -55,12 +55,12 @@ with sync_playwright() as p:
             backend.select_option('cpu')
             page.locator('#auto-ref').fill('master')
             for locale,t in strings.items():
-                set_locale(page,locale,'[data-node="setup:aio"]')
+                set_locale(page,locale,'[data-node="settings"]')
                 assert storage.input_value()=='/edited/new-environment'
                 assert backend.input_value()=='cpu'
                 assert page.get_by_role('heading',name=t['setup.autoReview'],exact=True).count()==1
                 assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale)
-            set_locale(page,'en','[data-node="setup:aio"]')
+            set_locale(page,'en','[data-node="settings"]')
             page.locator('details.aio-advanced').evaluate('d=>{d.open=true}')  # the review remounts after visiting Settings
             if native:
                 start=page.get_by_role('button',name=strings['en']['setup.autoStart'],exact=True)
@@ -94,18 +94,18 @@ with sync_playwright() as p:
                 page.locator('.run-plan-diagnostics > summary').click()
                 page.locator('[data-node="engine"] > button').click()
                 # Success switches to Studio; the backend lifecycle lives on the installer view, without the review.
-                page.locator('[data-node="setup:aio"]').click()
+                page.locator('[data-node="settings"]').click()
                 assert page.locator('.aio-auto-review').count()==0
                 page.get_by_role('button',name=strings['en']['setup.backendLifecycle.start'],exact=True).click()
-                page.locator('[data-node="studio"]').click()
+                page.locator('[data-studio-tab="map"]').click()
                 page.wait_for_function("document.querySelector('#endpoint')?.value==='http://127.0.0.1:49173'")
                 assert page.evaluate("__calls.filter(x=>x.command==='native_backend_start').length")==1
                 assert not page.evaluate("__calls.some(x=>/native_comfy_inspect|negotiate|job_submit/.test(x.command))")  # Workbench reads sampler choices automatically; no explicit diagnostic/generation action
                 for locale in strings:
-                    set_locale(page,locale,'[data-node="studio"]')
+                    set_locale(page,locale,'[data-studio-tab="map"]')
                     assert page.locator('#endpoint').input_value()=='http://127.0.0.1:49173'
                     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'),(width,locale,'handoff')
-                set_locale(page,'en','[data-node="studio"]')
+                set_locale(page,'en','[data-studio-tab="map"]')
                 if width in (1440,320):
                     page.screenshot(path=str(root/f'assets/deas-studio-handoff-fixture-{width}.png'),full_page=True)
             assert not errors,errors

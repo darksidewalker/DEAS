@@ -5,6 +5,6 @@ import '../src/styles.css';
 function Fixture(){
   const {locale,setLocale,languages}=useI18n();
   return <><label>Fixture language<select aria-label="Fixture language" value={locale} onChange={e=>setLocale(e.target.value)}>{languages.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
-    <Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/env/ComfyUI/models',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></>;
+    <Workbench endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/env/ComfyUI/models',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></>;
 }
 createRoot(document.getElementById('fixture-root')!).render(<I18nProvider><Fixture/></I18nProvider>);

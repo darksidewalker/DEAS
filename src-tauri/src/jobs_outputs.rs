@@ -206,7 +206,7 @@ impl Jobs {
     }
 }
 // The decoder stops at IEND; reject animation and anything hidden beyond it.
-fn validate_envelope(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn validate_envelope(bytes: &[u8]) -> Result<(), String> {
     if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Err("Invalid PNG signature".into());
     }

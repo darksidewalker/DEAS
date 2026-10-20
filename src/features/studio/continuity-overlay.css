@@ -1,0 +1,39 @@
+.continuity-overlay {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  width: min(56rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #435256;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--chalk);
+}
+.continuity-overlay[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.continuity-overlay::backdrop { background: #0009; }
+.continuity-overlay-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid #435256; }
+.continuity-overlay-header h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.continuity-overlay-header button { flex: none; }
+.continuity-overlay-body { min-height: 0; min-width: 0; overflow: auto; padding: 1rem; overflow-wrap: anywhere; }
+.continuity-overlay .wb-options { grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); }
+.continuity-overlay .wb-option-row, .continuity-overlay .wb-cont-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.continuity-overlay [data-cont-session-form], .continuity-overlay [data-cont-session-form] label { display: grid; gap: .35rem; min-width: 0; }
+.continuity-overlay [data-cont-video-filename] { box-sizing: border-box; width: 100%; min-width: 0; }
+.continuity-overlay [data-cont-session] { box-sizing: border-box; width: 100%; min-width: 0; }
+.continuity-overlay .wb-cont-steps { display: grid; gap: .75rem; list-style: none; padding: 0; }
+.continuity-overlay .wb-cont-steps li { display: grid; grid-template-columns: auto 5rem minmax(0, 1fr) auto auto; gap: .5rem; align-items: start; }
+.continuity-overlay .wb-cont-steps label { display: grid; gap: .25rem; min-width: 0; }
+.continuity-overlay .wb-cont-steps input, .continuity-overlay .wb-cont-steps textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.continuity-overlay .wb-cont-steps textarea { resize: vertical; }
+.continuity-overlay .wb-cont-action { min-width: 0; }
+.continuity-overlay .wb-cont-action > .forge-anchor { position: static; justify-content: flex-end; margin-top: .25rem; }
+.continuity-overlay .forge-pop { position: fixed; inset: 2rem; margin: auto; width: min(30rem, calc(100vw - 4rem)); height: fit-content; max-height: calc(100dvh - 4rem); overflow: auto; box-sizing: border-box; }
+@media (max-width: 600px) {
+  .continuity-overlay .wb-cont-steps li { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .continuity-overlay .wb-cont-action { grid-column: 1 / -1; grid-row: 2; }
+  .continuity-overlay .wb-cont-state { grid-column: 1 / -1; }
+}

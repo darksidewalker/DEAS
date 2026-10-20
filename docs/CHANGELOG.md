@@ -2,6 +2,44 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased — 0.1.36
+
+- Default image-viewer Fit fills the available edge proportionally, including small-image upscaling; use a semi-transparent backdrop without checkerboard and click outside the picture to close. Keep picture/toolbar clicks and drag-to-backdrop safe, with the existing editor zoom limits unchanged. Make the floating footer fully transparent, label its version DEAS v…, and show native backend starting state followed by a once-per-running-transition green confirmation that disappears after 3 seconds, with reduced-motion support.
+
+## Unreleased — 0.1.35
+
+- Move Backend/Logs behind Comfy and repository actions to the header right. Unify backend management, settings and inline provider authorization without redundant navigation buttons; add installed/configured status marks. Rename Owned backend, open read-only media previews by click into the existing zoomable full-window viewer, use 3px outer edges and make the version/update hint float without footer-height reservation. Preserve image-edit gestures and explicit install/job authorization.
+
+## Unreleased — 0.1.34
+
+- Compact Studio/Library/Prompt Forge/Run Plan/Comfy navigation; move branding and utility actions to the footer and installer/authentication under Backend. Media browsing is preview-only with explicit input adoption and retained editor state. Add transform restoration and a visible yellow dashed processing frame; avoid an empty comparison half before a render exists.
+
+## Unreleased — 0.1.33
+
+- Prevent normal window close while a project draft or project operation is pending; allow retry after saving or explicit discard after a failed save. Report listener-registration failure visibly and through fixed, rate-limited native Logs; grant only the local-main destroy API required by Tauri’s close listener. Forced termination and running-job exit consent remain separate work.
+
+- Add native image-draft project folders with revision-checked autosave, exclusive writer locks, explicit create/open/close and managed PNG input. Restore baseline image settings without silently replacing a missing checkpoint or overwriting global Studio defaults; upload a managed input only on explicit Run. This is not job/result persistence, restart recovery or complete SDXL/native-platform acceptance. See [Projects](PROJECTS.md).
+
+## Unreleased — 0.1.32
+
+- H3 Continuity adds explicit native local-video upload (MP4/MOV/WebM/MKV, up to 512 MiB), reusing source-preserving input transport. Upload only fills the returned backend filename; Prepare, Use and Run stay separate. Cancellation/stale replies are guarded, six languages are updated, and upload errors reach bounded redacted shared Logs.
+
+- H3 Continuity prepares an existing backend-input video by explicit relative filename, shows validated metadata, and selects its opaque manifest identity only after Use video. Native generation and Forge accept the video source kind for the first extension, then use produced checkpoints. Imported-parent provenance/canvas/family resolve serial clip pinning without guessing cache IDs; no local upload, playback or preparation-time VAE load.
+
+- Checkpoint-based H3 Continuity reuses Prompt Forge for the next runnable step’s Next action: review/apply, drafts, undo and cancel, exact source/overlap/canvas/duration context, stale-draft protection and plan/run locking while writing. Optional continuity payloads are revalidated natively; imported-video prompting remains planned.
+
+- H3 Continuity can explicitly load the active session’s checkpoints and pin a source clip for the first continuation. Source selection persists with backend identity, enables the first Next action and preserves correct predecessor pinning; no automatic latest-source choice or generation. Source changes keep authored steps/settings and never delete backend clips. Session-list failures now reach bounded shared Logs.
+
+- H3 Continuity accepts explicit named sessions through a validated draft and Apply action. Switching names preserves authored steps/settings and removes only local clip/job links, never backend clips; it does not restore existing checkpoints. The backend-reserved `_imports` session is rejected before generation.
+
+- H3 Continuity exposes the Director overlap choices (73/56/39/22/5 context frames). Optional persisted settings apply only to continuations; omitted settings and first captures retain their previous graph behavior. Native validation rejects unsupported values.
+
+- H3 Continuity moves from the dock to a native modal overlay opened from settings for Text/Image → Video. Existing plans, step execution and clip pinning remain owned by Workbench; close/Escape preserves them. Old Continuity dock selections fall back to Media.
+
+- H3 I2VA/FL2VA/L2VA Prompt Forge: opt-in frame character/order/box assignments and manual Cast Read/edit/Write, reusing the reference controls. First/last-frame identity metadata survives the Forge context; boxes take precedence, and source replacement drops assignments. Video graphs stay unchanged.
+
+- H3 REF2VA Prompt Forge: editable Pose cards with explicit vision Read and the Director's `pose@N` request keys. Cards follow their picture across reference reorder; removed pictures and stale reads cannot contribute a misplaced card. Generation graphs are unchanged; automatic reads remain planned.
+
 ## 0.1.31 — 2026-10-19
 
 - Fix release staging: Windows error handling no longer exits unconditionally; new version directories cannot reuse stale assets, target manifests describe the artifacts actually built, and release staging requires a clean source snapshot.

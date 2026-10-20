@@ -1,6 +1,21 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, expect, it } from 'vitest';
-import { forgetPref, isString, oneOf, readPref, usePref, writePref } from './preferences';
+import { forgetPref, isString, oneOf, readPref, usePref, writePref, PreferencePersistenceContext } from './preferences';
+import type { ReactNode } from 'react';
+
+it('project values cannot leak back into global Studio defaults when the project closes',()=>{
+ writePref('studio.run.wildcard','original');
+ let persist=true;
+ const wrapper=({children}:{children:ReactNode})=><PreferencePersistenceContext.Provider value={persist}>{children}</PreferencePersistenceContext.Provider>;
+ const hook=renderHook(()=>usePref('studio.run.wildcard','global',isString),{wrapper});
+ persist=false;hook.rerender();
+ act(()=>hook.result.current[1]('project-only'));
+ expect(readPref('studio.run.wildcard','',isString)).toBe('original');
+ persist=true;hook.rerender();
+ expect(hook.result.current[0]).toBe('original');
+ expect(readPref('studio.run.wildcard','',isString)).toBe('original');
+ hook.unmount();
+});
 
 beforeEach(()=>localStorage.clear());
 it('restores a validated choice and falls back on missing, corrupt or foreign values',()=>{

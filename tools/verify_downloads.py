@@ -17,7 +17,7 @@ with sync_playwright() as p:
    if native:page.add_init_script(fixture)
    page.goto(url,wait_until='networkidle')
    set_locale(page,'en')
-   page.get_by_role('button',name='AiO installer',exact=True).click()
+   page.locator('[data-node="settings"]').click()
    page.get_by_role('tab',name='Library',exact=True).click()
    if native:
     page.get_by_role('tab',name='Models',exact=True).wait_for()
@@ -44,7 +44,7 @@ with sync_playwright() as p:
    else:
     assert page.get_by_text('Browser preview',exact=False).count()>0
     assert page.get_by_role('button',name='Download all (0)',exact=True).is_disabled()
-   page.get_by_role('button',name='Provider authorization',exact=True).click()
+   page.locator('[data-node="settings"]').click()
    page.get_by_label('Token',exact=True).wait_for()
    assert page.get_by_label('Token',exact=True).get_attribute('type')=='password'
    assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')

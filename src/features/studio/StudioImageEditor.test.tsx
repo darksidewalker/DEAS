@@ -79,6 +79,19 @@ test('Inpaint: moving the base off the source frame outpaints the uncovered part
  expect(onMask).toHaveBeenLastCalledWith(false);
 });
 
+test('restore frame resets the transformed base without clearing its painted mask',()=>{
+  const {ref,onMask}=mount();paint(document.querySelector('[data-editor-viewport]')!);
+  const mask=document.querySelector('.sie-mask');
+  fireEvent.click(screen.getByRole('button',{name:'Base image'}));
+  fireEvent.keyDown(screen.getByRole('group',{name:'Base image'}),{key:'ArrowLeft'});
+  fireEvent.keyDown(screen.getByRole('group',{name:'Base image'}),{key:'+'});
+  fireEvent.click(screen.getByRole('button',{name:'Restore to frame'}));
+  const base=screen.getByRole('group',{name:'Base image'});
+  expect([base.style.left,base.style.top,base.style.width,base.style.height]).toEqual(['0px','0px','1024px','640px']);
+  expect(document.querySelector('.sie-mask')).toBe(mask);expect(onMask).toHaveBeenLastCalledWith(true);
+  expect(ref.current!.imageEdited()).toBe(false);
+});
+
 test('base and inserted images reorder by drag and keyboard buttons without mixing mask rows',()=>{
  const view=controlled();view.rerender(view.ui([a,b]));
  const row=(name:string)=>screen.getByRole('button',{name}).closest('li')!;
@@ -155,6 +168,21 @@ function controlled(){
  const ui=(layers:typeof a[],maskMode=true)=><I18nProvider><StudioImageEditor source={source} layers={layers} onLayers={onLayers} maskMode={maskMode} onMask={onMask} onInsert={vi.fn()}/></I18nProvider>;
  const view=render(ui([]));return {...view,onLayers,onMask,ui};
 }
+test('restore frame contains oversized inserted images and preserves their layer order',()=>{
+ const view=controlled(),oversized={...a,x:-80,y:610,width:2048,height:1024};
+ view.rerender(view.ui([oversized,b],false));
+ fireEvent.click(screen.getByRole('button',{name:'a.png'}));
+ fireEvent.click(screen.getByRole('button',{name:'Restore to frame'}));
+ expect(view.onLayers.mock.lastCall![0]).toEqual([{...oversized,x:0,y:128,width:1024,height:512},b]);
+ expect(document.querySelector('[data-source-frame]')).not.toBeNull();
+});
+test.each([[8192,8,256,1],[8,8192,1,256]])('restore frame keeps extreme layer dimensions positive (%i × %i)',(width,height,w,h)=>{
+ const layer={...a,x:-20,y:-20,width,height},onLayers=vi.fn();
+ render(<I18nProvider><StudioImageEditor source={{...source,width:256,height:256}} layers={[layer]} onLayers={onLayers} maskMode={false} onMask={vi.fn()} onInsert={vi.fn()}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'a.png'}));
+ fireEvent.click(screen.getByRole('button',{name:'Restore to frame'}));
+ expect(onLayers.mock.lastCall![0]).toEqual([{...layer,x:0,y:0,width:w,height:h}]);
+});
 test('insert selection and selected-only handles survive reorder and nonselected deletion',()=>{
  const view=controlled();view.rerender(view.ui([a]));view.rerender(view.ui([a,b]));
  expect(screen.getByRole('button',{name:'b.png',pressed:true})).toBeTruthy();

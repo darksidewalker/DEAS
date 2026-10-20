@@ -105,10 +105,10 @@ it('shows catalog categories as cards with previews, opens an entry on click and
  click('Select repository: Found · v1');await screen.findByLabelText('Remote file');expect(screen.getByText('/env/ComfyUI/models/checkpoints')).toBeTruthy();
  expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request:{providerId:'civitai',scope:'model',locator:'7',authenticated:true,nsfw:true}});
 });
-it('mounts exactly the panel for the active top tab',async()=>{
- const view=render(<I18nProvider><DownloadWorkspace view="auth"/></I18nProvider>);expect(screen.getByLabelText('Token')).toBeTruthy();expect(screen.queryByRole('tab')).toBeNull();
- view.rerender(<I18nProvider><DownloadWorkspace view="downloads"/></I18nProvider>);await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
- view.rerender(<I18nProvider><DownloadWorkspace view={null}/></I18nProvider>);expect(screen.queryByRole('tab')).toBeNull();
+it('mounts the Library only on its top tab; authorization lives in Backend panels',async()=>{
+ const view=render(<I18nProvider><DownloadWorkspace view={null} authRevision={0}/></I18nProvider>);expect(screen.queryByLabelText('Token')).toBeNull();expect(screen.queryByRole('tab')).toBeNull();
+ view.rerender(<I18nProvider><DownloadWorkspace view="downloads" authRevision={0}/></I18nProvider>);await screen.findAllByRole('tab');expect(screen.queryByLabelText('Token')).toBeNull();
+ view.rerender(<I18nProvider><DownloadWorkspace view={null} authRevision={0}/></I18nProvider>);expect(screen.queryByRole('tab')).toBeNull();
 });
 it('always lists adult entries unblurred with their 18+ tag and browses everything natively',async()=>{
  const entries=[{id:'sfw',label:'Safe model',providerId:'fixture',scope:'index',locator:'https://example.invalid/s.json',kind:'model',target:'checkpoints',preview:'https://example.invalid/s.png'},{id:'adult',label:'Adult model',providerId:'fixture',scope:'index',locator:'https://example.invalid/a.json',kind:'model',target:'checkpoints',nsfw:true,preview:'https://example.invalid/a.png'}];

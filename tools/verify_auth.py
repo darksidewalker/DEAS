@@ -22,7 +22,7 @@ with sync_playwright() as p:
   page.add_init_script(fixture)
   page.goto(url, wait_until='networkidle')
   set_locale(page, 'en')
-  page.get_by_role('button', name='Provider authorization', exact=True).click()
+  page.locator('[data-node="settings"]').click()
   for provider in ('huggingface', 'civitai', 'github'):
    page.locator(f'[data-provider="{provider}"]').click()
    page.locator('.auth-verified').wait_for()

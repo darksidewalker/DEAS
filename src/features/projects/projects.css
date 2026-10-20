@@ -1,0 +1,19 @@
+.project-bar {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: .4rem .6rem;
+ box-sizing: border-box;
+ width: 100%;
+ min-width: 0;
+ max-width: 100%;
+ padding: .65rem;
+ margin-bottom: .75rem;
+ border: 1px solid #435256;
+ border-radius: 8px;
+ background: var(--surface);
+}
+.project-bar > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.project-bar-path { flex: 1 1 12rem; min-width: 0; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+.project-bar [data-project-status] { min-width: 0; font-size: .8rem; overflow-wrap: anywhere; }
+.project-bar > small { flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }

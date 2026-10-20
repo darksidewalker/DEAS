@@ -10,6 +10,7 @@
   "forge.undo": "元に戻す",
   "forge.target": "対象",
   "forge.brief": "アイデアまたは改善するプロンプト",
+  "forge.nextAction": "次のアクション",
   "forge.write": "作成",
   "forge.writing": "作成中…",
   "forge.result": "結果",

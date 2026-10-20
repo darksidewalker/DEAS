@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-projects"
+description = "Native-chooser project creation/open and PNG import, bounded image-draft autosave with active project identity and revision checks, explicit project close and fixed close-guard diagnostics; no job submission, arbitrary manifests or service changes."
+commands.allow = ["native_project_create", "native_project_open", "native_project_save", "native_project_import_image", "native_project_close", "native_project_close_notice"]

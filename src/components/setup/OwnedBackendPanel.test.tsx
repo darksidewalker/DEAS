@@ -1,3 +1,4 @@
+import { readAuthStatus } from '../../lib/downloads';
 import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,8 +7,10 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import AiOSetup from './AiOSetup';
 import { defaultLlmConfig } from '../../lib/llm';
+// Backend embeds auth now; lifecycle fixtures provide its real empty metadata schema.
+vi.mock('../../lib/downloads',async original=>({...await original<typeof import('../../lib/downloads')>(),readAuthStatus:vi.fn(async()=>[])}));
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
-beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.pref.backend.autostart','false');localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);});
+beforeEach(()=>{vi.mocked(readAuthStatus).mockResolvedValue([]);localStorage.clear();localStorage.setItem('deas.pref.backend.autostart','false');localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);});
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
 const fixture=(state:'starting'|'running'|'failed'|'stopped',endpoint:string|null=null)=>({state,endpoint,logs:['mock IPC fixture log'],error:null,generationReady:false});
 const mount=(succeeded=false,connect=vi.fn())=>render(<I18nProvider><OwnedBackendPanel installSucceeded={succeeded} onConnectExisting={connect}/></I18nProvider>);
@@ -25,7 +28,7 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   endpoint.mockClear();view.unmount();expect(endpoint).toHaveBeenCalledWith(null);
  });
  it('autostarts once after checking native status and never restarts after explicit stop',async()=>{
-  vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':'stopped'));
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':'stopped'));
   const view=render(<StrictMode><I18nProvider><OwnedBackendPanel installSucceeded autoStart onConnectExisting={vi.fn()}/></I18nProvider></StrictMode>);
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
   expect(vi.mocked(invoke).mock.calls.slice(0,2)).toEqual([['native_backend_status'],['native_backend_start']]);
@@ -51,7 +54,7 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
  });
  it('requires successful installation and explicit start, polls readiness and explicitly stops',async()=>{
   vi.useFakeTimers();const connect=vi.fn();
-  vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49173':null));
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49173':null));
   mount(true,connect);expect(invoke).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'Start owned backend'}));
   await act(async()=>{});
@@ -155,9 +158,7 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
 });
 
 async function installFixture(result:'succeeded'|'failed') {
- vi.mocked(invoke).mockImplementation(async command=>{
-  if(command==='native_llm_read')return defaultLlmConfig;
-  if(command==='native_llm_models')return {models:[],warnings:[]};
+ vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_install_defaults')return {storagePath:'/data/mock-DEAS',backend:'cpu',hardware:null,warnings:[]};
   if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};
@@ -165,20 +166,20 @@ async function installFixture(result:'succeeded'|'failed') {
  });
  render(<I18nProvider><AiOSetup onConnectExisting={vi.fn()}/></I18nProvider>);
  const click=(name:RegExp)=>fireEvent.click(screen.getByRole('button',{name}));
- fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
- await screen.findByText('mock install fixture');
+ fireEvent.click(screen.getByRole('tab',{name:'Backend'}));await screen.findByRole('button',{name:'Start install'});click(/^Start install$/);
+ if(result==='failed')await screen.findByText('mock install fixture');
  // The success handoff switches to Studio in an effect; let it land before the test navigates, or it overrides the click.
  if(result==='succeeded')await waitFor(()=>expect(screen.getByRole('tab',{name:'Studio'}).getAttribute('aria-selected')).toBe('true'));
 }
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
  it('exposes a separate explicit backend start only after succeeded install',async()=>{
   await installFixture('succeeded');
-  // Success moves to the Studio tab; a second installer click no longer reopens the review: re-runs live in Backend.
-  const installer=()=>fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
+  // Success moves to Studio; Backend exposes lifecycle/update actions without an installer submenu.
+  const installer=()=>{fireEvent.click(screen.getByRole('tab',{name:'Backend'}));};
   await screen.findByRole('tab',{name:'Studio',selected:true});
   installer();expect(screen.getByRole('button',{name:'Start owned backend'})).toBeTruthy();installer();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
   expect(vi.mocked(invoke).mock.calls.some(([command])=>command==='native_backend_start')).toBe(false);
-  vi.mocked(invoke).mockImplementation(async command=>fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49517':null));
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49517':null));
   fireEvent.click(screen.getByRole('button',{name:'Start owned backend'}));
   await screen.findByRole('button',{name:'Stop owned backend'});
   await screen.findByRole('button',{name:'Inspect running backend'}, {timeout:2500});
@@ -190,8 +191,8 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
  it('upgrades directly and re-runs the installation only after the overwrite warning',async()=>{
   await installFixture('succeeded');
   const base=vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_install_update'?{state:'succeeded',stepId:null,logs:['mock update fixture'],error:null}:base(command,args));
-  fireEvent.click(screen.getByRole('button',{name:'Backend'}));
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_install_update'?{state:'succeeded',stepId:null,logs:['mock update fixture'],error:null}:base(command,args));
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   expect(screen.getByRole('switch',{name:'Auto-start backend'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Re-run installation'}));
   expect(screen.getByRole('alertdialog').textContent).toMatch(/overwrites the installation/);

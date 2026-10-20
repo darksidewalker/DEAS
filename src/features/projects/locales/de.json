@@ -1,0 +1,18 @@
+{
+  "projects.new": "Neues Projekt",
+  "projects.open": "Projekt öffnen",
+  "projects.close": "Projekt schließen",
+  "projects.import": "PNG importieren",
+  "projects.closeUnsaved": "Ohne Speichern schließen",
+  "projects.retry": "Speichern wiederholen",
+  "projects.saved": "Gespeichert",
+  "projects.saving": "Wird gespeichert…",
+  "projects.unsaved": "Ungespeicherte Änderungen",
+  "projects.working": "Projektvorgang läuft…",
+  "projects.error": "Projektvorgang fehlgeschlagen. Ihre Einstellungen bleiben unverändert.",
+  "projects.limitation": "Nur Bildeinstellungen und PNG-Eingabe; Aufträge/Ergebnisse werden nicht wiederhergestellt",
+  "projects.none": "Kein Projekt",
+  "projects.missingCheckpoint": "Projekt-Checkpoint nicht verfügbar oder inkompatibel: {name}. Wählen Sie ausdrücklich ein kompatibles Modell.",
+  "projects.closeBlocked": "Vor dem Schließen dieses Fensters das Projekt speichern oder ausdrücklich ohne Speichern schließen.",
+  "projects.closeGuardFailed": "Der Fensterschließschutz ist nicht verfügbar. Vor dem Beenden auf Gespeichert warten und das Projekt schließen."
+}

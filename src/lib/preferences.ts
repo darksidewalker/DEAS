@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+
+/** Project image drafts must not replace the user's global Studio defaults. */
+export const PreferencePersistenceContext=createContext(true);
 
 /**
  * Remembered user choices: one JSON value per key in the app's webview storage, which survives restarts.
@@ -20,7 +23,13 @@ export function forgetPref(key:string){try{localStorage.removeItem(prefix+key);}
 
 /** useState that is restored on the next start; use it for any remembered page, filter or configuration choice. */
 export function usePref<T>(key:string,fallback:T,valid:Valid<T>) {
+ const persist=useContext(PreferencePersistenceContext)||!key.startsWith('studio.run.');
  const [value,setValue]=useState<T>(()=>readPref(key,fallback,valid));
- useEffect(()=>writePref(key,value),[key,value]);
+ const previousPersist=useRef(persist);
+ useEffect(()=>{
+  if(persist&&!previousPersist.current){previousPersist.current=true;setValue(readPref(key,fallback,valid));return;}
+  previousPersist.current=persist;
+  if(persist)writePref(key,value);
+ },[key,value,persist]);
  return [value,setValue] as const;
 }

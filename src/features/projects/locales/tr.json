@@ -1,0 +1,18 @@
+{
+  "projects.new": "Yeni proje",
+  "projects.open": "Proje aç",
+  "projects.close": "Projeyi kapat",
+  "projects.import": "PNG içe aktar",
+  "projects.closeUnsaved": "Kaydetmeden kapat",
+  "projects.retry": "Kaydetmeyi yeniden dene",
+  "projects.saved": "Kaydedildi",
+  "projects.saving": "Kaydediliyor…",
+  "projects.unsaved": "Kaydedilmemiş değişiklikler",
+  "projects.working": "Proje işlemi sürüyor…",
+  "projects.error": "Proje işlemi başarısız oldu. Ayarlarınız değişmedi.",
+  "projects.limitation": "Yalnızca görüntü ayarları ve PNG girdisi; işler/sonuçlar geri yüklenmez",
+  "projects.none": "Proje yok",
+  "projects.missingCheckpoint": "Proje kontrol noktası kullanılamıyor veya uyumsuz: {name}. Uyumlu bir modeli açıkça seçin.",
+  "projects.closeBlocked": "Bu pencereyi kapatmadan önce projeyi kaydedin veya açıkça kaydetmeden kapatın.",
+  "projects.closeGuardFailed": "Pencere kapatma koruması kullanılamıyor. Çıkmadan önce Kaydedildi durumunu bekleyin ve projeyi kapatın."
+}

@@ -30,6 +30,7 @@ fn main() {
         .manage(deas::install::Engine::default())
         .manage(deas::FolderOperations::default())
         .manage(deas::jobs::Jobs::default())
+        .manage(deas::projects::Projects::default())
         .manage(deas::auth::AuthState::default().restore_saved())
         .manage(deas::downloads::DownloadEngine::default())
         .invoke_handler(tauri::generate_handler![
@@ -58,8 +59,16 @@ fn main() {
             deas::native_mask_upload,
             deas::native_input_upload,
             deas::native_h3_session,
+            deas::native_h3_video_prepare,
+            deas::native_h3_video_upload,
             deas::native_h3_refmods,
             deas::native_job_status,
+            deas::native_project_create,
+            deas::native_project_open,
+            deas::native_project_save,
+            deas::native_project_import_image,
+            deas::native_project_close,
+            deas::native_project_close_notice,
             deas::native_pick_directory,
             deas::native_json_save,
             deas::native_json_open,

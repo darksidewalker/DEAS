@@ -3,5 +3,5 @@
   "description": "Local main window only; bounded backend inspection, confirmed provisioning and explicit diagnostic job submission.",
   "local": true,
   "windows": ["main"],
-  "permissions": ["allow-inspect-backend", "allow-native-negotiate-api", "allow-native-recipe-prerequisites", "allow-native-diagnostic-jobs", "allow-native-install", "allow-native-pick-directory", "allow-native-json-file", "allow-native-media", "allow-native-open-token-page", "allow-native-repo", "allow-native-settings", "allow-native-detect-hardware", "allow-native-backend", "allow-native-logs", "allow-download-plugins", "allow-auth-plugins", "core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": ["allow-inspect-backend", "allow-native-negotiate-api", "allow-native-recipe-prerequisites", "allow-native-diagnostic-jobs", "allow-native-install", "allow-native-pick-directory", "allow-native-json-file", "allow-native-projects", "allow-native-media", "allow-native-open-token-page", "allow-native-repo", "allow-native-settings", "allow-native-detect-hardware", "allow-native-backend", "allow-native-logs", "allow-download-plugins", "allow-auth-plugins", "core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-destroy"]
 }

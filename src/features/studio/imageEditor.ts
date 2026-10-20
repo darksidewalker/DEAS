@@ -1,5 +1,5 @@
-export function zoomAt(v:View,p:Point,wanted:number):View{
- const scale=Math.max(.05,Math.min(16,wanted)),ratio=scale/v.scale;
+export function zoomAt(v:View,p:Point,wanted:number,maxScale=16):View{
+ const scale=Math.max(.05,Math.min(maxScale,wanted)),ratio=scale/v.scale;
  return {scale,x:p.x-(p.x-v.x)*ratio,y:p.y-(p.y-v.y)*ratio};
 }
 export function stampStroke(ctx:CanvasRenderingContext2D,a:Point,b:Point,diameter:number,shape:BrushShape,erase:boolean,color='#fff'){

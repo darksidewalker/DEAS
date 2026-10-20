@@ -1,0 +1,18 @@
+{
+  "projects.new": "New project",
+  "projects.open": "Open project",
+  "projects.close": "Close project",
+  "projects.import": "Import PNG",
+  "projects.closeUnsaved": "Close without saving",
+  "projects.retry": "Retry save",
+  "projects.saved": "Saved",
+  "projects.saving": "Saving…",
+  "projects.unsaved": "Unsaved changes",
+  "projects.working": "Project operation in progress…",
+  "projects.error": "Project operation failed. Your settings are unchanged.",
+  "projects.limitation": "Image settings and PNG input only; jobs/results not restored",
+  "projects.none": "No project",
+  "projects.missingCheckpoint": "Project checkpoint unavailable or incompatible: {name}. Select a compatible model explicitly.",
+  "projects.closeBlocked": "Save the project or explicitly close without saving before closing this window.",
+  "projects.closeGuardFailed": "Window-close protection is unavailable. Wait for Saved and close the project before quitting."
+}

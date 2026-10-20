@@ -51,7 +51,10 @@ export function prepareDiagnosticJob(baseUrl: string, intent: JobIntent): Promis
 export const uploadMask = (baseUrl: string, png: Uint8Array): Promise<string> => native('native_mask_upload', { baseUrl, png: Array.from(png) });
 /** Reference image (PNG/JPEG/WebP on disk) → backend input folder; returns its `deas-inputs/<uuid>.<ext>` name for H3 Director references. */
 export const uploadInput = (baseUrl: string, path: string): Promise<string> => native('native_input_upload', { baseUrl, path });
-export interface H3Clip { clipId: string; parent: string | null; frames: number | null; completed: number; export: { filename: string; subfolder: string; type: string } | null }
+export interface H3PreparedVideo { sourceId:string; filename:string; sha256:string; width:number; height:number; fps:number; seconds:number; hasAudio:boolean }
+export interface H3ImportedVideo { sourceId:string; width:number; height:number; modeFamily:'fl2va'|'ref2va' }
+export const prepareH3Video=(baseUrl:string,filename:string):Promise<H3PreparedVideo>=>native('native_h3_video_prepare',{baseUrl,filename});
+export interface H3Clip { importedVideo?:H3ImportedVideo; clipId: string; parent: string | null; frames: number | null; completed: number; export: { filename: string; subfolder: string; type: string } | null }
 /** Read-only DaSiWa continuity session listing (clips newest first). */
 /** One DaSiWa RefMod library entry (`models/refmods`), read-only. */
 export interface RefModEntry { name: string; kinds: ('image' | 'video' | 'audio')[]; description: string }

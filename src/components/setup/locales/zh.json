@@ -103,7 +103,7 @@
   "setup.detectionError": "硬件检测不可用",
   "setup.feature.output.label": "输出",
   "setup.feature.output.description": "套件包含的视觉输出能力，并非独立的原生安装功能。",
-  "setup.backendLifecycle.title": "自有后端生命周期",
+  "setup.backendLifecycle.title": "自有后端",
   "setup.backendLifecycle.help": "DEAS 仅启动已检查的环境。自动启动默认开启，可在设置中关闭。状态检查仅针对本应用拥有的后端，不接管或停止其他服务。检查为只读操作。",
   "setup.backendLifecycle.browser": "后端生命周期管理仅在桌面应用中可用。浏览器预览无法启动、停止后端或检查原生生命周期状态。",
   "setup.backendLifecycle.unknown": "尚未检查状态",
@@ -217,5 +217,11 @@
   "startup.preset.compatibility.help": "仅内核自动调优：在所有 NVIDIA GPU 上计算相同；每种新尺寸首次运行较慢。",
   "startup.preset.off.help": "ComfyUI 自身的默认值，无额外启动选项。",
   "startup.highvramHelp": "关闭 ComfyUI 的动态显存并将所有模型保留在显存中：仅当全部放得下时切换模型更快；大型视频模型可能显存不足。",
-  "startup.vaeHelp": "默认：ComfyUI 按 VAE 类型和 GPU 选择（RTX 30 及更新通常为 bf16）。这些选项会对所有 VAE 强制同一设置。"
+  "startup.vaeHelp": "默认：ComfyUI 按 VAE 类型和 GPU 选择（RTX 30 及更新通常为 bf16）。这些选项会对所有 VAE 强制同一设置。",
+  "setup.overview": "后端与提供商",
+  "setup.overview.missing": "未安装",
+  "setup.footer.starting": "后端正在启动…",
+  "setup.footer.started": "后端已启动",
+  "setup.backendPanels": "后端面板",
+  "setup.backendPanels.requiresInstall": "需要已安装的后端"
 }

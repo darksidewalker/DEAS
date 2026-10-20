@@ -4,6 +4,44 @@
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).
 
+## Unreleased — 0.1.36
+
+- Image previews now fit to the available window edge over a semi-transparent, non-checkered background. Click outside the image to close; zoom and pan remain available. The transparent DEAS v… footer shows backend startup progress, then a brief green check that vanishes after 3 seconds.
+
+## Unreleased — 0.1.35
+
+- Use nearly the whole window: 3px exterior edges and a floating version hint. Backend and Logs join the top tabs; GitHub/star move to the header right. Backend now shows its settings and provider authorization directly, with a compact status overview. Click a read-only image preview for zoomable full-window viewing; edit canvases keep their existing behavior.
+
+## Unreleased — 0.1.34
+
+- More vertical space for media: one top tab band, footer utilities and Backend-owned installer/authorization. Browse media without replacing your edit draft, and return shifted images to a clearly marked original frame.
+
+## Unreleased — 0.1.33
+
+- Closing the main window waits for pending project changes: save first, or explicitly discard a failed draft. A missing close guard is reported instead of silently implying protection.
+
+- Keep baseline image settings and an explicitly imported PNG in a native project folder, then reopen them without starting a job. Global Studio defaults remain separate. Jobs, generated results, optional processing and editor layers are not restored by this first slice; see [Projects](PROJECTS.md).
+
+## Unreleased — 0.1.32
+
+- Upload a local video directly from Continuity, then prepare and select it explicitly. Originals are preserved; no playback or generation starts automatically.
+
+- Continue from a prepared video already in ComfyUI input: prepare, inspect metadata, select, then Run or draft Next action with Forge. Local upload and native playback remain separate work.
+
+- Ask Prompt Forge to draft a checkpoint continuation’s Next action, review it and apply only to that step. No automatic generation or replacement of the main prompt.
+
+- Continue from an explicitly selected checkpoint in the active H3 session. Loading/selecting is read-only; imported-video sources and Forge-written Next action remain planned.
+
+- Name Continuity sessions explicitly without deleting backend clips. Applying a name retains the plan settings and starts fresh local clip tracking; backend-wide session browsing remains planned.
+
+- H3 Continuity adds an overlap selector for later segments, retaining the 22-frame default and explaining backend shortening for limited context.
+
+- H3 Continuity now opens as its own overlay instead of occupying the dock, preserving the existing plan and sequential run controls. New Director continuity parameters and Forge Next action remain planned.
+
+- H3 first/last-frame modes gain explicit character/order/box assignments and editable character Cast cards in the Generate hammer. No automatic card inference or video graph change.
+
+- Generate's H3 REF2VA hammer supports editable Pose cards with explicit vision Read. Cards stay with their picture when references are reordered. Automatic reads are still planned; no new model/platform acceptance or distributable is implied.
+
 ## 0.1.31 — 2026-10-19
 
 - Director-compatible group labels and Characters 1–32, people/order selection, manual person boxes, and explicit **Find people** candidates with separate application. Cancellation is request-scoped and best effort; real vision quality remains unverified.

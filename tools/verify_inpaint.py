@@ -40,6 +40,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
 def open_editor(page):
     page.goto(URL + '/tools/inpaint-fixture.html', wait_until='networkidle')
     page.get_by_role('button', name='base.png', exact=True).click()
+    page.locator('[data-browsed-preview] [data-use-input]').click()
     page.get_by_role('button', name='Inpaint', exact=True).click()
     page.locator('[data-editor-viewport]').wait_for()
     expect(page.get_by_role('button', name='Mask 1', exact=True)).to_have_attribute('aria-pressed', 'true')
@@ -197,6 +198,7 @@ with sync_playwright() as p:
     # Reselecting the same source must preserve the entire draft, not just canvas pixels.
     editor_node = page.get_by_test_id('editor-world').element_handle()
     page.get_by_role('button',name='base.png',exact=True).click()
+    page.locator('[data-browsed-preview] [data-use-input]').click()
     expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
     expect(page.get_by_role('button',name='Run',exact=True)).to_be_enabled()
     assert page.get_by_test_id('editor-world').evaluate('(el,old)=>el===old',editor_node)
@@ -245,6 +247,7 @@ with sync_playwright() as p:
     expect(page.locator('.wb-stage.wb-split [data-editor-viewport]')).to_be_visible()
     # A model-invalid source must be explained, not silently rounded.
     page.get_by_role('button', name='odd.png', exact=True).click()
+    page.locator('[data-browsed-preview] [data-use-input]').click()
     click_tool(page, 'Inpaint')
     expect(page.get_by_role('button', name='Run', exact=True)).to_be_disabled()
     expect(page.get_by_text('Resample this image to the selected model’s resolution grid before inpainting.', exact=True)).to_be_visible()
@@ -285,6 +288,7 @@ with sync_playwright() as p:
     }''')
     drop_tile(page,'cat.png')
     page.get_by_role('button',name='other.png',exact=True).click()
+    page.locator('[data-browsed-preview] [data-use-input]').click()
     page.evaluate('window.__releaseProbe();window.__restoreImage()')
     page.wait_for_function('window.__probeDone')
     assert page.locator('.sie-image:not([data-layer="base"])').count()==0

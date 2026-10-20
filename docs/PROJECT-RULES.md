@@ -2,6 +2,10 @@
 
 This is the normative development guide. **MUST** is a requirement; **SHOULD** allows a documented technical exception. Existing code is not automatically compliant merely because it predates these rules. Current delivery status belongs in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md); ComfyUI-specific requirements belong in [COMFYUI-RULES.md](COMFYUI-RULES.md).
 
+## Accepted product contract
+
+[PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) is the owner-approved target contract: experienced local users, persistent managed-media projects, immutable revisions/jobs, explicit execution, local-first privacy and a bounded Studio surface using ComfyUI. It supersedes conflicting older product priorities, not existing safety rules or evidence. The first acceptance milestone is one SDXL text-to-image → image-to-image revision → compare/export → reopen workflow, Linux first with separate Windows runtime acceptance. Defer new training/enhancement/assembly/model-family integrations until that milestone works; preserve existing features and the separately recorded video defects. This is decided scope, not a claim of implementation, execution authorization or a rewrite mandate. The broader AiO goal below remains the long-term direction.
+
 ## 1. Product goal
 
 DEAS is an all-in-one AI workstation for generating and prompting, managing checkpoints/models/LoRAs, intelligent editable presets, automated installation and backend handling, composable image/video pipelines, LoRA creation/training, video post-production, video comparison and video assembly. Users should not need to understand ComfyUI's computational graph to use Studio.

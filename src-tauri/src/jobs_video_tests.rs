@@ -413,6 +413,245 @@ fn h3_drives_director_guide_segment_nodes_and_publish() {
 }
 
 #[test]
+fn h3_continuity_video_maps_only_source_fields_for_all_options() {
+    let mut i = h3();
+    let source = "0123456789abcdef".repeat(4);
+    for capture in [false, true] {
+        for output in ["full", "segment"] {
+            for overlap in [None, Some(73), Some(56), Some(39), Some(22), Some(5)] {
+                i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":source,"capture":capture,"action":"she turns around","outputMode":output});
+                if let Some(frames) = overlap {
+                    i["h3"]["continuity"]["overlapFrames"] = json!(frames);
+                }
+                let baseline = compile(&i).unwrap();
+                let mut expected = baseline.clone();
+                let mut timeline: Value = serde_json::from_str(
+                    baseline["D"]["inputs"]["timeline_data"].as_str().unwrap(),
+                )
+                .unwrap();
+                timeline["continuity"]["source_kind"] = json!("video");
+                timeline["continuity"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source_id");
+                timeline["continuity"]["source_video_id"] = json!(source);
+                expected["D"]["inputs"]["timeline_data"] = json!(timeline.to_string());
+                i["h3"]["continuity"]["sourceKind"] = json!("video");
+                assert_eq!(compile(&i).unwrap(), expected);
+                i["h3"]["continuity"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("sourceKind");
+                assert_eq!(compile(&i).unwrap(), baseline);
+            }
+        }
+    }
+}
+
+#[test]
+fn h3_continuity_source_kind_and_video_ids_are_strict() {
+    let mut i = h3();
+    for source in [
+        "",
+        "clip_1",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    ] {
+        i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":source,"capture":true,"action":"","outputMode":"segment"});
+        let baseline = compile(&i).unwrap();
+        for kind in [
+            json!(null),
+            json!(false),
+            json!(42),
+            json!([]),
+            json!({}),
+            json!("checkpoint"),
+            json!("Video"),
+            json!(""),
+        ] {
+            i["h3"]["continuity"]["sourceKind"] = kind.clone();
+            assert!(compile(&i).is_err(), "accepted sourceKind={kind}");
+        }
+        i["h3"]["continuity"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceKind");
+        assert_eq!(compile(&i).unwrap(), baseline);
+    }
+    i["h3"]["continuity"]["sourceKind"] = json!("video");
+    for source in [
+        json!(""),
+        json!("clip_1"),
+        json!("a".repeat(63)),
+        json!("a".repeat(65)),
+        json!("A".repeat(64)),
+        json!("g".repeat(64)),
+        json!("é".repeat(32)),
+        json!(null),
+        json!(42),
+        json!(false),
+        json!([]),
+        json!({}),
+    ] {
+        i["h3"]["continuity"]["sourceId"] = source.clone();
+        assert!(compile(&i).is_err(), "accepted video sourceId={source}");
+    }
+}
+
+#[test]
+fn h3_continuity_rejects_reserved_session_only() {
+    let mut i = h3();
+    for source in ["", "clip_1", "_imports"] {
+        i["h3"]["continuity"] = json!({"session":"_imports","sourceId":source,"capture":true,"action":"","outputMode":"segment"});
+        assert!(validate(&i).is_err(), "accepted reserved session");
+        assert!(compile(&i).is_err(), "compiled reserved session");
+    }
+    assert!(continuity_id("_imports"), "clip IDs are not session names");
+}
+
+#[test]
+fn h3_continuity_identifier_contract_preserves_valid_graphs() {
+    let mut i = h3();
+    i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"","outputMode":"segment"});
+    let baseline = compile(&i).unwrap();
+    let timeline: Value =
+        serde_json::from_str(baseline["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+    for id in [
+        "a",
+        "_",
+        "-",
+        "123",
+        "My_session-42",
+        "_imports2",
+        "_IMPORTS",
+        &"a".repeat(80),
+    ] {
+        for source in ["", "clip_1", "_imports", id] {
+            i["h3"]["continuity"]["session"] = json!(id);
+            i["h3"]["continuity"]["sourceId"] = json!(source);
+            let mut expected = baseline.clone();
+            let mut timeline = timeline.clone();
+            timeline["continuity"]["session"] = json!(id);
+            if source.is_empty() {
+                for key in ["source_kind", "source_id", "continuation_prompt"] {
+                    timeline["continuity"].as_object_mut().unwrap().remove(key);
+                }
+            } else {
+                timeline["continuity"]["source_id"] = json!(source);
+            }
+            expected["D"]["inputs"]["timeline_data"] = json!(timeline.to_string());
+            assert_eq!(
+                compile(&i).unwrap(),
+                expected,
+                "session={id}, sourceId={source}"
+            );
+        }
+    }
+    for field in ["session", "sourceId"] {
+        for bad in [
+            "a/b",
+            "a\\b",
+            "..",
+            "a.b",
+            "a b",
+            " a",
+            "a ",
+            "é",
+            "a\n",
+            "a\0",
+            &"a".repeat(81),
+        ] {
+            i["h3"]["continuity"]["session"] = json!("deas-ab12cd34");
+            i["h3"]["continuity"]["sourceId"] = json!("clip_1");
+            i["h3"]["continuity"][field] = json!(bad);
+            assert!(compile(&i).is_err(), "accepted {field}={bad:?}");
+        }
+    }
+    i["h3"]["continuity"]["session"] = json!("");
+    i["h3"]["continuity"]["sourceId"] = json!("");
+    assert!(compile(&i).is_err(), "accepted empty session");
+}
+
+#[test]
+fn h3_continuity_overlap_frames_maps_only_explicit_checkpoint_options() {
+    let mut i = h3();
+    i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"she turns around","outputMode":"segment"});
+    let omitted = compile(&i).unwrap();
+    let timeline: Value =
+        serde_json::from_str(omitted["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        timeline["continuity"],
+        json!({"version":3,"session":"deas-ab12cd34","source_kind":"checkpoint","source_id":"clip_1","capture":true,"output_mode":"segment","continuation_prompt":"she turns around"})
+    );
+    for frames in [73, 56, 39, 22, 5] {
+        i["h3"]["continuity"]["overlapFrames"] = json!(frames);
+        let mut expected = omitted.clone();
+        let mut timeline = timeline.clone();
+        timeline["continuity"]["overlap_frames"] = json!(frames);
+        expected["D"]["inputs"]["timeline_data"] = json!(timeline.to_string());
+        assert_eq!(compile(&i).unwrap(), expected, "overlapFrames={frames}");
+    }
+    i["h3"]["continuity"]
+        .as_object_mut()
+        .unwrap()
+        .remove("overlapFrames");
+    assert_eq!(compile(&i).unwrap(), omitted);
+
+    i["h3"]["continuity"]["sourceId"] = json!("");
+    let first_capture = compile(&i).unwrap();
+    for frames in [73, 56, 39, 22, 5] {
+        i["h3"]["continuity"]["overlapFrames"] = json!(frames);
+        assert_eq!(
+            compile(&i).unwrap(),
+            first_capture,
+            "first capture overlapFrames={frames}"
+        );
+    }
+}
+
+#[test]
+fn h3_continuity_overlap_frames_rejects_malformed_values_and_unknown_keys() {
+    let mut i = h3();
+    for source in ["", "clip_1"] {
+        i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":source,"capture":true,"action":"","outputMode":"segment"});
+        for bad in [
+            json!(null),
+            json!(true),
+            json!(false),
+            json!("22"),
+            json!(22.0),
+            json!(22.5),
+            json!(-1),
+            json!(0),
+            json!(4),
+            json!(6),
+            json!(21),
+            json!(23),
+            json!(38),
+            json!(40),
+            json!(55),
+            json!(57),
+            json!(72),
+            json!(74),
+            json!(u64::MAX),
+            json!([]),
+            json!({}),
+        ] {
+            i["h3"]["continuity"]["overlapFrames"] = bad.clone();
+            assert!(
+                compile(&i).is_err(),
+                "accepted overlapFrames={bad}, sourceId={source}"
+            );
+        }
+        i["h3"]["continuity"]["overlapFrames"] = json!(22);
+        for key in ["unknown", "overlap_frames", "useReferences", "sourceKind"] {
+            i["h3"]["continuity"][key] = json!(true);
+            assert!(compile(&i).is_err(), "accepted continuity.{key}");
+            i["h3"]["continuity"].as_object_mut().unwrap().remove(key);
+        }
+    }
+}
+
+#[test]
 fn ltx_video_to_video_guides_the_trimmed_source_and_keyframes_at_their_frames() {
     let mut i = ltx();
     i["sourceVideo"] = json!("deas-input-1.mp4");

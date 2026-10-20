@@ -1,4 +1,6 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { defaultLlmConfig } from './lib/llm';
+import { readAuthStatus } from './lib/downloads';
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
   act,
@@ -14,6 +16,8 @@ import { inspectBackend } from "./lib/comfy";
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { NativeInstallRequest } from './lib/setup';
 vi.mock("./lib/comfy", () => ({ inspectBackend: vi.fn() }));
+// Backend embeds auth now; lifecycle fixtures provide its real empty metadata schema.
+vi.mock('./lib/downloads',async original=>({...await original<typeof import('./lib/downloads')>(),readAuthStatus:vi.fn(async()=>[])}));
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false)}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 
@@ -26,6 +30,8 @@ function renderStudio() {
   return view;
 }
 
+beforeEach(()=>vi.mocked(readAuthStatus).mockResolvedValue([]));
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -37,20 +43,20 @@ test("language selection updates app, setup, studio metadata and aria without lo
   fireEvent.click(screen.getByRole("button", { name: /^Director$/i }));
   fireEvent.change(screen.getByLabelText("Shot direction"), { target: { value: "Preserve my draft" } });
   // Language lives in Settings; a pick there is marked as a custom choice.
-  fireEvent.click(screen.getByRole("button", { name: "Backend" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Backend" }));
   fireEvent.change(screen.getByLabelText("Language"), { target: { value: "de" } });
   expect(document.documentElement.lang).toBe("de");
   expect(screen.getByText("Eigene Wahl")).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
-  expect(screen.getByRole('button',{name:'AiO-Installer'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));expect(screen.getByRole('region',{name:'Provider-Autorisierung'})).toBeTruthy();fireEvent.click(document.querySelector('[data-studio-tab="map"]')!);
   expect(screen.getByLabelText("Aufnahmeregie")).toHaveProperty("value", "Preserve my draft");
   expect(screen.getByRole("button", { name: "Director schließen" })).toBeTruthy();
   expect(document.querySelector(".neural-legend")).toBeNull();
   expect([...document.querySelectorAll('[data-node="director"] [data-included]')].map(part=>part.textContent)).toEqual(["Prompt Forge", "RefMods", "Kontinuität", "Ausgabe"]);
   expect(screen.getByLabelText("Bildausschnitt").textContent).toContain("Totale");
-  fireEvent.click(screen.getByRole("button", { name: "Backend" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Backend" }));
   fireEvent.change(screen.getByLabelText("Sprache"), { target: { value: "en" } });
-  fireEvent.click(screen.getByRole("tab", { name: "Studio" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Run Plan" }));
   expect(screen.getByLabelText("Shot direction")).toHaveProperty("value", "Preserve my draft");
   expect(screen.getByLabelText("Framing")).toHaveProperty("value", "wide");
 });
@@ -63,7 +69,7 @@ test('Generate preserves the same workbench across map and top-level tab navigat
  expect(workbench).toBeTruthy();
  fireEvent.click(screen.getByRole('tab',{name:'Run Plan'}));
  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
- fireEvent.click(screen.getByRole('tab',{name:'Generate'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
  fireEvent.click(screen.getByRole('tab',{name:'Library'}));
  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
@@ -73,11 +79,11 @@ test('Generate preserves the same workbench across map and top-level tab navigat
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
-  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["setup:aio","provider-auth","settings","logs","studio","optional-downloads","comfy"]);
+  expect([...view.container.querySelectorAll("[data-node]")].map(n=>n.getAttribute("data-node"))).toEqual(["studio","optional-downloads","comfy","settings","logs"]);
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
   expect(inspectBackend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
-  expect(screen.getByRole("tab", { name: "Generate", selected: true })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Studio", selected: true })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Run" })).toBeTruthy();
   expect(screen.getByRole("complementary", { name: "Media" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Connected studio features" })).toBeNull();
@@ -89,7 +95,7 @@ test("first entry shows only AiO and keeps the studio behind an honest preview c
 test.each([false,true])("successful native install reveals studio without an extra enable action (Director: %s)", async (director) => {
   localStorage.setItem('deas.pref.backend.autostart','false');
   vi.mocked(isTauri).mockReturnValue(true);
-  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
     if(command==='native_install_defaults')return {storagePath:'/app/new',backend:'cpu',warnings:[]};
     if(command==='native_media_list')return {path:'/home/fixture',parent:null,entries:[],truncated:false};
     if(command==='native_install_plan')return {id:'installed-plan',request:(args as {request:NativeInstallRequest}).request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
@@ -97,7 +103,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   });
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   if(!director)fireEvent.click(screen.getByLabelText('Director'));
   await waitFor(()=>expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/app/new'));
   const start=await screen.findByRole('button',{name:'Start install'});
@@ -117,7 +123,7 @@ test.each([false,true])("successful native install reveals studio without an ext
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   render(<I18nProvider><App /></I18nProvider>);
-  fireEvent.click(screen.getByRole('button',{name:'AiO installer'}));
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
@@ -133,7 +139,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   fireEvent.click(screen.getByRole("button", { name: /^Engine$/ }));
   fireEvent.click(screen.getByRole("button", { name: /Inspect connection/ }));
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
-  fireEvent.click(setup.getByRole('button',{name:'AiO installer'}));
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
   fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));

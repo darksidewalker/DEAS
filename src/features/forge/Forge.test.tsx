@@ -1,8 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { I18nProvider } from '../../i18n/I18nProvider';
-import { ForgeButton } from './ForgeButton';
+import { bundledCatalog, I18nProvider } from '../../i18n/I18nProvider';
+import { ForgeButton, type H3Context } from './ForgeButton';
 import { PromptForge } from './PromptForge';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
@@ -20,6 +20,138 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
+
+const continuityRun: H3Context & { continuity: NonNullable<H3Context['continuity']> } = {
+  mode: 'T2VA', duration: 5, canvas: { width: 1024, height: 576 }, references: [], easy: false,
+  continuity: { source_kind: 'checkpoint' as const, session: 'session-a', clip_id: 'clip-a', overlap_frames: 22 as const, current_prompt: 'previous action', use_references: false as const },
+};
+
+it.each(['endpoint', 'root', 'source', 'session', 'overlap', 'current_prompt', 'duration', 'canvas', 'model'])('checkpoint Forge draft/history become stale after changing %s', async change => {
+  const view = (run = continuityRun, endpoint = 'http://127.0.0.1:8188', root = '/env') => <I18nProvider><ForgeButton endpoint={endpoint} root={root} dialect="MiniMax H3" value="turn left" onApply={vi.fn()} h3={run}/></I18nProvider>;
+  const { rerender } = render(view());
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByRole('textbox', { name: 'Result' });
+  const run = { ...continuityRun, continuity: { ...continuityRun.continuity } };
+  if (change === 'source') run.continuity.clip_id = 'clip-b';
+  if (change === 'session') run.continuity.session = 'session-b';
+  if (change === 'overlap') run.continuity.overlap_frames = 39;
+  if (change === 'current_prompt') run.continuity.current_prompt = 'edited action';
+  if (change === 'duration') run.duration = 8;
+  if (change === 'canvas') run.canvas = { width: 576, height: 1024 };
+  if (change === 'model') {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as { route: string }).route === 'models' ? Promise.resolve({ ...models, models: [{ id: 'other', label: 'other' }] }) : base(c, a));
+    act(() => window.dispatchEvent(new Event('deas:llm-changed')));
+    await screen.findByRole('option', { name: 'other' });
+  } else {
+    rerender(view(run, change === 'endpoint' ? 'http://127.0.0.1:8288' : undefined, change === 'root' ? '/other' : undefined));
+    await screen.findByRole('option', { name: 'qwen' });
+  }
+  expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Draft 1 ⚠' }));
+  expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it.each(['h3', 'write'])('Forge %s reports only actual busy transitions despite callback rerenders', async route => {
+  let resolve!: (value: unknown) => void;
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as { route: string }).route === route ? new Promise(r => { resolve = r; }) as ReturnType<typeof invoke> : base(c, a));
+  const changes = vi.fn();
+  const view = () => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="turn left" onApply={vi.fn()} h3={route === 'h3' ? continuityRun : undefined} onBusyChange={busy => changes(busy)}/></I18nProvider>;
+  const { rerender, unmount } = render(view());
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  expect(changes).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  expect(changes.mock.calls).toEqual([[true]]);
+  rerender(view());
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'more action' } });
+  expect(changes.mock.calls).toEqual([[true]]);
+  await act(async () => resolve(route === 'h3' ? { simple_prompt: 'draft', warnings: [] } : { prompt: 'draft', saw_images: 0 }));
+  expect(changes.mock.calls).toEqual([[true], [false]]);
+  unmount();
+  expect(changes.mock.calls).toEqual([[true], [false]]);
+  expect(forgeCalls().filter(c => c.route === 'cancel')).toHaveLength(0);
+});
+
+it.each(['cancel', 'unmount', 'failure'])('checkpoint Forge ends busy on %s and ignores late owned results', async outcome => {
+  let resolve!: (value: unknown) => void, reject!: (reason: Error) => void;
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => {
+    const route = (a as { route: string }).route;
+    if (c === 'native_forge' && route === 'h3') return new Promise((yes, no) => { resolve = yes; reject = no; }) as ReturnType<typeof invoke>;
+    if (c === 'native_forge' && route === 'cancel') return Promise.resolve({ cancelled: true });
+    return base(c, a);
+  });
+  const changes = vi.fn(), apply = vi.fn();
+  const view = (endpoint = 'http://127.0.0.1:8188', root = '/env') => <I18nProvider><ForgeButton endpoint={endpoint} root={root} dialect="MiniMax H3" value="turn left" onApply={apply} h3={continuityRun} onBusyChange={changes}/></I18nProvider>;
+  const { unmount, rerender } = render(view());
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  const request_id = forgeCalls().find(c => c.route === 'h3')!.body.request_id;
+  if (outcome === 'unmount') { rerender(view('http://127.0.0.1:8288', '/other')); unmount(); }
+  else if (outcome === 'cancel') fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  else await act(async () => reject(new Error('write failed')));
+  expect(changes.mock.calls).toEqual([[true], [false]]);
+  if (outcome !== 'failure') {
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith('native_forge', { baseUrl: 'http://127.0.0.1:8188', root: '/env', route: 'cancel', body: { request_id } });
+    await act(async () => resolve({ simple_prompt: 'late', warnings: [] }));
+    expect(screen.queryByRole('textbox', { name: 'Result' })).toBeNull();
+  }
+  expect(changes.mock.calls).toEqual([[true], [false]]);
+  expect(apply).not.toHaveBeenCalled();
+  unmount();
+  expect(forgeCalls().filter(c => c.route === 'cancel')).toHaveLength(outcome === 'failure' ? 0 : 1);
+});
+
+it('continuity uses the next-action locale label and consumes Escape inside its open popover', async () => {
+  const outerEscape = vi.fn();
+  const catalog = { ...bundledCatalog, dictionaries: { ...bundledCatalog.dictionaries, en: { ...bundledCatalog.dictionaries.en, 'forge.nextAction': 'Next action fixture' } } };
+  render(<I18nProvider catalog={catalog}><div onKeyDown={outerEscape}><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="turn left" onApply={vi.fn()} h3={continuityRun}/></div></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  const brief = screen.getByRole('textbox', { name: 'Next action fixture' });
+  expect(fireEvent.keyDown(brief, { key: 'Escape', cancelable: true })).toBe(false);
+  expect(outerEscape).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('checkpoint Forge displays bounded source-evidence warnings and clears them on a new Write', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let writes = 0;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as { route: string }).route === 'h3'
+    ? ++writes === 1 ? Promise.resolve({ simple_prompt: 'draft', warnings: [null, 17, 'Tail frames unavailable; source history is text-only', 'x'.repeat(3000), ...Array.from({ length: 10 }, (_, i) => `warning-${i}`)] }) : new Promise(() => {}) as ReturnType<typeof invoke>
+    : base(c, a));
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="turn left" onApply={vi.fn()} h3={continuityRun}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByRole('textbox', { name: 'Result' });
+  expect(screen.getByText('Tail frames unavailable; source history is text-only').className).toBe('forge-warning');
+  const warnings = document.querySelectorAll('p.forge-warning');
+  expect(warnings).toHaveLength(8);
+  expect(warnings[1].textContent).toHaveLength(2048);
+  fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
+  expect(document.querySelectorAll('p.forge-warning')).toHaveLength(0);
+});
+
+it('checkpoint Forge forwards continuity through h3 and only applies on explicit review', async () => {
+  const apply = vi.fn();
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="turn left" onApply={apply} h3={continuityRun}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByRole('textbox', { name: 'Result' });
+  expect(forgeCalls().find(c => c.route === 'h3')!.body).toMatchObject({ continuity: continuityRun.continuity, references: [], easy: false, see_pictures: false, brief: 'turn left' });
+  expect(apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(apply).toHaveBeenCalledExactlyOnceWith('H3 structured prompt');
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(apply).toHaveBeenLastCalledWith('turn left');
+});
 
 it('hammer enhances the prompt in the model dialect, applies after review and undoes', async () => {
   const apply = vi.fn();
@@ -181,6 +313,7 @@ it('H3 hammer is the Director Forge for the run: context, shots, detail/creativi
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
   const body = forgeCalls().find(c => c.route === 'h3')!.body;
   expect(body).toMatchObject({ model: 'ollama:qwen', mode: 'REF2VA', brief: 'a duel', duration: 5, shots: 2, shot_briefs: ['', 'close-up'], detail: 5, creativity: 'daring', references: run.references, easy: false, output_canvas: { width: 1024, height: 576 } });
+  expect(body).not.toHaveProperty('continuity');
   expect(typeof body.request_id).toBe('string');
   // Another canvas: the draft no longer fits, Apply waits for a new draft; the history marks it.
   rerender(view({ ...run, canvas: { width: 576, height: 1024 } }));
@@ -276,13 +409,13 @@ it('reports a cancellation failure while the cancelled request still owns the UI
   expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-it.each(['replace', 'reorder'])('discards a Cast read after reference %s, including stale errors and cleanup during a new read', async change => {
+it.each(['REF2VA', 'I2VA', 'FL2VA', 'L2VA'].flatMap(mode => ['replace', 'reorder'].map(change => [mode, change])))('discards a %s Cast read after reference %s, including stale errors and cleanup during a new read', async (mode, change) => {
   const pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
   const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((c, args) => c === 'native_forge' && (args as { route: string }).route === 'cast'
     ? new Promise((resolve, reject) => { pending.push({ resolve, reject }); }) as ReturnType<typeof invoke> : base(c, args));
-  const refs = [{ kind: 'image' as const, path: 'a.png', easy_role: 'character-1' }, { kind: 'image' as const, path: 'b.png', easy_role: 'character-2' }];
-  const run = { mode: 'REF2VA', duration: 5, canvas: { width: 64, height: 64 }, references: refs, easy: true };
+  const refs = [{ kind: 'image' as const, path: 'a.png', easy_role: 'character-1', who:[1] }, { kind: 'image' as const, path: 'b.png', easy_role: 'character-2', who:[2] }];
+  const run = { mode, duration: 5, canvas: { width: 64, height: 64 }, references: refs, easy: mode === 'REF2VA' };
   const view = (references: typeof refs) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a walk" onApply={vi.fn()} h3={{ ...run, references }}/></I18nProvider>;
   const { rerender } = render(view(refs));
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
@@ -333,6 +466,106 @@ it.each(['who','boxes'])('H3 explicit %s overrides the legacy label when choosin
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
  await screen.findByRole('option',{name:'qwen'});
  expect([...document.querySelectorAll('[data-forge-read]')].map(b=>b.getAttribute('data-forge-read'))).toEqual(['2','4']);
+});
+
+it.each(['I2VA', 'FL2VA', 'L2VA'])('H3 %s frame Cast uses explicit identities for Read/edit/Write without changing references', async mode => {
+  const refs = [
+    { kind:'image' as const, path:'first.png', role:'first', who:[9], who_axis:'z' as const, boxes:[{n:4,box:[0.1,0.1,0.4,0.8] as [number,number,number,number]}, {n:2,box:[0.6,0.1,0.9,0.8] as [number,number,number,number]}] },
+    { kind:'image' as const, path:'last.png', role:'last', who:[3,2], boxes:[], who_axis:'y' as const },
+    { kind:'image' as const, path:'unlabelled.png', easy_role:'character-1' },
+    { kind:'image' as const, who:[5] },
+    { kind:'image' as const, path:'', who:[6] },
+    { kind:'video' as const, path:'motion.mp4', who:[7] },
+    { kind:'audio' as const, path:'voice.wav', who:[8] },
+    ...['place','style','pose'].map(easy_role => ({kind:'image' as const,path:`${easy_role}.png`,easy_role})),
+  ];
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c,a) => c === 'native_forge' && (a as {route:string}).route === 'cast' ? Promise.resolve({text:'adult in a red coat'}) : base(c,a));
+  const view = (easy=false, references=refs) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="walk" onApply={vi.fn()} h3={{mode,duration:5,canvas:{width:64,height:64},references,easy}}/></I18nProvider>;
+  const {rerender} = render(view());
+  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+  await screen.findByRole('option',{name:'qwen'});
+  const keys = () => [...document.querySelectorAll('[data-forge-read]')].map(b => b.getAttribute('data-forge-read'));
+  expect(keys()).toEqual(['2','3','4']);
+  fireEvent.click(document.querySelector('[data-forge-read="2"]')!);
+  await waitFor(() => expect((screen.getByLabelText('Card of Character 2') as HTMLTextAreaElement).value).toBe('adult in a red coat'));
+  expect(forgeCalls().find(c => c.route === 'cast')!.body).toMatchObject({mode,character:2,references:refs,redo:false});
+  fireEvent.change(screen.getByLabelText('Card of Character 4'),{target:{value:'  edited adult  '}});
+  fireEvent.click(screen.getByRole('button',{name:'Write'}));
+  await screen.findByRole('textbox',{name:'Result'});
+  expect(forgeCalls().filter(c => c.route === 'h3').at(-1)!.body).toMatchObject({mode,references:refs,easy:false,cast:{2:'adult in a red coat',4:'edited adult'}});
+  rerender(view(true));
+  expect(keys()).toEqual(['2','3','4']);
+  rerender(view(false,[refs[1]]));
+  expect(keys()).toEqual(['2','3']);
+  expect((screen.getByRole('button',{name:'Apply'}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'Regenerate'}));
+  await waitFor(() => expect(forgeCalls().filter(c => c.route === 'h3')).toHaveLength(2));
+  expect(forgeCalls().filter(c => c.route === 'h3').at(-1)!.body.cast).toEqual({2:'adult in a red coat'});
+  rerender(view(false,refs.slice(2)));
+  expect(document.querySelector('[data-forge-cast]')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Regenerate'}));
+  await waitFor(() => expect(forgeCalls().filter(c => c.route === 'h3')).toHaveLength(3));
+  expect(forgeCalls().filter(c => c.route === 'h3').at(-1)!.body).not.toHaveProperty('cast');
+});
+
+it('H3 REF2VA excludes pose takers and custom identities from numeric Cast while retaining scene and pose cards', async () => {
+  const refs = [
+    {kind:'image' as const,path:'person.png',easy_role:'character-2'},
+    {kind:'image' as const,path:'pose.png',easy_role:'pose',picture_kinds:['pose','character'],who:[5],boxes:[{n:6,box:[0.1,0.1,0.9,0.9] as [number,number,number,number]}]},
+    {kind:'image' as const,path:'custom.png',easy_role:'custom',picture_kinds:['character'],who:[7],boxes:[{n:8,box:[0.1,0.1,0.9,0.9] as [number,number,number,number]}]},
+    {kind:'image' as const,path:'pose-kind.png',picture_kinds:['pose','character'],who:[9]},
+    {kind:'image' as const,path:'custom-kind.png',picture_kinds:['custom','character'],who:[10]},
+    {kind:'image' as const,path:'place.png',easy_role:'place'},
+    {kind:'image' as const,path:'style.png',easy_role:'style'},
+  ];
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="dance" onApply={vi.fn()} h3={{mode:'REF2VA',duration:5,canvas:{width:64,height:64},references:refs,easy:true}}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+  await screen.findByRole('option',{name:'qwen'});
+  expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.getAttribute('data-forge-read'))).toEqual(['2','place','style','pose:pose.png']);
+});
+
+it('H3 pose cards follow their picture across reorder and send its current picture number', async () => {
+  const refs = [{ kind:'image' as const, path:'person.png', easy_role:'character-1' }, { kind:'image' as const, path:'pose.png', easy_role:'pose' }];
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge' && (a as {route:string}).route === 'cast' ? Promise.resolve({text:'arms raised'}) : base(c, a));
+  const view = (references: typeof refs) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="a dance" onApply={vi.fn()} h3={{mode:'REF2VA',duration:5,canvas:{width:64,height:64},references,easy:true}}/></I18nProvider>;
+  const { rerender } = render(view(refs));
+  fireEvent.click(screen.getByRole('button', {name:'Prompt Forge'}));
+  await screen.findByRole('option', {name:'qwen'});
+  const card = await screen.findByRole('textbox', {name:'Card of Pose · Picture 2'});
+  fireEvent.click(card.closest('label')!.querySelector('button')!);
+  await waitFor(() => expect((card as HTMLTextAreaElement).value).toBe('arms raised'));
+  expect(forgeCalls().find(c => c.route === 'cast')!.body).toMatchObject({subject:'pose@2',mode:'REF2VA',redo:false,references:refs});
+  rerender(view([...refs].reverse()));
+  expect((screen.getByRole('textbox', {name:'Card of Pose · Picture 1'}) as HTMLTextAreaElement).value).toBe('arms raised');
+  fireEvent.click(screen.getByRole('button', {name:'Write'}));
+  await screen.findByRole('textbox', {name:'Result'});
+  expect(forgeCalls().filter(c => c.route === 'h3').at(-1)!.body.cast).toEqual({'pose@1':'arms raised'});
+  rerender(view([refs[0]]));
+  expect(screen.queryByRole('textbox', {name:/Card of Pose/})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name:'Regenerate'}));
+  await waitFor(() => expect(forgeCalls().filter(c => c.route === 'h3')).toHaveLength(2));
+  expect(forgeCalls().filter(c => c.route === 'h3').at(-1)!.body).not.toHaveProperty('cast');
+});
+
+it('H3 pose cards omit unreadable pictures and reject stale reads after reference changes', async () => {
+  const refs = [{kind:'image' as const,path:'one.png',easy_role:'pose'}, {kind:'image' as const,easy_role:'pose'}, {kind:'image' as const,path:'two.png',easy_role:'pose'}];
+  let resolve!: (value: unknown) => void;
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c,a) => c === 'native_forge' && (a as {route:string}).route === 'cast' ? new Promise(r => {resolve=r;}) as ReturnType<typeof invoke> : base(c,a));
+  const view = (references: typeof refs, easy=true) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="dance" onApply={vi.fn()} h3={{mode:'REF2VA',duration:5,canvas:{width:64,height:64},references,easy}}/></I18nProvider>;
+  const {rerender} = render(view(refs));
+  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
+  await screen.findByRole('option',{name:'qwen'});
+  expect(screen.queryByRole('textbox',{name:'Card of Pose · Picture 2'})).toBeNull();
+  const card = screen.getByRole('textbox',{name:'Card of Pose · Picture 3'});
+  fireEvent.click(card.closest('label')!.querySelector('button')!);
+  rerender(view([refs[2],refs[0]]));
+  await act(async () => resolve({text:'stale stance'}));
+  expect((screen.getByRole('textbox',{name:'Card of Pose · Picture 1'}) as HTMLTextAreaElement).value).toBe('');
+  rerender(view(refs,false));
+  expect(document.querySelector('[data-forge-cast]')).toBeNull();
 });
 
 it('H3 cast cards: one per labelled Character / place, Read fills a card, filled cards travel as cast', async () => {

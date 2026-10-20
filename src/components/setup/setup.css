@@ -132,3 +132,45 @@
 .comfy-view { position: relative; display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
 .comfy-view iframe { width: 100%; flex: 1 1 0; min-height: 0; border: 0; background: #171717; }
 .aio-last-log { font-family: ui-monospace, monospace; font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* One full-width top band; the version floats without reserving workspace height. */
+.studio-shell > main { display: flex; flex-direction: column; }
+.aio-setup { flex: 1; display: flex; flex-direction: column; }
+.aio-setup > .aio-decision-area { flex: 1; }
+.aio-topbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; margin-bottom: 4px; flex: none; }
+.aio-topbar .aio-tabs { flex: 1; margin: 0; gap: 3px; }
+.aio-topbar .repo-links { margin-left: auto; flex: none; padding-top: 2px; }
+.backend-overview { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 8px; padding: 5px 8px; border-bottom: 1px solid #7c9cac33; font-size: .72rem; color: var(--muted); }
+.backend-overview .is-set { color: #a8cdb7; }
+.is-backend .aio-detail, .is-backend .feature-panel { max-width: none; }
+.backend-auth { margin-top: .75rem; }
+.backend-auth > h3 { margin: 0 0 .4rem; font-size: 1rem; }
+.backend-auth .download-module { margin: 0; }
+.aio-setup > .footer { position: fixed; right: 8px; bottom: 6px; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; background: transparent; pointer-events: none; }
+.aio-setup .footer-version { margin: 0; padding: 0; background: transparent; font-size: 9px; color: #b6c1c5; }
+.aio-setup button.footer-version { pointer-events: auto; }
+
+.footer-backend { font-size: 11px; color: #b6c1c5; }
+.footer-backend.is-ready { color: #a0e0ad; animation: backend-ready-glow 3s ease-out both; }
+@keyframes backend-ready-glow { 0% { opacity: 0; text-shadow: none; } 15% { opacity: 1; text-shadow: 0 0 8px #78e596; } 70% { opacity: 1; text-shadow: none; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .footer-backend.is-ready { animation: none; } }
+
+/* One selection rail and one shared pane, rather than three stacked card styles. */
+.backend-panels { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; align-items: start; margin-top: 12px; }
+.backend-panel-menu { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 6px; }
+.backend-menu-item { width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.backend-menu-item:focus-visible { outline: 2px solid var(--copper); outline-offset: 2px; }
+.backend-panel-content { min-width: 0; }
+.backend-pane:focus-visible { outline: 2px solid var(--copper); outline-offset: -2px; }
+.backend-panels .backend-pane { margin: 0; padding: 14px; min-width: 0; max-width: none; overflow-wrap: anywhere; }
+.backend-pane > .aio-detail, .backend-pane > .backend-auth, .backend-pane .download-module { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; max-width: none; animation: none; }
+.backend-pane h3 { margin: 0; font-size: 1rem; }
+.backend-pane > .backend-auth { display: flex; flex-direction: column; gap: .5rem; }
+.backend-pane .download-controls { gap: .5rem; }
+.backend-pane .aio-help { margin: 0; }
+.backend-pane .auth-settings { padding: 0; border: 0; border-radius: 0; }
+@media (max-width: 600px) {
+ .backend-panels { grid-template-columns: 100px minmax(0, 1fr); gap: 6px; }
+ .backend-panels .backend-pane { padding: 8px; }
+ .backend-pane .startup-field { grid-template-columns: minmax(0, 1fr); }
+}

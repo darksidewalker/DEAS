@@ -1,0 +1,18 @@
+{
+  "projects.new": "Nouveau projet",
+  "projects.open": "Ouvrir un projet",
+  "projects.close": "Fermer le projet",
+  "projects.import": "Importer un PNG",
+  "projects.closeUnsaved": "Fermer sans enregistrer",
+  "projects.retry": "Réessayer la sauvegarde",
+  "projects.saved": "Enregistré",
+  "projects.saving": "Enregistrement…",
+  "projects.unsaved": "Modifications non enregistrées",
+  "projects.working": "Opération de projet en cours…",
+  "projects.error": "Échec de l’opération. Vos réglages sont inchangés.",
+  "projects.limitation": "Réglages d’image et entrée PNG uniquement ; tâches/résultats non restaurés",
+  "projects.none": "Aucun projet",
+  "projects.missingCheckpoint": "Checkpoint du projet indisponible ou incompatible : {name}. Sélectionnez explicitement un modèle compatible.",
+  "projects.closeBlocked": "Enregistrez le projet ou fermez-le explicitement sans enregistrer avant de fermer cette fenêtre.",
+  "projects.closeGuardFailed": "La protection de fermeture est indisponible. Attendez Enregistré et fermez le projet avant de quitter."
+}

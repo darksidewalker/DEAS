@@ -7,6 +7,7 @@ use std::{
 
 #[path = "jobs_outputs.rs"]
 mod job_outputs;
+pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
@@ -1582,28 +1583,72 @@ pub(crate) fn sniff_media(head: &[u8]) -> Option<(&'static str, &'static str)> {
 /// root as `deas-input-<uuid>.<ext>`, because core `LoadVideo` lists top-level input files only.
 #[tauri::command]
 pub async fn native_input_upload(base_url: String, path: String) -> Result<String, String> {
-    let meta = std::fs::metadata(&path).map_err(|_| "Reference file not found")?;
+    upload_input(&base_url, &path, false)
+        .await
+        .inspect_err(|_| h3_session_failure("", H3SessionFailure::InputUpload))
+}
+
+/// Explicit OS selection authorizes upload only, never video preparation or generation.
+#[tauri::command]
+pub async fn native_h3_video_upload(base_url: String) -> Result<Option<String>, String> {
+    crate::validate_base_url(&base_url)
+        .inspect_err(|_| h3_session_failure("", H3SessionFailure::InputUpload))?;
+    let selected = rfd::AsyncFileDialog::new()
+        .set_title("DEAS — Upload local video")
+        .add_filter("Video", &["mp4", "mov", "webm", "mkv"])
+        .pick_file()
+        .await;
+    selected_video_upload(&base_url, selected.map(|file| file.path().to_owned())).await
+}
+
+async fn selected_video_upload(
+    base_url: &str,
+    path: Option<std::path::PathBuf>,
+) -> Result<Option<String>, String> {
+    let Some(path) = path else { return Ok(None) };
+    let result = async {
+        let path = path.to_str().ok_or("Video path must be UTF-8")?;
+        upload_input(base_url, path, true).await.map(Some)
+    }
+    .await;
+    result.inspect_err(|_| h3_session_failure("", H3SessionFailure::InputUpload))
+}
+
+async fn upload_input(base_url: &str, path: &str, video_only: bool) -> Result<String, String> {
+    crate::validate_base_url(base_url)?;
+    let mut file = std::fs::File::open(path).map_err(|_| "Reference file unreadable")?;
+    let meta = file.metadata().map_err(|_| "Reference file not found")?;
+    if !meta.is_file() {
+        return Err("Reference must be a regular file".into());
+    }
     let mut head = [0u8; 64];
-    let n = std::io::Read::read(
-        &mut std::fs::File::open(&path).map_err(|_| "Reference file unreadable")?,
-        &mut head,
-    )
-    .map_err(|_| "Reference file unreadable")?;
+    let n = std::io::Read::read(&mut file, &mut head).map_err(|_| "Reference file unreadable")?;
     let (kind, ext) = sniff_media(&head[..n])
         .ok_or("Reference must be a PNG, JPEG or WebP image, an MP4/MOV/WebM/MKV video or WAV/MP3/FLAC/Ogg/M4A audio")?;
+    if video_only && kind != "video" {
+        return Err("Reference must be an MP4/MOV/WebM/MKV video".into());
+    }
     // shortcut: the whole file is held in memory for the multipart body; stream it if larger references are needed.
     let limit: u64 = if kind == "image" { 64 << 20 } else { 512 << 20 };
-    if !meta.is_file() || meta.len() > limit {
+    if meta.len() > limit {
         return Err(format!(
             "Reference must be a file of at most {} MiB",
             limit >> 20
         ));
     }
-    let bytes = std::fs::read(&path).map_err(|_| "Reference file unreadable")?;
+    use std::io::{Read, Seek};
+    file.rewind().map_err(|_| "Reference file unreadable")?;
+    let mut bytes = Vec::new();
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Reference file unreadable")?;
+    if bytes.len() as u64 > limit {
+        return Err("Reference exceeds upload size limit".into());
+    }
     if kind == "video" {
-        upload(&base_url, "", "deas-input-", ext, bytes).await
+        upload(base_url, "", "deas-input-", ext, bytes).await
     } else {
-        upload(&base_url, INPUT_FOLDER, "", ext, bytes).await
+        upload(base_url, INPUT_FOLDER, "", ext, bytes).await
     }
 }
 
@@ -1631,7 +1676,7 @@ async fn upload(
     let url = base
         .join("upload/image")
         .map_err(|_| "Invalid native job endpoint")?;
-    let response = client()?
+    let mut response = client()?
         .post(url)
         .header(
             reqwest::header::CONTENT_TYPE,
@@ -1642,7 +1687,24 @@ async fn upload(
         .await
         .map_err(|_| "Upload failed")?;
     let status = response.status();
-    let value: Value = response.json().await.unwrap_or_default();
+    if response
+        .content_length()
+        .is_some_and(|n| n > RESPONSE_LIMIT as u64)
+    {
+        return Err("Upload response size limit exceeded".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Upload response interrupted")?
+    {
+        if chunk.len() > RESPONSE_LIMIT - bytes.len() {
+            return Err("Upload response size limit exceeded".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or_default();
     if !status.is_success() || value["name"] != name.as_str() || value["subfolder"] != folder {
         return Err(format!("Upload rejected (HTTP {status})"));
     }
@@ -1653,30 +1715,165 @@ async fn upload(
     })
 }
 
+/// Probe/hash an existing input-relative video; backend owns source identity and later VAE import.
+#[tauri::command]
+pub async fn native_h3_video_prepare(base_url: String, filename: String) -> Result<Value, String> {
+    let result = async {
+        if filename.is_empty()
+            || filename.len() > 4096
+            || filename
+                .chars()
+                .any(|c| c.is_control() || "\\:".contains(c))
+            || filename
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+            || ["[output]", "[temp]"]
+                .iter()
+                .any(|s| filename.trim_end().ends_with(s))
+        {
+            return Err("Invalid input-relative video filename".into());
+        }
+        let base = crate::validate_base_url(&base_url)?;
+        // Hashing twice plus a bounded PyAV probe can exceed the normal diagnostic deadline.
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(180))
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .no_proxy()
+            .build()
+            .map_err(|_| "Could not create video preparation HTTP client")?;
+        let (status, v) = request(
+            &client,
+            &base,
+            "df_h3_continuity/video",
+            Some(json!({"filename":filename})),
+        )
+        .await?;
+        if !status.is_success() {
+            return Err(format!("Video preparation endpoint returned HTTP {status}"));
+        }
+        if v["filename"] != filename
+            || v["kind"] != "video"
+            || !["clip_id", "sha256"]
+                .iter()
+                .all(|k| v[*k].as_str().is_some_and(h3_source_id))
+            || !["width", "height"].iter().all(|k| h3_video_edge(&v[*k]))
+            || !["fps", "seconds"]
+                .iter()
+                .all(|k| v[*k].as_f64().is_some_and(|n| n.is_finite() && n > 0.0))
+            || !v["has_audio"].is_boolean()
+        {
+            return Err("Malformed video preparation response".into());
+        }
+        Ok(
+            json!({"sourceId":v["clip_id"],"filename":filename,"sha256":v["sha256"],
+            "width":v["width"],"height":v["height"],"fps":v["fps"].as_f64(),
+            "seconds":v["seconds"].as_f64(),"hasAudio":v["has_audio"]}),
+        )
+    }
+    .await;
+    result.inspect_err(|_| h3_session_failure("", H3SessionFailure::VideoPrepare))
+}
+
+fn h3_source_id(id: &str) -> bool {
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn h3_video_edge(v: &Value) -> bool {
+    v.as_u64().is_some_and(|n| (1..=65536).contains(&n))
+}
+
+#[derive(Clone, Copy)]
+enum H3SessionFailure {
+    InvalidSession,
+    InvalidEndpoint,
+    Request,
+    Shape,
+    VideoPrepare,
+    InputUpload,
+}
+
+fn h3_session_failure(session: &str, cause: H3SessionFailure) {
+    // One fixed slot per cause, not per untrusted session or endpoint.
+    static LAST: Mutex<[(Option<std::time::Instant>, u64); 6]> = Mutex::new([(None, 0); 6]);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let (at, repeats) = &mut last[cause as usize];
+    let recurring = at.is_some_and(|at| at.elapsed() < Duration::from_secs(60));
+    if recurring {
+        *repeats = repeats.saturating_add(1);
+        if *repeats != 1 {
+            return;
+        }
+    } else {
+        *at = Some(std::time::Instant::now());
+    }
+    let diagnostic = match cause {
+        H3SessionFailure::InvalidSession => "WARN: H3 continuity session-list: invalid session",
+        H3SessionFailure::InvalidEndpoint => {
+            "WARN: H3 continuity session-list: invalid backend endpoint"
+        }
+        H3SessionFailure::Request => "ERROR: H3 continuity session-list: backend request failed",
+        H3SessionFailure::Shape => "ERROR: H3 continuity session-list: malformed response",
+        H3SessionFailure::VideoPrepare => "ERROR: H3 continuity video-prepare: preparation failed",
+        H3SessionFailure::InputUpload => "ERROR: Native input-upload: validation or upload failed",
+    };
+    let correlation = if crate::jobs_video::continuity_id(session) {
+        format!("; session={session}")
+    } else {
+        String::new()
+    };
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!("{diagnostic}{correlation}; repeated={repeats} (further repeats limited to once per minute)"),
+    );
+    if !recurring {
+        *repeats = 0;
+    }
+}
+
 /// Read-only list of the DaSiWa H3 continuity clips of one session (`clip_id`, `parent`, `frames`, `export`),
 /// so the continuity planner can pin the clip a finished step produced.
 #[tauri::command]
 pub async fn native_h3_session(base_url: String, session: String) -> Result<Value, String> {
     if !crate::jobs_video::continuity_id(&session) {
+        h3_session_failure(&session, H3SessionFailure::InvalidSession);
         return Err("Invalid continuity session".into());
     }
-    let base = crate::validate_base_url(&base_url)?;
+    let base = crate::validate_base_url(&base_url)
+        .inspect_err(|_| h3_session_failure(&session, H3SessionFailure::InvalidEndpoint))?;
     let value = get(
-        &client()?,
+        &client().inspect_err(|_| h3_session_failure(&session, H3SessionFailure::Request))?,
         &base,
         &format!("df_h3_continuity/session/{session}"),
     )
-    .await?;
+    .await
+    .inspect_err(|_| h3_session_failure(&session, H3SessionFailure::Request))?;
     let clips = value["clips"]
         .as_array()
-        .ok_or("Malformed continuity session")?
+        .ok_or("Malformed continuity session")
+        .inspect_err(|_| h3_session_failure(&session, H3SessionFailure::Shape))?
         .iter()
         .take(200)
         .filter(|c| c["clip_id"].as_str().is_some_and(crate::jobs_video::continuity_id))
         .map(|c| {
-            json!({"clipId":c["clip_id"],"parent":c["parent_id"].as_str().filter(|p| crate::jobs_video::continuity_id(p)),
+            let mut clip = json!({"clipId":c["clip_id"],"parent":c["parent_id"].as_str().filter(|p| crate::jobs_video::continuity_id(p)),
                 "frames":c["frames"].as_u64(),"completed":c["completed_ns"].as_u64().unwrap_or(0),
-                "export":c["export"].as_object().filter(|e| e["filename"].as_str().is_some_and(|f| safe_path(f, false))).map(|e| json!({"filename":e["filename"],"subfolder":e["subfolder"].as_str().unwrap_or(""),"type":e["type"]}))})
+                "export":c["export"].as_object().filter(|e| e["filename"].as_str().is_some_and(|f| safe_path(f, false))).map(|e| json!({"filename":e["filename"],"subfolder":e["subfolder"].as_str().unwrap_or(""),"type":e["type"]}))});
+            // ClipStore lists provenance at the clip root; its clip_id is the backend's VAE cache identity.
+            let provenance = &c["provenance"];
+            if provenance["kind"] == "imported_video"
+                && provenance["source_video_id"].as_str().is_some_and(h3_source_id)
+                && ["width", "height"].iter().all(|k| h3_video_edge(&c[*k]))
+                && c["mode_family"].as_str().is_some_and(|m| ["fl2va", "ref2va"].contains(&m))
+            {
+                clip["importedVideo"] = json!({"sourceId":provenance["source_video_id"],
+                    "width":c["width"],"height":c["height"],"modeFamily":c["mode_family"]});
+            }
+            clip
         })
         .collect::<Vec<_>>();
     Ok(

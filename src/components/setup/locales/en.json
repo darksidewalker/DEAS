@@ -103,7 +103,7 @@
   "setup.detectionError": "Hardware detection unavailable",
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "Included visual output capability, not an independent native install feature.",
-  "setup.backendLifecycle.title": "Owned backend lifecycle",
+  "setup.backendLifecycle.title": "Owned backend",
   "setup.backendLifecycle.help": "DEAS starts only its checked environment. Automatic startup is on by default and can be disabled in Settings. Native status checks only this app’s owned backend; foreign services are never adopted or stopped. Inspection is read-only.",
   "setup.backendLifecycle.browser": "Backend lifecycle is available only in the desktop app. Browser preview cannot start, stop or inspect native lifecycle status.",
   "setup.backendLifecycle.unknown": "Status not inspected",
@@ -217,5 +217,11 @@
   "startup.preset.compatibility.help": "Only kernel autotune: identical math on every NVIDIA GPU; the first run at each new size is slower.",
   "startup.preset.off.help": "ComfyUI's own defaults, no extra launch options.",
   "startup.highvramHelp": "Turns off ComfyUI's Dynamic VRAM and keeps every model in VRAM: faster model switching only when everything fits; large video models can run out of memory.",
-  "startup.vaeHelp": "Default: ComfyUI chooses per VAE type and GPU (usually bf16 on RTX 30 and newer). The options force one setting for every VAE."
+  "startup.vaeHelp": "Default: ComfyUI chooses per VAE type and GPU (usually bf16 on RTX 30 and newer). The options force one setting for every VAE.",
+  "setup.overview": "Backend and providers",
+  "setup.overview.missing": "Not installed",
+  "setup.footer.starting": "Backend starting…",
+  "setup.footer.started": "Backend started",
+  "setup.backendPanels": "Backend panels",
+  "setup.backendPanels.requiresInstall": "Requires an installed backend"
 }

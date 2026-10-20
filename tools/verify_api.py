@@ -30,7 +30,7 @@ with sync_playwright() as p:
         assert not panel.get_by_text('Classic API', exact=True).count()
         page.get_by_label('Backend URL', exact=True).fill('http://127.0.0.1:8189')
         assert panel.get_by_role('alert').count() == 0
-        set_locale(page, 'de', '[data-node="studio"]')
+        set_locale(page, 'de', '[data-studio-tab="map"]')
         assert panel.get_by_role('button', name='Ausführungs-API prüfen', exact=True).count() == 1
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
         assert not backend_requests and not errors

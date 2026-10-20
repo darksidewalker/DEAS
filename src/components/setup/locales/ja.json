@@ -103,7 +103,7 @@
   "setup.detectionError": "ハードウェア検出を利用できません",
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "パッケージに含まれる映像出力機能で、独立したネイティブインストール項目ではありません。",
-  "setup.backendLifecycle.title": "アプリ管理バックエンドのライフサイクル",
+  "setup.backendLifecycle.title": "アプリ管理バックエンド",
   "setup.backendLifecycle.help": "DEASは確認済みの環境のみを起動します。自動起動は既定でオンで、設定から無効にできます。このアプリが所有するバックエンドのみを確認し、他のサービスを引き継いだり停止したりしません。検査は読み取り専用です。",
   "setup.backendLifecycle.browser": "バックエンドのライフサイクル管理はデスクトップアプリでのみ利用できます。ブラウザープレビューでは、ネイティブの起動、停止、ライフサイクル状態の確認は行えません。",
   "setup.backendLifecycle.unknown": "状態未確認",
@@ -217,5 +217,11 @@
   "startup.preset.compatibility.help": "カーネル自動調整のみ：どの NVIDIA GPU でも同じ計算。新しいサイズごとの初回は遅くなります。",
   "startup.preset.off.help": "ComfyUI 本来の既定値。追加の起動オプションなし。",
   "startup.highvramHelp": "ComfyUI の Dynamic VRAM を無効にし、すべてのモデルを VRAM に保持します。全部収まる場合だけモデル切り替えが速くなり、大きな動画モデルではメモリ不足になることがあります。",
-  "startup.vaeHelp": "既定：ComfyUI が VAE の種類と GPU ごとに選択（RTX 30 以降は通常 bf16）。各オプションはすべての VAE に一つの設定を強制します。"
+  "startup.vaeHelp": "既定：ComfyUI が VAE の種類と GPU ごとに選択（RTX 30 以降は通常 bf16）。各オプションはすべての VAE に一つの設定を強制します。",
+  "setup.overview": "バックエンドとプロバイダー",
+  "setup.overview.missing": "未インストール",
+  "setup.footer.starting": "バックエンドを起動中…",
+  "setup.footer.started": "バックエンドが起動しました",
+  "setup.backendPanels": "バックエンドの設定",
+  "setup.backendPanels.requiresInstall": "インストール済みのバックエンドが必要です"
 }

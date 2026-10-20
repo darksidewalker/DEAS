@@ -103,7 +103,7 @@
   "setup.detectionError": "Donanım algılama kullanılamıyor",
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "Pakete dahil görsel çıktı özelliği; bağımsız bir yerel kurulum özelliği değildir.",
-  "setup.backendLifecycle.title": "Yönetilen arka ucun yaşam döngüsü",
+  "setup.backendLifecycle.title": "Yönetilen arka uç",
   "setup.backendLifecycle.help": "DEAS yalnızca denetlenen ortamını başlatır. Otomatik başlatma varsayılan olarak açıktır ve Ayarlar’dan kapatılabilir. Yalnızca uygulamaya ait arka uç izlenir; diğer hizmetler devralınmaz veya durdurulmaz. İnceleme salt okunurdur.",
   "setup.backendLifecycle.browser": "Arka uç yaşam döngüsü yalnızca masaüstü uygulamasında kullanılabilir. Tarayıcı önizlemesi yerel yaşam döngüsünü başlatamaz, durduramaz veya durumunu inceleyemez.",
   "setup.backendLifecycle.unknown": "Durum incelenmedi",
@@ -217,5 +217,11 @@
   "startup.preset.compatibility.help": "Yalnızca çekirdek otomatik ayarı: her NVIDIA GPU'da aynı hesap; her yeni boyutta ilk çalıştırma daha yavaş.",
   "startup.preset.off.help": "ComfyUI'ın kendi varsayılanları, ek başlatma seçeneği yok.",
   "startup.highvramHelp": "ComfyUI'ın Dinamik VRAM'ini kapatır ve her modeli VRAM'de tutar: yalnızca hepsi sığarsa model değişimi hızlanır; büyük video modellerinde bellek yetmeyebilir.",
-  "startup.vaeHelp": "Varsayılan: ComfyUI VAE türüne ve GPU'ya göre seçer (RTX 30 ve sonrasında genelde bf16). Seçenekler her VAE için tek bir ayarı zorlar."
+  "startup.vaeHelp": "Varsayılan: ComfyUI VAE türüne ve GPU'ya göre seçer (RTX 30 ve sonrasında genelde bf16). Seçenekler her VAE için tek bir ayarı zorlar.",
+  "setup.overview": "Arka uç ve sağlayıcılar",
+  "setup.overview.missing": "Kurulu değil",
+  "setup.footer.starting": "Arka uç başlatılıyor…",
+  "setup.footer.started": "Arka uç başlatıldı",
+  "setup.backendPanels": "Arka uç bölümleri",
+  "setup.backendPanels.requiresInstall": "Kurulu bir arka uç gerektirir"
 }

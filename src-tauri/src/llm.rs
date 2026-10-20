@@ -804,10 +804,59 @@ pub async fn native_forge(
             )
         })
 }
+fn validate_forge_continuity(value: &Value) -> Result<(), String> {
+    let invalid = "Invalid H3 continuity request";
+    let spec = value.as_object().ok_or(invalid)?;
+    let valid_id = |value: &Value| {
+        value.as_str().is_some_and(|id| {
+            (1..=80).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+    };
+    if spec.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "source_kind"
+                | "session"
+                | "clip_id"
+                | "use_references"
+                | "current_prompt"
+                | "overlap_frames"
+        )
+    }) || !match value["source_kind"].as_str() {
+        Some("checkpoint") => valid_id(&value["clip_id"]),
+        Some("video") => value["clip_id"].as_str().is_some_and(|id| {
+            id.len() == 64
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }),
+        _ => false,
+    } || !valid_id(&value["session"])
+        || value["session"] == "_imports"
+        || value["use_references"].as_bool() != Some(false)
+        || !value["current_prompt"]
+            .as_str()
+            .is_some_and(|s| s.len() <= 50_000)
+        || spec
+            .get("overlap_frames")
+            .is_some_and(|v| !matches!(v.as_u64(), Some(73 | 56 | 39 | 22 | 5)))
+    {
+        return Err(invalid.into());
+    }
+    Ok(())
+}
 async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Result<Value, String> {
     let path = forge_route(route)?;
     if !body.is_object() {
         return Err("Invalid Prompt Forge request".into());
+    }
+    if route == "h3" {
+        if let Some(spec) = body.get("continuity") {
+            validate_forge_continuity(spec)?;
+        }
     }
     if route == "people" {
         let invalid = "Invalid people detection request";
@@ -910,7 +959,26 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         return Ok(json!({"people":out}));
     }
     if status.is_success() {
+        if route == "h3"
+            && body.get("continuity").is_some()
+            && (value["continuity"] != true
+                || value["source_kind"] != body["continuity"]["source_kind"]
+                || !value["simple_prompt"]
+                    .as_str()
+                    .is_some_and(|s| !s.trim().is_empty() && s.len() <= 50_000))
+        {
+            let kind = body["continuity"]["source_kind"].as_str().unwrap();
+            return Err(format!(
+                "Invalid H3 continuity response: backend did not confirm {kind} prompting"
+            ));
+        }
         Ok(value)
+    } else if route == "h3" && body.get("continuity").is_some() {
+        // Backend messages may echo private continuity prompts or credentials.
+        Err(format!(
+            "{} Prompt Forge continuity request failed",
+            status.as_u16()
+        ))
     } else {
         Err(format!(
             "{} {}",
@@ -924,3 +992,363 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
 #[cfg(test)]
 #[path = "llm_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod continuity_tests {
+    use super::*;
+
+    fn checkpoint() -> Value {
+        json!({"source_kind":"checkpoint", "session":"Session-1", "clip_id":"_imports",
+            "use_references":false, "current_prompt":"private continuity prompt"})
+    }
+
+    async fn fixture(
+        status: u16,
+        reply: Value,
+    ) -> (String, tokio::task::JoinHandle<(String, Value)>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                header.push(stream.read_u8().await.unwrap());
+            }
+            let header = String::from_utf8(header).unwrap();
+            let length = header
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|n| n.trim().parse::<usize>().unwrap())
+                })
+                .unwrap();
+            let mut bytes = vec![0; length];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let reply = serde_json::to_vec(&reply).unwrap();
+            stream.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", reply.len()).as_bytes()).await.unwrap();
+            stream.write_all(&reply).await.unwrap();
+            (
+                header.lines().next().unwrap().into(),
+                serde_json::from_slice(&bytes).unwrap(),
+            )
+        });
+        (url, task)
+    }
+
+    #[tokio::test]
+    async fn continuity_rejects_success_responses_without_source_evidence_marker() {
+        let root = tempfile::tempdir().unwrap();
+        write(
+            root.path(),
+            LlmConfig {
+                provider: Provider::Ollama,
+                base_url: "http://127.0.0.1:11434".into(),
+            },
+        )
+        .unwrap();
+        for kind in ["checkpoint", "video"] {
+            let mut spec = checkpoint();
+            spec["source_kind"] = json!(kind);
+            spec["clip_id"] = json!("0123456789abcdef".repeat(4));
+            for reply in [
+                json!({"simple_prompt":"ordinary draft"}),
+                json!({"simple_prompt":"draft","continuity":false,"source_kind":kind}),
+                json!({"simple_prompt":"draft","continuity":true,"source_kind":if kind == "checkpoint" { "video" } else { "checkpoint" }}),
+                json!({"simple_prompt":"draft","continuity":true,"source_kind":null}),
+                json!({"simple_prompt":"","continuity":true,"source_kind":kind}),
+                json!({"simple_prompt":" \n\t","continuity":true,"source_kind":kind}),
+                json!({"simple_prompt":"x".repeat(50_001),"continuity":true,"source_kind":kind}),
+            ] {
+                let (url, task) = fixture(200, reply).await;
+                let result = native_forge(
+                    url,
+                    root.path().to_string_lossy().into(),
+                    "h3".into(),
+                    json!({"continuity":spec}),
+                )
+                .await;
+                assert_eq!(
+                    result.unwrap_err(),
+                    format!(
+                        "Invalid H3 continuity response: backend did not confirm {kind} prompting"
+                    )
+                );
+                task.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn continuity_and_ordinary_h3_forward_exact_body_with_saved_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let saved = LlmConfig {
+            provider: Provider::Ollama,
+            base_url: "http://127.0.0.1:11434/saved".into(),
+        };
+        write(root.path(), saved.clone()).unwrap();
+        for overlap in [None, Some(73), Some(56), Some(39), Some(22), Some(5)] {
+            let mut spec = checkpoint();
+            spec["session"] = json!("aB09_-".repeat(13) + "ab");
+            spec["current_prompt"] = json!("é".repeat(25_000));
+            if let Some(overlap) = overlap {
+                spec["overlap_frames"] = json!(overlap);
+            }
+            let mut body = json!({"mode":"T2VA", "brief":"next", "continuity":spec, "settings":{"untrusted":true}});
+            let (url, task) = fixture(
+                200,
+                json!({"simple_prompt":"next shot","continuity":true,"source_kind":"checkpoint"}),
+            )
+            .await;
+            assert_eq!(
+                native_forge(
+                    url,
+                    root.path().to_string_lossy().into(),
+                    "h3".into(),
+                    body.clone()
+                )
+                .await
+                .unwrap(),
+                json!({"simple_prompt":"next shot","continuity":true,"source_kind":"checkpoint"})
+            );
+            body["settings"] = forge_settings(&saved);
+            let (line, sent) = task.await.unwrap();
+            assert_eq!(line, "POST /dasiwa/h3/forge HTTP/1.1");
+            assert_eq!(sent, body);
+        }
+        for route in ["h3", "cast", "write", "models", "cancel"] {
+            let mut body = json!({"brief":"ordinary", "existing_field":true});
+            if route != "h3" {
+                body["continuity"] = Value::Null;
+            }
+            let (url, task) = fixture(200, json!({"ok":true})).await;
+            native_forge(
+                url,
+                root.path().to_string_lossy().into(),
+                route.into(),
+                body.clone(),
+            )
+            .await
+            .unwrap();
+            body["settings"] = forge_settings(&saved);
+            let (line, sent) = task.await.unwrap();
+            assert_eq!(
+                line,
+                format!("POST /{} HTTP/1.1", forge_route(route).unwrap())
+            );
+            assert_eq!(sent, body);
+            if route == "h3" {
+                assert!(sent.get("continuity").is_none());
+            }
+        }
+        let mut spec = checkpoint();
+        spec["session"] = json!("x");
+        spec["clip_id"] = json!("c".repeat(80));
+        spec["current_prompt"] = json!("");
+        assert!(validate_forge_continuity(&spec).is_ok());
+    }
+
+    #[tokio::test]
+    async fn video_continuity_forwards_exact_body_and_requires_matching_response_kind() {
+        let root = tempfile::tempdir().unwrap();
+        let saved = LlmConfig {
+            provider: Provider::Ollama,
+            base_url: "http://127.0.0.1:11434/saved".into(),
+        };
+        write(root.path(), saved.clone()).unwrap();
+        for overlap in [None, Some(73), Some(56), Some(39), Some(22), Some(5)] {
+            let mut spec = checkpoint();
+            spec["source_kind"] = json!("video");
+            spec["clip_id"] = json!("0123456789abcdef".repeat(4));
+            if let Some(frames) = overlap {
+                spec["overlap_frames"] = json!(frames);
+            }
+            let mut body = json!({"mode":"T2VA", "brief":"next", "continuity":spec, "settings":{"untrusted":true}});
+            for kind in ["video", "checkpoint"] {
+                let reply =
+                    json!({"simple_prompt":"next shot","continuity":true,"source_kind":kind});
+                let (url, task) = fixture(200, reply.clone()).await;
+                let result = native_forge(
+                    url,
+                    root.path().to_string_lossy().into(),
+                    "h3".into(),
+                    body.clone(),
+                )
+                .await;
+                if kind == "video" {
+                    assert_eq!(result.unwrap(), reply);
+                } else {
+                    assert_eq!(
+                        result.unwrap_err(),
+                        "Invalid H3 continuity response: backend did not confirm video prompting"
+                    );
+                }
+                let (line, sent) = task.await.unwrap();
+                assert_eq!(line, "POST /dasiwa/h3/forge HTTP/1.1");
+                body["settings"] = forge_settings(&saved);
+                assert_eq!(sent, body);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn continuity_http_failure_is_surfaced_and_logged_without_backend_body() {
+        let root = tempfile::tempdir().unwrap();
+        let (url, task) = fixture(
+            422,
+            json!({"message":"private continuity prompt hf_private_continuity_secret"}),
+        )
+        .await;
+        let err = native_forge(
+            url,
+            root.path().to_string_lossy().into(),
+            "h3".into(),
+            json!({"continuity":checkpoint()}),
+        )
+        .await
+        .unwrap_err();
+        task.await.unwrap();
+        assert_eq!(err, "422 Prompt Forge continuity request failed");
+        assert!(crate::logs::native_logs(0)
+            .iter()
+            .any(|e| e.source == crate::logs::Source::Deas
+                && e.text == format!("ERROR: Prompt Forge h3: {err}")));
+        assert!(crate::logs::native_logs(0)
+            .iter()
+            .all(|e| !e.text.contains("hf_private_continuity_secret")
+                && !e.text.contains("private continuity prompt")));
+    }
+
+    #[tokio::test]
+    async fn malformed_continuity_is_rejected_before_settings_or_network_and_logged_without_body() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(FILE), "invalid settings").unwrap();
+        let mut invalid = vec![
+            Value::Null,
+            json!(false),
+            json!([]),
+            json!("checkpoint"),
+            json!({}),
+        ];
+        for field in [
+            "source_kind",
+            "session",
+            "clip_id",
+            "use_references",
+            "current_prompt",
+        ] {
+            let mut spec = checkpoint();
+            spec.as_object_mut().unwrap().remove(field);
+            invalid.push(spec);
+        }
+        for (field, value) in [
+            ("source_kind", json!("video")),
+            ("source_kind", json!(null)),
+            ("session", json!("_imports")),
+            ("session", json!("")),
+            ("session", json!("a".repeat(81))),
+            ("session", json!(42)),
+            ("clip_id", json!("")),
+            ("clip_id", json!("a".repeat(81))),
+            ("clip_id", json!(null)),
+            ("use_references", json!(true)),
+            ("use_references", json!(0)),
+            ("use_references", json!(null)),
+            ("current_prompt", json!(null)),
+            ("current_prompt", json!(42)),
+            ("current_prompt", json!("é".repeat(25_001))),
+            ("overlap_frames", json!(null)),
+            ("overlap_frames", json!(22.0)),
+            ("overlap_frames", json!(true)),
+            ("overlap_frames", json!("22")),
+            ("overlap_frames", json!(21)),
+            ("overlap_frames", json!(-5)),
+            ("overlap_frames", json!(18446744073709551615u64)),
+            ("unknown_private_key", json!("hf_private_continuity_secret")),
+        ] {
+            let mut spec = checkpoint();
+            spec[field] = value;
+            invalid.push(spec);
+        }
+        for field in ["session", "clip_id"] {
+            for id in [
+                "../clip", "a/b", "a\\b", "a.b", "a:b", "a%20b", "a b", "é", "a\n", "a\0",
+            ] {
+                let mut spec = checkpoint();
+                spec[field] = json!(id);
+                invalid.push(spec);
+            }
+        }
+        for kind in ["checkpoint", "video"] {
+            let mut valid = checkpoint();
+            valid["source_kind"] = json!(kind);
+            valid["clip_id"] = json!("0123456789abcdef".repeat(4));
+            assert!(validate_forge_continuity(&valid).is_ok());
+            for (field, bad) in [
+                ("source_kind", json!("unsupported")),
+                ("source_kind", json!(null)),
+                ("source_kind", json!(true)),
+                ("session", json!("_imports")),
+                ("session", json!(null)),
+                ("use_references", json!(true)),
+                ("use_references", json!(null)),
+                ("current_prompt", json!("x".repeat(50_001))),
+                ("current_prompt", json!(null)),
+                ("overlap_frames", json!(null)),
+                ("overlap_frames", json!(22.0)),
+                ("overlap_frames", json!(21)),
+                ("unknown_private_key", json!("hf_private_continuity_secret")),
+            ] {
+                let mut spec = valid.clone();
+                spec[field] = bad;
+                invalid.push(spec);
+            }
+            for bad in [
+                json!(""),
+                json!(null),
+                json!(42),
+                json!("../clip"),
+                json!("a".repeat(81)),
+            ] {
+                let mut spec = valid.clone();
+                spec["clip_id"] = bad;
+                invalid.push(spec);
+            }
+            if kind == "video" {
+                for bad in [
+                    "clip_1".into(),
+                    "a".repeat(63),
+                    "a".repeat(65),
+                    "A".repeat(64),
+                    "g".repeat(64),
+                    "é".repeat(32),
+                ] {
+                    let mut spec = valid.clone();
+                    spec["clip_id"] = json!(bad);
+                    invalid.push(spec);
+                }
+            }
+        }
+        for spec in invalid {
+            let err = native_forge(
+                "not a URL".into(),
+                root.path().to_string_lossy().into(),
+                "h3".into(),
+                json!({"continuity":spec, "brief":"hf_private_continuity_secret"}),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err, "Invalid H3 continuity request");
+        }
+        let entries = crate::logs::native_logs(0);
+        assert!(entries.iter().any(|e| e.source == crate::logs::Source::Deas
+            && e.text == "ERROR: Prompt Forge h3: Invalid H3 continuity request"));
+        assert!(entries
+            .iter()
+            .all(|e| !e.text.contains("hf_private_continuity_secret")
+                && !e.text.contains("private continuity prompt")));
+    }
+}

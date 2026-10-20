@@ -27,6 +27,10 @@ window.__TAURI_INTERNALS__={convertFileSrc:p=>'asset://localhost/'+encodeURIComp
  if(c==='native_install_plan')return {id:'reopen',reopenId:'checked',request:{storagePath:'/fixture/env',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
  if(c==='native_install_open')return {state:'succeeded',logs:[],error:null};
  if(c==='native_settings_read')return {};
+ if(c==='native_install_defaults')return {storagePath:'/fixture/env',backend:'cpu',warnings:[]};
+ if(c==='native_llm_read')return {provider:'local',baseUrl:'http://127.0.0.1:11434'};
+ if(c==='native_llm_models')return {models:[],warnings:[]};
+ if(c==='native_startup_read')return {startup:{preset:'off',flags:[],fast:[]},packages:[],presets:{speed:{flags:[],fast:[]},compatibility:{flags:[],fast:[]},off:{flags:[],fast:[]}}};
  if(c==='native_backend_status')return {state:window.__BACKENDSTATE__,endpoint:window.__BACKENDSTATE__==='running'?ENDPOINT:null,logs:[],error:null,generationReady:false};
  if(c==='native_media_list')return {path:'/fixture',parent:null,entries:[],truncated:false};
  if(c==='native_auth_status')return [];
@@ -69,7 +73,8 @@ with sync_playwright() as p:
         page.goto(args.url, wait_until='domcontentloaded')
         page.wait_for_function("()=>__CALLS__.includes('native_backend_status')")
         labels = json.loads((root / 'src/components/setup/locales' / f'{locale}.json').read_text())
-        page.locator('[data-node="settings"] small').filter(has_text=labels['setup.backendStarting']).wait_for()
+        page.locator('[data-node="settings"]').click()
+        page.locator('[data-backend-state]').filter(has_text=labels['setup.backendStarting']).wait_for()
         page.locator('[data-node="comfy"]').click()
         assert page.locator('.comfy-loading .aio-spinner').is_visible()
         assert page.locator('.comfy-loading').inner_text() == labels['setup.comfy.waiting']
@@ -120,14 +125,15 @@ with sync_playwright() as p:
         frame_box = page.locator('.comfy-view iframe').bounding_box()
         footer_box = page.locator('.footer').bounding_box()
         assert frame_box['height'] > 700, frame_box
-        assert frame_box['y'] + frame_box['height'] <= footer_box['y'] + 1
+        assert frame_box['y'] + frame_box['height'] <= 958
         assert footer_box['y'] + footer_box['height'] <= 961, footer_box
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight')
         frame = page.locator('.comfy-view iframe').element_handle()
         if not args.comfy_url:
             editor.get_by_label('Workflow').fill('unsaved workflow')
         page.locator('[data-node="optional-downloads"]').click()
-        assert labels['setup.backendStarted'] in page.locator('[data-node="settings"] small').inner_text()
+        page.locator('[data-node="settings"]').click()
+        assert labels['setup.backendStarted'] in page.locator('[data-backend-state]').inner_text()
         assert not page.locator('.comfy-view').is_visible()
         page.locator('[data-node="comfy"]').click()
         assert page.evaluate('(old)=>old===document.querySelector(".comfy-view iframe")', frame)

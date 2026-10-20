@@ -184,6 +184,20 @@ test('Director Forge context follows the intent: frame modes from first/last fra
  expect(h3ForgeContext({...base,pipeline:'ref2v',refs}).easy).toBe(false); // labels apply only when every reference is a picture
 });
 
+test('frame Forge context preserves explicit people, axes and boxes without inventing identities',()=>{
+ const first=at('a.png','image'),last=at('z.png','image');
+ const boxes=[{n:4,box:[0.1,0.2,0.6,0.8] as [number,number,number,number]}];
+ const base={pipeline:'i2v',media:first,lastFrame:last,refs:[],sourceAudio:false,seconds:5,canvas:{width:64,height:64},inputRoot:'/env/in',framePeople:{[first.src]:{who:[2,1],whoAxis:'y' as const},[last.src]:{who:[3],boxes}}};
+ const context=h3ForgeContext(base);
+ expect(context.mode).toBe('FL2VA');expect(context.easy).toBe(false);
+ expect(context.references).toEqual([
+  {kind:'image',path:'a.png',role:'keyframe',subject_group:'',who:[2,1],who_axis:'y'},
+  {kind:'image',path:'z.png',role:'keyframe',subject_group:'',who:[3],boxes}]);
+ expect(h3ForgeContext({...base,lastFrame:null}).references).toEqual([context.references[0]]);
+ expect(h3ForgeContext({...base,pipeline:'t2v'}).references).toEqual([context.references[1]]);
+ expect(h3ForgeContext({...base,media:at('new.png','image'),lastFrame:null}).references[0]).not.toHaveProperty('who');
+});
+
 test('Director picture labels: chosen labels stay, the rest take the next free Character; roles, groups and instructions reach the Forge; packs keep them',()=>{
  const canvas={width:1024,height:576};
  const refs=[refAt('a.png','image'),refAt('b.png','image',{label:'character-1'}),refAt('c.png','image',{label:'place',instructions:' the old harbour '}),refAt('d.png','image',{label:'custom',instructions:'the coat'})];

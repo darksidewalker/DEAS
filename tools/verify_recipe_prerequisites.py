@@ -47,7 +47,7 @@ with sync_playwright() as p:
             else:
                 assert panel.locator('[role="alert"]').count() > 0, 'Browser must fail closed'
             for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
-                set_locale(page, locale, '[data-node="studio"]')
+                set_locale(page, locale, '[data-studio-tab="map"]')
                 assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'), (width, locale)
             if native:
                 page.locator('#endpoint').fill('http://127.0.0.1:9999')

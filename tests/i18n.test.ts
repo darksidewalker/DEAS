@@ -101,8 +101,9 @@ test('all six bundled component-owned languages have strict key and placeholder 
     const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     function check(node: ts.Node) {
       const preferenceKey=!!node.parent&&ts.isCallExpression(node.parent)&&ts.isIdentifier(node.parent.expression)&&['usePref','readPref','writePref','forgetPref'].includes(node.parent.expression.text)&&node.parent.arguments[0]===node;
-      if (ts.isStringLiteral(node) && !preferenceKey && /^(app|setup|studio|neural|installer|downloads|api)\./.test(node.text)) {
-        assert.ok(Object.hasOwn(catalog.dictionaries.en, node.text), `Missing referenced UI key ${node.text} in ${path}`);
+      if (ts.isStringLiteral(node) && !preferenceKey && /^(app|setup|studio|neural|installer|downloads|api|projects)\./.test(node.text)) {
+        const exists=node.text.endsWith('.')?Object.keys(catalog.dictionaries.en).some(key=>key.startsWith(node.text)):Object.hasOwn(catalog.dictionaries.en,node.text);
+        assert.ok(exists, `Missing referenced UI key or prefix ${node.text} in ${path}`);
       }
       if (ts.isJsxText(node)) assert.ok(!/[\p{L}\p{N}]/u.test(node.text), `Unreferenced JSX text in ${path}: ${node.text}`);
       if (ts.isJsxAttribute(node) && ['aria-label', 'title', 'placeholder'].includes(node.name.getText(source)) && node.initializer && ts.isStringLiteral(node.initializer)) {

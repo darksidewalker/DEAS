@@ -53,7 +53,7 @@ button:disabled {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 0 28px;
+  padding: 3px;
 }
 .studio-shell > main { flex: 1; }
 .wordmark {
@@ -433,7 +433,7 @@ button.footer-version.is-update { background: none; border: 0; padding: 0; color
 .field-caption > span:last-child { margin-left: auto; font-size: 8px; }
 .field-footer { padding: 16px 0; }
 .field-footer > span:last-child { font-size: 8px; letter-spacing: .12em; }
-.aio-setup { padding: 0 0 8px; }
+.aio-setup { padding: 0; }
 .aio-setup .aio-setup-header p { font-size: 12px; color: var(--muted); margin: 0; }
 .aio-motion input[type="radio"] { width: 14px; height: 14px; margin: 0; padding: 0; }
 .studio-workspace { animation: open-panel .2s ease-out; }
@@ -445,7 +445,7 @@ button.footer-version.is-update { background: none; border: 0; padding: 0; color
 }
 @media (max-width: 1050px) {
   .studio-shell {
-    padding: 0 32px;
+    padding: 3px;
   }
   .panel-content {
     gap: 28px;
@@ -462,7 +462,7 @@ button.footer-version.is-update { background: none; border: 0; padding: 0; color
 }
 @media (max-width: 700px) {
   .studio-shell {
-    padding: 0 20px;
+    padding: 3px;
   }
   .wordmark {
     font-size: 20px;

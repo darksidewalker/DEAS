@@ -42,6 +42,7 @@ with sync_playwright() as p:
         page.goto(url, wait_until='networkidle')
         page.wait_for_function("__CALLS__.some(c=>c.command==='native_install_open')")
         page.locator('[data-node="settings"]').click()
+        page.locator('[data-backend-panel="llm"]').click()
         panel = page.get_by_role('region', name=labels['llm.title'], exact=True)
         provider = panel.get_by_role('combobox', name=labels['llm.provider'], exact=True)
         choices = panel.get_by_role('combobox', name=labels['llm.test.model'], exact=True)
@@ -69,13 +70,10 @@ with sync_playwright() as p:
         panel.get_by_text('Remote discovery fixture unavailable', exact=True).wait_for()
         assert choices.locator('option').filter(has_text='Local fixture GGUF').count() == 1
         assert choices.locator('option').filter(has_text='Remote fixture chat').count() == 0
-        startup = page.locator('.settings-runtime-grid > .startup-panel:not(.llm-panel)').bounding_box()
-        llm = panel.bounding_box()
-        if width >= 1200:
-            assert llm['x'] >= startup['x'] + startup['width'], (width, locale, startup, llm)
-            assert abs(llm['y'] - startup['y']) <= 2
-        else:
-            assert llm['y'] >= startup['y'] + startup['height']
+        menu = page.locator('.backend-panel-menu').bounding_box()
+        pane = page.get_by_role('tabpanel').bounding_box()
+        assert menu['x'] + menu['width'] <= pane['x'], (width, locale, menu, pane)
+        assert page.get_by_role('tabpanel').count() == 1
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth'), (width, locale)
         assert not errors, errors
         if width in (1440, 320) and locale == 'en':

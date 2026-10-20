@@ -1,0 +1,18 @@
+{
+  "projects.new": "新建项目",
+  "projects.open": "打开项目",
+  "projects.close": "关闭项目",
+  "projects.import": "导入 PNG",
+  "projects.closeUnsaved": "关闭但不保存",
+  "projects.retry": "重试保存",
+  "projects.saved": "已保存",
+  "projects.saving": "正在保存…",
+  "projects.unsaved": "未保存的更改",
+  "projects.working": "正在处理项目…",
+  "projects.error": "项目操作失败。设置未更改。",
+  "projects.limitation": "仅保存图像设置和 PNG 输入；不恢复任务和结果",
+  "projects.none": "无项目",
+  "projects.missingCheckpoint": "项目检查点不可用或不兼容：{name}。请明确选择兼容模型。",
+  "projects.closeBlocked": "关闭此窗口前，请保存项目或明确选择不保存并关闭项目。",
+  "projects.closeGuardFailed": "窗口关闭保护不可用。请等待显示已保存，并在退出前关闭项目。"
+}

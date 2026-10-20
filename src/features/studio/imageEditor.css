@@ -37,8 +37,8 @@
 .sie-world { position:absolute; left:0; top:0; transform-origin:0 0; }
 .sie .sie-world .sie-mask { position:absolute; inset:0; width:100%; height:100%; max-width:none; max-height:none; object-fit:fill; pointer-events:none; }
 .sie-image { position:absolute; touch-action:none; }
-/* Source frame: the processing area in Inpaint; thin and low-contrast so it differs from the dashed selection. */
-.sie-frame { position:absolute; inset:0; pointer-events:none; outline:1px solid rgba(228,228,222,.45); }
+/* Original processing frame stays visible regardless of the selected image transform. */
+.sie-frame { position:absolute; inset:0; pointer-events:none; outline:2px dashed #f2cf55; }
 .sie .sie-image img { width:100%; height:100%; max-width:none; max-height:none; object-fit:fill; pointer-events:none; }
 .sie-image.is-selected { outline:1px dashed var(--copper); }
 .sie .sie-paint,.sie .sie-paint canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
@@ -57,7 +57,7 @@
 .sie .sie-rail img,.sie .sie-rail canvas { width:44px; height:36px; object-fit:contain; background:#11171a; flex:none; }
 .sie-rail li span { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
 @container (max-width:520px) {
-  .sie-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,1fr) auto; }
+  .sie-body { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto; }
   .sie-rail { flex-direction:row; max-height:112px; overflow:auto; }
   .sie-rail ul { flex-direction:row; }
   .sie-rail li { width:110px; flex:none; }

@@ -9,6 +9,7 @@
 | Installation, Windows/Linux build, launch and first setup | [Getting started](GETTING-STARTED.md) |
 | AiO installer, Backend lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
+| Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
 | Studio → Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
 | Media dock, navigation, preview and embedded metadata | [Media](MEDIA.md) |
@@ -24,6 +25,7 @@
 
 ## Architecture and contributor contracts
 
+- [Accepted product/architecture decisions and first image-project milestone](PRODUCT-DECISIONS.md) — binding target contract, not implementation evidence
 - [Project rules, goals and dependencies](PROJECT-RULES.md)
 - [ComfyUI integration/coexistence rules](COMFYUI-RULES.md)
 - [Consolidated current status and implementation plan](IMPLEMENTATION-STATUS.md)

@@ -26,21 +26,21 @@ with sync_playwright() as p:
   select=page.locator('#language-select')
   assert select.locator('option').count()==7 and select.input_value()==''
   for locale,name in names.items():assert select.locator(f'option[value="{locale}"]').inner_text()==f'{name} ({locale})'
-  set_locale(page,'en','[data-node="setup:aio"]')
+  set_locale(page,'en','[data-node="settings"]')
   page.get_by_label('Director',exact=True).check()
   for locale in names:
-   set_locale(page,locale,'[data-node="setup:aio"]');t=strings[locale]
+   set_locale(page,locale,'[data-node="settings"]');t=strings[locale]
    assert page.locator('html').get_attribute('lang')==locale
    assert page.evaluate("localStorage.getItem('deas.locale.v1')")==locale
    assert page.get_by_label(t['setup.storageDirectory'],exact=True).count()==1
    assert page.get_by_label(t['setup.feature.director.label'],exact=True).is_checked()
    page.get_by_role('tab',name=t['downloads.title'],exact=True).click()
-   assert page.get_by_text(t['downloads.browser'],exact=True).count()==1
+   assert page.get_by_role('region',name=t['downloads.title'],exact=True).get_by_text(t['downloads.browser'],exact=True).count()==1
    assert page.get_by_role('button',name=t['downloads.startAll'].replace('{count}','0'),exact=True).is_disabled()
    assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
    page.mouse.move(0,0);page.evaluate('document.activeElement?.blur()')
    if width==320 and locale in ('tr','fr','zh','ja'):page.screenshot(path=str(root/'assets'/f'deas-language-{locale}-320.png'),full_page=True)
-   page.get_by_role('button',name=t['setup.aio.label'],exact=True).click()
+   page.locator('[data-node="settings"]').click()
    results.append({'width':width,'locale':locale,'nativeNameAndIso':True,'choicePreserved':True,'localizedDownloadPanel':True,'noOverflow':True})
   page.reload(wait_until='networkidle');assert page.locator('html').get_attribute('lang')=='zh'
   page.locator('[data-node="settings"]').click();assert select.input_value()=='zh'

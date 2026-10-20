@@ -15,6 +15,7 @@ if(command==='native_media_metadata') return [['parameters',JSON.stringify({sui_
 if(command==='native_media_list') {const path=args.path||'/env/out';return {path,parent:path.slice(0,path.lastIndexOf('/'))||'/',entries:[{name:'portraits',path:path+'/portraits',kind:'directory',symlink:false,media:null,size:0,modified:1},{name:'DEAS_0001.png',path:path+'/DEAS_0001.png',kind:'file',symlink:false,media:'image',size:1,modified:5}],truncated:false};}
 if(command==='native_recipe_prerequisites') return {baseUrl:args.baseUrl.replace(/\/$/,'')+'/',recipeId:'checkpoint-text-to-image-diagnostic',version:1,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['sdxl/juggernaut.safetensors','anima/anima-preview.safetensors'],loras:['style/film-grain.safetensors','detail/add-detail-xl.safetensors'],samplers:['euler','dpmpp_2m'],schedulers:['normal','karras']},missingNodes:[],generationReady:false};
+if(command==='native_install_plan') return {id:'fixture-install-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
 if(command==='native_job_prepare') {window.__intent=args.intent; return {id:'fixture-plan',baseUrl:args.baseUrl,intent:args.intent,graph:{},generationReady:false};}
 if(command==='native_job_submit') return {id:'fixture-job-1',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,appVersion:'0.1.14',metadata:{startedAt:1700000000000,generationMs:13310},state:'queued',outputs:[],error:null,generationReady:false};
 if(command==='native_job_status') return {id:'fixture-job-1',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,appVersion:'0.1.14',metadata:{startedAt:1700000000000,generationMs:13310},state:++window.__polls<2?'running':'succeeded',outputs:window.__polls<2?[]:[{filename:'DEAS_00001_.png',subfolder:'',type:'output'}],error:null,generationReady:false};
@@ -35,7 +36,7 @@ with sync_playwright() as p:
         page.locator('[data-studio-tab="generate"]').click()
         wb = page.locator('[data-workbench]')
         wb.wait_for()
-        assert page.evaluate("__calls.filter(x=>x.command==='native_recipe_prerequisites').length") == 0, 'no auto-inspection'
+        assert page.evaluate("__calls.filter(x=>x.command==='native_job_prepare'||x.command==='native_job_submit').length") == 0, 'no automatic generation'
         page.locator('[data-dock-tab="models"]').click()
         wb.locator('[data-run-load]').click()  # no environment in this fixture: backend fallback list
         page.locator('[data-run-checkpoint]').wait_for()

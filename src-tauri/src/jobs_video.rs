@@ -280,14 +280,34 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     let cont_ok = h.get("continuity").is_none_or(|c| {
         keys_in(
             c,
-            &["session", "sourceId", "capture", "action", "outputMode"],
-        ) && c["session"].as_str().is_some_and(continuity_id)
+            &[
+                "session",
+                "sourceId",
+                "sourceKind",
+                "capture",
+                "action",
+                "outputMode",
+                "overlapFrames",
+            ],
+        ) && c["session"]
+            .as_str()
+            .is_some_and(|s| continuity_id(s) && s != "_imports")
             && c["sourceId"]
                 .as_str()
                 .is_some_and(|s| s.is_empty() || continuity_id(s))
+            && c.get("sourceKind").is_none_or(|kind| {
+                kind == "video"
+                    && c["sourceId"].as_str().is_some_and(|s| {
+                        s.len() == 64
+                            && s.bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+            })
             && c["capture"].is_boolean()
             && c["action"].as_str().is_some_and(|a| a.len() <= 50_000)
             && pick(c, "outputMode", &["full", "segment"])
+            && c.get("overlapFrames")
+                .is_none_or(|v| v.as_u64().is_some_and(|n| [73, 56, 39, 22, 5].contains(&n)))
     });
     if keys_in(
         h,
@@ -875,7 +895,18 @@ fn h3(i: &Value) -> Value {
     // Director continuity contract (v3): an empty source_id is a new take; parse_settings fills the rest.
     let c = &h["continuity"];
     let continuity = if c["sourceId"].as_str().is_some_and(|s| !s.is_empty()) {
-        json!({"version":3,"session":c["session"],"source_kind":"checkpoint","source_id":c["sourceId"],"capture":c["capture"],"output_mode":c["outputMode"],"continuation_prompt":c["action"]})
+        let mut continuity = json!({"version":3,"session":c["session"],"capture":c["capture"],"output_mode":c["outputMode"],"continuation_prompt":c["action"]});
+        if c["sourceKind"] == "video" {
+            continuity["source_kind"] = json!("video");
+            continuity["source_video_id"] = c["sourceId"].clone();
+        } else {
+            continuity["source_kind"] = json!("checkpoint");
+            continuity["source_id"] = c["sourceId"].clone();
+        }
+        if let Some(frames) = c.get("overlapFrames") {
+            continuity["overlap_frames"] = frames.clone();
+        }
+        continuity
     } else {
         json!({"version":3,"session":c.get("session").cloned().unwrap_or(json!("deas")),"capture":c.get("capture").cloned().unwrap_or(json!(false)),"output_mode":c.get("outputMode").cloned().unwrap_or(json!("full"))})
     };

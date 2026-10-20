@@ -194,6 +194,13 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     const width=Math.max(8,Math.min(8192,l.width+grow));
     updateImages(images.map(v=>v.id!==l.id?v:{...v,x:Math.max(1-l.width,Math.min(source.width-1,l.x+dx)),y:Math.max(1-l.height,Math.min(source.height-1,l.y+dy)),...(grow?{width,height:Math.max(8,Math.min(8192,Math.round(width*l.height/l.width)))}:{})}));
   }
+  function restoreFrame(){
+    finish();if(!activeImage)return;
+    const l=activeImage,k=Math.min(1,source.width/l.width,source.height/l.height);
+    const width=l.id==='base'?source.width:Math.max(1,Math.round(l.width*k)),height=l.id==='base'?source.height:Math.max(1,Math.round(l.height*k));
+    const x=l.id==='base'?0:Math.max(0,Math.min(source.width-width,l.x)),y=l.id==='base'?0:Math.max(0,Math.min(source.height-height,l.y));
+    updateImages(images.map(v=>v.id===l.id?{...v,x,y,width,height}:v));fit();
+  }
   function reorder(delta:number){
     const swap=<T,>(list:T[],i:number)=>{const j=i+delta;if(i<0||j<0||j>=list.length)return null;const next=[...list];[next[i],next[j]]=[next[j],next[i]];return next;};
     if(activeMask){const next=swap(masks,masks.indexOf(activeMask));if(next)setMasks(next);return;}
@@ -227,6 +234,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
       <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){const ctx=l.paint.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,l.paint.width,l.paint.height);return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;report(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>
       </>
       <span className="sie-view">
+      <button type="button" data-image-restore disabled={!activeImage} onClick={restoreFrame}>{label('restoreFrame')}</button>
       <button type="button" aria-label={label('zoomOut')} onClick={()=>{finish();auto.current=false;setView(v=>zoomAt(v,{x:(viewport.current?.clientWidth??0)/2,y:(viewport.current?.clientHeight??0)/2},v.scale/1.25));}}>−</button>
       <button type="button" onClick={()=>{finish();fit();}}>{label('fit')}</button>
       <button type="button" onClick={()=>{finish();auto.current=false;setView(v=>zoomAt(v,{x:(viewport.current?.clientWidth??0)/2,y:(viewport.current?.clientHeight??0)/2},1));}}>{label('actual')}</button>
@@ -239,7 +247,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
         <div ref={world} className="sie-world" data-testid="editor-world" style={{width:source.width,height:source.height,transform:`translate(${view.x}px, ${view.y}px) scale(${view.scale})`}}>
           {images.filter(l=>l.visible).map(l=><div className={`sie-image${active===l.id?' is-selected':''}`} key={l.id} role="group" aria-label={l.id==='base'?label('base'):t('studio.run.edit.layer',{name:l.name})} tabIndex={0} data-layer={l.id} style={{left:l.x,top:l.y,width:l.width,height:l.height,pointerEvents:tool==='select'?'auto':'none'}} onFocus={()=>setActive(l.id)} onPointerDown={e=>begin(e,l)} onKeyDown={e=>imageKey(e,l)}><img src={l.src} alt={l.id==='base'?source.name:''} draggable={false}/>{l.paint&&<Mounted node={l.paint}/>}{active===l.id&&tool==='select'&&<button className="sie-resize" type="button" aria-label={t('studio.editor.resize',{name:l.name})} onPointerDown={e=>begin(e,l,true)}>↘</button>}</div>)}
           <canvas ref={overlay} className="sie-mask" aria-label={t('studio.run.edit.mask')} width={source.width} height={source.height} style={{opacity:maskMode?opacity/100:0}}/>
-          {maskMode&&<div className="sie-frame" data-source-frame aria-hidden="true" style={{outlineWidth:1/view.scale}}/>}
+          <div className="sie-frame" data-source-frame aria-hidden="true" style={{outlineWidth:2/view.scale,outlineOffset:-2/view.scale}}/>
         </div>
         {painting&&brushEnabled&&<div ref={cursor} className={`sie-cursor is-${shape}${tool==='erase'?' is-erase':''}`} hidden aria-hidden="true" style={{width:diameter*view.scale,height:diameter*view.scale}}/>}
       </div>

@@ -1,5 +1,9 @@
 # DEAS execution-only backend contract
 
+## Accepted project-level target
+
+Apply [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) alongside this execution boundary. A durable project must retain managed input/result media, immutable revisions and exact executed job/dependency identities. Recovery reconciles jobs without retrying uncertain submissions; retries are explicit new jobs/stage attempts. Preserve partial results, serialize owned GPU-intensive work by default, and never stop external services. The separate Comfy editor remains outside the Studio project contract without automatic graph↔Studio synchronization; protect Studio jobs from global editor actions or disable those actions where isolation cannot be established. These are accepted target requirements, not proof that current session-held jobs or output caches already satisfy them.
+
 ## Product decision
 
 DEAS owns the entire product interface: feature/package selection, model and VAE pickers, prompts, reference media, RefMods, continuity controls, timelines, settings, validation, queue presentation, progress, previews, playback and exported results. ComfyUI is an execution service, not the studio interface. Within Studio, do not embed its web editor, node widgets, custom-node HTML/JavaScript panels or node-side upload/preview UI. The separate **Comfy** tab is an explicit exception: embed the original owned-backend frontend in a cross-origin frame, with no DEAS native-command permissions. Keep only the shared tab band and footer visible; preserve editor state across tab switches. Comfy actions use the backend directly (including its shared queue/global interrupt), not the DEAS job-scoped adapter. A changed endpoint reloads the editor; save workflows before a backend restart.

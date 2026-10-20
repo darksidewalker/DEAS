@@ -14,3 +14,4 @@ test-results/
 __pycache__/
 *.py[cod]
 /.hermes/
+tsconfig.tsbuildinfo

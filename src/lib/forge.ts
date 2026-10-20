@@ -16,7 +16,8 @@ export function readPeopleBoxes(raw:unknown):PeopleBox[]|null {
  return raw as PeopleBox[];
 }
 export interface H3Reference { kind: 'image' | 'video' | 'audio'; role?: string; path?: string; easy_role?: string; boxes?: PeopleBox[]; picture_kinds?: string[]; who?: number[]; who_axis?: 'y' | 'z' | 'none'; stream?: 'video' | 'audio' | 'both'; subject_group?: string; duration_seconds?: number; instructions?: string }
-export interface H3Request { model: string; mode: string; brief: string; duration: number; shots: string | number; detail: number; creativity: string; references: H3Reference[]; easy: boolean; see_pictures: boolean; shot_briefs?: string[]; output_canvas?: { width: number; height: number }; request_id?: string; /** Cast & scene cards: `{"1": text, place: text, style: text}`, each ≤ 600 chars. */ cast?: Record<string, string> }
+export interface H3Continuity { source_kind: 'checkpoint' | 'video'; session: string; clip_id: string; overlap_frames?: 73 | 56 | 39 | 22 | 5; current_prompt: string; use_references: false }
+export interface H3Request { continuity?: H3Continuity; model: string; mode: string; brief: string; duration: number; shots: string | number; detail: number; creativity: string; references: H3Reference[]; easy: boolean; see_pictures: boolean; shot_briefs?: string[]; output_canvas?: { width: number; height: number }; request_id?: string; /** Cast & scene cards: `{"1": text, place: text, style: text, "pose@3": text}`, each ≤ 600 chars. */ cast?: Record<string, string> }
 export interface H3Result { simple_prompt: string; warnings: string[] }
 
 /** Director label identities in picture order (`group-21` = Character 2 on the left). */
@@ -32,7 +33,7 @@ export const forgeModels = (baseUrl: string, root: string) => call<ForgeModels>(
 export const writePrompt = (baseUrl: string, root: string, body: WriteRequest) => call<{ prompt: string; saw_images: number }>(baseUrl, root, 'write', body);
 export const forgeH3 = (baseUrl: string, root: string, body: H3Request) => call<H3Result>(baseUrl, root, 'h3', body);
 /** Reads one Cast or scene card from the labelled pictures (needs a vision model). */
-export interface CastRequest { model: string; mode: string; character?: number; subject?: 'place' | 'style'; references: H3Reference[]; brief: string; shots: string | number; shot_briefs: string[]; redo?: boolean; request_id?: string }
+export interface CastRequest { model: string; mode: string; character?: number; subject?: 'place' | 'style' | `pose@${number}`; references: H3Reference[]; brief: string; shots: string | number; shot_briefs: string[]; redo?: boolean; request_id?: string }
 export const readCast = (baseUrl: string, root: string, body: CastRequest) => call<{ text: string }>(baseUrl, root, 'cast', body);
 /** Explicit vision detection, bounded and sanitized by the native people route. */
 export const findPeople = (baseUrl:string,root:string,body:{model:string;path:string;request_id:string}) => call<{people:{box:PeopleBox['box']}[]}>(baseUrl,root,'people',body);

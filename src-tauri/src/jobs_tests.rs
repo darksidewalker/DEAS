@@ -1,5 +1,309 @@
 use super::*;
 
+fn prepared_video() -> Value {
+    json!({"kind":"video","filename":"folder/日本 clip.mp4","clip_id":"a".repeat(64),
+        "sha256":"b".repeat(64),"width":1920,"height":1080,"fps":29.97,"seconds":12.5,
+        "has_audio":true,"prompt":"secret-prompt","output_path":"secret-host-path","frames":999})
+}
+
+#[tokio::test]
+async fn h3_video_prepare_posts_only_filename_and_returns_sanitized_source() {
+    let (base, task) = server(|path, body| {
+        assert_eq!(path, "POST /comfy/df_h3_continuity/video HTTP/1.1");
+        assert_eq!(body, json!({"filename":"folder/日本 clip.mp4"}));
+        (200, prepared_video().to_string())
+    })
+    .await;
+    let value = native_h3_video_prepare(base, "folder/日本 clip.mp4".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        value,
+        json!({"sourceId":"a".repeat(64),"filename":"folder/日本 clip.mp4",
+        "sha256":"b".repeat(64),"width":1920,"height":1080,"fps":29.97,"seconds":12.5,"hasAudio":true})
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn h3_session_imported_video_metadata_identifies_backend_parent_without_leaks() {
+    let imported = json!({"clip_id":"backend-chosen-parent","frames":124,"width":640,"height":352,
+        "mode_family":"fl2va","provenance":{"kind":"imported_video","source_video_id":"a".repeat(64),
+        "filename":"secret-input.mp4","sha256":"b".repeat(64)},"output_path":"secret-host"});
+    let mut entries = vec![
+        imported.clone(),
+        json!({"clip_id":"extension","parent_id":"backend-chosen-parent","frames":243}),
+    ];
+    for (key, value) in [
+        ("source_video_id", json!("A".repeat(64))),
+        ("kind", json!("generated")),
+    ] {
+        let mut bad = imported.clone();
+        bad["provenance"][key] = value;
+        entries.push(bad);
+    }
+    for (key, value) in [
+        ("width", json!(0)),
+        ("height", json!(65537)),
+        ("mode_family", json!("T2VA")),
+    ] {
+        let mut bad = imported.clone();
+        bad[key] = value;
+        entries.push(bad);
+    }
+    let mut nested = imported.clone();
+    nested.as_object_mut().unwrap().remove("provenance");
+    nested["metadata"] = json!({"provenance":imported["provenance"]});
+    entries.push(nested);
+    let mut refmode = imported;
+    refmode["mode_family"] = json!("ref2va");
+    entries.push(refmode);
+    let (base, task) = server(move |_, _| (200, json!({"clips":entries}).to_string())).await;
+    let value = native_h3_session(base, "imports".into()).await.unwrap();
+    assert_eq!(
+        value["clips"][0]["importedVideo"],
+        json!({"sourceId":"a".repeat(64),"width":640,"height":352,"modeFamily":"fl2va"})
+    );
+    assert_eq!(value["clips"][1]["parent"], "backend-chosen-parent");
+    for clip in &value["clips"].as_array().unwrap()[1..8] {
+        assert!(clip.get("importedVideo").is_none());
+        assert_eq!(clip.as_object().unwrap().len(), 5);
+    }
+    assert_eq!(value["clips"][8]["importedVideo"]["modeFamily"], "ref2va");
+    assert!(!value.to_string().contains("secret-"));
+    task.abort();
+}
+
+#[tokio::test]
+async fn h3_video_prepare_rejects_unsafe_inputs_before_network() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/", listener.local_addr().unwrap());
+    let mut invalid: Vec<String> = [
+        "",
+        "/abs.mp4",
+        "C:/video.mp4",
+        "C:video.mp4",
+        "a\\b.mp4",
+        "//server/video",
+        "../a.mp4",
+        "a/../b.mp4",
+        "a/./b.mp4",
+        "a//b.mp4",
+        "a/",
+        "a\0.mp4",
+        "a\n.mp4",
+        "a\u{7f}.mp4",
+        "a\u{85}.mp4",
+        "a.mp4 [output]",
+        "a.mp4 [temp]",
+        "a.mp4 [output] ",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    invalid.push("a".repeat(4097));
+    for filename in invalid {
+        assert_eq!(
+            native_h3_video_prepare(base.clone(), filename)
+                .await
+                .unwrap_err(),
+            "Invalid input-relative video filename"
+        );
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), listener.accept())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        native_h3_video_prepare(
+            "http://secret-user:secret-pass@private.invalid/?secret-token".into(),
+            "video.mp4".into()
+        )
+        .await
+        .unwrap_err(),
+        "Backend URL must not contain credentials, a query, or a fragment"
+    );
+}
+
+#[tokio::test]
+async fn h3_video_prepare_rejects_tampered_fields_http_redirects_and_oversize_with_safe_logs() {
+    for key in [
+        "filename",
+        "kind",
+        "clip_id",
+        "sha256",
+        "width",
+        "height",
+        "fps",
+        "seconds",
+        "has_audio",
+    ] {
+        let mut missing = prepared_video();
+        missing.as_object_mut().unwrap().remove(key);
+        let mut cases = vec![missing];
+        let invalid = match key {
+            "filename" => vec![json!("secret-other.mp4")],
+            "kind" => vec![json!("image")],
+            "clip_id" | "sha256" => vec![
+                json!("a".repeat(63)),
+                json!("a".repeat(65)),
+                json!("A".repeat(64)),
+                json!("g".repeat(64)),
+            ],
+            "width" | "height" => {
+                vec![json!(0), json!(-1), json!(65537), json!(1.5), json!("1920")]
+            }
+            "fps" | "seconds" => vec![json!(0), json!(-1), json!("NaN"), Value::Null],
+            _ => vec![json!(1), json!("true")],
+        };
+        for bad in invalid {
+            let mut v = prepared_video();
+            v[key] = bad;
+            cases.push(v);
+        }
+        for v in cases {
+            let (base, task) = server(move |_, _| (200, v.to_string())).await;
+            assert_eq!(
+                native_h3_video_prepare(base, "folder/日本 clip.mp4".into())
+                    .await
+                    .unwrap_err(),
+                "Malformed video preparation response",
+                "{key}"
+            );
+            task.abort();
+        }
+    }
+    let mut bodies = vec![
+        (302, "{}".into()),
+        (307, "{}".into()),
+        (500, json!({"error":"secret-body secret-token"}).to_string()),
+        (200, "secret-invalid-json".into()),
+        (200, "x".repeat(RESPONSE_LIMIT + 1)),
+    ];
+    for literal in ["NaN", "Infinity", "1e999"] {
+        bodies.push((200, prepared_video().to_string().replace("29.97", literal)));
+    }
+    for (status, body) in bodies {
+        let (base, task) = server(move |_, _| (status, body.clone())).await;
+        let error = native_h3_video_prepare(base, "folder/日本 clip.mp4".into())
+            .await
+            .unwrap_err();
+        assert!(
+            !error.contains("secret-") && !error.contains("日本") && !error.contains("http://")
+        );
+        if status == 302 || status == 307 {
+            assert!(error.contains("redirects forbidden"));
+        }
+        task.abort();
+    }
+    let reports: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.starts_with("ERROR: H3 continuity video-prepare:"))
+        .collect();
+    // The concurrent byte-cap test may evict throttled diagnostics; inspect only retained reports.
+    assert!(
+        reports.len() <= 2,
+        "fixed fifth slot must bound all repeated failures"
+    );
+    for entry in reports {
+        assert_eq!(entry.source, crate::logs::Source::Deas);
+        for secret in ["secret-", "private.invalid", "日本", "http://", "session="] {
+            assert!(!entry.text.contains(secret));
+        }
+    }
+}
+
+#[tokio::test]
+async fn h3_video_prepare_accepts_maximum_path_and_edges_and_silent_video() {
+    let filename = "a".repeat(4096);
+    let expected = filename.clone();
+    let (base, task) = server(move |_, body| {
+        assert_eq!(body, json!({"filename":expected}));
+        let mut v = prepared_video();
+        v["filename"] = json!(expected);
+        v["width"] = json!(65536);
+        v["height"] = json!(1);
+        v["has_audio"] = json!(false);
+        (200, v.to_string())
+    })
+    .await;
+    let result = native_h3_video_prepare(base, filename).await.unwrap();
+    assert_eq!(result["width"], 65536);
+    assert_eq!(result["hasAudio"], false);
+    task.abort();
+}
+
+#[tokio::test]
+async fn h3_video_prepare_bounds_chunked_bodies_and_hides_transport_errors() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = vec![];
+        loop {
+            let mut buf = [0; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buf[..n]);
+            if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+            .await
+            .unwrap();
+        let body = "x".repeat(RESPONSE_LIMIT + 1);
+        let _ = socket
+            .write_all(format!("{:x}\r\n{body}\r\n0\r\n\r\n", body.len()).as_bytes())
+            .await;
+    });
+    assert_eq!(
+        native_h3_video_prepare(base, "secret-video.mp4".into())
+            .await
+            .unwrap_err(),
+        "Native job response size limit exceeded"
+    );
+    task.await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/secret-endpoint/", listener.local_addr().unwrap());
+    drop(listener);
+    assert_eq!(
+        native_h3_video_prepare(base, "secret-video.mp4".into())
+            .await
+            .unwrap_err(),
+        "Native job request failed; execution may be unknown"
+    );
+}
+
+#[test]
+fn h3_video_prepare_is_exported_and_uses_existing_local_permission() {
+    let main = include_str!("main.rs");
+    assert!(main.contains("deas::native_h3_video_prepare,"));
+    let permission: toml::Value = toml::from_str(include_str!("../permissions/api.toml")).unwrap();
+    let jobs = permission["permission"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identifier"].as_str() == Some("allow-native-diagnostic-jobs"))
+        .unwrap();
+    assert!(jobs["commands"]["allow"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c.as_str() == Some("native_h3_video_prepare")));
+    let capability: Value =
+        serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+    assert_eq!(capability["local"], true);
+    assert_eq!(capability["windows"], json!(["main"]));
+    assert!(capability["permissions"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("allow-native-diagnostic-jobs")));
+    let _ = crate::native_h3_video_prepare;
+}
+
 #[test]
 fn wildcard_plugin_keeps_base_prompts_and_rule_snapshot() {
     let mut i = intent();
@@ -755,6 +1059,131 @@ async fn prepare_requires_only_emitted_crop_and_blur_nodes() {
 }
 
 #[tokio::test]
+async fn h3_session_logs_invalid_input_without_payloads() {
+    for session in [
+        "secret-session/credential".to_owned(),
+        "secret-session\nforged".to_owned(),
+        "é-secret-session".to_owned(),
+        "s".repeat(81),
+    ] {
+        assert_eq!(
+            native_h3_session(
+                "http://secret-user:secret-pass@private.invalid/".into(),
+                session
+            )
+            .await
+            .unwrap_err(),
+            "Invalid continuity session"
+        );
+    }
+    let reports: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| {
+            e.text
+                .starts_with("WARN: H3 continuity session-list: invalid session")
+        })
+        .collect();
+    assert!(
+        !reports.is_empty(),
+        "validation failure must reach shared Logs"
+    );
+    assert!(
+        reports.len() <= 2,
+        "repeated invalid input must not flood Logs"
+    );
+    for entry in reports {
+        assert_eq!(entry.source, crate::logs::Source::Deas);
+        for secret in ["secret-", "private.invalid", "forged", "session=", "é"] {
+            assert!(!entry.text.contains(secret), "{}", entry.text);
+        }
+    }
+}
+
+#[tokio::test]
+async fn h3_session_logs_endpoint_http_and_shape_failures_without_secrets_or_flooding() {
+    let endpoint_session = "log-endpoint-session";
+    assert_eq!(
+        native_h3_session(
+            "http://secret-user:secret-pass@private.invalid/private-secret?secret-token".into(),
+            endpoint_session.into(),
+        )
+        .await
+        .unwrap_err(),
+        "Backend URL must not contain credentials, a query, or a fragment"
+    );
+    let endpoint_logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.contains(&format!("session={endpoint_session};")))
+        .collect();
+    assert_eq!(endpoint_logs.len(), 1);
+    assert!(endpoint_logs[0]
+        .text
+        .starts_with("WARN: H3 continuity session-list: invalid backend endpoint"));
+
+    let (base, task) = server(|path, _| {
+        assert_eq!(path, "GET /comfy/df_h3_continuity/session/log-http-session HTTP/1.1");
+        (503, json!({"error":"secret-body secret-token http://secret-user:secret-pass@private.invalid/"}).to_string())
+    })
+    .await;
+    for _ in 0..6 {
+        assert_eq!(
+            native_h3_session(base.clone(), "log-http-session".into())
+                .await
+                .unwrap_err(),
+            "Native job endpoint returned HTTP 503 Service Unavailable"
+        );
+    }
+    task.abort();
+    let request_logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.contains("session=log-http-session;"))
+        .collect();
+    assert_eq!(
+        request_logs.len(),
+        2,
+        "only first cause and first recurrence are immediate"
+    );
+    assert!(request_logs[0]
+        .text
+        .starts_with("ERROR: H3 continuity session-list: backend request failed"));
+    assert!(request_logs[0].text.contains("repeated=0"));
+    assert!(request_logs[1].text.contains("repeated=1"));
+
+    let (base, task) = server(|_, _| {
+        (
+            200,
+            json!({"clips":{"secret-body":"secret-token"}}).to_string(),
+        )
+    })
+    .await;
+    for _ in 0..6 {
+        assert_eq!(
+            native_h3_session(base.clone(), "log-shape-session".into())
+                .await
+                .unwrap_err(),
+            "Malformed continuity session"
+        );
+    }
+    task.abort();
+    let shape_logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.contains("session=log-shape-session;"))
+        .collect();
+    assert_eq!(shape_logs.len(), 2);
+    assert!(shape_logs[0]
+        .text
+        .starts_with("ERROR: H3 continuity session-list: malformed response"));
+    assert!(shape_logs[1].text.contains("repeated=1"));
+
+    for entry in endpoint_logs.iter().chain(&request_logs).chain(&shape_logs) {
+        assert_eq!(entry.source, crate::logs::Source::Deas);
+        for secret in ["secret-", "private.invalid", "http://", "https://"] {
+            assert!(!entry.text.contains(secret), "{}", entry.text);
+        }
+    }
+}
+
+#[tokio::test]
 async fn h3_session_is_read_only_bounded_and_input_upload_checks_magic_bytes() {
     assert!(
         native_h3_session("http://127.0.0.1:1/".into(), "a/b".into())
@@ -791,6 +1220,122 @@ async fn h3_session_is_read_only_bounded_and_input_upload_checks_magic_bytes() {
     )
     .await
     .is_err());
+}
+
+#[tokio::test]
+async fn local_video_upload_cancel_validation_and_logs() {
+    let base = "http://127.0.0.1:1/";
+    let before_cancel = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.starts_with("ERROR: Native input-upload:"))
+        .count();
+    assert_eq!(selected_video_upload(base, None).await.unwrap(), None);
+    assert_eq!(
+        crate::logs::native_logs(0)
+            .into_iter()
+            .filter(|e| e.text.starts_with("ERROR: Native input-upload:"))
+            .count(),
+        before_cancel
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret-local-video.mp4");
+    std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
+    assert!(selected_video_upload(base, Some(path.clone()))
+        .await
+        .unwrap_err()
+        .contains("video"));
+    std::fs::write(&path, b"\0\0\0\x18ftypisom").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    for _ in 0..5 {
+        assert!(selected_video_upload(base, Some(path.clone()))
+            .await
+            .is_err());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.starts_with("ERROR: Native input-upload:"))
+        .collect();
+    assert!(!logs.is_empty());
+    assert!(logs.len() <= 2);
+    assert!(logs.iter().all(|e| e.source == crate::logs::Source::Deas
+        && !e.text.contains("secret")
+        && !e.text.contains("http")));
+}
+
+#[tokio::test]
+async fn local_video_upload_posts_video_only_and_preserves_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Original 电影.mov");
+    let original = b"\0\0\0\x14ftypqt  fixture";
+    std::fs::write(&path, original).unwrap();
+    for outcome in ["success", "http", "tampered", "oversized"] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/comfy/", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"--\r\n") {
+                let mut buf = [0; 4096];
+                let n = socket.read(&mut buf).await.unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&buf[..n]);
+            }
+            let text = String::from_utf8(bytes).unwrap();
+            assert!(text.starts_with("POST /comfy/upload/image HTTP/1.1"));
+            assert!(text.contains("name=\"subfolder\"\r\n\r\n\r\n"));
+            assert!(text.contains("name=\"overwrite\"\r\n\r\nfalse\r\n"));
+            assert!(text.contains("name=\"type\"\r\n\r\ninput\r\n"));
+            assert!(!text.contains("Original"));
+            let name = text
+                .split("filename=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_owned();
+            assert!(name.starts_with("deas-input-") && name.ends_with(".mov"));
+            let body = match outcome {
+                "tampered" => json!({"name":"../secret.mov","subfolder":""}).to_string(),
+                "oversized" => format!(
+                    "{}{}",
+                    " ".repeat(RESPONSE_LIMIT + 1),
+                    json!({"name":name,"subfolder":""})
+                ),
+                _ => json!({"name":name,"subfolder":""}).to_string(),
+            };
+            let status = if outcome == "http" {
+                "503 Service Unavailable"
+            } else {
+                "200 OK"
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            name
+        });
+        let result = selected_video_upload(&base, Some(path.clone())).await;
+        let name = task.await.unwrap();
+        if outcome == "success" {
+            assert_eq!(result.unwrap(), Some(name));
+        } else {
+            assert!(result.is_err(), "{outcome}");
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len((512 << 20) + 1)
+        .unwrap();
+    assert!(selected_video_upload("http://127.0.0.1:1/", Some(path))
+        .await
+        .unwrap_err()
+        .contains("512 MiB"));
 }
 
 #[test]

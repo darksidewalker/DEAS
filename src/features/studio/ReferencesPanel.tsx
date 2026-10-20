@@ -21,6 +21,7 @@ export const forgeLabels=(refs:VideoRef[])=>{
  const take=()=>{let n=1;while(used.has(String(n)))n++;used.add(String(n));return `character-${n}`;};
  return refs.map(r=>r.item.media!=='image'?'':r.label&&pictureLabels.includes(r.label)?r.label:take());
 };
+export type FramePeople = Pick<VideoRef,'who'|'whoAxis'|'boxes'>;
 const labelRole=(label:string)=>label.startsWith('character-')?{role:'subject',subject_group:'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Number(label.slice(10))-1]??label}:{role:({style:'style','first-frame':'keyframe','last-frame':'keyframe',pose:'pose',custom:'custom'} as Record<string,string>)[label]??'subject',subject_group:''};
 type Lane='image'|'video'|'audio';
 /** Director lane of a reference: a video used only as sound sits in the audio lane. */
@@ -47,13 +48,13 @@ export function forgeReferences(refs:VideoRef[],mode:string,inputRoot?:string):H
  const length=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined?{duration_seconds:r.trimEnd-r.trimStart}:{};
  const labels=forgeLabels(refs);
  return refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).map(({r}):H3Reference=>
-  ({...(r.item.media==='image'?{kind:'image' as const,...rel(r),...(mode==='REF2VA'?{...labelRole(labels[refs.indexOf(r)]),easy_role:labels[refs.indexOf(r)],...(r.boxes?.length?{boxes:r.boxes}:{}),...(labelCharacters(labels[refs.indexOf(r)]).length&&(r.who?.length||r.whoAxis)?{picture_kinds:['character'],who:r.who??labelCharacters(labels[refs.indexOf(r)]).map(Number),...(r.whoAxis?{who_axis:r.whoAxis}:{})}:{})}:{role:'keyframe',subject_group:''})}
+  ({...(r.item.media==='image'?{kind:'image' as const,...rel(r),...(mode==='REF2VA'?{...labelRole(labels[refs.indexOf(r)]),easy_role:labels[refs.indexOf(r)],...(r.boxes?.length?{boxes:r.boxes}:{}),...(labelCharacters(labels[refs.indexOf(r)]).length&&(r.who?.length||r.whoAxis)?{picture_kinds:['character'],who:r.who??labelCharacters(labels[refs.indexOf(r)]).map(Number),...(r.whoAxis?{who_axis:r.whoAxis}:{})}:{})}:{role:'keyframe',subject_group:'',...(r.who?.length?{who:r.who}:{}),...(r.whoAxis?{who_axis:r.whoAxis}:{}),...(r.boxes?.length?{boxes:r.boxes}:{})})}
   :r.item.media==='video'?{kind:'video' as const,role:'motion',stream:r.mediaMode==='audio'?'audio' as const:r.mediaMode==='video_audio'?'both' as const:'video' as const,...length(r)}
   :{kind:'audio' as const,...length(r)}),...(r.instructions?.trim()?{instructions:r.instructions.trim()}:{}),...(r.keep?.trim()?{keep:r.keep.trim()}:{}),...(r.drop?.trim()?{drop:r.drop.trim()}:{})}));
 }
 /** What the Director Forge gets for a MiniMax H3 video run: the mode and references the intent will carry (REF2VA for
  * Video → Video and Multi-reference, else the first/last-frame mode), the duration and the exact output canvas. */
-export function h3ForgeContext(o:{pipeline:string;media:MediaItem|null;lastFrame:MediaItem|null;refs:VideoRef[];sourceAudio:boolean;seconds:number;canvas:{width:number;height:number};inputRoot?:string}):H3Context{
+export function h3ForgeContext(o:{pipeline:string;media:MediaItem|null;lastFrame:MediaItem|null;refs:VideoRef[];sourceAudio:boolean;seconds:number;canvas:{width:number;height:number};inputRoot?:string;framePeople?:Record<string,FramePeople>}):H3Context{
  const ref=(item:MediaItem,mediaMode:VideoRef['mediaMode']='video'):VideoRef=>({item,second:0,strength:1,mediaMode});
  const base={duration:o.seconds,canvas:{width:o.canvas.width,height:o.canvas.height}};
  if(o.pipeline==='v2v'||o.pipeline==='ref2v'){
@@ -62,7 +63,7 @@ export function h3ForgeContext(o:{pipeline:string;media:MediaItem|null;lastFrame
   return {...base,mode:'REF2VA',references:forgeReferences(picks,'REF2VA',o.inputRoot),easy:picks.length>0&&picks.every(r=>r.item.media==='image')};
  }
  const first=o.pipeline==='i2v'&&o.media?.media==='image'?o.media:null;
- const frames=[first,o.lastFrame].flatMap(i=>i?[ref(i)]:[]);
+ const frames=[first,o.lastFrame].flatMap(i=>i?[{...ref(i),...o.framePeople?.[i.src]}]:[]);
  return {...base,mode:first&&o.lastFrame?'FL2VA':first?'I2VA':o.lastFrame?'L2VA':'T2VA',references:forgeReferences(frames,'I2VA',o.inputRoot),easy:false};
 }
 /** Timeline references in the Director prefill's order (images, video items, audio files; each by slot). */
@@ -131,15 +132,15 @@ export function fromPack(json:unknown,inputRoot:string):{adds:{path:string;media
 }
 const lanes:Record<string,Lane[]>={'minimax-h3':['image','video','audio'],'ltx-2':['image']};
 
-function ReferencePeople({r,label,onChange,endpoint,root,inputRoot}:{r:VideoRef;label:string;onChange:(x:Partial<VideoRef>)=>void;endpoint:string;root?:string;inputRoot?:string}){
+export function ReferencePeople({r,label,onChange,endpoint,root,inputRoot,allowEmpty=false}:{r:VideoRef;label:string;onChange:(x:Partial<VideoRef>)=>void;endpoint:string;root?:string;inputRoot?:string;allowEmpty?:boolean}){
  const {t}=useI18n();const [open,setOpen]=useState(false);const who=r.who??labelCharacters(label).map(Number);
- const labelOf=(next:number[],axis?:VideoRef['whoAxis'])=>{const group=`group-${next.join('')}`;return !axis&&next.length>1&&pictureLabels.includes(group)?group:`character-${next[0]}`;};
+ const labelOf=(next:number[],axis?:VideoRef['whoAxis'])=>{const group=`group-${next.join('')}`;return !next.length?'':!axis&&next.length>1&&pictureLabels.includes(group)?group:`character-${next[0]}`;};
  const toggle=(n:number)=>{const next=who.includes(n)?who.filter(x=>x!==n):[...who,n];onChange({who:next,label:labelOf(next,r.whoAxis)});};
  return <details className="wb-ref-more" data-ref-people onToggle={e=>setOpen(e.currentTarget.open)}><summary>{t('forge.people')}</summary>
   <p className="media-help">{t('forge.peopleHint')}</p>
   {open&&<PeopleDetector endpoint={endpoint} root={root} reference={forgeReferences([{...r,label}],'REF2VA',inputRoot)[0]} onApply={boxes=>onChange({boxes,label:labelOf([...boxes].sort((a,b)=>a.box[0]+a.box[2]-b.box[0]-b.box[2]).map(b=>b.n))})}/>}
   {open&&<PeopleBoxes src={r.item.src} boxes={r.boxes??[]} onChange={boxes=>onChange({boxes,...(boxes.length?{label:labelOf([...boxes].sort((a,b)=>a.box[0]+a.box[2]-b.box[0]-b.box[2]).map(b=>b.n))}:{})})}/>}
-  {!r.boxes?.length&&<><div className="wb-ref-actions">{Array.from({length:Math.min(32,Math.max(6,...who.map(n=>n+1)))},(_,i)=>i+1).map(n=><button key={n} type="button" aria-label={t('forge.personIn',{n:String(n),name:r.item.name})} aria-pressed={who.includes(n)} disabled={who.length===1&&who[0]===n} onClick={()=>toggle(n)}>{n}</button>)}</div>
+  {!r.boxes?.length&&<><div className="wb-ref-actions">{Array.from({length:Math.min(32,Math.max(6,...who.map(n=>n+1)))},(_,i)=>i+1).map(n=><button key={n} type="button" aria-label={t('forge.personIn',{n:String(n),name:r.item.name})} aria-pressed={who.includes(n)} disabled={!allowEmpty&&who.length===1&&who[0]===n} onClick={()=>toggle(n)}>{n}</button>)}</div>
   <p className="media-help">{t('forge.peopleSelected',{n:who.join(' → ')})}</p>
   <label><span>{t('forge.order')}</span><select aria-label={t('forge.orderIn',{name:r.item.name})} value={r.whoAxis??'x'} onChange={e=>{const axis=e.target.value==='x'?undefined:e.target.value as VideoRef['whoAxis'];onChange({label:labelOf(who,axis),who,whoAxis:axis});}}>{(['x','y','z','none'] as const).map(axis=><option key={axis} value={axis}>{t(`forge.axis.${axis}`)}</option>)}</select></label></>}
  </details>;

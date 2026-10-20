@@ -71,8 +71,8 @@ export default function App(){
  const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
  return <div className="studio-shell">
   <main id="workspace">
-   <AiOSetup brand={<a className="wordmark" href="#workspace" aria-label={t('app.home')}><span className="brand-symbol" aria-hidden="true">✳</span> {t('app.brand')}<span className="brand-caption">{t('app.brandCaption')}</span></a>} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
-    <div className="studio-tabs" role="tablist" aria-label={t('studio.tabs')}>{studioTabs.map(id=><button key={id} role="tab" type="button" data-studio-tab={id} aria-selected={tab===id} onClick={()=>setTab(id)}>{t(`studio.tab.${id}`)}</button>)}</div>
+   <AiOSetup studioTab={tab} onStudioTab={setTab} footer={<>{updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`${t('app.brand')} v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
+   :<span className="footer-version">{`${t('app.brand')} v${__APP_VERSION__}`}</span>}</>} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
     <div className="studio-generate-host" hidden={tab==='forge'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
@@ -97,8 +97,6 @@ export default function App(){
     </details>}
     </div></div>
    </div>}/>
-  </main><footer className="footer"><span>{t('app.brand')} <span className="footer-divider">/</span> {t('app.instrument')}</span>
-   {updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
-   :<span className="footer-version">{`v${__APP_VERSION__}`}</span>}</footer>
+  </main>
  </div>;
 }

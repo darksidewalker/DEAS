@@ -103,7 +103,7 @@
   "setup.detectionError": "Détection matérielle indisponible",
   "setup.feature.output.label": "Output",
   "setup.feature.output.description": "Fonctionnalité de sortie visuelle incluse, et non fonctionnalité d’installation native indépendante.",
-  "setup.backendLifecycle.title": "Cycle de vie du moteur géré",
+  "setup.backendLifecycle.title": "Moteur géré",
   "setup.backendLifecycle.help": "DEAS démarre uniquement son environnement vérifié. Le démarrage automatique est activé par défaut et peut être désactivé dans les paramètres. Seul le backend de cette application est suivi ; les autres services ne sont ni repris ni arrêtés. L’inspection est en lecture seule.",
   "setup.backendLifecycle.browser": "Le cycle de vie du moteur est disponible uniquement dans l’application de bureau. L’aperçu dans le navigateur ne peut ni démarrer, ni arrêter, ni inspecter l’état du cycle de vie natif.",
   "setup.backendLifecycle.unknown": "État non inspecté",
@@ -217,5 +217,11 @@
   "startup.preset.compatibility.help": "Seulement l’auto-réglage des noyaux : mêmes calculs sur tout GPU NVIDIA ; la première exécution par nouvelle taille est plus lente.",
   "startup.preset.off.help": "Les réglages par défaut de ComfyUI, sans option de lancement supplémentaire.",
   "startup.highvramHelp": "Désactive la VRAM dynamique de ComfyUI et garde chaque modèle en VRAM : changement de modèle plus rapide seulement si tout tient ; les grands modèles vidéo peuvent manquer de mémoire.",
-  "startup.vaeHelp": "Par défaut : ComfyUI choisit selon le type de VAE et le GPU (en général bf16 à partir des RTX 30). Les options imposent un réglage à tous les VAE."
+  "startup.vaeHelp": "Par défaut : ComfyUI choisit selon le type de VAE et le GPU (en général bf16 à partir des RTX 30). Les options imposent un réglage à tous les VAE.",
+  "setup.overview": "Moteur et fournisseurs",
+  "setup.overview.missing": "Non installé",
+  "setup.footer.starting": "Démarrage du moteur…",
+  "setup.footer.started": "Moteur démarré",
+  "setup.backendPanels": "Sections du moteur",
+  "setup.backendPanels.requiresInstall": "Nécessite un moteur installé"
 }

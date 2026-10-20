@@ -53,7 +53,7 @@ with sync_playwright() as p:
   page.locator('[data-node="settings"]').click()
   assert page.locator('.backend-autostart').get_attribute('aria-checked') == 'false'
   assert not page.evaluate("__CALLS__.some(c=>c.command==='native_backend_start')")
-  page.locator('[data-node="setup:aio"]').click()
+  page.locator('[data-node="settings"]').click()
   page.get_by_role('button', name=labels['setup.backendLifecycle.start'], exact=True).click()
   page.wait_for_function("__CALLS__.filter(c=>c.command==='native_backend_start').length===1")
   assert not errors, errors

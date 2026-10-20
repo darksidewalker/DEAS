@@ -65,7 +65,7 @@ export function AuthPanel({onChange,embedded=false}:AuthPanelProps={}) {
     <button className="action-button" disabled={!io.native||io.busy||!hasToken} onClick={()=>{const secret=token.current?.value;if(secret)void io.request(()=>setAuthToken(providerId,secret,persist),changed);}}>{t('downloads.applyToken')}</button>
     <button className="action-button" disabled={!io.native||io.busy} onClick={()=>void io.request(()=>removeAuthToken(providerId),changed)}>{t('downloads.clearToken')}</button>
     <button className="action-button" disabled={!io.native||io.busy} onClick={()=>void io.request(()=>restoreAuthToken(providerId),changed)}>{t('downloads.restoreAuth')}</button>
-    <button className="action-button" disabled={!io.native||io.busy} onClick={()=>void io.request(readAuthStatus,value=>{setCheckRevision(v=>v+1);metadataEpoch.current++;setStatusError(false);setMetadata(value);})}>{t('downloads.authStatus')}</button>
+    <button className="action-button" disabled={!io.native||io.busy} onClick={()=>void io.request(readAuthStatus,value=>{setCheckRevision(v=>v+1);metadataEpoch.current++;setStatusError(false);setMetadata(value);onChange?.();})}>{t('downloads.authStatus')}</button>
    </div>
    </div>
    {(io.error||statusError)&&<p role="alert">{t('downloads.authError')}</p>}

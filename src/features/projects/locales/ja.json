@@ -1,0 +1,18 @@
+{
+  "projects.new": "新規プロジェクト",
+  "projects.open": "プロジェクトを開く",
+  "projects.close": "プロジェクトを閉じる",
+  "projects.import": "PNGをインポート",
+  "projects.closeUnsaved": "保存せずに閉じる",
+  "projects.retry": "保存を再試行",
+  "projects.saved": "保存済み",
+  "projects.saving": "保存中…",
+  "projects.unsaved": "未保存の変更",
+  "projects.working": "プロジェクトを処理中…",
+  "projects.error": "プロジェクト操作に失敗しました。設定は変更されていません。",
+  "projects.limitation": "画像設定とPNG入力のみ。ジョブと結果は復元されません",
+  "projects.none": "プロジェクトなし",
+  "projects.missingCheckpoint": "プロジェクトのチェックポイントが利用不可または非互換です：{name}。互換モデルを明示的に選択してください。",
+  "projects.closeBlocked": "このウィンドウを閉じる前にプロジェクトを保存するか、明示的に保存せずに閉じてください。",
+  "projects.closeGuardFailed": "ウィンドウ終了保護を利用できません。保存済みになるまで待ち、終了前にプロジェクトを閉じてください。"
+}

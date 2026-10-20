@@ -37,7 +37,7 @@ with sync_playwright() as p:
         page.add_init_script(fixture)
         page.goto(url, wait_until='networkidle')
         set_locale(page, 'en')
-        page.locator('[data-node="studio"]').click()
+        page.locator('[data-studio-tab="map"]').click()
         assert page.locator('[data-studio-tab="map"]').get_attribute('aria-selected') == 'true'
         assert page.get_by_role('region', name='Run Plan', exact=True).is_visible()
         assert not page.locator('.run-plan-diagnostics').get_attribute('open')
@@ -60,7 +60,7 @@ with sync_playwright() as p:
         assert page.locator('[data-plan-stage]').evaluate_all('els=>els.map(el=>el.dataset.planStage)') == ['model','prompt','generate','refine','output']
         assert page.locator('.run-plan input,.run-plan button,.run-plan select,.run-plan textarea').count() == 0
         for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
-            set_locale(page, locale, '[data-node="studio"]')
+            set_locale(page, locale, '[data-studio-tab="map"]')
             assert json.loads(page.locator('[data-plan-intent]').text_content()) == draft
             assert not page.evaluate('document.documentElement.scrollWidth>innerWidth'), (width, locale)
             assert 'studio.plan.' not in page.locator('.run-plan').inner_text()
@@ -73,7 +73,7 @@ with sync_playwright() as p:
         assert page.locator('[data-workbench]').get_attribute('data-identity') == 'preserved'
         assert page.locator('[data-run-positive]').input_value() == 'Live edit — 猫'
         page.locator('[data-studio-tab="map"]').click()
-        set_locale(page, 'en', '[data-node="studio"]')
+        set_locale(page, 'en', '[data-studio-tab="map"]')
         page.locator('.run-plan-diagnostics > summary').click()
         page.locator('[data-node="engine"] > button').click()
         assert page.locator('#endpoint').is_visible()

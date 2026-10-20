@@ -1,7 +1,7 @@
 {
   "name": "deas",
   "private": true,
-  "version": "0.1.31",
+  "version": "0.1.37",
   "type": "module",
   "scripts": {
     "dev": "vite",
