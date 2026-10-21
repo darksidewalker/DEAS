@@ -18,6 +18,12 @@ pub fn configure() {
             std::env::set_var(name, value);
         }
     }
+    // NVIDIA's video DMA-BUF sink can display green frames; keep the rest of GPU rendering.
+    if Path::new("/sys/module/nvidia").exists()
+        && std::env::var_os("WEBKIT_GST_DMABUF_SINK_DISABLED").is_none()
+    {
+        std::env::set_var("WEBKIT_GST_DMABUF_SINK_DISABLED", "1");
+    }
 }
 
 // Element WebKit needs, plugin file, bytes. See ../gstreamer/README.md for provenance.
@@ -51,8 +57,16 @@ const GST_PLUGINS: [(&CStr, &str, &[u8]); 4] = [
 pub fn provide_gstreamer_plugins() {
     #[cfg(target_arch = "x86_64")]
     if let Err(error) = provide_gst_plugins() {
-        eprintln!("DEAS: bundled GStreamer plugins unavailable: {error}");
+        log_gstreamer_failure(&error);
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn log_gstreamer_failure(error: &std::io::Error) {
+    deas::logs::push(
+        deas::logs::Source::Deas,
+        &format!("ERROR: Linux playback plugin-cache: bundled plugins unavailable ({:?}); check cache permissions/storage", error.kind()),
+    );
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -154,6 +168,7 @@ fn host_gst_elements<const N: usize>(elements: &[&CStr; N]) -> Option<[bool; N]>
 #[cfg(test)]
 mod tests {
     use super::{configure, host_gst_elements, sync_plugins};
+    use std::path::Path;
 
     #[test]
     fn host_gstreamer_probe() {
@@ -182,7 +197,11 @@ mod tests {
     // This binary's only environment-mutating test; no GTK or worker threads run.
     #[test]
     fn defaults_and_explicit_overrides() {
-        let names = ["__NV_DISABLE_EXPLICIT_SYNC", "GDK_BACKEND"];
+        let names = [
+            "__NV_DISABLE_EXPLICIT_SYNC",
+            "GDK_BACKEND",
+            "WEBKIT_GST_DMABUF_SINK_DISABLED",
+        ];
         let original = names.map(std::env::var_os);
         for name in names {
             std::env::remove_var(name);
@@ -190,13 +209,31 @@ mod tests {
         configure();
         assert_eq!(std::env::var(names[0]).unwrap(), "1");
         assert_eq!(std::env::var(names[1]).unwrap(), "wayland,x11");
+        assert_eq!(
+            std::env::var_os(names[2]),
+            Path::new("/sys/module/nvidia").exists().then(|| "1".into())
+        );
 
         for backend in ["wayland", "x11", ""] {
             std::env::set_var(names[0], "0");
             std::env::set_var(names[1], backend);
+            std::env::set_var(names[2], backend);
             configure();
             assert_eq!(std::env::var(names[0]).unwrap(), "0");
             assert_eq!(std::env::var(names[1]).unwrap(), backend);
+            assert_eq!(std::env::var(names[2]).unwrap(), backend);
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            super::log_gstreamer_failure(&std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "/private/path must not reach Logs",
+            ));
+            assert!(deas::logs::native_logs(0).iter().any(|entry| {
+                entry.text.contains("ERROR: Linux playback plugin-cache:")
+                    && entry.text.contains("PermissionDenied")
+                    && !entry.text.contains("/private/path")
+            }));
         }
         for (name, value) in names.into_iter().zip(original) {
             match value {

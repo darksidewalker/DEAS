@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-video"
+description = "Typed local video preview and bounded backend output playback; no arbitrary mpv commands."
+commands.allow = ["native_video_open", "native_video_update"]

@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "播放",
+  "studio.video.pause": "暂停",
+  "studio.video.seek": "视频位置",
+  "studio.video.mute": "静音",
+  "studio.video.unmute": "取消静音",
+  "studio.video.volume": "视频音量",
+  "studio.video.error": "视频播放不可用。",
   "studio.quick.unavailable": "选项不可用或不兼容：{names}。请明确选择兼容的依赖项、禁用可选处理或恢复默认值。",
   "studio.layout.settings": "调整设置列宽",
   "studio.layout.queue": "调整队列列宽",

@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "再生",
+  "studio.video.pause": "一時停止",
+  "studio.video.seek": "動画の再生位置",
+  "studio.video.mute": "ミュート",
+  "studio.video.unmute": "ミュート解除",
+  "studio.video.volume": "動画の音量",
+  "studio.video.error": "動画を再生できません。",
   "studio.quick.unavailable": "利用不可または非対応の選択: {names}。対応する依存項目を選択するか、任意処理を無効にするか、既定値に戻してください。",
   "studio.layout.settings": "設定の幅を変更",
   "studio.layout.queue": "キューの幅を変更",

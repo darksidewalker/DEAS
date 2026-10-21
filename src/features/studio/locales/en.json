@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "Play",
+  "studio.video.pause": "Pause",
+  "studio.video.seek": "Seek video",
+  "studio.video.mute": "Mute",
+  "studio.video.unmute": "Unmute",
+  "studio.video.volume": "Video volume",
+  "studio.video.error": "Video playback unavailable.",
   "studio.quick.unavailable": "Unavailable or incompatible selections: {names}. Select compatible dependencies explicitly, disable optional processing, or reset to defaults.",
   "studio.layout.settings": "Resize Settings",
   "studio.layout.queue": "Resize Queue",

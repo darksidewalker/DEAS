@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod video;
 #[cfg(windows)]
 pub(crate) mod win;
 pub use auth::{

@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "Abspielen",
+  "studio.video.pause": "Pause",
+  "studio.video.seek": "Videoposition",
+  "studio.video.mute": "Stummschalten",
+  "studio.video.unmute": "Ton einschalten",
+  "studio.video.volume": "Videolautstärke",
+  "studio.video.error": "Videowiedergabe nicht verfügbar.",
   "studio.quick.unavailable": "Nicht verfügbar oder inkompatibel: {names}. Bitte passende Abhängigkeiten auswählen, optionale Verarbeitung deaktivieren oder Standardwerte wiederherstellen.",
   "studio.layout.settings": "Einstellungen skalieren",
   "studio.layout.queue": "Warteschlange skalieren",

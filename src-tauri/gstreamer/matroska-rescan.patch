@@ -1,0 +1,30 @@
+--- a/gst/matroska/matroska-demux.c
++++ b/gst/matroska/matroska-demux.c
+@@ -2213,7 +2213,10 @@
+         GST_DEBUG_OBJECT (demux, "need more data -> continue");
+         goto next;
+       }
+-      g_assert (id == GST_MATROSKA_ID_CLUSTER);
++      if (id != GST_MATROSKA_ID_CLUSTER) {
++        GST_DEBUG_OBJECT (demux, "cluster candidate changed -> continue");
++        goto next;
++      }
+       GST_DEBUG_OBJECT (demux, "cluster size %" G_GUINT64_FORMAT ", prefix %d",
+           length, needed);
+       /* ok if undefined length or first cluster */
+@@ -2232,8 +2235,14 @@
+       if (id == GST_MATROSKA_ID_CLUSTER)
+         break;
+     next:
+-      if (forward)
++      if (forward) {
+         newpos += 1;
++      } else if (newpos > 0) {
++        newpos -= 1;
++      } else {
++        ret = GST_FLOW_EOS;
++        break;
++      }
+     } else {
+       /* partial cluster id may have been in tail of buffer */
+       newpos +=

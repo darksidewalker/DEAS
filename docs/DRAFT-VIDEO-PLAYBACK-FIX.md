@@ -1,9 +1,8 @@
-# DRAFT — Linux video playback fix (verified root cause, patch superseded by in-app fix)
+# Historical external Linux video playback audit
 
-Status: draft / superseded. DEAS ships its own fix as of 0.1.37+; this record preserves the
-verified findings from the external dummy audit (2026-10-21) so the fix stays reproducible.
-No repo code was changed by the audit; the patch and vendor build were deleted after DEAS
-solved the issue in-app.
+This draft describes an external dummy/full-runtime experiment, **not the source bundle shipped by DEAS**. Its former claim that DEAS had already solved playback in 0.1.37+ was not established by inspection of the current source, which contains four 1.20.3 plugins and no full runtime or LD_LIBRARY_PATH modification. Keep the findings below scoped to that external experiment, not as proof of the owner clip's root cause or complete DEAS acceptance.
+
+The explicitly authorized 0.1.38 follow-up instead repairs the existing Matroska scanner and NVIDIA video-sink default without adding system-library shadowing. See [current verification](VERIFICATION.md#linux-matroska-playback-fix-0138-follow-up-unreleased) and [bundle provenance/rebuild](../src-tauri/gstreamer/README.md). Original-clip, audio, normal-driver and Windows acceptance remain open.
 
 ## Verified root cause
 

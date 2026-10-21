@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "Lire",
+  "studio.video.pause": "Pause",
+  "studio.video.seek": "Position de la vidéo",
+  "studio.video.mute": "Couper le son",
+  "studio.video.unmute": "Activer le son",
+  "studio.video.volume": "Volume de la vidéo",
+  "studio.video.error": "Lecture vidéo indisponible.",
   "studio.quick.unavailable": "Sélections indisponibles ou incompatibles : {names}. Choisissez des dépendances compatibles, désactivez le traitement facultatif ou rétablissez les valeurs par défaut.",
   "studio.layout.settings": "Redimensionner les réglages",
   "studio.layout.queue": "Redimensionner la file",

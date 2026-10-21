@@ -29,6 +29,15 @@ const clickMedia=(image:HTMLImageElement,clientX=400,clientY=300)=>{
  fireEvent.click(image,{clientX,clientY});
  if(bounds)Object.defineProperty(image,'getBoundingClientRect',bounds);else Reflect.deleteProperty(image,'getBoundingClientRect');
 };
+test('Linux native input never creates a WebKit video decoder',async()=>{
+ vi.spyOn(window.navigator,'userAgent','get').mockReturnValue('Linux');
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'clip.webm',path:'/input/clip.webm',kind:'file',media:'video',size:1,modified:1}],truncated:false});
+ const view=render(<I18nProvider><Workbench endpoint="" roots={{input:'/input'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'clip.webm'}));
+ expect(view.container.querySelector('video')).toBeNull();
+ expect(view.container.querySelector('[data-native-video]')).not.toBeNull();
+ vi.restoreAllMocks();
+});
 const adopt=()=>{const preview=document.querySelector('[data-browsed-preview]');if(!preview)return;const action=preview.querySelector<HTMLButtonElement>('[data-use-input], [data-edit="resample"]');if(action)fireEvent.click(action);};
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
@@ -165,6 +174,68 @@ test('missing remembered model and LoRAs are explicit blockers, never silently s
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  expect(prepareDiagnosticJob).not.toHaveBeenCalled();
 });
+test('dependency warnings follow corrected selections after a blocked post-process and reopen',async()=>{
+ const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
+ vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','k2.safetensors','krea-2'),m('text_encoders','qwen3vl_4b.safetensors'),m('vae','qwen_image_vae.safetensors')]);
+ vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ for(const [key,value] of Object.entries({checkpoint:'missing.safetensors',vae:'minimax_h3_video_vae.safetensors'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ const mount=()=>render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ const view=mount();
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
+ expect(screen.getByRole('alert').textContent).toContain('missing.safetensors');
+ dock('Models');fireEvent.click(screen.getByRole('button',{name:'k2.safetensors'}));
+ expect(screen.getByRole('alert').textContent).not.toContain('missing.safetensors');
+ expect(screen.getByRole('alert').textContent).toContain('minimax_h3_video_vae.safetensors');
+ dock('Media');fireEvent.click(await screen.findByRole('button',{name:'source.png'}));adopt();
+ const img=screen.getByRole('img',{name:'source.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:1024}});fireEvent.load(img);
+ fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
+ fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByRole('combobox',{name:'VAE'}),{target:{value:'qwen_image_vae.safetensors'}});
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
+ view.unmount();
+ localStorage.setItem('deas.pref.studio.run.vae','"minimax_h3_video_vae.safetensors"');
+ const reopened=mount();
+ await waitFor(()=>expect(screen.getByRole('combobox',{name:'VAE'})).toBeTruthy());
+ expect(screen.getByRole('alert').textContent).toContain('minimax_h3_video_vae.safetensors');
+ expect(screen.getByRole('alert').textContent).not.toContain('missing.safetensors');
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.change(screen.getByRole('combobox',{name:'VAE'}),{target:{value:'qwen_image_vae.safetensors'}});
+ reopened.unmount();mount();
+ await waitFor(()=>expect(screen.getByRole('combobox',{name:'VAE'})).toBeTruthy());
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+});
+
+test('pending model refresh validates the latest selection, not the selection at scan start',async()=>{
+ const models=[{category:'diffusion_models',name:'k2.safetensors',family:'krea-2',path:'/m/k2',size:1,info:null},{category:'text_encoders',name:'qwen3vl_4b.safetensors',path:'/m/encoder',size:1,info:null},{category:'vae',name:'qwen_image_vae.safetensors',path:'/m/vae',size:1,info:null}];
+ vi.mocked(scanModels).mockResolvedValue(models);
+ localStorage.setItem('deas.pref.studio.run.vae','"minimax_h3_video_vae.safetensors"');
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('combobox',{name:'VAE'});
+ let finish!:(value:typeof models)=>void;
+ vi.mocked(scanModels).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ dock('Models');fireEvent.click(document.querySelector('[data-run-load]')!);
+ fireEvent.change(screen.getByRole('combobox',{name:'VAE'}),{target:{value:'qwen_image_vae.safetensors'}});
+ await act(async()=>finish(models));
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
+
+test('selection changes do not erase an unrelated preparation error',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'base.safetensors',path:'/m/base',size:1,info:null}]);
+ vi.mocked(prepareDiagnosticJob).mockRejectedValueOnce(new Error('Backend connection failed'));
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await screen.findByText('Backend connection failed');
+ fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:'i2i'}});
+ expect(screen.getByRole('alert').textContent).toContain('Backend connection failed');
+});
+
 test('dock clicks preview only and preserve the adopted editor until explicit replacement',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:['one.png','two.png'].map(name=>({name,path:'/out/'+name,kind:'file',media:'image',symlink:false,size:1,modified:1})),truncated:false}));

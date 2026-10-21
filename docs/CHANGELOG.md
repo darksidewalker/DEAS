@@ -2,6 +2,14 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased — 0.1.38 follow-up
+
+- Patch the bundled Linux Matroska cluster scanner to rescan inconsistent candidates instead of aborting WebKit; retain the original Ubuntu security patches and host-plugin preference without bundling a core/runtime dependency closure. Add a reproducible plugin rebuild and native WebKitGTK playback probe. Default NVIDIA's video DMA-BUF sink workaround only when unset, and route plugin-cache failures to shared Logs. Full owner-clip/audio/normal-driver/Windows playback acceptance remains open.
+
+- Clear corrected dependency warnings after a blocked Post-process action instead of retaining an old translated warning as an operation error. Keep current incompatibilities blocking Run and preserve unrelated preparation/job errors.
+
+- Replace WebKit video decoding with an embedded libmpv player for Linux Studio previews: native GL rendering on the main window, bounded open/seek/pause/mute/volume IPC with path/backend-output validation, shared-Logs diagnostics and a dev-server native probe. Both owner clips passed embedded playback, seek and end-of-file checks; Windows stays on the supported web path, and audible A/V sync, normal-driver performance and Windows runtime acceptance remain open.
+
 ## 0.1.38 — 2026-10-21
 
 - Restore the full-size Run button with its small adjoining project dropdown on the right; put project status below instead of consuming Run width. Restrict click-to-enlarge to the actual contained image, not letterbox margins. Keep normal-size compact selector text readable in GTK/WebKit. Render missing/incompatible dependencies and job errors as reddish overlays inside View, and decode backend exception text without JSON-escaped newline suffixes.

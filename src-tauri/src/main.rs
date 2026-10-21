@@ -22,6 +22,20 @@ fn main() {
                 ));
             }
             bridge.push_str(include_str!("comfy_bridge.js"));
+            // Local verification only; release binaries never execute an injected probe.
+            #[cfg(debug_assertions)]
+            if let Some(path) = std::env::var_os("DEAS_VIDEO_TEST_SCRIPT") {
+                use tauri::{Listener, Manager};
+                app.add_capability(
+                    tauri::ipc::CapabilityBuilder::new("video-probe")
+                        .window("main")
+                        .permission("core:event:allow-emit"),
+                )?;
+                app.listen("deas-video-probe", |event| {
+                    eprintln!("DEAS_VIDEO_PROBE {}", event.payload())
+                });
+                bridge.push_str(&std::fs::read_to_string(path)?);
+            }
             tauri::WebviewWindowBuilder::from_config(app, &config)?
                 .initialization_script_for_all_frames(bridge)
                 .build()?;
@@ -34,6 +48,8 @@ fn main() {
         .manage(deas::auth::AuthState::default().restore_saved())
         .manage(deas::downloads::DownloadEngine::default())
         .invoke_handler(tauri::generate_handler![
+            deas::video::native_video_open,
+            deas::video::native_video_update,
             deas::native_auth_status,
             deas::native_auth_verify,
             deas::native_auth_set,
@@ -119,6 +135,12 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build DEAS")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                deas::video::install(app);
+            }
+            if matches!(event, tauri::RunEvent::Exit) {
+                deas::video::shutdown();
+            }
             if matches!(
                 event,
                 tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }

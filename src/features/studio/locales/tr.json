@@ -1,4 +1,11 @@
 {
+  "studio.video.play": "Oynat",
+  "studio.video.pause": "Duraklat",
+  "studio.video.seek": "Video konumu",
+  "studio.video.mute": "Sesi kapat",
+  "studio.video.unmute": "Sesi aç",
+  "studio.video.volume": "Video ses düzeyi",
+  "studio.video.error": "Video oynatılamıyor.",
   "studio.quick.unavailable": "Kullanılamayan veya uyumsuz seçimler: {names}. Uyumlu bağımlılıklar seçin, isteğe bağlı işlemeyi kapatın veya varsayılanlara sıfırlayın。",
   "studio.layout.settings": "Ayarlar genişliğini değiştir",
   "studio.layout.queue": "Kuyruk genişliğini değiştir",
