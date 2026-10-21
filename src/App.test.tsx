@@ -1,4 +1,4 @@
-import { defaultLlmConfig } from './lib/llm';
+import { defaultLlmConfig, llmSetupEvent } from './lib/llm';
 import { readAuthStatus } from './lib/downloads';
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
@@ -76,6 +76,53 @@ test('Generate preserves the same workbench across map and top-level tab navigat
  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
 });
 
+test.each(['Library','Comfy','Backend','Logs',null])('deferred missing Forge config respects the actual top-level view (%s)',async destination=>{
+ localStorage.setItem(LOCALE_STORAGE_KEY,'en');
+ localStorage.setItem('deas.pref.install.root','"/env"');
+ localStorage.setItem('deas.pref.backend.autostart','false');
+ vi.mocked(isTauri).mockReturnValue(true);
+ let finish!:(value:typeof defaultLlmConfig)=>void;
+ const read=new Promise<typeof defaultLlmConfig>(resolve=>{finish=resolve;});
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_install_defaults')return {storagePath:'/env',backend:'cpu',warnings:[]};
+  if(command==='native_files_present')return [true];
+  if(command==='native_install_plan')return {id:'restore',reopenId:'restore',request:(args as {request:NativeInstallRequest}).request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
+  if(command==='native_install_open')return {state:'succeeded',stepId:null,logs:[],error:null};
+  if(command==='native_settings_read')return {};
+  if(command==='native_backend_status')return {state:'stopped',logs:[],error:null};
+  if(command==='native_models_scan')return [];
+  if(command==='native_media_list')return {path:'/env',parent:null,entries:[],truncated:false};
+  if(command==='native_llm_read')return read;
+  if(command==='native_llm_models')return {models:[],warnings:[]};
+  throw Error('Unexpected fixture IPC '+command);
+ });
+ const redirected=vi.fn();window.addEventListener(llmSetupEvent,redirected);
+ try{
+  const view=render(<I18nProvider><App/></I18nProvider>);
+  await screen.findByRole('tab',{name:'Studio',selected:true});
+  fireEvent.click(screen.getByRole('tab',{name:'Prompt Forge'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_llm_read',{root:'/env'}));
+  const result=screen.getByRole('textbox',{name:'Result'});
+  fireEvent.change(result,{target:{value:'retained Forge result'}});
+  const workbench=view.container.querySelector('[data-workbench]');
+  if(destination)fireEvent.click(screen.getByRole('tab',{name:destination}));
+  await act(async()=>finish(defaultLlmConfig));
+  expect(screen.getByRole('tab',{name:destination??'Backend',selected:true})).toBeTruthy();
+  if(destination){
+   expect(redirected).not.toHaveBeenCalled();
+   expect(view.container.querySelector('[data-backend-panel="llm"]')?.getAttribute('aria-selected')).toBe('false');
+   expect(screen.queryByText(/Your draft has been kept/)).toBeNull();
+  }else{
+   expect(redirected).toHaveBeenCalledOnce();
+   expect(screen.getByRole('tab',{name:'LLM backend',selected:true})).toBeTruthy();
+   expect(screen.getByText(/Your draft has been kept/)).toBeTruthy();
+  }
+  expect(result.isConnected).toBe(true);expect(result).toHaveProperty('value','retained Forge result');
+  expect(result.closest('[hidden]')).not.toBeNull();
+  expect(view.container.querySelector('[data-workbench]')).toBe(workbench);
+ }finally{window.removeEventListener(llmSetupEvent,redirected);}
+});
+
 test("first entry shows only AiO and keeps the studio behind an honest preview control", () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, "en");
   const view = render(<I18nProvider><App /></I18nProvider>);
@@ -97,6 +144,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
     if(command==='native_install_defaults')return {storagePath:'/app/new',backend:'cpu',warnings:[]};
+    if(command==='native_models_scan')return [];
     if(command==='native_media_list')return {path:'/home/fixture',parent:null,entries:[],truncated:false};
     if(command==='native_install_plan')return {id:'installed-plan',request:(args as {request:NativeInstallRequest}).request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
     return {state:'succeeded',stepId:null,logs:[],error:null};

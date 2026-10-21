@@ -1,4 +1,22 @@
 use super::*;
+
+#[test]
+fn configuration_failure_reaches_shared_logs_without_the_supplied_path() {
+    let root = tempfile::tempdir().unwrap();
+    let private = root.path().join("private-credential-fixture");
+    let after = crate::logs::native_logs(0)
+        .last()
+        .map_or(0, |entry| entry.seq);
+    assert!(native_llm_read(private.to_string_lossy().into_owned()).is_err());
+    let entries = crate::logs::native_logs(after);
+    let entry = entries
+        .iter()
+        .find(|entry| entry.text.contains("LLM configuration read:"))
+        .unwrap();
+    assert_eq!(entry.source, crate::logs::Source::Deas);
+    assert!(entry.text.starts_with("ERROR:"));
+    assert!(!entry.text.contains("private-credential-fixture"));
+}
 use std::io::{Read, Write};
 use std::net::TcpListener;
 

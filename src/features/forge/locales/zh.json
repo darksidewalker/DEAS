@@ -1,4 +1,6 @@
 {
+  "forge.setup.required": "使用 Prompt Forge 或 AI 助手前，请在此配置 LLM 模型。草稿已保留，未启动生成。",
+  "forge.setup.environment": "请先安装或打开 DEAS 环境，然后添加本地 GGUF 模型或配置 LLM 服务器。",
   "forge.button": "Prompt Forge",
   "forge.model": "LLM 模型",
   "forge.loading": "正在加载模型…",

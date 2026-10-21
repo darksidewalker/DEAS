@@ -1,4 +1,13 @@
 {
+  "studio.quick.unavailable": "Unavailable or incompatible selections: {names}. Select compatible dependencies explicitly, disable optional processing, or reset to defaults.",
+  "studio.layout.settings": "Resize Settings",
+  "studio.layout.queue": "Resize Queue",
+  "studio.quick.title": "Quick Settings",
+  "studio.quick.openStudioFirst": "Open Studio first to enable reset actions.",
+  "studio.quick.layout": "Reset layout",
+  "studio.quick.defaults": "Reset to defaults…",
+  "studio.quick.confirm": "Reset Studio authoring controls to defaults (including prompts, model selection, Options, LoRAs, presets/wildcards and post-processing)? Media, libraries, projects, stars, job history, queued/running jobs and backend configuration are kept.",
+  "studio.quick.confirmProject": "Reset this project’s editable Studio controls to defaults? The changed draft will autosave. Global Studio preferences, media, libraries, projects, stars, job history, queued/running jobs and backend configuration are kept.",
   "studio.run.opt.outputNaming": "Output naming",
   "studio.run.opt.outputNaming.hint": "Relative to Output; no extension. The saver adds extension and counter. Placeholders (example value, local time):",
   "studio.run.opt.outputNaming.invalid": "Invalid naming: use a relative path with letters A–Z, digits, _ - . and /, and only the listed variables. No empty/parent folders, trailing dots or device names; max 512 characters, 180 per segment.",

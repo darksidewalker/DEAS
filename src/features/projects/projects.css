@@ -1,19 +1,14 @@
-.project-bar {
- display: flex;
- flex-wrap: wrap;
- align-items: center;
- gap: .4rem .6rem;
- box-sizing: border-box;
- width: 100%;
- min-width: 0;
- max-width: 100%;
- padding: .65rem;
- margin-bottom: .75rem;
- border: 1px solid #435256;
- border-radius: 8px;
- background: var(--surface);
-}
-.project-bar > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-.project-bar-path { flex: 1 1 12rem; min-width: 0; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
-.project-bar [data-project-status] { min-width: 0; font-size: .8rem; overflow-wrap: anywhere; }
-.project-bar > small { flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }
+.project-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .3rem .5rem; min-width: 0; max-width: 100%; }
+.project-menu { position: relative; }
+.project-menu > summary { cursor: pointer; list-style: none; padding: .4rem .6rem; }
+.project-menu > summary::-webkit-details-marker { display: none; }
+.project-menu-actions { position: fixed; z-index: 40; max-height: calc(100vh - 16px); overflow-y: auto; width: min(20rem, calc(100vw - 2rem)); padding: .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px #0006; }
+.project-menu:not([open]) > .project-menu-actions { display: none; }
+.project-menu-actions > button { display: block; width: 100%; max-width: 100%; margin-bottom: .3rem; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.project-menu-actions > small { display: block; font-size: .75rem; }
+.project-bar-path { max-width: 12rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
+.project-status { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .5rem; min-width: 0; max-width: 100%; padding-top: .25rem; }
+.project-status .project-bar-path { flex: 1 1 100%; max-width: 100%; }
+.project-status [data-project-status] { font-size: .75rem; overflow-wrap: anywhere; }
+.project-status > small { flex-basis: 100%; overflow-wrap: anywhere; }
+#project-actions-slot { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }

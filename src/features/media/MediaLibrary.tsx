@@ -4,6 +4,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
 import { describeMedia, dragItem, itemFromEntry, itemFromFile, listMedia, type MediaEntry, type MediaItem, type MediaListing } from '../../lib/media';
 import { usePref } from '../../lib/preferences';
+import { StarMediaButton } from './StarMediaButton';
+import { relocatedMediaItem, type MediaRelocation } from '../../lib/media';
 import './media.css';
 const depths=[1,2,3,4,5];
 const isDepth=(v:unknown):v is number=>typeof v==='number'&&depths.includes(v);
@@ -52,7 +54,7 @@ export type MediaType=typeof mediaTypes[number];
 /** Extra right-click entry; `blocked` (a reason) shows it disabled with that reason. */
 export interface MediaAction { label:string; onClick:()=>void; blocked?:string }
 export interface MediaLibraryProps { selected: MediaItem|null; onSelect: (item: MediaItem) => void; roots?: MediaRoots; /** Bump after a generation finished so an open output folder re-lists. */ outputRevision?: number; /** Case-insensitive name filter. */ filter?: string; /** Files by newest, name or largest; folders live in the navigator. */ sort?: MediaSort; /** Tiles, large thumbnails or a name list. */ view?: MediaView; /** Only this media type (folders stay in the navigator). */ type?: MediaType; /** Badge per file path, e.g. a reference label. */ marks?: Map<string,string>; /** Feature entries for a file's right-click menu. */ actions?: (item:MediaItem)=>MediaAction[] }
-/** Media library plugin: read-only folder browsing plus drag & drop. Nothing is copied or moved. */
+/** Media browser with explicit native-authorized physical starring. */
 export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter='',sort='date',view='tiles',type='all',marks,actions}:MediaLibraryProps){
  const {t}=useI18n();
  const native=isTauri();
@@ -87,6 +89,10 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  useEffect(()=>{if(native)void open(roots.output??roots.input??'');return()=>{version.current++;};},[native,roots.output,roots.input]);
  const inOutput=!!roots.output&&!!listing&&listing.path.startsWith(roots.output);
  useEffect(()=>{if(outputRevision&&inOutput&&listing)void open(listing.path);},[outputRevision]); // eslint-disable-line react-hooks/exhaustive-deps
+ useEffect(()=>{
+  const moved=(event:Event)=>{const move=(event as CustomEvent<MediaRelocation>).detail;listings.clear();thumbs.clear();setDirectories({});setDropped(items=>items.map(item=>relocatedMediaItem(item,move)));if(listing)void open(listing.path);};
+  window.addEventListener('deas-media-relocated',moved);return()=>window.removeEventListener('deas-media-relocated',moved);
+ },[listing]);
  const changeDepth=(levels:number)=>{setDepth(levels);if(listing)void open(listing.path,levels);};
  // Clickable path segments: each opens its prefix (POSIX and Windows roots).
  const crumbs=(path:string)=>{const parts=path.split(/[\\/]+/).filter(Boolean);const root=path.startsWith('/')?'/':'';return parts.map((part,i)=>({label:part,path:root+parts.slice(0,i+1).join('/')}));};
@@ -144,6 +150,7 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
    {(roots.input||roots.output)&&<div className="media-roots" role="group" aria-label={t('media.roots')}>{(['output','input'] as const).map(key=>roots[key]&&<button key={key} type="button" data-media-root={key} aria-pressed={listing?.path.startsWith(roots[key]!)} onClick={()=>void open(roots[key]!)}>{t(`media.root.${key}`)}</button>)}</div>}
 
    <label className="media-depth"><span>{t('media.depth')}</span><select value={depth} onChange={e=>changeDepth(Number(e.target.value))}>{depths.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
+   <span className="media-drop-hint">{t(native?'media.dropHelp':'media.browserHelp')}</span>
    <button type="button" disabled={!native} onClick={()=>void pick()}>{t('media.openFolder')}</button></header>
   <div className="media-browser">
    {listing&&<nav className="media-folders" aria-label={t('media.folders')}>
@@ -151,13 +158,13 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
     <ul>{treeRoot&&folderBranch(treeRoot,crumbs(treeRoot).at(-1)?.label??treeRoot)}</ul>
    </nav>}
    <div className="media-files">
-  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.filter(i=>type==='all'||i.media===type).map((item,i)=><li key={`${item.src}-${i}`} data-mark={mark(item.path)}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable onDragStart={e=>dragItem(e.dataTransfer,item)} onContextMenu={onMenu(item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button>{badge(item.path)}</li>)}</ul>}
+  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.filter(i=>type==='all'||i.media===type).map((item,i)=><li key={`${item.src}-${i}`} data-mark={mark(item.path)}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable onDragStart={e=>dragItem(e.dataTransfer,item)} onContextMenu={onMenu(item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button>{badge(item.path)}<StarMediaButton item={item}/></li>)}</ul>}
   {error&&<p className="media-error" role="alert">{error}</p>}
-  {listing&&<Tiles folder={listing.path} layout={view} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path} data-mark={mark(entry.path)}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onContextMenu={onMenu(itemFromEntry(entry))} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button>{badge(entry.path)}</li>}/>}
+  {listing&&<Tiles folder={listing.path} layout={view} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path} data-mark={mark(entry.path)}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onContextMenu={onMenu(itemFromEntry(entry))} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button>{badge(entry.path)}<StarMediaButton key={`${entry.path}:${outputRevision}`} item={itemFromEntry(entry)!}/></li>}/>}
   {menu&&<div className="media-menu" role="menu" aria-label={menu.item.name} style={{left:Math.min(menu.x,window.innerWidth-200),top:Math.min(menu.y,window.innerHeight-48*(1+menu.actions.length))}}>
    {menu.actions.map((a,i)=><button key={a.label} type="button" role="menuitem" autoFocus={i===0} disabled={!!a.blocked} onClick={()=>{setMenu(null);a.onClick();}}>{a.label}{a.blocked&&<small>{a.blocked}</small>}</button>)}
    {native&&menu.item.path&&<button type="button" role="menuitem" autoFocus={!menu.actions.length} onClick={()=>reveal(menu.item.path!)}>{t('media.reveal')}</button>}</div>}
-  <p className="media-help">{listing&&!visible.length&&!error?t('media.empty'):listing?.truncated?t('media.truncated'):t(native?'media.dropHelp':'media.browserHelp')}</p>
+  {listing&&!visible.length&&!error?<p className="media-help">{t('media.empty')}</p>:listing?.truncated?<p className="media-help">{t('media.truncated')}</p>:null}
    </div>
   </div>
  </aside>;

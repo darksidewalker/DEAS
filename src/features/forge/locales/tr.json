@@ -1,4 +1,6 @@
 {
+  "forge.setup.required": "Prompt Forge veya yapay zekâ yardımcısını kullanmadan önce burada bir LLM modeli yapılandırın. Taslağınız korundu; üretim başlatılmadı.",
+  "forge.setup.environment": "Önce bir DEAS ortamı kurun veya açın, ardından yerel GGUF modeli ekleyin ya da LLM sunucusu yapılandırın.",
   "forge.button": "Prompt Forge",
   "forge.model": "LLM modeli",
   "forge.loading": "Modeller yükleniyor…",

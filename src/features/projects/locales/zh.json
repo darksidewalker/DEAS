@@ -1,4 +1,8 @@
 {
+  "projects.menu": "项目操作",
+  "projects.saveAs": "另存为项目…",
+  "projects.packageImport": "导入项目ZIP…",
+  "projects.packageExport": "导出草稿ZIP…",
   "projects.new": "新建项目",
   "projects.open": "打开项目",
   "projects.close": "关闭项目",

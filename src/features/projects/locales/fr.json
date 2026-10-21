@@ -1,4 +1,8 @@
 {
+  "projects.menu": "Actions du projet",
+  "projects.saveAs": "Enregistrer comme projet…",
+  "projects.packageImport": "Importer un projet ZIP…",
+  "projects.packageExport": "Exporter le brouillon ZIP…",
   "projects.new": "Nouveau projet",
   "projects.open": "Ouvrir un projet",
   "projects.close": "Fermer le projet",

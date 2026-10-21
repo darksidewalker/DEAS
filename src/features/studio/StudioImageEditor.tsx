@@ -49,6 +49,8 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   const masksRef=useRef(masks);masksRef.current=masks;
   const gesture=useRef<null|{pointer:number;kind:'paint';ctx:CanvasRenderingContext2D;mask?:Mask;map:(p:Point)=>Point;k:number;last:Point;erase:boolean;diameter:number;shape:'round'|'square';color:string}|{pointer:number;kind:'pan';start:Point;view:View}|{pointer:number;kind:'move'|'resize';start:Point;layer:ImageLayer}>(null);
   const [base,setBase]=useState<ImageLayer>(()=>({id:'base',name:source.name,src:source.src,x:0,y:0,width:source.width,height:source.height,visible:true}));
+  // A native relocation changes the location, not this source's paint/masks/geometry.
+  useEffect(()=>{setBase(value=>value.src===source.src&&value.name===source.name?value:{...value,src:source.src,name:source.name});},[source.src,source.name]);
   const [baseIndex,setBaseIndex]=useState(0);
   const images=[...layers];images.splice(Math.min(baseIndex,images.length),0,base);
   const updateImages=(next:ImageLayer[])=>{const i=next.findIndex(l=>l.id==='base');setBase(next[i]??{...base,visible:false});setBaseIndex(Math.max(0,i));onLayers(next.filter(l=>l.id!=='base'));};

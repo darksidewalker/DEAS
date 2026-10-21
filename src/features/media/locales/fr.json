@@ -1,4 +1,8 @@
 {
+  "media.star": "Marquer {name}",
+  "media.starred": "{name} marqué",
+  "media.star.external": "Les médias externes, distants ou non gérés ne peuvent pas être déplacés.",
+  "media.star.checking": "Vérification de la disponibilité…",
   "media.title": "Médias",
   "media.openFolder": "Ouvrir un dossier…",
   "media.reveal": "Ouvrir dans le dossier",

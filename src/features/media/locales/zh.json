@@ -1,4 +1,8 @@
 {
+  "media.star": "收藏 {name}",
+  "media.starred": "已收藏 {name}",
+  "media.star.external": "无法移动外部、远程或未托管的媒体。",
+  "media.star.checking": "正在检查收藏可用性…",
   "media.title": "媒体",
   "media.openFolder": "打开文件夹…",
   "media.reveal": "在文件夹中打开",

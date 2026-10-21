@@ -1,9 +1,29 @@
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
+import type { JobStatus } from './jobs';
 export type MediaKind = 'image'|'video'|'audio';
 export interface MediaEntry {name:string;path:string;kind:'directory'|'file';symlink:boolean;media:MediaKind|null;size:number;modified:number}
 export interface MediaListing {path:string;parent:string|null;entries:MediaEntry[];truncated:boolean}
 /** What a tab can show: a browsable URL plus its kind. Browser drops use revocable blob URLs. */
 export interface MediaItem {name:string;src:string;media:MediaKind;path?:string}
+export interface MediaRelocation {oldPath:string;path:string}
+/** Fired only after native move/reference repair succeeds; hosts repair their retained selections/jobs. */
+export async function starMedia(path:string):Promise<MediaRelocation> {
+ const result=await invoke<MediaRelocation>('native_media_star',{path});
+ if(!result||result.oldPath!==path||typeof result.path!=='string')throw new Error('Invalid native media relocation');
+ window.dispatchEvent(new CustomEvent<MediaRelocation>('deas-media-relocated',{detail:result}));
+ return result;
+}
+export function relocatedMediaItem(item:MediaItem,move:MediaRelocation):MediaItem {
+ return item.path===move.oldPath?{...item,path:move.path,name:move.path.split(/[\\/]/).at(-1)??item.name,src:isTauri()?convertFileSrc(move.path):move.path}:item;
+}
+/** Repair location handles only; submitted intent/provenance stays immutable. */
+export function relocatedJob(job:JobStatus,root:string,move:MediaRelocation):JobStatus {
+ const normalized=(path:string)=>path.replace(/\\/g,'/').replace(/\/+$/,'');
+ const relative=normalized(move.path).slice(normalized(root).length+1);
+ if(!normalized(move.path).startsWith(normalized(root)+'/'))return job;
+ const outputs=job.outputs.map(output=>normalized([root,output.subfolder,output.filename].filter(Boolean).join('/'))===normalized(move.oldPath)?{...output,filename:relative.split('/').at(-1)!,subfolder:relative.split('/').slice(0,-1).join('/')}:output);
+ return outputs.some((output,index)=>output!==job.outputs[index])?{...job,outputs}:job;
+}
 /** `depth` 1 = this folder only; deeper levels add files from subfolders with relative names. */
 export async function listMedia(path:string,depth=1):Promise<MediaListing> {
  const listing=await invoke<MediaListing>('native_media_list',{path,depth});

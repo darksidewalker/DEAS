@@ -39,6 +39,7 @@ struct Session {
     plan: Option<Plan>,
     job: Option<Job>,
     output: Option<std::sync::Arc<job_outputs::CachedOutput>>,
+    completed: std::collections::VecDeque<job_outputs::CompletedOutputs>,
 }
 
 #[derive(Clone)]
@@ -48,6 +49,7 @@ struct Plan {
     intent: Value,
     graph: Value,
     consumed: bool,
+    media_root: Option<job_outputs::MediaRoot>,
 }
 
 impl Plan {
@@ -1107,6 +1109,7 @@ impl Jobs {
             intent,
             graph,
             consumed: false,
+            media_root: None,
         };
         let mut session = self.lock()?;
         if session.preparing.as_deref() != Some(id.as_str()) {
@@ -1230,7 +1233,9 @@ impl Jobs {
             .filter(|j| j.id == job_id)
             .ok_or("Native job changed during status request")?;
         *current = job;
-        Ok(current.snapshot())
+        let result = current.snapshot();
+        session.retain_completed();
+        Ok(result)
     }
 }
 
@@ -1455,14 +1460,20 @@ async fn poll(job: &mut Job) -> Result<(), String> {
                     .map(|m| {
                         format!(
                             "node {} ({}): {}: {}",
-                            m[1]["node_id"],
-                            m[1]["node_type"],
-                            m[1]["exception_type"],
+                            m[1]["node_id"].as_str().unwrap_or("unknown"),
+                            m[1]["node_type"].as_str().unwrap_or("unknown"),
+                            m[1]["exception_type"].as_str().unwrap_or("Error"),
                             m[1]["exception_message"]
+                                .as_str()
+                                .unwrap_or("Backend execution failed")
                         )
                     })
                     .unwrap_or_else(|| "Backend reported diagnostic execution error".into());
-                job.error = Some(bounded(&diagnostic));
+                job.error = Some(
+                    bounded(&diagnostic.replace(['\r', '\n'], " "))
+                        .trim()
+                        .to_owned(),
+                );
                 job.outputs.clear();
                 return Ok(());
             }
@@ -1512,9 +1523,20 @@ pub async fn native_job_prepare(
 #[tauri::command]
 pub async fn native_job_submit(
     state: tauri::State<'_, Jobs>,
+    engine: tauri::State<'_, crate::install::Engine>,
     plan_id: String,
     confirmed: bool,
 ) -> Result<Value, String> {
+    {
+        let mut session = state.lock()?;
+        if let Some(plan) = session
+            .plan
+            .as_mut()
+            .filter(|p| p.id == plan_id && !p.consumed)
+        {
+            plan.media_root = job_outputs::MediaRoot::owned(&engine, plan.base.as_str());
+        }
+    }
     state.submit(plan_id, confirmed).await
 }
 #[tauri::command]

@@ -1,4 +1,6 @@
 {
+  "forge.setup.required": "Configurez ici un modèle LLM avant d’utiliser Prompt Forge ou une aide IA. Votre brouillon est conservé ; aucune génération n’a démarré.",
+  "forge.setup.environment": "Installez ou ouvrez d’abord un environnement DEAS, puis ajoutez un modèle GGUF local ou configurez un serveur LLM.",
   "forge.button": "Prompt Forge",
   "forge.model": "Modèle LLM",
   "forge.loading": "Chargement des modèles…",

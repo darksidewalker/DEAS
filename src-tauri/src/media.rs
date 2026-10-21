@@ -1,10 +1,13 @@
-//! Read-only media browsing for the media library plugin: list a folder or
-//! describe dropped paths, plus cached thumbnails for image tiles. Never writes
-//! into browsed folders; thumbnails live in the app cache directory.
+//! Media browsing, cached thumbnails, and explicit native-authorized starring.
+//! Browsing never writes into folders; physical moves live in the star service.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+
+#[path = "media_star.rs"]
+pub(crate) mod star;
+pub use star::{native_media_star, native_media_star_notice, native_media_star_status};
 
 const MAX_ENTRIES: usize = 5000;
 /// Longest thumbnail edge: twice the 5.6rem tile so HiDPI tiles stay sharp.

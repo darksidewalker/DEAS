@@ -1,3 +1,9 @@
+export function containedImageHit(point:Point,image:{width:number;height:number},box:{left:number;top:number;width:number;height:number}):boolean{
+ if(![point.x,point.y,image.width,image.height,box.left,box.top,box.width,box.height].every(Number.isFinite)||image.width<=0||image.height<=0||box.width<=0||box.height<=0)return false;
+ const scale=Math.min(box.width/image.width,box.height/image.height),width=image.width*scale,height=image.height*scale;
+ const left=box.left+(box.width-width)/2,top=box.top+(box.height-height)/2;
+ return point.x>=left&&point.x<=left+width&&point.y>=top&&point.y<=top+height;
+}
 export function zoomAt(v:View,p:Point,wanted:number,maxScale=16):View{
  const scale=Math.max(.05,Math.min(maxScale,wanted)),ratio=scale/v.scale;
  return {scale,x:p.x-(p.x-v.x)*ratio,y:p.y-(p.y-v.y)*ratio};

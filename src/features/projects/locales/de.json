@@ -1,4 +1,8 @@
 {
+  "projects.menu": "Projektaktionen",
+  "projects.saveAs": "Als Projekt speichern…",
+  "projects.packageImport": "Projekt-ZIP importieren…",
+  "projects.packageExport": "Entwurf als ZIP exportieren…",
   "projects.new": "Neues Projekt",
   "projects.open": "Projekt öffnen",
   "projects.close": "Projekt schließen",

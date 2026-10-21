@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults, type NativeBackendStatus } from '../../lib/setup';
@@ -6,7 +6,9 @@ import './setup.css';
 import { OpenComfyWorkflow, sendComfyWorkflow, type ComfyWorkflow } from '../../lib/comfyWorkflow';
 import { OwnedBackendPanel } from './OwnedBackendPanel';
 import { BackendPanels } from './BackendPanels';
+import { llmSetupEvent } from '../../lib/llm';
 import { RepoLinks } from './RepoLinks';
+import { QuickSettings } from '../../features/studio/QuickSettings';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
 import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
 import { LanguageSetting } from '../../features/settings/LanguageSetting';
@@ -18,9 +20,9 @@ import { forgetPref, isBoolean, isString, readPref, usePref, writePref } from '.
 // Root of the last successful install; restored on start only while its deas-install.json still exists.
 const installedKey='install.root';
 /** Keeps the studio/backend alive while top-level views change. */
-export interface AiOSetupProps { /** `inspect` is true for the explicit Inspect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; footer?: ReactNode; studioTab?: 'generate'|'forge'|'map'; onStudioTab?: (tab:'generate'|'forge'|'map')=>void }
+export interface AiOSetupProps { /** `inspect` is true for the explicit Inspect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; footer?: ReactNode; studioTab?: 'generate'|'forge'|'map'; onStudioTab?: (tab:'generate'|'forge'|'map')=>void; onStudioActiveChange?: (active:boolean)=>void }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
-export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio, footer, studioTab='generate', onStudioTab }: AiOSetupProps) {
+export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio, footer, studioTab='generate', onStudioTab, onStudioActiveChange }: AiOSetupProps) {
  const {t}=useI18n();
  const native=isTauri();
  const [verified,setVerified]=useState<string[]>([]);
@@ -54,6 +56,10 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const signature=JSON.stringify([plan,folderDraft]);
  const planMatches=(['models','input','output'] as const).every(key=>nativePlan?.request.folders?.[key]===folderDraft[key])&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
  const [view,setView]=useState<'studio'|'downloads'|'comfy'|'backend'|'logs'>('backend');
+ // Invalidate retained Studio work in the visibility commit, before deferred reads can redirect.
+ useLayoutEffect(()=>{onStudioActiveChange?.(view==='studio');},[view,onStudioActiveChange]);
+ const [llmSetupRequest,setLlmSetupRequest]=useState(0);
+ useEffect(()=>{const open=()=>{setLlmSetupRequest(n=>n+1);setView('backend');};window.addEventListener(llmSetupEvent,open);return()=>window.removeEventListener(llmSetupEvent,open);},[]);
  const [backendStatus,setBackendStatus]=useState<NativeBackendStatus|null>(null);
  const [backendStartedNotice,setBackendStartedNotice]=useState(false);
  useEffect(()=>{
@@ -205,13 +211,13 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   <div className="aio-topbar">  <div className="aio-tabs" role="tablist" aria-label={t('setup.decisions')}>
    <button type="button" role="tab" data-node="studio" className="aio-tab" disabled={folderPickerBusy} data-studio-tab="generate" aria-selected={view==='studio'&&studioTab==='generate'} onClick={()=>{onStudioTab?.('generate');setView('studio');}}>{t('setup.tab.studio')}</button>
    <button type="button" role="tab" data-node="optional-downloads" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='downloads'} onClick={()=>setView('downloads')}>{t('downloads.title')}</button>
-   <button type="button" role="tab" data-studio-tab="forge" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='studio'&&studioTab==='forge'} onClick={()=>{onStudioTab?.('forge');setView('studio');}}>{t('studio.tab.forge')}</button>
+   <button type="button" role="tab" data-studio-tab="forge" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='studio'&&studioTab==='forge'} onClick={()=>{onStudioTab?.('forge');setView('studio');window.dispatchEvent(new Event('deas:forge-open'));}}>{t('studio.tab.forge')}</button>
    <button type="button" role="tab" data-studio-tab="map" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='studio'&&studioTab==='map'} onClick={()=>{onStudioTab?.('map');setView('studio');}}>{t('studio.tab.map')}</button>
    <button type="button" role="tab" data-node="comfy" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='comfy'} onClick={()=>setView('comfy')}>{t('setup.tab.comfy')}</button>
    <button type="button" role="tab" data-node="settings" className="aio-tab" disabled={folderPickerBusy} aria-selected={inBackend} onClick={()=>setView('backend')}>{t('settings.button')}</button>
    <button type="button" role="tab" data-node="logs" className="aio-tab" disabled={folderPickerBusy} aria-selected={view==='logs'} onClick={()=>setView('logs')}>{t('logs.title')}</button>
   </div>
-<RepoLinks canStar={verified.includes('github')}/></div>
+<QuickSettings/><RepoLinks canStar={verified.includes('github')}/></div>
   {inBackend&&<div className="backend-overview" aria-label={t('setup.overview')}>
    <span data-backend-installed className={installed?'is-set':undefined}>{installed&&<span aria-hidden="true">✓ </span>}{t('setup.backendLifecycle.title')} · <span>{t(installed?'setup.tab.installed':'setup.overview.missing')}</span>{(backendStatus?.state==='starting'||backendStatus?.state==='running')&&<small data-backend-state> · {t(backendStatus.state==='running'?'setup.backendStarted':'setup.backendStarting')}</small>}</span>
    {authProviders.filter(p=>configured.includes(p.id)).map(p=><span key={p.id} className="is-set" title={t('downloads.auth.set')} data-provider-configured={p.id}><span aria-hidden="true">✓ </span>{p.label} · {t('downloads.auth.set')}</span>)}
@@ -228,7 +234,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {view==='logs'&&<LogsPanel/>}
   {inBackend&&<LanguageSetting/>}
   {inBackend&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}{installedRoot&&<FoldersPanel root={installedRoot} disabled={running||busy||folderPickerBusy} onChange={setFolders}/>}</>}
-  <div hidden={!inBackend}><BackendPanels root={installedRoot} modelsDir={folders.models} onRestart={()=>setRestartSignal(n=>n+1)} onAuthChange={()=>{setConfigured([]);setVerified([]);setAuthRevision(n=>n+1);}}/></div>
+  <div hidden={!inBackend}><BackendPanels llmSetupRequest={llmSetupRequest} root={installedRoot} modelsDir={folders.models} onRestart={()=>setRestartSignal(n=>n+1)} onAuthChange={()=>{setConfigured([]);setVerified([]);setAuthRevision(n=>n+1);}}/></div>
   <DownloadWorkspace view={view==='downloads'?'downloads':null} authRevision={authRevision} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
   {view!=='comfy'&&<>{error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}</>}
   </div>

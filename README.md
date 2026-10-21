@@ -6,7 +6,7 @@ A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model
 
 [Documentation](docs/README.md) · [Getting started](docs/GETTING-STARTED.md) · [News](docs/NEWS.md) · [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
-![Studio media preview — browser IPC fixture, not native/model acceptance](assets/deas-media-start-1440.png)
+![DEAS first start — Setup screen with detected GPU defaults, provider authorization and the installation review; native Linux render, no installation run](assets/deas-first-start-0.1.38.png)
 
 ## Install and start
 
@@ -40,6 +40,7 @@ In the app, review **AiO installer**, choose a **new writable environment folder
 | --- | --- |
 | Generate, choose models/LoRAs, edit images, configure output/video/continuity | [Studio](docs/STUDIO.md) |
 | Write/enhance prompts, configure LLMs, use presets and wildcards | [Prompting](docs/PROMPTING.md) |
+| Save/reopen image drafts and import/export draft ZIP packages | [Projects](docs/PROJECTS.md) |
 | Browse media, inspect metadata and preview results | [Media](docs/MEDIA.md) |
 | Browse/download resources and authorize providers | [Library](docs/LIBRARY.md) |
 | Manage the owned backend, startup settings, folders and language | [Backend](docs/BACKEND.md) |

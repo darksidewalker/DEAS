@@ -1,4 +1,8 @@
 {
+  "media.star": "{name} をスターに移動",
+  "media.starred": "{name} はスター済み",
+  "media.star.external": "外部・リモート・管理対象外のメディアは移動できません。",
+  "media.star.checking": "スターの利用可否を確認中…",
   "media.title": "メディア",
   "media.openFolder": "フォルダーを開く…",
   "media.reveal": "フォルダーで開く",

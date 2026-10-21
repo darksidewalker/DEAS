@@ -1,6 +1,386 @@
 use super::*;
 use std::path::Path;
 
+fn draft_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in entries {
+        zip.start_file(
+            *name,
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn package_roundtrip_copies_only_committed_manifest_and_current_input() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let source = folder.path().join("日本語 source.png");
+    let bytes = png_file(&source);
+    let saved = projects
+        .import_image(&first.id, 0, Some(&source))
+        .unwrap()
+        .unwrap();
+    let saved = projects
+        .save(
+            &saved.id,
+            saved.revision,
+            ImageDraft {
+                positive_prompt: "private 日本語".into(),
+                ..saved.draft
+            },
+        )
+        .unwrap();
+    let root = Path::new(&saved.root);
+    for name in [
+        "credentials.json",
+        "model.safetensors",
+        "result.png",
+        "orphan.png",
+    ] {
+        std::fs::write(root.join(name), b"secret").unwrap();
+    }
+    let package = folder.path().join("日本語 draft.zip");
+    assert!(!projects
+        .export_package(&saved.id, saved.revision, None)
+        .unwrap());
+    assert!(projects
+        .export_package(&saved.id, saved.revision, Some(&package))
+        .unwrap());
+    let original_package = std::fs::read(&package).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&original_package)).unwrap();
+    assert_eq!(zip.len(), 2);
+    let mut exported_manifest = zip.by_index(0).unwrap();
+    assert_eq!(exported_manifest.name().unwrap(), MANIFEST);
+    let mut exported_bytes = Vec::new();
+    exported_manifest.read_to_end(&mut exported_bytes).unwrap();
+    assert_eq!(exported_bytes, std::fs::read(root.join(MANIFEST)).unwrap());
+    assert!(projects
+        .export_package(&saved.id, saved.revision, Some(&package))
+        .is_err());
+    assert_eq!(std::fs::read(&package).unwrap(), original_package);
+    std::fs::remove_file(&source).unwrap();
+    assert!(projects
+        .import_package(Some(&package), None)
+        .unwrap()
+        .is_none());
+    let imported = projects
+        .import_package(Some(&package), Some(folder.path()))
+        .unwrap()
+        .unwrap();
+    assert_ne!(imported.root, saved.root);
+    assert_eq!(
+        (
+            imported.id.clone(),
+            imported.revision,
+            imported.draft.clone()
+        ),
+        (saved.id.clone(), saved.revision, saved.draft.clone())
+    );
+    assert_eq!(
+        std::fs::read(&imported.input.as_ref().unwrap().path).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        std::fs::read(Path::new(&imported.root).join(MANIFEST)).unwrap(),
+        std::fs::read(root.join(MANIFEST)).unwrap()
+    );
+    assert_eq!(std::fs::read(&package).unwrap(), original_package);
+    projects.close(&imported.id).unwrap();
+    assert_eq!(
+        projects
+            .open(Some(Path::new(&imported.root)))
+            .unwrap()
+            .unwrap(),
+        imported
+    );
+}
+
+#[test]
+fn package_export_rejects_stale_external_changes_and_replaced_locks() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let output = folder.path().join("output.zip");
+    assert!(projects
+        .export_package(&first.id, 1, Some(&output))
+        .is_err());
+    assert!(!output.exists());
+    let manifest = Path::new(&first.root).join(MANIFEST);
+    let original = std::fs::read(&manifest).unwrap();
+    std::fs::write(&manifest, b"{}").unwrap();
+    assert!(projects
+        .export_package(&first.id, 0, Some(&output))
+        .is_err());
+    std::fs::write(&manifest, original).unwrap();
+    std::fs::rename(
+        Path::new(&first.root).join(LOCK),
+        Path::new(&first.root).join("old-lock"),
+    )
+    .unwrap();
+    std::fs::write(Path::new(&first.root).join(LOCK), b"").unwrap();
+    assert!(projects
+        .export_package(&first.id, 0, Some(&output))
+        .is_err());
+    assert!(!output.exists());
+}
+
+#[test]
+fn malicious_packages_leave_source_active_and_parent_unchanged() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let raw = std::fs::read(Path::new(&first.root).join(MANIFEST)).unwrap();
+    let archive = folder.path().join("untrusted.zip");
+    let mut bads = vec![
+        b"not ZIP".to_vec(),
+        draft_zip(&[(MANIFEST, &raw), (".deas-project.lock", b"secret")]),
+        draft_zip(&[(MANIFEST, &raw), ("credentials.json", b"secret")]),
+    ];
+    for name in [
+        "../outside",
+        "/absolute",
+        "C:\\outside",
+        "a/b",
+        "a\\b",
+        "project.json/",
+        "PROJECT.JSON",
+    ] {
+        bads.push(draft_zip(&[(name, b"bad")]));
+    }
+    bads.push(draft_zip(&[(MANIFEST, &raw), ("a", b""), ("b", b"")]));
+    let mut duplicate = draft_zip(&[(MANIFEST, &raw), ("project.jsox", &raw)]);
+    for i in 0..duplicate.len() - 11 {
+        if &duplicate[i..i + 12] == b"project.jsox" {
+            duplicate[i + 11] = b'n';
+        }
+    }
+    bads.push(duplicate);
+    for (field, value) in [
+        ("schemaVersion", serde_json::json!(2)),
+        ("revision", serde_json::json!(9_007_199_254_740_992_u64)),
+        ("token", serde_json::json!("SECRET")),
+    ] {
+        let mut data: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        data[field] = value;
+        bads.push(draft_zip(&[(
+            MANIFEST,
+            &serde_json::to_vec(&data).unwrap(),
+        )]));
+    }
+    let mut crc_bad = draft_zip(&[(MANIFEST, &raw)]);
+    crc_bad[30 + MANIFEST.len()] ^= 42;
+    bads.push(crc_bad);
+    bads.push(draft_zip(&[(
+        MANIFEST,
+        &vec![b' '; MAX_MANIFEST as usize + 1],
+    )]));
+    let mut huge_declared = draft_zip(&[(MANIFEST, &raw)]);
+    let central = huge_declared
+        .windows(4)
+        .position(|b| b == b"PK\x01\x02")
+        .unwrap();
+    huge_declared[central + 24..central + 28].copy_from_slice(&u32::MAX.to_le_bytes());
+    bads.push(huge_declared);
+    let mut link = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    link.add_symlink(
+        MANIFEST,
+        "outside",
+        zip::write::SimpleFileOptions::default(),
+    )
+    .unwrap();
+    bads.push(link.finish().unwrap().into_inner());
+    for bad in bads {
+        std::fs::write(&archive, &bad).unwrap();
+        let before = std::fs::read_dir(folder.path()).unwrap().count();
+        assert!(projects
+            .import_package(Some(&archive), Some(folder.path()))
+            .is_err());
+        assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), before);
+        assert_eq!(std::fs::read(&archive).unwrap(), bad);
+        assert_eq!(
+            projects
+                .open(Some(Path::new(&first.root)))
+                .unwrap()
+                .unwrap(),
+            first
+        );
+    }
+}
+
+#[test]
+fn package_rejects_missing_extra_and_corrupt_managed_media() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let source = folder.path().join("source.png");
+    let image = png_file(&source);
+    let saved = projects
+        .import_image(&first.id, 0, Some(&source))
+        .unwrap()
+        .unwrap();
+    let manifest = std::fs::read(Path::new(&saved.root).join(MANIFEST)).unwrap();
+    let data: Manifest = serde_json::from_slice(&manifest).unwrap();
+    let name = &data.input.as_ref().unwrap().path;
+    let archive = folder.path().join("bad-media.zip");
+    for bytes in [
+        draft_zip(&[(MANIFEST, &manifest)]),
+        draft_zip(&[(MANIFEST, &manifest), (name, b"not PNG")]),
+    ] {
+        std::fs::write(&archive, bytes).unwrap();
+        assert!(projects
+            .import_package(Some(&archive), Some(folder.path()))
+            .is_err());
+    }
+    let mut corrupt = image;
+    corrupt[45] ^= 1;
+    let mut data = data;
+    use sha2::{Digest, Sha256};
+    data.input.as_mut().unwrap().sha256 = format!("{:x}", Sha256::digest(&corrupt));
+    let manifest = serde_json::to_vec(&data).unwrap();
+    std::fs::write(
+        &archive,
+        draft_zip(&[(MANIFEST, &manifest), (&data.input.unwrap().path, &corrupt)]),
+    )
+    .unwrap();
+    assert!(projects
+        .import_package(Some(&archive), Some(folder.path()))
+        .is_err());
+    assert_eq!(
+        projects
+            .open(Some(Path::new(&saved.root)))
+            .unwrap()
+            .unwrap(),
+        saved
+    );
+}
+
+#[test]
+fn empty_draft_package_roundtrip_and_package_logs_are_redacted() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let package = folder.path().join("SECRET.zip");
+    projects
+        .export_package(&first.id, 0, Some(&package))
+        .unwrap();
+    let imported = projects
+        .import_package(Some(&package), Some(folder.path()))
+        .unwrap()
+        .unwrap();
+    assert!(imported.input.is_none());
+    assert!(projects.import_package(None, None).unwrap().is_none());
+    for _ in 0..2 {
+        assert!(projects
+            .export_package(&first.id, 42, Some(&package))
+            .is_err());
+    }
+    let logs = crate::logs::native_logs(0);
+    let own: Vec<_> = logs
+        .iter()
+        .filter(|e| {
+            e.text.contains(&first.id)
+                && e.text.contains("operation=export-package")
+                && e.text.contains("ERROR")
+        })
+        .collect();
+    assert_eq!(own.len(), 1);
+    assert!(own
+        .iter()
+        .all(|e| !e.text.contains("SECRET") && !e.text.contains(&first.root)));
+}
+
+#[test]
+fn deflated_draft_imports_but_unreferenced_image_and_oversized_archive_do_not() {
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let raw = std::fs::read(Path::new(&first.root).join(MANIFEST)).unwrap();
+    let source = folder.path().join("package.zip");
+    std::fs::write(&source, draft_zip(&[(MANIFEST, &raw)])).unwrap();
+    let imported = projects
+        .import_package(Some(&source), Some(folder.path()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(imported.draft, first.draft);
+    assert_ne!(imported.root, first.root);
+    let input_name = "input-00000000-0000-4000-8000-000000000001.png";
+    std::fs::write(
+        &source,
+        draft_zip(&[(MANIFEST, &raw), (input_name, b"extra")]),
+    )
+    .unwrap();
+    assert!(projects
+        .import_package(Some(&source), Some(folder.path()))
+        .is_err());
+    let huge = std::fs::File::create(&source).unwrap();
+    huge.set_len(MAX_PNG + MAX_MANIFEST + 8193).unwrap();
+    drop(huge);
+    assert!(projects
+        .import_package(Some(&source), Some(folder.path()))
+        .is_err());
+    assert_eq!(
+        projects
+            .open(Some(Path::new(&imported.root)))
+            .unwrap()
+            .unwrap(),
+        imported
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn package_files_reject_symlinks_and_failed_parent_writes_preserve_active() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let folder = parent();
+    let projects = Projects::default();
+    let first = projects.create(Some(folder.path())).unwrap().unwrap();
+    let archive = folder.path().join("draft.zip");
+    projects
+        .export_package(&first.id, 0, Some(&archive))
+        .unwrap();
+    let linked = folder.path().join("linked.zip");
+    symlink(&archive, &linked).unwrap();
+    assert!(projects
+        .import_package(Some(&linked), Some(folder.path()))
+        .is_err());
+    assert!(projects
+        .export_package(&first.id, 0, Some(&linked))
+        .is_err());
+    let target = folder.path().join("read-only");
+    std::fs::create_dir(&target).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o500)).unwrap();
+    assert!(projects
+        .import_package(Some(&archive), Some(&target))
+        .is_err());
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        projects
+            .open(Some(Path::new(&first.root)))
+            .unwrap()
+            .unwrap(),
+        first
+    );
+    assert!(archive.is_file());
+    let source = folder.path().join("input.png");
+    png_file(&source);
+    let saved = projects
+        .import_image(&first.id, 0, Some(&source))
+        .unwrap()
+        .unwrap();
+    std::fs::write(&saved.input.as_ref().unwrap().path, b"corrupt").unwrap();
+    let destination = folder.path().join("corrupt.zip");
+    assert!(projects
+        .export_package(&saved.id, saved.revision, Some(&destination))
+        .is_err());
+    assert!(!destination.exists());
+}
+
 #[test]
 fn window_close_diagnostics_are_fixed_redacted_and_rate_limited() {
     assert!(native_project_close_notice("SECRET/path".into()).is_err());

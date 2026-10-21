@@ -348,7 +348,17 @@ impl Active {
 fn valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|u| u.to_string() == id)
 }
+fn validate_manifest(data: &Manifest) -> Result<(), String> {
+    if data.schema_version != 1 || !valid_id(&data.id) || data.revision > 9_007_199_254_740_991 {
+        return Err("Unsupported or invalid project manifest".into());
+    }
+    data.draft.validate()
+}
 fn validate_input(root: &Root, input: &ProjectInput) -> Result<(), String> {
+    validate_input_reference(input)?;
+    validate_input_bytes(input, &root.read(&input.path, MAX_PNG)?)
+}
+fn validate_input_reference(input: &ProjectInput) -> Result<(), String> {
     if !valid_id(&input.id)
         || input.path != format!("input-{}.png", input.id)
         || input.sha256.len() != 64
@@ -359,11 +369,14 @@ fn validate_input(root: &Root, input: &ProjectInput) -> Result<(), String> {
     {
         return Err("Invalid managed image reference".into());
     }
-    let bytes = root.read(&input.path, MAX_PNG)?;
-    let dimensions = png_dimensions(&bytes)?;
+    Ok(())
+}
+fn validate_input_bytes(input: &ProjectInput, bytes: &[u8]) -> Result<(), String> {
+    validate_input_reference(input)?;
+    let dimensions = png_dimensions(bytes)?;
     use sha2::{Digest, Sha256};
     if dimensions != (input.width, input.height)
-        || format!("{:x}", Sha256::digest(&bytes)) != input.sha256
+        || format!("{:x}", Sha256::digest(bytes)) != input.sha256
     {
         return Err("Managed image integrity mismatch".into());
     }
@@ -433,8 +446,8 @@ fn report_selection(
         .map(|s| s.id.clone());
     report(operation, known_id.as_deref().or(id), result)
 }
-#[derive(Default)]
-pub struct Projects(Mutex<Option<Active>>);
+#[derive(Clone, Default)]
+pub struct Projects(std::sync::Arc<Mutex<Option<Active>>>);
 fn validate_title(title: &str) -> Result<(), String> {
     report(
         "dialog-title",
@@ -606,13 +619,7 @@ impl Projects {
                 let lock = acquire(&root)?;
                 let data: Manifest = serde_json::from_slice(&root.read(MANIFEST, MAX_MANIFEST)?)
                     .map_err(|_| "Invalid project manifest")?;
-                if data.schema_version != 1
-                    || !valid_id(&data.id)
-                    || data.revision > 9_007_199_254_740_991
-                {
-                    return Err("Unsupported or invalid project manifest".into());
-                }
-                data.draft.validate()?;
+                validate_manifest(&data)?;
                 if let Some(input) = &data.input {
                     validate_input(&root, input)?;
                 }
@@ -747,6 +754,10 @@ pub fn native_project_close_notice(reason: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[path = "projects_package.rs"]
+mod package;
+pub use package::{native_project_export_package, native_project_import_package};
 
 #[cfg(test)]
 #[path = "projects_tests.rs"]

@@ -1,4 +1,8 @@
 {
+  "media.star": "{name} markieren",
+  "media.starred": "{name} markiert",
+  "media.star.external": "Externe, entfernte oder nicht verwaltete Medien können nicht verschoben werden.",
+  "media.star.checking": "Verfügbarkeit wird geprüft…",
   "media.title": "Medien",
   "media.openFolder": "Ordner öffnen…",
   "media.reveal": "Im Ordner öffnen",

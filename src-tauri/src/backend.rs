@@ -47,6 +47,8 @@ pub struct Status {
     pub endpoint: Option<String>,
     pub error: Option<String>,
     pub generation_ready: bool,
+    #[serde(skip)]
+    pub(crate) output_root: Option<PathBuf>,
 }
 impl Default for Status {
     fn default() -> Self {
@@ -55,6 +57,7 @@ impl Default for Status {
             endpoint: None,
             error: None,
             generation_ready: false,
+            output_root: None,
         }
     }
 }
@@ -371,6 +374,7 @@ fn terminate(inner: &mut Inner) {
     }
     inner.environment_lock = None;
     inner.status.endpoint = None;
+    inner.status.output_root = None;
 }
 fn fail(inner: &mut Inner, error: String) {
     terminate(inner);
@@ -510,7 +514,14 @@ impl Lifecycle {
             }
             _ => return Err("Unsupported backend".into()),
         }
-        command.args(crate::settings::backend_args(root)?);
+        let folder_args = crate::settings::backend_args(root)?;
+        // Snapshot the exact argv, not settings that can change while this child runs.
+        let output_root = folder_args
+            .windows(2)
+            .find(|pair| pair[0] == "--output-directory")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .unwrap_or_else(|| root.join("ComfyUI/output"));
+        command.args(folder_args);
         command.args(crate::startup::args(root, Some(&approved.plan))?);
         command
             .env_clear()
@@ -595,6 +606,7 @@ impl Lifecycle {
         inner.port = port;
         inner.status = Status {
             state: "starting".into(),
+            output_root: Some(output_root),
             ..Status::default()
         };
         log(&format!(

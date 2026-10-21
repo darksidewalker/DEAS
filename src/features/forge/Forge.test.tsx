@@ -11,6 +11,8 @@ const forgeCalls = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'nat
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('deas.locale.v1', 'en');
   vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'native_llm_read') return { provider: 'ollama', baseUrl: 'http://localhost:11434' };
+    if (command === 'native_media_star_status') return { starred: false, unavailable: null };
     const { route } = args as { route: string };
     if (command === 'native_forge' && route === 'models') return models;
     if (command === 'native_forge' && route === 'write') return { prompt: '1girl, rain', saw_images: 0 };
@@ -208,7 +210,7 @@ it.each([
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'new backend' });
   expect(forgeCalls()).toHaveLength(2);
-  expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual(['native_forge', expect.objectContaining({ baseUrl: endpoint, root, route: 'models' })]);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge').at(-1)).toEqual(['native_forge', expect.objectContaining({ baseUrl: endpoint, root, route: 'models' })]);
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:new');
 });
 
@@ -253,6 +255,7 @@ it.each([
   });
   const view = (endpoint: string, root: string) => <I18nProvider><PromptForge endpoint={endpoint} root={root} onSend={vi.fn()}/></I18nProvider>;
   const { rerender } = render(view('http://127.0.0.1:8188', '/env'));
+  await waitFor(() => expect(first).toBe(false));
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'qwen' });
   await act(async () => {

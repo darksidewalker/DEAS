@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useI18n } from '../../i18n/I18nProvider';
-import { closeProject, createProject, importProjectImage, openProject, saveProject } from '../../lib/projects';
+import { closeProject, createProject, exportProjectPackage, importProjectPackage, importProjectImage, openProject, saveProject } from '../../lib/projects';
 import type { ImageDraft, ProjectSnapshot } from '../../lib/projects';
 import './projects.css';
 
@@ -11,6 +12,26 @@ const draftKeyOf = (value: ImageDraft) => JSON.stringify(value, Object.keys(valu
 export interface ProjectBarProps { draft: ImageDraft; busy: boolean; onRestore: (project: ProjectSnapshot | null) => void }
 export function ProjectBar({ draft, busy, onRestore }: ProjectBarProps) {
  const { t } = useI18n();
+ const [slot, setSlot] = useState<HTMLElement | null>(null);
+ const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+ const menu = useRef<HTMLDetailsElement>(null);
+ const placeMenu = () => {
+  const details = menu.current, actions = details?.querySelector<HTMLElement>('.project-menu-actions');
+  if (!details?.open || !actions) return;
+  const anchor = details.querySelector('summary')!.getBoundingClientRect();
+  const { width, height } = actions.getBoundingClientRect();
+  const top = anchor.bottom + height + 8 <= window.innerHeight ? anchor.bottom + 4 : Math.max(8, anchor.top - height - 4);
+  actions.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
+  actions.style.top = `${top}px`;
+ };
+ useLayoutEffect(() => { setSlot(document.getElementById('project-actions-slot')); setStatusSlot(document.getElementById('project-status-slot')); }, []);
+ useEffect(() => {
+  const dismiss = (event: PointerEvent) => { if (menu.current && !menu.current.contains(event.target as Node)) menu.current.open = false; };
+  document.addEventListener('pointerdown', dismiss);
+  window.addEventListener('resize', placeMenu);
+  window.addEventListener('scroll', placeMenu, true);
+  return () => { document.removeEventListener('pointerdown', dismiss); window.removeEventListener('resize', placeMenu); window.removeEventListener('scroll', placeMenu, true); };
+ }, []);
  const [project, setProject] = useState<ProjectSnapshot | null>(null);
  const [working, setWorking] = useState<'operation' | 'save' | null>(null);
  const [failed, setFailed] = useState(false);
@@ -92,15 +113,32 @@ export function ProjectBar({ draft, busy, onRestore }: ProjectBarProps) {
    if (imported) restore(imported);
   });
  };
+ const importPackage = () => {
+  if (locked) return;
+  void run(async () => { const opened = await importProjectPackage(t('projects.packageImport')); if (opened) restore(opened); });
+ };
+ const exportPackage = () => {
+  if (!project || locked) return;
+  void run(async () => { await exportProjectPackage(t('projects.packageExport'), project.id, project.revision); });
+ };
  const retry = () => {
   if (!project || busy || working || !isTauri()) return;
   void run(() => persist(project, draft), 'save');
  };
  const status = failed ? 'projects.error' : working === 'save' ? 'projects.saving' : working || hydrating ? 'projects.working' : dirty ? 'projects.unsaved' : project ? 'projects.saved' : 'projects.none';
- return <section className="project-bar"><button className="wb-dock-action" data-project-new type="button" disabled={locked} onClick={create}>{t('projects.new')}</button>
+ const controls = <section className="project-bar" aria-label={t('projects.menu')}>
+ <details ref={menu} className="project-menu" onToggle={placeMenu} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+ <summary className="wb-dock-action" aria-label={t('projects.menu')} title={t('projects.menu')}>▾</summary>
+ <div className="project-menu-actions">
+ <button className="wb-dock-action" data-project-new type="button" disabled={locked} onClick={create}>{t('projects.saveAs')}</button>
  <button className="wb-dock-action" data-project-open type="button" disabled={locked} onClick={open}>{t('projects.open')}</button>
+ <button className="wb-dock-action" data-project-package-import type="button" disabled={locked} onClick={importPackage}>{t('projects.packageImport')}</button>
+ <button className="wb-dock-action" data-project-package-export type="button" disabled={!project || locked} onClick={exportPackage}>{t('projects.packageExport')}</button>
  <button className="wb-dock-action" data-project-close type="button" disabled={!project || locked} onClick={() => close()}>{t('projects.close')}</button>
  <button className="wb-dock-action" data-project-import type="button" disabled={!project || locked} onClick={importImage}>{t('projects.import')}</button>
+ <small>{t('projects.limitation')}</small>
+ </div></details></section>;
+ const statusControls = <div className="project-status">
  {project && <span className="project-bar-path" title={project.root}>{project.root}</span>}
  <span data-project-status role="status">{t(status)}</span>
  {failed && <small role="alert">{t('projects.error')}</small>}
@@ -108,5 +146,6 @@ export function ProjectBar({ draft, busy, onRestore }: ProjectBarProps) {
  {failed && project && <button className="wb-dock-action" type="button" disabled={busy || !!working || !isTauri()} onClick={() => close(true)}>{t('projects.closeUnsaved')}</button>}
  {closeBlocked&&<small role="alert">{t('projects.closeBlocked')}</small>}
  {closeGuardFailed&&closeScope&&<small role="alert">{t('projects.closeGuardFailed')}</small>}
- <small>{t('projects.limitation')}</small></section>;
+ </div>;
+ return <>{slot ? createPortal(controls, slot) : controls}{statusSlot ? createPortal(statusControls, statusSlot) : statusControls}</>;
 }

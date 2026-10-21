@@ -14,7 +14,7 @@ vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(asy
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
 vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
- allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler'],schedulers:['normal']}};
+ allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler','euler_ancestral','euler_cfg_pp','er_sde'],schedulers:['normal','simple','linear_quadratic']}};
 beforeEach(()=>{
  localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);
  Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.open=true;}});
@@ -22,6 +22,13 @@ beforeEach(()=>{
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({save:vi.fn(),restore:vi.fn(),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([0,0,0,0])}))} as unknown as CanvasRenderingContext2D);
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
+const clickMedia=(image:HTMLImageElement,clientX=400,clientY=300)=>{
+ if(!image.naturalWidth)Object.defineProperties(image,{naturalWidth:{configurable:true,value:1024},naturalHeight:{configurable:true,value:640}});
+ const bounds=Object.getOwnPropertyDescriptor(image,'getBoundingClientRect');
+ Object.defineProperty(image,'getBoundingClientRect',{configurable:true,value:()=>({left:0,top:0,width:800,height:600})});
+ fireEvent.click(image,{clientX,clientY});
+ if(bounds)Object.defineProperty(image,'getBoundingClientRect',bounds);else Reflect.deleteProperty(image,'getBoundingClientRect');
+};
 const adopt=()=>{const preview=document.querySelector('[data-browsed-preview]');if(!preview)return;const action=preview.querySelector<HTMLButtonElement>('[data-use-input], [data-edit="resample"]');if(action)fireEvent.click(action);};
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
@@ -30,6 +37,134 @@ const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{na
 // HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
 const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
  fireEvent.dragStart(screen.getByRole('button',{name}),{dataTransfer:dt});fireEvent.drop(document.querySelector('[data-editor-viewport]')!,{dataTransfer:dt});};
+test('column keyboard resizing persists independently and layout reset leaves authoring intact',async()=>{
+ vi.mocked(isTauri).mockReturnValue(false);
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ const left=screen.getByRole('separator',{name:'Resize Settings'}),right=screen.getByRole('separator',{name:'Resize Queue'});
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'keep'}});
+ fireEvent.keyDown(left,{key:'ArrowRight'});fireEvent.keyDown(right,{key:'ArrowLeft'});
+ expect(Number(left.getAttribute('aria-valuenow'))).toBe(288);expect(Number(right.getAttribute('aria-valuenow'))).toBe(168);
+ expect(localStorage.getItem('deas.pref.studio.layout.settingsWidth')).toBe('288');
+ act(()=>window.dispatchEvent(new Event('deas:reset-studio-layout')));
+ expect(left.getAttribute('aria-valuenow')).toBe('272');expect(right.getAttribute('aria-valuenow')).toBe('152');
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('keep');
+});
+test('column pointer cancellation, independent queue dragging, restored bounds and dock keyboard resize',()=>{
+ vi.mocked(isTauri).mockReturnValue(false);
+ vi.stubGlobal('PointerEvent',class extends MouseEvent {pointerId:number;constructor(type:string,init:PointerEventInit={}){super(type,init);this.pointerId=init.pointerId??1;}});
+ const view=render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ const left=screen.getByRole('separator',{name:'Resize Settings'}),right=screen.getByRole('separator',{name:'Resize Queue'});
+ fireEvent.pointerDown(left,{button:0,pointerId:1,clientX:272});fireEvent.pointerMove(window,{pointerId:1,clientX:322});expect(left.getAttribute('aria-valuenow')).toBe('322');
+ fireEvent.keyDown(window,{key:'Escape'});expect(left.getAttribute('aria-valuenow')).toBe('272');
+ fireEvent.pointerMove(window,{pointerId:1,clientX:500});expect(left.getAttribute('aria-valuenow')).toBe('272');
+ fireEvent.pointerDown(right,{button:0,pointerId:1,clientX:700});fireEvent.pointerMove(window,{pointerId:1,clientX:650});fireEvent.pointerUp(window,{pointerId:1});expect(right.getAttribute('aria-valuenow')).toBe('202');
+ fireEvent.pointerDown(left,{button:0,pointerId:1,clientX:272});fireEvent.pointerMove(window,{pointerId:1,clientX:350});fireEvent.pointerCancel(window,{pointerId:1});expect(left.getAttribute('aria-valuenow')).toBe('272');
+ const bottom=screen.getByRole('separator',{name:'Drag to resize the bottom panel'});fireEvent.keyDown(bottom,{key:'ArrowUp'});expect(bottom.getAttribute('aria-valuenow')).toBe('236');
+ view.unmount();render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ expect(screen.getByRole('separator',{name:'Resize Queue'}).getAttribute('aria-valuenow')).toBe('202');
+ const shell=document.querySelector('[data-workbench]')!;Object.defineProperty(shell,'clientWidth',{configurable:true,value:910});fireEvent.resize(window);
+ fireEvent.keyDown(screen.getByRole('separator',{name:'Resize Settings'}),{key:'End'});
+ const settings=Number(screen.getByRole('separator',{name:'Resize Settings'}).getAttribute('aria-valuenow')),queue=Number(screen.getByRole('separator',{name:'Resize Queue'}).getAttribute('aria-valuenow'));
+ expect(settings+queue+20+320).toBeLessThanOrEqual(910);
+});
+test('defaults reset confirms, uses family defaults and leaves jobs, libraries and layout untouched',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'base.safetensors',family:'sdxl',path:'/m/base',size:1,info:null}]);
+ const initial:Record<string,unknown>={positive:'edited',checkpoint:'missing.safetensors',options:{...defaultOptions,batch:3},loras:[{name:'missing-lora',strength:0.5}],wildcardEnabled:true,wildcard:{style:'Booru',seed:10,reroll:2,token_budget:300,auto_reroll:true,selection_state:{}},post:true,'post.tiled':true,upscale:2,refineDenoise:0.7};
+ for(const [key,value] of Object.entries(initial))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ localStorage.setItem('library.sentinel','keep');localStorage.setItem('deas.pref.studio.dock.height','250');
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
+ act(()=>window.dispatchEvent(new Event('deas:request-studio-defaults')));
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('edited');
+ confirm.mockReturnValue(true);act(()=>window.dispatchEvent(new Event('deas:request-studio-defaults')));
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('');
+ expect(localStorage.getItem('deas.pref.studio.run.checkpoint')).toBe('"base.safetensors"');
+ expect(localStorage.getItem('deas.pref.studio.run.options')).toBe(JSON.stringify(defaultOptions));
+ for(const key of ['post','post.tiled','wildcardEnabled'])expect(localStorage.getItem('deas.pref.studio.run.'+key)).toBe('false');
+ expect(localStorage.getItem('deas.pref.studio.run.loras')).toBe('[]');expect(localStorage.getItem('deas.pref.studio.run.upscale')).toBe('1');
+ expect(localStorage.getItem('deas.pref.studio.dock.height')).toBe('250');expect(localStorage.getItem('library.sentinel')).toBe('keep');
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect((screen.getByRole('spinbutton',{name:'Steps'}) as HTMLInputElement).value).toBe('28');
+ confirm.mockRestore();
+});
+test('starring an adopted preview repairs its location without remounting or losing editor geometry',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ let moved=false;
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_media_star_status')return {starred:(args as {path:string}).path.includes('/starred/'),unavailable:null};
+  if(command==='native_media_star'){moved=true;return {oldPath:'/out/a.png',path:'/out/starred/a.png'};}
+  if(command==='native_media_star_notice')return;
+  return {path:'/out',parent:'/',entries:[{name:'a.png',path:moved?'/out/starred/a.png':'/out/a.png',kind:'file',media:'image',symlink:false,size:1,modified:1}],truncated:false};
+ });
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'a.png'}));
+ const preview=document.querySelector('[data-browsed-preview]')!;
+ await waitFor(()=>expect(within(preview as HTMLElement).getByRole('button',{name:'Star a.png'}).hasAttribute('disabled')).toBe(false));
+ clickMedia(preview.querySelector('img')!);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path:'/out/a.png'}));
+ fireEvent.keyDown(window,{key:'Escape'});adopt();
+ const sourceImage=screen.getByRole('img',{name:'a.png'});
+ Object.defineProperties(sourceImage,{naturalWidth:{configurable:true,value:1024},naturalHeight:{configurable:true,value:1024}});fireEvent.load(sourceImage);
+ fireEvent.click(screen.getByRole('button',{name:'Select'}));
+ const base=document.querySelector<HTMLElement>('[data-layer="base"]')!;
+ fireEvent.keyDown(base,{key:'ArrowLeft'});expect(base.style.left).toBe('-8px');
+ const editor=document.querySelector('[data-editor-viewport]');
+ const toolbar=screen.getByRole('toolbar',{name:'Edit image'});
+ await waitFor(()=>expect(within(toolbar).getByRole('button',{name:'Star a.png'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(within(toolbar).getByRole('button',{name:'Star a.png'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star',{path:'/out/a.png'}));
+ await waitFor(()=>expect(base.querySelector('img')?.getAttribute('src')).toContain('/out/starred/a.png'));
+ expect(document.querySelector('[data-editor-viewport]')).toBe(editor);
+ expect(editor?.closest('[hidden]')).toBeNull();
+ expect(document.querySelector('[data-browsed-preview]')).toBeNull();
+ expect(screen.getByRole('toolbar',{name:'Edit image'})).toBe(toolbar);
+ expect(screen.getByRole('button',{name:'a.png'}).getAttribute('aria-current')).toBe('true');
+ expect(document.querySelector('[data-layer="base"]')).toBe(base);expect(base.style.left).toBe('-8px');
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+});
+
+test('stars every queued result and repairs output locations without changing its submitted intent',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_media_star_status')return {starred:(args as {path:string}).path.includes('/starred/'),unavailable:null};
+  if(command==='native_media_star')return {oldPath:'/out/one.png',path:'/out/starred/one.png'};
+  return {path:'/out',parent:'/',entries:[],truncated:false};
+ });
+ let intent:JobStatus['intent'];
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,value)=>{intent=value;return {id:'star-plan',baseUrl,intent:value,graph:{},generationReady:false};});
+ const outputs:JobStatus['outputs']=[{filename:'one.png',subfolder:'',type:'output'},{filename:'two.png',subfolder:'',type:'output'}];
+ vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'star-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs,intent,error:null,generationReady:false}));
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ const queue=screen.getByRole('region',{name:'Queue'});
+ await within(queue).findByRole('button',{name:'Star one.png'});
+ expect(within(queue).getByRole('button',{name:'Star two.png'})).toBeTruthy();
+ const snapshot=JSON.stringify(intent);
+ const result=document.querySelector('.wb-shown')!;
+ await waitFor(()=>expect(within(result as HTMLElement).getByRole('button',{name:'Star one.png'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(within(result as HTMLElement).getByRole('button',{name:'Star one.png'}));
+ await waitFor(()=>expect(result.querySelector('img')?.getAttribute('src')).toContain('/out/starred/one.png'));
+ expect(within(queue).getByRole('button',{name:'Starred one.png'})).toBeTruthy();
+ expect(outputs[0].subfolder).toBe('');expect(JSON.stringify(intent)).toBe(snapshot);
+ expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+});
+
+test('missing remembered model and LoRAs are explicit blockers, never silently substituted',async()=>{
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"missing.safetensors"');
+ localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name:'missing-lora.safetensors',strength:1}]));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'other.safetensors',path:'/m/other',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect(screen.getByText(/missing.safetensors/)).toBeTruthy();expect(screen.getByText(/missing-lora.safetensors/)).toBeTruthy();
+ expect(screen.getByRole('alert').closest('.wb-stage')).toBeTruthy();
+ expect(screen.getByRole('alert').classList.contains('wb-stage-warning')).toBe(true);
+ dock('Models');fireEvent.click(screen.getByRole('button',{name:'other.safetensors'}));
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
 test('dock clicks preview only and preserve the adopted editor until explicit replacement',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:['one.png','two.png'].map(name=>({name,path:'/out/'+name,kind:'file',media:'image',symlink:false,size:1,modified:1})),truncated:false}));
@@ -39,7 +174,10 @@ test('dock clicks preview only and preserve the adopted editor until explicit re
  expect(document.querySelector('[data-browsed-preview]')).not.toBeNull();
  expect(document.querySelector('[data-editor-viewport]')).toBeNull();
  const bounds=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:0,top:0,width:800,height:600} as DOMRect);
- fireEvent.click(document.querySelector('[data-browsed-preview] img')!);
+ const previewImage=document.querySelector<HTMLImageElement>('[data-browsed-preview] img')!;
+ clickMedia(previewImage,400,10);expect(screen.queryByRole('dialog')).toBeNull();
+ fireEvent.click(screen.getByRole('region',{name:'Preview'}));expect(screen.queryByRole('dialog')).toBeNull();
+ clickMedia(previewImage);
  const dialog=screen.getByRole('dialog',{name:'one.png'}),full=dialog.querySelector('img')!;
  Object.defineProperties(full,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(full);
  const before=full.style.transform;fireEvent.wheel(dialog.querySelector('.wb-viewer-box')!,{deltaY:-200,clientX:200,clientY:200});
@@ -67,8 +205,14 @@ test('an explicit Run replaces a browsed preview with the accepted job',async()=
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(await screen.findByRole('button',{name:'browse.png'}));
  expect(document.querySelector('[data-browsed-preview]')).not.toBeNull();
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'immutable submission'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(document.querySelector('.wb-shown')).not.toBeNull());
+ const submitted=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+ act(()=>window.dispatchEvent(new Event('deas:request-studio-defaults')));
+ expect(submitted.positivePrompt).toBe('immutable submission');expect(document.querySelector('.wb-shown')).not.toBeNull();
+ expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);confirm.mockRestore();
  expect(document.querySelector('[data-browsed-preview]')).toBeNull();
  expect(document.querySelector('.wb-current-preview')?.hasAttribute('hidden')).toBe(false);
 });
@@ -348,7 +492,7 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  fireEvent.click(screen.getByRole('button',{name:/Succeeded/}));
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
  expect(document.querySelector('.wb-stage')?.classList.contains('wb-split')).toBe(true);
- fireEvent.click(screen.getByRole('img',{name:'DEAS_0001.png'}));
+ clickMedia(screen.getByRole('img',{name:'DEAS_0001.png'}) as HTMLImageElement);
  const dialog=screen.getByRole('dialog',{name:'DEAS_0001.png'});
  expect(within(dialog).getByRole('button',{name:'Fit'})).toBeTruthy();
  fireEvent.keyDown(window,{key:'Escape'});
@@ -786,6 +930,7 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
  const calls:{route:string;body:Record<string,unknown>}[]=[];
  vi.mocked(invoke).mockImplementation(async(c,a)=>{
+  if(c==='native_llm_read')return {provider:'ollama',baseUrl:'http://127.0.0.1:11434'};
   if(c==='native_forge'){const x=a as {route:string;body:Record<string,unknown>};calls.push(x);return x.route==='models'?{models:[{id:'m',label:'M'}],errors:{},creativity:['balanced'],shot_counts:['Auto'],default_shots:'Auto'}:{simple_prompt:'a scene',warnings:[]};}
   return {path:(a as {path:string})?.path,parent:'/env',entries:['first.png','other.png'].map(name=>({name,path:`/env/ComfyUI/input/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1})),truncated:false};
  });

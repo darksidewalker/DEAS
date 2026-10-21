@@ -4,7 +4,7 @@
 
 ## Shared LLM backend
 
-After installing or reopening a DEAS environment, **Backend → LLM backend** sits to the right of Startup optimizations (stacked on narrow windows). Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (such as `http://127.0.0.1:8080`; `/v1` is appended when missing, like the DaSiWa node pack does). There is no global model or GGUF-path setting.
+After installing or reopening a DEAS environment, select **Backend → LLM backend** in the left-hand configuration menu. Configure only an optional Ollama server (such as `http://127.0.0.1:11434`) or OpenAI-compatible API (such as `http://127.0.0.1:8080`; `/v1` is appended when missing, like the DaSiWa node pack does). There is no global model or GGUF-path setting.
 
 Local language GGUFs are discovered recursively in the existing **Models folder → llm** directory (by default `<environment>/ComfyUI/models/llm`), independently of any external server. Projector files such as `mmproj` are excluded. `llama-cpp-python` runs the selected local model automatically in the managed venv, with automatic CPU/GPU offload selection, and the worker exits after each request. Optional remote model discovery adds to the local list; an unavailable remote server does not hide local models.
 
@@ -12,6 +12,8 @@ Local language GGUFs are discovered recursively in the existing **Models folder 
 
 ![Shared LLM backend settings — browser IPC fixture, not a live server reply](../assets/deas-llm-fixture-1440.png)
 
+
+If an LLM entry point (including Prompt Forge, inline writers and Director/Continuity helpers) is clicked without a configured endpoint or discoverable local language model, DEAS opens **Backend → LLM backend** with setup guidance instead of an empty writer. The source draft stays mounted. This navigation does not download, start a model or submit text/media. A configured service's connection failure remains an error, not evidence that configuration is missing. Before an environment has been installed/opened, Backend explains that prerequisite; runtime LLM settings cannot be used without one.
 
 ## Prompt Forge
 

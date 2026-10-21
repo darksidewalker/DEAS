@@ -2,6 +2,20 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## 0.1.38 — 2026-10-21
+
+- Restore the full-size Run button with its small adjoining project dropdown on the right; put project status below instead of consuming Run width. Restrict click-to-enlarge to the actual contained image, not letterbox margins. Keep normal-size compact selector text readable in GTK/WebKit. Render missing/incompatible dependencies and job errors as reddish overlays inside View, and decode backend exception text without JSON-escaped newline suffixes.
+- Guard header resets before Studio exists, inactive Forge readiness redirects, adopted-editor visibility after starring and stale star-action completions on a changed file.
+- Move drag/drop guidance inline immediately after Media Depth without a separate background or file-view overlay. Compact Depth and align sorting/filter/view selector heights with the search field.
+- Compact project actions beside Run, with revision-checked native draft ZIP export/import and bounded no-clobber archive validation. Packages contain the baseline image draft and its managed PNG only; full Studio-state, generated-result/job and revision persistence remain unfinished.
+- Add independently resizable Settings/View/Queue columns, remembered pane sizes and Quick Settings beside GitHub. Separate layout reset from confirmed authoring-default reset, including Options, LoRAs, presets/wildcards and post-processing; preserve global/project isolation and submitted jobs.
+- Route unconfigured LLM entry points to Backend's LLM pane without generation or transfer. Preserve drafts and distinguish missing setup from a configured backend's failure.
+- Add per-media stars with native collision-safe physical moves to the owned Output/starred folder and in-session output/preview reference repair. Unsafe/external, project-managed and detected sidecar-associated files remain explicitly unavailable; no unstar policy is invented.
+
+## Unreleased — 0.1.37
+
+- Replace the stacked Startup optimizations, LLM backend and Provider authorization cards with a left selection menu and one consistently styled right-hand pane. Keep visited drafts mounted across panel/main-tab navigation, reset runtime state by environment, retain global authorization drafts, and propagate credential revisions to Library. Add vertical keyboard navigation and disable runtime choices until an installed root is available; selection itself never saves, restarts or executes.
+
 ## Unreleased — 0.1.36
 
 - Default image-viewer Fit fills the available edge proportionally, including small-image upscaling; use a semi-transparent backdrop without checkerboard and click outside the picture to close. Keep picture/toolbar clicks and drag-to-backdrop safe, with the existing editor zoom limits unchanged. Make the floating footer fully transparent, label its version DEAS v…, and show native backend starting state followed by a once-per-running-transition green confirmation that disappears after 3 seconds, with reduced-motion support.

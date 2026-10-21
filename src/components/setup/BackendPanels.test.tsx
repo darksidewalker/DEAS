@@ -46,9 +46,9 @@ test('vertical keyboard navigation wraps and focuses the chosen panel',async()=>
 });
 test('authorization remains available without an installed root; runtime tabs are disabled',async()=>{
  mount('');expect(screen.getByRole('tab',{name:'Startup optimizations'}).hasAttribute('disabled')).toBe(true);
- expect(screen.getByRole('tab',{name:'LLM backend'}).hasAttribute('disabled')).toBe(true);
+ expect(screen.getByRole('tab',{name:'LLM backend'}).hasAttribute('disabled')).toBe(false);
  const menu=screen.getByRole('tablist',{name:'Backend panels'});fireEvent.keyDown(menu,{key:'ArrowDown'});
- expect(document.activeElement).toBe(screen.getByRole('tab',{name:'Provider authorization'}));
+ expect(document.activeElement).toBe(screen.getByRole('tab',{name:'LLM backend'}));
  await act(async()=>{});expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(['native_auth_status']);
 });
 test('changing environment discards runtime drafts but retains the global authorization draft',async()=>{

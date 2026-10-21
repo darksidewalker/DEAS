@@ -729,13 +729,28 @@ pub async fn generate(
 }
 #[tauri::command]
 pub async fn native_llm_models(root: String) -> Result<ModelList, String> {
+    let config = native_llm_read(root.clone())?;
     let root = std::path::PathBuf::from(root);
-    let config = read(&root)?;
-    models(&root, &config).await
+    let result = models(&root, &config).await;
+    if result
+        .as_ref()
+        .map_or(true, |list| !list.warnings.is_empty())
+    {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            "ERROR: LLM model discovery: failed to read one or more model sources",
+        );
+    }
+    result
 }
 #[tauri::command]
 pub fn native_llm_read(root: String) -> Result<LlmConfig, String> {
-    read(Path::new(&root))
+    read(Path::new(&root)).inspect_err(|_| {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            "ERROR: LLM configuration read: settings unavailable or invalid",
+        );
+    })
 }
 #[tauri::command]
 pub fn native_llm_write(

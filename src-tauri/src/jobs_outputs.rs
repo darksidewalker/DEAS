@@ -3,6 +3,62 @@ use sha2::{Digest, Sha256};
 
 const PNG_LIMIT: usize = 144 * 1024 * 1024;
 const DECODE_LIMIT: usize = 160 * 1024 * 1024;
+// Retained outputs are reference-repair records, not filesystem move authority.
+const COMPLETED_LIMIT: usize = 20; // Workbench's existing queue bound; each job has at most 64 outputs.
+
+#[derive(Clone)]
+pub(super) struct MediaRoot {
+    path: std::path::PathBuf,
+    identity: (u64, u64),
+}
+impl MediaRoot {
+    pub(super) fn capture(path: std::path::PathBuf) -> Result<Self, String> {
+        let identity = crate::downloads::fs::Anchor::open(&path)?.identity()?;
+        Ok(Self { path, identity })
+    }
+    pub(super) fn owned(engine: &crate::install::Engine, base: &str) -> Option<Self> {
+        let status = engine.backend.status();
+        if status.state != "running"
+            || crate::validate_base_url(status.endpoint.as_deref()?).ok()?
+                != crate::validate_base_url(base).ok()?
+        {
+            return None;
+        }
+        Self::capture(status.output_root?).ok()
+    }
+}
+
+pub(super) struct CompletedOutputs {
+    job_id: String,
+    root: MediaRoot,
+    outputs: Vec<Value>,
+}
+impl Session {
+    pub(super) fn retain_completed(&mut self) {
+        let Some(job) = self.job.as_ref().filter(|j| j.state == "succeeded") else {
+            return;
+        };
+        let Some(root) = job.plan.media_root.as_ref() else {
+            return;
+        };
+        if self.completed.iter().any(|record| record.job_id == job.id) {
+            return;
+        }
+        self.completed.push_back(CompletedOutputs {
+            job_id: job.id.clone(),
+            root: root.clone(),
+            outputs: job.outputs.clone(),
+        });
+        if self.completed.len() > COMPLETED_LIMIT {
+            self.completed.pop_front();
+        }
+    }
+}
+
+fn output_path(root: &std::path::Path, output: &Value) -> std::path::PathBuf {
+    root.join(output["subfolder"].as_str().unwrap_or(""))
+        .join(output["filename"].as_str().unwrap_or(""))
+}
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +93,78 @@ impl CachedOutput {
     }
 }
 impl Jobs {
+    pub(crate) fn media_move_idle(&self) -> Result<(), String> {
+        let session = self.lock()?;
+        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+            return Err("Wait for native generation to finish before moving media".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn media_move_ready(
+        &self,
+        root: &std::path::Path,
+        source: &std::path::Path,
+    ) -> Result<(), String> {
+        let session = self.lock()?;
+        Self::check_media_source(&session, root, source)
+    }
+    fn check_media_source(
+        session: &Session,
+        root: &std::path::Path,
+        source: &std::path::Path,
+    ) -> Result<(), String> {
+        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+            return Err("Wait for native generation to finish before moving media".into());
+        }
+        crate::media::star::validate(root, source).map(|_| ())
+    }
+    pub(crate) fn relocate_media(
+        &self,
+        root: &std::path::Path,
+        source: &std::path::Path,
+        relocate: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    ) -> Result<std::path::PathBuf, String> {
+        let mut session = self.lock()?;
+        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+            return Err("Wait for native generation to finish before moving media".into());
+        }
+        Self::check_media_source(&session, root, source)?;
+        let identity = crate::downloads::fs::Anchor::open(root)?.identity()?;
+        let target = relocate()?;
+        let repair = |outputs: &mut Vec<Value>| {
+            for output in outputs {
+                if output["type"] == "output"
+                    && output_path(root, output) == source
+                    && target != source
+                {
+                    output["filename"] = json!(target.file_name().unwrap().to_string_lossy());
+                    output["subfolder"] = json!(target
+                        .parent()
+                        .unwrap()
+                        .strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/"));
+                }
+            }
+        };
+        if let Some(job) = session.job.as_mut().filter(|job| {
+            job.plan
+                .media_root
+                .as_ref()
+                .is_some_and(|owned| owned.path == root && owned.identity == identity)
+        }) {
+            repair(&mut job.outputs);
+        }
+        for record in &mut session.completed {
+            if record.root.path == root && record.root.identity == identity {
+                repair(&mut record.outputs);
+            }
+        }
+        // Cached PNG bytes retain job/index identity; only the on-disk location changed.
+        Ok(target)
+    }
+
     fn cached_output(
         &self,
         job_id: &str,

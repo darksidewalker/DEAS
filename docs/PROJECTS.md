@@ -6,11 +6,11 @@
 
 This is the first bounded project implementation: baseline image settings and one explicitly imported PNG input can live in a user-selected project folder. It is **not yet** the full persistent generation project described in the target contract. Jobs, generated outputs, job recovery, executed dependency fingerprints and immutable generation/edit history are not saved/restored by this slice. Keep using explicit output exports; do not assume a project contains generated results.
 
-After approved installation or checked reopening of a DEAS environment, use the project bar in Studio. The controls require native DEAS. A browser preview alone cannot create/open a real project or invoke an OS file chooser. Linux and Windows have native code paths; build/test evidence and target-runtime acceptance are recorded separately in [Verification](VERIFICATION.md).
+After approved installation or checked reopening of a DEAS environment, use the **Project actions** dropdown beside Run in Studio. The controls require native DEAS. A browser preview alone cannot create/open a real project or invoke an OS file chooser. Linux and Windows have native code paths; build/test evidence and target-runtime acceptance are recorded separately in [Verification](VERIFICATION.md).
 
 ## Create, open and close
 
-Use the project bar above Generate/Run Plan. **New project** asks for an existing parent folder and creates a uniquely named child without replacing existing folders. It starts from the current baseline image settings. **Open project** selects an existing DEAS project folder and restores its saved baseline settings; it does not install models, contact a model service, upload input media or start generation.
+Open the small arrow attached to Run on its right. Project path/save status appear below the button, not in the Run label. **Save as project…** asks for an existing parent folder and creates a uniquely named child without replacing existing folders. It starts from the current baseline image settings; this is still an image draft, not a complete Studio snapshot. **Open project** selects an existing DEAS project folder and restores its saved baseline settings; it does not install models, contact a model service, upload input media or start generation. Escape or a click outside closes the menu. The active project path and save/error state remain visible without a permanent action panel.
 
 Only one project is active in the app. Another DEAS instance cannot write the same open project. Close the project in the first instance before opening it for writing elsewhere. Copy/backup the whole folder while it is closed; project-internal media references are relative, but model weights and credentials are not included.
 
@@ -23,6 +23,14 @@ Baseline settings autosave after edits. **Saved** means the native write succeed
 The draft stores positive/negative prompt, exact selected checkpoint name, effective image width/height, steps, CFG, sampler, scheduler, seed, image-to-image denoise and text-to-image/image-to-image pipeline. Reopening uses fixed canvas dimensions and a fixed saved seed. Missing or incompatible saved checkpoints block Run until you explicitly select a compatible model; another checkpoint is not silently substituted. A stored checkpoint name is not yet a verified model digest or a successful model-run claim.
 
 This initial schema does **not** save LoRAs, wildcard state, post-processing/options, editor paint/masks/layers or video/Continuity settings. Opening a draft starts baseline image authoring with optional LoRAs/wildcards/post-processing disabled, default Options and ordinary image-to-image resampling. Those features remain available, but changes to them are not part of this project's saved contract. Save/export their existing dedicated formats where applicable. Do not expect an unsaved editor canvas or arbitrary file selected in Media to become a persistent project input automatically.
+
+## Portable draft ZIP
+
+**Export draft ZIP…** saves the committed `project.json` and its currently referenced managed PNG as a single ZIP. Choose a new destination filename: existing files are never replaced. Ordinary autosaves still update the working project folder without rebuilding an archive. Extra files in that folder, older unreferenced inputs, credentials, model weights, jobs and generated results are not included. The menu's draft limitation applies equally to the archive; this is not a complete Studio-state export.
+
+**Import project ZIP…** asks for the archive and then an existing writable parent folder. It validates the complete package before creating a unique child project and activating it. Cancelling either chooser or rejecting a package leaves the previous active project unchanged and the source archive intact. The import accepts only the bounded draft format: a manifest plus its optional managed PNG, with matching digest and valid image data. Traversal, links, duplicate/unexpected entries, unsupported schemas, oversized data and corrupt contents fail rather than being generally extracted. Classic Stored/Deflate ZIP is supported; ZIP64, multidisk archives and archive comments are outside this small format.
+
+If a filesystem write fails after creating the new child, that incomplete child may remain but is not activated; the previous project stays active. Check disk space/permissions and shared Logs. Do not assume a failed import created a usable project, or remove an open project's lock file.
 
 ## Managed PNG input
 

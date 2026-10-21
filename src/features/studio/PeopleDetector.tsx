@@ -10,7 +10,7 @@ export function PeopleDetector({endpoint,root,reference,onApply}:{endpoint:strin
  const current=useRef<{id:string;fit:string;endpoint:string;root:string;pending:boolean;cancelled:boolean}|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[cancelled,setCancelled]=useState(false);
  const [found,setFound]=useState<{fit:string;boxes:PeopleBox[]}|null>(null);
- useEffect(()=>{if(endpoint&&root&&reference.path)forge.load();},[endpoint,root,reference.path,forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+ useEffect(()=>{if(endpoint&&reference.path)forge.load();},[endpoint,root,reference.path,forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
  // Invalidate the old request before the new model/reference controls become interactive.
  useLayoutEffect(()=>{
   setBusy(false);setFound(null);setError('');setCancelled(false);

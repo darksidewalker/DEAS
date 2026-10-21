@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
+import { StarMediaButton } from '../media/StarMediaButton';
+import type { MediaItem } from '../../lib/media';
 import { zoomAt, type View } from './imageEditor';
 
 /** Full-window picture view: wheel zooms at the cursor, drag pans, edge-fit/100 %, backdrop click, Escape or ✕ closes. Read-only. */
-export function ImageViewer({src,alt,onClose}:{src:string;alt:string;onClose:()=>void}){
+export function ImageViewer({src,alt,onClose,item,onMoved}:{src:string;alt:string;onClose:()=>void;item?:MediaItem;onMoved?:(item:MediaItem)=>void}){
  const {t}=useI18n();
+ const [relocated,setRelocated]=useState<MediaItem|null>(null);
+ useEffect(()=>setRelocated(null),[src]);
  const box=useRef<HTMLDivElement>(null);const close=useRef(onClose);close.current=onClose;
  const [size,setSize]=useState<{width:number;height:number}|null>(null);
  const [view,setView]=useState<View|null>(null);
@@ -34,6 +38,7 @@ export function ImageViewer({src,alt,onClose}:{src:string;alt:string;onClose:()=
    dragged.current=false;
   }}>
   <div className="wb-viewer-tools">
+   <StarMediaButton item={relocated??item??{name:alt,src,media:'image'}} onMoved={next=>{setRelocated(next);onMoved?.(next);}}/>
    <span className="wb-viewer-name">{alt}{view&&<> · {Math.round(view.scale*100)} %</>}</span>
    <button type="button" aria-label={t('studio.editor.zoomOut')} onClick={()=>zoom(s=>s/1.25)}>−</button>
    <button type="button" onClick={fit}>{t('studio.editor.fit')}</button>
@@ -42,7 +47,7 @@ export function ImageViewer({src,alt,onClose}:{src:string;alt:string;onClose:()=
    <button type="button" aria-label={t('studio.run.close')} autoFocus onClick={onClose}>✕</button>
   </div>
   <div ref={box} className="wb-viewer-box">
-   <img src={src} alt={alt} draggable={false} onPointerDown={pan} onLoad={e=>setSize({width:e.currentTarget.naturalWidth,height:e.currentTarget.naturalHeight})}
+   <img src={relocated?.src??src} alt={alt} draggable={false} onPointerDown={pan} onLoad={e=>setSize({width:e.currentTarget.naturalWidth,height:e.currentTarget.naturalHeight})}
     style={view?{width:size!.width,height:size!.height,transform:`translate(${view.x}px, ${view.y}px) scale(${view.scale})`}:{visibility:'hidden'}}/>
   </div>
  </div>;

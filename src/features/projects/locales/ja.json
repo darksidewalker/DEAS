@@ -1,4 +1,8 @@
 {
+  "projects.menu": "プロジェクト操作",
+  "projects.saveAs": "プロジェクトとして保存…",
+  "projects.packageImport": "プロジェクトZIPを読み込む…",
+  "projects.packageExport": "下書きをZIPで書き出す…",
   "projects.new": "新規プロジェクト",
   "projects.open": "プロジェクトを開く",
   "projects.close": "プロジェクトを閉じる",

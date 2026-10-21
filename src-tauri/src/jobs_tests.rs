@@ -506,6 +506,8 @@ where
 
 #[tokio::test]
 async fn explicit_prepare_submit_and_correlated_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dunce::canonicalize(dir.path()).unwrap();
     let posts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = posts.clone();
     let mut tuple = Value::Null;
@@ -536,6 +538,8 @@ async fn explicit_prepare_submit_and_correlated_completion() {
     assert_eq!(plan["generationReady"], false);
     assert_eq!(plan["baseUrl"], format!("{base}/"));
     let id = plan["id"].as_str().unwrap().to_owned();
+    jobs.lock().unwrap().plan.as_mut().unwrap().media_root =
+        Some(job_outputs::MediaRoot::capture(root.clone()).unwrap());
     assert!(jobs.submit(id.clone(), false).await.is_err());
     assert!(jobs.submit("foreign-plan".into(), true).await.is_err());
     let job = jobs.submit(id.clone(), true).await.unwrap();
@@ -558,6 +562,47 @@ async fn explicit_prepare_submit_and_correlated_completion() {
     }
     assert!(jobs.submit(id, true).await.is_err());
     assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // A subsequent real prepare/submit must preserve the first completion's authority.
+    let second = jobs.prepare(base, intent()).await.unwrap();
+    jobs.lock().unwrap().plan.as_mut().unwrap().media_root =
+        Some(job_outputs::MediaRoot::capture(root.clone()).unwrap());
+    let second = jobs
+        .submit(second["id"].as_str().unwrap().into(), true)
+        .await
+        .unwrap();
+    let second = jobs
+        .status(second["id"].as_str().unwrap().into())
+        .await
+        .unwrap();
+    assert_eq!(second["state"], "succeeded");
+    assert_ne!(second["id"], job_id);
+    assert_eq!(jobs.lock().unwrap().completed.len(), 2);
+    let source = root.join("DEAS_0001.png");
+    std::fs::create_dir(root.join("starred")).unwrap();
+    let target = root.join("starred/DEAS_0001.png");
+    let mut png = Vec::new();
+    png::Encoder::new(&mut png, 1, 1)
+        .write_header()
+        .unwrap()
+        .write_image_data(&[127])
+        .unwrap();
+    std::fs::write(&source, &png).unwrap();
+    jobs.relocate_media(&root, &source, || {
+        std::fs::rename(&source, &target).unwrap();
+        Ok(target.clone())
+    })
+    .unwrap();
+    assert_eq!(jobs.current().unwrap()["intent"], second["intent"]);
+    assert_eq!(
+        jobs.current().unwrap()["outputs"][0]["subfolder"],
+        "starred"
+    );
+    assert!(
+        jobs.media_move_ready(&root, &source).is_err(),
+        "all aliases must be repaired"
+    );
+    jobs.media_move_ready(&root, &target).unwrap();
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
     server.abort();
 }
 
@@ -1741,6 +1786,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
     for (case, expected) in [
         ("six_fields", "succeeded"),
         ("error", "failed"),
+        ("error_newline", "failed"),
         ("foreign_id", "unknown"),
         ("foreign_client", "unknown"),
         ("foreign_graph", "unknown"),
@@ -1782,6 +1828,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
                 match case {
                     "six_fields" => entry["prompt"].as_array_mut().unwrap().push(json!({"hidden":"not returned"})),
                     "error" => entry["status"] = json!({"completed":true,"status_str":"error","messages":[["execution_error",{"node_id":"5","node_type":"KSampler","exception_type":"RuntimeError","exception_message":"failure".repeat(1000)}]]}),
+                    "error_newline" => entry["status"] = json!({"completed":true,"status_str":"error","messages":[["execution_error",{"node_id":"5","node_type":"KSampler","exception_type":"RuntimeError","exception_message":"Missing checkpoint\nSelect a compatible dependency.\n"}]]}),
                     "foreign_id" => entry["prompt"][1] = json!("other"),
                     "foreign_client" => entry["prompt"][3]["client_id"] = json!("other"),
                     "foreign_graph" => entry["prompt"][2]["5"]["inputs"]["seed"] = json!(999),
@@ -1831,6 +1878,11 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
         }
         if let Some(error) = job["error"].as_str() {
             assert!(error.chars().count() <= 800);
+        }
+        if case == "error_newline" {
+            let text = job["error"].as_str().unwrap();
+            assert_eq!(text, "node 5 (KSampler): RuntimeError: Missing checkpoint Select a compatible dependency.");
+            assert!(!text.contains("\\n"));
         }
         if case == "error" {
             assert!(job["error"].as_str().unwrap().contains("KSampler"));

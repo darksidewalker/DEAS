@@ -333,6 +333,7 @@ test('people-image decode errors reach shared native Logs once, without sending 
 
 test('Find people preserves existing identities and boxes until explicit Apply',async()=>{
  vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  if(c==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const route=(a as {route?:string})?.route;
   if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
   if(c==='native_forge'&&route==='people')return {people:[{box:[0.1,0.1,0.4,0.9]},{box:[0.6,0.1,0.9,0.9]}]};
@@ -355,6 +356,7 @@ test('Find people preserves existing identities and boxes until explicit Apply',
 test('Find people cancellation discards late results and reference edits invalidate candidates',async()=>{
  let resolve!:(v:unknown)=>void;
  vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  if(c==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const route=(a as {route?:string})?.route;
   if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
   if(c==='native_forge'&&route==='people')return new Promise(r=>{resolve=r;});
@@ -376,6 +378,7 @@ test('Find people cancellation discards late results and reference edits invalid
 
 test.each(['empty','vision','busy','busy422'])('Find people %s leaves existing manual boxes unchanged',async outcome=>{
  vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  if(c==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const route=(a as {route?:string})?.route;
   if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
   if(route==='people'){if(outcome==='empty')return {people:[]};throw Error(outcome==='vision'?'422 People detection failed (no_vision)':outcome==='busy422'?'422 People detection failed (busy)':'409 People detection failed (busy)');}
@@ -391,6 +394,7 @@ test.each(['empty','vision','busy','busy422'])('Find people %s leaves existing m
 
 test('closing People & order cancels only its pending detection request',async()=>{
  vi.mocked(invoke).mockClear().mockImplementation(async(c,a)=>{
+  if(c==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const route=(a as {route?:string})?.route;
   if(c==='native_forge'&&route==='models')return {models:[{id:'vision:model',label:'Vision fixture'}],errors:{},creativity:[],shot_counts:[],default_shots:'Auto'};
   if(route==='people')return new Promise(()=>{});

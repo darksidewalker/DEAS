@@ -1,4 +1,13 @@
 {
+  "studio.quick.unavailable": "Nicht verfügbar oder inkompatibel: {names}. Bitte passende Abhängigkeiten auswählen, optionale Verarbeitung deaktivieren oder Standardwerte wiederherstellen.",
+  "studio.layout.settings": "Einstellungen skalieren",
+  "studio.layout.queue": "Warteschlange skalieren",
+  "studio.quick.title": "Schnelleinstellungen",
+  "studio.quick.openStudioFirst": "Studio zuerst öffnen, um die Zurücksetzen-Aktionen zu aktivieren.",
+  "studio.quick.layout": "Layout zurücksetzen",
+  "studio.quick.defaults": "Auf Standardwerte zurücksetzen…",
+  "studio.quick.confirm": "Studio-Eingaben auf Standardwerte zurücksetzen (einschließlich Prompts, Modellauswahl, Optionen, LoRAs, Presets/Wildcards und Nachbearbeitung)? Medien, Bibliotheken, Projekte, Sterne, Jobverlauf, wartende/laufende Jobs und Backend-Konfiguration bleiben erhalten.",
+  "studio.quick.confirmProject": "Editierbare Studio-Einstellungen dieses Projekts zurücksetzen? Der geänderte Entwurf wird automatisch gespeichert. Globale Studio-Einstellungen, Medien, Bibliotheken, Projekte, Sterne, Jobverlauf, wartende/laufende Jobs und Backend-Konfiguration bleiben erhalten.",
   "studio.run.opt.outputNaming": "Ausgabebenennung",
   "studio.run.opt.outputNaming.hint": "Relativ zu Output; ohne Endung. Der Saver ergänzt Endung und Zähler. Platzhalter (Beispielwert, Ortszeit):",
   "studio.run.opt.outputNaming.invalid": "Ungültige Benennung: relativer Pfad mit A–Z, Ziffern, _ - . und / sowie nur den angegebenen Variablen. Keine leeren/übergeordneten Ordner, abschließenden Punkte oder Gerätenamen; maximal 512 Zeichen, 180 je Segment.",

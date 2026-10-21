@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds,floodRegion,uncoveredCells} from '../src/features/studio/imageEditor.ts';
+import {containedImageHit,sourcePoint,zoomAt,stampStroke,visibleImages,maskBounds,floodRegion,uncoveredCells} from '../src/features/studio/imageEditor.ts';
+test('contained image hit testing ignores letterbox space, unloaded images and invalid geometry',()=>{
+ const box={left:10,top:20,width:200,height:100},image={width:100,height:100};
+ assert.equal(containedImageHit({x:110,y:70},image,box),true);
+ assert.equal(containedImageHit({x:20,y:70},image,box),false);
+ assert.equal(containedImageHit({x:200,y:70},image,box),false);
+ assert.equal(containedImageHit({x:110,y:10},image,box),false);
+ assert.equal(containedImageHit({x:110,y:70},{width:0,height:0},box),false);
+ assert.equal(containedImageHit({x:NaN,y:70},image,box),false);
+ const tall={left:0,top:0,width:100,height:200};
+ assert.equal(containedImageHit({x:50,y:10},image,tall),false);
+ assert.equal(containedImageHit({x:50,y:100},image,tall),true);
+});
 test('uncoveredCells returns the frame area no picture covers (outpaint), clipped to the frame',()=>{
  assert.deepEqual(uncoveredCells([{x:0,y:0,width:100,height:60}],100,60),[]);
  assert.deepEqual(uncoveredCells([{x:-20,y:0,width:100,height:60}],100,60),[{x:80,y:0,width:20,height:60}]);

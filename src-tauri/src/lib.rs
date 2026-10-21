@@ -33,14 +33,16 @@ pub use hardware::native_detect_hardware;
 pub mod projects;
 pub use projects::{
     native_project_close, native_project_close_notice, native_project_create,
-    native_project_import_image, native_project_open, native_project_save,
+    native_project_export_package, native_project_import_image, native_project_import_package,
+    native_project_open, native_project_save,
 };
 pub mod directory;
 pub use directory::{native_json_open, native_json_save, native_pick_directory};
 pub mod media;
 pub mod media_metadata;
 pub use media::{
-    native_media_describe, native_media_list, native_media_reveal, native_media_thumbnail,
+    native_media_describe, native_media_list, native_media_reveal, native_media_star,
+    native_media_star_notice, native_media_star_status, native_media_thumbnail,
 };
 pub use media_metadata::native_media_metadata;
 pub mod token_page;

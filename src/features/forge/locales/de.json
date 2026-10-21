@@ -1,4 +1,6 @@
 {
+  "forge.setup.required": "Konfiguriere hier ein LLM-Modell, bevor du Prompt Forge oder eine KI-Hilfe nutzt. Dein Entwurf bleibt erhalten; es wurde keine Generierung gestartet.",
+  "forge.setup.environment": "Installiere oder öffne zuerst eine DEAS-Umgebung und füge dann ein lokales GGUF-Modell hinzu oder konfiguriere einen LLM-Server.",
   "forge.button": "Prompt Forge",
   "forge.model": "LLM-Modell",
   "forge.loading": "Modelle werden geladen…",

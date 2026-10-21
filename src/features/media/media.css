@@ -24,12 +24,19 @@
 .media-path .media-crumb:hover { background: #ffffff10; }
 .media-path .media-crumb[aria-current="location"] { color: var(--chalk); font-weight: 600; }
 .media-depth { display: flex; align-items: center; gap: .3rem; font-size: .7rem; color: var(--muted); }
-.media-depth select { width: auto; padding: .2rem .3rem; font-size: .72rem; }
+.media-depth select { width: auto; height: 1.6rem; min-height: 0; padding: 0 .3rem; line-height: 1.2; font-size: .72rem; }
+.media-drop-hint { flex: 1 1 16rem; min-width: 0; margin: 0; padding: 0; background: transparent; font-size: .72rem; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
 /* Wrapping grid of miniature tiles that fills the dock height; images are real thumbnails, other kinds a glyph. */
 .media-list { list-style: none; margin: 0; padding: 2px 0 4px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; flex: 1; min-height: 0; overflow: hidden auto; }
 .media-scroll { flex: 1; min-height: 0; overflow: hidden auto; }
 .media-scroll .media-list { overflow: visible; }
-.media-list li { flex: none; }
+.media-list li { flex: none; position: relative; }
+.media-star-control { display: inline-flex; align-items: center; gap: .3rem; }
+.media-star-control .media-star { width: 1.8rem; min-height: 1.8rem; padding: .1rem; color: #e9c96a; border: 1px solid #627477; border-radius: .35rem; background: #1c2427; font-size: 1.1rem; }
+.media-star[aria-pressed="true"] { opacity: 1; }
+.media-star-reason { font-size: .72rem; max-width: 24rem; overflow-wrap: anywhere; }
+.media-list .media-star-control { position: absolute; top: 3px; left: 3px; }
+.media-list .media-star-reason { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
 .media-list button { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 6rem; padding: 3px; border: 1px solid transparent; border-radius: .5rem; background: transparent; color: inherit; font-size: .68rem; }
 .media-list button:hover { background: #ffffff10; }
 .media-list button[aria-current="true"] { border-color: #83c19a; background: #2a4a3a; }

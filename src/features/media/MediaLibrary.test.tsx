@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { MediaLibrary } from './MediaLibrary';
@@ -6,18 +6,31 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import type { MediaEntry } from '../../lib/media';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false),convertFileSrc:(p:string)=>`asset://localhost/${p}`}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
-beforeEach(()=>{localStorage.setItem('deas.locale.v1','en');});
+beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const entry=(name:string,kind:MediaEntry['kind'],media:MediaEntry['media']=null,symlink=false,modified=1):MediaEntry=>({name,path:`/home/u/${name}`,kind,symlink,media,size:1,modified});
 const home={path:'/home/u',parent:'/home',entries:[entry('shots','directory',null,true),entry('a.png','file','image'),entry('notes.txt','file')],truncated:false};
 const shots={path:'/home/u/shots',parent:'/home/u',entries:[entry('clip.mp4','file','video')],truncated:true};
 const mount=(onSelect=vi.fn())=>{render(<I18nProvider><MediaLibrary selected={null} onSelect={onSelect}/></I18nProvider>);return onSelect;};
 /** Listing calls only: image tiles additionally ask `native_media_thumbnail`. */
+const mockMediaInvoke=(implementation:(command:string,args?:unknown)=>Promise<unknown>)=>vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_star_status'?{starred:false,unavailable:'Fixture: unmanaged media'}:command==='native_media_star_notice'?null:implementation(command,args));
 const lists=()=>vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_media_list').map(([,a])=>a);
 describe('media library plugin — IPC fixtures, not real filesystem access',()=>{
+ it('keeps drop guidance inline after Depth instead of overlaying the file view',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async c=>c==='native_media_thumbnail'?'/cache/thumb.png':home);
+  mount(); await screen.findByRole('button',{name:'a.png'});
+  const hint=screen.getByText('Drop files or folders here, or browse. Nothing is copied or moved.');
+  const depth=screen.getByRole('combobox',{name:'Depth'});
+  expect(hint.closest('.media-header')).toBe(depth.closest('.media-header'));
+  expect(depth.closest('label')?.nextElementSibling).toBe(hint);
+  expect(document.querySelector('.media-files')?.contains(hint)).toBe(false);
+  fireEvent.change(depth,{target:{value:'2'}});
+  await waitFor(()=>expect(lists().at(-1)).toEqual({path:'/home/u',depth:2}));
+ });
  it('right-click on a file offers Open in folder, which asks native to reveal that path; Escape closes the menu',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
-  vi.mocked(invoke).mockImplementation(async c=>c==='native_media_thumbnail'?'/cache/thumb.png':c==='native_media_reveal'?null:home);
+  mockMediaInvoke(async c=>c==='native_media_thumbnail'?'/cache/thumb.png':c==='native_media_reveal'?null:home);
   mount();
   const tile=await screen.findByRole('button',{name:'a.png'});
   fireEvent.contextMenu(tile,{clientX:10,clientY:10});
@@ -37,7 +50,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   vi.mocked(isTauri).mockReturnValue(true);
   const treeHome={...home,path:'/tree',parent:'/',entries:[{...entry('photos','directory'),path:'/tree/photos'}, {...entry('top.png','file','image'),path:'/tree/top.png'}]};
   const photos={path:'/tree/photos',parent:'/tree',entries:[{...entry('nested','directory'),path:'/tree/photos/nested'},{...entry('inside.png','file','image'),path:'/tree/photos/inside.png'}],truncated:false};
-  vi.mocked(invoke).mockImplementation(async(c,args)=>c==='native_media_thumbnail'?'/cache/thumb.png':(args as {path:string}).path==='/tree/photos'?photos:treeHome);
+  mockMediaInvoke(async(c,args)=>c==='native_media_thumbnail'?'/cache/thumb.png':(args as {path:string}).path==='/tree/photos'?photos:treeHome);
   const onSelect=mount();
   const nav=await screen.findByRole('navigation',{name:'Folders'});
   expect(within(screen.getByRole('list',{name:'Folder contents'})).queryByRole('button',{name:'photos'})).toBeNull();
@@ -59,7 +72,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  it('preserves the expanded parent when navigating Windows folder paths',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const root='C:\\media',child=root+'\\shots';
-  vi.mocked(invoke).mockImplementation(async(_c,args)=>(args as {path:string}).path===child?{path:child,parent:root,entries:[],truncated:false}:{path:root,parent:'C:\\',entries:[{...entry('shots','directory'),path:child}],truncated:false});
+  mockMediaInvoke(async(_c,args)=>(args as {path:string}).path===child?{path:child,parent:root,entries:[],truncated:false}:{path:root,parent:'C:\\',entries:[{...entry('shots','directory'),path:child}],truncated:false});
   mount();await screen.findByRole('button',{name:'media',current:'location'});
   fireEvent.click(screen.getByRole('button',{name:'shots'}));
   await screen.findByRole('button',{name:'shots',current:'location'});
@@ -68,7 +81,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  it('reports folder expansion errors locally and retries without changing the selected folder',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   let attempts=0;
-  vi.mocked(invoke).mockImplementation(async(c,args)=>{
+  mockMediaInvoke(async(c,args)=>{
    if(c==='native_media_thumbnail')return '/cache/thumb.png';
    if((args as {path:string}).path==='/home/u/shots'){if(++attempts===1)throw new Error('Folder permission denied');return shots;}
    return home;
@@ -86,11 +99,11 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  it('starts in the environment output folder newest-first and offers input/output chips',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const out={path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[entry('old.png','file','image',false,10),entry('new.png','file','image',false,20),entry('clip.webp','file','image',false,5)],truncated:false};
-  vi.mocked(invoke).mockImplementation(async(c,args)=>{const path=(args as {path:string}).path;if(c==='native_media_thumbnail'){if(path.endsWith('new.png'))return '/cache/thumbs/abc.png';throw new Error('No thumbnail for this file');}return path==='/env/ComfyUI/output'?out:home;});
+  mockMediaInvoke(async(c,args)=>{const path=(args as {path:string}).path;if(c==='native_media_thumbnail'){if(path.endsWith('new.png'))return '/cache/thumbs/abc.png';throw new Error('No thumbnail for this file');}return path==='/env/ComfyUI/output'?out:home;});
   render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
   await screen.findByRole('button',{name:'output',current:'location'});
   expect(lists()).toEqual([{path:'/env/ComfyUI/output',depth:3}]);
-  expect(screen.getAllByRole('button',{name:/\.(png|webp)$/}).map(b=>b.textContent)).toEqual(['new.png','old.png','clip.webp']);
+  expect(screen.getAllByRole('button',{name:/\.(png|webp)$/}).filter(b=>b.hasAttribute('data-media')).map(b=>b.textContent)).toEqual(['new.png','old.png','clip.webp']);
   // Tiles show the native cached thumbnail; without one the original file is the fallback.
   await waitFor(()=>expect(screen.getByRole('button',{name:'new.png'}).querySelector('img')?.getAttribute('src')).toBe('asset://localhost//cache/thumbs/abc.png'));
   await waitFor(()=>expect(screen.getByRole('button',{name:'old.png'}).querySelector('img')?.getAttribute('src')).toBe('asset://localhost//home/u/old.png'));
@@ -102,7 +115,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   expect(lists().at(-1)).toEqual({path:'/env/ComfyUI/input',depth:3});
  });
  it('lists the home folder read-only, hides non-media files and marks symlinked folders',async()=>{
-  vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockResolvedValue(home);
+  vi.mocked(isTauri).mockReturnValue(true);mockMediaInvoke(async()=>home);
   mount();await screen.findByRole('button',{name:'u',current:'location'});
   expect(lists()).toEqual([{path:'',depth:3}]);
   expect(screen.getByRole('button',{name:'shots'})).toBeTruthy();expect(screen.getByLabelText('Symbolic link')).toBeTruthy();
@@ -110,7 +123,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  });
  it('opens folders, selects media as asset URLs and reports truncation',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
-  vi.mocked(invoke).mockImplementation(async(_c,args)=>(args as {path:string}).path==='/home/u/shots'?shots:home);
+  mockMediaInvoke(async(_c,args)=>(args as {path:string}).path==='/home/u/shots'?shots:home);
   const onSelect=mount();await screen.findByRole('button',{name:'u',current:'location'});
   fireEvent.click(screen.getByRole('button',{name:'a.png'}));
   expect(onSelect).toHaveBeenCalledWith({name:'a.png',path:'/home/u/a.png',media:'image',src:'asset://localhost//home/u/a.png'});
@@ -122,8 +135,8 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  it('filters by name and sorts files by newest, name or size with folders kept in the navigator',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const mixed={path:'/home/u',parent:'/home',entries:[{...entry('b.png','file','image',false,20),size:1},{...entry('a.png','file','image',false,10),size:9},entry('zdir','directory')],truncated:false};
-  vi.mocked(invoke).mockImplementation(async c=>c==='native_media_list'?mixed:'/cache/t.png');
-  const names=()=>within(screen.getByRole('list',{name:'Folder contents'})).getAllByRole('button').map(b=>b.title);
+  mockMediaInvoke(async c=>c==='native_media_list'?mixed:'/cache/t.png');
+  const names=()=>within(screen.getByRole('list',{name:'Folder contents'})).getAllByRole('button').filter(b=>b.hasAttribute('data-media')).map(b=>b.title);
   const {rerender}=render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} sort="date"/></I18nProvider>);
   await screen.findByRole('button',{name:'u',current:'location'});
   expect(names()).toEqual(['b.png','a.png']);
@@ -134,8 +147,8 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  it('filters by media type, badges marked files beside their button and adds host menu entries (blocked ones say why)',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const mixed={path:'/home/u',parent:'/home',entries:[entry('a.png','file','image'),entry('c.mp4','file','video'),entry('s.wav','file','audio')],truncated:false};
-  vi.mocked(invoke).mockImplementation(async c=>c==='native_media_list'?mixed:'/cache/t.png');
-  const names=()=>within(screen.getByRole('list',{name:'Folder contents'})).getAllByRole('button').map(b=>b.title);
+  mockMediaInvoke(async c=>c==='native_media_list'?mixed:'/cache/t.png');
+  const names=()=>within(screen.getByRole('list',{name:'Folder contents'})).getAllByRole('button').filter(b=>b.hasAttribute('data-media')).map(b=>b.title);
   const add=vi.fn();
   const props={selected:null,onSelect:vi.fn(),marks:new Map([['/home/u/c.mp4','Video 1']]),actions:(i:{name:string})=>[{label:'Add',onClick:add},{label:'Full',onClick:add,blocked:i.name==='a.png'?'limit reached':undefined}]};
   const {rerender}=render(<I18nProvider><MediaLibrary {...props}/></I18nProvider>);
@@ -151,6 +164,20 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   expect(add).toHaveBeenCalledTimes(1);expect(screen.queryByRole('menu')).toBeNull();
   rerender(<I18nProvider><MediaLibrary {...props} type="video"/></I18nProvider>);expect(names()).toEqual(['c.mp4']);
   rerender(<I18nProvider><MediaLibrary {...props} type="audio"/></I18nProvider>);expect(names()).toEqual(['s.wav']);
+ });
+ it('relocation refreshes files without treating a controlled selected source as a user pick',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  let moved=false;
+  mockMediaInvoke(async c=>c==='native_media_list'?{...home,entries:[{...entry('a.png','file','image'),path:moved?'/home/u/starred/a.png':'/home/u/a.png'}]}:'/cache/t.png');
+  const onSelect=vi.fn();
+  const item={name:'a.png',path:'/home/u/a.png',src:'asset://localhost//home/u/a.png',media:'image' as const};
+  const view=render(<I18nProvider><MediaLibrary selected={item} onSelect={onSelect}/></I18nProvider>);
+  await screen.findByRole('button',{name:'a.png'});
+  moved=true;
+  act(()=>window.dispatchEvent(new CustomEvent('deas-media-relocated',{detail:{oldPath:item.path,path:'/home/u/starred/a.png'}})));
+  expect(onSelect).not.toHaveBeenCalled();
+  view.rerender(<I18nProvider><MediaLibrary selected={{...item,path:'/home/u/starred/a.png',src:'asset://localhost//home/u/starred/a.png'}} onSelect={onSelect}/></I18nProvider>);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'a.png'}).getAttribute('aria-current')).toBe('true'));
  });
  it('shows native listing errors without inventing entries',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockRejectedValue('/home/u: permission denied');

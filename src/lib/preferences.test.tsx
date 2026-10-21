@@ -26,6 +26,16 @@ it('restores a validated choice and falls back on missing, corrupt or foreign va
  localStorage.setItem('deas.pref.sort','{not json');expect(readPref('sort','newest',valid)).toBe('newest');
  forgetPref('sort');expect(localStorage.getItem('deas.pref.sort')).toBeNull();
 });
+it('resets only editable Studio preferences in the current project scope',()=>{
+ writePref('studio.run.options','custom');writePref('studio.run.recentSeeds','history');writePref('studio.dock.height',300);
+ const wrapper=({children}:{children:ReactNode})=><PreferencePersistenceContext.Provider value={false}>{children}</PreferencePersistenceContext.Provider>;
+ const hook=renderHook(()=>({options:usePref('studio.run.options','default',isString),history:usePref('studio.run.recentSeeds','',isString),layout:usePref('studio.dock.height',220,(v):v is number=>typeof v==='number')}),{wrapper});
+ act(()=>window.dispatchEvent(new Event('deas:reset-studio-preferences')));
+ expect(hook.result.current.options[0]).toBe('default');
+ expect(readPref('studio.run.options','',isString)).toBe('custom');
+ expect(hook.result.current.history[0]).toBe('history');expect(hook.result.current.layout[0]).toBe(300);
+ hook.unmount();
+});
 it('usePref persists changes for the next mount',()=>{
  const first=renderHook(()=>usePref('page','video',isString));
  act(()=>first.result.current[1]('map'));first.unmount();

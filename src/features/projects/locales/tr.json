@@ -1,4 +1,8 @@
 {
+  "projects.menu": "Proje işlemleri",
+  "projects.saveAs": "Proje olarak kaydet…",
+  "projects.packageImport": "Proje ZIP içe aktar…",
+  "projects.packageExport": "Taslak ZIP dışa aktar…",
   "projects.new": "Yeni proje",
   "projects.open": "Proje aç",
   "projects.close": "Projeyi kapat",

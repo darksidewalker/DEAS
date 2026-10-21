@@ -11,6 +11,7 @@ DEAS — Dark Engine AI Studio is maintained under the [darksidewalker GitHub pr
 | Project | Role | Source / notices |
 | --- | --- | --- |
 | Tauri and Rust ecosystem | Native shell, IPC and native services | [Tauri](https://tauri.app/), [Rust](https://www.rust-lang.org/), exact crates in `src-tauri/Cargo.lock` |
+| zip-rs (`zip`) | Bounded native draft ZIP import/export; Stored/Deflate only | [zip-rs](https://github.com/zip-rs/zip2), MIT; exact dependency in `src-tauri/Cargo.lock` |
 | React, TypeScript and Vite | Web presentation and build tooling | [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/), exact packages in `package-lock.json` |
 | ComfyUI | Managed model/graph execution and the original Comfy editor | [ComfyUI](https://github.com/Comfy-Org/ComfyUI); preserve upstream licensing/notices |
 | ComfyUI-DaSiWa-Nodes | Selected prompt, Director/continuity, metadata/output and wildcard computation | [DaSiWa nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) |

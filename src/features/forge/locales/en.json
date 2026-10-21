@@ -1,4 +1,6 @@
 {
+  "forge.setup.required": "Configure an LLM model here before using Prompt Forge or an AI helper. Your draft has been kept; no generation was started.",
+  "forge.setup.environment": "Install or open a DEAS environment first, then add a local GGUF model or configure an LLM server.",
   "forge.button": "Prompt Forge",
   "forge.model": "LLM model",
   "forge.loading": "Loading models…",

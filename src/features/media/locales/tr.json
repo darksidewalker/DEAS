@@ -1,4 +1,8 @@
 {
+  "media.star": "{name} yıldızla",
+  "media.starred": "{name} yıldızlı",
+  "media.star.external": "Harici, uzak veya yönetilmeyen medya taşınamaz.",
+  "media.star.checking": "Yıldız kullanılabilirliği denetleniyor…",
   "media.title": "Medya",
   "media.openFolder": "Klasör aç…",
   "media.reveal": "Klasörde aç",

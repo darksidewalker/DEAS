@@ -4,42 +4,54 @@ import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
 import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
+import { hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
 import './forge.css';
 
 /** The node pack's model list for one backend; read once per endpoint/root/LLM setting, on demand. */
-export function useForgeModels(endpoint: string, root?: string) {
+export function useForgeModels(endpoint: string, root?: string, active = true) {
   const [list, setList] = useState<ForgeModels | null>(null);
   const [error, setError] = useState('');
   const [model, setModel] = usePref('forge.model', '', isString);
   const [rev, setRev] = useState(0);
-  const scope = useRef<{ active: boolean; loaded: boolean; pending: boolean } | null>(null);
+  const identity = JSON.stringify([endpoint, root, rev, active]);
+  const scope = useRef<{ identity: string; active: boolean; loaded: boolean; pending: boolean } | null>(null);
   useEffect(() => {
     const bump = () => setRev(n => n + 1);
     window.addEventListener('deas:llm-changed', bump);
     return () => window.removeEventListener('deas:llm-changed', bump);
   }, []);
   useEffect(() => {
-    const current = { active: true, loaded: false, pending: false };
+    const current = { identity, active, loaded: false, pending: false };
     scope.current = current;
     setList(null); setError('');
     return () => { current.active = false; };
-  }, [endpoint, root, rev]);
+  }, [endpoint, root, rev, active]);
   const load = () => {
     const current = scope.current;
-    if (!current?.active || current.loaded || current.pending || !root) return;
+    if (!current?.active || current.pending) return;
+    if (!root) { requestLlmSetup(); return; }
+    if (current.loaded) { if (list && !list.models.some(m => !m.disabled) && !Object.keys(list.errors).length) requestLlmSetup(); return; }
     current.pending = true;
     setError('');
-    forgeModels(endpoint, root).then(result => {
+    (async () => {
+      if (!await hasLlmConfiguration(root)) {
+        if (current.active) requestLlmSetup();
+        return null;
+      }
+      return current.active ? forgeModels(endpoint, root) : null;
+    })().then(result => {
       if (!current.active) return;
-      current.pending = false; current.loaded = true;
-      setList(result);
+      current.pending = false;
+      if (!result) return;
+      current.loaded = true; setList(result);
+      if (!result.models.some(m => !m.disabled) && !Object.keys(result.errors).length) requestLlmSetup();
     }, e => {
       if (!current.active) return;
       current.pending = false;
       setError(forgeError(e));
     });
   };
-  const usable = list?.models.filter(m => !m.disabled) ?? [];
+  const usable = scope.current?.identity === identity && scope.current.loaded ? list?.models.filter(m => !m.disabled) ?? [] : [];
   // A remembered model only counts while the backend still lists it.
   return { list, error, load, rev, usable, model: usable.some(m => m.id === model) ? model : usable[0]?.id ?? '', setModel };
 }
@@ -121,13 +133,20 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const [undo, setUndo] = useState<string | null>(null);
   const [blind, setBlind] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const disabled = !root || !dialect;
+  const disabled = !dialect;
   useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wildcardResolved = useRef(false);
+  useEffect(() => {
+    if (!open || choosing || !forge.model || !wildcard || wildcardResolved.current) return;
+    wildcardResolved.current = true;
+    // Resolve picks only after readiness, never while redirecting to configuration.
+    invoke<{ positive: string }>('native_wildcard_build', { baseUrl: endpoint, rules: wildcard }).then(r => setBrief(b => [b, r.positive].filter(s => s.trim()).join(', ')), e => setError(String(e)));
+  }, [open, choosing, forge.model, wildcard, endpoint]);
   const toggle = () => {
     if (!open) {
+      if (!root && !onWildcards) { requestLlmSetup(); return; }
+      wildcardResolved.current = false;
       setBrief(value); setResult(''); setError(''); setChoosing(!!onWildcards);
-      // Same resolution the run gets for this reroll; auto-reroll runs pick again.
-      if (wildcard) invoke<{ positive: string }>('native_wildcard_build', { baseUrl: endpoint, rules: wildcard }).then(r => setBrief(b => [b, r.positive].filter(s => s.trim()).join(', ')), e => setError(String(e)));
     }
     setOpen(!open);
   };

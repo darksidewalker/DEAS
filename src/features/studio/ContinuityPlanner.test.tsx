@@ -58,6 +58,7 @@ test.each(['checkpoint','video'])('Next action Forge applies only to its own ste
  localStorage.setItem('deas.locale.v1','en');
  const calls:{route:string;body:Record<string,unknown>}[]=[];
  vi.mocked(invoke).mockImplementation(async(_command,args)=>{
+  if(_command==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const call=args as {route:string;body:Record<string,unknown>};calls.push(call);
   if(call.route==='models')return {models:[{id:'vision',label:'Local vision'}],errors:{},creativity:['Grounded'],shot_counts:['Auto'],default_shots:'Auto'};
   if(call.route==='h3')return {simple_prompt:'The traveller turns.',warnings:[]};
@@ -82,6 +83,7 @@ test.each(['checkpoint','video'])('Next action Forge applies only to its own ste
 test('Forge writing locks the continuity plan and Cancel releases it without applying',async()=>{
  localStorage.setItem('deas.locale.v1','en');let finish!:(value:unknown)=>void;
  vi.mocked(invoke).mockImplementation(async(_command,args)=>{
+  if(_command==='native_llm_read')return {provider:'ollama',baseUrl:'http://localhost:11434'};
   const call=args as {route:string};
   if(call.route==='models')return {models:[{id:'vision',label:'Local vision'}],errors:{},creativity:['Grounded'],shot_counts:['Auto'],default_shots:'Auto'};
   if(call.route==='h3')return await new Promise(resolve=>{finish=resolve;});

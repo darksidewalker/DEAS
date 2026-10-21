@@ -50,6 +50,7 @@ export default function App(){
  function saveDraft(){try{localStorage.setItem(draftKey,JSON.stringify(draft));setDraftStatus('studio.draft.saved');}catch{setDraftStatus('studio.draft.saveError');}}
  function closePanel(){document.querySelector<HTMLButtonElement>(`[data-node="${active}"] button`)?.focus();setActive(null);}
  const [tab,setTab]=usePref('studio.tab','generate',oneOf(...studioTabs));
+ const [studioActive,setStudioActive]=useState(false);
  // ComfyUI's own input/output live beside the managed checkout unless Settings redirected them.
  const [environment,setEnvironment]=useState<{root:string;folders:Folders}|null>(null);
  const roots=environment?{input:environment.folders.input??`${environment.root}/ComfyUI/input`,output:environment.folders.output??`${environment.root}/ComfyUI/output`,models:environment.folders.models??`${environment.root}/ComfyUI/models`}:undefined;
@@ -71,12 +72,12 @@ export default function App(){
  const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
  return <div className="studio-shell">
   <main id="workspace">
-   <AiOSetup studioTab={tab} onStudioTab={setTab} footer={<>{updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`${t('app.brand')} v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
+   <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} footer={<>{updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`${t('app.brand')} v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
    :<span className="footer-version">{`${t('app.brand')} v${__APP_VERSION__}`}</span>}</>} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
     <div className="studio-generate-host" hidden={tab==='forge'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
-    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>

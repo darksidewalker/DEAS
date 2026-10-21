@@ -1,4 +1,13 @@
 {
+  "studio.quick.unavailable": "Kullanılamayan veya uyumsuz seçimler: {names}. Uyumlu bağımlılıklar seçin, isteğe bağlı işlemeyi kapatın veya varsayılanlara sıfırlayın。",
+  "studio.layout.settings": "Ayarlar genişliğini değiştir",
+  "studio.layout.queue": "Kuyruk genişliğini değiştir",
+  "studio.quick.title": "Hızlı Ayarlar",
+  "studio.quick.openStudioFirst": "Sıfırlama işlemlerini etkinleştirmek için önce Studio’yu açın.",
+  "studio.quick.layout": "Düzeni sıfırla",
+  "studio.quick.defaults": "Varsayılanlara sıfırla…",
+  "studio.quick.confirm": "Studio düzenleme ayarları (istemler, model seçimi, seçenekler, LoRA, ön ayarlar/jokerler ve son işleme) sıfırlansın mı? Medya, kitaplıklar, projeler, yıldızlar, iş geçmişi, bekleyen/çalışan işler ve arka uç yapılandırması korunur.",
+  "studio.quick.confirmProject": "Bu projenin Studio düzenleme ayarları sıfırlansın mı? Değişen taslak otomatik kaydedilir. Genel ayarlar, medya, kitaplıklar, projeler, yıldızlar, işler ve arka uç yapılandırması korunur.",
   "studio.run.opt.outputNaming": "Çıktı adlandırma",
   "studio.run.opt.outputNaming.hint": "Output klasörüne göre, uzantısız. Kaydetme düğümü uzantı ve sayaç ekler. Değişkenler (örnek değer, yerel saat):",
   "studio.run.opt.outputNaming.invalid": "Geçersiz ad: A–Z, rakamlar, _ - . / ve yalnızca listelenen değişkenlerle göreli yol kullanın. Boş/üst klasör, sondaki nokta ve aygıt adları yasaktır; en çok 512 karakter, bölüm başına 180.",

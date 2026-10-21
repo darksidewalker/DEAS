@@ -4,6 +4,16 @@
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).
 
+## 0.1.38 — 2026-10-21
+
+- Resize the Settings and Queue columns against the central preview. Quick Settings beside GitHub separates layout reset from confirmed generation-default reset. Missing LLM setup takes you directly to the LLM Backend pane.
+- Project actions move beside Run. Export/import a portable **draft ZIP** containing baseline image settings and its managed input PNG; generated results and full Studio-state persistence are still not included.
+- Star eligible generated media to physically move it into Output/starred. Native safety checks keep unmanaged/project-linked/sidecar-associated files unavailable rather than risking broken references.
+
+## Unreleased — 0.1.37
+
+- Backend configuration now uses a left-hand menu for Startup optimizations, LLM backend and Provider authorization, shown in one matching right-hand pane. Switching panels retains unsaved drafts; explicit Save/Apply behavior is unchanged.
+
 ## Unreleased — 0.1.36
 
 - Image previews now fit to the available window edge over a semi-transparent, non-checkered background. Click outside the image to close; zoom and pan remain available. The transparent DEAS v… footer shows backend startup progress, then a brief green check that vanishes after 3 seconds.

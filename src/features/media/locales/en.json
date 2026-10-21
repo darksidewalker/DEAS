@@ -1,4 +1,8 @@
 {
+  "media.star": "Star {name}",
+  "media.starred": "Starred {name}",
+  "media.star.external": "External, remote or unmanaged media cannot be moved.",
+  "media.star.checking": "Checking star availability…",
   "media.title": "Media",
   "media.openFolder": "Open folder…",
   "media.reveal": "Open in folder",

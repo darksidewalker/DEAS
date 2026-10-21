@@ -21,10 +21,21 @@ export function readPref<T>(key:string,fallback:T,valid:Valid<T>):T {
 export function writePref(key:string,value:unknown){try{localStorage.setItem(prefix+key,JSON.stringify(value));}catch{/* Storage may be unavailable; the choice then lasts for this session only. */}}
 export function forgetPref(key:string){try{localStorage.removeItem(prefix+key);}catch{/* Storage may be unavailable. */}}
 
+export const STUDIO_RESET_EVENT='deas:reset-studio-preferences';
+const preservedStudioPreferenceKeys=['studio.run.recentSeeds','studio.run.continuity','studio.run.metadataOpen'];
+/** Reset live editable controls; persistence still follows the active project scope. */
+export function resetStudioPreferences(){window.dispatchEvent(new Event(STUDIO_RESET_EVENT));}
+
 /** useState that is restored on the next start; use it for any remembered page, filter or configuration choice. */
 export function usePref<T>(key:string,fallback:T,valid:Valid<T>) {
  const persist=useContext(PreferencePersistenceContext)||!key.startsWith('studio.run.');
  const [value,setValue]=useState<T>(()=>readPref(key,fallback,valid));
+ const canonicalDefault=useRef(fallback);
+ useEffect(()=>{
+  if(!key.startsWith('studio.run.')||preservedStudioPreferenceKeys.includes(key))return;
+  const reset=()=>setValue(structuredClone(canonicalDefault.current));
+  window.addEventListener(STUDIO_RESET_EVENT,reset);return()=>window.removeEventListener(STUDIO_RESET_EVENT,reset);
+ },[key]);
  const previousPersist=useRef(persist);
  useEffect(()=>{
   if(persist&&!previousPersist.current){previousPersist.current=true;setValue(readPref(key,fallback,valid));return;}

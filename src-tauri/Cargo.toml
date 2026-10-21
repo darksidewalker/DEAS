@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.37"
+version = "0.1.38"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
 
@@ -19,6 +19,7 @@ png = "=0.17.16"
 toml = "0.8"
 flate2 = "1"
 tar = "0.4"
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
 uuid = { version = "1", features = ["v4"] }
 dunce = "1"
 rfd = "0.17.2"

@@ -16,9 +16,9 @@ const maxPictures = (target: string, mode: string) => target !== H3 ? 8 : mode =
 interface Picture { path: string; src: string; role: string }
 
 /** Standalone Prompt Forge: every dialect the families name, H3 with labelled references; the result goes to Generate. */
-export function PromptForge({ endpoint, root, inputDir, onSend }: { endpoint: string; root?: string; inputDir?: string; onSend: (positive: string, negative: string) => void }) {
+export function PromptForge({ endpoint, root, inputDir, onSend, active = true }: { active?: boolean; endpoint: string; root?: string; inputDir?: string; onSend: (positive: string, negative: string) => void }) {
   const { t } = useI18n();
-  const forge = useForgeModels(endpoint, root);
+  const forge = useForgeModels(endpoint, root, active);
   const [target, setTarget] = usePref('forge.target', dialects[0], oneOf(...dialects));
   const [mode, setMode] = usePref('forge.h3.mode', 'T2VA', oneOf(...modes));
   const [duration, setDuration] = usePref('forge.h3.duration', 5, isNumber);
@@ -34,7 +34,8 @@ export function PromptForge({ endpoint, root, inputDir, onSend }: { endpoint: st
   const [blind, setBlind] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (root) forge.load(); }, [root, endpoint, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active) forge.load(); }, [root, endpoint, forge.rev, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const open = () => forge.load(); window.addEventListener('deas:forge-open', open); return () => window.removeEventListener('deas:forge-open', open); });
   const h3 = target === H3, limit = maxPictures(target, mode);
   const shown = pictures.slice(0, limit);
   // ComfyUI and the node pack read pictures from the input folder only.
@@ -90,7 +91,7 @@ export function PromptForge({ endpoint, root, inputDir, onSend }: { endpoint: st
       {warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
       <label className="forge-field"><span>{t('forge.negative')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>
       <button type="button" className="action-button" data-forge-send disabled={!result.trim()} onClick={() => onSend(result, negative)}>{t('forge.send')}</button>
-      {limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaLibrary selected={null} onSelect={add} roots={{ input: inputDir }}/></div>}
+      {forge.model && limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaLibrary selected={null} onSelect={add} roots={{ input: inputDir }}/></div>}
     </div>
   </section>;
 }

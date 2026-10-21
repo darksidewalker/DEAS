@@ -1,4 +1,13 @@
 {
+  "studio.quick.unavailable": "利用不可または非対応の選択: {names}。対応する依存項目を選択するか、任意処理を無効にするか、既定値に戻してください。",
+  "studio.layout.settings": "設定の幅を変更",
+  "studio.layout.queue": "キューの幅を変更",
+  "studio.quick.title": "クイック設定",
+  "studio.quick.openStudioFirst": "リセット操作を有効にするには、先に Studio を開いてください。",
+  "studio.quick.layout": "レイアウトをリセット",
+  "studio.quick.defaults": "既定値に戻す…",
+  "studio.quick.confirm": "Studioの編集設定（プロンプト、モデル、オプション、LoRA、プリセット/ワイルドカード、後処理）を既定値に戻しますか？ メディア、ライブラリ、プロジェクト、お気に入り、履歴、待機中/実行中のジョブ、バックエンド設定は保持されます。",
+  "studio.quick.confirmProject": "このプロジェクトのStudio編集設定をリセットしますか？ 変更した下書きは自動保存されます。グローバル設定、メディア、ライブラリ、プロジェクト、お気に入り、ジョブ、バックエンド設定は保持されます。",
   "studio.run.opt.outputNaming": "出力ファイル名",
   "studio.run.opt.outputNaming.hint": "Output からの相対パス（拡張子なし）。保存ノードが拡張子と連番を追加します。変数（例、現地時刻）:",
   "studio.run.opt.outputNaming.invalid": "無効な名前: A–Z、数字、_ - . / と表示された変数のみの相対パスを使用してください。空や親フォルダー、末尾の点、デバイス名は禁止です。全体512文字、各部分180文字まで。",

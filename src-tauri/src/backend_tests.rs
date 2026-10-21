@@ -126,6 +126,7 @@ fn real_owned_child_requires_api_before_running_and_stop_is_exact() {
         .unwrap();
     assert_eq!(initial.state, "starting");
     assert!(initial.endpoint.is_none());
+    assert_eq!(initial.output_root, Some(tmp.path().join("ComfyUI/output")));
     assert!(lifecycle.launch(approved, Duration::from_secs(5)).is_err());
     let status = await_state(&lifecycle, "running");
     assert!(!status.generation_ready);
@@ -139,6 +140,7 @@ fn real_owned_child_requires_api_before_running_and_stop_is_exact() {
     assert_eq!(lifecycle.stop().state, "stopped");
     assert!(!Path::new(&format!("/proc/{pid}")).exists());
     assert!(lifecycle.status().endpoint.is_none());
+    assert!(lifecycle.status().output_root.is_none());
     assert!(!lifecycle.stop().generation_ready);
 }
 #[test]

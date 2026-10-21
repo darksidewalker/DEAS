@@ -24,7 +24,8 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
  if(command==='native_media_list')return {path:args.path,parent:null,entries:[],truncated:false};
  if(command==='native_models_scan')return [{category:'checkpoints',name:'sdxl.safetensors',family:'sdxl',path:'/m/sdxl.safetensors',size:1,info:null}];
  if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:[],checkpoints:['sdxl.safetensors'],loras:[],samplers:['euler'],schedulers:['normal']}};
- if(command==='native_project_open')return structuredClone(saved);
+ if(command==='native_project_open'||command==='native_project_import_package')return structuredClone(saved);
+ if(command==='native_project_export_package')return true;
  if(command==='native_project_close')return null;
  if(command==='native_project_save'){
   if(args.projectId!==saved.id||args.expectedRevision!==saved.revision)throw Error('Stale project revision');
@@ -48,6 +49,10 @@ def main():
                 page.on('pageerror', lambda e: errors.append(str(e)))
                 page.add_init_script(INIT.replace('LOCALE', json.dumps(locale)))
                 page.goto(URL + '/tools/inpaint-fixture.html', wait_until='networkidle')
+                menu = page.locator('.project-menu')
+                summary = menu.locator('summary')
+                expect(menu).not_to_have_attribute('open', '')
+                summary.click()
                 opener = page.locator('[data-project-open]')
                 expect(opener).to_be_enabled()
                 opener.click()
@@ -60,6 +65,8 @@ def main():
                 page.wait_for_function("window.__calls.some(c=>c.command==='native_project_close_notice'&&c.args.reason==='blocked')")
                 assert not page.evaluate("window.__calls.some(c=>c.command==='plugin:window|destroy')")
                 page.wait_for_function("window.__calls.some(c=>c.command==='native_project_save'&&c.args.draft.positivePrompt==='edited project')")
+                if not menu.evaluate('(e)=>e.open'):
+                    summary.click()
                 close = page.locator('[data-project-close]')
                 expect(close).to_be_enabled()
                 page.evaluate("window.__callbacks[window.__closeHandler]({event:'tauri://close-requested',id:1,payload:null})")
@@ -69,9 +76,16 @@ def main():
                 assert page.evaluate("JSON.parse(localStorage.getItem('deas.pref.studio.run.positive'))") == 'global draft'
                 opener.click()
                 expect(prompt).to_have_value('edited project')
-                bar = opener.locator('..')
+                page.locator('[data-project-package-export]').click()
+                page.wait_for_function("window.__calls.some(c=>c.command==='native_project_export_package')")
+                page.locator('[data-project-package-import]').click()
+                page.wait_for_function("window.__calls.some(c=>c.command==='native_project_import_package')")
+                expect(prompt).to_have_value('edited project')
+                bar = page.locator('.project-bar')
                 # Test the project controls, not the pre-existing full Workbench's narrow-layout backlog.
                 assert bar.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1'), f'Project bar overflow: {locale}/{width}'
+                menu.press('Escape')
+                expect(page.locator('[data-project-open]')).not_to_be_visible()
                 page.screenshot(path=str(OUT / f'{locale}-{width}.png'))
                 assert not errors, errors
                 assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')

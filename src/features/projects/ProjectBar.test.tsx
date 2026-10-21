@@ -34,7 +34,7 @@ test('window close is guarded during project creation and listener cleanup waits
  const pending=deferred<ProjectSnapshot|null>();const registered=deferred<()=>void>();
  closeEvents.listen.mockImplementationOnce((handler:typeof closeEvents.handler)=>{closeEvents.handler=handler;return registered.promise;});
  vi.mocked(invoke).mockImplementation(async command=>command==='native_project_create'?pending.promise:undefined);
- const {unmount}=render(<Harness/>);await click('New project');
+ const {unmount}=render(<Harness/>);await click('Save as project…');
  const event={preventDefault:vi.fn()};act(()=>closeEvents.handler?.(event));expect(event.preventDefault).toHaveBeenCalledOnce();
  unmount();await act(async()=>registered.resolve(closeEvents.unlisten));
  expect(closeEvents.unlisten).toHaveBeenCalledOnce();
@@ -53,6 +53,40 @@ test('a close attempt with a failed save stays blocked until explicit discard re
  expect(restored).toHaveBeenLastCalledWith(null);
 });
 
+test('project actions are collapsed, keyboard dismissible and appear beside Run through the slot', () => {
+ const slot = document.createElement('span'); slot.id = 'project-actions-slot'; document.body.append(slot);
+ const { unmount } = render(<Harness/>);
+ expect(slot.querySelector('.project-bar')).toBeTruthy();
+ const details = slot.querySelector('details')!;
+ expect(details.open).toBe(false);
+ act(() => { details.open = true; });
+ expect(screen.getByRole('button', { name: 'Open project' })).toBeTruthy();
+ const summary = details.querySelector('summary')!;
+ fireEvent.keyDown(details, { key: 'Escape' });
+ expect(details.open).toBe(false); expect(document.activeElement).toBe(summary);
+ expect(invoke).not.toHaveBeenCalled();
+ unmount(); slot.remove();
+});
+
+test('ZIP export uses the committed project revision without resubmitting or restoring settings', async () => {
+ vi.mocked(invoke).mockResolvedValueOnce(snapshot(8)).mockResolvedValueOnce(true);
+ render(<Harness/>); await click('Open project'); restored.mockClear();
+ await click('Export draft ZIP…');
+ expect(invoke).toHaveBeenNthCalledWith(2, 'native_project_export_package', { title: 'Export draft ZIP…', projectId: 'project-1', expectedRevision: 8 });
+ expect(restored).not.toHaveBeenCalled(); expect(screen.getByRole('status').textContent).toBe('Saved');
+});
+
+test('ZIP import hydrates only the native receipt; cancellation preserves the active project', async () => {
+ const imported = snapshot(9, { ...draft, positivePrompt: 'imported draft' });
+ vi.mocked(invoke).mockResolvedValueOnce(imported).mockResolvedValueOnce(null);
+ render(<Harness/>); await click('Import project ZIP…');
+ expect(invoke).toHaveBeenNthCalledWith(1, 'native_project_import_package', { title: 'Import project ZIP…' });
+ expect(restored).toHaveBeenCalledExactlyOnceWith(imported);
+ await click('Import project ZIP…');
+ expect(restored).toHaveBeenCalledTimes(1);
+ expect(screen.getByLabelText('prompt')).toHaveProperty('value', 'imported draft');
+});
+
 const draft: ImageDraft = { positivePrompt: 'current', negativePrompt: '', checkpoint: 'exact.safetensors', width: 1024, height: 1024, steps: 20, cfg: 7, sampler: 'euler', scheduler: 'normal', seed: 42, denoise: 1, pipeline: 't2i' };
 const snapshot = (revision = 0, value = draft): ProjectSnapshot => ({ id: 'project-1', root: '/projects/映画', revision, draft: value, input: null });
 const restored = vi.fn();
@@ -60,7 +94,7 @@ function Harness({ busy = false }: { busy?: boolean }) {
  const [value, setValue] = useState(draft);
  return <I18nProvider><input aria-label="prompt" value={value.positivePrompt} onChange={e => setValue({ ...value, positivePrompt: e.target.value })}/><ProjectBar draft={value} busy={busy} onRestore={project => { restored(project); if (project) setValue(project.draft); }}/></I18nProvider>;
 }
-const click = async (name: string) => { await act(async () => { fireEvent.click(screen.getByRole('button', { name })); }); };
+const click = async (name: string) => { await act(async () => { fireEvent.click(screen.getByRole('button', { name, hidden: true })); }); };
 beforeEach(() => { vi.resetAllMocks(); closeEvents.handler=null;closeEvents.listen.mockImplementation(async(handler:typeof closeEvents.handler)=>{closeEvents.handler=handler;return closeEvents.unlisten;});vi.mocked(isTauri).mockReturnValue(true); localStorage.setItem('deas.locale.v1', 'en'); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -77,7 +111,7 @@ test('edits made during initial creation are saved next instead of overwritten b
  vi.useFakeTimers();
  const pending = deferred<ProjectSnapshot>();
  vi.mocked(invoke).mockResolvedValueOnce(snapshot()).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(snapshot(2, { ...draft, positivePrompt: 'newer' }));
- render(<Harness/>); await click('New project'); edit('newer');
+ render(<Harness/>); await click('Save as project…'); edit('newer');
  await act(async () => pending.resolve(snapshot(1)));
  expect(screen.getByLabelText('prompt')).toHaveProperty('value', 'newer');
  expect(restored).not.toHaveBeenCalled();
@@ -86,7 +120,7 @@ test('edits made during initial creation are saved next instead of overwritten b
  expect(restored).toHaveBeenCalledExactlyOnceWith(snapshot(2, { ...draft, positivePrompt: 'newer' }));
 });
 
-test.each(['New project', 'Open project', 'Import PNG'])('%s cancellation keeps the active project and draft unchanged', async name => {
+test.each(['Save as project…', 'Open project', 'Import PNG'])('%s cancellation keeps the active project and draft unchanged', async name => {
  vi.useFakeTimers();
  vi.mocked(invoke).mockResolvedValueOnce(snapshot(6)).mockResolvedValueOnce(null);
  render(<Harness/>); await click('Open project'); restored.mockClear();
@@ -99,7 +133,7 @@ test.each(['New project', 'Open project', 'Import PNG'])('%s cancellation keeps 
  expect(screen.queryByRole('alert')).toBeNull();
 });
 
-test.each(['New project', 'Open project', 'Import PNG', 'Close project'])('%s failure preserves current state without leaking raw errors or retrying', async name => {
+test.each(['Save as project…', 'Open project', 'Import PNG', 'Close project'])('%s failure preserves current state without leaking raw errors or retrying', async name => {
  vi.useFakeTimers();
  vi.mocked(invoke).mockResolvedValueOnce(snapshot(6)).mockRejectedValueOnce(new Error('SECRET token=private'));
  render(<Harness/>); await click('Open project'); restored.mockClear();
@@ -115,8 +149,8 @@ test.each(['New project', 'Open project', 'Import PNG', 'Close project'])('%s fa
 test.each(['busy', 'browser'])('%s disables all project actions and makes no implicit native calls', async reason => {
  if (reason === 'browser') vi.mocked(isTauri).mockReturnValue(false);
  render(<Harness busy={reason === 'busy'}/>);
- for (const name of ['New project', 'Open project', 'Close project', 'Import PNG']) {
-  expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true);
+ for (const name of ['Save as project…', 'Open project', 'Close project', 'Import PNG']) {
+  expect(screen.getByRole('button', { name, hidden: true })).toHaveProperty('disabled', true);
   await click(name);
  }
  expect(invoke).not.toHaveBeenCalled(); expect(restored).not.toHaveBeenCalled();
@@ -128,7 +162,7 @@ test('busy cancels pending debounce, then saves once with the latest draft after
  const { rerender } = render(<Harness/>); await click('Open project'); edit('pending');
  rerender(<Harness busy/>); edit('latest'); await tick();
  expect(invoke).toHaveBeenCalledTimes(1);
- for (const name of ['New project', 'Open project', 'Close project', 'Import PNG']) expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true);
+ for (const name of ['Save as project…', 'Open project', 'Close project', 'Import PNG']) expect(screen.getByRole('button', { name, hidden: true })).toHaveProperty('disabled', true);
  rerender(<Harness/>); await tick();
  expect(invoke).toHaveBeenNthCalledWith(2, 'native_project_save', { projectId: 'project-1', expectedRevision: 3, draft: { ...draft, positivePrompt: 'latest' } });
 });
@@ -137,7 +171,7 @@ test('a failed dirty save can explicitly close without saving, then reopen disk 
  vi.useFakeTimers();
  vi.mocked(invoke).mockResolvedValueOnce(snapshot(2)).mockRejectedValueOnce(new Error('durability uncertain')).mockResolvedValueOnce(undefined).mockResolvedValueOnce(snapshot(3, { ...draft, positivePrompt: 'disk version' }));
  render(<Harness/>); await click('Open project'); edit('unsaved local'); await tick();
- expect(screen.getByRole('button', { name: 'Close project' })).toHaveProperty('disabled', true);
+ expect(screen.getByRole('button', { name: 'Close project', hidden: true })).toHaveProperty('disabled', true);
  await click('Close without saving');
  expect(invoke).toHaveBeenNthCalledWith(3, 'native_project_close', { projectId: 'project-1' });
  expect(restored).toHaveBeenLastCalledWith(null);
@@ -162,14 +196,14 @@ test('draft equality ignores native JSON field order and still saves subsequent 
  expect(invoke).toHaveBeenNthCalledWith(2, 'native_project_save', { projectId: 'project-1', expectedRevision: 4, draft: { ...draft, positivePrompt: 'changed' } });
 });
 
-test.each(['Open project', 'New project', 'Import PNG', 'Close project'])('ignores an outstanding %s reply after unmount', async name => {
+test.each(['Open project', 'Save as project…', 'Import PNG', 'Close project'])('ignores an outstanding %s reply after unmount', async name => {
  const pending = deferred<ProjectSnapshot | null>();
  if (name === 'Import PNG' || name === 'Close project') vi.mocked(invoke).mockResolvedValueOnce(snapshot());
  vi.mocked(invoke).mockReturnValueOnce(pending.promise);
  const { unmount } = render(<Harness/>);
  if (name === 'Import PNG' || name === 'Close project') await click('Open project');
  restored.mockClear();
- fireEvent.click(screen.getByRole('button', { name }));
+ fireEvent.click(screen.getByRole('button', { name, hidden: true }));
  const calls = vi.mocked(invoke).mock.calls.length;
  unmount();
  await act(async () => pending.resolve(snapshot(9)));
@@ -182,14 +216,14 @@ test('locks every action during native operations and prevents duplicate clicks 
  vi.mocked(invoke).mockReturnValueOnce(pending.promise);
  render(<Harness/>);
  act(() => {
-  fireEvent.click(screen.getByRole('button', { name: 'Open project' }));
-  fireEvent.click(screen.getByRole('button', { name: 'New project' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open project', hidden: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save as project…', hidden: true }));
  });
  expect(invoke).toHaveBeenCalledTimes(1);
  expect(screen.getByRole('status').textContent).toBe('Project operation in progress…');
- for (const name of ['New project', 'Open project', 'Close project', 'Import PNG']) expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true);
+ for (const name of ['Save as project…', 'Open project', 'Close project', 'Import PNG']) expect(screen.getByRole('button', { name, hidden: true })).toHaveProperty('disabled', true);
  await act(async () => pending.resolve(null));
- expect(screen.getByRole('button', { name: 'Open project' })).toHaveProperty('disabled', false);
+ expect(screen.getByRole('button', { name: 'Open project', hidden: true })).toHaveProperty('disabled', false);
 });
 
 test('open waits for parent hydration before autosave, including a delayed parent update', async () => {
@@ -221,7 +255,7 @@ test.each(['autosave', 'initial'] as const)('%s failure retains ownership and fo
  vi.useFakeTimers();
  vi.mocked(invoke).mockResolvedValueOnce(snapshot(2)).mockRejectedValueOnce(new Error('SECRET credentials')).mockResolvedValueOnce(snapshot(3, { ...draft, positivePrompt: 'retained' }));
  render(<Harness/>);
- if (kind === 'initial') { edit('retained'); await click('New project'); }
+ if (kind === 'initial') { edit('retained'); await click('Save as project…'); }
  else { await click('Open project'); edit('retained'); await tick(); }
  expect(screen.getByRole('alert').textContent).not.toContain('SECRET');
  expect(screen.getByRole('status').textContent).not.toBe('Saved');
@@ -246,7 +280,7 @@ test('debounces edits, serializes revisions, and never restores an older save ov
  expect(invoke).toHaveBeenCalledTimes(1);
  edit('first'); edit('second');
  expect(screen.getByRole('status').textContent).toBe('Unsaved changes');
- expect(screen.getByRole('button', { name: 'Open project' })).toHaveProperty('disabled', true);
+ expect(screen.getByRole('button', { name: 'Open project', hidden: true })).toHaveProperty('disabled', true);
  await tick();
  expect(invoke).toHaveBeenNthCalledWith(2, 'native_project_save', { projectId: 'project-1', expectedRevision: 3, draft: { ...draft, positivePrompt: 'second' } });
  expect(screen.getByRole('status').textContent).toBe('Saving…');
@@ -280,7 +314,7 @@ test('new project durably saves the captured form before restoring, never the na
  vi.mocked(invoke).mockResolvedValueOnce(snapshot(0, { ...draft, positivePrompt: '' })).mockResolvedValueOnce(snapshot(1));
  render(<Harness/>);
  expect(invoke).not.toHaveBeenCalled();
- await click('New project');
+ await click('Save as project…');
  expect(invoke).toHaveBeenNthCalledWith(1, 'native_project_create', { title: 'New project' });
  expect(invoke).toHaveBeenNthCalledWith(2, 'native_project_save', { projectId: 'project-1', expectedRevision: 0, draft });
  expect(restored).toHaveBeenCalledExactlyOnceWith(snapshot(1));
