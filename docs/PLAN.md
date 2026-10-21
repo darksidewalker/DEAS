@@ -384,3 +384,10 @@ Graphite #121719, panel slate #1c2427, mist #e4e9e5, muted stone #8d9b99, copper
 - ComfyUI/Python: execution-only model loading, conditioning, sampling, processing and encoding; internal computational nodes are hidden implementation details.
 
 All unfinished controls identify their status. Browser fixture data belongs only in tests. An HTTP response is not proof of generation readiness; an installed package is not proof of working GPU computation.
+
+## Follow-up backlog (2026-10-21)
+
+- [ ] ComfyUI integrated view is sometimes blurry (preview rendering — investigate scale factor / CSS sizing vs. native video resolution).
+- [ ] Prompt spellcheck missing in prompt editors.
+- [ ] Prompt counter (token/character) missing in prompt editors.
+- See docs/DRAFT-VIDEO-PLAYBACK-FIX.md for the verified Linux playback root cause (superseded by the in-app fix; kept for reproducibility).
