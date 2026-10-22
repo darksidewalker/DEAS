@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "星标",
+  "media.unstar": "取消收藏 {name}",
   "media.star": "收藏 {name}",
   "media.starred": "已收藏 {name}",
   "media.star.external": "无法移动外部、远程或未托管的媒体。",

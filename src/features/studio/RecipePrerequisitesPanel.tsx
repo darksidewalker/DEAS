@@ -35,7 +35,7 @@ export function RecipePrerequisitesPanel({ endpoint }: { endpoint: string }) {
     if (!canCompile || !evidence) return;
     invalidatePreview();
     try {
-      const intent = Object.freeze({ recipeId: evidence.recipeId, version: evidence.version, positivePrompt, negativePrompt, checkpoint, sampler, scheduler, width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'DEAS_diagnostic' });
+      const intent = Object.freeze({ recipeId: evidence.recipeId, version: evidence.version, positivePrompt, negativePrompt, checkpoint, sampler, scheduler, width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'raw/DEAS_diagnostic' });
       setCompiled(compileRecipe(intent, evidence.allowlist));
       setCompiledIntent(intent);
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }

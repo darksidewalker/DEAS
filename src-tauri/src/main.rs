@@ -92,6 +92,7 @@ fn main() {
             deas::native_json_open,
             deas::native_media_list,
             deas::native_media_star,
+            deas::native_media_unstar,
             deas::native_media_star_status,
             deas::native_media_star_notice,
             deas::native_media_describe,

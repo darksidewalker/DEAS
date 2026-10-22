@@ -152,7 +152,10 @@ with sync_playwright() as p:
                 expect(pane).to_have_count(1)
                 menu_box = page.locator('.backend-panel-menu').bounding_box()
                 pane_box = pane.bounding_box()
-                assert menu_box['x']+menu_box['width'] <= pane_box['x'], (width, locale, name, 'menu not left')
+                if width <= 480:
+                    assert menu_box['y']+menu_box['height'] <= pane_box['y'], (width, locale, name, 'menu not above narrow pane')
+                else:
+                    assert menu_box['x']+menu_box['width'] <= pane_box['x'], (width, locale, name, 'menu not left')
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth'), (width, locale, name, 'overflow')
                 assert pane.evaluate('e=>e.scrollWidth<=e.clientWidth'), (width, locale, name, 'clipped panel')
                 styles.append(pane.evaluate("e=>{const s=getComputedStyle(e),h=getComputedStyle(e.querySelector('h3'));return [s.padding,s.backgroundColor,s.borderRadius,s.borderColor,h.fontSize];}"))

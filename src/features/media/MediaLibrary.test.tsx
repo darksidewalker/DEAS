@@ -14,8 +14,207 @@ const shots={path:'/home/u/shots',parent:'/home/u',entries:[entry('clip.mp4','fi
 const mount=(onSelect=vi.fn())=>{render(<I18nProvider><MediaLibrary selected={null} onSelect={onSelect}/></I18nProvider>);return onSelect;};
 /** Listing calls only: image tiles additionally ask `native_media_thumbnail`. */
 const mockMediaInvoke=(implementation:(command:string,args?:unknown)=>Promise<unknown>)=>vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_star_status'?{starred:false,unavailable:'Fixture: unmanaged media'}:command==='native_media_star_notice'?null:implementation(command,args));
+const rootButton=(name:string)=>within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name});
+const rootListing=(path:string)=>({path,parent:path.replace(/[\\/][^\\/]+$/,''),entries:['raw','starred'].map(name=>({...entry(name,'directory'),path:path+'/'+name})),truncated:false});
 const lists=()=>vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_media_list').map(([,a])=>a);
 describe('media library plugin — IPC fixtures, not real filesystem access',()=>{
+ it.each(['/data/work/Output','C:\data\work\Output'])('anchors raw at Output with relative children and bounded Up (%s)',async output=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  const raw=output+'/raw',starred=output+'/starred';
+  mockMediaInvoke(async(_c,args)=>{
+   const path=(args as {path:string}).path;
+   if(path===output)return {path,parent:'/data/work',entries:[{...entry('raw','directory'),path:raw},{...entry('starred','directory'),path:starred}],truncated:false};
+   if(path===raw||path===starred)return {path,parent:output,entries:[],truncated:false};
+   throw new Error('Unexpected listing '+path);
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  const nav=screen.getByRole('navigation',{name:'Folders'});
+  expect(await within(nav).findByRole('button',{name:'root'})).toBeTruthy();
+  expect(await within(nav).findByRole('button',{name:'starred'})).toBeTruthy();
+  expect(nav.textContent).not.toMatch(/data|work|Output|C:/);
+  expect(lists()).toContainEqual({path:output,depth:1});
+  fireEvent.click(screen.getByRole('button',{name:'Starred'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Starred'}).getAttribute('aria-pressed')).toBe('true'));
+  expect(screen.getByRole('button',{name:'Output'}).getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(screen.getByRole('button',{name:'Parent folder'}));
+  await screen.findByRole('button',{name:'root',current:'location'});
+  expect((screen.getByRole('button',{name:'Parent folder'}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'Parent folder'}));
+  expect(lists().at(-1)).toEqual({path:output,depth:3});
+ });
+
+ it('reloads the Output anchor after relocation refreshes the same current folder',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async(_c,args)=>{const path=(args as {path:string}).path;return path==='/refresh/out'?rootListing(path):{path,parent:'/refresh/out',entries:[],truncated:false};});
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:'/refresh/out'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  act(()=>window.dispatchEvent(new CustomEvent('deas-media-relocated',{detail:{oldPath:'/refresh/out/raw/a.png',path:'/refresh/out/starred/a.png'}})));
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  expect(screen.getByRole('button',{name:'starred'})).toBeTruthy();
+ });
+ it('reveals a picked Windows descendant beneath Output using canonical native paths',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  const output='C:\\work\\Output',raw=output+'\\raw',starred=output+'\\starred',project=starred+'\\project';
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_pick_directory')return project;
+   const path=(args as {path:string}).path.replace(/\//g,'\\');
+   if(path===output)return {path,parent:'C:\\work',entries:[{...entry('raw','directory'),path:raw},{...entry('starred','directory'),path:starred}],truncated:false};
+   return {path,parent:path===project?starred:output,entries:path===starred?[{...entry('project','directory'),path:project}]:[],truncated:false};
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  fireEvent.click(screen.getByRole('button',{name:'Open folder…'}));
+  await screen.findByRole('button',{name:'project',current:'location'});
+  expect(screen.getByRole('button',{name:'root'})).toBeTruthy();
+  expect(screen.getByRole('navigation').textContent).not.toMatch(/C:|work|Output/);
+ });
+ it('refreshes an already loaded Output tree when native first creates starred',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  let created=false;
+  mockMediaInvoke(async(_c,args)=>{
+   const path=(args as {path:string}).path;
+   if(path==='/fresh/out')return {...rootListing(path),entries:rootListing(path).entries.filter(e=>created||e.name==='raw')};
+   if(path==='/fresh/out/starred')created=true;
+   return {path,parent:'/fresh/out',entries:[],truncated:false};
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:'/fresh/out'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  expect(within(screen.getByRole('navigation')).queryByRole('button',{name:'starred'})).toBeNull();
+  fireEvent.click(rootButton('Starred'));
+  await screen.findByRole('button',{name:'starred',current:'location'});
+  expect(lists().filter(a=>(a as {path:string}).path==='/fresh/out')).toHaveLength(2);
+ });
+ it('anchors an explicit external pick without ancestors and bounds Up at that folder',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_pick_directory')return '/outside/picked';
+   const path=(args as {path:string}).path||'/home/u';
+   return {path,parent:path==='/outside/picked/child'?'/outside/picked':'/outside',entries:path==='/outside/picked'?[{...entry('child','directory'),path:path+'/child'}]:[],truncated:false};
+  });
+  mount();await screen.findByRole('button',{name:'u',current:'location'});
+  fireEvent.click(screen.getByRole('button',{name:'Open folder…'}));
+  await screen.findByRole('button',{name:'picked',current:'location'});
+  expect(screen.getByRole('navigation').textContent).not.toMatch(/outside|home/);
+  expect((screen.getByRole('button',{name:'Parent folder'}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'child'}));
+  await screen.findByRole('button',{name:'child',current:'location'});
+  fireEvent.click(screen.getByRole('button',{name:'Parent folder'}));
+  await screen.findByRole('button',{name:'picked',current:'location'});
+ });
+ it.each(['/env/input/a.png','/env/out-other/a.png','/outside/a.png'])('does not draw stars or query star status for unmanaged tile %s',async path=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_media_thumbnail')return '/cache/t.png';
+   const folder=(args as {path:string}).path;
+   return folder==='/env/out'?rootListing(folder):{path:folder,parent:'/env/out',entries:[{...entry('a.png','file','image'),path}],truncated:false};
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input:'/env/input',output:'/env/out'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'a.png'});
+  expect(screen.queryByRole('button',{name:'Star a.png'})).toBeNull();
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_media_star_status')).toBe(false);
+ });
+ it('removes per-tile stars when switching from Output to Input without querying input status',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_media_thumbnail')return '/cache/t.png';
+   const path=(args as {path:string}).path;
+   if(path==='/chip/out')return rootListing(path);
+   return {path,parent:null,entries:[{...entry('a.png','file','image'),path:path+'/a.png'}],truncated:false};
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:'/chip/out',input:'/chip/input'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'Star a.png'});
+  fireEvent.click(rootButton('Input'));
+  await screen.findByRole('button',{name:'Input',current:'location'});
+  expect(screen.getByRole('button',{name:'a.png'})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Star a.png'})).toBeNull();
+  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_media_star_status').map(([,a])=>a)).toEqual([{path:'/chip/out/raw/a.png'}]);
+ });
+ it.each(['/env/out/raw/a.png','C:\\env\\out\\raw\\a.png'])('retains native star checks for output tile %s',async path=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_media_thumbnail')return '/cache/t.png';
+   const folder=(args as {path:string}).path;
+   return folder.endsWith('/raw')?{path:folder,parent:folder.slice(0,-4),entries:[{...entry('a.png','file','image'),path}],truncated:false}:rootListing(folder);
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:path.startsWith('C:')?'C:/env/out/':'/env/out/'}}/></I18nProvider>);
+  expect(await screen.findByRole('button',{name:'Star a.png'})).toBeTruthy();
+  expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path});
+ });
+ it.each(['/toggle/out','C:\\toggle\\out\\'])('browses raw and starred read-only from Input, preserving controls and selection (%s)',async output=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  const root=output.replace(/[\\/]+$/,'');
+  const input='/toggle/input',onSelect=vi.fn();
+  mockMediaInvoke(async(_c,args)=>{const path=(args as {path:string}).path;return path===root?rootListing(path):{path,parent:null,entries:[],truncated:false};});
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={onSelect} roots={{input,output}} filter="keep" sort="name" view="list" type="video"/></I18nProvider>);
+  await waitFor(()=>expect(lists()[0]).toEqual({path:root+'/raw',depth:3}));
+  const toggle=screen.getByRole('button',{name:'Starred'});
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(within(screen.getByRole('group',{name:'Environment folders'})).getAllByRole('button').map(b=>b.textContent)).toEqual(['Output','Starred','Input']);
+  expect(screen.queryByRole('switch')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox',{name:'Depth'}),{target:{value:'2'}});
+  fireEvent.click(rootButton('Input'));
+  await waitFor(()=>expect(rootButton('Input').getAttribute('aria-pressed')).toBe('true'));
+  fireEvent.click(toggle);
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('true'));
+  expect(lists().at(-1)).toEqual({path:root+'/starred',depth:2});
+  fireEvent.click(screen.getByRole('button',{name:'Output'}));
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('false'));
+  expect(lists().at(-1)).toEqual({path:root+'/raw',depth:2});
+  fireEvent.click(toggle);
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('true'));
+  fireEvent.click(screen.getByRole('button',{name:'Output'}));
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('false'));
+  expect(lists().at(-1)).toEqual({path:root+'/raw',depth:2});
+  expect((screen.getByRole('combobox',{name:'Depth'}) as HTMLSelectElement).value).toBe('2');
+  expect(document.querySelector('.media-library')?.getAttribute('data-view')).toBe('list');
+  expect(onSelect).not.toHaveBeenCalled();
+  expect(vi.mocked(invoke).mock.calls.every(([c])=>c==='native_media_list')).toBe(true);
+ });
+ it('reports missing starred directories without switching, even after a cached successful visit',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  let missing=false;
+  mockMediaInvoke(async(_c,args)=>{const path=(args as {path:string}).path;if(missing&&path.endsWith('/starred'))throw new Error('Starred directory missing');if(path==='/failed/out')return rootListing(path);return {path,parent:null,entries:[],truncated:false};});
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:'/failed/out'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  const toggle=screen.getByRole('button',{name:'Starred'});
+  fireEvent.click(toggle);await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('true'));
+  fireEvent.click(screen.getByRole('button',{name:'Output'}));await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('false'));
+  missing=true;fireEvent.click(toggle);
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect((await screen.findByRole('alert')).textContent).toContain('Starred directory missing');
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(screen.getByRole('button',{name:'raw',current:'location'})).toBeTruthy();
+ });
+ it('ignores stale root listings and derives pressed state from manually opened folders',async()=>{
+  vi.mocked(isTauri).mockReturnValue(true);
+  let resolveStarred!:(value:unknown)=>void;
+  let picked='/manual/out/starred/named';
+  mockMediaInvoke(async(c,args)=>{
+   if(c==='native_pick_directory')return picked;
+   const path=(args as {path:string}).path;
+   if(path==='/manual/out')return rootListing(path);
+   if(path==='/manual/out/starred')return new Promise(resolve=>{resolveStarred=resolve;});
+   return {path,parent:null,entries:[],truncated:false};
+  });
+  render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input:'/manual/input',output:'/manual/out'}}/></I18nProvider>);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  const toggle=screen.getByRole('button',{name:'Starred'});
+  fireEvent.click(toggle);expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(rootButton('Input'));
+  await screen.findByRole('button',{name:'Input',current:'location'});
+  await act(async()=>resolveStarred({path:'/manual/out/starred',parent:null,entries:[],truncated:false}));
+  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(screen.getByRole('button',{name:'Input',current:'location'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Open folder…'}));
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('true'));
+  picked='/manual/out/starred-other';
+  fireEvent.click(screen.getByRole('button',{name:'Open folder…'}));
+  await waitFor(()=>expect(toggle.getAttribute('aria-pressed')).toBe('false'));
+ });
+ it('omits starred without an output root',()=>{
+  mount();expect(screen.queryByRole('switch')).toBeNull();expect(screen.queryByRole('button',{name:'Starred'})).toBeNull();
+ });
  it('keeps drop guidance inline after Depth instead of overlaying the file view',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
   mockMediaInvoke(async c=>c==='native_media_thumbnail'?'/cache/thumb.png':home);
@@ -98,11 +297,11 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
  });
  it('starts in the environment output folder newest-first and offers input/output chips',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
-  const out={path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[entry('old.png','file','image',false,10),entry('new.png','file','image',false,20),entry('clip.webp','file','image',false,5)],truncated:false};
-  mockMediaInvoke(async(c,args)=>{const path=(args as {path:string}).path;if(c==='native_media_thumbnail'){if(path.endsWith('new.png'))return '/cache/thumbs/abc.png';throw new Error('No thumbnail for this file');}return path==='/env/ComfyUI/output'?out:home;});
+  const out={path:'/env/ComfyUI/output/raw',parent:'/env/ComfyUI/output',entries:[entry('old.png','file','image',false,10),entry('new.png','file','image',false,20),entry('clip.webp','file','image',false,5)],truncated:false};
+  mockMediaInvoke(async(c,args)=>{const path=(args as {path:string}).path;if(c==='native_media_thumbnail'){if(path.endsWith('new.png'))return '/cache/thumbs/abc.png';throw new Error('No thumbnail for this file');}return path==='/env/ComfyUI/output/raw'?out:path==='/env/ComfyUI/output'?rootListing(path):{...home,path:'/env/ComfyUI/input'};});
   render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
-  await screen.findByRole('button',{name:'output',current:'location'});
-  expect(lists()).toEqual([{path:'/env/ComfyUI/output',depth:3}]);
+  await screen.findByRole('button',{name:'raw',current:'location'});
+  expect(lists()).toEqual([{path:'/env/ComfyUI/output/raw',depth:3},{path:'/env/ComfyUI/output',depth:1}]);
   expect(screen.getAllByRole('button',{name:/\.(png|webp)$/}).filter(b=>b.hasAttribute('data-media')).map(b=>b.textContent)).toEqual(['new.png','old.png','clip.webp']);
   // Tiles show the native cached thumbnail; without one the original file is the fallback.
   await waitFor(()=>expect(screen.getByRole('button',{name:'new.png'}).querySelector('img')?.getAttribute('src')).toBe('asset://localhost//cache/thumbs/abc.png'));
@@ -111,7 +310,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   await waitFor(()=>expect(screen.getByRole('button',{name:'clip.webp'}).querySelector('canvas[data-still]')).toBeTruthy());
   expect(screen.getByRole('button',{name:'clip.webp'}).querySelector('img')).toBeNull();
   expect(screen.getByRole('button',{name:'Output'}).getAttribute('aria-pressed')).toBe('true');
-  fireEvent.click(screen.getByRole('button',{name:'Input'}));
+  fireEvent.click(rootButton('Input'));
   expect(lists().at(-1)).toEqual({path:'/env/ComfyUI/input',depth:3});
  });
  it('lists the home folder read-only, hides non-media files and marks symlinked folders',async()=>{
@@ -129,8 +328,10 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   expect(onSelect).toHaveBeenCalledWith({name:'a.png',path:'/home/u/a.png',media:'image',src:'asset://localhost//home/u/a.png'});
   fireEvent.click(screen.getByRole('button',{name:'shots'}));await screen.findByRole('button',{name:'shots',current:'location'});
   expect(screen.getByText('Only the first 5000 entries are shown.')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button',{name:'home'}));expect(lists().at(-1)).toEqual({path:'/home',depth:3});
-  fireEvent.click(screen.getByRole('button',{name:'Parent folder'}));await waitFor(()=>expect(lists().at(-1)).toEqual({path:'/home/u',depth:3}));
+  expect(screen.queryByRole('button',{name:'home'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Parent folder'}));await screen.findByRole('button',{name:'u',current:'location'});
+  expect(lists().at(-1)).toEqual({path:'/home/u',depth:3});
+  expect((screen.getByRole('button',{name:'Parent folder'}) as HTMLButtonElement).disabled).toBe(true);
  });
  it('filters by name and sorts files by newest, name or size with folders kept in the navigator',async()=>{
   vi.mocked(isTauri).mockReturnValue(true);
@@ -189,5 +390,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   fireEvent.drop(screen.getByRole('complementary',{name:'Media'}),{dataTransfer:{files:[new File(['x'],'skip.txt',{type:'text/plain'}),new File(['x'],'drop.webm',{type:'video/webm'})]}});
   expect(onSelect).toHaveBeenCalledExactlyOnceWith({name:'drop.webm',media:'video',src:'blob:fixture'});
   expect(screen.getByRole('button',{name:'drop.webm'})).toBeTruthy();expect(screen.queryByText('skip.txt')).toBeNull();url.mockRestore();
+  expect(screen.queryByRole('button',{name:'Star drop.webm'})).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
  });
 });

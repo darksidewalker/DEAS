@@ -10,6 +10,14 @@ This document governs product scope, architecture boundaries and the first accep
 
 This documentation approval does not authorize implementation, model downloads, external-service changes, commits, publication or releases. No version bump accompanies it.
 
+## Owner scope correction — lightweight global history
+
+The owner subsequently reduced the next scope: executed settings are useful as one **global history/backlog of the last 10 executed jobs**, not a per-project or per-render project archive. A single bounded local JSON file is the proposed smallest storage choice; record effective settings, status and references to existing output files, without copying media, model weights or credentials. Restoring settings is explicit and never starts computation. Missing files are shown as missing. Evicting an old history entry removes metadata only, never its output files.
+
+Managed generated PNG adoption, immutable i2i revision lineage and the full persistent SDXL project/recovery/acceptance milestone are **deferred as excessive for the current workflow**, not prerequisites for this history. Preserve existing project-draft/import/export features and their files; do not remove or expand them silently. Keep ordinary correctness, error, source-preservation and platform checks for changed behavior; deferring the large project milestone does not waive testing or permit automatic resubmission. Further integrations require their own explicit priority rather than inheriting the old image-milestone gate.
+
+This correction supersedes conflicting project-first priorities and acceptance requirements in the interview/exit list below; those remain historical target detail, not the next implementation backlog. The history is planned, not delivered by this documentation correction.
+
 ## Product and execution boundary
 
 - **Q2 — Primary audience:** experienced local AI users first. Beginner convenience follows; workflow developers and beginners are not simultaneous equal-priority audiences.

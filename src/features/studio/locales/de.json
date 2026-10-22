@@ -16,7 +16,7 @@
   "studio.quick.confirm": "Studio-Eingaben auf Standardwerte zurücksetzen (einschließlich Prompts, Modellauswahl, Optionen, LoRAs, Presets/Wildcards und Nachbearbeitung)? Medien, Bibliotheken, Projekte, Sterne, Jobverlauf, wartende/laufende Jobs und Backend-Konfiguration bleiben erhalten.",
   "studio.quick.confirmProject": "Editierbare Studio-Einstellungen dieses Projekts zurücksetzen? Der geänderte Entwurf wird automatisch gespeichert. Globale Studio-Einstellungen, Medien, Bibliotheken, Projekte, Sterne, Jobverlauf, wartende/laufende Jobs und Backend-Konfiguration bleiben erhalten.",
   "studio.run.opt.outputNaming": "Ausgabebenennung",
-  "studio.run.opt.outputNaming.hint": "Relativ zu Output; ohne Endung. Der Saver ergänzt Endung und Zähler. Platzhalter (Beispielwert, Ortszeit):",
+  "studio.run.opt.outputNaming.hint": "Relativ zu Output/raw; ohne Endung. Der Saver ergänzt Endung und Zähler. Platzhalter (Beispielwert, Ortszeit):",
   "studio.run.opt.outputNaming.invalid": "Ungültige Benennung: relativer Pfad mit A–Z, Ziffern, _ - . und / sowie nur den angegebenen Variablen. Keine leeren/übergeordneten Ordner, abschließenden Punkte oder Gerätenamen; maximal 512 Zeichen, 180 je Segment.",
   "studio.run.opt.help": "{name} erklären",
   "studio.run.opt.default": "Standard",

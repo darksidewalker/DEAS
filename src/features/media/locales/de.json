@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "Markiert",
+  "media.unstar": "Markierung von {name} entfernen",
   "media.star": "{name} markieren",
   "media.starred": "{name} markiert",
   "media.star.external": "Externe, entfernte oder nicht verwaltete Medien können nicht verschoben werden.",

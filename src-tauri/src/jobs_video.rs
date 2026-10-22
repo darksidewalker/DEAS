@@ -638,7 +638,7 @@ fn combine(g: &mut Value, images: Value, audio: Option<Value>, frame_rate: Value
         "images":images,"frame_rate":frame_rate,
         "codec":or("codec",json!("Auto")),"container":or("container",json!("Auto")),"bit_depth":or("bitDepth",json!("Auto")),
         "quality":or("quality",json!(20)),"log_level":"Standard","pingpong":false,"save_metadata":true,
-        "filename_prefix":i.get("outputPrefix").cloned().unwrap_or(json!("video/DEAS")),"save_output":true,"pass_frames":false,"crop_to_audio":false,
+        "filename_prefix":i.get("outputPrefix").cloned().unwrap_or(json!("raw/video/DEAS")),"save_output":true,"pass_frames":false,"crop_to_audio":false,
         "audio_codec":or("audioCodec",json!("Auto")),"audio_bitrate":or("audioBitrate",json!("192k")),
         "save_first_frame":or("saveFirstFrame",json!(false)),"save_last_frame":or("saveLastFrame",json!(false)),
         "seed":i["seed"]

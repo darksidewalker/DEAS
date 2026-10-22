@@ -16,7 +16,7 @@
   "studio.quick.confirm": "将 Studio 编辑设置恢复默认值（包括提示词、模型选择、选项、LoRA、预设/通配符和后处理）？媒体、库、项目、收藏、任务历史、排队/运行中的任务及后端配置将保留。",
   "studio.quick.confirmProject": "重置此项目的 Studio 编辑设置？更改后的草稿将自动保存。全局设置、媒体、库、项目、收藏、任务历史、排队/运行中的任务及后端配置将保留。",
   "studio.run.opt.outputNaming": "输出命名",
-  "studio.run.opt.outputNaming.hint": "相对于 Output，不含扩展名。保存节点添加扩展名和计数器。变量（示例值，本地时间）：",
+  "studio.run.opt.outputNaming.hint": "相对于 Output/raw，不含扩展名。保存节点添加扩展名和计数器。变量（示例值，本地时间）：",
   "studio.run.opt.outputNaming.invalid": "命名无效：使用包含 A–Z、数字、_ - . / 及所列变量的相对路径。不允许空目录、父目录、结尾的点或设备名；总长最多512字符，每段180字符。",
   "studio.run.opt.help": "说明 {name}",
   "studio.run.opt.default": "默认",

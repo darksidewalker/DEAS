@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "Favoris",
+  "media.unstar": "Retirer le marquage de {name}",
   "media.star": "Marquer {name}",
   "media.starred": "{name} marqué",
   "media.star.external": "Les médias externes, distants ou non gérés ne peuvent pas être déplacés.",

@@ -20,9 +20,6 @@
 .media-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-folder-name[aria-current="location"] { background: #2a4a3a; color: #b9e8c7; }
 .media-path { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem; min-width: 0; }
-.media-path .media-crumb { padding: .15rem .35rem; border: 0; border-radius: .35rem; background: transparent; color: #b9d9e0; font-family: monospace; font-size: .72rem; }
-.media-path .media-crumb:hover { background: #ffffff10; }
-.media-path .media-crumb[aria-current="location"] { color: var(--chalk); font-weight: 600; }
 .media-depth { display: flex; align-items: center; gap: .3rem; font-size: .7rem; color: var(--muted); }
 .media-depth select { width: auto; height: 1.6rem; min-height: 0; padding: 0 .3rem; line-height: 1.2; font-size: .72rem; }
 .media-drop-hint { flex: 1 1 16rem; min-width: 0; margin: 0; padding: 0; background: transparent; font-size: .72rem; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }

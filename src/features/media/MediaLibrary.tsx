@@ -9,7 +9,9 @@ import { relocatedMediaItem, type MediaRelocation } from '../../lib/media';
 import './media.css';
 const depths=[1,2,3,4,5];
 const isDepth=(v:unknown):v is number=>typeof v==='number'&&depths.includes(v);
-// Session caches: listings show instantly on revisit (then refresh), thumbnails skip the IPC round trip.
+const normalizedPath=(path:string)=>path.replace(/\\/g,'/').replace(/\/+$/,'');
+const underRoot=(path:string,root?:string)=>!!root&&(normalizedPath(path)===normalizedPath(root)||normalizedPath(path).startsWith(normalizedPath(root)+'/'));
+// Session caches: same-folder refreshes paint instantly; thumbnails skip the IPC round trip.
 const listings=new Map<string,MediaListing>();
 const thumbs=new Map<string,string>();
 /** First frame only: an animated <img> tile keeps WebKitGTK's decoder threads busy and the window repainting for as long as it is shown. */
@@ -79,26 +81,31 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  const reveal=(path:string)=>{setMenu(null);invoke('native_media_reveal',{path}).catch(e=>setError(String(e)));};
  const version=useRef(0);
  const [depth,setDepth]=usePref('media.depth',3,isDepth);
- const open=async(path:string,levels=depth)=>{
+ const rawRoot=roots.output?roots.output.replace(/[\\/]+$/,'')+'/raw':undefined;
+ const starredRoot=roots.output?roots.output.replace(/[\\/]+$/,'')+'/starred':undefined;
+ const open=async(path:string,levels=depth,picked=false)=>{
   const v=++version.current;
-  const key=`${path}\0${levels}`;const cached=listings.get(key);if(cached){setListing(cached);setError('');}
-  try{const next=await listMedia(path,levels);listings.set(key,next);if(v===version.current){setListing(next);setError('');setDirectories(d=>({...d,[next.path]:next}));setFolderErrors(errors=>({...errors,[next.path]:''}));setTreeRoot(root=>root&&(next.path===root||next.path.startsWith(root.replace(/[\\/]+$/,'')+'/')||next.path.startsWith(root.replace(/[\\/]+$/,'')+'\\'))?root:next.path);setExpanded(paths=>new Set([...paths,next.path]));}}
+  // Cached refreshes may paint immediately, but navigation commits only after a successful listing.
+  const key=`${path}\0${levels}`;const cached=listing?.path===path?listings.get(key):undefined;if(cached){setListing(cached);setError('');}
+  try{const next=await listMedia(path,levels);listings.set(key,next);if(v===version.current){setListing(next);setError('');setDirectories(d=>({...d,[next.path]:next}));setFolderErrors(errors=>({...errors,[next.path]:''}));setTreeRoot(root=>underRoot(next.path,roots.output)?roots.output!.replace(/[\\/]+$/,''):underRoot(next.path,roots.input)?roots.input!.replace(/[\\/]+$/,''):!picked&&underRoot(next.path,root)?root:next.path);setExpanded(paths=>new Set([...paths,next.path]));}}
   catch(e){listings.delete(key);if(v===version.current){setError(String(e));if(cached)setListing(l=>l===cached?null:l);}} // a stale cached view must not outlive a folder that failed to list
  };
  // The output folder is the natural start once an environment is known; before that, home.
- useEffect(()=>{if(native)void open(roots.output??roots.input??'');return()=>{version.current++;};},[native,roots.output,roots.input]);
- const inOutput=!!roots.output&&!!listing&&listing.path.startsWith(roots.output);
+ useEffect(()=>{if(native)void open(rawRoot??roots.input??'');return()=>{version.current++;};},[native,roots.output,roots.input]);
+ const inOutput=!!listing&&underRoot(listing.path,roots.output);
+ const inStarred=!!listing&&underRoot(listing.path,starredRoot);
+ const canStar=(item:MediaItem)=>native&&!!item.path&&underRoot(item.path,roots.output)&&!underRoot(item.path,roots.input);
  useEffect(()=>{if(outputRevision&&inOutput&&listing)void open(listing.path);},[outputRevision]); // eslint-disable-line react-hooks/exhaustive-deps
  useEffect(()=>{
   const moved=(event:Event)=>{const move=(event as CustomEvent<MediaRelocation>).detail;listings.clear();thumbs.clear();setDirectories({});setDropped(items=>items.map(item=>relocatedMediaItem(item,move)));if(listing)void open(listing.path);};
   window.addEventListener('deas-media-relocated',moved);return()=>window.removeEventListener('deas-media-relocated',moved);
  },[listing]);
  const changeDepth=(levels:number)=>{setDepth(levels);if(listing)void open(listing.path,levels);};
- // Clickable path segments: each opens its prefix (POSIX and Windows roots).
- const crumbs=(path:string)=>{const parts=path.split(/[\\/]+/).filter(Boolean);const root=path.startsWith('/')?'/':'';return parts.map((part,i)=>({label:part,path:root+parts.slice(0,i+1).join('/')}));};
+ const rootName=underRoot(treeRoot,roots.output)?'root':underRoot(treeRoot,roots.input)?t('media.root.input'):treeRoot.split(/[\\/]+/).filter(Boolean).at(-1)??treeRoot;
+ const parent=listing?.parent&&underRoot(listing.parent,treeRoot)&&normalizedPath(listing.path)!==normalizedPath(treeRoot)?listing.parent:null;
  const addDropped=(items:(MediaItem|null)[])=>{const valid=items.filter((i):i is MediaItem=>!!i);if(valid.length){setDropped(d=>[...valid,...d]);onSelect(valid[0]);}};
  const dropPaths=async(paths:string[])=>{
-  try{const entries=await describeMedia(paths);const folder=entries.find(e=>e.kind==='directory');if(folder)void open(folder.path);addDropped(entries.map(itemFromEntry));}
+  try{const entries=await describeMedia(paths);const folder=entries.find(e=>e.kind==='directory');if(folder)void open(folder.path,depth,true);addDropped(entries.map(itemFromEntry));}
   catch(e){setError(String(e));}
  };
  // Native webviews deliver OS drops as paths; the HTML5 handlers below serve the browser preview.
@@ -115,22 +122,36 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
   return()=>{alive=false;unlisten?.();};
  },[native]);
  const pick=async()=>{
-  try{const folder=await invoke<string|null>('native_pick_directory',{title:t('media.pickTitle')});if(folder)void open(folder);}
+  try{const folder=await invoke<string|null>('native_pick_directory',{title:t('media.pickTitle')});if(folder)void open(folder,depth,true);}
   catch(e){setError(String(e));}
  };
  const choose=(entry:MediaEntry)=>{const item=itemFromEntry(entry);if(item)onSelect(item);};
  const visible=useMemo(()=>{const q=filter.trim().toLowerCase();return listing?.entries.filter(e=>e.kind==='file'&&e.media&&(type==='all'||e.media===type)&&(!q||e.name.toLowerCase().includes(q)))
   .sort((a,b)=>sort==='date'?b.modified-a.modified:sort==='size'?b.size-a.size:a.name.localeCompare(b.name))??[];},[listing,filter,sort,type]);
- const toggleFolder=async(path:string)=>{
-  if(expanded.has(path)){setExpanded(paths=>{const next=new Set(paths);next.delete(path);return next;});return;}
-  setExpanded(paths=>new Set([...paths,path]));
-  if(directories[path]||pendingFolders.current.has(path))return;
+ const loadFolder=async(path:string)=>{
+  if(pendingFolders.current.has(path))return;
   pendingFolders.current.add(path);
   setFolderErrors(errors=>({...errors,[path]:''}));
   try{const next=await listMedia(path,1);if(mounted.current)setDirectories(d=>({...d,[path]:next}));}
   catch(e){if(mounted.current)setFolderErrors(errors=>({...errors,[path]:String(e)}));}
   finally{pendingFolders.current.delete(path);}
  };
+ const toggleFolder=(path:string)=>{
+  if(expanded.has(path)){setExpanded(paths=>{const next=new Set(paths);next.delete(path);return next;});return;}
+  setExpanded(paths=>new Set([...paths,path]));
+  if(!directories[path])void loadFolder(path);
+ };
+ useEffect(()=>{
+  if(!listing||!treeRoot)return;
+  const relative=normalizedPath(listing.path).slice(normalizedPath(treeRoot).length).split('/').filter(Boolean);
+  const separator=listing.path.includes('\\')?'\\':'/';
+  const parents=[treeRoot,...relative.slice(0,-1).map((_,i)=>normalizedPath(treeRoot).replace(/\//g,separator)+separator+relative.slice(0,i+1).join(separator))];
+  setExpanded(paths=>new Set([...paths,...parents]));
+  parents.forEach((path,i)=>{
+   const child=i<relative.length?relative[i]:undefined;
+   if(!directories[path]||(child&&!directories[path].entries.some(e=>e.kind==='directory'&&e.name===child)))void loadFolder(path);
+  });
+ },[treeRoot,listing]); // Reuse expansion loading, including fixed children just created by native listing.
  const folderBranch=(path:string,name:string,symlink=false,ancestors:string[]=[]):React.ReactNode=>{
   const data=directories[path],isOpen=expanded.has(path);
   const children=data?.entries.filter(e=>e.kind==='directory'&&e.path!==path&&!ancestors.includes(e.path)).sort((a,b)=>a.name.localeCompare(b.name));
@@ -147,20 +168,20 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
   onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)}
   onDrop={e=>{e.preventDefault();setDragging(false);addDropped([...e.dataTransfer.files].map(itemFromFile));}}>
   <header className="media-header"><h2>{t('media.title')}</h2>
-   {(roots.input||roots.output)&&<div className="media-roots" role="group" aria-label={t('media.roots')}>{(['output','input'] as const).map(key=>roots[key]&&<button key={key} type="button" data-media-root={key} aria-pressed={listing?.path.startsWith(roots[key]!)} onClick={()=>void open(roots[key]!)}>{t(`media.root.${key}`)}</button>)}</div>}
+   {(roots.input||roots.output)&&<div className="media-roots" role="group" aria-label={t('media.roots')}>{(['output','starred','input'] as const).map(key=>{const path=key==='output'?rawRoot:key==='starred'?starredRoot:roots.input;return path&&<button key={key} type="button" data-media-root={key} aria-pressed={!!listing&&(key==='output'?inOutput&&!inStarred&&!underRoot(listing.path,roots.input):key==='starred'?inStarred:underRoot(listing.path,roots.input))} onClick={()=>void open(path)}>{t(`media.root.${key}`)}</button>;})}</div>}
 
    <label className="media-depth"><span>{t('media.depth')}</span><select value={depth} onChange={e=>changeDepth(Number(e.target.value))}>{depths.map(d=><option key={d} value={d}>{d}</option>)}</select></label>
    <span className="media-drop-hint">{t(native?'media.dropHelp':'media.browserHelp')}</span>
    <button type="button" disabled={!native} onClick={()=>void pick()}>{t('media.openFolder')}</button></header>
   <div className="media-browser">
    {listing&&<nav className="media-folders" aria-label={t('media.folders')}>
-    <div className="media-path" aria-label={t('media.currentFolder')}><button type="button" disabled={!listing.parent} aria-label={t('media.up')} onClick={()=>listing.parent&&void open(listing.parent)}>↑</button>{crumbs(treeRoot).slice(0,-1).map(c=><button key={c.path} type="button" className="media-crumb" onClick={()=>void open(c.path)}>{c.label}</button>)}</div>
-    <ul>{treeRoot&&folderBranch(treeRoot,crumbs(treeRoot).at(-1)?.label??treeRoot)}</ul>
+    <div className="media-path" aria-label={t('media.currentFolder')}><button type="button" disabled={!parent} aria-label={t('media.up')} onClick={()=>parent&&void open(parent)}>↑</button></div>
+    <ul>{treeRoot&&folderBranch(treeRoot,rootName)}</ul>
    </nav>}
    <div className="media-files">
-  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.filter(i=>type==='all'||i.media===type).map((item,i)=><li key={`${item.src}-${i}`} data-mark={mark(item.path)}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable onDragStart={e=>dragItem(e.dataTransfer,item)} onContextMenu={onMenu(item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button>{badge(item.path)}<StarMediaButton item={item}/></li>)}</ul>}
+  {dropped.length>0&&<ul className="media-list" aria-label={t('media.dropped')}>{dropped.filter(i=>type==='all'||i.media===type).map((item,i)=><li key={`${item.src}-${i}`} data-mark={mark(item.path)}><button type="button" data-media={item.media} aria-current={selected?.src===item.src} draggable onDragStart={e=>dragItem(e.dataTransfer,item)} onContextMenu={onMenu(item)} onClick={()=>onSelect(item)}>{thumb(item.media,item.src)}<span className="media-name">{item.name}</span></button>{badge(item.path)}{canStar(item)&&<StarMediaButton item={item}/>}</li>)}</ul>}
   {error&&<p className="media-error" role="alert">{error}</p>}
-  {listing&&<Tiles folder={listing.path} layout={view} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path} data-mark={mark(entry.path)}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onContextMenu={onMenu(itemFromEntry(entry))} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button>{badge(entry.path)}<StarMediaButton key={`${entry.path}:${outputRevision}`} item={itemFromEntry(entry)!}/></li>}/>}
+  {listing&&<Tiles folder={listing.path} layout={view} className="media-list" aria-label={t('media.entries')} items={visible} render={entry=><li key={entry.path} data-mark={mark(entry.path)}><button type="button" data-kind={entry.kind} data-media={entry.media??undefined} aria-current={selected?.path===entry.path} title={entry.name} draggable onDragStart={e=>{const item=itemFromEntry(entry);if(item)dragItem(e.dataTransfer,item);}} onContextMenu={onMenu(itemFromEntry(entry))} onClick={()=>choose(entry)}>{native&&entry.media==='image'?<Thumb entry={entry}/>:thumb(entry.media,null)}<span className="media-name">{entry.name}{entry.symlink&&<span className="media-symlink" aria-label={t('media.symlink')}> ⤳</span>}</span></button>{badge(entry.path)}{canStar(itemFromEntry(entry)!)&&<StarMediaButton key={`${entry.path}:${outputRevision}`} item={itemFromEntry(entry)!}/>}</li>}/>}
   {menu&&<div className="media-menu" role="menu" aria-label={menu.item.name} style={{left:Math.min(menu.x,window.innerWidth-200),top:Math.min(menu.y,window.innerHeight-48*(1+menu.actions.length))}}>
    {menu.actions.map((a,i)=><button key={a.label} type="button" role="menuitem" autoFocus={i===0} disabled={!!a.blocked} onClick={()=>{setMenu(null);a.onClick();}}>{a.label}{a.blocked&&<small>{a.blocked}</small>}</button>)}
    {native&&menu.item.path&&<button type="button" role="menuitem" autoFocus={!menu.actions.length} onClick={()=>reveal(menu.item.path!)}>{t('media.reveal')}</button>}</div>}

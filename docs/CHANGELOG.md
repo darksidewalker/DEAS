@@ -2,7 +2,15 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased — 0.1.39
+
+- Fix the first-open missing-directory error: initialize missing `raw/` or `starred/` only beneath the native-approved Output root, using anchored no-follow creation. Preserve arbitrary browse errors and existing files; report initialization failures in shared Logs.
+
+- Add Unstar to the existing per-media star control. Use the fixed `Output/raw/<Output naming>` ↔ `Output/starred/<Output naming>` layout, preserving full named paths. Existing stars work without receipts; no-clobber, native idle checks, reference repair and shared Logs remain. Do not draw stars on Input tiles. Use Output/Starred/Input buttons (raw/starred/input) instead of the superseded light switch, with a relative folder tree anchored at the Output folder as root. No media migration, overwrites or deletion; project-linked/sidecar-associated moves remain unavailable.
+
 ## Unreleased — 0.1.38 follow-up
+
+- Share the compact Media dropdown skin with Backend settings, including language, Startup, LLM and installation-review backend selection. Move the vertical Backend menu above the pane at widths up to 480px so selected built-in labels fit; preserve all configuration/execution behavior.
 
 - Patch the bundled Linux Matroska cluster scanner to rescan inconsistent candidates instead of aborting WebKit; retain the original Ubuntu security patches and host-plugin preference without bundling a core/runtime dependency closure. Add a reproducible plugin rebuild and native WebKitGTK playback probe. Default NVIDIA's video DMA-BUF sink workaround only when unset, and route plugin-cache failures to shared Logs. Full owner-clip/audio/normal-driver/Windows playback acceptance remains open.
 

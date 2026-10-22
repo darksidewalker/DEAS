@@ -4,6 +4,12 @@
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).
 
+## Unreleased — 0.1.39
+
+- Opening raw/starred now creates the missing fixed directory under the selected native-approved Output folder; arbitrary missing browse paths still show errors.
+
+- New renders use Output/raw; the star moves them to Output/starred under the same named subpath, and Unstar reverses that switch. Older stars need no new records. Input tiles have no star. Output, Starred and Input buttons navigate directly; the Output-relative tree starts at root instead of showing the full filesystem trail.
+
 ## 0.1.38 — 2026-10-21
 
 - Resize the Settings and Queue columns against the central preview. Quick Settings beside GitHub separates layout reset from confirmed generation-default reset. Missing LLM setup takes you directly to the LLM Backend pane.

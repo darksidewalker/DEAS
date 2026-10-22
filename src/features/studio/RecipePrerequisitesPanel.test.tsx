@@ -175,7 +175,7 @@ test('native preparation uses the frozen compiled intent; exact returned plan an
   const [baseUrl, intent] = vi.mocked(prepareDiagnosticJob).mock.calls[0];
   expect(baseUrl).toBe('http://127.0.0.1:7801');
   expect(Object.isFrozen(intent)).toBe(true);
-  expect(intent).toEqual({ recipeId: fixture.recipeId, version: 1, positivePrompt: '', negativePrompt: '', checkpoint: 'observed.safetensors', sampler: 'dpmpp_2m', scheduler: 'karras', width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'DEAS_diagnostic' });
+  expect(intent).toEqual({ recipeId: fixture.recipeId, version: 1, positivePrompt: '', negativePrompt: '', checkpoint: 'observed.safetensors', sampler: 'dpmpp_2m', scheduler: 'karras', width: 512, height: 512, steps: 20, cfg: 7, seed: 0, outputPrefix: 'raw/DEAS_diagnostic' });
   const exact: DiagnosticJobPlan = { id: 'immutable-native-plan', baseUrl: fixture.baseUrl, intent, graph: { native: { class_type: 'NativeReturnedGraph', inputs: {} } }, generationReady: false };
   await act(async () => preparation.resolve(exact));
   expect(JSON.parse(document.querySelector('[data-job-plan]')!.textContent!)).toEqual(exact);

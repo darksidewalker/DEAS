@@ -69,7 +69,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
  const out=p.output??defaultVideoOutput;const setOut=(patch:Partial<VideoOutput>)=>set({output:{...out,...patch}});
  const naming=outputNamingTemplate(p.outputNaming);
  const namingValid=outputPrefix(naming,{type:'image',seed:0,model:'model'})!==null;
- const namingHelp=<>{t('studio.run.opt.outputNaming.hint')}<span className="wb-help-list">{namingPlaceholders.map(k=><span key={k}><code>{`%${k}%`}</code> {outputPrefix(`%${k}%`,{type:'image',seed:42,model:'My Model.safetensors'})}</span>)}</span></>;
+ const namingHelp=<>{t('studio.run.opt.outputNaming.hint')}<span className="wb-help-list">{namingPlaceholders.map(k=><span key={k}><code>{`%${k}%`}</code> {outputPrefix(`%${k}%`,{type:'image',seed:42,model:'My Model.safetensors'})?.slice(4)}</span>)}</span></>;
  return <div className="wb-options">
   {!allow&&<p className="media-help wb-options-read">{t('studio.run.opt.unread')} <button type="button" className="wb-dock-action" disabled={!canRead} onClick={onRead}>{t('studio.run.opt.read')}</button></p>}
   {card('outputNaming',<input type="text" aria-label={t('studio.run.opt.outputNaming')} aria-invalid={!namingValid} value={naming} maxLength={512} spellCheck={false} onChange={e=>set({outputNaming:e.target.value})}/>,namingHelp,namingValid?undefined:t('studio.run.opt.outputNaming.invalid'),()=>set({outputNaming:defaultOutputNaming}))}

@@ -5,12 +5,12 @@ export interface MediaEntry {name:string;path:string;kind:'directory'|'file';sym
 export interface MediaListing {path:string;parent:string|null;entries:MediaEntry[];truncated:boolean}
 /** What a tab can show: a browsable URL plus its kind. Browser drops use revocable blob URLs. */
 export interface MediaItem {name:string;src:string;media:MediaKind;path?:string}
-export interface MediaRelocation {oldPath:string;path:string}
+export interface MediaRelocation {oldPath:string;path:string;starred?:boolean}
 /** Fired only after native move/reference repair succeeds; hosts repair their retained selections/jobs. */
-export async function starMedia(path:string):Promise<MediaRelocation> {
- const result=await invoke<MediaRelocation>('native_media_star',{path});
+export async function starMedia(path:string,unstar=false):Promise<MediaRelocation> {
+ const result=await invoke<MediaRelocation>(unstar?'native_media_unstar':'native_media_star',{path});
  if(!result||result.oldPath!==path||typeof result.path!=='string')throw new Error('Invalid native media relocation');
- window.dispatchEvent(new CustomEvent<MediaRelocation>('deas-media-relocated',{detail:result}));
+ window.dispatchEvent(new CustomEvent<MediaRelocation>('deas-media-relocated',{detail:{...result,starred:!unstar}}));
  return result;
 }
 export function relocatedMediaItem(item:MediaItem,move:MediaRelocation):MediaItem {

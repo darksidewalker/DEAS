@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "スター付き",
+  "media.unstar": "{name} のスターを解除",
   "media.star": "{name} をスターに移動",
   "media.starred": "{name} はスター済み",
   "media.star.external": "外部・リモート・管理対象外のメディアは移動できません。",

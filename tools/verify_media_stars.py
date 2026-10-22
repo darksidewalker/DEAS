@@ -13,13 +13,18 @@ EXTRA = r"""
 const originalInvoke=window.__TAURI_INTERNALS__.invoke;
 window.__STARRED__=false;
 window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
- const root='/env/ComfyUI/output',path=root+(window.__STARRED__?'/starred':'')+'/fixture.png';
+ const root='/env/ComfyUI/output',path=root+(window.__STARRED__?'/starred':'/raw')+'/image/2026-10-19/fixture.png';
  const record=value=>{window.__calls.push({command,args});return value;};
- if(command==='native_media_list')return record({path:args.path,parent:'/env/ComfyUI',entries:[{name:'fixture.png',path,kind:'file',media:'image',symlink:false,size:100,modified:1}],truncated:false});
+ if(command==='native_media_list'){
+  const filePath=args.path.startsWith('/env/ComfyUI/input')?'/env/ComfyUI/input/fixture.png':path;
+  const entries=args.path===root?['raw','starred'].map(name=>({name,path:root+'/'+name,kind:'directory',media:null,symlink:false,size:0,modified:1})):filePath.startsWith(args.path.replace(/\/$/,'')+'/')?[{name:'fixture.png',path:filePath,kind:'file',media:'image',symlink:false,size:100,modified:1}]:[];
+  return record({path:args.path,parent:'/env/ComfyUI',entries,truncated:false});
+ }
  if(command==='native_media_thumbnail')return record(args.path);
  if(command==='native_media_metadata')return record([]);
  if(command==='native_media_star_status')return record({starred:args.path.includes('/starred/'),unavailable:null});
- if(command==='native_media_star'){window.__STARRED__=true;return record({oldPath:args.path,path:root+'/starred/fixture.png'});}
+ if(command==='native_media_star'){window.__STARRED__=true;return record({oldPath:args.path,path:root+'/starred/image/2026-10-19/fixture.png'});}
+ if(command==='native_media_unstar'){window.__STARRED__=false;return record({oldPath:args.path,path:root+'/raw/image/2026-10-19/fixture.png'});}
  return originalInvoke(command,args);
 };
 """
@@ -65,24 +70,38 @@ def main():
         page.evaluate('window.__EDITOR__=document.querySelector("[data-editor-viewport]")')
         toolbar = page.get_by_role('toolbar', name='Edit image')
         toolbar.get_by_role('button', name='Star fixture.png', exact=True).click()
-        page.wait_for_function('()=>document.querySelector("[data-layer=base] img").src.includes("/starred/fixture.png")')
+        page.wait_for_function('()=>document.querySelector("[data-layer=base] img").src.includes("/starred/image/2026-10-19/fixture.png")')
         assert page.evaluate('window.__EDITOR__===document.querySelector("[data-editor-viewport]")')
         expect(editor).to_be_visible()
         expect(page.locator('[data-browsed-preview]')).to_have_count(0)
         assert base.evaluate('e=>e.style.left') == '-8px'
-        expect(toolbar.get_by_role('button', name='Starred fixture.png', exact=True)).to_be_disabled()
+        expect(toolbar.get_by_role('button', name='Unstar fixture.png', exact=True)).to_be_enabled()
         toolbar.locator('[data-view-full]').click()
         viewer = page.get_by_role('dialog', name='fixture.png', exact=True)
-        expect(viewer.get_by_role('button', name='Starred fixture.png', exact=True)).to_be_disabled()
-        assert viewer.locator('img').get_attribute('src').endswith('/starred/fixture.png')
+        expect(viewer.get_by_role('button', name='Unstar fixture.png', exact=True)).to_be_enabled()
+        assert viewer.locator('img').get_attribute('src').endswith('/starred/image/2026-10-19/fixture.png')
         page.screenshot(path=str(OUT/'starred-editor-viewer.png'))
+        page.keyboard.press('Escape')
+        toolbar.get_by_role('button', name='Unstar fixture.png', exact=True).click()
+        page.wait_for_function('()=>document.querySelector("[data-layer=base] img").src.endsWith("/output/raw/image/2026-10-19/fixture.png")')
+        assert page.evaluate('window.__EDITOR__===document.querySelector("[data-editor-viewport]")')
+        expect(editor).to_be_visible()
+        assert base.evaluate('e=>e.style.left') == '-8px'
+        expect(toolbar.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
+        toolbar.locator('[data-view-full]').click()
+        viewer = page.get_by_role('dialog', name='fixture.png', exact=True)
+        expect(viewer.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
+        assert viewer.locator('img').get_attribute('src').endswith('/output/raw/image/2026-10-19/fixture.png')
+        assert page.evaluate('window.__calls.filter(c=>c.command==="native_media_unstar").length') == 1
+        assert page.evaluate('window.__calls.find(c=>c.command==="native_media_unstar").args.path') == '/env/ComfyUI/output/starred/image/2026-10-19/fixture.png'
+        page.screenshot(path=str(OUT/'unstarred-editor-viewer.png'))
         page.keyboard.press('Escape')
         assert not page.evaluate('window.__calls.some(c=>/native_job_prepare|native_job_submit|native_input_upload|native_mask_upload/.test(c.command))')
         assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
         assert not errors, errors
-        (OUT/'results.json').write_text(json.dumps({'editorPreserved': True, 'geometryPreserved': True, 'viewerPathUpdated': True, 'fixtureOnly': True}, indent=2)+'\n')
+        (OUT/'results.json').write_text(json.dumps({'editorPreserved': True, 'geometryPreserved': True, 'viewerPathUpdated': True, 'unstarPreservesNamedRawPath': True, 'fixtureOnly': True}, indent=2)+'\n')
         browser.close()
-    print('PASS: real Chromium preview/editor/viewer star actions, relocated source, retained editor geometry and no execution/upload (IPC fixture).')
+    print('PASS: real Chromium preview/editor/viewer star/unstar roundtrip, relocated source, retained editor geometry and no execution/upload (IPC fixture).')
 
 
 if __name__ == '__main__':

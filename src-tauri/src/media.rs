@@ -1,5 +1,5 @@
 //! Media browsing, cached thumbnails, and explicit native-authorized starring.
-//! Browsing never writes into folders; physical moves live in the star service.
+//! Browsing initializes only missing raw/starred folders under the native-approved Output root.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io::{BufReader, BufWriter};
@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 #[path = "media_star.rs"]
 pub(crate) mod star;
-pub use star::{native_media_star, native_media_star_notice, native_media_star_status};
+pub use star::{
+    native_media_star, native_media_star_notice, native_media_star_status, native_media_unstar,
+};
 
 const MAX_ENTRIES: usize = 5000;
 /// Longest thumbnail edge: twice the 5.6rem tile so HiDPI tiles stay sharp.
@@ -227,15 +229,61 @@ pub fn thumbnail(path: &Path, cache: &Path) -> Result<PathBuf, String> {
 /// Empty path opens the user's home directory; `depth` defaults to 1 (this folder only).
 /// `async` keeps the directory walk off the main thread so the UI never stalls on big folders.
 #[tauri::command(async)]
-pub fn native_media_list(path: String, depth: Option<u32>) -> Result<MediaListing, String> {
+pub fn native_media_list(
+    path: String,
+    depth: Option<u32>,
+    engine: tauri::State<'_, crate::install::Engine>,
+) -> Result<MediaListing, String> {
+    let output = star::output_root(&engine).ok();
+    list_media(&path, depth, output.as_deref())
+}
+
+fn list_media(
+    path: &str,
+    depth: Option<u32>,
+    output: Option<&Path>,
+) -> Result<MediaListing, String> {
     let target = if path.is_empty() {
         std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .ok_or("No home directory is known")?
     } else {
-        absolute(&path)?
+        absolute(path)?
     };
+    if let Some(root) = output {
+        if [root.join("raw"), root.join("starred")].contains(&target)
+            && matches!(std::fs::symlink_metadata(&target), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        {
+            let initialized = (|| {
+                let parent = crate::downloads::fs::Anchor::open(root)?;
+                parent.writable()?;
+                let name = target
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .ok_or("Invalid output folder")?;
+                let child = match parent.create(name) {
+                    Ok(child) => child,
+                    Err(_) => crate::downloads::fs::Anchor::open(&target)?,
+                };
+                child.writable()?;
+                if parent.identity()? != crate::downloads::fs::Anchor::open(root)?.identity()?
+                    || child.identity()?
+                        != crate::downloads::fs::Anchor::open(&target)?.identity()?
+                {
+                    return Err("Output folder namespace changed".into());
+                }
+                Ok::<(), String>(())
+            })();
+            if initialized.is_err() {
+                crate::logs::push(
+                    crate::logs::Source::Deas,
+                    "ERROR: Media operation=initialize-output-folder failed",
+                );
+            }
+            initialized?;
+        }
+    }
     list_directory(&target, depth.unwrap_or(1).min(8))
 }
 
@@ -372,10 +420,8 @@ mod tests {
             deeper.entries.iter().map(|e| &*e.name).collect::<Vec<_>>(),
             vec!["sub", "A.png", "b.mp4", "sub/c.png", "sub/deeper/d.png"]
         );
-        assert!(native_media_list("relative".into(), None).is_err());
-        assert!(
-            native_media_list(root.path().join("nope").to_str().unwrap().into(), None).is_err()
-        );
+        assert!(list_media("relative", None, None).is_err());
+        assert!(list_media(root.path().join("nope").to_str().unwrap(), None, None).is_err());
         let dropped = native_media_describe(vec![real.to_str().unwrap().into()]).unwrap();
         assert_eq!(dropped[0].kind, "directory");
         assert!(native_media_describe(vec!["relative".into()]).is_err());
@@ -384,6 +430,46 @@ mod tests {
         assert!(native_media_reveal(root.path().join("nope").to_str().unwrap().into()).is_err());
     }
 
+    #[test]
+    fn browsing_creates_only_fixed_owned_output_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        for name in ["raw", "starred"] {
+            let target = root.join(name);
+            let listing = list_media(target.to_str().unwrap(), None, Some(&root)).unwrap();
+            assert!(target.is_dir());
+            assert!(listing.entries.is_empty());
+            assert_eq!(listing.path, target.to_str().unwrap());
+            assert!(list_media(target.to_str().unwrap(), None, Some(&root)).is_ok());
+        }
+        for name in ["missing", "raw/missing", "../foreign/raw"] {
+            let target = root.join(name);
+            assert!(list_media(target.to_str().unwrap(), None, Some(&root)).is_err());
+            assert!(!target.exists());
+        }
+        let unmanaged = tempfile::tempdir().unwrap();
+        let missing = unmanaged.path().join("raw");
+        assert!(list_media(missing.to_str().unwrap(), None, None).is_err());
+        assert!(!missing.exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn output_folder_initialization_rejects_symlinked_root_and_preserves_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = root.join("linked");
+        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        assert!(list_media(linked.join("raw").to_str().unwrap(), None, Some(&linked)).is_err());
+        assert!(!outside.path().join("raw").exists());
+        std::fs::write(root.join("raw"), b"existing file").unwrap();
+        assert!(list_media(root.join("raw").to_str().unwrap(), None, Some(&root)).is_err());
+        assert_eq!(std::fs::read(root.join("raw")).unwrap(), b"existing file");
+        let entries = crate::logs::native_logs(0);
+        assert!(entries
+            .iter()
+            .any(|e| e.text == "ERROR: Media operation=initialize-output-folder failed"));
+    }
     #[test]
     fn thumbnails_are_cached_downscaled_pngs() {
         let root = tempfile::tempdir().unwrap();

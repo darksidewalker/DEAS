@@ -17,6 +17,6 @@ export function outputPrefix(template:string,context:{type:'image'|'video'|'audi
  const values:Record<string,string>={type:context.type,seed:String(context.seed),model,
   'date_yyyy-mm-dd':`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`,
   time:`${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`};
- const resolved=template.replace(/%([^%]+)%/g,(token,key:string)=>values[key]??token);
+ const resolved='raw/'+template.replace(/%([^%]+)%/g,(token,key:string)=>values[key]??token);
  return safeOutputPrefix(resolved)?resolved:null;
 }

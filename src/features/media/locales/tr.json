@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "Yıldızlı",
+  "media.unstar": "{name} yıldızını kaldır",
   "media.star": "{name} yıldızla",
   "media.starred": "{name} yıldızlı",
   "media.star.external": "Harici, uzak veya yönetilmeyen medya taşınamaz.",

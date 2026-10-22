@@ -174,3 +174,7 @@
  .backend-panels .backend-pane { padding: 8px; }
  .backend-pane .startup-field { grid-template-columns: minmax(0, 1fr); }
 }
+@media (max-width: 480px) {
+ .backend-panels { grid-template-columns: minmax(0, 1fr); }
+ .backend-panel-menu { position: static; }
+}

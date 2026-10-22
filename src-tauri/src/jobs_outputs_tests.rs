@@ -508,6 +508,53 @@ fn root_bound_alias_repair_uses_nested_parent_and_failed_move_preserves_every_re
     assert_eq!(session.completed[2].outputs, before[2]);
 }
 #[test]
+fn unstar_repairs_root_bound_aliases_without_changing_submitted_intent() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dunce::canonicalize(dir.path()).unwrap();
+    let jobs = completed("http://127.0.0.1:9/");
+    register_completed(&jobs, &root);
+    let intent = jobs.current().unwrap()["intent"].clone();
+    let source = root.join("DEAS/run-1/image.png");
+    let target = jobs
+        .relocate_media(&root, &source, || {
+            crate::media::star::move_media(&root, &source)
+        })
+        .unwrap();
+    let returned = root.join("raw/DEAS/run-1/image.png");
+    std::fs::create_dir_all(returned.parent().unwrap()).unwrap();
+    std::fs::write(&returned, b"occupied").unwrap();
+    let before = jobs.current().unwrap();
+    assert!(jobs
+        .relocate_media(&root, &target, || crate::media::star::unstar_media(
+            &root, &target
+        ))
+        .is_err());
+    assert_eq!(jobs.current().unwrap(), before);
+    assert_eq!(std::fs::read(&returned).unwrap(), b"occupied");
+    std::fs::remove_file(&returned).unwrap();
+    assert_eq!(
+        jobs.relocate_media(&root, &target, || crate::media::star::unstar_media(
+            &root, &target
+        ))
+        .unwrap(),
+        returned
+    );
+    let session = jobs.lock().unwrap();
+    assert_eq!(
+        session.job.as_ref().unwrap().outputs[0]["subfolder"],
+        "raw/DEAS/run-1"
+    );
+    assert_eq!(
+        session.completed[0].outputs[0]["subfolder"],
+        "raw/DEAS/run-1"
+    );
+    assert_eq!(session.completed[0].outputs[0]["filename"], "image.png");
+    drop(session);
+    assert_eq!(jobs.current().unwrap()["intent"], intent);
+    assert_eq!(std::fs::read(&returned).unwrap(), png_bytes(1, 1));
+    assert!(!target.exists());
+}
+#[test]
 fn completion_retention_is_bounded_deduplicated_and_failed_moves_preserve_records() {
     let dir = tempfile::tempdir().unwrap();
     let root = dunce::canonicalize(dir.path()).unwrap();

@@ -22,21 +22,22 @@ export function StarMediaButton({item,onMoved}:{item:MediaItem;onMoved?:(item:Me
   return()=>{alive=false;};
  },[item.path,t]);
  useEffect(()=>{
-  const moved=(event:Event)=>{const move=(event as CustomEvent<MediaRelocation>).detail;if(move.oldPath===item.path){setStatus({starred:true,unavailable:null});onMoved?.(relocatedMediaItem(item,move));}};
+  const moved=(event:Event)=>{const move=(event as CustomEvent<MediaRelocation>).detail;if(move.oldPath===item.path){setStatus({starred:move.starred??true,unavailable:null});onMoved?.(relocatedMediaItem(item,move));}};
   window.addEventListener('deas-media-relocated',moved);return()=>window.removeEventListener('deas-media-relocated',moved);
  },[item,onMoved]);
  const star=async()=>{
   const current=scope.current;
-  if(!current||lock.current||!item.path||!status||status.unavailable||status.starred)return;
+  if(!current||lock.current||!item.path||!status||status.unavailable)return;
+  const unstar=status.starred;
   lock.current=true;setPending(true);setError('');
-  try{await starMedia(item.path);if(scope.current===current)setStatus({starred:true,unavailable:null});}
+  try{await starMedia(item.path,unstar);if(scope.current===current)setStatus({starred:!unstar,unavailable:null});}
   catch(e){void Promise.resolve(invoke('native_media_star_notice')).catch(()=>{});if(scope.current===current)setError(String(e));}
   finally{if(scope.current===current){lock.current=false;setPending(false);}}
  };
- const label=t(status?.starred?'media.starred':'media.star',{name:item.name});
+ const label=t(status?.starred?(status.unavailable?'media.starred':'media.unstar'):'media.star',{name:item.name});
  const reason=error||status?.unavailable||(!status?t('media.star.checking'):'');
  return <span className="media-star-control" title={reason||label}>
-  <button type="button" className="media-star" aria-label={label} title={reason||label} aria-description={reason||undefined} aria-pressed={status?.starred??false} disabled={pending||!status||!!status.unavailable||status.starred} onClick={e=>{e.stopPropagation();void star();}}>{status?.starred?'★':'☆'}</button>
+  <button type="button" className="media-star" aria-label={label} title={reason||label} aria-description={reason||undefined} aria-pressed={status?.starred??false} disabled={pending||!status||!!status.unavailable} onClick={e=>{e.stopPropagation();void star();}}>{status?.starred?'★':'☆'}</button>
   {reason&&<span className="media-star-reason" role={error?'alert':undefined}>{reason}</span>}
  </span>;
 }

@@ -1,6 +1,16 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn omitted_video_output_prefix_defaults_to_raw() {
+    let mut intent = ltx();
+    intent.as_object_mut().unwrap().remove("outputPrefix");
+    assert_eq!(
+        compile(&intent).unwrap()["7"]["inputs"]["filename_prefix"],
+        "raw/video/DEAS"
+    );
+}
+
 pub(crate) fn ltx() -> Value {
     json!({
         "recipeId":"video-generation","version":1,"family":"ltx-2",

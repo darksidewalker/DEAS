@@ -14,7 +14,7 @@ pub struct StarMove {
     pub old_path: String,
     pub path: String,
 }
-fn output_root(engine: &crate::install::Engine) -> Result<PathBuf, String> {
+pub(super) fn output_root(engine: &crate::install::Engine) -> Result<PathBuf, String> {
     let plan = engine
         .approved_plan()
         .ok_or("Select an owned installed environment; external media cannot be starred")?;
@@ -62,6 +62,62 @@ fn preflight(root: &Path, source: &Path) -> Result<(bool, std::fs::File), String
         return Err("Only writable regular generated media can be starred".into());
     }
 
+    check_sidecars(source)?;
+    let file = open_media(source)?;
+    let parent = Anchor::open(source.parent().ok_or("Missing media parent")?)?;
+    let name = source
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid media filename")?;
+    if !parent.owns_partial(name, &file) {
+        return Err("Media identity changed".into());
+    }
+    if crate::media::media_kind(name).is_none() {
+        return Err("Starring unsupported media extension is unavailable".into());
+    }
+    Ok((relative.starts_with("starred"), file))
+}
+// Unstar removes only the first starred/ component; no receipt or history is required.
+fn check_unstar_target(root: &Path, source: &Path) -> Result<PathBuf, String> {
+    let relative = source
+        .strip_prefix(root)
+        .map_err(|_| "External/unmanaged media cannot be moved")?
+        .strip_prefix("starred")
+        .map_err(|_| "Not a starred file")?;
+    let destination = root.join("raw").join(relative);
+    if destination
+        .ancestors()
+        .skip(1)
+        .any(|p| p.join(crate::projects::MANIFEST).exists())
+    {
+        return Err(
+            "Project media requires project reference repair; unstar is unavailable".into(),
+        );
+    }
+    let mut parent = root.to_path_buf();
+    let relative = Path::new("raw").join(relative);
+    for part in relative
+        .parent()
+        .ok_or("Missing target parent")?
+        .components()
+    {
+        let Component::Normal(name) = part else {
+            return Err("Unsafe target path".into());
+        };
+        parent.push(name);
+        match std::fs::symlink_metadata(&parent) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            _ => Anchor::open(&parent)?.writable()?,
+        }
+    }
+    match std::fs::symlink_metadata(&destination) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Err("Output filename is occupied; starred file was not moved".into()),
+    }
+    check_sidecars(&destination)?;
+    Ok(destination)
+}
+fn check_sidecars(source: &Path) -> Result<(), String> {
     for extension in ["json", "txt", "xmp"] {
         if [
             source.with_extension(extension),
@@ -76,19 +132,7 @@ fn preflight(root: &Path, source: &Path) -> Result<(bool, std::fs::File), String
             );
         }
     }
-    let file = open_media(source)?;
-    let parent = Anchor::open(source.parent().ok_or("Missing media parent")?)?;
-    let name = source
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or("Invalid media filename")?;
-    if !parent.owns_partial(name, &file) {
-        return Err("Media identity changed".into());
-    }
-    if crate::media::media_kind(name).is_none() {
-        return Err("Starring unsupported media extension is unavailable".into());
-    }
-    Ok((relative.starts_with("starred"), file))
+    Ok(())
 }
 fn open_media(source: &Path) -> Result<std::fs::File, String> {
     #[cfg(target_os = "linux")]
@@ -133,14 +177,31 @@ fn same_directory(path: &Path, held: &Anchor) -> Result<(), String> {
 pub(crate) fn move_media_checked(
     root: &Path,
     source: &Path,
+    checkpoint: impl FnMut(bool),
+) -> Result<PathBuf, String> {
+    relocate_checked(root, source, false, checkpoint)
+}
+pub(crate) fn unstar_media(root: &Path, source: &Path) -> Result<PathBuf, String> {
+    relocate_checked(root, source, true, |_| {})
+}
+fn relocate_checked(
+    root: &Path,
+    source: &Path,
+    unstar: bool,
     mut checkpoint: impl FnMut(bool),
 ) -> Result<PathBuf, String> {
     let held_root = Anchor::open(root)?;
     let source_parent = source.parent().ok_or("Missing media parent")?;
     let parent = Anchor::open(source_parent)?;
     let (starred, file) = preflight(root, source)?;
-    if starred {
+    if starred && !unstar {
         return Ok(source.to_path_buf());
+    }
+    if !starred && unstar {
+        return Err("Select a starred file to unstar".into());
+    }
+    if unstar {
+        check_unstar_target(root, source)?;
     }
     let before = file.metadata().map_err(|_| "Cannot inspect media")?;
     let mut target = Anchor::open(root)?;
@@ -148,12 +209,24 @@ pub(crate) fn move_media_checked(
     let relative = source
         .strip_prefix(root)
         .map_err(|_| "External/unmanaged media cannot be moved")?;
-    for part in Path::new("starred").components().chain(
-        relative
-            .parent()
-            .ok_or("Missing relative parent")?
-            .components(),
-    ) {
+    let folders = if unstar {
+        Path::new("raw").join(
+            relative
+                .strip_prefix("starred")
+                .map_err(|_| "Not a starred file")?
+                .parent()
+                .ok_or("Missing relative parent")?,
+        )
+    } else {
+        Path::new("starred").join(
+            relative
+                .strip_prefix("raw")
+                .unwrap_or(relative)
+                .parent()
+                .ok_or("Missing relative parent")?,
+        )
+    };
+    for part in folders.components() {
         let Component::Normal(name) = part else {
             return Err("Unsafe target path".into());
         };
@@ -177,7 +250,7 @@ pub(crate) fn move_media_checked(
         same_directory(source_parent, &parent)?;
         same_directory(&destination, &target)
     };
-    for attempt in 0..100 {
+    for attempt in 0..if unstar { 1 } else { 100 } {
         let candidate = if attempt == 0 {
             name.to_owned()
         } else {
@@ -189,11 +262,13 @@ pub(crate) fn move_media_checked(
             )
         };
         if target.absent(&candidate).is_err() {
+            if unstar {
+                return Err("Output filename is occupied; starred file was not moved".into());
+            }
             continue;
         }
         // shortcut: this bounded observation cannot exclude future external writers; native jobs stay locked out.
         std::thread::sleep(std::time::Duration::from_millis(50));
-        checkpoint(false);
         unchanged(&file, &before)?;
         if !parent.owns_partial(name, &file) {
             return Err("Media identity changed".into());
@@ -202,9 +277,19 @@ pub(crate) fn move_media_checked(
         target.writable()?;
         namespace()?;
         let result = destination.join(&candidate);
+        check_sidecars(&result)?;
+        checkpoint(false);
+        unchanged(&file, &before)?;
+        if !parent.owns_partial(name, &file) {
+            return Err("Media identity changed".into());
+        }
+        check_sidecars(source)?;
+        check_sidecars(&result)?;
+        namespace()?;
         rename_no_replace(&parent, name, &target, &candidate, source, &result)?;
         checkpoint(true);
         let verified = namespace().is_ok()
+            && unchanged(&file, &before).is_ok()
             && Anchor::open(&destination).is_ok_and(|current| {
                 current
                     .identity()
@@ -285,24 +370,30 @@ pub fn native_media_star_status(
     engine: tauri::State<'_, crate::install::Engine>,
     jobs: tauri::State<'_, crate::jobs::Jobs>,
 ) -> StarStatus {
-    let result = output_root(&engine).and_then(|root| {
-        jobs.media_move_idle()
-            .and_then(|_| jobs.media_move_ready(&root, Path::new(&path)))
-            .map(|_| {
-                Path::new(&path)
-                    .strip_prefix(&root)
-                    .is_ok_and(|relative| relative.starts_with("starred"))
-            })
-    });
-    match result {
-        Ok(starred) => StarStatus {
-            starred,
-            unavailable: None,
-        },
+    match output_root(&engine) {
+        Ok(root) => star_status(&root, Path::new(&path), &jobs),
         Err(reason) => StarStatus {
             starred: false,
             unavailable: Some(reason),
         },
+    }
+}
+fn star_status(root: &Path, source: &Path, jobs: &crate::jobs::Jobs) -> StarStatus {
+    let starred = source
+        .strip_prefix(root)
+        .is_ok_and(|relative| relative.starts_with("starred"));
+    let result = jobs
+        .media_move_idle()
+        .and_then(|_| jobs.media_move_ready(root, source))
+        .and_then(|_| {
+            if starred {
+                check_unstar_target(root, source)?;
+            }
+            Ok(())
+        });
+    StarStatus {
+        starred,
+        unavailable: result.err(),
     }
 }
 #[tauri::command]
@@ -312,11 +403,35 @@ pub fn native_media_star(
     jobs: tauri::State<'_, crate::jobs::Jobs>,
     operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<StarMove, String> {
+    move_owned(path, &engine, &jobs, &operations, false)
+}
+#[tauri::command]
+pub fn native_media_unstar(
+    path: String,
+    engine: tauri::State<'_, crate::install::Engine>,
+    jobs: tauri::State<'_, crate::jobs::Jobs>,
+    operations: tauri::State<'_, crate::FolderOperations>,
+) -> Result<StarMove, String> {
+    move_owned(path, &engine, &jobs, &operations, true)
+}
+fn move_owned(
+    path: String,
+    engine: &crate::install::Engine,
+    jobs: &crate::jobs::Jobs,
+    operations: &crate::FolderOperations,
+    unstar: bool,
+) -> Result<StarMove, String> {
     let result = (|| {
         let _guard = operations.enter()?;
-        let root = output_root(&engine)?;
+        let root = output_root(engine)?;
         let source = Path::new(&path);
-        let target = jobs.relocate_media(&root, source, || move_media(&root, source))?;
+        let target = jobs.relocate_media(&root, source, || {
+            if unstar {
+                unstar_media(&root, source)
+            } else {
+                move_media(&root, source)
+            }
+        })?;
         Ok(StarMove {
             old_path: path.clone(),
             path: target.to_str().ok_or("Non-Unicode media path")?.to_owned(),
@@ -324,10 +439,11 @@ pub fn native_media_star(
     })();
     crate::logs::push(
         crate::logs::Source::Deas,
-        if result.is_ok() {
-            "INFO: Media operation=star completed"
-        } else {
-            "ERROR: Media operation=star failed; inspect the returned error for recovery status"
+        match (unstar, result.is_ok()) {
+            (false, true) => "INFO: Media operation=star completed",
+            (true, true) => "INFO: Media operation=unstar completed",
+            (false, false) => "ERROR: Media operation=star failed; inspect the returned error for recovery status",
+            (true, false) => "ERROR: Media operation=unstar failed; inspect the returned error for recovery status",
         },
     );
     result
@@ -357,6 +473,231 @@ mod tests {
                 .unwrap();
         }
         bytes
+    }
+    #[test]
+    fn legacy_star_unstars_to_output_with_its_relative_path_without_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let source = root.join("starred/image/2026-10-19/11-08-52-雪.png");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"legacy image").unwrap();
+        let status = star_status(&root, &source, &crate::jobs::Jobs::default());
+        assert!(
+            status.starred && status.unavailable.is_none(),
+            "{:?}",
+            status.unavailable
+        );
+        let returned = unstar_media(&root, &source).unwrap();
+        assert_eq!(returned, root.join("raw/image/2026-10-19/11-08-52-雪.png"));
+        assert_eq!(std::fs::read(returned).unwrap(), b"legacy image");
+        assert!(!source.exists());
+    }
+    #[test]
+    fn raw_star_roundtrip_preserves_nested_path_without_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let source = root.join("raw/image/2026-10-19/雪.png");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"original bytes").unwrap();
+        let target = move_media(&root, &source).unwrap();
+        assert_eq!(target, root.join("starred/image/2026-10-19/雪.png"));
+        assert!(!root.join(".deas-stars").exists());
+        let restarted = crate::jobs::Jobs::default();
+        assert_eq!(
+            restarted
+                .relocate_media(&root, &target, || unstar_media(&root, &target))
+                .unwrap(),
+            source
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), b"original bytes");
+        assert!(!target.exists());
+        assert_eq!(
+            unstar_media(&root, &move_media(&root, &source).unwrap()).unwrap(),
+            source
+        );
+    }
+    #[test]
+    fn unstar_blocks_occupied_relative_target_and_accepts_existing_stars() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let source = root.join("starred/nested/a.png");
+        let destination = root.join("raw/nested/a.png");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"original").unwrap();
+        std::fs::write(&destination, b"occupied").unwrap();
+        let status = star_status(&root, &source, &crate::jobs::Jobs::default());
+        assert!(status.starred && status.unavailable.unwrap().contains("occupied"));
+        assert!(unstar_media(&root, &source).is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"occupied");
+        assert_eq!(std::fs::read(&source).unwrap(), b"original");
+        std::fs::remove_file(&destination).unwrap();
+        assert_eq!(unstar_media(&root, &source).unwrap(), destination);
+        assert!(unstar_media(&root, &destination).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn unstar_rejects_symlinked_raw_and_project_destinations() {
+        for project in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dunce::canonicalize(dir.path()).unwrap();
+            let source = root.join("starred/image/a.png");
+            std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+            std::fs::write(&source, b"original").unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            if project {
+                std::fs::create_dir_all(root.join("raw/image")).unwrap();
+                std::fs::write(
+                    root.join("raw/image").join(crate::projects::MANIFEST),
+                    b"{}",
+                )
+                .unwrap();
+            } else {
+                std::os::unix::fs::symlink(outside.path(), root.join("raw")).unwrap();
+            }
+            let status = star_status(&root, &source, &crate::jobs::Jobs::default());
+            assert!(status.starred && status.unavailable.is_some());
+            assert!(unstar_media(&root, &source).is_err());
+            assert_eq!(std::fs::read(&source).unwrap(), b"original");
+            assert!(!root.join("raw/image/a.png").exists());
+            assert!(!outside.path().join("image/a.png").exists());
+        }
+    }
+    #[test]
+    fn unstar_rejects_a_file_changed_during_the_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let source = root.join("raw/a.png");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"original").unwrap();
+        let target = move_media(&root, &source).unwrap();
+        let error = relocate_checked(&root, &target, true, |committed| {
+            if committed {
+                std::fs::write(&source, b"unfinished writer").unwrap();
+            }
+        })
+        .unwrap_err();
+        assert!(error.contains("rolled back"), "{error}");
+        assert!(!source.exists());
+        assert_eq!(std::fs::read(&target).unwrap(), b"unfinished writer");
+    }
+    #[test]
+    fn unstar_does_not_attach_an_unrelated_output_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let source = root.join("raw/a.png");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"original").unwrap();
+        let target = move_media(&root, &source).unwrap();
+        std::fs::write(root.join("raw/a.xmp"), b"unrelated metadata").unwrap();
+        assert!(unstar_media(&root, &target)
+            .unwrap_err()
+            .contains("sidecars"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        assert!(!source.exists());
+    }
+    #[test]
+    fn unstar_keeps_the_current_filename_after_a_star_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir(root.join("starred")).unwrap();
+        std::fs::write(root.join("starred/a.png"), b"existing").unwrap();
+        let source = root.join("a.png");
+        std::fs::write(&source, b"original").unwrap();
+        let target = move_media(&root, &source).unwrap();
+        assert_eq!(target, root.join("starred/a-1.png"));
+        assert_eq!(
+            unstar_media(&root, &target).unwrap(),
+            root.join("raw/a-1.png")
+        );
+        assert_eq!(
+            std::fs::read(root.join("starred/a.png")).unwrap(),
+            b"existing"
+        );
+    }
+    #[test]
+    fn unstar_failure_reaches_shared_logs_without_paths() {
+        assert!(move_owned(
+            "/private/media.png".into(),
+            &crate::install::Engine::default(),
+            &crate::jobs::Jobs::default(),
+            &crate::FolderOperations::default(),
+            true
+        )
+        .is_err());
+        let entries = crate::logs::native_logs(0);
+        let entry = entries
+            .iter()
+            .find(|e| e.text.contains("operation=unstar failed"))
+            .unwrap();
+        assert_eq!(entry.source, crate::logs::Source::Deas);
+        assert!(entry.text.starts_with("ERROR:"));
+        assert!(!entry.text.contains("private"));
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unstar_namespace_replacement_never_reports_stale_success() {
+        for after_commit in [false, true] {
+            for changed in ["root", "source"] {
+                let dir = tempfile::tempdir().unwrap();
+                let base = dunce::canonicalize(dir.path()).unwrap();
+                let root = base.join("output");
+                std::fs::create_dir(&root).unwrap();
+                let source = root.join("a.png");
+                std::fs::write(&source, b"original").unwrap();
+                let target = move_media(&root, &source).unwrap();
+                let displaced = base.join("displaced");
+                let changed_path = if changed == "root" {
+                    root.clone()
+                } else {
+                    root.join("starred")
+                };
+                assert!(relocate_checked(&root, &target, true, |committed| {
+                    if committed == after_commit {
+                        std::fs::rename(&changed_path, &displaced).unwrap();
+                        std::fs::create_dir(&changed_path).unwrap();
+                    }
+                })
+                .is_err());
+                let recovered = if changed == "root" {
+                    displaced.join("starred/a.png")
+                } else {
+                    displaced.join("a.png")
+                };
+                assert_eq!(std::fs::read(recovered).unwrap(), b"original");
+                assert!(!source.exists());
+            }
+        }
+    }
+    #[test]
+    fn source_replacement_before_rename_is_not_moved() {
+        for unstar in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dunce::canonicalize(dir.path()).unwrap();
+            let original = root.join("a.png");
+            std::fs::write(&original, b"original").unwrap();
+            let source = if unstar {
+                move_media(&root, &original).unwrap()
+            } else {
+                original.clone()
+            };
+            let held = root.join("held.png");
+            let error = relocate_checked(&root, &source, unstar, |committed| {
+                if !committed {
+                    std::fs::rename(&source, &held).unwrap();
+                    std::fs::write(&source, b"replacement").unwrap();
+                }
+            })
+            .unwrap_err();
+            assert!(error.contains("identity changed"), "{error}");
+            assert_eq!(std::fs::read(&source).unwrap(), b"replacement");
+            assert_eq!(std::fs::read(&held).unwrap(), b"original");
+            if unstar {
+                assert!(!original.exists());
+            } else {
+                assert!(!root.join("starred/a.png").exists());
+            }
+        }
     }
     #[test]
     fn transport_failures_reach_shared_logs_and_repeats_are_limited() {
@@ -468,6 +809,12 @@ mod tests {
             assert_eq!(target, root.join("starred").join(&relative));
             assert_eq!(std::fs::read(&target).unwrap(), bytes);
             assert!(!source.exists());
+            let returned = jobs
+                .relocate_media(&root, &target, || unstar_media(&root, &target))
+                .unwrap();
+            assert_eq!(returned, root.join("raw").join(&relative));
+            assert_eq!(std::fs::read(returned).unwrap(), bytes);
+            assert!(!target.exists());
         }
     }
     #[test]

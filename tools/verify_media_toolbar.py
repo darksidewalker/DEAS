@@ -28,6 +28,11 @@ def main():
                 assert hint.evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgba(0, 0, 0, 0)'
                 assert hint.evaluate('e=>getComputedStyle(e).position') == 'static'
                 depth = page.locator('.media-depth select')
+                roots = page.locator('.media-roots')
+                expect(roots).to_be_visible()
+                assert roots.locator('[data-media-root]').evaluate_all('es=>es.map(e=>e.dataset.mediaRoot)') == ['output', 'starred', 'input']
+                assert not page.locator('.media-starred-switch, .media-header [role="switch"]').count()
+                assert roots.evaluate('e=>e.nextElementSibling.classList.contains("media-depth")')
                 folder = page.locator('.media-header > button')
                 assert depth.bounding_box()['height'] <= folder.bounding_box()['height']+1
                 search = page.locator('[data-dock-search]').bounding_box()
@@ -49,6 +54,8 @@ def main():
                 header = hint.locator('..').bounding_box()
                 hint_box = hint.bounding_box()
                 assert hint_box['y'] >= header['y'] and hint_box['y']+hint_box['height'] <= header['y']+header['height']+1
+                roots_box = roots.bounding_box()
+                assert roots_box['x'] >= header['x'] and roots_box['x']+roots_box['width'] <= header['x']+header['width']+1
                 assert not errors, errors
                 assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
                 page.screenshot(path=str(OUT/f'{locale}-{width}.png'), full_page=True)

@@ -72,7 +72,10 @@ with sync_playwright() as p:
         assert choices.locator('option').filter(has_text='Remote fixture chat').count() == 0
         menu = page.locator('.backend-panel-menu').bounding_box()
         pane = page.get_by_role('tabpanel').bounding_box()
-        assert menu['x'] + menu['width'] <= pane['x'], (width, locale, menu, pane)
+        if width <= 480:
+            assert menu['y'] + menu['height'] <= pane['y'], (width, locale, menu, pane)
+        else:
+            assert menu['x'] + menu['width'] <= pane['x'], (width, locale, menu, pane)
         assert page.get_by_role('tabpanel').count() == 1
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth'), (width, locale)
         assert not errors, errors

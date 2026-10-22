@@ -1,4 +1,6 @@
 {
+  "media.root.starred": "Starred",
+  "media.unstar": "Unstar {name}",
   "media.star": "Star {name}",
   "media.starred": "Starred {name}",
   "media.star.external": "External, remote or unmanaged media cannot be moved.",

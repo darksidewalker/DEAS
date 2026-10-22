@@ -16,7 +16,7 @@
   "studio.quick.confirm": "Réinitialiser les contrôles Studio (prompts, modèle, options, LoRAs, préréglages/wildcards et post-traitement) ? Médias, bibliothèques, projets, favoris, historique, tâches en attente/en cours et configuration du backend sont conservés.",
   "studio.quick.confirmProject": "Réinitialiser les contrôles Studio de ce projet ? Le brouillon sera enregistré automatiquement. Préférences globales, médias, bibliothèques, projets, favoris, historique, tâches et configuration du backend sont conservés.",
   "studio.run.opt.outputNaming": "Nommage des sorties",
-  "studio.run.opt.outputNaming.hint": "Relatif à Output, sans extension. Le nœud ajoute extension et compteur. Variables (exemple, heure locale) :",
+  "studio.run.opt.outputNaming.hint": "Relatif à Output/raw, sans extension. Le nœud ajoute extension et compteur. Variables (exemple, heure locale) :",
   "studio.run.opt.outputNaming.invalid": "Nommage invalide : chemin relatif avec A–Z, chiffres, _ - . et / et uniquement les variables indiquées. Aucun dossier vide/parent, point final ou nom de périphérique ; 512 caractères maximum, 180 par segment.",
   "studio.run.opt.help": "Expliquer {name}",
   "studio.run.opt.default": "Défaut",
