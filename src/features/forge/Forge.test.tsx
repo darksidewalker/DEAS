@@ -268,6 +268,53 @@ it.each([
   expect(forgeCalls()).toHaveLength(2);
 });
 
+it('Forge uses the shared media controls and roots without changing reference or execution rules', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'native_media_list') {
+      const { path } = args as { path: string };
+      return { path, parent: null, truncated: false, entries: [
+        { name: 'a.png', path: `${path}/a.png`, kind: 'file', symlink: false, media: 'image', size: 1, modified: 1 },
+        { name: 'b.png', path: `${path}/b.png`, kind: 'file', symlink: false, media: 'image', size: 9, modified: 3 },
+        { name: 'clip.mp4', path: `${path}/clip.mp4`, kind: 'file', symlink: false, media: 'video', size: 4, modified: 2 },
+      ] };
+    }
+    return base(command, args);
+  });
+  const { container } = render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" inputDir="/shared-forge/input" outputDir="/shared-forge/output" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('option', { name: 'qwen' });
+  const panel = container.querySelector('.forge-media')!;
+  const files = () => [...panel.querySelectorAll('.media-list button[data-kind="file"]')].map(e => e.textContent?.replace(/^[▶♪]/, ''));
+  await waitFor(() => expect(files()).toEqual(['b.png', 'clip.mp4', 'a.png']));
+  expect(panel.querySelectorAll('[data-dock-search]')).toHaveLength(1);
+  expect(panel.querySelectorAll('[data-dock-sort]')).toHaveLength(1);
+  expect(panel.querySelectorAll('[data-dock-type]')).toHaveLength(1);
+  expect(panel.querySelectorAll('[data-dock-view]')).toHaveLength(1);
+  expect(panel.querySelectorAll('[data-media-root]')).toHaveLength(3);
+  fireEvent.change(panel.querySelector('[data-dock-type]')!, { target: { value: 'image' } });
+  fireEvent.change(panel.querySelector('[data-dock-sort]')!, { target: { value: 'name' } });
+  fireEvent.change(panel.querySelector('[data-dock-view]')!, { target: { value: 'list' } });
+  expect(files()).toEqual(['a.png', 'b.png']);
+  expect(panel.querySelector('.media-library')?.getAttribute('data-view')).toBe('list');
+  fireEvent.change(panel.querySelector('[data-dock-search]')!, { target: { value: 'a.' } });
+  expect(files()).toEqual(['a.png']);
+  expect(screen.queryAllByRole('button', { name: 'Remove picture' })).toHaveLength(0);
+  fireEvent.click(panel.querySelector('[data-media-root="input"]')!);
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('native_media_list', { path: '/shared-forge/input', depth: 3 }));
+  await waitFor(() => expect(panel.querySelector('[data-media-root="input"]')?.getAttribute('aria-pressed')).toBe('true'));
+  fireEvent.click(panel.querySelector('.media-list button[data-kind="file"]')!);
+  fireEvent.click(panel.querySelector('.media-list button[data-kind="file"]')!);
+  expect(screen.getAllByRole('button', { name: 'Remove picture' })).toHaveLength(1);
+  fireEvent.click(panel.querySelector('[data-media-root="output"]')!);
+  await waitFor(() => expect(panel.querySelector('[data-media-root="output"]')?.getAttribute('aria-pressed')).toBe('true'));
+  fireEvent.click(panel.querySelector('.media-list button[data-kind="file"]')!);
+  expect(screen.getAllByRole('button', { name: 'Remove picture' })).toHaveLength(1);
+  expect(forgeCalls().filter(c => c.route !== 'models')).toHaveLength(0);
+  expect(vi.mocked(invoke).mock.calls.some(([c]) => ['native_input_upload', 'native_job_submit'].includes(c))).toBe(false);
+  expect(localStorage.getItem('deas.pref.forge.media.view')).toBe('"list"');
+  expect(localStorage.getItem('deas.pref.studio.dock.view')).toBeNull();
+});
+
 it('forge tab writes H3 REF2VA from labelled input pictures and sends the result to Generate', async () => {
   const send = vi.fn();
   render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" inputDir="/env/input" onSend={send}/></I18nProvider>);

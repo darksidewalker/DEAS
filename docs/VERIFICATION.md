@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Shared Studio / Prompt Forge Media panel
+
+- `MediaPanel` composes one `MediaControls` toolbar with the existing `MediaLibrary`; Studio and Forge use the same implementation and CSS. Studio's dock navigation is extracted once, and Models/LoRAs reuse the controls without unsupported date/type choices. Existing Studio preference keys, resize/navigation behavior and context-specific actions remain; Forge keeps independent `forge.media.*` preferences and Input-image reference limits. No native code or new dependencies.
+- Full UI suite: **673 passed**; core suite: **94 passed**. Typecheck/frontend build pass. Two stale App test labels were aligned with the already-renamed canonical Connect button; no production label change was made in this work.
+- `tools/verify_media_panel.py`: **18 Chromium IPC-fixture locale/width cases**, retaining independent Studio/Forge controls across tab switches, exposing Output/Starred/Input and checking no upload/Forge write/job execution. `verify_workspace_ux.py` also passes its 30 locale/width and 30 sidebar layouts. English wide/320px screenshots inspected: controls wrap without horizontal clipping. An ephemeral native WebKitGTK software-rendered Forge fixture was also inspected; this is not Windows or normal GPU-driver acceptance.
+- `bash build-linux.sh` rebuilt `artifacts/deas-linux-amd64`, SHA-256 prefix `508554fff5dd440b`. No running user app/service was restarted; no commit/push/release. Actual Forge/model execution and Windows runtime were not exercised for this shared-UI refactor.
+
+## Footer version overlay regression
+
+- Explicitly reset the native version button appearance, border, shadow and minimum sizing. The footer stays fixed, transparent and outside workspace layout; update behavior is unchanged.
+- `verify_workspace_ux.py`: 30 locale/width layouts and 30 sidebar layouts pass, including new appearance/border/shadow/9px-size bounds. Production frontend build passes. An ephemeral native WebKitGTK fixture measured the version at 52.22 × 9 px with transparent background and no border; its software-rendered snapshot was inspected. The normal GPU probe reported GBM buffer failures, so that snapshot is not normal-driver rendering acceptance. No running user application or service was restarted. `bash build-linux.sh` rebuilt `artifacts/deas-linux-amd64` (SHA-256 prefix `ae6d19934896fca4`). Both footer states (with/without update hint) preserve the Backend/confirmation click without starting an update.
+
 ## Automatic restart after a confirmed binary update
 
 - The confirmed update now includes automatic close/reopen. `native_app_restart` is authorized only by successful replacement, waits for native generation/downloads/Library scans and uses Tauri's exit/restart lifecycle. Frontend waits for successful backend upgrade and ProjectBar's existing pending-close/save state; no newer binary or failed download triggers no restart. The original executable path is cached before replacement.

@@ -186,7 +186,7 @@ test("existing setup handoff reveals Engine and prefills its endpoint without in
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
+  fireEvent.click(screen.getByRole("button", { name: "Connect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
   expect(document.activeElement).toBe(screen.getByLabelText("Backend URL"));
@@ -202,7 +202,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
+  fireEvent.click(setup.getByRole("button", { name: "Connect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
   expect(screen.queryByText("Stale GPU")).toBeNull();

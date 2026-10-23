@@ -17,6 +17,8 @@ If an LLM entry point (including Prompt Forge, inline writers and Director/Conti
 
 ## Prompt Forge
 
+Studio and the Prompt Forge tab use one shared Media panel: Search, Newest/Name/Size sorting, media-type filtering, Tiles/Large thumbnails/List views, folder tree, Depth, folder chooser, Output/Starred/Input shortcuts and the same native star/reveal behavior. Each host retains its own search, sorting and view state. Forge still adds only pictures from the backend Input folder as prompt references, keeps its mode-specific limits/labels, and never copies or uploads Output files merely by browsing. Choose Input before selecting reference pictures; Write and Send to Generate remain explicit.
+
 Prompt Forge writes or enhances prompts in the dialect of the selected model. It runs in the DaSiWa node pack on the owned backend (the same code as the **LLM Prompt Writer** node and the H3 Director's Forge); DEAS sends it the endpoint saved under **Backend → LLM backend**. Models come from `ComfyUI/models/llm` plus that server.
 
 - **Hammer in the prompt field (Generate):** choose LLM Prompt Forge or Wildcards. The LLM mode writes or enhances the current prompt for the selected model's family (Illustrious/SDXL, Anima, Krea 2), in Image to Image and Inpaint also lets a vision model read the source picture (input or output folder; a model without vision writes from the text and says so), shows the result for review, applies it on **Apply**, and keeps one **Undo**. With Wildcards active, the idea starts as the current prompt plus the resolved picks (node pack 0.5.31 or newer), so the LLM writes around them. Families without a prompt dialect disable only the LLM mode; wildcards need no LLM.

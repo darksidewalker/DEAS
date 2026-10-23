@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.1.42
 
+- Share the complete Media panel and toolbar between Studio and Prompt Forge. Forge gains the same search, sorting, media-type/view controls and Output/Starred/Input browsing without duplicating browser code; preserve separate host preferences and explicit prompt/reference execution.
+
+- Restore the clickable footer version as a tiny transparent overlay: explicitly remove native button appearance, borders, shadows and minimum sizing without changing update confirmation or workspace layout.
+
 - Owned-backend controls are now uniform short actions — Start, Test, Stop, Restart, Inspect. **Test** runs a quick read-only dependency check and lists each item with a green ✓ or red ✗: installed environment, Python venv, ComfyUI, DaSiWa nodes, backend API (new `native_backend_test` command, six locales, mock-IPC tests).
 
 - Keep Library metadata scans running as native background work across tab changes, with file/count progress in CLI and shared Logs. After a verified binary update, DEAS automatically closes and reopens once backend updates and pending work/project saves complete. Footer version and Upgrade both ask for confirmation before application/backend updates; the application updater checks the latest release and safely replaces a supported binary only when a verified newer asset is available.

@@ -69,7 +69,7 @@ export default function App(){
     <div className="studio-columns">
     <div className="studio-main">
     <div className="studio-generate-host" hidden={tab==='forge'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
-    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={(positive,negative)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');}}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
      <NeuralGraph nodes={nodes} edges={edges} selectedId={active} label={t('studio.features')} onSelect={id=>setActive(active===id?null:id)}/>
