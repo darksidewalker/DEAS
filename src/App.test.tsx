@@ -314,6 +314,23 @@ test("closing an inline panel returns keyboard focus to its node", () => {
   expect(engine.getAttribute("aria-expanded")).toBe("false");
 });
 
+test.each([
+ ['BACKEND_UNAVAILABLE', 'Backend not reachable'],
+ ['BACKEND_TIMEOUT', 'did not respond in time'],
+ ['BACKEND_REQUEST_FAILED', 'connection failed or was interrupted'],
+ ['BACKEND_HTTP_ERROR', 'HTTP 503'],
+])('inspection presents a human-readable %s without the raw transport URL', async (code, expected) => {
+ vi.mocked(inspectBackend).mockRejectedValue(new Error(code === 'BACKEND_HTTP_ERROR' ? `${code}: object_info returned HTTP 503 Service Unavailable` : `${code}: object_info request failed http://127.0.0.1:45519/object_info`));
+ renderStudio();
+ fireEvent.click(screen.getByRole('button', { name: /^Engine$/i }));
+ fireEvent.click(screen.getByRole('button', { name: /Inspect connection/ }));
+ const alert = await screen.findByRole('alert');
+ expect(alert.textContent).toContain(expected);
+ expect(alert.textContent).not.toContain('object_info');
+ expect(alert.textContent).not.toContain('45519');
+ expect(screen.queryByText(/Inspection complete/)).toBeNull();
+});
+
 test("failed inspection shows actionable error instead of a connected state", async () => {
   vi.mocked(inspectBackend).mockRejectedValue(
     new Error("Backend unavailable. Check your URL and CORS settings."),
@@ -362,4 +379,28 @@ test("invalid local draft data does not break the workspace", () => {
     screen.getByRole("button", { name: /^Director$/i }),
   );
   expect(screen.getByLabelText("Shot direction")).toHaveProperty("value", "");
+});
+
+test("red banners get a close button that dismisses them", async () => {
+  const { container } = renderStudio();
+  const banner = document.createElement("p");
+  banner.className = "error-message";
+  banner.setAttribute("role", "alert");
+  banner.textContent = "boom";
+  container.querySelector(".studio-shell")!.appendChild(banner);
+  const close = await within(banner).findByLabelText("Dismiss");
+  fireEvent.click(close);
+  expect(banner.classList.contains("is-dismissed")).toBe(true);
+});
+
+test("setup-style aio-error alerts are closeable too", async () => {
+  const { container } = renderStudio();
+  const banner = document.createElement("p");
+  banner.className = "aio-error";
+  banner.setAttribute("role", "alert");
+  banner.textContent = "setup boom";
+  container.querySelector(".studio-shell")!.appendChild(banner);
+  const close = await within(banner).findByLabelText("Dismiss");
+  fireEvent.click(close);
+  expect(banner.classList.contains("is-dismissed")).toBe(true);
 });

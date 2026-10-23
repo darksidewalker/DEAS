@@ -11,5 +11,6 @@
   "app.noRun": "指示するまで、何も実行されません。",
   "app.instrument": "ローカルを中心にした創作ツール",
   "app.update": "更新があります: {list}",
-  "app.updateNodes": "DaSiWa ノード"
+  "app.updateNodes": "DaSiWa ノード",
+  "app.dismiss": "閉じる"
 }

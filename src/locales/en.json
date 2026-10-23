@@ -11,5 +11,6 @@
   "app.noRun": "Nothing runs until you ask.",
   "app.instrument": "A local-first creative instrument",
   "app.update": "Update available: {list}",
-  "app.updateNodes": "DaSiWa nodes"
+  "app.updateNodes": "DaSiWa nodes",
+  "app.dismiss": "Dismiss"
 }

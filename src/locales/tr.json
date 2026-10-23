@@ -11,5 +11,6 @@
   "app.noRun": "Siz istemeden hiçbir şey çalışmaz.",
   "app.instrument": "Yerel kullanımı esas alan yaratıcı bir araç",
   "app.update": "Güncelleme mevcut: {list}",
-  "app.updateNodes": "DaSiWa düğümleri"
+  "app.updateNodes": "DaSiWa düğümleri",
+  "app.dismiss": "Kapat"
 }
