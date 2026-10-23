@@ -80,6 +80,26 @@ Owner-requested; **planned, not implemented**. Releases should upload packed bin
 - [ ] Release workflow publishes packed assets (tar.gz Linux, 7z Windows) with digests in `SHA256SUMS`; raw assets stay accepted for older releases (updaters from before this change must keep working against new releases and vice versa).
 - [ ] Acceptance: fixtures for raw, tar.gz, 7z, archive-with-extra/symlink/traversal entry, oversized-compression (decompression bomb), digest mismatch, and a mixed release (raw + packed) selecting the exact asset; live authenticated release check on the first packed version. Windows self-replacement remains unsupported as documented — packed Windows assets serve the manual download path.
 
+## Planned queue run controls, queue star overlay and queue statistics
+
+Owner-requested UX extension; **planned, not implemented**.
+
+Run queueing and split Run/Stop button (Workbench queue):
+
+- [ ] Pressing **Run** must not switch into a processing/disabled state: while a job is queued/running, further Run presses queue additional generations (current backend queue behavior applies; each press prepares and submits its own immutable intent with its own seed). Remove `!!current` from the Run button's disabled condition; validation errors stay blocking.
+- [ ] While a job is queued/running, the Run action splits into two adjacent parts in the same control: **Run** (queue another generation, enabled per validation) and **Stop**. Stop cancels the running generation and clears the queued jobs; queued-only entries are dropped without touching the backend.
+- [ ] Stop needs a new native command: bounded authenticated `POST /queue` delete for queued prompt IDs and `POST /interrupt` for the running prompt on the owned backend only; foreign/observed backends get no interrupt. Cancel failures report via the standard localized alert, never a silent partial stop. Pressing Stop twice, Stop with an empty queue, and Stop while the backend is unreachable are non-computing no-ops with a visible state.
+- [ ] Acceptance: UI tests for queue-of-three via repeated presses, split control appearance only during queued/running, Stop clearing queue and interrupting, disabled-conditions matrix unchanged for validation failures; native fixtures for queue-delete/interrupt calls and failure paths. No change to job preparation immutability, planner/auto-plan flow or the diagnostic run flow.
+
+Queue star placement:
+
+- [ ] In the queue column the `StarMediaButton`s currently render as separate controls **under** each succeeded thumbnail; move them onto the thumbnail as a corner overlay, identical to the star treatment on all other media previews (MediaLibrary/MediaPanel pattern), keyboard-focusable with the same aria label. The overlay marks starred state on the shown output; unstar keeps working; the tile's click-to-select behavior is unchanged.
+
+Queue statistics:
+
+- [ ] A queue row shows only `Succeeded · <8-char id>`. Add the measured generation time from the existing `generationMs` job metadata (embedded output metadata, already stored) to the row and to the detail view shown when clicking the queue item: e.g. `Succeeded · 0e55efa6 · 13.3 s`, localized formatting. When `generationMs` is not yet known, show nothing rather than a fake value; when known, show duration, and keep the filename line.
+- [ ] Expand with the stats the job already carries, no new tracking: show elapsed queued/running time for live rows (client-measured from submission, marked as client-side), steps/seed/checkpoint name in the click-detail view. Acceptance: fixtures for known/unknown `generationMs`, video jobs, failed rows (no duration), localized formatting in six languages.
+
 ## Planned consistent bottom media controls
 
 Owner-requested UX correction; **planned, not implemented**. Browsing a media item currently places its controls at the top, while adopting it with Use as input moves controls to the bottom. The controls must have a consistent bottom position in both states.
