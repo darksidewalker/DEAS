@@ -71,6 +71,15 @@ Owner-requested extension; **planned, not implemented**. The download catalog al
 - [ ] Model-exact values ([PLAN.md](PLAN.md#model-exact-values)) apply unchanged: quantization must not change family resolution/alignment/frame/fps constraints.
 - [ ] Acceptance: per-pipeline fixtures where the same family in safetensors and GGUF compiles to the correct loader node; node check reports a missing GGUF loader; unknown GGUF stays blocked/user-profile-routed; one real small GGUF generation per pipeline class (one image, one video) with resource limits, recording real success/failure. LLM GGUF execution remains the already-accepted behavior; the local `llm` scan and `mmproj` exclusion are unchanged.
 
+## Planned packed release binaries (tar.gz Linux, 7zip Windows) with format-aware update fetch
+
+Owner-requested; **planned, not implemented**. Releases should upload packed binaries to save space: Linux `deas-linux-amd64.tar.gz`, Windows `deas-windows-amd64.7z`. Today the updater accepts only raw executables and rejects archive-only releases (`docs/APP-UPDATES.md`).
+
+- [ ] The updater detects packing per artifact by magic bytes (`1f 8b` gzip/tar.gz, `37 7A 3F 23 23 2C` 7z), not filename: raw executables keep today's exact verified replace flow unchanged; packed artifacts take a new unpack branch.
+- [ ] Unpack branch: verify the published archive `sha256:` digest and bounded size first, extract under the existing archive guards — exactly one entry with the exact expected executable name, reject paths/dirs/symlinks/extra entries, bounded decompressed size — write to the existing private staging file beside the executable, keep all current executable-header and atomic-replacement checks, same restart flow.
+- [ ] Release workflow publishes packed assets (tar.gz Linux, 7z Windows) with digests in `SHA256SUMS`; raw assets stay accepted for older releases (updaters from before this change must keep working against new releases and vice versa).
+- [ ] Acceptance: fixtures for raw, tar.gz, 7z, archive-with-extra/symlink/traversal entry, oversized-compression (decompression bomb), digest mismatch, and a mixed release (raw + packed) selecting the exact asset; live authenticated release check on the first packed version. Windows self-replacement remains unsupported as documented — packed Windows assets serve the manual download path.
+
 ## Planned consistent bottom media controls
 
 Owner-requested UX correction; **planned, not implemented**. Browsing a media item currently places its controls at the top, while adopting it with Use as input moves controls to the bottom. The controls must have a consistent bottom position in both states.
