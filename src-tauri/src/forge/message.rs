@@ -19,6 +19,8 @@ pub struct Controls {
     pub max_length: Option<MaxLength>,
     /// Reference pictures with their roles (image models).
     pub image_references: Vec<super::refs::ImageRef>,
+    /// The Layout Studio's canvas and the boxes drawn on it (MOSS Layout JSON).
+    pub layout: Option<StudioLayout>,
     pub aspect_ratio: Option<String>,
     /// A registry preset name, or "none" for no quality tags.
     pub quality_preset: Option<String>,
@@ -32,6 +34,26 @@ pub struct Controls {
     pub camera_angle: Option<String>,
     pub camera_shot: Option<String>,
     pub camera_light: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct StudioLayout {
+    pub width: f64,
+    pub height: f64,
+    pub items: Vec<DrawnItem>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct DrawnItem {
+    /// What the person called the box in the studio.
+    pub name: String,
+    pub label: String,
+    pub caption: String,
+    pub text: String,
+    /// `[y0, x0, y1, x1]`, centred on the canvas.
+    pub bbox: Vec<f64>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

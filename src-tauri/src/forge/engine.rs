@@ -761,20 +761,75 @@ pub async fn reference_readback(
     Ok(text)
 }
 
-fn canvas_line(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<String> {
+/// The Layout JSON canvas for this request (PromptForge's canvasFor): the studio's own size
+/// when it sent a usable one, else the aspect's entry in `layout_canvas`.
+fn layout_size(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<(f64, f64)> {
     if !model.expected(mode).iter().any(|l| l == "Layout JSON") {
         return None;
     }
     let table = model.entry.get("layout_canvas")?;
+    if let Some(l) = &controls.layout {
+        let ok = |v: f64| v.fract() == 0.0 && (128.0..=8192.0).contains(&v) && v % 16.0 == 0.0;
+        if ok(l.width) && ok(l.height) {
+            return Some((l.width, l.height));
+        }
+    }
     let size = table
         .get(controls.aspect_ratio.as_deref().unwrap_or("N/A"))
         .or_else(|| table.get("N/A"))?
         .as_array()?;
-    let (w, h) = (size.first()?.as_i64()?, size.get(1)?.as_i64()?);
-    Some(format!(
+    Some((size.first()?.as_f64()?, size.get(1)?.as_f64()?))
+}
+
+fn clamp_box(b: &[f64], (w, h): (f64, f64)) -> [i64; 4] {
+    let c = |v: f64, lim: f64| v.round().clamp(-lim, lim) as i64;
+    let (y0, y1) = (c(b[0], h / 2.0), c(b[2], h / 2.0));
+    let (x0, x1) = (c(b[1], w / 2.0), c(b[3], w / 2.0));
+    [y0.min(y1), x0.min(x1), y0.max(y1), x0.max(x1)]
+}
+
+/// The person's boxes, cleaned, or none when they drew none.
+fn drawn_items(size: (f64, f64), controls: &Controls) -> Vec<Value> {
+    let Some(l) = &controls.layout else {
+        return vec![];
+    };
+    let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    l.items
+        .iter()
+        .take(100)
+        .filter(|i| i.bbox.len() == 4 && i.bbox.iter().all(|v| v.is_finite()))
+        .map(|i| {
+            let text = i.label == "text";
+            let mut v = json!({
+                "name": cut(&i.name, 200),
+                "label": if text { "text" } else { "object" },
+                "caption": cut(&i.caption, 4000),
+            });
+            if text {
+                v["text"] = json!(cut(&i.text, 4000));
+            }
+            v["bbox"] = json!(clamp_box(&i.bbox, size));
+            v
+        })
+        .collect()
+}
+
+fn canvas_line(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<String> {
+    let (w, h) = layout_size(model, mode, controls)?;
+    let (w, h) = (w as i64, h as i64);
+    let mut line = format!(
         "Canvas: {w}×{h} — measure every Layout JSON bbox on this canvas: x from -{} to {}, y from -{} to {}, origin at the centre.",
         w / 2, w / 2, h / 2, h / 2
-    ))
+    );
+    let drawn = drawn_items((w as f64, h as f64), controls);
+    if !drawn.is_empty() {
+        line.push_str("\nThe person drew this layout in the Layout Studio. It is the composition: keep every item, in this order, with its label, bbox and text exactly as given, and add none. `name` is what they called the box. Write each caption for its box; where they wrote one, it is their direction — keep what it says and only tighten it. The prose prompt describes this same arrangement.");
+        for d in &drawn {
+            line.push('\n');
+            line.push_str(&d.to_string());
+        }
+    }
+    Some(line)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1048,13 +1103,7 @@ fn tidy_layout(
     controls: &Controls,
     body: &mut String,
 ) -> Option<String> {
-    let table = model.entry.get("layout_canvas")?;
-    let size = table
-        .get(controls.aspect_ratio.as_deref().unwrap_or("N/A"))
-        .or_else(|| table.get("N/A"))?
-        .as_array()?;
-    let (w, h) = (size.first()?.as_f64()?, size.get(1)?.as_f64()?);
-    let _ = mode;
+    let (w, h) = layout_size(model, mode, controls)?;
     let raw = body
         .trim()
         .trim_start_matches("```json")
@@ -1096,6 +1145,36 @@ fn tidy_layout(
                 .collect()
         })
         .unwrap_or_default();
+    // Boxes the person drew are kept exactly; the model only writes their captions.
+    let drawn = drawn_items((w, h), controls);
+    let items: Vec<Value> = if drawn.is_empty() {
+        items
+    } else {
+        let written: Vec<&Value> = obj
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().take(100).filter(|i| i.is_object()).collect())
+            .unwrap_or_default();
+        drawn
+            .iter()
+            .enumerate()
+            .map(|(n, d)| {
+                let caption = written
+                    .get(n)
+                    .and_then(|i| i.get("caption"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|c| !c.is_empty())
+                    .map_or_else(|| d["caption"].clone(), |c| json!(c));
+                let mut v = json!({ "label": d["label"], "caption": caption });
+                if d["label"] == "text" {
+                    v["text"] = d["text"].clone();
+                }
+                v["bbox"] = d["bbox"].clone();
+                v
+            })
+            .collect()
+    };
     let mut summary = obj
         .get("summary")
         .and_then(Value::as_object)
@@ -1262,6 +1341,60 @@ mod tests {
             println!("--- {}\n{}", s.label, s.body);
         }
         assert!(out.reference_analysis.is_some());
+    }
+
+    /// Boxes drawn in the Layout Studio: the canvas and the boxes reach the model, and the
+    /// tidy keeps the boxes exactly while taking the model's captions.
+    /// `DEAS_FORGE_DATA=<dir> cargo test --lib -- --ignored real_layout --nocapture`
+    #[test]
+    #[ignore = "needs the data pack"]
+    fn real_layout() {
+        let data = Data::load(&data_dir(Path::new(""))).unwrap();
+        let moss = &data.pack.models["moss"];
+        let controls = Controls {
+            layout: Some(message::StudioLayout {
+                width: 1536.0,
+                height: 1024.0,
+                items: vec![
+                    message::DrawnItem {
+                        name: "Frieren".into(),
+                        label: "object".into(),
+                        caption: "frieren sitting".into(),
+                        bbox: vec![-300.0, -600.0, 400.0, -100.0],
+                        ..Default::default()
+                    },
+                    message::DrawnItem {
+                        name: "Sign".into(),
+                        label: "text".into(),
+                        text: "CAMP".into(),
+                        bbox: vec![-480.0, 300.0, -380.0, 700.0],
+                        ..Default::default()
+                    },
+                ],
+            }),
+            ..Default::default()
+        };
+        let line = canvas_line(moss, Some("Layout JSON"), &controls).unwrap();
+        println!("{line}");
+        assert!(line.starts_with("Canvas: 1536×1024"));
+        assert!(line.contains("\"name\":\"Frieren\"") && line.contains("\"text\":\"CAMP\""));
+        assert!(canvas_line(moss, Some("Natural language"), &controls).is_none());
+        let mut body = r#"```json
+{"summary": {"meta": "anime", "caption": "a camp"}, "items": [
+ {"label": "object", "caption": "Frieren sits by the fire", "bbox": [0, 0, 10, 10]},
+ {"label": "text", "caption": "", "text": "WRONG", "bbox": [1, 1, 2, 2]},
+ {"label": "object", "caption": "an extra the model added", "bbox": [5, 5, 9, 9]}]}
+```"#
+            .to_string();
+        assert!(tidy_layout(moss, Some("Layout JSON"), &controls, &mut body).is_none());
+        println!("{body}");
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["items"].as_array().unwrap().len(), 2);
+        assert_eq!(v["items"][0]["bbox"], json!([-300, -600, 400, -100]));
+        assert_eq!(v["items"][0]["caption"], "Frieren sits by the fire");
+        assert_eq!(v["items"][1]["text"], "CAMP");
+        assert_eq!(v["items"][1]["caption"], "");
+        assert_eq!(v["summary"]["meta"], json!(["anime"]));
     }
 
     /// The tab's controls from the real pack: file order, ladders, the lighting line.
