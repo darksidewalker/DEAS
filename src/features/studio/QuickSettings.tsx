@@ -15,7 +15,7 @@ export function QuickSettings(){
  const ready=!!document.querySelector('[data-workbench]');
  const request=(event:string)=>{setOpen(false);button.current?.focus();window.dispatchEvent(new Event(event));};
  return <div className="studio-quick" ref={host}>
-  <button type="button" ref={button} aria-label={t('studio.quick.title')} title={t('studio.quick.title')} aria-expanded={open} aria-controls="studio-quick-actions" onClick={()=>setOpen(!open)}>⚙</button>
+  <button type="button" ref={button} className="repo-button" aria-label={t('studio.quick.title')} title={t('studio.quick.title')} aria-expanded={open} aria-controls="studio-quick-actions" onClick={()=>setOpen(!open)}>{t('studio.quick.title')}</button>
   {open&&<div id="studio-quick-actions" className="studio-quick-actions" aria-label={t('studio.quick.title')}>
    {!ready&&<p id="studio-quick-unavailable">{t('studio.quick.openStudioFirst')}</p>}
    <button type="button" disabled={!ready} aria-describedby={!ready?'studio-quick-unavailable':undefined} onClick={()=>request('deas:reset-studio-layout')}>{t('studio.quick.layout')}</button>
