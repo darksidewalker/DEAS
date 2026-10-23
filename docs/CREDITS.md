@@ -12,6 +12,8 @@ DEAS — Dark Engine AI Studio is maintained under the [darksidewalker GitHub pr
 | --- | --- | --- |
 | Tauri and Rust ecosystem | Native shell, IPC and native services | [Tauri](https://tauri.app/), [Rust](https://www.rust-lang.org/), exact crates in `src-tauri/Cargo.lock` |
 | zip-rs (`zip`) | Bounded native draft ZIP import/export; Stored/Deflate only | [zip-rs](https://github.com/zip-rs/zip2), MIT; exact dependency in `src-tauri/Cargo.lock` |
+| rusqlite (bundled SQLite) | Read-only access to Prompt Forge's tag and character databases | [rusqlite](https://github.com/rusqlite/rusqlite), MIT; [SQLite](https://sqlite.org/) is public domain |
+| PromptForge | The native image-model Prompt Forge: prompt files, tool definitions and guidance documents (exported verbatim into `forge-data/forge-pack.json`, which records the source commit) and the ported canon, tool-loop and clean-up logic in `src-tauri/src/forge/` | [PromptForge-Public](https://github.com/yoimtrashgaming-prog/PromptForge-Public) |
 | React, TypeScript and Vite | Web presentation and build tooling | [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/), exact packages in `package-lock.json` |
 | ComfyUI | Managed model/graph execution and the original Comfy editor | [ComfyUI](https://github.com/Comfy-Org/ComfyUI); preserve upstream licensing/notices |
 | ComfyUI-DaSiWa-Nodes | Selected prompt, Director/continuity, metadata/output and wildcard computation | [DaSiWa nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) |
@@ -32,7 +34,8 @@ These are sources inspected for architecture/behavior, **not claims that their f
 - DaSiWa-simple-video-compare: current Rust/Tauri/libmpv comparison/native playback reference; old Go code is not the target architecture.
 - DaSiWa-simple-rtx-video-assambler: ordered layouts, audio and FFmpeg export behavior.
 - DaSiWa-TrainFlow: trainer profiles, datasets, runtime and sd-scripts/Musubi orchestration behavior.
-- PromptForge and the DaSiWa node pack: prompting/reference-authoring behavior; standalone deployment is not DEAS architecture.
+- PromptForge and the DaSiWa node pack: prompting/reference-authoring behavior; standalone deployment is not DEAS architecture. The image-model writer is now ported (see the table above); PromptForge's server, accounts and online lookups are not.
+- Prompt Forge data: `tags.sqlite` is built from Danbooru's public tag listing (danbooru.donmai.us) and `character_traits.sqlite` from the noob-wiki and deepghs community character lists. **Redistribution terms for shipping these files have not been reviewed**: they are placed in `forge-data` by hand and are not bundled with DEAS.
 
 Exact local source identities, capabilities and planned acceptance are recorded in [the consolidated plan](IMPLEMENTATION-STATUS.md). Check each source’s current license and vendored dependencies before copying/distributing it; TrainFlow wrapper licensing does not clear its trainers, and GPL/libmpv/FFmpeg/SDK obligations need their own review. No new DEAS license or legal clearance is declared by this document.
 

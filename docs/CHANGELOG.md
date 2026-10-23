@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — native Prompt Forge (not versioned)
+
+- **Prompt Forge for Illustrious, Anima, Krea2 and MOSS runs natively.** It replaces the node pack's Prompt Writer for these image models with PromptForge's pipeline in DEAS: character canon from local tables, the `search_tags` and `read_guidance` tools inside the writing loop, the `===SEGMENT:` contract and PromptForge's mechanical clean-up. Requests go straight to the LLM server under **Backend → LLM backend** (Ollama or OpenAI-compatible); the local GGUF runner cannot call tools yet and says so. Data lives in `<environment>/forge-data`. MiniMax H3, Wan and LTX stay on the node pack. See [Prompting](PROMPTING.md#prompt-forge).
+- The Generate hammer rewrites image prompts with the native writer (a source picture still goes to the node writer). The Prompt Forge tab gains a native editor with mode, detail, creativity, quality preset, style, aspect, optional negative/notes segments, kept-verbatim fields and **Send prompt** / **Send prompt + negative**. MOSS joins **Write for**.
+- Fix Windows owned-backend start failing with "Startup collision: foreign listener owns the chosen port": the venv `python.exe` is a launcher whose child owns the socket, so a live member of the backend's Job Object is now accepted as the owner.
+
 ## Unreleased — 0.1.42
 
 - Split Generate’s Wildcards and Presets tabs. Wildcards retains its existing library controls; Presets saves named live Studio settings, loads without execution and updates explicitly with overwrite confirmation. Native bounded/atomic storage, six locales and regression tests accompany the feature.
