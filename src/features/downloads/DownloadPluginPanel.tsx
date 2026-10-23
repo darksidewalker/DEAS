@@ -92,6 +92,15 @@ function InstalledModels({root,locked,category,setCategory}:{root:string;locked:
  const tab=tabs.includes(category)?category:tabs[0]??'';
  const shown=(models??[]).filter(m=>tabOf(m.category)===tab).sort((a,b)=>a.name.localeCompare(b.name));
  const fetch=(m:LocalModel)=>void io.request(async()=>fetchModelInfo(m.path,(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured)),v=>setModels(old=>old?.map(x=>x.path===v.path?v:x)??old));
+ const [scanScope,setScanScope]=useState<'all'|'models'|'loras'>('all');
+ const [scanning,setScanning]=useState(false);
+ const alive=useRef(true);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const inScope=(m:LocalModel)=>scanScope==='all'||(scanScope==='loras'?tabOf(m.category)==='loras':tabOf(m.category)!=='loras');
+ // Batch scan reuses the per-file CivitAI lookup (hash once, cached) sequentially so the API is not hammered.
+ const startScan=async()=>{setScanning(true);try{const civ=(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured);
+  for(const m of (models??[]).filter(inScope)){if(!alive.current)return;try{const v=await fetchModelInfo(m.path,civ);if(!alive.current)return;setModels(old=>old?.map(x=>x.path===v.path?v:x)??old);}catch{}}
+ }finally{if(alive.current)setScanning(false);}};
  const detail=(m:LocalModel)=>{const c=m.info?.civitai;const s=c?.settings;const settings=s?[s.sampler,s.scheduler,s.steps!==undefined&&t('downloads.installed.steps',{n:s.steps}),s.cfgScale!==undefined&&t('downloads.installed.cfg',{n:s.cfgScale}),s.size,s.clipSkip!==undefined&&t('downloads.installed.clipSkip',{n:s.clipSkip})].filter(Boolean).join(' · '):'';
   return <div className="download-picker"><dl className="download-identity">
    <dt>{t('downloads.installed.path')}</dt><dd>{m.path}</dd><dt>{t('downloads.size')}</dt><dd>{t('downloads.installed.sizeGib',{n:(m.size/1073741824).toFixed(2)})}</dd><dt>{t('downloads.digest')}</dt><dd>{m.info?.sha256??t('downloads.installed.unhashed')}</dd>
@@ -102,6 +111,12 @@ function InstalledModels({root,locked,category,setCategory}:{root:string;locked:
   <button className="action-button" disabled={io.busy||locked} onClick={()=>fetch(m)}>{t(m.info?'downloads.installed.refresh':'downloads.installed.fetch')}</button>
   {io.busy&&<p role="status"><span className="aio-spinner" aria-hidden="true"/> {t('downloads.pending')}</p>}{io.error&&<p role="alert">{t('downloads.installed.fetchError')}</p>}</div>;};
  return <>
+  {io.native&&!!models&&models.length>0&&<div className="download-source-row">
+   <label>{t('downloads.installed.scanScope')}<select aria-label={t('downloads.installed.scanScope')} value={scanScope} disabled={locked||scanning} onChange={e=>setScanScope(e.target.value as 'all'|'models'|'loras')}><option value="all">{t('downloads.installed.scopeAll')}</option><option value="models">{t('downloads.installed.scopeModels')}</option><option value="loras">{t('downloads.installed.scopeLoras')}</option></select></label>
+   <button className="action-button" type="button" disabled={locked||scanning} onClick={()=>void startScan()}>{t('downloads.installed.scanAll')}</button>
+   {scanning&&<p role="status"><span className="aio-spinner" aria-hidden="true"/> {t('downloads.installed.scanning')}</p>}
+   <p className="field-help">{t('downloads.installed.scanAllHelp')}</p>
+  </div>}
   {tabs.length>0&&<div className="download-categories" role="tablist" aria-label={t('downloads.category')}>{tabs.map(c=><button key={c} role="tab" type="button" aria-selected={tab===c} disabled={locked} onClick={()=>{setSelected('');setCategory(c);}}>{t(`downloads.folder.${c}`)}</button>)}</div>}
   {models===null&&!scanError&&<p role="status">{t('downloads.pending')}</p>}{scanError&&<p role="alert">{t('downloads.installed.scanError')}</p>}{models&&!models.length&&<p className="field-help">{t('downloads.installed.empty',{root})}</p>}
   <div className="download-cards">{shown.map(m=><Fragment key={m.path}><button type="button" className="download-card" aria-pressed={selected===m.path} disabled={locked} onClick={()=>setSelected(v=>v===m.path?'':m.path)}><Preview src={m.info?.civitai?.preview} alt=""/>{m.info?.civitai?.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<span>{m.name}</span></button>{selected===m.path&&detail(m)}</Fragment>)}</div>

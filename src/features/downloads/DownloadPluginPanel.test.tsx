@@ -237,7 +237,7 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
  vi.mocked(invoke).mockImplementation(async(c,a)=>{
   if(c==='native_download_catalog')return catalog;
   if(c==='native_models_scan'){expect(a).toEqual({root:'/env/ComfyUI/models'});return [local,{...local,category:'vae',name:'v.pt',path:'/env/ComfyUI/models/vae/v.pt'}];}
-  if(c==='native_model_info'){expect(a).toEqual({path:local.path,authenticated:false});return fetched;}
+  if(c==='native_model_info'){const p=(a as {path:string}).path;expect(a).toEqual({path:p,authenticated:false});return p===local.path?fetched:{...local,category:'vae',name:'v.pt',path:'/env/ComfyUI/models/vae/v.pt',info:{sha256:'cd34',size:2097152,fetchedAt:1,civitai:null}};}
   if(c==='native_auth_status')return [{providerId:'civitai',configured:false,persisted:false}];
   throw new Error(`unexpected ${c}`);
  });
@@ -255,4 +255,9 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
  expect(screen.getByText('Euler a · 30 steps · CFG 4.5 · 896x1152')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Refresh metadata'})).toBeTruthy();
  expect(document.querySelector('img.download-preview')?.getAttribute('src')).toBe(fetched.info.civitai.preview);
+ // Batch scan: scope select + explicit long-running hint, then one lookup per file in scope.
+ expect(screen.getByLabelText('Scope')).toBeTruthy();
+ expect(screen.getByText(/take a long time/)).toBeTruthy();
+ click('Scan Files');
+ await vi.waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_info').length).toBe(3)); // 1 single fetch above + lora + vae
 });
