@@ -80,5 +80,20 @@
   "forge.read": "Lesen",
   "forge.readAgain": "Neu lesen",
   "forge.reading": "Lese…",
-  "forge.cardOf": "Karte von {name}"
+  "forge.cardOf": "Karte von {name}",
+  "forge.native.noData": "Für diese Umgebung fehlen die Prompt-Forge-Daten (forge-data):",
+  "forge.quality": "Qualitätsvorgabe",
+  "forge.style": "Stil",
+  "forge.aspect": "Seitenverhältnis",
+  "forge.aspectNone": "Nicht festgelegt",
+  "forge.none": "Keine",
+  "forge.withNegative": "Negativ-Prompt schreiben",
+  "forge.withNotes": "Erklären, was geschrieben wurde",
+  "forge.keepPositive": "Immer im Prompt, genau wie eingegeben (Trigger-Wörter, Künstler-Tags)",
+  "forge.keepNegative": "Immer im Negativ-Prompt, genau wie eingegeben",
+  "forge.sendPrompt": "Prompt an Generieren senden",
+  "forge.sendBoth": "Prompt + Negativ an Generieren senden",
+  "forge.canon": "Charakter-Kanon aus der lokalen Tabelle: {list}",
+  "forge.toolsUsed": "{calls} Tag-Abfragen in {rounds} Runde(n)",
+  "forge.fixes": "Bereinigt: {list}"
 }

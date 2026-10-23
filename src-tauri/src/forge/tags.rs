@@ -9,7 +9,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-pub const CATEGORIES: [(&str, i64); 4] = [("general", 0), ("artist", 1), ("copyright", 3), ("character", 4)];
+pub const CATEGORIES: [(&str, i64); 4] = [
+    ("general", 0),
+    ("artist", 1),
+    ("copyright", 3),
+    ("character", 4),
+];
 
 pub fn category_name(code: i64) -> &'static str {
     match code {
@@ -44,7 +49,11 @@ pub fn name_part(tag: &str) -> &str {
 
 /// Any spelling in, the stored underscore key out.
 pub fn key_of(tag: &str) -> String {
-    tag.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("_")
+    tag.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("_")
 }
 
 fn escape_like(s: &str) -> String {
@@ -59,11 +68,17 @@ fn escape_like(s: &str) -> String {
 
 impl TagStore {
     pub fn open(path: &Path) -> Result<Self, String> {
-        let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-            .map_err(|e| format!("Tag database could not be opened: {e}"))?;
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| format!("Tag database could not be opened: {e}"))?;
         let has_deprecated = db
             .prepare("PRAGMA table_info(tags)")
-            .and_then(|mut s| s.query_map([], |r| r.get::<_, String>(1))?.collect::<Result<Vec<_>, _>>())
+            .and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .map(|cols| cols.iter().any(|c| c == "deprecated"))
             .map_err(|e| format!("Tag database is not readable: {e}"))?;
         Ok(Self {
@@ -80,16 +95,30 @@ impl TagStore {
     }
 
     fn retired(&self) -> &'static str {
-        if self.has_deprecated { "deprecated" } else { "0" }
+        if self.has_deprecated {
+            "deprecated"
+        } else {
+            "0"
+        }
     }
 
     fn live(&self) -> &'static str {
-        if self.has_deprecated { "AND deprecated = 0" } else { "" }
+        if self.has_deprecated {
+            "AND deprecated = 0"
+        } else {
+            ""
+        }
     }
 
     /// Substring search for the model's `search_tags`: exact, then prefix, then
     /// anywhere; retired tags last and flagged. Spelled in the model's style.
-    pub fn lookup(&self, query: &str, spaced: bool, category: Option<i64>, limit: usize) -> Result<Vec<Hit>, String> {
+    pub fn lookup(
+        &self,
+        query: &str,
+        spaced: bool,
+        category: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<Hit>, String> {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
             return Ok(vec![]);
@@ -104,7 +133,11 @@ impl TagStore {
               ORDER BY retired ASC, rank ASC, post_count DESC
               LIMIT ?4",
             r = self.retired(),
-            cat = if category.is_some() { "AND category = ?5" } else { "" },
+            cat = if category.is_some() {
+                "AND category = ?5"
+            } else {
+                ""
+            },
         );
         let db = self.db();
         let mut stmt = db.prepare_cached(&sql).map_err(|e| e.to_string())?;
@@ -120,8 +153,14 @@ impl TagStore {
         let prefix = format!("{esc}%");
         let anywhere = format!("%{esc}%");
         let rows = match category {
-            Some(c) => stmt.query_map(rusqlite::params![needle, prefix, anywhere, limit as i64, c], map),
-            None => stmt.query_map(rusqlite::params![needle, prefix, anywhere, limit as i64], map),
+            Some(c) => stmt.query_map(
+                rusqlite::params![needle, prefix, anywhere, limit as i64, c],
+                map,
+            ),
+            None => stmt.query_map(
+                rusqlite::params![needle, prefix, anywhere, limit as i64],
+                map,
+            ),
         }
         .map_err(|e| e.to_string())?;
         rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
@@ -142,8 +181,13 @@ impl TagStore {
     pub fn exact_rows(&self, tag: &str) -> Vec<(i64, i64)> {
         let key = key_of(tag);
         self.db()
-            .prepare_cached("SELECT category, post_count FROM tags WHERE tag = ?1 AND variant = 'underscore'")
-            .and_then(|mut s| s.query_map([key], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+            .prepare_cached(
+                "SELECT category, post_count FROM tags WHERE tag = ?1 AND variant = 'underscore'",
+            )
+            .and_then(|mut s| {
+                s.query_map([key], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -152,11 +196,20 @@ impl TagStore {
         let key = key_of(tag);
         self.db()
             .prepare_cached("SELECT aliases FROM tags WHERE tag = ?1 AND variant = 'underscore'")
-            .and_then(|mut s| s.query_row([key], |r| r.get::<_, Option<String>>(0)).optional())
+            .and_then(|mut s| {
+                s.query_row([key], |r| r.get::<_, Option<String>>(0))
+                    .optional()
+            })
             .ok()
             .flatten()
             .flatten()
-            .map(|a| a.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect())
+            .map(|a| {
+                a.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -185,14 +238,20 @@ impl TagStore {
     pub fn characters_named(&self, name: &str) -> Vec<(String, i64)> {
         let index = self.by_name_part.get_or_init(|| {
             let mut index: HashMap<String, Vec<(String, i64)>> = HashMap::new();
-            let sql = format!("SELECT tag, post_count FROM tags WHERE variant = 'underscore' AND category = 4 {}", self.live());
+            let sql = format!(
+                "SELECT tag, post_count FROM tags WHERE variant = 'underscore' AND category = 4 {}",
+                self.live()
+            );
             let rows: Vec<(String, i64)> = self
                 .db()
                 .prepare(&sql)
                 .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
                 .unwrap_or_default();
             for (tag, posts) in rows {
-                index.entry(name_part(&tag).to_string()).or_default().push((tag, posts));
+                index
+                    .entry(name_part(&tag).to_string())
+                    .or_default()
+                    .push((tag, posts));
             }
             index
         });
@@ -267,7 +326,17 @@ pub(crate) mod tests {
         for (tag, cat, posts, aliases, dep) in rows {
             db.execute(
                 "INSERT INTO tags VALUES (?1, 'underscore', ?2, ?3, ?4, ?5)",
-                rusqlite::params![tag, cat, posts, if aliases.is_empty() { None } else { Some(aliases) }, dep],
+                rusqlite::params![
+                    tag,
+                    cat,
+                    posts,
+                    if aliases.is_empty() {
+                        None
+                    } else {
+                        Some(aliases)
+                    },
+                    dep
+                ],
             )
             .unwrap();
         }
@@ -283,7 +352,11 @@ pub(crate) mod tests {
         assert_eq!(tags, ["boots", "thigh boots", "rubber boots"]);
         let feet = store.lookup("black foot", false, None, 10).unwrap();
         assert!(feet[0].deprecated);
-        assert!(store.lookup("frieren", false, Some(4), 10).unwrap().iter().all(|h| h.category == 4));
+        assert!(store
+            .lookup("frieren", false, Some(4), 10)
+            .unwrap()
+            .iter()
+            .all(|h| h.category == 4));
     }
 
     #[test]

@@ -49,7 +49,7 @@ pub struct LlmResult {
     pub backend: Provider,
 }
 
-fn endpoint(config: &LlmConfig, route: &str) -> Result<reqwest::Url, String> {
+pub(crate) fn endpoint(config: &LlmConfig, route: &str) -> Result<reqwest::Url, String> {
     let raw = &config.base_url;
     if raw.len() > 2048
         || raw.trim() != raw

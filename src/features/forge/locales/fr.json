@@ -80,5 +80,20 @@
   "forge.read": "Lire",
   "forge.readAgain": "Relire",
   "forge.reading": "Lecture…",
-  "forge.cardOf": "Fiche de {name}"
+  "forge.cardOf": "Fiche de {name}",
+  "forge.native.noData": "Les données de Prompt Forge manquent pour cet environnement (forge-data) :",
+  "forge.quality": "Préréglage de qualité",
+  "forge.style": "Style",
+  "forge.aspect": "Format d'image",
+  "forge.aspectNone": "Non défini",
+  "forge.none": "Aucun",
+  "forge.withNegative": "Écrire un prompt négatif",
+  "forge.withNotes": "Expliquer ce qui a été écrit",
+  "forge.keepPositive": "Toujours dans le prompt, tel que saisi (mots déclencheurs, tags d'artiste)",
+  "forge.keepNegative": "Toujours dans le négatif, tel que saisi",
+  "forge.sendPrompt": "Envoyer le prompt vers Générer",
+  "forge.sendBoth": "Envoyer prompt + négatif vers Générer",
+  "forge.canon": "Canon du personnage depuis la table locale : {list}",
+  "forge.toolsUsed": "{calls} recherches de tags en {rounds} tour(s)",
+  "forge.fixes": "Nettoyé : {list}"
 }

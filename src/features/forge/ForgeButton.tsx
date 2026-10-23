@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
-import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
+import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeWrite, nativeModelId, nativeTarget, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
 import './forge.css';
@@ -162,6 +162,11 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         if (request.current !== current || current.cancelled) return;
         setWarnings(Array.isArray(out.warnings) ? out.warnings.filter((w): w is string => typeof w === 'string').slice(0, 8).map(w => w.slice(0, 2048)) : []);
         setResult(out.simple_prompt); setDraftFit(fit); setDrafts(d => [{ text: out.simple_prompt, fit }, ...d].slice(0, 3));
+      } else if (nativeTarget(dialect) && !image) {
+        // PromptForge's whole pipeline in DEAS: canon, tag search, clean-up. A source picture still goes to the node writer, which can read it.
+        const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeModelId(forge.model), controls: { detail, creativity } });
+        if (request.current !== current || current.cancelled) return;
+        setResult(out.prompt); setWarnings(out.warnings);
       } else {
         const out = await writePrompt(endpoint, root!, { model: forge.model, write_for: dialect!, idea: brief, images: image ? [image] : [] });
         if (request.current !== current || current.cancelled) return;

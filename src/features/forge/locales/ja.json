@@ -80,5 +80,20 @@
   "forge.read": "読み取る",
   "forge.readAgain": "再読み取り",
   "forge.reading": "読み取り中…",
-  "forge.cardOf": "{name} のカード"
+  "forge.cardOf": "{name} のカード",
+  "forge.native.noData": "この環境には Prompt Forge のデータがありません (forge-data):",
+  "forge.quality": "品質プリセット",
+  "forge.style": "スタイル",
+  "forge.aspect": "アスペクト比",
+  "forge.aspectNone": "未設定",
+  "forge.none": "なし",
+  "forge.withNegative": "ネガティブプロンプトを書く",
+  "forge.withNotes": "書いた内容を説明する",
+  "forge.keepPositive": "常にプロンプトに入れる（入力どおり。トリガーワード、アーティストタグ）",
+  "forge.keepNegative": "常にネガティブに入れる（入力どおり）",
+  "forge.sendPrompt": "プロンプトを生成へ送る",
+  "forge.sendBoth": "プロンプトとネガティブを生成へ送る",
+  "forge.canon": "ローカル表のキャラクター設定: {list}",
+  "forge.toolsUsed": "{rounds} ラウンドで {calls} 件のタグ検索",
+  "forge.fixes": "整理済み: {list}"
 }

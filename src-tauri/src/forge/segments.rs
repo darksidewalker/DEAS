@@ -20,7 +20,12 @@ pub enum ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let quoted = |l: &[String]| l.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
+        let quoted = |l: &[String]| {
+            l.iter()
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         match self {
             Self::NoSegments => write!(f, "The model returned no ===SEGMENT: markers. Its instructions define an exact output format that it did not follow."),
             Self::Unknown(l) => write!(f, "The model wrote {} not in its format: {}.", if l.len() == 1 { "a segment" } else { "segments" }, quoted(l)),
@@ -30,18 +35,29 @@ impl std::fmt::Display for ParseError {
 }
 
 fn delimiter(line: &str) -> Option<&str> {
-    let label = line.trim_end().strip_prefix("===SEGMENT:")?.strip_suffix("===")?.trim();
+    let label = line
+        .trim_end()
+        .strip_prefix("===SEGMENT:")?
+        .strip_suffix("===")?
+        .trim();
     (!label.is_empty()).then_some(label)
 }
 
 /// Segments in contract order. `discard` labels are allowed but dropped (the
 /// model's file may still list them); a `Refused` segment satisfies the
 /// contract on its own and comes back alone with `refused = true`.
-pub fn parse(text: &str, expected: &[&str], discard: &[&str]) -> Result<(Vec<Segment>, bool), ParseError> {
+pub fn parse(
+    text: &str,
+    expected: &[&str],
+    discard: &[&str],
+) -> Result<(Vec<Segment>, bool), ParseError> {
     let mut segments: Vec<Segment> = vec![];
     for line in text.lines() {
         if let Some(label) = delimiter(line) {
-            segments.push(Segment { label: label.to_string(), body: String::new() });
+            segments.push(Segment {
+                label: label.to_string(),
+                body: String::new(),
+            });
         } else if let Some(current) = segments.last_mut() {
             current.body.push_str(line);
             current.body.push('\n');
@@ -54,7 +70,13 @@ pub fn parse(text: &str, expected: &[&str], discard: &[&str]) -> Result<(Vec<Seg
         s.body = s.body.trim().to_string();
     }
     if segments.iter().any(|s| s.label == REFUSED) {
-        return Ok((segments.into_iter().filter(|s| s.label == REFUSED).collect(), true));
+        return Ok((
+            segments
+                .into_iter()
+                .filter(|s| s.label == REFUSED)
+                .collect(),
+            true,
+        ));
     }
     let unknown: Vec<String> = segments
         .iter()
@@ -90,24 +112,46 @@ mod tests {
         let text = "===SEGMENT: Negative prompt===\nbad hands\n===SEGMENT: Positive prompt===\n1girl, solo\n\n===SEGMENT: Reasoning===\nshort\n";
         let (segs, refused) = parse(text, &EXPECTED, &[]).unwrap();
         assert!(!refused);
-        assert_eq!(segs.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), EXPECTED);
+        assert_eq!(
+            segs.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(),
+            EXPECTED
+        );
         assert_eq!(segs[0].body, "1girl, solo");
     }
 
     #[test]
     fn preamble_ignored_refusal_stands_alone() {
-        let (segs, refused) = parse("Here you go\n===SEGMENT: Refused===\nNo.\n", &EXPECTED, &[]).unwrap();
+        let (segs, refused) =
+            parse("Here you go\n===SEGMENT: Refused===\nNo.\n", &EXPECTED, &[]).unwrap();
         assert!(refused);
-        assert_eq!(segs, [Segment { label: REFUSED.into(), body: "No.".into() }]);
+        assert_eq!(
+            segs,
+            [Segment {
+                label: REFUSED.into(),
+                body: "No.".into()
+            }]
+        );
     }
 
     #[test]
     fn errors_name_what_broke() {
-        assert_eq!(parse("1girl, solo", &EXPECTED, &[]), Err(ParseError::NoSegments));
+        assert_eq!(
+            parse("1girl, solo", &EXPECTED, &[]),
+            Err(ParseError::NoSegments)
+        );
         let text = "===SEGMENT: Positive prompt===\na\n===SEGMENT: Tags===\nb\n";
-        assert_eq!(parse(text, &EXPECTED, &[]), Err(ParseError::Unknown(vec!["Tags".into()])));
+        assert_eq!(
+            parse(text, &EXPECTED, &[]),
+            Err(ParseError::Unknown(vec!["Tags".into()]))
+        );
         let text = "===SEGMENT: Positive prompt===\na\n";
-        assert_eq!(parse(text, &EXPECTED, &[]), Err(ParseError::Missing(vec!["Negative prompt".into(), "Reasoning".into()])));
+        assert_eq!(
+            parse(text, &EXPECTED, &[]),
+            Err(ParseError::Missing(vec![
+                "Negative prompt".into(),
+                "Reasoning".into()
+            ]))
+        );
     }
 
     #[test]

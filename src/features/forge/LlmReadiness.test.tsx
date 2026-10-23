@@ -60,11 +60,13 @@ test('Forge brief, result and negative drafts survive setup redirect and recover
   if(c==='native_llm_read')return configured?{provider:'ollama',baseUrl:'http://localhost:11434'}:{provider:'local',baseUrl:''};
   if(c==='native_llm_models')return {models:[],warnings:[]};
   if(c==='native_forge')return {models:[{id:'m',label:'Configured model'}],errors:{},creativity:[],shot_counts:['Auto'],default_shots:'Auto'};
+  if(c==='native_forge_targets')return {source:{},creativity:[],targets:[{key:'illustrious',label:'Illustrious',modes:[],defaultMode:null,optional:['Reasoning','Negative prompt'],qualityPresets:[],styles:[],aspectRatios:null,hasNegative:true,tools:true,guidance:[]}]};
   if(c==='native_media_list')return {path:'',parent:null,entries:[],truncated:false};
   throw Error('Unexpected '+c);
  });
  wrap(<PromptForge endpoint="http://localhost:7801" root="/env" onSend={vi.fn()}/>);
  await screen.findByRole('option',{name:'Configured model'});
+ await screen.findByRole('textbox',{name:'Negative prompt (optional)'});
  for(const [name,value] of [['Idea or prompt to enhance','keep idea'],['Result','keep edited result'],['Negative prompt (optional)','keep negative']])fireEvent.change(screen.getByRole('textbox',{name}),{target:{value}});
  configured=false;act(()=>window.dispatchEvent(new Event('deas:llm-changed')));
  await waitFor(()=>expect(redirected).toHaveBeenCalledOnce());
@@ -72,6 +74,7 @@ test('Forge brief, result and negative drafts survive setup redirect and recover
  await screen.findByRole('option',{name:'Configured model'});
  for(const [name,value] of [['Idea or prompt to enhance','keep idea'],['Result','keep edited result'],['Negative prompt (optional)','keep negative']])expect(screen.getByRole('textbox',{name})).toHaveProperty('value',value);
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_forge').every(([,a])=>(a as {route:string}).route==='models')).toBe(true);
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_forge_write')).toBe(false);
 });
 test.each(['readiness','models','changed-origin'])('leaving retained Forge suppresses late %s redirects until reactivation',async phase=>{
  let finish!:(value:unknown)=>void;

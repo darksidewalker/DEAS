@@ -39,5 +39,18 @@ export const readCast = (baseUrl: string, root: string, body: CastRequest) => ca
 export const findPeople = (baseUrl:string,root:string,body:{model:string;path:string;request_id:string}) => call<{people:{box:PeopleBox['box']}[]}>(baseUrl,root,'people',body);
 /** Stops the running Director Forge call that carries this `request_id`. */
 export const cancelForge = (baseUrl: string, root: string, request_id: string) => call<{ cancelled: boolean }>(baseUrl, root, 'cancel', { request_id });
+/** The native Prompt Forge (image models): PromptForge's whole pipeline in DEAS — character canon, tag-search and guidance tools, clean-up — straight to the LLM server. */
+export interface NativeControls { creativity?: number; detail?: number; aspectRatio?: string; qualityPreset?: string; style?: string; positive?: string; negative?: string; tags?: string[]; cameraAngle?: string; cameraShot?: string; cameraLight?: string }
+export interface NativeWrite { target: string; brief: string; model: string; mode?: string; segmentsOn?: string[]; controls?: NativeControls }
+export interface NativeSegment { label: string; body: string }
+export interface NativeResult { segments: NativeSegment[]; refused: boolean; prompt: string; negative: string | null; characters: string[]; tools: { name: string; queries: string[]; document: string | null; ok: boolean }[]; rounds: number; warnings: string[]; fixes: string[] }
+export interface NativeTarget { key: string; label: string; modes: string[]; defaultMode: string | null; optional: string[]; qualityPresets: string[]; styles: string[]; aspectRatios: string[] | null; hasNegative: boolean; tools: boolean; guidance: string[] }
+export interface NativeTargets { source: { commit?: string }; creativity: string[]; targets: NativeTarget[] }
+export const nativeForgeWrite = (root: string, request: NativeWrite) => invoke<NativeResult>('native_forge_write', { root, request });
+export const nativeForgeTargets = (root: string) => invoke<NativeTargets>('native_forge_targets', { root });
+/** Family dialect -> native writer key; dialects without one stay on the node pack. */
+export const nativeTarget = (dialect?: string) => ({ Illustrious: 'illustrious', Anima: 'anima', Krea2: 'krea2', MOSS: 'moss' } as Record<string, string>)[dialect ?? ''];
+/** The node pack prefixes server models (`openai:…`, `ollama:…`); the native writer takes the bare id on DEAS's configured server. */
+export const nativeModelId = (id: string) => id.replace(/^(openai|ollama):/, '');
 /** A 404 — or 405, since ComfyUI's GET-only static `/` route catches unknown POST paths — means the node pack predates these routes. */
 export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return /^40[45]\b/.test(text) ? 'forge.outdated' : text; };

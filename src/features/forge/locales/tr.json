@@ -80,5 +80,20 @@
   "forge.read": "Oku",
   "forge.readAgain": "Yeniden oku",
   "forge.reading": "Okunuyor…",
-  "forge.cardOf": "{name} kartı"
+  "forge.cardOf": "{name} kartı",
+  "forge.native.noData": "Bu ortam için Prompt Forge verileri eksik (forge-data):",
+  "forge.quality": "Kalite ön ayarı",
+  "forge.style": "Stil",
+  "forge.aspect": "En-boy oranı",
+  "forge.aspectNone": "Ayarlanmadı",
+  "forge.none": "Yok",
+  "forge.withNegative": "Negatif prompt yaz",
+  "forge.withNotes": "Ne yazdığını açıkla",
+  "forge.keepPositive": "Her zaman prompt'ta, yazıldığı gibi (tetikleyici kelimeler, sanatçı etiketleri)",
+  "forge.keepNegative": "Her zaman negatifte, yazıldığı gibi",
+  "forge.sendPrompt": "Prompt'u Oluştur'a gönder",
+  "forge.sendBoth": "Prompt + negatifi Oluştur'a gönder",
+  "forge.canon": "Yerel tablodan karakter kanonu: {list}",
+  "forge.toolsUsed": "{rounds} turda {calls} etiket araması",
+  "forge.fixes": "Temizlendi: {list}"
 }

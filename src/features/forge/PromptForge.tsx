@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { H3, dialects, forgeError, forgeH3, writePrompt, type H3Reference } from '../../lib/forge';
+import { H3, dialects as familyDialects, forgeError, forgeH3, nativeTarget, writePrompt, type H3Reference } from '../../lib/forge';
+import { NativeForge } from './NativeForge';
+
+/** MOSS has a native writer but no generation family yet. */
+const dialects = [...new Set([...familyDialects, 'MOSS'])];
 import { isString, oneOf, usePref } from '../../lib/preferences';
 import type { MediaItem } from '../../lib/media';
 import { MediaLibrary } from '../media/MediaLibrary';
@@ -59,9 +63,12 @@ export function PromptForge({ endpoint, root, inputDir, onSend, active = true }:
     finally { setBusy(false); }
   };
   const level = (key: string, value: number, set: (v: number) => void) => <label className="forge-field"><span>{t(key)} {value}</span><input type="range" min={1} max={10} value={value} onChange={e => set(Number(e.target.value))}/></label>;
+  const picker = <label className="forge-field"><span>{t('forge.target')}</span><select data-forge-target value={target} onChange={e => setTarget(e.target.value)}>{dialects.map(d => <option key={d} value={d}>{d}</option>)}</select></label>;
+  const native = nativeTarget(target);
+  if (native) return <section className="forge-tab" aria-label={t('studio.tab.forge')}><NativeForge root={root} target={native} forge={forge} onSend={onSend} header={picker} active={active}/></section>;
   return <section className="forge-tab" aria-label={t('studio.tab.forge')}>
     <div className="forge-controls">
-      <label className="forge-field"><span>{t('forge.target')}</span><select data-forge-target value={target} onChange={e => setTarget(e.target.value)}>{dialects.map(d => <option key={d} value={d}>{d}</option>)}</select></label>
+      {picker}
       <ModelSelect forge={forge}/>
       {!root && <p className="field-help">{t('forge.noBackend')}</p>}
       {h3 && <div className="forge-row">

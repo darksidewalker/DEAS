@@ -80,5 +80,20 @@
   "forge.read": "读取",
   "forge.readAgain": "重新读取",
   "forge.reading": "读取中…",
-  "forge.cardOf": "{name} 的卡片"
+  "forge.cardOf": "{name} 的卡片",
+  "forge.native.noData": "此环境缺少 Prompt Forge 数据 (forge-data)：",
+  "forge.quality": "质量预设",
+  "forge.style": "风格",
+  "forge.aspect": "宽高比",
+  "forge.aspectNone": "未设置",
+  "forge.none": "无",
+  "forge.withNegative": "编写负面提示词",
+  "forge.withNotes": "说明写了什么",
+  "forge.keepPositive": "始终放入提示词，按输入原样（触发词、画师标签）",
+  "forge.keepNegative": "始终放入负面提示词，按输入原样",
+  "forge.sendPrompt": "将提示词发送到生成",
+  "forge.sendBoth": "将提示词和负面发送到生成",
+  "forge.canon": "来自本地表的角色设定：{list}",
+  "forge.toolsUsed": "{rounds} 轮中查询标签 {calls} 次",
+  "forge.fixes": "已清理：{list}"
 }

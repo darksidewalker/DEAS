@@ -9,7 +9,10 @@
 use std::collections::HashSet;
 
 fn split(text: &str) -> Vec<&str> {
-    text.split(',').map(str::trim).filter(|t| !t.is_empty()).collect()
+    text.split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 /// A tag reduced to what two spellings of one concept share: lowercase, one
@@ -20,7 +23,10 @@ pub fn normalise_tag(tag: &str) -> String {
         t = inner.to_string();
     }
     let t: String = t.chars().filter(|c| !"()[]{}".contains(*c)).collect();
-    t.replace('_', " ").split_whitespace().collect::<Vec<_>>().join(" ")
+    t.replace('_', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `(tag:1.30)` -> `tag`; None when the text is not one weight expression.
@@ -69,7 +75,10 @@ pub fn tidy_commas(text: &str) -> String {
             }
             out.push(',');
             if let Some(&next) = chars.get(j) {
-                if !next.is_whitespace() && !"\"'\u{201d}\u{2019}".contains(next) && !next.is_ascii_digit() {
+                if !next.is_whitespace()
+                    && !"\"'\u{201d}\u{2019}".contains(next)
+                    && !next.is_ascii_digit()
+                {
                     out.push(' ');
                 }
             }
@@ -112,7 +121,11 @@ pub struct Positive {
 /// Duplicate tags, and invented `name_(series)` tags the database does not
 /// hold. Only parenthesised unknowns go: most of a good prompt is not danbooru
 /// vocabulary, and that shape is the one nobody writes outside booru tags.
-pub fn clean_positive(positive: &str, known: Option<&dyn Fn(&str) -> bool>, protected: &[&str]) -> Positive {
+pub fn clean_positive(
+    positive: &str,
+    known: Option<&dyn Fn(&str) -> bool>,
+    protected: &[&str],
+) -> Positive {
     let spared = tag_set(protected.iter().copied());
     let mut seen = HashSet::new();
     let (mut kept, mut duplicates, mut invented) = (vec![], vec![], vec![]);
@@ -145,12 +158,19 @@ pub fn clean_positive(positive: &str, known: Option<&dyn Fn(&str) -> bool>, prot
         seen.insert(key);
         kept.push(raw);
     }
-    Positive { text: kept.join(", "), duplicates, invented }
+    Positive {
+        text: kept.join(", "),
+        duplicates,
+        invented,
+    }
 }
 
 fn ends_with_paren_group(raw: &str) -> bool {
     let t = raw.trim_end();
-    t.ends_with(')') && t[..t.len() - 1].rfind('(').is_some_and(|open| !t[open + 1..t.len() - 1].contains(')'))
+    t.ends_with(')')
+        && t[..t.len() - 1]
+            .rfind('(')
+            .is_some_and(|open| !t[open + 1..t.len() - 1].contains(')'))
 }
 
 pub struct Negative {
@@ -163,11 +183,21 @@ pub struct Negative {
 
 /// Duplicates and anything the positive asked for. Unknown tags are reported,
 /// never removed.
-pub fn clean_negative(negative: &str, positives: &[&str], known: Option<&dyn Fn(&str) -> bool>, protected: &[&str]) -> Negative {
+pub fn clean_negative(
+    negative: &str,
+    positives: &[&str],
+    known: Option<&dyn Fn(&str) -> bool>,
+    protected: &[&str],
+) -> Negative {
     let banned = tag_set(positives.iter().copied());
     let spared = tag_set(protected.iter().copied());
     let mut seen = HashSet::new();
-    let mut out = Negative { text: String::new(), duplicates: vec![], contradictions: vec![], unknown: vec![] };
+    let mut out = Negative {
+        text: String::new(),
+        duplicates: vec![],
+        contradictions: vec![],
+        unknown: vec![],
+    };
     let mut kept = vec![];
     for raw in split(negative) {
         let key = normalise_tag(raw);
@@ -196,7 +226,11 @@ pub fn clean_negative(negative: &str, positives: &[&str], known: Option<&dyn Fn(
 
 /// Put back the model's `negative_defaults` it left out, first, except any the
 /// positive asked for.
-pub fn ensure_defaults(negative: &str, defaults: &str, positives: &[&str]) -> (String, Vec<String>) {
+pub fn ensure_defaults(
+    negative: &str,
+    defaults: &str,
+    positives: &[&str],
+) -> (String, Vec<String>) {
     let mut present: HashSet<String> = split(negative).into_iter().map(normalise_tag).collect();
     let banned = tag_set(positives.iter().copied());
     let mut missing = vec![];
@@ -211,7 +245,12 @@ pub fn ensure_defaults(negative: &str, defaults: &str, positives: &[&str]) -> (S
     if missing.is_empty() {
         return (negative.to_string(), missing);
     }
-    let text = missing.iter().map(String::as_str).chain(split(negative)).collect::<Vec<_>>().join(", ");
+    let text = missing
+        .iter()
+        .map(String::as_str)
+        .chain(split(negative))
+        .collect::<Vec<_>>()
+        .join(", ");
     (text, missing)
 }
 
@@ -277,12 +316,16 @@ pub fn escape_literal_parens(text: &str) -> (String, Vec<String>) {
 
 /// `chibi:2` and `glitch:1.5` are weights; `nier:automata` is a name.
 fn is_weight(inner: &str) -> bool {
-    let Some(colon) = inner.rfind(':') else { return false };
+    let Some(colon) = inner.rfind(':') else {
+        return false;
+    };
     let n = inner[colon + 1..].trim();
     let mut parts = n.splitn(2, '.');
     let whole = parts.next().unwrap_or("");
     let frac = parts.next();
-    !whole.is_empty() && whole.chars().all(|c| c.is_ascii_digit()) && frac.is_none_or(|f| !f.is_empty() && f.chars().all(|c| c.is_ascii_digit()))
+    !whole.is_empty()
+        && whole.chars().all(|c| c.is_ascii_digit())
+        && frac.is_none_or(|f| !f.is_empty() && f.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// Underscores between word characters become spaces, tag by tag, on a model
@@ -300,7 +343,11 @@ pub fn space_underscores(text: &str, protected: &[&str]) -> (String, usize) {
         .split(',')
         .map(|piece| {
             let tag = piece.trim();
-            if !tag.contains('_') || kept.contains(&tag.to_lowercase()) || is_score(tag) || is_emoticon(tag) {
+            if !tag.contains('_')
+                || kept.contains(&tag.to_lowercase())
+                || is_score(tag)
+                || is_emoticon(tag)
+            {
                 return piece.to_string();
             }
             let chars: Vec<char> = piece.chars().collect();
@@ -312,7 +359,11 @@ pub fn space_underscores(text: &str, protected: &[&str]) -> (String, usize) {
                     let after = chars.get(i + 1).copied();
                     let left = before.is_some_and(|b| b.is_alphanumeric() || b == ')' || b == '\\');
                     let right = after.is_some_and(|a| a.is_alphanumeric() || a == '(' || a == '\\');
-                    if c == '_' && left && right { ' ' } else { c }
+                    if c == '_' && left && right {
+                        ' '
+                    } else {
+                        c
+                    }
                 })
                 .collect();
             if spaced != piece {
@@ -326,21 +377,28 @@ pub fn space_underscores(text: &str, protected: &[&str]) -> (String, usize) {
 
 fn is_score(tag: &str) -> bool {
     let t = tag.strip_prefix('(').unwrap_or(tag).to_lowercase();
-    t.strip_prefix("score_").is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+    t.strip_prefix("score_")
+        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
 }
 
 /// One character (or none) either side of the underscore: a face, not a phrase.
 fn is_emoticon(tag: &str) -> bool {
     let t = tag.strip_prefix('(').unwrap_or(tag);
     let t = t.strip_suffix(')').unwrap_or(t);
-    let Some((left, right)) = t.split_once('_') else { return false };
+    let Some((left, right)) = t.split_once('_') else {
+        return false;
+    };
     let side = |s: &str, outer_first: bool| {
         let cs: Vec<char> = s.chars().collect();
         match cs.len() {
             0 => true,
             1 => true,
             2 => {
-                let (outer, inner) = if outer_first { (cs[0], cs[1]) } else { (cs[1], cs[0]) };
+                let (outer, inner) = if outer_first {
+                    (cs[0], cs[1])
+                } else {
+                    (cs[1], cs[0])
+                };
                 !outer.is_alphanumeric() && inner.is_alphanumeric()
             }
             _ => false,
@@ -357,7 +415,11 @@ pub fn strip_aspect(body: &str, aspect: &str, protected: &[&str]) -> (String, Ve
     if body.trim().is_empty() || spellings.is_empty() {
         return (body.to_string(), vec![]);
     }
-    let guarded = protected.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>().join(" ");
+    let guarded = protected
+        .iter()
+        .map(|t| t.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
     let protected = |needle: &str| guarded.contains(needle);
     let orientation = remove_ratio(aspect).trim().to_lowercase();
     let mut removed = vec![];
@@ -382,7 +444,11 @@ pub fn strip_aspect(body: &str, aspect: &str, protected: &[&str]) -> (String, Ve
             }
             drop.insert(i);
             for j in [i.wrapping_sub(1), i + 1] {
-                if j < items.len() && !orientation.is_empty() && norm(items[j]) == orientation && !protected(&orientation) {
+                if j < items.len()
+                    && !orientation.is_empty()
+                    && norm(items[j]) == orientation
+                    && !protected(&orientation)
+                {
                     drop.insert(j);
                 }
             }
@@ -391,7 +457,12 @@ pub fn strip_aspect(body: &str, aspect: &str, protected: &[&str]) -> (String, Ve
             let mut order: Vec<_> = drop.iter().copied().collect();
             order.sort_unstable();
             removed.extend(order.iter().map(|&i| items[i].trim().to_string()));
-            let kept: Vec<&str> = items.iter().enumerate().filter(|(i, _)| !drop.contains(i)).map(|(_, t)| *t).collect();
+            let kept: Vec<&str> = items
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !drop.contains(i))
+                .map(|(_, t)| *t)
+                .collect();
             let text = split(&kept.join(",")).join(", ");
             return (text, removed);
         }
@@ -404,7 +475,8 @@ pub fn strip_aspect(body: &str, aspect: &str, protected: &[&str]) -> (String, Ve
         }
         loop {
             let lower = out.to_lowercase();
-            let hit = find_parenthetical(&lower, spelling).or_else(|| find_trailing(&lower, spelling));
+            let hit =
+                find_parenthetical(&lower, spelling).or_else(|| find_trailing(&lower, spelling));
             let Some((start, end)) = hit else { break };
             out.replace_range(start..end, "");
             removed.push(spelling.clone());
@@ -413,7 +485,10 @@ pub fn strip_aspect(body: &str, aspect: &str, protected: &[&str]) -> (String, Ve
     if removed.is_empty() {
         (body.to_string(), removed)
     } else {
-        (out.split_whitespace().collect::<Vec<_>>().join(" "), removed)
+        (
+            out.split_whitespace().collect::<Vec<_>>().join(" "),
+            removed,
+        )
     }
 }
 
@@ -526,7 +601,10 @@ mod tests {
     fn normalise_survives_weights_and_spelling() {
         assert_eq!(normalise_tag("(purple_hair:1.30)"), "purple hair");
         assert_eq!(normalise_tag(" Purple  Hair "), "purple hair");
-        assert_eq!(normalise_tag("makima_(chainsaw_man)"), "makima chainsaw man");
+        assert_eq!(
+            normalise_tag("makima_(chainsaw_man)"),
+            "makima chainsaw man"
+        );
     }
 
     #[test]
@@ -541,13 +619,21 @@ mod tests {
     #[test]
     fn positive_drops_duplicates_and_invented_parenthesised_tags() {
         // The 1 Sep 2026 Illustrious output that started positive.mjs.
-        let known = |t: &str| matches!(t, "frieren" | "fern_(sousou_no_frieren)" | "fern (sousou no frieren)");
+        let known = |t: &str| {
+            matches!(
+                t,
+                "frieren" | "fern_(sousou_no_frieren)" | "fern (sousou no frieren)"
+            )
+        };
         let out = clean_positive(
             "masterpiece, frieren, frieren_(frieren), frieren, solo, fern (sousou no frieren)",
             Some(&known),
             &[],
         );
-        assert_eq!(out.text, "masterpiece, frieren, solo, fern (sousou no frieren)");
+        assert_eq!(
+            out.text,
+            "masterpiece, frieren, solo, fern (sousou no frieren)"
+        );
         assert_eq!(out.duplicates, ["frieren"]);
         assert_eq!(out.invented, ["frieren_(frieren)"]);
     }
@@ -566,7 +652,11 @@ mod tests {
 
     #[test]
     fn positive_keeps_modifiers_that_are_five_lowercase_words() {
-        let out = clean_positive("1girl, warm highlights and cool shadows, solo, solo", None, &[]);
+        let out = clean_positive(
+            "1girl, warm highlights and cool shadows, solo, solo",
+            None,
+            &[],
+        );
         assert_eq!(out.text, "1girl, warm highlights and cool shadows, solo");
     }
 
@@ -586,7 +676,11 @@ mod tests {
 
     #[test]
     fn defaults_restored_first_unless_the_positive_wants_them() {
-        let (text, added) = ensure_defaults("blurry", "worst quality, low quality, text", &["1girl, text"]);
+        let (text, added) = ensure_defaults(
+            "blurry",
+            "worst quality, low quality, text",
+            &["1girl, text"],
+        );
         assert_eq!(text, "worst quality, low quality, blurry");
         assert_eq!(added, ["worst quality", "low quality"]);
     }
@@ -626,7 +720,11 @@ mod tests {
         assert_eq!(text, "1girl, rain");
         let (text, _) = strip_aspect("1girl, portrait, rain", "2:3 Portrait", &[]);
         assert_eq!(text, "1girl, portrait, rain");
-        let (text, _) = strip_aspect("A girl stands in the rain (2:3 portrait).", "2:3 Portrait", &[]);
+        let (text, _) = strip_aspect(
+            "A girl stands in the rain (2:3 portrait).",
+            "2:3 Portrait",
+            &[],
+        );
         assert_eq!(text, "A girl stands in the rain.");
         let (text, removed) = strip_aspect("1girl, 16:9", "16:9 Wide", &["a 16:9 television"]);
         assert_eq!(text, "1girl, 16:9");

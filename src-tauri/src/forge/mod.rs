@@ -7,6 +7,13 @@
 pub mod appearance;
 pub mod canon;
 pub mod character;
+pub mod chat;
 pub mod clean;
+pub mod engine;
+pub mod message;
+pub mod pack;
 pub mod segments;
 pub mod tags;
+pub mod tools;
+
+pub use engine::{native_forge_targets, native_forge_write};

@@ -80,5 +80,20 @@
   "forge.read": "Read",
   "forge.readAgain": "Read again",
   "forge.reading": "Reading…",
-  "forge.cardOf": "Card of {name}"
+  "forge.cardOf": "Card of {name}",
+  "forge.native.noData": "Prompt Forge data is missing for this environment (forge-data):",
+  "forge.quality": "Quality preset",
+  "forge.style": "Style",
+  "forge.aspect": "Aspect ratio",
+  "forge.aspectNone": "Not set",
+  "forge.none": "None",
+  "forge.withNegative": "Write a negative prompt",
+  "forge.withNotes": "Explain what it wrote",
+  "forge.keepPositive": "Always in the prompt, exactly as typed (trigger words, artist tags)",
+  "forge.keepNegative": "Always in the negative, exactly as typed",
+  "forge.sendPrompt": "Send prompt to Generate",
+  "forge.sendBoth": "Send prompt + negative to Generate",
+  "forge.canon": "Character canon from the local table: {list}",
+  "forge.toolsUsed": "{calls} tag lookups in {rounds} round(s)",
+  "forge.fixes": "Cleaned up: {list}"
 }

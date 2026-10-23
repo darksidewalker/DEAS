@@ -118,6 +118,8 @@ fn main() {
             deas::native_llm_generate,
             deas::native_llm_models,
             deas::native_forge,
+            deas::forge::engine::native_forge_write,
+            deas::forge::engine::native_forge_targets,
             deas::native_wildcard_library,
             deas::native_wildcard_build,
             deas::native_files_present,

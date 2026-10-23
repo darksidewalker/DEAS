@@ -7,6 +7,8 @@ import { PromptForge } from './PromptForge';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
 const models = { models: [{ id: 'ollama:qwen', label: 'qwen' }], errors: {}, creativity: ['literal', 'precise', 'faithful', 'measured', 'balanced', 'loose', 'inventive', 'creative', 'daring', 'wild'], shot_counts: ['Auto', 1, 2], default_shots: 'Auto', durations: [5, 8] };
+const nativeTargets = { source: { commit: 'test' }, creativity: models.creativity, targets: ['illustrious', 'anima', 'krea2', 'moss'].map(key => ({ key, label: key, modes: [], defaultMode: null, optional: ['Reasoning', 'Negative prompt'], qualityPresets: [], styles: [], aspectRatios: null, hasNegative: key !== 'krea2', tools: true, guidance: [] })) };
+const nativeCalls = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge_write').map(([, a]) => a as { root: string; request: Record<string, unknown> });
 const forgeCalls = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge').map(([, a]) => a as { route: string; body: Record<string, unknown> });
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('deas.locale.v1', 'en');
@@ -17,6 +19,8 @@ beforeEach(() => {
     if (command === 'native_forge' && route === 'models') return models;
     if (command === 'native_forge' && route === 'write') return { prompt: '1girl, rain', saw_images: 0 };
     if (command === 'native_forge' && route === 'h3') return { simple_prompt: 'H3 structured prompt', warnings: ['check cut'] };
+    if (command === 'native_forge_targets') return nativeTargets;
+    if (command === 'native_forge_write') return { segments: [{ label: 'Positive prompt', body: '1girl, rain' }], refused: false, prompt: '1girl, rain', negative: null, characters: [], tools: [], rounds: 0, warnings: [], fixes: [] };
     if (command === 'native_media_list') return { path: '/env/input', parent: null, truncated: false, entries: [{ name: 'a.png', path: '/env/input/a.png', kind: 'file', symlink: false, media: 'image', size: 1, modified: 1 }] };
     throw new Error(`Unexpected command: ${command}`);
   });
@@ -155,7 +159,7 @@ it('checkpoint Forge forwards continuity through h3 and only applies on explicit
   expect(apply).toHaveBeenLastCalledWith('turn left');
 });
 
-it('hammer enhances the prompt in the model dialect, applies after review and undoes', async () => {
+it('hammer rewrites an image prompt with the native Forge, applies after review and undoes', async () => {
   const apply = vi.fn();
   render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Anima" value="girl in rain" onApply={apply}/></I18nProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
@@ -163,7 +167,9 @@ it('hammer enhances the prompt in the model dialect, applies after review and un
   await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
-  expect(forgeCalls()[1]).toMatchObject({ route: 'write', body: { model: 'ollama:qwen', write_for: 'Anima', idea: 'girl in rain' } });
+  // The node's Prompt Writer is not involved: the model id loses its node prefix and the brief goes to DEAS's own engine.
+  expect(forgeCalls().filter(c => c.route === 'write')).toEqual([]);
+  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'anima', model: 'qwen', brief: 'girl in rain' }) }]);
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
   expect(apply).toHaveBeenLastCalledWith('1girl, rain');
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
