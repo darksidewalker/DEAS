@@ -160,7 +160,8 @@ Random/Fixed, New, exact wrapping ±1, Use last and ten submitted seeds with res
 | Models / LoRAs | Load/reload trees, filter/search subfolders, select compatible models or toggle LoRAs/strengths; missing encoders/VAEs block affected operations |
 | Options | Naming, attention, VAE, cache, sigmas, chunking/output and torch.compile; unavailable capabilities remain diagnosed |
 | Post-Processing | Opt-in image refine/upscale above; not the TrueVideoEnhancer video port |
-| Presets & Wildcards | [Prompting guide](PROMPTING.md#presets--wildcards) |
+| Presets | [Save and resume Studio settings](PROMPTING.md#presets) |
+| Wildcards | [Prompting guide](PROMPTING.md#wildcards) |
 
 Options default to launch-default attention, full VAE (512px tile selection retained), cache/compile off, threshold 0.05 when cache is enabled, no sigma override and video chunking off. Comfy Kitchen INT8 and torch.compile are not combined; Spectrum H3 remains disabled. Custom sigmas must be finite, strictly descending and end at zero; model-fixed schedules are used unless overridden.
 

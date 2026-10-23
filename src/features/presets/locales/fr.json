@@ -1,0 +1,16 @@
+{
+  "presets.title": "Préréglages",
+  "presets.help": "Enregistrez les réglages Studio pour les recharger et les modifier. Les médias, projets et tâches en cours restent inchangés.",
+  "presets.select": "Préréglage enregistré",
+  "presets.choose": "Choisir un préréglage",
+  "presets.name": "Nom du préréglage",
+  "presets.save": "Enregistrer un nouveau préréglage",
+  "presets.load": "Charger le préréglage",
+  "presets.update": "Mettre à jour la sélection",
+  "presets.confirm": "Remplacer « {name} » par les réglages actuels ?",
+  "presets.saved": "Préréglage enregistré.",
+  "presets.loaded": "Préréglage chargé. Modifiez les réglages Studio puis mettez-le à jour.",
+  "presets.empty": "Aucun préréglage enregistré.",
+  "presets.native": "Les préréglages nécessitent l’application de bureau.",
+  "presets.invalid": "Ce préréglage contient des réglages incompatibles. Rien n’a été modifié."
+}

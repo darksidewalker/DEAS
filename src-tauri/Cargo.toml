@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.41"
+version = "0.1.42"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
 
@@ -43,3 +43,6 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true

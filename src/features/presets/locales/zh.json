@@ -1,0 +1,16 @@
+{
+  "presets.title": "预设",
+  "presets.help": "保存当前Studio设置，稍后加载并编辑。不会替换媒体、项目或正在运行的任务。",
+  "presets.select": "已保存的预设",
+  "presets.choose": "选择预设",
+  "presets.name": "预设名称",
+  "presets.save": "保存为新预设",
+  "presets.load": "加载预设",
+  "presets.update": "更新所选预设",
+  "presets.confirm": "用当前设置替换“{name}”？",
+  "presets.saved": "预设已保存。",
+  "presets.loaded": "预设已加载。可编辑Studio设置并更新预设。",
+  "presets.empty": "尚未保存预设。",
+  "presets.native": "预设需要桌面应用。",
+  "presets.invalid": "此预设包含不兼容的设置。未进行任何更改。"
+}

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-presets"
+description = "Read/write bounded app-local Studio preference presets and report invalid UI preference loads without payloads."
+commands.allow = ["native_presets_read", "native_presets_write", "native_presets_invalid"]

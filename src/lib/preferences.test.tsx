@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, expect, it } from 'vitest';
-import { forgetPref, isString, oneOf, readPref, usePref, writePref, PreferencePersistenceContext } from './preferences';
+import { applyStudioSettings, captureStudioSettings, forgetPref, isString, oneOf, readPref, usePref, writePref, PreferencePersistenceContext } from './preferences';
 import type { ReactNode } from 'react';
 
 it('project values cannot leak back into global Studio defaults when the project closes',()=>{
@@ -14,6 +14,20 @@ it('project values cannot leak back into global Studio defaults when the project
  persist=true;hook.rerender();
  expect(hook.result.current[0]).toBe('original');
  expect(readPref('studio.run.wildcard','',isString)).toBe('original');
+ hook.unmount();
+});
+
+it('presets capture live project values and reject invalid loads atomically',()=>{
+ writePref('studio.run.positive','global');
+ const wrapper=({children}:{children:ReactNode})=><PreferencePersistenceContext.Provider value={false}>{children}</PreferencePersistenceContext.Provider>;
+ const hook=renderHook(()=>({prompt:usePref('studio.run.positive','',isString),history:usePref('studio.run.recentSeeds','history',isString),layout:usePref('studio.layout.width','layout',isString)}),{wrapper});
+ act(()=>hook.result.current.prompt[1]('project draft'));
+ expect(captureStudioSettings()).toEqual({'studio.run.positive':'project draft'});
+ for(const settings of [{'studio.run.positive':42},{'studio.run.positive':'bad','studio.run.unknown':true}]){
+  act(()=>expect(applyStudioSettings(settings)).toBe(false));expect(hook.result.current.prompt[0]).toBe('project draft');
+ }
+ act(()=>expect(applyStudioSettings({'studio.run.positive':'loaded'})).toBe(true));
+ expect(hook.result.current.prompt[0]).toBe('loaded');expect(readPref('studio.run.positive','',isString)).toBe('global');
  hook.unmount();
 });
 

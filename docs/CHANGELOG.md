@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — 0.1.42
+
+- Split Generate’s Wildcards and Presets tabs. Wildcards retains its existing library controls; Presets saves named live Studio settings, loads without execution and updates explicitly with overwrite confirmation. Native bounded/atomic storage, six locales and regression tests accompany the feature.
+- Release builds strip binary symbols (`strip = true`), shrinking the Linux release binary.
+
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
 ## Unreleased — 0.1.41

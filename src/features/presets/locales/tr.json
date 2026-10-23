@@ -1,0 +1,16 @@
+{
+  "presets.title": "Ön ayarlar",
+  "presets.help": "Geçerli Studio ayarlarını kaydedin, sonra yükleyip düzenleyin. Medya, projeler ve çalışan işler değiştirilmez.",
+  "presets.select": "Kayıtlı ön ayar",
+  "presets.choose": "Ön ayar seçin",
+  "presets.name": "Ön ayar adı",
+  "presets.save": "Yeni ön ayar olarak kaydet",
+  "presets.load": "Ön ayarı yükle",
+  "presets.update": "Seçili ön ayarı güncelle",
+  "presets.confirm": "“{name}” geçerli ayarlarla değiştirilsin mi?",
+  "presets.saved": "Ön ayar kaydedildi.",
+  "presets.loaded": "Ön ayar yüklendi. Studio ayarlarını düzenleyip güncelleyebilirsiniz.",
+  "presets.empty": "Henüz kaydedilmiş ön ayar yok.",
+  "presets.native": "Ön ayarlar masaüstü uygulamasını gerektirir.",
+  "presets.invalid": "Bu ön ayar uyumsuz ayarlar içeriyor. Hiçbir şey değiştirilmedi."
+}

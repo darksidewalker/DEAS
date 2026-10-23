@@ -1,0 +1,16 @@
+{
+  "presets.title": "プリセット",
+  "presets.help": "現在のStudio設定を保存し、後で読み込んで編集します。メディア、プロジェクト、実行中のジョブは置き換えません。",
+  "presets.select": "保存済みプリセット",
+  "presets.choose": "プリセットを選択",
+  "presets.name": "プリセット名",
+  "presets.save": "新規プリセットとして保存",
+  "presets.load": "プリセットを読み込む",
+  "presets.update": "選択したプリセットを更新",
+  "presets.confirm": "「{name}」を現在の設定で置き換えますか？",
+  "presets.saved": "プリセットを保存しました。",
+  "presets.loaded": "プリセットを読み込みました。Studio設定を編集して更新できます。",
+  "presets.empty": "保存済みプリセットはありません。",
+  "presets.native": "プリセットにはデスクトップアプリが必要です。",
+  "presets.invalid": "互換性のない設定があります。変更は適用されませんでした。"
+}

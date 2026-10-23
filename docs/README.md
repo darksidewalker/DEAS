@@ -4,6 +4,8 @@
 
 ## Start and use DEAS
 
+Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [Wildcards](PROMPTING.md#wildcards).
+
 | Feature, tab or action | Guide |
 | --- | --- |
 | Installation, Windows/Linux build, launch and first setup | [Getting started](GETTING-STARTED.md) |

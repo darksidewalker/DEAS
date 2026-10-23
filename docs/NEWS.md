@@ -1,5 +1,9 @@
 # News
 
+## Unreleased — 0.1.42
+
+Save custom Studio configurations in **Presets**, load them later and edit/update them for quick reuse. **Wildcards** remains a separate tab with the existing prompt-library controls. See [Presets](PROMPTING.md#presets).
+
 [Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).

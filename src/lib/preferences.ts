@@ -23,6 +23,19 @@ export function forgetPref(key:string){try{localStorage.removeItem(prefix+key);}
 
 export const STUDIO_RESET_EVENT='deas:reset-studio-preferences';
 const preservedStudioPreferenceKeys=['studio.run.recentSeeds','studio.run.continuity','studio.run.metadataOpen'];
+const STUDIO_SETTINGS_EVENT='deas:studio-settings';
+type SettingsTransfer={mode:'capture'|'validate'|'apply';settings:Record<string,unknown>;keys:Set<string>;invalid:string[]};
+/** Capture live controls, including an unsaved project draft, not stale localStorage. */
+export function captureStudioSettings(){
+ const detail:SettingsTransfer={mode:'capture',settings:{},keys:new Set(),invalid:[]};
+ window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));return detail.settings;
+}
+export function applyStudioSettings(settings:Record<string,unknown>){
+ const detail:SettingsTransfer={mode:'validate',settings,keys:new Set(),invalid:[]};
+ window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));
+ if(detail.invalid.length||Object.keys(settings).some(key=>!detail.keys.has(key)))return false;
+ detail.mode='apply';window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));return true;
+}
 /** Reset live editable controls; persistence still follows the active project scope. */
 export function resetStudioPreferences(){window.dispatchEvent(new Event(STUDIO_RESET_EVENT));}
 
@@ -31,6 +44,18 @@ export function usePref<T>(key:string,fallback:T,valid:Valid<T>) {
  const persist=useContext(PreferencePersistenceContext)||!key.startsWith('studio.run.');
  const [value,setValue]=useState<T>(()=>readPref(key,fallback,valid));
  const canonicalDefault=useRef(fallback);
+ useEffect(()=>{
+  if(!key.startsWith('studio.run.')||preservedStudioPreferenceKeys.includes(key))return;
+  const transfer=(event:Event)=>{
+   const detail=(event as CustomEvent<SettingsTransfer>).detail;detail.keys.add(key);
+   if(detail.mode==='capture')detail.settings[key]=structuredClone(value);
+   else if(Object.hasOwn(detail.settings,key)){
+    if(!valid(detail.settings[key]))detail.invalid.push(key);
+    else if(detail.mode==='apply')setValue(structuredClone(detail.settings[key]));
+   }
+  };
+  window.addEventListener(STUDIO_SETTINGS_EVENT,transfer);return()=>window.removeEventListener(STUDIO_SETTINGS_EVENT,transfer);
+ },[key,value,valid]);
  useEffect(()=>{
   if(!key.startsWith('studio.run.')||preservedStudioPreferenceKeys.includes(key))return;
   const reset=()=>setValue(structuredClone(canonicalDefault.current));

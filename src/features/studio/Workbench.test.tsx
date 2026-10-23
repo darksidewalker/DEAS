@@ -45,6 +45,44 @@ test.each(['success','failure'] as const)('switching model folders scans the ins
  expect(screen.queryByText('stale scan failed')).toBeNull();
 });
 
+test('separate Presets saves live settings, reloads across remounts and updates explicitly without executing',async()=>{
+ let stored:unknown[]=[];
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_presets_read')return structuredClone(stored);
+  if(command==='native_presets_write'){stored=structuredClone((args as {presets:unknown[]}).presets);return;}
+  return {path:'/input',parent:'/',entries:[],truncated:false};
+ });
+ const mount=()=>render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ let view=mount();
+ expect(screen.getByRole('tab',{name:'Wildcards'})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'saved prompt'}});
+ fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'31'}});
+ dock('Presets');
+ await waitFor(()=>expect((screen.getByLabelText('Preset name') as HTMLInputElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('Preset name'),{target:{value:'My settings'}});
+ fireEvent.click(screen.getByRole('button',{name:'Save as new preset'}));
+ await screen.findByText('Preset saved.');
+ expect(stored).toEqual([{name:'My settings',settings:expect.objectContaining({'studio.run.positive':'saved prompt','studio.run.steps':31})}]);
+ expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.recentSeeds');
+ expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.continuity');
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'changed'}});
+ view.unmount();view=mount();
+ await screen.findByRole('option',{name:'My settings'});
+ fireEvent.change(screen.getByLabelText('Saved preset'),{target:{value:'My settings'}});
+ fireEvent.click(screen.getByRole('button',{name:'Load preset'}));
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved prompt');
+ expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('31');
+ fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'27'}});
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ fireEvent.click(screen.getByRole('button',{name:'Update selected preset'}));
+ expect((stored[0] as {settings:Record<string,unknown>}).settings['studio.run.steps']).toBe(31);
+ confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Update selected preset'}));
+ await screen.findByText('Preset saved.');
+ expect((stored[0] as {settings:Record<string,unknown>}).settings['studio.run.steps']).toBe(27);
+ expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ confirm.mockRestore();
+});
+
 test('Linux native input never creates a WebKit video decoder',async()=>{
  vi.spyOn(window.navigator,'userAgent','get').mockReturnValue('Linux');
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'clip.webm',path:'/input/clip.webm',kind:'file',media:'video',size:1,modified:1}],truncated:false});
@@ -435,8 +473,8 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'manual base'}});
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
- fireEvent.click(screen.getByRole('button',{name:'Presets & Wildcards'}));
- expect(document.activeElement).toBe(screen.getByRole('tab',{name:'Presets & Wildcards'}));
+ fireEvent.click(screen.getByRole('button',{name:'Wildcards'}));
+ expect(document.activeElement).toBe(screen.getByRole('tab',{name:'Wildcards'}));
  await screen.findByText('Art');
  fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));

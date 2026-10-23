@@ -1,0 +1,16 @@
+{
+  "presets.title": "Presets",
+  "presets.help": "Aktuelle Studio-Einstellungen speichern, später laden und bearbeiten. Medien, Projekte und laufende Jobs werden nicht ersetzt.",
+  "presets.select": "Gespeichertes Preset",
+  "presets.choose": "Preset auswählen",
+  "presets.name": "Preset-Name",
+  "presets.save": "Als neues Preset speichern",
+  "presets.load": "Preset laden",
+  "presets.update": "Ausgewähltes Preset aktualisieren",
+  "presets.confirm": "„{name}“ durch die aktuellen Einstellungen ersetzen?",
+  "presets.saved": "Preset gespeichert.",
+  "presets.loaded": "Preset geladen. Studio-Einstellungen bearbeiten und bei Bedarf aktualisieren.",
+  "presets.empty": "Noch keine Presets gespeichert.",
+  "presets.native": "Presets benötigen die Desktop-App.",
+  "presets.invalid": "Dieses Preset enthält inkompatible Einstellungen. Es wurde nichts geändert."
+}

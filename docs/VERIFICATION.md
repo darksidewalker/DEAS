@@ -1,5 +1,16 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Separate Presets and Wildcards (0.1.42, local build)
+
+- Independent dock tabs; Wildcards retains its library selectors, weights, activation and hammer navigation. Presets captures live `usePref` Studio controls, including project-scoped unsaved values, rather than reading potentially stale global storage. Existing preference validators reject incompatible loads before any control changes; excluded history, continuity, media and layout remain untouched.
+- Named Save as new, explicit Load, normal Studio editing and confirmed Update selected preset. Duplicate names do not silently overwrite. No generation/upload is requested by loading. Read errors disable writes, failed writes do not report success, and readback verifies storage before reporting Save success.
+- Native app-local `deas-presets.json`: 100 presets / 100-character names / 2 MiB JSON, atomic tempfile replacement, bounded reads/writes, no payloads in shared error Logs, rate-limited invalid-load diagnostic and local-main-window IPC permission. Corrupt/oversized files and symlink/non-file targets fail without reset. Runtime configuration/authentication are outside preset capture; prompt text itself is plaintext local data.
+- `npm test`: **94 core / 663 UI passed**. Includes save/load/remount/update/cancel/no-execution, live project isolation, invalid all-or-nothing loads and read/write errors. `npm run build` passes, with existing Vite mixed-import/chunk-size warnings.
+- Parent verification: `cargo test --lib presets::tests -- --test-threads=1`: **7 passed**; `cargo check --bin deas`, `cargo clippy --lib --bin deas -- -D warnings` and diff checks pass. The native implementation worker additionally reported the broader native suite at **353 passed / 20 ignored** before its final boundary-test addition, formatting and Windows MSVC crosscheck passing; all-target Clippy reported an unrelated pre-existing warning in `install.rs:2129`. Broader worker checks were not rerun by the parent.
+- Executed `tools/verify_presets.py`: **12 Chromium IPC-fixture cases**, six locales at 1440/320px, save/load/reload, separate Wildcards tab, no submission and no horizontal overflow. English 320px screenshot inspected: tabs wrap, controls stack without overlap. These are mocked IPC browser tests, not native filesystem or webview interaction. Scratch screenshots: `deas-presets/deas-presets-fixture-{1440,320}.png`.
+- `bash build-linux.sh` rebuilt **0.1.42**, staged at `artifacts/deas-linux-amd64` (SHA-256 prefix `2f2b1bcd4a7f04c5`). Quit/relaunch is user-controlled; no running application or service was restarted. No commit, push or release. Full Tauri click-through, Windows runtime, model inference and controlled before/after idle/resource benchmarks remain unverified.
+
+
 ## Compact Settings, Model files disclosure and checkpoint sync (0.1.41, local build)
 
 - Moved all applicable encoder/VAE/audio-VAE/projection controls into one native, initially closed **Model files** disclosure after the ordinary Settings controls and Seed. Closing/reopening retains explicit picks and All files flags; missing requirements remain in the View warning and Run gates even when the menu is closed. No new persistence/schema or execution path.

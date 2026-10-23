@@ -1,5 +1,9 @@
 # DEAS consolidated implementation status and plan
 
+## Separate Studio Presets and Wildcards (0.1.42, local build)
+
+Delivered independent tabs, named live-control capture, load/edit/confirmed update, bounded atomic native persistence and six localized dictionaries. Wildcards retains the original library/activation behavior. [Presets usage](PROMPTING.md#presets) defines included settings and excluded media/session/project data. [Verification](VERIFICATION.md#separate-presets-and-wildcards-0142-local-build) records 94 core / 663 UI passes, seven focused native tests, twelve Chromium IPC-fixture cases and rebuilt Linux application. Full native-webview interaction, Windows runtime and controlled resource/performance acceptance remain unverified.
+
 ## Compact Studio Settings and synchronized model selection (0.1.41, local build)
 
 Delivered an initially collapsed Model files disclosure under the other Studio settings, shared compact styling for all Settings selects, and a Checkpoint dropdown synchronized with Models tiles via their existing `pickModel` handler. Keep compatibility gates, missing selections, per-slot All files switches and explicit Run ownership. [Verification](VERIFICATION.md#compact-settings-model-files-disclosure-and-checkpoint-sync-0141-local-build) records 62 focused tests, 19 six-language GTK/WebKit fixture renders, typecheck and rebuilt local Linux binary; the combined suite still has two unrelated parallel installer/folder failures. All restored other-session work is retained; native model/Windows runtime and performance acceptance remain separate.
