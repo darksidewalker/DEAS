@@ -669,6 +669,7 @@ fn isolated(command: &mut Command, root: &Path) {
     }
     command
         .env("UV_NO_CONFIG", "1")
+        .env("PYTHONUTF8", "1")
         .env("PYTHONNOUSERSITE", "1")
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("GIT_CONFIG_NOSYSTEM", "1")

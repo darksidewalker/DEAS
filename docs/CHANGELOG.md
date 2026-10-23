@@ -4,6 +4,8 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 ## Unreleased — 0.1.39
 
+- Run every managed Python child (backend, install steps, LLM worker) with `PYTHONUTF8=1` so stdout/stderr are UTF-8 on Windows consoles (cp1252). Fixes the DaSiWa startup emoji raising UnicodeEncodeError during ComfyUI import, which failed node loading and installation validation ("Owned path missing").
+
 - Fix the first-open missing-directory error: initialize missing `raw/` or `starred/` only beneath the native-approved Output root, using anchored no-follow creation. Preserve arbitrary browse errors and existing files; report initialization failures in shared Logs.
 
 - Add Unstar to the existing per-media star control. Use the fixed `Output/raw/<Output naming>` ↔ `Output/starred/<Output naming>` layout, preserving full named paths. Existing stars work without receipts; no-clobber, native idle checks, reference repair and shared Logs remain. Do not draw stars on Input tiles. Use Output/Starred/Input buttons (raw/starred/input) instead of the superseded light switch, with a relative folder tree anchored at the Output folder as root. No media migration, overwrites or deletion; project-linked/sidecar-associated moves remain unavailable.

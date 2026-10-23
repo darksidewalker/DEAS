@@ -637,6 +637,7 @@ async fn run_worker(root: &Path, input: Vec<u8>, timeout: Duration) -> Result<St
     command
         .args(["-I", "-c", include_str!("llm_worker.py")])
         .current_dir(root)
+        .env("PYTHONUTF8", "1")
         .env_remove("PYTHONPATH")
         .env_remove("PYTHONHOME")
         .stdin(Stdio::piped())

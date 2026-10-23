@@ -525,6 +525,7 @@ impl Lifecycle {
         command.args(crate::startup::args(root, Some(&approved.plan))?);
         command
             .env_clear()
+            .env("PYTHONUTF8", "1")
             .env("PYTHONNOUSERSITE", "1")
             .env("PYTHONDONTWRITEBYTECODE", "1");
         #[cfg(windows)]
