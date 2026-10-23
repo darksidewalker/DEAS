@@ -223,5 +223,21 @@
   "setup.footer.starting": "Démarrage du moteur…",
   "setup.footer.started": "Moteur démarré",
   "setup.backendPanels": "Sections du moteur",
-  "setup.backendPanels.requiresInstall": "Nécessite un moteur installé"
+  "setup.backendPanels.requiresInstall": "Nécessite un moteur installé",
+  "setup.takeover.label": "Adopter une installation tierce (reconstruire son venv)",
+  "setup.takeover.warning": "DEAS supprime et reconstruit le venv et la runtime de ce dossier, réinitialise le ref ComfyUI choisi et prend la gestion. Modèles, entrées, sorties et fichiers non suivis sont conservés.",
+  "setup.takeover.help": "Uniquement des dossiers locaux contenant ComfyUI/main.py que DEAS ne gère pas déjà. Connectez les serveurs actifs via l’adresse backend.",
+  "setup.takeover.directory": "Dossier de l’installation tierce",
+  "setup.takeover.pick": "Choisir le dossier",
+  "setup.takeover.pickTitle": "Choisir une installation ComfyUI à adopter",
+  "setup.takeover.start": "Adopter l’installation",
+  "setup.takeover.title": "Adopter cette installation ?",
+  "setup.takeover.confirm": "Adopter",
+  "setup.takeover.cancel": "Annuler",
+  "setup.takeover.managedError": "Ce dossier est déjà géré par DEAS — réouvrez-le depuis l’environnement enregistré.",
+  "setup.takeover.mainpyError": "Aucun ComfyUI trouvé (ComfyUI/main.py manque).",
+  "settings.extraModel": "Dossier de modèles supplémentaire {index}",
+  "settings.addExtraModel": "Ajouter un autre dossier de modèles",
+  "settings.removeExtraFor": "Retirer le dossier de modèles supplémentaire {index}",
+  "settings.chooseExtraFor": "Choisir le dossier de modèles supplémentaire {index}"
 }

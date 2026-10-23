@@ -1,4 +1,12 @@
 {
+  "studio.components.title": "モデルファイル",
+  "studio.components.filtered": "適合候補",
+  "studio.components.all": "すべてのファイル",
+  "studio.components.allFor": "{name}: すべてのファイル",
+  "studio.components.auto": "自動 · {name}",
+  "studio.components.empty": "適合候補なし — すべてのファイルを有効にして手動選択",
+  "studio.components.unavailable": "利用不可または除外 · {name}",
+  "studio.components.help": "このカテゴリのすべてのファイルを表示します。互換性は未確認のため、不適切なエンコーダーやVAEは読み込みに失敗する場合があります。バックエンドとパスの検証は有効なままです。",
   "studio.video.play": "再生",
   "studio.video.pause": "一時停止",
   "studio.video.seek": "動画の再生位置",

@@ -223,5 +223,21 @@
   "setup.footer.starting": "Backend startet…",
   "setup.footer.started": "Backend gestartet",
   "setup.backendPanels": "Backend-Bereiche",
-  "setup.backendPanels.requiresInstall": "Benötigt ein installiertes Backend"
+  "setup.backendPanels.requiresInstall": "Benötigt ein installiertes Backend",
+  "setup.takeover.label": "Fremde Installation übernehmen (venv neu aufbauen)",
+  "setup.takeover.warning": "DEAS löscht und erneuert venv und Runtime dieses Ordners, setzt das gewählte ComfyUI-Ref zurück und übernimmt die Verwaltung. Modelle, Inputs, Outputs und ungetrackte Dateien bleiben erhalten.",
+  "setup.takeover.help": "Nur lokale Ordner mit ComfyUI/main.py, die DEAS nicht bereits verwaltet. Nicht laufende Server verbinden Sie über die Backend-Adresse.",
+  "setup.takeover.directory": "Ordner der fremden Installation",
+  "setup.takeover.pick": "Ordner wählen",
+  "setup.takeover.pickTitle": "ComfyUI-Installation zum Übernehmen wählen",
+  "setup.takeover.start": "Installation übernehmen",
+  "setup.takeover.title": "Installation übernehmen?",
+  "setup.takeover.confirm": "Übernehmen",
+  "setup.takeover.cancel": "Abbrechen",
+  "setup.takeover.managedError": "Dieser Ordner wird bereits von DEAS verwaltet — einfach neu starten, er ist schon fertig.",
+  "setup.takeover.mainpyError": "Kein ComfyUI gefunden (ComfyUI/main.py fehlt).",
+  "settings.extraModel": "Zusätzlicher Modellordner {index}",
+  "settings.addExtraModel": "Weiteren Modellordner hinzufügen",
+  "settings.removeExtraFor": "Zusätzlichen Modellordner {index} entfernen",
+  "settings.chooseExtraFor": "Zusätzlichen Modellordner {index} wählen"
 }

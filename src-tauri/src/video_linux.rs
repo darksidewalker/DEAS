@@ -72,7 +72,7 @@ extern "C" {
 #[link(name = "GL")]
 extern "C" {
     fn glGetIntegerv(name: u32, value: *mut c_int);
-    fn glGetString(name:u32)->*const c_char;
+    fn glGetString(name: u32) -> *const c_char;
     fn glBindFramebuffer(target: u32, id: u32);
     fn glReadPixels(x: c_int, y: c_int, w: c_int, h: c_int, format: u32, kind: u32, data: Ptr);
     fn glGetError() -> u32;
@@ -187,7 +187,9 @@ struct Surface {
 impl Drop for Surface {
     fn drop(&mut self) {
         if let Some(timer) = self.timer.take() {
-            if let Some(source)=gtk::glib::MainContext::default().find_source_by_id(&timer){source.destroy();}
+            if let Some(source) = gtk::glib::MainContext::default().find_source_by_id(&timer) {
+                source.destroy();
+            }
         }
         self.player.free_render(&self.area);
         unsafe {

@@ -18,6 +18,18 @@ it('requires an explicit move selection and reports only native results',async()
  await screen.findByText('2 files moved');expect(invoke).toHaveBeenCalledWith('native_settings_move',{root:'/env',folders:{models:'/new/models'},confirmed:true});
  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_write')).toBe(false);
 });
+it('adds extra model roots to the payload only when chosen and drops them on reset',async()=>{
+ mount();await choose();
+ fireEvent.click(screen.getByRole('button',{name:'Add another model folder'}));
+ await screen.findByText('Additional model folder 1');
+ fireEvent.click(screen.getByRole('button',{name:'Save folders'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_settings_write',{root:'/env',folders:{models:'/new/models'}}));
+ fireEvent.click(screen.getByRole('button',{name:'Add another model folder'}));
+ fireEvent.click(screen.getByRole('button',{name:'Choose additional model folder 1'}));
+ await waitFor(()=>{fireEvent.click(screen.getByRole('button',{name:'Save folders'}));expect(invoke).toHaveBeenLastCalledWith('native_settings_write',{root:'/env',folders:{models:'/new/models',extraModels:['/new/models']}});});
+ fireEvent.click(screen.getByRole('button',{name:'Remove additional model folder 1'}));
+ await waitFor(()=>{fireEvent.click(screen.getByRole('button',{name:'Save folders'}));expect(invoke).toHaveBeenLastCalledWith('native_settings_write',{root:'/env',folders:{models:'/new/models'}});});
+});
 it('keeps failed moves editable without claiming success',async()=>{
  mount();await choose();vi.mocked(invoke).mockRejectedValueOnce('Filename collision: existing.safetensors');fireEvent.click(screen.getByLabelText('Move existing files to the selected folders'));fireEvent.click(screen.getByRole('button',{name:'Move files & save folders'}));
  await screen.findByRole('alert');expect(screen.queryByText('2 files moved')).toBeNull();expect(screen.getByText('/new/models')).toBeTruthy();

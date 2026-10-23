@@ -53,7 +53,7 @@ export default function App(){
  const [studioActive,setStudioActive]=useState(false);
  // ComfyUI's own input/output live beside the managed checkout unless Settings redirected them.
  const [environment,setEnvironment]=useState<{root:string;folders:Folders}|null>(null);
- const roots=environment?{input:environment.folders.input??`${environment.root}/ComfyUI/input`,output:environment.folders.output??`${environment.root}/ComfyUI/output`,models:environment.folders.models??`${environment.root}/ComfyUI/models`}:undefined;
+ const roots=environment?{input:environment.folders.input??`${environment.root}/ComfyUI/input`,output:environment.folders.output??`${environment.root}/ComfyUI/output`,models:environment.folders.models??`${environment.root}/ComfyUI/models`,extraModels:environment.folders.extraModels??[]}:undefined;
  // Prompt Forge mounts on first visit (it reads the backend's model list) and then keeps its draft.
  const forgeOpened=useRef(false);if(tab==='forge')forgeOpened.current=true;
  const [sent,setSent]=useState<{positive:string;negative:string;n:number}>();

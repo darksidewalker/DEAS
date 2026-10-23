@@ -10,6 +10,8 @@ import type { NativeInstallRequest } from '../../lib/setup';
 // Backend embeds auth now; lifecycle fixtures provide its real empty metadata schema.
 vi.mock('../../lib/downloads',async original=>({...await original<typeof import('../../lib/downloads')>(),readAuthStatus:vi.fn(async()=>[])}));
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>false)}));
+// File existence probe: only takeover fixture paths (…/ComfyUI/main.py) report as present; everything else stays "not local".
+vi.mock('@tauri-apps/plugin-fs',()=>({exists:vi.fn(async(p:string)=>String(p).endsWith('ComfyUI/main.py'))}));
 beforeEach(()=>{vi.mocked(readAuthStatus).mockResolvedValue([]);localStorage.clear();localStorage.setItem('deas.pref.backend.autostart','false');localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(false);});
 afterEach(()=>{cleanup();vi.useRealTimers();vi.resetAllMocks();});
 const click=(name:string)=>fireEvent.click(screen.getByRole(name==='Backend'||name==='Logs'?'tab':'button',{name}));
@@ -387,6 +389,28 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(true);
   click('Start install');expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
  });
+ it('hands installer-selected folders to Studio after asynchronous provisioning without reopening Settings',async()=>{
+  nativeFixture();const environment=vi.fn();let running=false;
+  const folders={models:'/chosen/models',input:'/chosen/input',output:'/chosen/output'};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);
+   if(command==='native_pick_directory')return folders[choosing];
+   if(command==='native_install_start'){running=true;return {state:'running',stepId:'verify',logs:[],error:null};}
+   if(command==='native_install_status')return {state:running?'succeeded':'idle',stepId:null,logs:[],error:null};
+   if(command==='native_backend_status')return {state:'stopped',endpoint:null,error:null,generationReady:false};
+   if(command==='native_llm_read')return defaultLlmConfig;
+   if(command==='native_llm_models')return {models:[],warnings:[]};
+   throw Error('Unexpected fixture IPC '+command);
+  });
+  let choosing:keyof typeof folders='models';
+  render(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onEnvironment={environment}/></I18nProvider>);
+  await screen.findByRole('button',{name:'Start install'});
+  for(const key of ['models','input','output'] as const){choosing=key;click(`Choose ${key==='models'?'Models':key==='input'?'Input':'Output'} folder`);await waitFor(()=>expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(false));}
+  click('Start install');await screen.findByRole('tab',{name:'Studio',selected:true});
+  await waitFor(()=>expect(environment).toHaveBeenLastCalledWith({root:request.storagePath,folders}));
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_settings_read'||c==='native_settings_write'||c==='native_settings_move')).toBe(false);
+ });
  it('saving installed folders preserves successful install state without replanning an existing environment',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_install_defaults'?defaults:command==='native_install_plan'?plan((args as {request:NativeInstallRequest}).request):command==='native_settings_read'?{}:command==='native_pick_directory'?'/new/models':command==='native_settings_write'?(args as {folders:unknown}).folders:{state:'succeeded',stepId:null,logs:[],error:null});
   await ready();click('Start install');await screen.findByRole('tab',{name:'Studio',selected:true});
@@ -415,5 +439,26 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   change('Existing backend address','not a url');click('Inspect existing backend');expect(connect).not.toHaveBeenCalled();expect(screen.getByRole('alert')).toBeTruthy();
   change('Existing backend address','http://127.0.0.1:8188');click('Inspect existing backend');expect(connect).toHaveBeenCalledWith('http://127.0.0.1:8188',true);expect(invoke).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/Manual|Save local draft|Restore/})).toBeNull();
+ });
+ it('takeover rebuilds a foreign folder only after an explicit confirm and marks the request',async()=>{
+  nativeFixture();
+  vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_pick_directory'?'/foreign/env':c==='native_files_present'?[true,false]:(async(command,args)=>{if(command==='native_install_defaults')return defaults;if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);if(command==='native_detect_hardware')return {backend:null};return {state:'running',stepId:'python',logs:[],error:null};})(c,a));
+  mount();open();
+  await screen.findByRole('button',{name:'Start install'});
+  fireEvent.click(screen.getByLabelText('Adopt a foreign installation (rebuild its venv)'));
+  expect(screen.getByText(/deletes and rebuilds/)).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Adopt installation'})).toBeNull(); // no path chosen yet
+  fireEvent.click(screen.getByRole('button',{name:'Choose folder'}));
+  const adopt=await screen.findByRole('button',{name:'Adopt installation'});
+  expect(adopt).toBeTruthy(); // plan re-validates after the path change
+  await waitFor(()=>expect((screen.getByRole('button',{name:'Adopt installation'}) as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.getByText(/deletes and rebuilds/)).toBeTruthy(); // the plan itself warns about the venv rebuild
+  fireEvent.click(screen.getByRole('button',{name:'Adopt installation'}));
+  expect(screen.getByRole('alertdialog',{name:'Adopt this installation?'})).toBeTruthy();
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start')).toBe(false);
+  fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_install_start',{planId:'fixture-plan',confirmed:true}));
+  const requests=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').map(([,a])=>(a as {request:NativeInstallRequest}).request);
+  expect(requests.some(r=>r.takeover===true&&r.storagePath==='/foreign/env')).toBe(true);
  });
 });

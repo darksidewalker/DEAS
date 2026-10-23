@@ -1,4 +1,12 @@
 {
+  "studio.components.title": "Modelldateien",
+  "studio.components.filtered": "Passend",
+  "studio.components.all": "Alle Dateien",
+  "studio.components.allFor": "{name}: Alle Dateien",
+  "studio.components.auto": "Automatisch · {name}",
+  "studio.components.empty": "Keine passende Datei — für manuelle Auswahl Alle Dateien aktivieren",
+  "studio.components.unavailable": "Nicht verfügbar oder gefiltert · {name}",
+  "studio.components.help": "Alle Dateien dieser Kategorie anzeigen. Kompatibilität ist nicht geprüft; falsche Encoder oder VAEs können beim Laden scheitern. Backend- und Pfadprüfungen bleiben aktiv.",
   "studio.video.play": "Abspielen",
   "studio.video.pause": "Pause",
   "studio.video.seek": "Videoposition",

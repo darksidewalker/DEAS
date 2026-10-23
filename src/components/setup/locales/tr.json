@@ -223,5 +223,21 @@
   "setup.footer.starting": "Arka uç başlatılıyor…",
   "setup.footer.started": "Arka uç başlatıldı",
   "setup.backendPanels": "Arka uç bölümleri",
-  "setup.backendPanels.requiresInstall": "Kurulu bir arka uç gerektirir"
+  "setup.backendPanels.requiresInstall": "Kurulu bir arka uç gerektirir",
+  "setup.takeover.label": "Harici kurulumu devral (venv yeniden kurulur)",
+  "setup.takeover.warning": "DEAS bu klasörün venv ve runtime’ını silip yeniden kurar, seçilen ComfyUI ref’ine sıfırlar ve yönetimi devralır. Modeller, girdiler, çıktılar ve izlenmeyen dosyalar korunur.",
+  "setup.takeover.help": "Yalnızca DEAS’ın henüz yönetmediği, ComfyUI/main.py içeren yerel klasörler. Çalışan sunucuları bunun yerine backend adresiyle bağlayın.",
+  "setup.takeover.directory": "Harici kurulum klasörü",
+  "setup.takeover.pick": "Klasör seç",
+  "setup.takeover.pickTitle": "Devralınacak ComfyUI kurulumunu seçin",
+  "setup.takeover.start": "Kurulumu devral",
+  "setup.takeover.title": "Kurulum devralınsın mı?",
+  "setup.takeover.confirm": "Devral",
+  "setup.takeover.cancel": "Vazgeç",
+  "setup.takeover.managedError": "Bu klasörü DEAS zaten yönetiyor — kayıtlı ortamdan yeniden açın.",
+  "setup.takeover.mainpyError": "ComfyUI bulunamadı (ComfyUI/main.py eksik).",
+  "settings.extraModel": "Ek model klasörü {index}",
+  "settings.addExtraModel": "Başka model klasörü ekle",
+  "settings.removeExtraFor": "Ek model klasörü {index} kaldır",
+  "settings.chooseExtraFor": "Ek model klasörü {index} seç"
 }

@@ -8,6 +8,7 @@
   },
   {
     "id": "anima", "multiple": 16, "name": "Anima", "forge": "Anima", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "components": {"textEncoders": ["qwen3-0.6b"], "vaes": ["wan-2.1-vae"]},
     "clipType": "stable_diffusion", "textEncoders": ["qwen_3_600m", "qwen3_06b", "qwen_3_06b", "qwen3-0.6b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
     "architectures": ["anima"], "bases": ["Anima"],
     "model": [["llm.adapter.blocks", "adaln.modulation.cross.attn"]],
@@ -16,6 +17,7 @@
   },
   {
     "id": "krea-2", "multiple": 16, "name": "Krea 2", "forge": "Krea2", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "components": {"textEncoders": ["qwen3-vl-4b"], "vaes": ["wan-2.1-vae"]},
     "clipType": "krea2", "textEncoders": ["qwen3vl_4b", "qwen3-vl-4b", "qwen_3_vl_4b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
     "architectures": ["krea-2", "krea2"], "bases": ["Krea 2"],
     "model": [["txtfusion.projector", "blocks.0.attn.gate"]],
@@ -24,6 +26,7 @@
   },
   {
     "id": "qwen-image-2.1-turbo", "multiple": 16, "name": "Qwen Image 2.1 Turbo", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "components": {"textEncoders": ["qwen3-vl-8b"], "vaes": ["qwen-image-2.1-vae"]},
     "clipType": "qwen_image", "textEncoders": ["qwen3vl_8b", "qwen3-vl-8b", "qwen_3_vl_8b"], "vaes": ["qwen_image_2.1_vae"],
     "architectures": ["qwen-image-2.1"], "bases": [], "fileMatch": ["turbo"], "loraFamily": "qwen-image-2.1",
     "model": [["txt.in.text.norm", "transformer.blocks.0.attn.norm.q"]],
@@ -33,6 +36,7 @@
   },
   {
     "id": "qwen-image-2.1", "multiple": 16, "name": "Qwen Image 2.1", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "components": {"textEncoders": ["qwen3-vl-8b"], "vaes": ["qwen-image-2.1-vae"]},
     "clipType": "qwen_image", "textEncoders": ["qwen3vl_8b", "qwen3-vl-8b", "qwen_3_vl_8b"], "vaes": ["qwen_image_2.1_vae"],
     "architectures": ["qwen-image-2.1"], "bases": ["Qwen Image 2.1"],
     "model": [["txt.in.text.norm", "transformer.blocks.0.attn.norm.q"]],
@@ -50,6 +54,7 @@
   },
   {
     "id": "ltx-2", "multiple": 32, "name": "LTX 2 / 2.3", "forge": "LTX 2.3", "loader": "diffusion", "pipelines": ["t2v", "i2v", "v2v", "ref2v"],
+    "components": {"audioVaes": ["ltx-2.3-audio-vae"], "textProjections": ["ltx-2.3-text-projection"]},
     "clipType": "ltxv", "textEncoders": ["gemma"], "textProjections": ["text_projection"], "vaes": ["video_vae"], "audioVaes": ["audio_vae"],
     "defaults": {"width": 1280, "height": 704, "steps": 8, "cfg": 1, "sampler": "euler_cfg_pp", "scheduler": "linear_quadratic"},
     "video": {"fps": 24, "seconds": 5},
@@ -59,6 +64,7 @@
   },
   {
     "id": "wan", "multiple": 16, "name": "Wan 2.1 / 2.2", "forge": "Wan 2.2", "loader": "diffusion", "pipelines": ["i2v"],
+    "components": {"textEncoders": ["umt5-xxl"], "vaes": ["wan-2.1-vae"]},
     "clipType": "wan", "textEncoders": ["umt5"], "vaes": ["wan_2.1_vae", "wan2.1_vae"],
     "defaults": {"width": 720, "height": 1280, "steps": 4, "cfg": 1, "sampler": "euler", "scheduler": "linear_quadratic"},
     "video": {"fps": 16, "seconds": 5, "lowModel": ["high", "low"]},

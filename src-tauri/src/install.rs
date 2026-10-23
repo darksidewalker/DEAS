@@ -109,6 +109,11 @@ pub struct Request {
     pub comfy_ref: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folders: Option<crate::settings::Folders>,
+    /// Rebuild an existing foreign ComfyUI folder in place: its venv and runtime are replaced,
+    /// the requested ref and selected node packs are fetched, and DEAS manifests mark the folder
+    /// as managed. Models, inputs, outputs and untracked files are never deleted.
+    #[serde(default)]
+    pub takeover: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,6 +220,59 @@ fn validate_target(input: &str) -> Result<PathBuf, String> {
     let parent = path.parent().ok_or("Missing installation parent")?;
     if !parent.is_dir() {
         return Err("Installation parent must be a directory".into());
+    }
+    Ok(path.to_owned())
+}
+/// An existing foreign ComfyUI folder to rebuild in place. Same absolute-path, traversal and
+/// symlink rules as `validate_target`; the target itself must exist as a directory containing
+/// `ComfyUI/main.py`. While `creating`, folders that already carry a DEAS manifest are rejected:
+/// they reopen through the normal owned-environment flow.
+fn validate_takeover(input: &str, creating: bool) -> Result<PathBuf, String> {
+    let path = Path::new(input);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+        || input.split(['/', '\\']).any(|s| s == ".." || s == ".")
+    {
+        return Err("Choose an existing directory without traversal".into());
+    }
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component);
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err("Takeover paths must not contain symlinks".into())
+            }
+            Ok(_) => {}
+            Err(e) => return Err(format!("Takeover parent must exist: {e}")),
+        }
+    }
+    if !path.is_dir() {
+        return Err("Takeover target must be an existing directory".into());
+    }
+    match std::fs::symlink_metadata(path.join("deas-plan.json")) {
+        Ok(m) if m.file_type().is_symlink() => {
+            return Err("DEAS manifest must be a regular file".into())
+        }
+        Ok(_) if creating => {
+            return Err("This folder is already DEAS-managed; reopen it from Setup instead".into())
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    let comfy = path.join("ComfyUI");
+    match std::fs::symlink_metadata(&comfy) {
+        Ok(m) if m.is_dir() && !m.file_type().is_symlink() => {}
+        Ok(_) => return Err("Takeover target must contain a regular ComfyUI folder".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err("Takeover target must contain a ComfyUI folder".into())
+        }
+        Err(e) => return Err(e.to_string()),
+    }
+    if !comfy.join("main.py").is_file() {
+        return Err("Takeover target must contain ComfyUI/main.py".into());
     }
     Ok(path.to_owned())
 }
@@ -332,10 +390,13 @@ impl Engine {
         Ok(plan)
     }
     fn plan(&self, mut request: Request) -> Result<Plan, String> {
-        if Path::new(&request.storage_path).exists() {
+        if request.takeover {
+            validate_takeover(&request.storage_path, true)?;
+        } else if Path::new(&request.storage_path).exists() {
             return self.existing_plan(&request.storage_path);
+        } else {
+            validate_target(&request.storage_path)?;
         }
-        validate_target(&request.storage_path)?;
         validate_ref(&request.comfy_ref)?;
         if let Some(folders) = &request.folders {
             crate::settings::validate(folders)?;
@@ -407,7 +468,21 @@ impl Engine {
             warnings.push("Selected DaSiWa features select the shared nodepack only; model recipes, weights, workflows and feature readiness are not provisioned.".into());
         }
         let mut steps = vec![];
-        for (id,detail) in [("uv","Download official uv 0.8.22 archive and verify embedded SHA-256 before extracting executable"),("python","Install managed Python 3.12 under target/runtime; no system Python or PATH changes"),("comfy","Fetch requested ComfyUI ref into new target/ComfyUI"),("venv","Create isolated target/venv"),("torch","Install torch 2.8.0 / torchvision 0.23.0 / torchaudio 2.8.0 from official CPU wheel index"),("requirements","Install ComfyUI requirements with Torch constraints")] { steps.push(Step{id:id.into(),label_key:format!("installer.steps.{id}"),detail:detail.into()}); }
+        let takeover = request.takeover;
+        if takeover {
+            warnings.push("Existing folder is not DEAS-managed. DEAS will delete and rebuild its venv and runtime, fetch the selected ComfyUI ref and node packs, and write DEAS manifests that mark the folder as DEAS-managed. Models, inputs, outputs and untracked files are never deleted.".into());
+        }
+        let comfy_detail = if takeover {
+            "Fetch requested ComfyUI ref into target/ComfyUI; tracked files reset, untracked files kept"
+        } else {
+            "Fetch requested ComfyUI ref into new target/ComfyUI"
+        };
+        let venv_detail = if takeover {
+            "Delete the existing target/venv and create a fresh isolated venv"
+        } else {
+            "Create isolated target/venv"
+        };
+        for (id,detail) in [("uv","Download official uv 0.8.22 archive and verify embedded SHA-256 before extracting executable"),("python","Install managed Python 3.12 under target/runtime; no system Python or PATH changes"),("comfy",comfy_detail),("venv",venv_detail),("torch","Install torch 2.8.0 / torchvision 0.23.0 / torchaudio 2.8.0 from official CPU wheel index"),("requirements","Install ComfyUI requirements with Torch constraints")] { steps.push(Step{id:id.into(),label_key:format!("installer.steps.{id}"),detail:detail.into()}); }
         if request
             .features
             .iter()
@@ -471,7 +546,11 @@ impl Engine {
         if !plan.can_execute {
             return Err("Plan contains unsupported selections or prerequisites".into());
         }
-        validate_target(&plan.request.storage_path)?;
+        if plan.request.takeover {
+            validate_takeover(&plan.request.storage_path, false)?;
+        } else {
+            validate_target(&plan.request.storage_path)?;
+        }
         let git = git_path().ok_or("Git is no longer available; install Git and re-plan")?;
         g.plans.remove(id);
         g.approved = None;
@@ -1102,7 +1181,8 @@ fn node_wheel_args(requirements: &str, profile: &torch_profile::Torch) -> Vec<St
 
 fn prepare_dirs(root: &Path) -> Result<(), String> {
     for folder in ["runtime", "home", "cache", "config", "tmp"] {
-        std::fs::create_dir(root.join(folder)).map_err(|e| e.to_string())?;
+        // create_dir_all: takeover targets already carry some of these folders.
+        std::fs::create_dir_all(root.join(folder)).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1121,10 +1201,17 @@ async fn provision(
             return Err("NVIDIA_GPU: hardware/driver changed since confirmation; create a new plan (target not touched)".into());
         }
     }
-    let root = validate_target(&plan.request.storage_path)?;
+    let takeover = plan.request.takeover;
+    let root = if takeover {
+        validate_takeover(&plan.request.storage_path, false)?
+    } else {
+        validate_target(&plan.request.storage_path)?
+    };
     cancelled(cancel)?;
-    // Exclusive claim; never accept a target introduced after planning.
-    std::fs::create_dir(&root).map_err(|e| format!("Cannot claim new target: {e}"))?;
+    if !takeover {
+        // Exclusive claim; never accept a target introduced after planning.
+        std::fs::create_dir(&root).map_err(|e| format!("Cannot claim new target: {e}"))?;
+    }
     prepare_dirs(&root)?;
     if let Some(folders) = &plan.request.folders {
         crate::settings::write(&root, folders.clone())?;
@@ -1438,6 +1525,7 @@ mod tests {
             options: Options::default(),
             comfy_ref: "master".into(),
             folders: None,
+            takeover: false,
         }
     }
     fn assert_baseline_platform_support(plan: &Plan) {
@@ -1977,6 +2065,45 @@ mod tests {
         assert!(!env.contains_key("PYTHONPATH"));
         assert!(!env.contains_key("CUDA_VISIBLE_DEVICES"));
         assert!(!env.contains_key("PIP_INDEX_URL"));
+    }
+
+    #[test]
+    fn takeover_plan_warns_about_the_foreign_rebuild() {
+        let tmp = scratch();
+        std::fs::create_dir_all(tmp.path().join("ComfyUI")).unwrap();
+        std::fs::write(tmp.path().join("ComfyUI/main.py"), "").unwrap();
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        r.takeover = true;
+        let plan = engine.plan(r).unwrap();
+        assert!(plan.request.takeover);
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|w| w.contains("not DEAS-managed") && w.contains("never deleted")));
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.id == "venv" && s.detail.contains("Delete the existing")));
+    }
+
+    #[test]
+    fn takeover_requires_main_py_and_rejects_managed_folders() {
+        let tmp = scratch();
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        r.takeover = true;
+        assert!(engine
+            .plan(r.clone())
+            .unwrap_err()
+            .contains("ComfyUI folder"));
+        std::fs::create_dir_all(tmp.path().join("ComfyUI")).unwrap();
+        std::fs::write(tmp.path().join("ComfyUI/main.py"), "").unwrap();
+        assert!(engine.plan(r.clone()).is_ok());
+        std::fs::write(tmp.path().join("deas-plan.json"), "{}").unwrap();
+        assert!(engine.plan(r).unwrap_err().contains("already DEAS-managed"));
     }
 
     #[test]

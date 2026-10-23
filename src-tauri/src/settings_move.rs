@@ -26,6 +26,14 @@ fn normalized(mut folders: Folders) -> Result<Folders, String> {
             .ok_or("Folder path must be UTF-8")?
             .to_owned();
     }
+    // Extra model roots are canonicalised and validated like the primary ones; the mover
+    // never touches their contents.
+    for path in &mut folders.extra_models {
+        *path = platform::chosen(Path::new(path))?
+            .to_str()
+            .ok_or("Folder path must be UTF-8")?
+            .to_owned();
+    }
     Ok(folders)
 }
 

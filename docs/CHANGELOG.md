@@ -2,7 +2,23 @@
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
+## Unreleased — 0.1.41
+
+- **Foreign installation takeover**: an Advanced opt-in in setup adopts a local folder containing `ComfyUI/main.py` that DEAS does not manage. DEAS shows an explicit warning, requires a confirm dialog, deletes and rebuilds only the folder's venv/runtime, resets the chosen ComfyUI ref, writes the DEAS manifests and never touches models, inputs, outputs or untracked files. Managed folders reopen normally; running servers stay on the existing backend-address connect path.
+- **Additional model roots**: Settings and the setup draft accept an optional list of extra model folders (e.g. a second drive). ComfyUI receives one `extra_model_paths` YAML block per root, the model library scans all roots, and the folder mover never moves external roots. Empty lists save byte-identical to the old payload.
+- Place text encoders, image/video/audio VAEs and text projections in one initially collapsed **Model files** menu below the other Studio settings. Keep selected files and independent All files switches intact.
+- Share the compact Media selector skin with all Studio Settings dropdowns, including Pipeline, aspect/resolution, sampler/scheduler and scaling. Replace the static checkpoint readout with a scanned-model dropdown synchronized bidirectionally with the Models dock through its existing selection/defaults handler; preserve pipeline gates, missing selections and explicit Run authorization.
+
+## Unreleased — 0.1.40
+
+- Detect supported text-encoder/VAE companion architectures from safetensors tensor names and shapes, keeping real filenames independent of provider renaming. Header identities take precedence over filename hints.
+- Rework companion dropdowns as full-width compact selectors with explicit automatic recommendations and independent, default-off **All files** switches for text encoders, VAEs, audio VAEs and text projections. Keep models selectable while companions are missing, but block Run until requirements are explicitly satisfied. Preserve manual choices, category/backend/path safeguards and immutable submitted jobs.
+
 ## Unreleased — 0.1.39
+
+- Show hover hints where buttons are not self-explanatory: the disabled Run button names its blocking reason (backend, size, missing mask, no checkpoint, unavailable selections), icon-only seed ±/history, last-frame remove and the pane/dock resize handles get native tooltips from their existing labels.
+
+- Fix Studio skipping a changed model folder while an earlier scan is pending. Scan the new root immediately and ignore obsolete results/errors; preserve the installer-to-Studio folder handoff without requiring a second selection in Settings.
 
 - Run every managed Python child (backend, install steps, LLM worker) with `PYTHONUTF8=1` so stdout/stderr are UTF-8 on Windows consoles (cp1252). Fixes the DaSiWa startup emoji raising UnicodeEncodeError during ComfyUI import, which failed node loading and installation validation ("Owned path missing").
 

@@ -4,7 +4,7 @@ export interface ModelSettings { sampler?:string; scheduler?:string; steps?:numb
 export interface CivitaiInfo { modelId:number; versionId:number; name:string; version:string; modelType:string; category:string; base?:string; nsfw:boolean; trainedWords:string[]; preview?:string; settings?:ModelSettings }
 export interface ModelInfo { sha256:string; size:number; fetchedAt:number; civitai:CivitaiInfo|null }
 /** `family`: architecture family ID from the native header check (see `src/families`); absent = unknown. */
-export interface LocalModel { category:string; name:string; path:string; size:number; info:ModelInfo|null; family?:string }
-export const scanModels=(root:string)=>invoke<LocalModel[]>('native_models_scan',{root});
+export interface LocalModel { category:string; name:string; path:string; size:number; info:ModelInfo|null; family?:string; /** Header-detected companion architecture; absent means unknown, not compatible. */ component?:string }
+export const scanModels=(root:string,extraRoots:string[]=[])=>invoke<LocalModel[]>('native_models_scan',extraRoots.length?{root,extraRoots}:{root});
 /** Hashes the file once (cached), asks CivitAI by hash and writes `<file>.deas.json`. */
 export const fetchModelInfo=(path:string,authenticated:boolean)=>invoke<LocalModel>('native_model_info',{path,authenticated});

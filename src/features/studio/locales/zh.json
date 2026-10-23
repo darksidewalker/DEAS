@@ -1,4 +1,12 @@
 {
+  "studio.components.title": "模型文件",
+  "studio.components.filtered": "匹配项",
+  "studio.components.all": "所有文件",
+  "studio.components.allFor": "{name}：所有文件",
+  "studio.components.auto": "自动 · {name}",
+  "studio.components.empty": "无匹配文件 — 启用所有文件以手动选择",
+  "studio.components.unavailable": "不可用或已过滤 · {name}",
+  "studio.components.help": "显示此类别中的所有文件。不验证兼容性；错误的编码器或 VAE 可能加载失败。后端和路径检查仍然有效。",
   "studio.video.play": "播放",
   "studio.video.pause": "暂停",
   "studio.video.seek": "视频位置",

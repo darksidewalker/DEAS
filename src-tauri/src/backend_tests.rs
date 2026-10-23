@@ -47,6 +47,7 @@ pub(crate) fn fixture(script: &str) -> (tempfile::TempDir, Approved) {
             options: Options::default(),
             comfy_ref: "master".into(),
             folders: None,
+            takeover: false,
         },
         steps: vec![],
         warnings: vec![],

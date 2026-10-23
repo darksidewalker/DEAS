@@ -20,13 +20,23 @@
 .wb-prompt textarea { height: calc(5.2rem + 4.2em); /* +3 lines at line-height 1.4 */ resize: none; padding: 8px 10px; font-size: 13px; line-height: 1.4; text-transform: none; letter-spacing: 0; }
 .wb-negative textarea { color: #c9b4b4; }
 .wb-field.wb-pipeline { margin-bottom: .6rem; }
-.wb-field.wb-pipeline select { padding: 6px 8px; font-size: 13px; font-weight: 600; }
+.wb-field.wb-pipeline select { font-weight: 600; }
+.wb-checkpoint { margin-bottom: .6rem; min-width: 0; }
+.wb-checkpoint > small { color: var(--muted); font-size: .68rem; }
+.wb-model-files { margin-top: .65rem; border-top: 1px solid #ffffff1f; min-width: 0; }
+.wb-model-files > summary { padding: .45rem 0; color: var(--muted); font-size: .78rem; cursor: pointer; }
+.wb-model-files > summary:focus-visible { outline: 1px solid var(--copper); }
+.wb-component-menu { display: grid; gap: .5rem; min-width: 0; }
 .wb-active { display: flex; flex-direction: column; gap: 1px; margin: 0 0 .6rem; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-active strong { color: var(--chalk); text-transform: none; letter-spacing: 0; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: start; } /* start: a slider under one field must not shift its neighbour */
 .wb-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-field input, .wb-field select { width: 100%; min-width: 0; padding: 5px 7px; font-size: 12px; text-transform: none; letter-spacing: 0; }
 .wb-field input.wb-slider { height: 14px; padding: 0; border: 0; background: transparent; accent-color: var(--copper, #c8865a); cursor: pointer; }
+.wb-component { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wb-component select.wb-dock-sort { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.wb-component .download-switch { align-self: flex-start; grid-template-columns: auto 1.8rem auto; gap: .35rem; padding: .15rem .4rem; font-size: .65rem; }
+.wb-component .download-switch-knob { height: 1rem; }
 .wb-seed, .wb-wide, .wb-resolution-hint { grid-column: 1 / -1; }
 /* Label · field · slider rows are shared by both columns (subgrid), so a wrapped label never pushes its field below its neighbour's. */
 .wb-controls > .wb-field:not(.wb-seed) { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: 3px; align-content: start; }
@@ -124,10 +134,12 @@
 .wb-dock-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 0 0 4px; }
 .wb-dock-tabs [role="tab"] { padding: 5px 12px; border: 1px solid #ffffff1a; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); font-size: 12px; }
 .wb-dock-tabs [role="tab"][aria-selected="true"] { background: #1c2427; color: var(--chalk); }
-.wb-dock-search, .wb-dock-sort, :is(.language-setting, .backend-panels, .aio-auto-review) select { box-sizing: border-box; height: 1.8rem; min-height: 0; line-height: normal; }
+.wb-dock-search, .wb-dock-sort, .wb-settings select, :is(.language-setting, .backend-panels, .aio-auto-review) select { box-sizing: border-box; height: 1.8rem; min-height: 0; line-height: normal; }
 .wb-dock-search { margin-left: auto; width: 11rem; padding: .3rem .6rem; font-size: .78rem; }
-.wb-dock-sort, .aio-setup :is(.language-setting, .backend-panels, .aio-auto-review) select { appearance: none; flex: 0 0 auto; width: auto; min-width: max-content; padding: 0 1.6rem 0 .55rem; font-size: .78rem; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M1%201l4%204%204-4%27%20fill%3D%27none%27%20stroke%3D%27rgb%28210%2C220%2C224%29%27%20stroke-width%3D%271.5%27%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right .5rem center; background-size: .55rem; }
+.wb-dock-sort, .wb-settings select, .aio-setup :is(.language-setting, .backend-panels, .aio-auto-review) select { appearance: none; flex: 0 0 auto; width: auto; min-width: max-content; padding: 0 1.6rem 0 .55rem; font-size: .78rem; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M1%201l4%204%204-4%27%20fill%3D%27none%27%20stroke%3D%27rgb%28210%2C220%2C224%29%27%20stroke-width%3D%271.5%27%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right .5rem center; background-size: .55rem; }
 .aio-setup :is(.language-setting, .backend-panels, .aio-auto-review) select { min-width: 0; max-width: 100%; justify-self: start; }
+.wb-settings select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.wb-settings .wb-aspect-picker select { padding-left: 30px; }
 .wb-dock-action { padding: .3rem .7rem; border: 1px solid #627477; border-radius: .6rem; background: #26363c; color: inherit; font-size: .78rem; }
 .wb-dock-panel { flex: 1; min-height: 0; overflow: auto; padding: .5rem .8rem; border: 1px solid #435256; border-radius: 1rem; background: #1c2427; }
 .media-browser > .wb-tiles { flex: 1; min-width: 0; overflow: auto; }

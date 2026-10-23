@@ -223,5 +223,21 @@
   "setup.footer.starting": "后端正在启动…",
   "setup.footer.started": "后端已启动",
   "setup.backendPanels": "后端面板",
-  "setup.backendPanels.requiresInstall": "需要已安装的后端"
+  "setup.backendPanels.requiresInstall": "需要已安装的后端",
+  "setup.takeover.label": "接管外部安装（重建其 venv）",
+  "setup.takeover.warning": "DEAS 将删除并重建该文件夹的 venv 与运行环境，重置所选 ComfyUI ref 并接管管理。模型、输入、输出和未跟踪文件将保留。",
+  "setup.takeover.help": "仅限 DEAS 尚未管理、包含 ComfyUI/main.py 的本地文件夹。正在运行的服务器请通过后端地址连接。",
+  "setup.takeover.directory": "外部安装文件夹",
+  "setup.takeover.pick": "选择文件夹",
+  "setup.takeover.pickTitle": "选择要接管的 ComfyUI 安装",
+  "setup.takeover.start": "接管安装",
+  "setup.takeover.title": "接管此安装？",
+  "setup.takeover.confirm": "接管",
+  "setup.takeover.cancel": "取消",
+  "setup.takeover.managedError": "该文件夹已由 DEAS 管理——请从已保存环境重新打开。",
+  "setup.takeover.mainpyError": "未找到 ComfyUI（缺少 ComfyUI/main.py）。",
+  "settings.extraModel": "附加模型文件夹 {index}",
+  "settings.addExtraModel": "添加其他模型文件夹",
+  "settings.removeExtraFor": "移除附加模型文件夹 {index}",
+  "settings.chooseExtraFor": "选择附加模型文件夹 {index}"
 }

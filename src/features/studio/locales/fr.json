@@ -1,4 +1,12 @@
 {
+  "studio.components.title": "Fichiers du modèle",
+  "studio.components.filtered": "Adaptés",
+  "studio.components.all": "Tous les fichiers",
+  "studio.components.allFor": "{name} : Tous les fichiers",
+  "studio.components.auto": "Automatique · {name}",
+  "studio.components.empty": "Aucun fichier adapté — activez Tous les fichiers pour choisir manuellement",
+  "studio.components.unavailable": "Indisponible ou filtré · {name}",
+  "studio.components.help": "Afficher tous les fichiers de cette catégorie. La compatibilité n’est pas vérifiée ; un encodeur ou VAE incorrect peut échouer au chargement. Les contrôles du backend et des chemins restent actifs.",
   "studio.video.play": "Lire",
   "studio.video.pause": "Pause",
   "studio.video.seek": "Position de la vidéo",

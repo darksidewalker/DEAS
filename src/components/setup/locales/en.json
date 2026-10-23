@@ -223,5 +223,21 @@
   "setup.footer.starting": "Backend starting…",
   "setup.footer.started": "Backend started",
   "setup.backendPanels": "Backend panels",
-  "setup.backendPanels.requiresInstall": "Requires an installed backend"
+  "setup.backendPanels.requiresInstall": "Requires an installed backend",
+  "setup.takeover.label": "Adopt a foreign installation (rebuild its venv)",
+  "setup.takeover.warning": "DEAS deletes and rebuilds this folder’s venv and runtime, resets the chosen ComfyUI ref and takes over management. Models, inputs, outputs and untracked files are kept.",
+  "setup.takeover.help": "Only local folders containing ComfyUI/main.py that DEAS does not already manage. Connect running servers via the backend address instead.",
+  "setup.takeover.directory": "Foreign installation folder",
+  "setup.takeover.pick": "Choose folder",
+  "setup.takeover.pickTitle": "Choose a ComfyUI installation to adopt",
+  "setup.takeover.start": "Adopt installation",
+  "setup.takeover.title": "Adopt this installation?",
+  "setup.takeover.confirm": "Adopt",
+  "setup.takeover.cancel": "Cancel",
+  "setup.takeover.managedError": "This folder is already managed by DEAS — reopen it from the saved environment instead.",
+  "setup.takeover.mainpyError": "No ComfyUI found (ComfyUI/main.py is missing).",
+  "settings.extraModel": "Additional model folder {index}",
+  "settings.addExtraModel": "Add another model folder",
+  "settings.removeExtraFor": "Remove additional model folder {index}",
+  "settings.chooseExtraFor": "Choose additional model folder {index}"
 }

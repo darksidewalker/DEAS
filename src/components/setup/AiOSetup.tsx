@@ -52,9 +52,10 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  defaultsLocked.current=!!nativePlan||busy||running||pickerBusy||folderPickerBusy;
  const edit=(event:Parameters<typeof transitionSetup>[1],field:string)=>{if(operationLock.current||running||pickerLock.current)return;touched.current.add(field);setState(s=>transitionSetup(s,event));};
  const [folders,setFolders]=useState<Folders>({});const [folderDraft,setFolderDraft]=useState<Folders>({});
+ const [takeoverOn,setTakeoverOn]=useState(false);const [takeoverPath,setTakeoverPath]=useState('');const [confirmTakeover,setConfirmTakeover]=useState(false);
  const plan=setupPlan(state);
- const signature=JSON.stringify([plan,folderDraft]);
- const planMatches=(['models','input','output'] as const).every(key=>nativePlan?.request.folders?.[key]===folderDraft[key])&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===plan.storagePath&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
+ const signature=JSON.stringify([plan,folderDraft,takeoverOn,takeoverPath]);
+ const planMatches=(['models','input','output'] as const).every(key=>nativePlan?.request.folders?.[key]===folderDraft[key])&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===(takeoverOn&&takeoverPath?takeoverPath:plan.storagePath)&&(nativePlan.request.takeover??false)===takeoverOn&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
  const [view,setView]=useState<'studio'|'downloads'|'comfy'|'backend'|'logs'>('backend');
  // Invalidate retained Studio work in the visibility commit, before deferred reads can redirect.
  useLayoutEffect(()=>{onStudioActiveChange?.(view==='studio');},[view,onStudioActiveChange]);
@@ -168,13 +169,22 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   }catch(e){setTechnicalError(String(e));}
   finally{pickerLock.current=false;setPickerBusy(false);}
  };
+ const pickTakeover=async()=>{
+  if(!native||running||busy||folderPickerBusy||pickerLock.current)return;
+  pickerLock.current=true;setPickerBusy(true);setTechnicalError('');
+  try {
+   const dir=await invoke<string|null>('native_pick_directory',{title:t('setup.takeover.pickTitle')});
+   if(dir!==null){const flags=await filesPresent([`${dir}/ComfyUI/main.py`,`${dir}/deas-plan.json`]);if(Array.isArray(flags)&&flags[0]&&!flags[1]){setTakeoverPath(dir);setNativePlan(null);}else setTechnicalError(flags[1]?t('setup.takeover.managedError'):t('setup.takeover.mainpyError'));}
+  }catch(e){setTechnicalError(String(e));}
+  finally{pickerLock.current=false;setPickerBusy(false);}
+ };
  const prepare=async()=>{
   if(!native||operationLock.current||busy||running||pickerBusy||folderPickerBusy||error||plan?.route!=='managed')return;
   operationLock.current=true;
   const version=generation.current;
   setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(null);
   const {storagePath,backend,features,options,comfyRef}=plan;
-  try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath,backend,features,options,comfyRef,...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
+  try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath:takeoverOn&&takeoverPath?takeoverPath:storagePath,backend,features,options,comfyRef,...(takeoverOn?{takeover:true}:{}),...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
   catch(e){if(version===generation.current)setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
@@ -242,8 +252,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {(side||installed)&&<aside className="aio-right" hidden={!side}>
   {inBackend&&review&&<section className="aio-detail aio-auto-review" aria-label={t('setup.autoReview')}><h3>{t('setup.autoReview')}</h3><p className="aio-help">{t(reopening?'setup.reuseHelp':native?'setup.autoHelp':'setup.autoBrowser')}</p>
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
-    <label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>
-    <button type="button" disabled={!native} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>{storageParent&&<p className="aio-help">{t('setup.selectedParent')}: <code>{storageParent}</code></p>}
+    {!takeoverOn&&<><label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>
+    <button type="button" disabled={!native} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>{storageParent&&<p className="aio-help">{t('setup.selectedParent')}: <code>{storageParent}</code></p>}</>}
     {!reopening&&<><details><summary>{t('settings.optional')}</summary><p className="field-help">{t('settings.draftHelp')}</p><FolderFields folders={folderDraft} onChange={setFolderDraft} disabled={running||busy||pickerBusy||folderPickerBusy} onBusyChange={setFolderPickerBusy}/></details>
     <label title={t('setup.capabilityHelp')}><input type="checkbox" checked={state.features.includes('director')} onChange={()=>edit({type:'feature',id:'director'},'features')}/>{t('setup.feature.director.label')}</label><span className="aio-fact-sub">{t('setup.feature.director.short')}</span></>}
    </fieldset>
@@ -257,7 +267,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
     {nativePlan.warnings.length>0&&<details className="aio-notes"><summary>{t('setup.notes',{count:nativePlan.warnings.length})}</summary><ul className="aio-help">{nativePlan.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>}
     {nativePlan.unsupportedOptions.length>0&&<><h4>{t('setup.unsupported')}</h4><ul>{nativePlan.unsupportedOptions.map(o=><li key={o}>{o}</li>)}</ul></>}
     {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
-    <button className="aio-confirm-button" title={t(reopening?'setup.reuseHelp':'setup.autoConsent')} disabled={(!planMatches&&!reopening)||running||busy||folderPickerBusy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>void start()}>{t(reopening?'setup.useExisting':'setup.autoStart')}</button>
+    <button className="aio-confirm-button" title={t(reopening?'setup.reuseHelp':'setup.autoConsent')} disabled={(!planMatches&&!reopening)||running||busy||folderPickerBusy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>{if(takeoverOn&&takeoverPath&&planMatches&&nativePlan.canExecute)setConfirmTakeover(true);else void start();}}>{t(reopening?'setup.useExisting':takeoverOn&&takeoverPath?'setup.takeover.start':'setup.autoStart')}</button>
    </div>}
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
     {!reopening&&<details className="aio-advanced"><summary>{t('setup.advanced')}</summary>
@@ -265,6 +275,9 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
      {(Object.keys(state.options) as (keyof InstallOptions)[]).map(id=><label key={id}><input type="checkbox" checked={state.options[id]} onChange={e=>edit({type:'option',id,enabled:e.target.checked},'options')}/>{t(`setup.option.${id}`)}</label>)}
      <p className="aio-help">{t('setup.optionsHelp')}</p>
      <label htmlFor="auto-ref">{t('setup.comfyRef')}</label><input id="auto-ref" value={state.comfyRef} maxLength={120} onChange={e=>edit({type:'ref',value:e.target.value},'ref')}/>
+     {/* Foreign local installs: explicit opt-in to rebuild an unmanaged ComfyUI environment in place (venv recreated, manifests written). */}
+     <label className="download-check" title={t('setup.takeover.help')}><input type="checkbox" checked={takeoverOn} onChange={e=>{setTakeoverOn(e.target.checked);setNativePlan(null);setTechnicalError('');}}/><span>{t('setup.takeover.label')}</span></label>
+     {takeoverOn&&<><p className="aio-help">{t('setup.takeover.warning')}</p><label htmlFor="auto-takeover">{t('setup.takeover.directory')}</label><div className="aio-row"><input id="auto-takeover" value={takeoverPath} spellCheck={false} onChange={e=>{setTakeoverPath(e.target.value);setNativePlan(null);setTechnicalError('');}}/><button type="button" disabled={!native} onClick={()=>void pickTakeover()}>{t('setup.takeover.pick')}</button></div><p className="aio-help">{t('setup.takeover.help')}</p></>}
      <label htmlFor="existing-url">{t('setup.step.backend.label')}</label><input id="existing-url" type="url" value={existingUrl} spellCheck={false} onChange={e=>{setExistingUrl(e.target.value);setError('');}}/><p className="aio-help">{t('setup.backendHelp')}</p>
      <button type="button" disabled={!existingUrl.trim()} onClick={()=>{if(validateBackend(existingUrl.trim()))connect(existingUrl.trim());else setError('setup.error.backend');}}>{t('setup.inspect')}</button>
     </details>}
@@ -275,6 +288,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
   </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}
   {confirmReinstall&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reinstall-title"><div className="download-dialog-card"><h3 id="reinstall-title">{t('setup.reinstallTitle')}</h3><p>{t('setup.reinstallWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmReinstall(false)}>{t('setup.reinstallCancel')}</button><button type="button" className="aio-danger" onClick={()=>void update(true)}>{t('setup.reinstallConfirm')}</button></div></div></div>}
+  {confirmTakeover&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="takeover-title"><div className="download-dialog-card"><h3 id="takeover-title">{t('setup.takeover.title')}</h3><p>{t('setup.takeover.warning')}</p><p><code>{takeoverPath}</code></p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmTakeover(false)}>{t('setup.takeover.cancel')}</button><button type="button" className="aio-danger" onClick={()=>{setConfirmTakeover(false);void start();}}>{t('setup.takeover.confirm')}</button></div></div></div>}
   </aside>}
   </div>
   <footer className="footer">

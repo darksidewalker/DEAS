@@ -1,4 +1,12 @@
 {
+  "studio.components.title": "Model files",
+  "studio.components.filtered": "Matching",
+  "studio.components.all": "All files",
+  "studio.components.allFor": "{name}: All files",
+  "studio.components.auto": "Automatic · {name}",
+  "studio.components.empty": "No matching files — enable All files to select manually",
+  "studio.components.unavailable": "Unavailable or filtered · {name}",
+  "studio.components.help": "Show every file in this category. Compatibility is not verified; the wrong encoder or VAE may fail to load. Backend and path checks remain enabled.",
   "studio.video.play": "Play",
   "studio.video.pause": "Pause",
   "studio.video.seek": "Seek video",

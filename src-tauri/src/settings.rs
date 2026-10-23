@@ -30,6 +30,11 @@ pub struct Folders {
     pub input: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Additional model roots on other drives, registered beside the primary models root in
+    /// ComfyUI's extra_model_paths.yaml and scanned by the model library. They are external
+    /// folders: the folder mover never copies, deletes or relocates them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_models: Vec<String>,
 }
 
 fn existing_dir(value: &Option<String>) -> Result<(), String> {
@@ -42,6 +47,17 @@ fn existing_dir(value: &Option<String>) -> Result<(), String> {
         return Err(format!("{}: not an existing directory", path.display()));
     }
     Ok(())
+}
+
+fn existing_root(path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(path);
+    if !path.is_absolute() || path.to_str().is_none() {
+        return Err("Folder must be an absolute path".into());
+    }
+    if !path.is_dir() {
+        return Err(format!("{}: not an existing directory", path.display()));
+    }
+    Ok(path.to_owned())
 }
 
 fn root_dir(root: &str) -> Result<PathBuf, String> {
@@ -74,6 +90,9 @@ pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
     for value in [&folders.models, &folders.input, &folders.output] {
         existing_dir(value)?; // a folder removed since saving must fail the start, not silently fall back
     }
+    for extra in &folders.extra_models {
+        existing_root(extra)?;
+    }
     let mut args = vec![];
     if let Some(input) = folders.input {
         args.extend(["--input-directory".to_owned(), input]);
@@ -81,15 +100,30 @@ pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
     if let Some(output) = folders.output {
         args.extend(["--output-directory".to_owned(), output]);
     }
-    if let Some(models) = folders.models {
-        // ComfyUI's extra_model_paths format: one named block with base_path + folder keys.
-        let quoted = serde_json::to_string(&models).map_err(|e| e.to_string())?;
-        let mut yaml = format!("deas:\n  base_path: {quoted}\n");
+    // ComfyUI's extra_model_paths format: one named block per root with base_path + folder keys.
+    let mut yaml = String::new();
+    if let Some(models) = &folders.models {
+        yaml.push_str(&format!(
+            "deas:\n  base_path: {}\n",
+            serde_json::to_string(models).map_err(|e| e.to_string())?
+        ));
         for folder in MODEL_FOLDERS {
             yaml.push_str(&format!("  {folder}: {folder}\n"));
         }
         // The node pack's Prompt Forge reads `llm`; not in MODEL_FOLDERS so model scans skip LLM weights.
         yaml.push_str("  llm: llm\n");
+    }
+    for (index, extra) in folders.extra_models.iter().enumerate() {
+        yaml.push_str(&format!(
+            "deas-extra-{}:\n  base_path: {}\n",
+            index + 1,
+            serde_json::to_string(extra).map_err(|e| e.to_string())?
+        ));
+        for folder in MODEL_FOLDERS {
+            yaml.push_str(&format!("  {folder}: {folder}\n"));
+        }
+    }
+    if !yaml.is_empty() {
         let file = root.join("deas-models.yaml");
         std::fs::write(&file, yaml).map_err(|e| e.to_string())?;
         args.extend([
@@ -132,6 +166,35 @@ pub fn native_files_present(paths: Vec<String>) -> Result<Vec<bool>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+    #[test]
+    fn extra_model_roots_register_beside_the_primary_root() {
+        let tmp = TempDir::new().unwrap();
+        let extra = tmp.path().join("extra drive models");
+        std::fs::create_dir_all(extra.join("diffusion_models")).unwrap();
+        let folders = Folders {
+            extra_models: vec![extra.to_str().unwrap().into()],
+            ..Folders::default()
+        };
+        validate(&folders).unwrap();
+        write(tmp.path(), folders.clone()).unwrap();
+        let args = backend_args(tmp.path()).unwrap();
+        let yaml = std::fs::read_to_string(&args[1]).unwrap();
+        assert!(yaml.contains("deas-extra-1:\n"));
+        assert!(yaml.contains(&format!(
+            "base_path: {}",
+            serde_json::to_string(&extra.to_str().unwrap()).unwrap()
+        )));
+        assert!(yaml.contains("  diffusion_models: diffusion_models\n"));
+        let missing = Folders {
+            extra_models: vec![tmp.path().join("gone").to_str().unwrap().into()],
+            ..Folders::default()
+        };
+        assert!(validate(&missing).is_err());
+        assert!(write(tmp.path(), missing).is_err());
+        std::fs::remove_dir_all(&extra).unwrap();
+        assert!(backend_args(tmp.path()).is_err());
+    }
     #[test]
     fn settings_roundtrip_validation_and_backend_args() {
         // Saved folders are canonical (Windows: long names, no \\?\ prefix), so compare against that form.
@@ -162,6 +225,7 @@ mod tests {
                 models: Some(models.as_path().to_str().unwrap().into()),
                 output: Some(root.as_path().to_str().unwrap().into()),
                 input: None,
+                extra_models: vec![],
             },
         )
         .unwrap();

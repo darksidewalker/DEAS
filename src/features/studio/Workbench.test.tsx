@@ -29,6 +29,22 @@ const clickMedia=(image:HTMLImageElement,clientX=400,clientY=300)=>{
  fireEvent.click(image,{clientX,clientY});
  if(bounds)Object.defineProperty(image,'getBoundingClientRect',bounds);else Reflect.deleteProperty(image,'getBoundingClientRect');
 };
+test.each(['success','failure'] as const)('switching model folders scans the installed root and ignores an old scan %s',async(outcome)=>{
+ let resolve!:(models:Awaited<ReturnType<typeof scanModels>>)=>void;let reject!:(reason:Error)=>void;
+ const old=new Promise<Awaited<ReturnType<typeof scanModels>>>((yes,no)=>{resolve=yes;reject=no;});
+ const model=(name:string)=>({category:'checkpoints',name,family:'sdxl',path:'/installed/'+name,size:1,info:null});
+ vi.mocked(scanModels).mockImplementation(path=>path==='/old'?old:Promise.resolve([model('installed.safetensors')]));
+ const view=render(<I18nProvider><Workbench endpoint="" roots={{models:'/old'}}/></I18nProvider>);
+ await waitFor(()=>expect(scanModels).toHaveBeenCalledWith('/old',[]));
+ view.rerender(<I18nProvider><Workbench endpoint="" roots={{models:'/installed'}}/></I18nProvider>);
+ await waitFor(()=>expect(scanModels).toHaveBeenCalledWith('/installed',[]));
+ dock('Models');await screen.findByRole('button',{name:'installed.safetensors'});
+ await act(async()=>{if(outcome==='success')resolve([model('stale.safetensors')]);else reject(new Error('stale scan failed'));});
+ expect(screen.getByRole('button',{name:'installed.safetensors'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'stale.safetensors'})).toBeNull();
+ expect(screen.queryByText('stale scan failed')).toBeNull();
+});
+
 test('Linux native input never creates a WebKit video decoder',async()=>{
  vi.spyOn(window.navigator,'userAgent','get').mockReturnValue('Linux');
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'clip.webm',path:'/input/clip.webm',kind:'file',media:'video',size:1,modified:1}],truncated:false});
@@ -79,7 +95,7 @@ test('unexecuted settings survive layout reset and remount; confirmed defaults s
  view.unmount();view=mount();
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  expect(pipe('Image → Image').selected).toBe(true);
- expect(screen.getByText('last.safetensors',{selector:'strong'})).toBeTruthy();
+ expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe('last.safetensors');
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('  unexecuted draft\n');
  for(const [name,value] of [['Steps','31'],['CFG','0'],['Width','768'],['Seed','0']])expect((screen.getByLabelText(name) as HTMLInputElement).value).toBe(value);
  expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
@@ -210,7 +226,7 @@ test('missing remembered model and LoRAs are explicit blockers, never silently s
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- expect(screen.getByText(/missing.safetensors/)).toBeTruthy();expect(screen.getByText(/missing-lora.safetensors/)).toBeTruthy();
+ expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe('missing.safetensors');expect(screen.getByText(/missing-lora.safetensors/)).toBeTruthy();
  expect(screen.getByRole('alert').closest('.wb-stage')).toBeTruthy();
  expect(screen.getByRole('alert').classList.contains('wb-stage-warning')).toBe(true);
  dock('Models');fireEvent.click(screen.getByRole('button',{name:'other.safetensors'}));
@@ -349,7 +365,7 @@ test('opening a project restores its draft without substituting a missing checkp
  await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('global prompt'));
 });
 test('project defaults reset stays project-local and closing restores global last-used controls',async()=>{
- const global={positive:'global draft',checkpoint:'base.safetensors',steps:33,cfg:0,seed:0,seedMode:'fixed',options:{...defaultOptions,outputNaming:'global/%seed%'},upscale:2,refineDenoise:0.7};
+ const global={positive:'global draft',checkpoint:'base.safetensors',steps:33,cfg:0,seed:0,seedMode:'fixed',options:{...defaultOptions,outputNaming:'global/%seed%'},upscale:2,refineDenoise:0.7,textEncoder:'global-encoder.safetensors',vae:'global-vae.safetensors',componentOverrides:{textEncoders:true,vaes:true,audioVaes:false,textProjections:false}};
  for(const [key,value] of Object.entries(global))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
  localStorage.setItem('deas.pref.studio.layout.settingsWidth','304');
  localStorage.setItem('deas.pref.backend.autostart','false');
@@ -386,6 +402,7 @@ test('project defaults reset stays project-local and closing restores global las
  dock('Post-Processing');expect((screen.getByLabelText('Upscale factor') as HTMLInputElement).value).toBe('2');
  expect(screen.getByRole('separator',{name:'Resize Settings'}).getAttribute('aria-valuenow')).toBe('304');
  expect(localStorage.getItem('deas.pref.backend.autostart')).toBe('false');
+ for(const key of ['textEncoder','vae','componentOverrides'] as const)expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.'+key)!)).toEqual(global[key]);
  expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
  confirm.mockRestore();
 });
@@ -570,7 +587,7 @@ test('IPC fixture: with an environment the models folder is scanned on mount ins
  dock('Models');
  expect((await screen.findByRole('button',{name:'sdxl/base.safetensors'})).getAttribute('aria-pressed')).toBe('true');
  dock('LoRAs');expect(screen.getByRole('button',{name:'grain.safetensors'}).getAttribute('aria-pressed')).toBe('false');
- expect(scanModels).toHaveBeenCalledExactlyOnceWith('/m');
+ expect(scanModels).toHaveBeenCalledExactlyOnceWith('/m',[]);
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // only the sampler/scheduler lists, never the model list
 });
 
@@ -837,6 +854,111 @@ test('IPC fixture: dropping a dock tile pastes the Output image as a movable lay
  vi.unstubAllGlobals();
 });
 
+test('checkpoint dropdown and Models tiles share selection/defaults and missing models are not substituted',async()=>{
+ const model=(name:string,family='sdxl',category='checkpoints')=>({category,name,family,path:'/m/'+name,size:1,info:null});
+ vi.mocked(scanModels).mockResolvedValue([model('first.safetensors'),model('second.safetensors'),model('unsupported.safetensors','unknown','diffusion_models')]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ const select=await screen.findByRole('combobox',{name:'Checkpoint'});
+ await waitFor(()=>expect((select as HTMLSelectElement).value).toBe('first.safetensors'));
+ expect((within(select).getByRole('option',{name:'unsupported.safetensors'}) as HTMLOptionElement).disabled).toBe(true);
+ fireEvent.change(select,{target:{value:'second.safetensors'}});
+ dock('Models');expect(screen.getByRole('button',{name:'second.safetensors'}).getAttribute('aria-pressed')).toBe('true');
+ expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('28');
+ fireEvent.click(screen.getByRole('button',{name:'first.safetensors'}));expect((select as HTMLSelectElement).value).toBe('first.safetensors');
+ expect(localStorage.getItem('deas.pref.studio.run.checkpoint')).toBe('"first.safetensors"');
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+});
+test('companion files are collapsed below the other settings and preserve their choices while closed',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'anima.safetensors',family:'anima',path:'/m/a',size:1,info:null},{category:'text_encoders',name:'qwen_3_600m.safetensors',path:'/m/e',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/v',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ const summary=await screen.findByText('Model files',{selector:'summary'}),details=summary.parentElement!;
+ expect(details.hasAttribute('open')).toBe(false);expect(details.contains(screen.getByLabelText('Text encoder'))).toBe(true);
+ expect(details.previousElementSibling?.classList.contains('wb-controls')).toBe(true);
+ fireEvent.click(summary);const encoder=screen.getByRole('combobox',{name:'Text encoder'});
+ fireEvent.change(encoder,{target:{value:'qwen_3_600m.safetensors'}});
+ fireEvent.click(summary);expect(details.hasAttribute('open')).toBe(false);
+ fireEvent.click(summary);expect((screen.getByRole('combobox',{name:'Text encoder'}) as HTMLSelectElement).value).toBe('qwen_3_600m.safetensors');
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
+
+test('Anima recommends renamed header-detected companions and ignores misleading known-incompatible names',async()=>{
+ const m=(category:string,name:string,family?:string,component?:string)=>({category,name,family,component,path:'/m/'+name,size:1,info:null});
+ const encoder='dasiwaAnima_luminousLabyrinthV1_txt.safetensors',vae='provider-renamed-vae.safetensors';
+ vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',encoder,undefined,'qwen3-0.6b'),m('vae',vae,undefined,'wan-2.1-vae'),m('text_encoders','qwen_3_600m-impostor.safetensors',undefined,'qwen3-vl-8b')]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('combobox',{name:'Text encoder'});
+ for(const [label,name] of [['Text encoder',encoder],['VAE',vae]]){
+  const select=screen.getByRole('combobox',{name:label}) as HTMLSelectElement;
+  expect(select.selectedOptions[0].textContent).toBe('Automatic · '+name);
+  expect(screen.getByRole('switch',{name:label+': All files'}).getAttribute('aria-checked')).toBe('false');
+ }
+ expect(within(screen.getByRole('combobox',{name:'Text encoder'})).queryByRole('option',{name:'qwen_3_600m-impostor.safetensors'})).toBeNull();
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
+
+test('companion overrides are independently selectable without inferred matches, persist and gate Run when switched off',async()=>{
+ const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+category+'/'+name,size:1,info:null});
+ const renamed='dasiwaAnima_luminousLabyrinthV1_txt.safetensors';
+ vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',renamed),m('vae','custom-vae.safetensors'),m('checkpoints','not-an-encoder.safetensors')]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'component-plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'component-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
+ const mount=()=>render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
+ const view=mount();await screen.findByRole('combobox',{name:'Text encoder'});
+ const encoder=screen.getByRole('combobox',{name:'Text encoder'}),vae=screen.getByRole('combobox',{name:'VAE'});
+ const encoderSwitch=screen.getByRole('switch',{name:'Text encoder: All files'}),vaeSwitch=screen.getByRole('switch',{name:'VAE: All files'});
+ expect(encoderSwitch.getAttribute('aria-checked')).toBe('false');
+ expect(within(encoder).queryByRole('option',{name:renamed})).toBeNull();
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(encoderSwitch);expect(vaeSwitch.getAttribute('aria-checked')).toBe('false');
+ expect(within(encoder).queryByRole('option',{name:'not-an-encoder.safetensors'})).toBeNull();
+ expect((encoder as HTMLSelectElement).value).toBe(''); // widening the list never auto-picks an arbitrary file
+ fireEvent.change(encoder,{target:{value:renamed}});
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(vaeSwitch);fireEvent.change(vae,{target:{value:'custom-vae.safetensors'}});
+ expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'anima.safetensors',diffusion:{textEncoder:renamed,clipType:'stable_diffusion',vae:'custom-vae.safetensors'}});
+ fireEvent.click(encoderSwitch);
+ expect((encoder as HTMLSelectElement).value).toBe(renamed); // never silently replace the manual choice
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain(renamed);
+ view.unmount();mount();await screen.findByRole('combobox',{name:'Text encoder'});
+ expect((screen.getByRole('combobox',{name:'Text encoder'}) as HTMLSelectElement).value).toBe(renamed);
+ expect(screen.getByRole('switch',{name:'Text encoder: All files'}).getAttribute('aria-checked')).toBe('false');
+ expect(screen.getByRole('switch',{name:'VAE: All files'}).getAttribute('aria-checked')).toBe('true');
+});
+
+test('audio VAE and text-projection overrides submit exact manual choices and never silently fall back after filtering or removal',async()=>{
+ const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
+ let files=[m('diffusion_models','ltx.safetensors','ltx-2'),m('text_encoders','gemma.safetensors'),m('text_encoders','text_projection.safetensors'),m('text_encoders','custom-projection.safetensors'),m('vae','video_vae.safetensors'),m('vae','audio_vae.safetensors'),m('vae','custom-audio.safetensors')];
+ vi.mocked(scanModels).mockImplementation(async()=>files);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'video-components',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'video-components-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('combobox',{name:'Audio VAE'});
+ for(const [label,file] of [['Audio VAE','custom-audio.safetensors'],['Text projection','custom-projection.safetensors']]){
+  fireEvent.click(screen.getByRole('switch',{name:label+': All files'}));
+  fireEvent.change(screen.getByRole('combobox',{name:label}),{target:{value:file}});
+ }
+ expect(screen.getByRole('switch',{name:'Text encoder: All files'}).getAttribute('aria-checked')).toBe('false');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',ltx:{audioVae:'custom-audio.safetensors',textProjection:'custom-projection.safetensors'}});
+ fireEvent.click(screen.getByRole('switch',{name:'Audio VAE: All files'}));
+ expect((screen.getByRole('combobox',{name:'Audio VAE'}) as HTMLSelectElement).value).toBe('custom-audio.safetensors');
+ expect(screen.getByRole('alert').textContent).toContain('custom-audio.safetensors');
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(screen.getByRole('switch',{name:'Audio VAE: All files'}));
+ files=files.filter(file=>file.name!=='custom-audio.safetensors');dock('Models');fireEvent.click(document.querySelector('[data-run-load]')!);
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('custom-audio.safetensors'));
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect((screen.getByRole('combobox',{name:'Audio VAE'}) as HTMLSelectElement).value).toBe('custom-audio.safetensors');
+ expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+});
+
 test('IPC fixture: families gate models and LoRAs, picking applies the family defaults and a diffusion model submits its encoder and VAE',async()=>{
  const m=(category:string,name:string,family?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(family?{family}:{})});
  vi.mocked(scanModels).mockResolvedValue([m('checkpoints','ill.safetensors','sdxl'),m('diffusion_models','k2.safetensors','krea-2'),m('diffusion_models','h3.safetensors','minimax-h3'),m('unet','odd.safetensors'),
@@ -851,7 +973,7 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  fireEvent.click(screen.getByRole('button',{name:/k2\.safetensors/}));
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
  expect((screen.getByLabelText('CFG') as HTMLInputElement).value).toBe('1');
- expect((screen.getByLabelText('Text encoder') as HTMLSelectElement).value).toBe('qwen3vl_4b.safetensors');
+ expect((screen.getByLabelText('Text encoder') as HTMLSelectElement).selectedOptions[0].textContent).toBe('Automatic · qwen3vl_4b.safetensors');
  dock('LoRAs');
  expect(screen.queryByRole('button',{name:/ill-style/})).toBeNull(); // other family hidden, unknown kept
  fireEvent.click(screen.getByRole('button',{name:/k-style/}));expect(screen.getByRole('button',{name:/mystery/})).toBeTruthy();

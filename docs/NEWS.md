@@ -4,6 +4,14 @@
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).
 
+## Unreleased — 0.1.41
+
+- Studio keeps companion file choices under the compact **Model files** disclosure beneath its other settings. Its Checkpoint dropdown and Models tiles update each other; all Settings dropdowns share the compact selector style.
+
+## Unreleased — 0.1.40
+
+- Studio can recognize supported companion architectures without relying on their download names. Each text-encoder/VAE selector also has its own **All files** switch for manual selection, including audio VAEs and text projections where required. Switches default off; selecting unverified components is not a compatibility guarantee. See [Studio component selection](STUDIO.md#text-encoders-vaes-and-companion-files).
+
 ## Unreleased — 0.1.39
 
 - Opening raw/starred now creates the missing fixed directory under the selected native-approved Output folder; arbitrary missing browse paths still show errors.

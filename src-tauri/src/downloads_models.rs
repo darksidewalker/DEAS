@@ -365,6 +365,9 @@ pub struct LocalModel {
     /// Architecture family from `crate::model_families` (header or CivitAI base); absent = unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+    /// Header-verified companion architecture ID; omitted for unknown/unsupported formats.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
 }
 
 fn is_model(path: &Path) -> bool {
@@ -466,6 +469,7 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         info.as_ref()
             .and_then(|i| i.civitai.as_ref()?.base.as_deref()),
     );
+    let component = crate::model_families::detect_component(category, path).map(str::to_owned);
     if let Some(info) = &info {
         let current = Source::open(path)?;
         current.verify()?;
@@ -482,6 +486,7 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
             .replace('\\', "/"),
         size: meta.len(),
         info,
+        component,
         family,
         path: shown,
     })
@@ -513,6 +518,16 @@ fn walk(category: &str, base: &Path, dir: &Path, depth: usize, out: &mut Vec<Loc
             }
         }
     }
+}
+
+/// All model files under the standard ComfyUI category folders of each root, sorted per folder.
+/// Extra roots (additional drives) are scanned with the same rules and appended.
+pub fn scan_roots(roots: &[PathBuf]) -> Result<Vec<LocalModel>, String> {
+    let mut models = vec![];
+    for root in roots {
+        models.extend(scan(root)?);
+    }
+    Ok(models)
 }
 
 /// All model files under the standard ComfyUI category folders of `root`, sorted per folder.
@@ -706,8 +721,15 @@ pub async fn fetch(
 }
 
 #[tauri::command]
-pub fn native_models_scan(root: String) -> Result<Vec<LocalModel>, String> {
-    scan(Path::new(&root))
+pub fn native_models_scan(
+    root: String,
+    extra_roots: Option<Vec<String>>,
+) -> Result<Vec<LocalModel>, String> {
+    let mut roots = vec![PathBuf::from(&root)];
+    if let Some(extra) = extra_roots {
+        roots.extend(extra.iter().map(PathBuf::from));
+    }
+    scan_roots(&roots)
 }
 #[tauri::command]
 pub async fn native_model_info(
@@ -812,6 +834,45 @@ mod tests {
         );
         assert!(civitai_info(&serde_json::json!({"id":1})).is_err());
     }
+    #[test]
+    fn scan_serializes_optional_companion_identity_without_a_family() {
+        let root = tempfile::tempdir().unwrap();
+        let vae = root.path().join("vae");
+        std::fs::create_dir(&vae).unwrap();
+        let path = vae.join("renamed.safetensors");
+        let mut head = serde_json::Map::new();
+        let mut end = 0;
+        for (key, shape) in [
+            ("conv2.weight", vec![16, 16, 1, 1, 1]),
+            ("encoder.conv1.weight", vec![96, 3, 3, 3, 3]),
+            ("decoder.conv1.weight", vec![384, 16, 3, 3, 3]),
+            ("decoder.middle.0.residual.0.gamma", vec![384, 1, 1, 1]),
+            ("decoder.head.2.weight", vec![3, 96, 3, 3, 3]),
+        ] {
+            let start = end;
+            end += shape.iter().product::<u64>() * 2;
+            head.insert(
+                key.into(),
+                serde_json::json!({"dtype":"BF16", "shape":shape, "data_offsets":[start,end]}),
+            );
+        }
+        let text = serde_json::to_vec(&head).unwrap();
+        let mut file = File::create(&path).unwrap();
+        file.write_all(&(text.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&text).unwrap();
+        file.set_len(8 + text.len() as u64 + end).unwrap();
+        drop(file);
+        std::fs::write(vae.join("unknown.pt"), b"unknown").unwrap();
+        let models = scan(root.path()).unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].component.as_deref(), Some("wan-2.1-vae"));
+        assert!(models[0].family.is_none());
+        let json = serde_json::to_value(&models).unwrap();
+        assert_eq!(json[0]["component"], "wan-2.1-vae");
+        assert!(json[0].get("family").is_none());
+        assert!(json[1].get("component").is_none());
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn scan_ignores_oversize_and_linked_sidecars() {

@@ -223,5 +223,21 @@
   "setup.footer.starting": "バックエンドを起動中…",
   "setup.footer.started": "バックエンドが起動しました",
   "setup.backendPanels": "バックエンドの設定",
-  "setup.backendPanels.requiresInstall": "インストール済みのバックエンドが必要です"
+  "setup.backendPanels.requiresInstall": "インストール済みのバックエンドが必要です",
+  "setup.takeover.label": "外部インストールを引き継ぐ（venv を再構築）",
+  "setup.takeover.warning": "DEAS はこのフォルダの venv とランタイムを削除して再構築し、選択した ComfyUI ref に戻した上で管理を引き継ぎます。モデル・入力・出力・未追跡ファイルは保持されます。",
+  "setup.takeover.help": "DEAS がまだ管理していない、ComfyUI/main.py を含むローカルフォルダのみ。稼働中のサーバーはバックエンドアドレスで接続してください。",
+  "setup.takeover.directory": "外部インストールのフォルダ",
+  "setup.takeover.pick": "フォルダを選択",
+  "setup.takeover.pickTitle": "引き継ぐ ComfyUI インストールを選択",
+  "setup.takeover.start": "インストールを引き継ぐ",
+  "setup.takeover.title": "インストールを引き継ぎますか？",
+  "setup.takeover.confirm": "引き継ぐ",
+  "setup.takeover.cancel": "キャンセル",
+  "setup.takeover.managedError": "このフォルダは既に DEAS が管理しています — 保存済み環境から再開してください。",
+  "setup.takeover.mainpyError": "ComfyUI が見つかりません（ComfyUI/main.py がありません）。",
+  "settings.extraModel": "追加モデルフォルダ {index}",
+  "settings.addExtraModel": "モデルフォルダを追加",
+  "settings.removeExtraFor": "追加モデルフォルダ {index} を削除",
+  "settings.chooseExtraFor": "追加モデルフォルダ {index} を選択"
 }

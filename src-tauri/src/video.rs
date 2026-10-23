@@ -76,7 +76,7 @@ impl Action {
         }
     }
 }
-#[cfg(any(target_os = "linux",test))]
+#[cfg(any(target_os = "linux", test))]
 fn output_url(
     base: &str,
     filename: &str,
@@ -102,7 +102,7 @@ fn output_url(
         .append_pair("type", kind);
     Ok(url)
 }
-#[cfg(any(target_os = "linux",test))]
+#[cfg(any(target_os = "linux", test))]
 fn local_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::Path::new(path);
     if !p.is_absolute() || crate::media::media_kind(path) != Some("video") {
@@ -123,9 +123,11 @@ async fn on_main<T: Send + 'static>(
 ) -> Result<T, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     // Tauri's idle-priority dispatch can starve behind continuous GTK rendering.
-    let mut work = Some((tx,f));
-    gtk::glib::idle_add_full(gtk::glib::Priority::DEFAULT,move || {
-        if let Some((tx,f))=work.take(){let _=tx.send(f());}
+    let mut work = Some((tx, f));
+    gtk::glib::idle_add_full(gtk::glib::Priority::DEFAULT, move || {
+        if let Some((tx, f)) = work.take() {
+            let _ = tx.send(f());
+        }
         gtk::glib::ControlFlow::Break
     });
     rx.await.map_err(|_| "Video UI stopped".to_string())?
@@ -276,7 +278,7 @@ async fn update_inner(
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _=(window,id);
+        let _ = (window, id);
         Err("Native video is Linux-only".into())
     }
 }
