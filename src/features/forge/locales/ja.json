@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "クリックして重みを設定",
   "forge.tags.traits": "{name}：ローカルのキャラクター表の特徴",
   "forge.tags.noTraits": "{name} はローカルのキャラクター表にありません。",
-  "forge.tags.addAll": "すべて追加"
+  "forge.tags.addAll": "すべて追加",
+  "forge.current": "現在のプロンプト",
+  "forge.new": "新しいプロンプト",
+  "forge.useNew": "新しいプロンプトを使う",
+  "forge.keepCurrent": "現在のまま"
 }

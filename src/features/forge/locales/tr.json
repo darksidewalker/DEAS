@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "Ağırlık vermek için tıkla",
   "forge.tags.traits": "{name}: yerel karakter tablosundan özellikler",
   "forge.tags.noTraits": "{name} yerel karakter tablosunda yok.",
-  "forge.tags.addAll": "Tümünü ekle"
+  "forge.tags.addAll": "Tümünü ekle",
+  "forge.current": "Mevcut prompt",
+  "forge.new": "Yeni prompt",
+  "forge.useNew": "Yeni prompt'u kullan",
+  "forge.keepCurrent": "Mevcut olanı koru"
 }

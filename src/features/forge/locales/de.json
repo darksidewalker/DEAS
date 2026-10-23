@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "Klicken, um diesen Tag zu gewichten",
   "forge.tags.traits": "{name}: Merkmale aus der lokalen Figurentabelle",
   "forge.tags.noTraits": "{name} steht nicht in der lokalen Figurentabelle.",
-  "forge.tags.addAll": "Alle hinzufügen"
+  "forge.tags.addAll": "Alle hinzufügen",
+  "forge.current": "Aktueller Prompt",
+  "forge.new": "Neuer Prompt",
+  "forge.useNew": "Neuen Prompt verwenden",
+  "forge.keepCurrent": "Aktuellen behalten"
 }

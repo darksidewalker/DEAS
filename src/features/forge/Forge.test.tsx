@@ -159,6 +159,18 @@ it('checkpoint Forge forwards continuity through h3 and only applies on explicit
   expect(apply).toHaveBeenLastCalledWith('turn left');
 });
 
+it('Keep current closes the hammer without touching the prompt', async () => {
+  const apply = vi.fn();
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Illustrious" value="girl in rain" onApply={apply}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Keep current' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(apply).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+});
+
 it('hammer rewrites an image prompt with the native Forge, applies after review and undoes', async () => {
   const apply = vi.fn();
   render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Anima" value="girl in rain" onApply={apply}/></I18nProvider>);
@@ -169,8 +181,11 @@ it('hammer rewrites an image prompt with the native Forge, applies after review 
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
   // The node's Prompt Writer is not involved: the model id loses its node prefix and the brief goes to DEAS's own engine.
   expect(forgeCalls().filter(c => c.route === 'write')).toEqual([]);
-  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'anima', model: 'qwen', brief: 'girl in rain' }) }]);
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'anima', model: 'qwen', brief: 'girl in rain', controls: {} }) }]);
+  // The prompt in the box and the rewrite side by side; nothing changes until the new one is chosen.
+  expect((screen.getByRole('textbox', { name: 'Current prompt' }) as HTMLTextAreaElement).value).toBe('girl in rain');
+  expect(apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use new prompt' }));
   expect(apply).toHaveBeenLastCalledWith('1girl, rain');
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(apply).toHaveBeenLastCalledWith('girl in rain');

@@ -157,3 +157,9 @@
 .forge-suggest li.cat-character span { color: #8fc58a; } .forge-suggest li.cat-copyright span { color: #c48fd6; } .forge-suggest li.cat-artist span { color: #e0866b; }
 .forge-traits { display: grid; gap: 8px; padding: 10px; border: 1px dashed #8fc58a55; border-radius: 8px; }
 .forge-trait:disabled { opacity: .4; cursor: default; }
+.forge-pop.comparing { width: min(46rem, 90vw); }
+.forge-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.forge-compare textarea { height: 10rem; }
+.forge-compare textarea[readonly] { color: var(--muted); background: #0d1215; }
+.forge-new textarea { border-color: #7c9cac80; }
+@media (max-width: 700px) { .forge-compare { grid-template-columns: 1fr; } }

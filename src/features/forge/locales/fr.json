@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "Cliquer pour pondérer ce tag",
   "forge.tags.traits": "{name} : traits de la table locale des personnages",
   "forge.tags.noTraits": "{name} n’est pas dans la table locale des personnages.",
-  "forge.tags.addAll": "Tout ajouter"
+  "forge.tags.addAll": "Tout ajouter",
+  "forge.current": "Prompt actuel",
+  "forge.new": "Nouveau prompt",
+  "forge.useNew": "Utiliser le nouveau",
+  "forge.keepCurrent": "Garder l’actuel"
 }

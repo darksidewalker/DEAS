@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "点击设置权重",
   "forge.tags.traits": "{name}：来自本地角色表的特征",
   "forge.tags.noTraits": "本地角色表中没有 {name}。",
-  "forge.tags.addAll": "全部添加"
+  "forge.tags.addAll": "全部添加",
+  "forge.current": "当前提示词",
+  "forge.new": "新提示词",
+  "forge.useNew": "使用新提示词",
+  "forge.keepCurrent": "保留当前"
 }

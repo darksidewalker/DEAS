@@ -163,8 +163,9 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         setWarnings(Array.isArray(out.warnings) ? out.warnings.filter((w): w is string => typeof w === 'string').slice(0, 8).map(w => w.slice(0, 2048)) : []);
         setResult(out.simple_prompt); setDraftFit(fit); setDrafts(d => [{ text: out.simple_prompt, fit }, ...d].slice(0, 3));
       } else if (nativeTarget(dialect) && !image) {
-        // PromptForge's whole pipeline in DEAS: canon, tag search, clean-up. A source picture still goes to the node writer, which can read it.
-        const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeModelId(forge.model), controls: { detail, creativity } });
+        // PromptForge's whole pipeline in DEAS (canon, tag search, clean-up) as if only the prompt had been filled in:
+        // every control at PromptForge's default. A source picture still goes to the node writer, which can read it.
+        const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeModelId(forge.model), controls: {} });
         if (request.current !== current || current.cancelled) return;
         setResult(out.prompt); setWarnings(out.warnings);
       } else {
@@ -195,7 +196,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/></svg>
     </button>
     {undo !== null && !open && <button type="button" className="forge-undo" data-forge-undo onClick={() => { onApply(undo); setUndo(null); }}>{t('forge.undo')}</button>}
-    {open && <div className="forge-pop" role="dialog" aria-label={t('forge.button')} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); opener.current?.focus(); } }}>
+    {open && <div className={`forge-pop${result && !h3 ? ' comparing' : ''}`} role="dialog" aria-label={t('forge.button')} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); opener.current?.focus(); } }}>
       {h3 && tools && <div className="forge-row" role="group" aria-label={t('forge.tools')}>{tools}</div>}
       {choosing ? <>
         <button type="button" disabled={disabled} title={disabled ? t(!root ? 'forge.noBackend' : 'forge.noDialect') : undefined} onClick={() => setChoosing(false)}>{t('wildcards.llm')}</button>
@@ -220,7 +221,18 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {blind && <p className="forge-warning">{t('forge.blind')}</p>}
       {warnings.map((warning, i) => <p key={i} className="forge-warning">{warning}</p>)}
-      {result && <>
+      {result && !h3 && <>
+        {/* The prompt in the box and the rewrite, side by side: nothing changes until the new one is chosen. */}
+        <div className="forge-compare" data-forge-compare>
+          <label className="forge-field"><span>{t('forge.current')}</span><textarea data-forge-current readOnly value={value}/></label>
+          <label className="forge-field forge-new"><span>{t('forge.new')}</span><textarea data-forge-result aria-label={t('forge.result')} value={result} onChange={e => setResult(e.target.value)}/></label>
+        </div>
+        <div className="forge-row">
+          <button type="button" className="action-button" data-forge-apply onClick={() => { setUndo(value); onApply(result); setOpen(false); opener.current?.focus(); }}>{t('forge.useNew')}</button>
+          <button type="button" data-forge-keep onClick={() => { setOpen(false); opener.current?.focus(); }}>{t('forge.keepCurrent')}</button>
+        </div>
+      </>}
+      {result && h3 && <>
         <label className="forge-field"><span>{t('forge.result')}</span><textarea data-forge-result value={result} onChange={e => setResult(e.target.value)}/></label>
         {stale && <p className="forge-warning" role="status">{t('forge.stale')}</p>}
         <button type="button" className="action-button" data-forge-apply disabled={stale} onClick={() => { setUndo(value); onApply(result); setOpen(false); opener.current?.focus(); }}>{t('forge.apply')}</button>

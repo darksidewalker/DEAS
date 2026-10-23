@@ -173,5 +173,9 @@
   "forge.tags.weighHelp": "Click to weight this tag",
   "forge.tags.traits": "{name}: traits from the local character table",
   "forge.tags.noTraits": "{name} is not in the local character table.",
-  "forge.tags.addAll": "Add all"
+  "forge.tags.addAll": "Add all",
+  "forge.current": "Current prompt",
+  "forge.new": "New prompt",
+  "forge.useNew": "Use new prompt",
+  "forge.keepCurrent": "Keep current"
 }
