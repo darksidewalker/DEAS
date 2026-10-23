@@ -17,6 +17,8 @@ pub struct Controls {
     pub lighting: Option<u8>,
     /// The manual length: off unless set.
     pub max_length: Option<MaxLength>,
+    /// Reference pictures with their roles (image models).
+    pub image_references: Vec<super::refs::ImageRef>,
     pub aspect_ratio: Option<String>,
     /// A registry preset name, or "none" for no quality tags.
     pub quality_preset: Option<String>,

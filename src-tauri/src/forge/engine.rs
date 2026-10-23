@@ -6,7 +6,8 @@
 use super::canon::{character_block, CanonTable, Corrections};
 use super::character::{self, Resolved};
 use super::message::{self, Controls};
-use super::pack::{segment_tail, Pack, PackModel, SEPARATOR};
+use super::pack::{segment_tail, Keys, Pack, PackModel, SEPARATOR};
+use super::refs;
 use super::segments::{self, Segment};
 use super::{chat, clean, tools};
 use crate::llm::{LlmConfig, Provider};
@@ -59,6 +60,8 @@ pub struct WriteResult {
     pub fixes: Vec<String>,
     /// Segments a revision rewrote; 0 on a first write.
     pub changed: usize,
+    /// What the reference pictures were read as, which the prompt was written from.
+    pub reference_analysis: Option<String>,
 }
 
 /// Where the data pack and databases live: `DEAS_FORGE_DATA`, else
@@ -125,7 +128,20 @@ struct Prepared<'a> {
     max_tokens: Option<u32>,
 }
 
-fn prepare<'a>(data: &'a Data, req: &WriteRequest) -> Result<Prepared<'a>, String> {
+/// What the reference pictures contribute to the user turn.
+#[derive(Default)]
+struct RefState {
+    /// The reading pass's text, when it ran and was usable.
+    analysis: Option<String>,
+    /// The pictures ride with the write itself (no usable reading).
+    carries: bool,
+}
+
+fn prepare<'a>(
+    data: &'a Data,
+    req: &WriteRequest,
+    refs_state: &RefState,
+) -> Result<Prepared<'a>, String> {
     let pack = &data.pack;
     let model: &PackModel = pack
         .models
@@ -252,13 +268,26 @@ fn prepare<'a>(data: &'a Data, req: &WriteRequest) -> Result<Prepared<'a>, Strin
 
     let canvas = canvas_line(model, mode.as_deref(), controls);
     let negative_written = wanted.iter().any(|l| l.to_lowercase().contains("negative"));
+    // The reference notes (and the reading under them) come before the canon, as in PromptForge.
+    let refs_block = refs::block(
+        &controls.image_references,
+        pack,
+        tag_style == Some("underscore"),
+        refs_state.carries,
+        refs_state.analysis.as_deref(),
+    );
+    let tail = [refs_block, character_text]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let user = message::build(
         pack,
         model,
         &req.brief,
         controls,
         negative_written,
-        &character_text,
+        &tail,
         canvas,
     );
     let (temperature, top_p) = message::sampling(pack, model, controls.creativity);
@@ -284,6 +313,8 @@ pub async fn write(
     req: &WriteRequest,
 ) -> Result<WriteResult, String> {
     let pack = &data.pack;
+    let mut warnings = vec![];
+    let (refs_state, carried) = read_references(data, config, req, &mut warnings).await;
     let Prepared {
         model,
         mode,
@@ -297,10 +328,9 @@ pub async fn write(
         temperature,
         top_p,
         max_tokens,
-    } = prepare(data, req)?;
+    } = prepare(data, req, &refs_state)?;
     let controls = &controls;
     let tag_style = model.tag_style();
-    let mut warnings = vec![];
     let mut fixes = vec![];
 
     let max_rounds = pack
@@ -318,7 +348,7 @@ pub async fn write(
     let ollama = config.provider == Provider::Ollama;
     let mut messages = vec![
         json!({ "role": "system", "content": system }),
-        json!({ "role": "user", "content": user }),
+        chat::user_with_images(&user, &carried, ollama),
     ];
     let mut used: Vec<ToolUse> = vec![];
     let mut rounds = 0;
@@ -428,6 +458,7 @@ pub async fn write(
         warnings,
         fixes,
         changed: 0,
+        reference_analysis: refs_state.analysis,
     })
 }
 
@@ -447,6 +478,9 @@ pub struct ReviseRequest {
     /// Refine: the one change. Absent: a second pass.
     #[serde(default)]
     pub instruction: Option<String>,
+    /// The reading the draft was written from, so the revision judges it on the same terms.
+    #[serde(default)]
+    pub reference_analysis: Option<String>,
 }
 
 /// Refine or Second pass (PromptForge's handleRevise): the model sees its draft under the
@@ -467,7 +501,11 @@ pub async fn revise(
             "Second pass is unavailable: the Prompt Forge data has no second-pass instruction.",
         )?,
     };
-    let p = prepare(data, &req.write)?;
+    let refs_state = RefState {
+        analysis: req.reference_analysis.clone().filter(|a| refs::usable(a)),
+        carries: false,
+    };
+    let p = prepare(data, &req.write, &refs_state)?;
     let meta = p.model.strings("meta_segments");
     let revisable: Vec<&Segment> = req
         .segments
@@ -577,6 +615,7 @@ pub async fn revise(
         warnings,
         fixes,
         changed,
+        reference_analysis: refs_state.analysis,
     })
 }
 
@@ -597,6 +636,129 @@ fn prompt_and_negative(model: &PackModel, segs: &[Segment]) -> (String, Option<S
         .find(|s| s.label == "Negative prompt")
         .map(|s| s.body.clone());
     (prompt, negative)
+}
+
+/// Look first, write second: read the pictures under their roles before the write.
+/// Returns the reading (or that the pictures must ride with the write) and the
+/// pictures to attach to the write, which is none when the reading is usable.
+async fn read_references(
+    data: &Data,
+    config: &LlmConfig,
+    req: &WriteRequest,
+    warnings: &mut Vec<String>,
+) -> (RefState, Vec<String>) {
+    let pack = &data.pack;
+    let (sent, dropped) = refs::sendable_refs(&req.controls.image_references, pack);
+    if dropped > 0 {
+        warnings.push(format!(
+            "{dropped} reference picture(s) could not be sent to the model. Their notes still travel."
+        ));
+    }
+    if sent.is_empty() {
+        return (RefState::default(), vec![]);
+    }
+    let images: Vec<String> = sent.iter().map(|r| r.image.clone()).collect();
+    let Some(system) = pack.shared.reference_blueprint.as_deref() else {
+        return (
+            RefState {
+                analysis: None,
+                carries: true,
+            },
+            images,
+        );
+    };
+    let ollama = config.provider == Provider::Ollama;
+    let question = refs::blueprint_message(&sent, &req.brief, pack);
+    let messages = vec![
+        json!({ "role": "system", "content": system }),
+        chat::user_with_images(&question, &images, ollama),
+    ];
+    let started = std::time::Instant::now();
+    let read = chat::round(chat::Round {
+        config,
+        model: &req.model,
+        messages: &messages,
+        tools: None,
+        temperature: Some(refs::BLUEPRINT_TEMPERATURE),
+        top_p: None,
+        max_tokens: Some(refs::blueprint_budget(images.len())),
+        timeout: ROUND_TIMEOUT,
+    })
+    .await;
+    match read {
+        Ok(reply) if refs::usable(&reply.content) => {
+            log(&format!(
+                "{}: {} reference picture(s) read in {:.1}s",
+                req.target,
+                images.len(),
+                started.elapsed().as_secs_f32()
+            ));
+            (
+                RefState {
+                    analysis: Some(refs::strip_fence(&reply.content)),
+                    carries: false,
+                },
+                vec![],
+            )
+        }
+        Ok(_) => {
+            warnings.push("The reference read did not come back usable, so the pictures went straight to the prompt writer instead.".into());
+            (
+                RefState {
+                    analysis: None,
+                    carries: true,
+                },
+                images,
+            )
+        }
+        // Most often a model that cannot see: the notes still travel.
+        Err(e) => {
+            log(&format!("{}: reference read failed: {e}", req.target));
+            warnings.push(format!("The reference pictures could not be read ({e}); the prompt was written from your notes only. Pick a model that can see images to use them."));
+            (RefState::default(), vec![])
+        }
+    }
+}
+
+/// Analyze: the model looks at one picture under its role and says what it will take.
+pub async fn reference_readback(
+    data: &Data,
+    config: &LlmConfig,
+    model: &str,
+    reference: &refs::ImageRef,
+) -> Result<String, String> {
+    let pack = &data.pack;
+    let system = pack.shared.reference_analysis.as_deref().ok_or(
+        "The reading instructions are not in the Prompt Forge data, so Analyze is unavailable.",
+    )?;
+    let (sent, _) = refs::sendable_refs(std::slice::from_ref(reference), pack);
+    let Some(r) = sent.first() else {
+        return Err("That picture cannot be sent to the model (PNG, JPEG or WebP only).".into());
+    };
+    let messages = vec![
+        json!({ "role": "system", "content": system }),
+        chat::user_with_images(
+            &refs::readback_question(r, pack),
+            std::slice::from_ref(&r.image),
+            config.provider == Provider::Ollama,
+        ),
+    ];
+    let reply = chat::round(chat::Round {
+        config,
+        model,
+        messages: &messages,
+        tools: None,
+        temperature: Some(0.2),
+        top_p: None,
+        max_tokens: Some(1200),
+        timeout: ROUND_TIMEOUT,
+    })
+    .await?;
+    let text = refs::strip_fence(&reply.content);
+    if text.is_empty() {
+        return Err("The model returned no reading.".into());
+    }
+    Ok(text)
 }
 
 fn canvas_line(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<String> {
@@ -1023,6 +1185,7 @@ mod tests {
                 write: write_req.clone(),
                 segments: first.segments.clone(),
                 instruction: None,
+                reference_analysis: None,
             },
         )
         .await
@@ -1035,11 +1198,70 @@ mod tests {
                 write: write_req,
                 segments: second.segments.clone(),
                 instruction: Some("make the campfire light colder, bluish".into()),
+                reference_analysis: None,
             },
         )
         .await
         .unwrap();
         show("refine: make the campfire light colder, bluish", &refined);
+    }
+
+    /// A write with reference pictures and an Analyze read-back, printed in full:
+    /// `DEAS_FORGE_DATA=<dir> DEAS_FORGE_LLM=<url> DEAS_FORGE_MODEL=<id> DEAS_FORGE_PICTURE=<png>
+    ///  cargo test --lib -- --ignored live_references --nocapture`
+    #[tokio::test]
+    #[ignore = "needs a live vision LLM, the data pack and a picture"]
+    async fn live_references() {
+        use base64::Engine as _;
+        let data = Data::load(&PathBuf::from(std::env::var("DEAS_FORGE_DATA").unwrap())).unwrap();
+        let config = LlmConfig {
+            provider: Provider::Openai,
+            base_url: std::env::var("DEAS_FORGE_LLM").unwrap(),
+        };
+        let model = std::env::var("DEAS_FORGE_MODEL").unwrap();
+        let png = std::fs::read(std::env::var("DEAS_FORGE_PICTURE").unwrap()).unwrap();
+        let image = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        );
+        let pose = refs::ImageRef {
+            role: "pose".into(),
+            fidelity: "close".into(),
+            image: image.clone(),
+            ..Default::default()
+        };
+        let outfit = refs::ImageRef {
+            role: "outfit".into(),
+            fidelity: "close".into(),
+            image,
+            ..Default::default()
+        };
+        let read = reference_readback(&data, &config, &model, &pose)
+            .await
+            .unwrap();
+        println!("=== Analyze (pose)\n{read}\n");
+        let target = std::env::var("DEAS_FORGE_TARGETS").unwrap_or_else(|_| "illustrious".into());
+        let req = WriteRequest {
+            target,
+            brief: "frieren standing in a meadow".into(),
+            model,
+            mode: None,
+            segments_on: Some(vec!["Negative prompt".into()]),
+            controls: Controls {
+                image_references: vec![pose, outfit],
+                ..Default::default()
+            },
+        };
+        let out = write(&data, &config, &req).await.unwrap();
+        println!(
+            "=== reading\n{}\n",
+            out.reference_analysis.as_deref().unwrap_or("(none)")
+        );
+        println!("=== warnings {:?} | fixes {:?}", out.warnings, out.fixes);
+        for s in &out.segments {
+            println!("--- {}\n{}", s.label, s.body);
+        }
+        assert!(out.reference_analysis.is_some());
     }
 
     /// The tab's controls from the real pack: file order, ladders, the lighting line.
@@ -1183,6 +1405,28 @@ pub async fn native_forge_write(
 }
 
 #[tauri::command]
+pub async fn native_forge_reference_readback(
+    root: String,
+    model: String,
+    reference: refs::ImageRef,
+) -> Result<String, String> {
+    let root = PathBuf::from(root);
+    let config = crate::llm::read(&root)?;
+    let dir = data_dir(&root);
+    let data = tokio::task::spawn_blocking(move || Data::load(&dir))
+        .await
+        .map_err(|_| "Prompt Forge data failed to load")??;
+    reference_readback(&data, &config, &model, &reference)
+        .await
+        .inspect_err(|e| {
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("ERROR: Prompt Forge reference read-back: {e}"),
+            );
+        })
+}
+
+#[tauri::command]
 pub async fn native_forge_revise(
     root: String,
     request: ReviseRequest,
@@ -1220,40 +1464,6 @@ fn ladder(table: Option<&Value>) -> Vec<(u64, String)> {
         .unwrap_or_default();
     out.sort_by_key(|(l, _)| *l);
     out
-}
-
-/// Object keys in the order the pack file has them. The parsed pack's maps are
-/// sorted, and PromptForge's tiles, styles and presets are shown in file order.
-#[derive(Default)]
-struct Keys(Vec<String>);
-
-impl<'de> serde::Deserialize<'de> for Keys {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct V;
-        impl<'de> serde::de::Visitor<'de> for V {
-            type Value = Keys;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("an object or a list of names")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<Keys, A::Error> {
-                let mut out = vec![];
-                while let Some((k, _)) = a.next_entry::<String, serde::de::IgnoredAny>()? {
-                    out.push(k);
-                }
-                Ok(Keys(out))
-            }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut a: A) -> Result<Keys, A::Error> {
-                let mut out = vec![];
-                while let Some(v) = a.next_element::<Value>()? {
-                    if let Some(s) = v.as_str() {
-                        out.push(s.to_string());
-                    }
-                }
-                Ok(Keys(out))
-            }
-        }
-        d.deserialize_any(V)
-    }
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -1367,5 +1577,32 @@ pub async fn native_forge_targets(root: String) -> Result<Value, String> {
         })
         .collect();
     targets.sort_by(|a, b| a["key"].as_str().cmp(&b["key"].as_str()));
-    Ok(json!({ "source": pack.source, "creativity": pack.creativity_order, "targets": targets }))
+    let roles: Vec<Value> = pack
+        .role_order
+        .iter()
+        .filter_map(|k| {
+            let d = pack.defaults["image_reference_roles"].get(k)?;
+            Some(json!({ "key": k, "label": d.get("label").and_then(Value::as_str).unwrap_or(k), "rule": d.get("rule") }))
+        })
+        .collect();
+    let fidelity: Vec<Value> = ["exact", "close", "attribute", "loose"]
+        .iter()
+        .filter_map(|k| {
+            let d = pack.defaults["reference_fidelity"].get(*k)?;
+            Some(json!({ "key": k, "label": d.get("label").and_then(Value::as_str).unwrap_or(k), "rule": d.get("rule") }))
+        })
+        .collect();
+    Ok(json!({
+        "source": pack.source,
+        "creativity": pack.creativity_order,
+        "targets": targets,
+        "references": {
+            "roles": roles,
+            "fidelity": fidelity,
+            "defaultRole": pack.defaults.get("default_image_reference_role"),
+            "defaultFidelity": pack.defaults.get("default_reference_fidelity"),
+            "max": pack.defaults.get("max_image_references").and_then(Value::as_u64).unwrap_or(6),
+            "analyze": pack.shared.reference_analysis.is_some(),
+        },
+    }))
 }

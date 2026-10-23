@@ -120,6 +120,7 @@ fn main() {
             deas::native_forge,
             deas::forge::engine::native_forge_write,
             deas::forge::engine::native_forge_revise,
+            deas::forge::engine::native_forge_reference_readback,
             deas::forge::randomizer::native_forge_randomizer_list,
             deas::forge::randomizer::native_forge_randomizer_roll,
             deas::forge::picker::native_forge_tag_search,

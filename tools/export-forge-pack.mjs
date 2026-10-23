@@ -68,12 +68,16 @@ process.stdout.write(JSON.stringify({
   defaults: pick(registry.defaults ?? {}, [
     'creativity_presets', 'default_creativity', 'detail_levels', 'default_detail', 'lighting_rule', 'lighting_levels',
     'default_lighting', 'image_aspect_ratios', 'optional_segments_default', 'camera_angles', 'camera_shots', 'camera_lights',
+    'image_reference_roles', 'reference_fidelity', 'default_image_reference_role', 'default_reference_fidelity', 'max_image_references',
   ]),
   shared: {
     meta_segment: metaSegment,
     tag_search: prompts.tagSearch(),
     guidance: prompts.guidance(),
     second_pass: prompts.secondPass(),
+    // Reference pictures: the reading pass before a write, and Analyze's read-back.
+    reference_blueprint: prompts.referenceBlueprint(),
+    reference_analysis: prompts.referenceAnalysis(),
   },
   models,
 }, null, 1));

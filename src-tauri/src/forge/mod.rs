@@ -14,6 +14,7 @@ pub mod message;
 pub mod pack;
 pub mod picker;
 pub mod randomizer;
+pub mod refs;
 pub mod segments;
 pub mod tags;
 pub mod tools;

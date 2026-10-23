@@ -4,6 +4,7 @@ import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, na
 import { isString, usePref } from '../../lib/preferences';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
 import { Randomizer } from './Randomizer';
+import { Reading, ReferenceImages, type RefPicture } from './ReferenceImages';
 import { TagPicker, weighted, type PickedTag } from './TagPicker';
 import { Chips, Fold, Ladder, Tiles, aspectIcon, icon, type TileOption } from './tiles';
 
@@ -12,7 +13,7 @@ const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 /** `high_quality` → `High quality`, as PromptForge shows registry names. */
 const pretty = (v: string) => { const s = v.replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1); };
-const FOLDS = ['presets', 'output', 'verbatim', 'camera', 'lighting', 'tags'] as const;
+const FOLDS = ['presets', 'output', 'verbatim', 'camera', 'lighting', 'tags', 'refs'] as const;
 /** PromptForge's bounds for the manual length. */
 const LENGTH_MIN = 10, LENGTH_MAX = 4000;
 interface Draft { result: NativeResult; prompt: string; negative: string }
@@ -46,6 +47,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const [undo, setUndo] = useState<Draft[]>([]);
   const [randomizer, setRandomizer] = useState(false);
   const [tags, setTags] = useState<PickedTag[]>([]);
+  const [pictures, setPictures] = useState<RefPicture[]>([]);
   const [keepPositive, setKeepPositive] = useState('');
   const [keepNegative, setKeepNegative] = useState('');
   const [result, setResult] = useState<NativeResult | null>(null);
@@ -93,6 +95,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
       positive: keepPositive.trim() || undefined, negative: keepNegative.trim() || undefined,
       maxLength: lengthUnit && lengthOk ? { unit: lengthUnit, value: lengthValue } : undefined,
       tags: tags.length ? tags.map(weighted) : undefined,
+      imageReferences: pictures.length ? pictures.map(({ role, fidelity, note, character, image }) => ({ role, fidelity, note, character, image })) : undefined,
     },
   });
   const show = (out: NativeResult) => { setResult(out); setPrompt(out.prompt); setNegative(out.negative ?? ''); };
@@ -111,7 +114,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
     setBusy(true); setError('');
     try {
       const before: Draft = { result, prompt, negative };
-      const out = await nativeForgeRevise(root, { ...request(), segments: onScreen(), instruction });
+      const out = await nativeForgeRevise(root, { ...request(), segments: onScreen(), instruction, referenceAnalysis: result.referenceAnalysis ?? undefined });
       setUndo([...undo, before]); show(out);
       if (instruction) setRefineText('');
     } catch (e) { setError(forgeError(e)); }
@@ -127,7 +130,8 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const toggle = (name: string) => setFolds(folds.includes(name) ? folds.filter(f => f !== name) : [...folds, name]);
   const visible = FOLDS.filter(f => f !== 'camera' || (spec?.camera?.angle.length || spec?.camera?.shot.length))
     .filter(f => f !== 'lighting' || lightingNotches.length || spec?.camera?.light.length)
-    .filter(f => f !== 'tags' || !!root);
+    .filter(f => f !== 'tags' || !!root)
+    .filter(f => f !== 'refs' || (!!root && !!targets?.references?.roles.length));
   const allOpen = visible.every(f => folds.includes(f));
   const camTiles = (list: NativeCameraOption[] | undefined): TileOption[] => [{ key: '', label: t('forge.any'), icon: icon('any') }, ...(list ?? []).map(o => ({ key: o.key, label: o.label, icon: icon(o.icon), title: o.payload }))];
   const label = (list: NativeCameraOption[] | undefined, key: string) => list?.find(o => o.key === key)?.label ?? '';
@@ -137,6 +141,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
     output: [lengthUnit && lengthOk ? `${lengthValue} ${t(`forge.length.${lengthUnit}`)}` : t('forge.length.default'), [negativeLabel && withNegative && t('forge.segment.negative'), notesLabels.length && withNotes && t('forge.segment.notes')].filter(Boolean).join(', ') || t('forge.promptOnly')].join(' · '),
     verbatim: [keepPositive.trim() && t('forge.customPositive'), keepNegative.trim() && spec?.hasNegative && t('forge.customNegative')].filter(Boolean).join(' + ') || t('forge.empty'),
     camera: [label(spec?.camera?.angle, pick.angle), label(spec?.camera?.shot, pick.shot)].filter(Boolean).join(' · ') || t('forge.any'),
+    refs: pictures.length ? t('forge.refs.count', { count: String(pictures.length) }) : t('forge.refs.none'),
     tags: tags.length ? t('forge.tags.count', { count: String(tags.length) }) : t('forge.tags.none'),
     lighting: [lightingOn ? lightingNotches.find(([n]) => n === lightingOn)?.[1] : t('forge.anyBrightness'), pick.light ? t('forge.fromDir', { dir: label(spec?.camera?.light, pick.light).toLowerCase() }) : t('forge.anyDirection')].join(' · '),
   };
@@ -196,6 +201,8 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
           {!!spec.camera?.light.length && <Tiles name="light" label={t('forge.lightFrom')} value={pick.light} onChange={setLight} options={camTiles(spec.camera.light)}/>}
         </>)}
         {fold('tags', root && <TagPicker root={root} target={target} tags={tags} onTags={setTags} weightRange={spec.weightRange}/>)}
+        {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeModelId(forge.model) : ''} vocab={targets.references} pictures={pictures}
+          onPictures={next => { if (next.length > pictures.length && !folds.includes('refs')) setFolds([...folds, 'refs']); setPictures(next); }}/>)}
       </div>}
       <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk)} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
       {error && <p className="error-message" role="alert">{t(error)}</p>}
@@ -217,7 +224,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
       </div>
       {!prompt && !result ? <div className={`forge-empty${busy ? ' busy' : ''}`} data-forge-empty>
         <strong>{t(busy ? 'forge.writing' : 'forge.emptyTitle')}</strong>
-        <span>{t(busy ? 'forge.emptyBusy' : 'forge.emptyBody')}</span>
+        <span>{t(busy ? pictures.length ? 'forge.refs.busy' : 'forge.emptyBusy' : 'forge.emptyBody')}</span>
       </div> : <>
         <label className="forge-field"><span>{t('forge.positive')}</span><textarea data-forge-result aria-label={t('forge.result')} value={prompt} onChange={e => setPrompt(e.target.value)}/></label>
         {spec?.hasNegative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>}
@@ -232,6 +239,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
         {result.changed !== undefined && undo.length > 0 && <p className="forge-note" data-forge-changed>{t('forge.changed', { count: String(result.changed) })}</p>}
         {result.fixes.length > 0 && <p className="forge-note">{t('forge.fixes', { list: result.fixes.join('; ') })}</p>}
         {result.warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
+        {result.referenceAnalysis && <details className="forge-readback" data-forge-reading><summary>{t('forge.refs.writtenFrom')}</summary><Reading text={result.referenceAnalysis}/></details>}
         {meta.map(s => <label key={s.label} className="forge-field"><span>{s.label}</span><textarea readOnly value={s.body}/></label>)}
       </div>}
     </div>

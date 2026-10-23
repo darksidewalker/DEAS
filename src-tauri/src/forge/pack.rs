@@ -19,6 +19,9 @@ pub struct Pack {
     pub defaults: Value,
     pub shared: Shared,
     pub models: HashMap<String, PackModel>,
+    /// The reference roles in file order: the order pictures are numbered in.
+    #[serde(skip)]
+    pub role_order: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,6 +35,12 @@ pub struct Shared {
     /// PromptForge's second-pass instruction; without it there is no Second pass.
     #[serde(default)]
     pub second_pass: Option<String>,
+    /// The reading pass before a write with reference pictures.
+    #[serde(default)]
+    pub reference_blueprint: Option<String>,
+    /// Analyze's read-back of one reference picture.
+    #[serde(default)]
+    pub reference_analysis: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,8 +67,56 @@ impl Pack {
                 path.display()
             )
         })?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Prompt Forge data pack is invalid: {e}"))
+        let mut pack: Pack = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("Prompt Forge data pack is invalid: {e}"))?;
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Defaults {
+            image_reference_roles: Keys,
+        }
+        #[derive(Deserialize)]
+        struct Order {
+            #[serde(default)]
+            defaults: Defaults,
+        }
+        pack.role_order = serde_json::from_slice::<Order>(&bytes)
+            .map(|o| o.defaults.image_reference_roles.0)
+            .unwrap_or_default();
+        Ok(pack)
+    }
+}
+
+/// Object keys in the order the pack file has them. The parsed pack's maps are
+/// sorted, and PromptForge's tiles, styles and presets are shown in file order.
+#[derive(Debug, Default)]
+pub struct Keys(pub Vec<String>);
+
+impl<'de> serde::Deserialize<'de> for Keys {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Keys;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an object or a list of names")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<Keys, A::Error> {
+                let mut out = vec![];
+                while let Some((k, _)) = a.next_entry::<String, serde::de::IgnoredAny>()? {
+                    out.push(k);
+                }
+                Ok(Keys(out))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut a: A) -> Result<Keys, A::Error> {
+                let mut out = vec![];
+                while let Some(v) = a.next_element::<Value>()? {
+                    if let Some(s) = v.as_str() {
+                        out.push(s.to_string());
+                    }
+                }
+                Ok(Keys(out))
+            }
+        }
+        d.deserialize_any(V)
     }
 }
 

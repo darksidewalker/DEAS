@@ -163,3 +163,21 @@
 .forge-compare textarea[readonly] { color: var(--muted); background: #0d1215; }
 .forge-new textarea { border-color: #7c9cac80; }
 @media (max-width: 700px) { .forge-compare { grid-template-columns: 1fr; } }
+.forge-refs { display: grid; gap: 10px; }
+.forge-refcard { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid #ffffff16; border-radius: 8px; background: #11171a; }
+.forge-refcard > img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #0b0e10; }
+.forge-refcard-body { display: grid; gap: 8px; min-width: 0; align-content: start; }
+.forge-refcard-body select, .forge-refcard-body input[type="text"], .forge-refdrop select { padding: 7px 9px; }
+.forge-refdrop { display: grid; gap: 10px; padding: 12px; border: 1px dashed #ffffff2a; border-radius: 8px; transition: border-color .12s, background .12s; }
+.forge-refdrop.over { border-color: var(--blue); background: #7c9cac14; }
+.forge-refadd { display: flex; justify-content: center; padding: 10px; border: 1px solid #7c9cac66; border-radius: 6px; color: var(--blue); font-size: 12px; cursor: pointer; }
+.forge-refadd:hover { background: #7c9cac1a; }
+.forge-refadd input { display: none; }
+.forge-readback { border-top: 1px solid #ffffff12; padding-top: 6px; }
+.forge-readback summary { cursor: pointer; font-size: 12px; color: var(--blue); }
+.forge-readback pre { margin: 6px 0 0; white-space: pre-wrap; font-family: inherit; font-size: 12px; line-height: 1.5; color: #c0c8c9; max-height: 18rem; overflow: auto; }
+@media (max-width: 520px) { .forge-refcard { grid-template-columns: 1fr; } }
+.forge-reading { display: grid; gap: 4px; margin-top: 6px; max-height: 20rem; overflow: auto; font-size: 12px; line-height: 1.5; color: #c0c8c9; }
+.forge-reading strong { margin-top: 6px; color: var(--chalk); font-weight: 600; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.forge-reading strong:first-child { margin-top: 0; }
+.forge-reading p { margin: 0; white-space: pre-wrap; }

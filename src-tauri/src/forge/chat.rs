@@ -155,6 +155,28 @@ fn parse(value: &Value, ollama: bool) -> Result<Reply, String> {
     })
 }
 
+/// A user turn with pictures (data URIs): content parts for an OpenAI-compatible
+/// server, an `images` list of bare base64 for Ollama.
+pub fn user_with_images(text: &str, images: &[String], ollama: bool) -> Value {
+    if images.is_empty() {
+        return json!({ "role": "user", "content": text });
+    }
+    if ollama {
+        let bare: Vec<&str> = images
+            .iter()
+            .map(|u| u.split_once(",").map_or(u.as_str(), |(_, b)| b))
+            .collect();
+        return json!({ "role": "user", "content": text, "images": bare });
+    }
+    let mut parts = vec![json!({ "type": "text", "text": text })];
+    parts.extend(
+        images
+            .iter()
+            .map(|u| json!({ "type": "image_url", "image_url": { "url": u } })),
+    );
+    json!({ "role": "user", "content": parts })
+}
+
 /// The model's own tool turn, echoed back before its results.
 pub fn assistant_turn(content: &str, calls: &[ToolCall], ollama: bool) -> Value {
     let calls: Vec<Value> = calls

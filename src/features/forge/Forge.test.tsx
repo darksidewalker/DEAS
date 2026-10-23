@@ -742,3 +742,32 @@ it('Randomizer rolls the ticked boxes with the cast and adds the result to the b
   expect(screen.queryByRole('dialog')).toBeNull();
   expect((document.querySelector('[data-forge-brief]') as HTMLTextAreaElement).value).toBe('by a campfire, 1girl, grey hair');
 });
+
+it('Prompt Forge tab sends reference pictures with their roles, analyzes one and shows what the write was read from', async () => {
+  const references = { roles: [{ key: 'general', label: 'General' }, { key: 'pose', label: 'Pose', rule: 'posture and hands' }], fidelity: [{ key: 'close', label: 'Keep most of it' }, { key: 'loose', label: 'Loose inspiration' }], defaultRole: 'general', defaultFidelity: 'close', max: 6, analyze: true };
+  const readback = vi.fn(async (_: unknown) => '**What I see**\nA girl with her arms out.');
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, references })
+    : c === 'native_forge_reference_readback' ? readback(a)
+    : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: 'frieren, arms out', negative: null, characters: [], tools: [], rounds: 0, warnings: [], fixes: [], referenceAnalysis: 'REFERENCE 1 — POSE\nUSE: arms horizontal' })
+    : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: /Reference images/ }));
+  fireEvent.change(document.querySelector('[data-forge-ref-select="next-role"]')!, { target: { value: 'pose' } });
+  fireEvent.change(document.querySelector('[data-forge-ref-file]')!, { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], 'pose.png', { type: 'image/png' })] } });
+  await waitFor(() => expect(document.querySelectorAll('[data-forge-ref]')).toHaveLength(1));
+  expect(screen.getByText('posture and hands')).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-ref-note]')!, { target: { value: 'the arms only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+  await screen.findByText('A girl with her arms out.');
+  expect(readback).toHaveBeenCalledWith({ root: '/env', model: 'qwen', reference: expect.objectContaining({ role: 'pose', fidelity: 'close', note: 'the arms only', image: expect.stringMatching(/^data:image\/png;base64,/) }) });
+  // A changed note makes the read-back out of date.
+  fireEvent.change(document.querySelector('[data-forge-ref-note]')!, { target: { value: 'the arms and the gaze' } });
+  expect(screen.getByText(/out of date/)).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren in a meadow' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('frieren, arms out');
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ imageReferences: [{ role: 'pose', fidelity: 'close', note: 'the arms and the gaze', character: '', image: expect.stringMatching(/^data:image\/png;base64,/) }] });
+  expect(screen.getByText(/What the pictures were read as/)).toBeTruthy();
+});
