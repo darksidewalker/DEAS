@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.1.42
 
+- Owned-backend controls are now uniform short actions — Start, Test, Stop, Restart, Inspect. **Test** runs a quick read-only dependency check and lists each item with a green ✓ or red ✗: installed environment, Python venv, ComfyUI, DaSiWa nodes, backend API (new `native_backend_test` command, six locales, mock-IPC tests).
+
 - Keep Library metadata scans running as native background work across tab changes, with file/count progress in CLI and shared Logs. After a verified binary update, DEAS automatically closes and reopens once backend updates and pending work/project saves complete. Footer version and Upgrade both ask for confirmation before application/backend updates; the application updater checks the latest release and safely replaces a supported binary only when a verified newer asset is available.
 
 - Split Generate’s Wildcards and Presets tabs. Wildcards retains its existing library controls; Presets saves named live Studio settings, loads without execution and updates explicitly with overwrite confirmation. Native bounded/atomic storage, six locales and regression tests accompany the feature.
