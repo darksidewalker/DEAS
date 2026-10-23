@@ -43,6 +43,9 @@ with sync_playwright() as p:
             assert page.locator('.footer').evaluate("e=>getComputedStyle(e).position") == 'fixed'
             assert page.locator('.footer').evaluate("e=>getComputedStyle(e).backgroundColor") == 'rgba(0, 0, 0, 0)'
             assert page.locator('.footer-version').evaluate("e=>getComputedStyle(e).backgroundColor") == 'rgba(0, 0, 0, 0)'
+            version_style = page.locator('.footer-version').evaluate("e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return {appearance:s.appearance,border:s.borderTopWidth,shadow:s.boxShadow,font:s.fontSize,width:r.width,height:r.height}}")
+            assert version_style['appearance'] == 'none' and version_style['border'] == '0px' and version_style['shadow'] == 'none', (width, locale, version_style)
+            assert version_style['font'] == '9px' and version_style['height'] <= 14 and version_style['width'] < 150, (width, locale, version_style)
             assert page.locator('.footer-version').inner_text().startswith('DEAS v')
             assert page.locator('.studio-shell').evaluate("e=>getComputedStyle(e).paddingLeft") == '3px'
             assert page.locator('.studio-shell').evaluate("e=>getComputedStyle(e).paddingRight") == '3px'

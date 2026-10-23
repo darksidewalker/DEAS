@@ -440,8 +440,8 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  });
  it('connects an existing backend only through an explicit valid address and never installs',()=>{
   const connect=vi.fn();mount(connect);open();
-  change('Existing backend address','not a url');click('Inspect existing backend');expect(connect).not.toHaveBeenCalled();expect(screen.getByRole('alert')).toBeTruthy();
-  change('Existing backend address','http://127.0.0.1:8188');click('Inspect existing backend');expect(connect).toHaveBeenCalledWith('http://127.0.0.1:8188',true);expect(invoke).not.toHaveBeenCalled();
+  change('Existing backend address','not a url');click('Connect existing backend');expect(connect).not.toHaveBeenCalled();expect(screen.getByRole('alert')).toBeTruthy();
+  change('Existing backend address','http://127.0.0.1:8188');click('Connect existing backend');expect(connect).toHaveBeenCalledWith('http://127.0.0.1:8188',true);expect(invoke).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/Manual|Save local draft|Restore/})).toBeNull();
  });
  it('takeover rebuilds a foreign folder only after an explicit confirm and marks the request',async()=>{

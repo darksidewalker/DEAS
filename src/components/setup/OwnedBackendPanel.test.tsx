@@ -65,11 +65,11 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   expect(connect).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:49173');
   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
   expect(connect).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button',{name:'Inspect'}));
+  fireEvent.click(screen.getByRole('button',{name:'Connect'}));
   expect(connect).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('button',{name:'Stop'}));await act(async()=>{});
   expect(screen.getByRole('status').textContent).toContain('Stopped');
-  expect(screen.queryByRole('button',{name:'Inspect'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_backend_start'],['native_backend_status'],['native_backend_status'],['native_backend_stop']]);
   await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(invoke).toHaveBeenCalledTimes(4);
   expect(screen.getByText(/Generation readiness is not verified/)).toBeTruthy();
@@ -87,7 +87,7 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   mount(true);fireEvent.click(screen.getByRole('button',{name:'Start'}));
   expect((await screen.findByRole('alert')).textContent).toContain('owned launch hash mismatch');
   expect(screen.getByRole('status').textContent).toBe('Failed');
-  expect(screen.queryByRole('button',{name:'Inspect'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
   expect(screen.queryByRole('button',{name:'Stop'})).toBeNull();
  });
  it('shows rejected IPC errors and can explicitly refresh without claiming running',async()=>{
@@ -114,13 +114,13 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   view.unmount();await act(async()=>{resolve(fixture('running','http://127.0.0.1:49423'));});
   await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
   expect(invoke).toHaveBeenCalledTimes(2);
-  mount(false);expect(screen.queryByRole('button',{name:'Inspect'})).toBeNull();
+  mount(false);expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
  });
  it('does not expose endpoint inspection for running without an endpoint',async()=>{
   vi.mocked(invoke).mockImplementation(async (c:string)=>c==='native_backend_test'?DEPS:fixture('running'));mount(false);
   fireEvent.click(screen.getByRole('button',{name:'Test'}));
   await screen.findByRole('button',{name:'Stop'});
-  expect(screen.queryByRole('button',{name:'Inspect'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
  });
  it.each(['starting','failed','stopped'] as const)('does not hand off a %s backend even with endpoint metadata',async state=>{
   const connect=vi.fn();vi.mocked(invoke).mockImplementation(async (c:string)=>c==='native_backend_test'?DEPS:fixture(state,'http://127.0.0.1:49312'));
@@ -191,7 +191,7 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_test'?DEPS:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49517':null));
   fireEvent.click(screen.getByRole('button',{name:'Start'}));
   await screen.findByRole('button',{name:'Stop'});
-  await screen.findByRole('button',{name:'Inspect'}, {timeout:2500});
+  await screen.findByRole('button',{name:'Connect'}, {timeout:2500});
   fireEvent.click(screen.getByRole('button',{name:'Stop'}));
   await waitFor(()=>expect(screen.queryByRole('button',{name:'Stop'})).toBeNull());
   const lifecycleCalls=vi.mocked(invoke).mock.calls.filter(([command])=>command.startsWith('native_backend_'));

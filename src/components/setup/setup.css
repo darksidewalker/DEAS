@@ -153,7 +153,7 @@
 .backend-auth .download-module { margin: 0; }
 .aio-setup > .footer { position: fixed; right: 8px; bottom: 6px; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; background: transparent; pointer-events: none; }
 .aio-setup .footer-version { margin: 0; padding: 0; background: transparent; font-size: 9px; color: #b6c1c5; }
-.aio-setup button.footer-version { pointer-events: auto; }
+.aio-setup button.footer-version { appearance: none; -webkit-appearance: none; display: inline-flex; align-items: center; width: auto; min-width: 0; height: auto; min-height: 0; border: 0; border-radius: 0; box-shadow: none; line-height: 1; cursor: pointer; pointer-events: auto; }
 
 .footer-backend { font-size: 11px; color: #b6c1c5; }
 .footer-backend.is-ready { color: #a0e0ad; animation: backend-ready-glow 3s ease-out both; }
