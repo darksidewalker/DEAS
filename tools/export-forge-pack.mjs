@@ -81,6 +81,9 @@ process.stdout.write(JSON.stringify({
     // Reference pictures: the reading pass before a write, and Analyze's read-back.
     reference_blueprint: prompts.referenceBlueprint(),
     reference_analysis: prompts.referenceAnalysis(),
+    // Chat: PromptForge's chat system prompt, and the video models' composed prompts as guides it can read.
+    chat: prompts.chat(),
+    video_guides: Object.fromEntries(['h3', 'wan', 'ltx'].filter((k) => registry.get(k)).map((k) => [k, { label: registry.get(k).label, system: prompts.get(k) }])),
   },
   models,
 }, null, 1));
