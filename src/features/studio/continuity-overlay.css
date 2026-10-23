@@ -8,14 +8,14 @@
   margin: auto;
   padding: 0;
   overflow: hidden;
-  border: 1px solid #435256;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
   color: var(--chalk);
 }
 .continuity-overlay[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.continuity-overlay::backdrop { background: #0009; }
-.continuity-overlay-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid #435256; }
+.continuity-overlay::backdrop { background: rgb(var(--shadow-rgb) / 0.6); }
+.continuity-overlay-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid var(--line); }
 .continuity-overlay-header h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .continuity-overlay-header button { flex: none; }
 .continuity-overlay-body { min-height: 0; min-width: 0; overflow: auto; padding: 1rem; overflow-wrap: anywhere; }

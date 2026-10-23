@@ -9,6 +9,10 @@ import "@fontsource/manrope/latin-500.css";
 import "@fontsource/manrope/latin-600.css";
 import "@fontsource/manrope/latin-800.css";
 import "./styles.css";
+import "./themes.css";
+import { applySavedScheme } from "./lib/theme";
+
+applySavedScheme();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

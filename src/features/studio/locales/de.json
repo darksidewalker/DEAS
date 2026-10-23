@@ -585,5 +585,6 @@
   "studio.run.video.ref.drop": "Ignorieren",
   "studio.run.video.ref.dropOf": "Ignorieren aus {name}",
   "studio.editor.restoreFrame": "Zurück in den Rahmen",
-  "studio.run.useInput": "Als Eingabe verwenden"
+  "studio.run.useInput": "Als Eingabe verwenden",
+  "studio.quick.scheme": "Farbschema"
 }

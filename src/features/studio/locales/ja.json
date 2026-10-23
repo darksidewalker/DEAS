@@ -585,5 +585,6 @@
   "studio.run.video.ref.drop": "無視",
   "studio.run.video.ref.dropOf": "{name} から無視",
   "studio.editor.restoreFrame": "枠内に戻す",
-  "studio.run.useInput": "入力として使用"
+  "studio.run.useInput": "入力として使用",
+  "studio.quick.scheme": "カラースキーム"
 }

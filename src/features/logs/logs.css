@@ -2,20 +2,20 @@
 .logs-toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .logs-chips { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
 /* Same look as the header buttons; level chips keep their level colour when pressed. */
-.logs-panel .logs-chip { padding: .3rem .65rem; border: 1px solid #7c9cac4d; border-radius: .6rem; background: #1c2427; color: var(--muted); font-size: .78rem; line-height: 1.2; cursor: pointer; }
+.logs-panel .logs-chip { padding: .3rem .65rem; border: 1px solid rgb(var(--blue-rgb) / 0.302); border-radius: .6rem; background: var(--panel); color: var(--muted); font-size: .78rem; line-height: 1.2; cursor: pointer; }
 .logs-panel .logs-chip:hover:not(:disabled) { border-color: var(--blue); color: var(--chalk); }
 .logs-panel .logs-chip[aria-pressed="true"] { background: var(--surface); color: var(--chalk); border-color: var(--copper); }
 .logs-panel .logs-chip[aria-pressed="false"] { opacity: .55; }
-.logs-panel .logs-chip.log-error[aria-pressed="true"] { color: #ff9a8f; }
-.logs-panel .logs-chip.log-warning[aria-pressed="true"] { color: #f2c46d; }
-.logs-panel .logs-chip.log-debug[aria-pressed="true"] { color: #8fa3ab; }
+.logs-panel .logs-chip.log-error[aria-pressed="true"] { color: var(--danger-hi); }
+.logs-panel .logs-chip.log-warning[aria-pressed="true"] { color: var(--gold); }
+.logs-panel .logs-chip.log-debug[aria-pressed="true"] { color: var(--muted); }
 .logs-panel .logs-action { color: var(--chalk); }
 .logs-panel .logs-action:disabled { opacity: .4; cursor: not-allowed; }
-.logs-panel .logs-search { flex: 1 1 12rem; min-width: 8rem; padding: .3rem .65rem; border: 1px solid #7c9cac4d; border-radius: .6rem; background: #121719; font-size: .78rem; }
-.logs-panel .logs-view { flex: 1 1 0; min-height: 12rem; max-height: none; overflow: auto; margin: .4rem 0 0; padding: .6rem; border-radius: .5rem; background: #0f1416; font-size: .72rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.log-error { color: #ff9a8f; }
-.log-warning { color: #f2c46d; }
-.log-debug { color: #8fa3ab; }
+.logs-panel .logs-search { flex: 1 1 12rem; min-width: 8rem; padding: .3rem .65rem; border: 1px solid rgb(var(--blue-rgb) / 0.302); border-radius: .6rem; background: var(--field); font-size: .78rem; }
+.logs-panel .logs-view { flex: 1 1 0; min-height: 12rem; max-height: none; overflow: auto; margin: .4rem 0 0; padding: .6rem; border-radius: .5rem; background: var(--deep); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-error { color: var(--danger-hi); }
+.log-warning { color: var(--gold); }
+.log-debug { color: var(--muted); }
 .logs-count { margin: .4rem 0 0; font-size: .75rem; }
 /* The log view fills the window down to the footer: each wrapper between page and panel stretches. */
 main:has(.logs-panel), .aio-setup:has(.logs-panel), .aio-left:has(> .logs-panel), .logs-panel { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }

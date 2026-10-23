@@ -585,5 +585,6 @@
   "studio.run.video.ref.drop": "Yoksay",
   "studio.run.video.ref.dropOf": "{name} içinden yoksay",
   "studio.editor.restoreFrame": "Çerçeveye geri al",
-  "studio.run.useInput": "Girdi olarak kullan"
+  "studio.run.useInput": "Girdi olarak kullan",
+  "studio.quick.scheme": "Renk şeması"
 }
