@@ -445,7 +445,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_pick_directory'?'/foreign/env':c==='native_files_present'?[true,false]:(async(command,args)=>{if(command==='native_install_defaults')return defaults;if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);if(command==='native_detect_hardware')return {backend:null};return {state:'running',stepId:'python',logs:[],error:null};})(c,a));
   mount();open();
   await screen.findByRole('button',{name:'Start install'});
-  fireEvent.click(screen.getByLabelText('Adopt a foreign installation (rebuild its venv)'));
+  fireEvent.click(screen.getByRole('button',{name:'Adopt a foreign installation (rebuild its venv)'}));
   expect(screen.getByText(/deletes and rebuilds/)).toBeTruthy();
   expect(screen.queryByRole('button',{name:'Adopt installation'})).toBeNull(); // no path chosen yet
   fireEvent.click(screen.getByRole('button',{name:'Choose folder'}));

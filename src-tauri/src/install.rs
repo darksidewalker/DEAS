@@ -112,7 +112,7 @@ pub struct Request {
     /// Rebuild an existing foreign ComfyUI folder in place: its venv and runtime are replaced,
     /// the requested ref and selected node packs are fetched, and DEAS manifests mark the folder
     /// as managed. Models, inputs, outputs and untracked files are never deleted.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub takeover: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2092,6 +2092,11 @@ mod tests {
     fn takeover_requires_main_py_and_rejects_managed_folders() {
         let tmp = scratch();
         let engine = Engine::default();
+        // Legacy manifests predate `takeover`: plain plans must serialize without the key so reopening stays byte-compatible.
+        assert!(serde_json::to_value(&request(tmp.path()))
+            .unwrap()
+            .get("takeover")
+            .is_none());
         let mut r = request(tmp.path());
         r.storage_path = tmp.path().to_str().unwrap().into();
         r.takeover = true;
