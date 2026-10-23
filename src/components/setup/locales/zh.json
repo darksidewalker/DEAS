@@ -87,6 +87,7 @@
   "installer.steps.venv": "创建隔离环境",
   "installer.steps.torch": "安装固定版本的 Torch 软件包",
   "installer.steps.requirements": "安装 ComfyUI 依赖项",
+  "installer.steps.ffmpeg": "在托管环境中安装 FFmpeg 二进制文件",
   "installer.steps.nodes": "安装选定的节点包",
   "installer.steps.verify": "验证运行时（不代表生成功能已就绪）",
   "setup.summary.core": "仅核心",

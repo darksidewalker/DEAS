@@ -87,6 +87,7 @@
   "installer.steps.venv": "Create isolated environment",
   "installer.steps.torch": "Install pinned Torch packages",
   "installer.steps.requirements": "Install ComfyUI requirements",
+  "installer.steps.ffmpeg": "Install FFmpeg binary in the managed environment",
   "installer.steps.nodes": "Install selected node packages",
   "installer.steps.verify": "Verify runtime (not generation readiness)",
   "setup.summary.core": "Core only",

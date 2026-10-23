@@ -87,6 +87,7 @@
   "installer.steps.venv": "Yalıtılmış ortam oluştur",
   "installer.steps.torch": "Sürümleri sabitlenmiş Torch paketlerini kur",
   "installer.steps.requirements": "ComfyUI bağımlılıklarını kur",
+  "installer.steps.ffmpeg": "Yönetilen ortama FFmpeg ikili dosyasını kur",
   "installer.steps.nodes": "Seçilen düğüm paketlerini kur",
   "installer.steps.verify": "Çalışma ortamını doğrula (üretime hazır olma durumunu değil)",
   "setup.summary.core": "Yalnızca temel bileşen",

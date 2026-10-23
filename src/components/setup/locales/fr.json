@@ -87,6 +87,7 @@
   "installer.steps.venv": "Créer un environnement isolé",
   "installer.steps.torch": "Installer les paquets Torch aux versions fixées",
   "installer.steps.requirements": "Installer les dépendances de ComfyUI",
+  "installer.steps.ffmpeg": "Installer le binaire FFmpeg dans l’environnement géré",
   "installer.steps.nodes": "Installer les paquets de nœuds sélectionnés",
   "installer.steps.verify": "Vérifier l’environnement d’exécution (pas la capacité à générer)",
   "setup.summary.core": "Socle uniquement",

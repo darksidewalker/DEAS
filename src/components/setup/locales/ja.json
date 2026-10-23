@@ -87,6 +87,7 @@
   "installer.steps.venv": "隔離環境を作成",
   "installer.steps.torch": "バージョン固定の Torch パッケージをインストール",
   "installer.steps.requirements": "ComfyUI の依存パッケージをインストール",
+  "installer.steps.ffmpeg": "管理対象環境に FFmpeg バイナリをインストール",
   "installer.steps.nodes": "選択したノードパッケージをインストール",
   "installer.steps.verify": "ランタイムを検証（生成準備の検証ではありません）",
   "setup.summary.core": "基本構成のみ",

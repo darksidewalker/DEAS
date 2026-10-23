@@ -532,7 +532,14 @@ impl Lifecycle {
         {
             // Python refuses to start without SYSTEMROOT; System32 supplies only OS DLLs.
             let system_root = std::env::var_os("SYSTEMROOT").unwrap_or_default();
-            command.env("PATH", Path::new(&system_root).join("System32"));
+            let mut path = vec![Path::new(&system_root).join("System32")];
+            if approved.plan.request.options.ffmpeg {
+                path.push(root.join("venv").join("Scripts"));
+            }
+            command.env(
+                "PATH",
+                std::env::join_paths(path).map_err(|_| "FFmpeg path invalid".to_string())?,
+            );
             for name in ["SYSTEMROOT", "WINDIR", "COMSPEC"] {
                 if let Some(value) = std::env::var_os(name) {
                     command.env(name, value);
@@ -540,7 +547,14 @@ impl Lifecycle {
             }
         }
         #[cfg(not(windows))]
-        command.env("PATH", "/usr/bin:/bin");
+        command.env(
+            "PATH",
+            if approved.plan.request.options.ffmpeg {
+                format!("/usr/bin:/bin:{}", root.join("venv").join("bin").display())
+            } else {
+                "/usr/bin:/bin".to_string()
+            },
+        );
         for (name, folder) in [
             ("HOME", "home"),
             ("USERPROFILE", "home"),

@@ -87,6 +87,7 @@
   "installer.steps.venv": "Isolierte Umgebung erstellen",
   "installer.steps.torch": "Festgelegte Torch-Pakete installieren",
   "installer.steps.requirements": "ComfyUI-Abhängigkeiten installieren",
+  "installer.steps.ffmpeg": "FFmpeg-Binary in die verwaltete Umgebung installieren",
   "installer.steps.nodes": "Ausgewählte Node-Pakete installieren",
   "installer.steps.verify": "Laufzeit prüfen (keine Generierungsbereitschaft)",
   "setup.summary.core": "Nur Basis",

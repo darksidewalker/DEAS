@@ -367,7 +367,6 @@ impl Engine {
             || plan.request.options.sage
             || plan.request.options.radial
             || plan.request.options.flash
-            || plan.request.options.ffmpeg
         {
             return Err(
                 "Existing DEAS environment is incompatible or its recorded location changed".into(),
@@ -442,7 +441,6 @@ impl Engine {
             ("sage", request.options.sage),
             ("radial", request.options.radial),
             ("flash", request.options.flash),
-            ("ffmpeg", request.options.ffmpeg),
         ] {
             if selected {
                 unsupported.push(name.into());
@@ -483,6 +481,9 @@ impl Engine {
             "Create isolated target/venv"
         };
         for (id,detail) in [("uv","Download official uv 0.8.22 archive and verify embedded SHA-256 before extracting executable"),("python","Install managed Python 3.12 under target/runtime; no system Python or PATH changes"),("comfy",comfy_detail),("venv",venv_detail),("torch","Install torch 2.8.0 / torchvision 0.23.0 / torchaudio 2.8.0 from official CPU wheel index"),("requirements","Install ComfyUI requirements with Torch constraints")] { steps.push(Step{id:id.into(),label_key:format!("installer.steps.{id}"),detail:detail.into()}); }
+        if request.options.ffmpeg {
+            steps.push(Step{id:"ffmpeg".into(),label_key:"installer.steps.ffmpeg".into(),detail:"Install imageio-ffmpeg; copy its static FFmpeg binary into the managed venv bin".into()});
+        }
         if request
             .features
             .iter()
@@ -1398,6 +1399,27 @@ async fn packages(
         cancel,
     )
     .await?;
+    if plan.request.options.ffmpeg {
+        step(inner, "ffmpeg");
+        run(
+            uv,
+            &["pip", "install", "--python", py, "imageio-ffmpeg"],
+            comfy,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+        run(
+            python.as_path(),
+            &["-c", "import imageio_ffmpeg,os,shutil,sys;b=imageio_ffmpeg.get_ffmpeg_exe();d=os.path.join(sys.prefix,'Scripts' if os.name=='nt' else 'bin');shutil.copy2(b,os.path.join(d,'ffmpeg.exe' if os.name=='nt' else 'ffmpeg'))"],
+            root,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+    }
     let mut node_revision = None;
     if plan
         .request
@@ -2024,18 +2046,29 @@ mod tests {
             assert!(!plan.can_execute);
             assert!(engine.start(&plan.id, true).is_err());
         }
-        for option in ["sage", "radial", "flash", "ffmpeg", "unknown-feature"] {
+        for option in ["sage", "radial", "flash", "unknown-feature"] {
             let engine = Engine::default();
             let mut request = request(tmp.path());
             match option {
                 "sage" => request.options.sage = true,
                 "radial" => request.options.radial = true,
                 "flash" => request.options.flash = true,
-                "ffmpeg" => request.options.ffmpeg = true,
                 _ => request.features.push(option.into()),
             }
             assert!(!engine.plan(request).unwrap().can_execute);
         }
+        assert!(!tmp.path().join("new").exists());
+    }
+
+    #[test]
+    fn ffmpeg_opt_in_is_supported_and_adds_an_install_step() {
+        let tmp = scratch();
+        let engine = Engine::default();
+        let mut request = request(tmp.path());
+        request.options.ffmpeg = true;
+        let plan = engine.plan(request).unwrap();
+        assert!(plan.can_execute, "{:?}", plan.unsupported_options);
+        assert!(plan.steps.iter().any(|s| s.id == "ffmpeg"));
         assert!(!tmp.path().join("new").exists());
     }
 
