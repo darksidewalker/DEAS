@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { backendErrorText } from '../../lib/backendErrors';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
@@ -686,7 +687,7 @@ const promptTools=forgeContext&&<>
  const stageWarnings=[...new Set([
   ...(checkpointPref&&!model?[t('studio.quick.unavailable',{names:checkpointPref})]:[]),
   ...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
-  ...(error?[error]:[]),...(shown?.error?[shown.error]:[]),
+  ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
  ])];
  const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>id!=='references'||refsTab).map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}
     // Media tiles live in another tab of this dock, so the References tab button itself takes the drop.

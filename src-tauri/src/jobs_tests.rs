@@ -1,5 +1,183 @@
 use super::*;
 
+#[tokio::test]
+async fn watch_completion_sends_close_frame() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(
+                json!({"type":"execution_start","data":{"prompt_id":PROMPT_ID}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        socket
+            .send(Message::Text(
+                json!({"type":"execution_success","data":{"prompt_id":PROMPT_ID}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            matches!(socket.next().await, Some(Ok(Message::Close(_)))),
+            "completion must send a WebSocket Close, not reset TCP"
+        );
+        socket.flush().await.unwrap();
+    });
+    let live: Arc<Mutex<Live>> = Arc::default();
+    watch(&base, "test-client", live.clone()).await;
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn watch_ignores_foreign_completion_and_progress_but_answers_pings() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let live: Arc<Mutex<Live>> = Arc::default();
+    let observed = live.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        for event in [
+            json!({"type":"execution_interrupted","data":{"prompt_id":"foreign"}}),
+            json!({"type":"execution_start","data":{"prompt_id":PROMPT_ID}}),
+            json!({"type":"execution_start","data":{"prompt_id":"foreign"}}),
+            json!({"type":"progress","data":{"value":1,"max":10}}),
+            json!({"type":"progress","data":{"prompt_id":PROMPT_ID,"value":2,"max":10}}),
+            json!({"type":"progress","data":{"prompt_id":"foreign","value":99,"max":100}}),
+            json!({"type":"execution_success","data":{"prompt_id":"foreign"}}),
+            json!({"type":"execution_error","data":{"prompt_id":"foreign"}}),
+            json!({"type":"execution_interrupted","data":{"prompt_id":"foreign"}}),
+            json!({"type":"execution_success","data":{}}),
+        ] {
+            socket
+                .send(Message::Text(event.to_string().into()))
+                .await
+                .unwrap();
+        }
+        socket
+            .send(Message::Binary(
+                [0, 0, 0, 1, 0, 0, 0, 1, 0xff, 0xd8, 0xff].to_vec().into(),
+            ))
+            .await
+            .unwrap();
+        socket
+            .send(Message::Ping(b"heartbeat".to_vec().into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            socket.next().await.unwrap().unwrap(),
+            Message::Pong(b"heartbeat".to_vec().into())
+        );
+        {
+            let live = observed.lock().unwrap();
+            assert_eq!((live.value, live.max), (2, 10));
+            assert!(live
+                .preview
+                .as_ref()
+                .unwrap()
+                .starts_with("data:image/jpeg;base64,"));
+        }
+        socket
+            .send(Message::Text(
+                json!({"type":"execution_success","data":{"prompt_id":PROMPT_ID}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+        socket.flush().await.unwrap();
+    });
+    watch(&base, "test-client", live.clone()).await;
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn watch_close_wait_is_bounded_without_holding_live_mutex() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::io::AsyncReadExt;
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let live: Arc<Mutex<Live>> = Arc::default();
+    let observed = live.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        for kind in ["execution_start", "execution_error"] {
+            socket
+                .send(Message::Text(
+                    json!({"type":kind,"data":{"prompt_id":PROMPT_ID}})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+        }
+        assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+        assert!(
+            observed.try_lock().is_ok(),
+            "close wait must not hold the live-view mutex"
+        );
+        // Deliberately do not flush the automatic close reply; read TCP directly.
+        let mut byte = [0];
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), socket.get_mut().read(&mut byte))
+                .await
+                .is_err(),
+            "client should wait for the peer close reply"
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), socket.get_mut().read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+    });
+    watch(&base, "test-client", live.clone()).await;
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn watch_answers_peer_close() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        socket.send(Message::Close(None)).await.unwrap();
+        assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+    });
+    let live: Arc<Mutex<Live>> = Arc::default();
+    watch(&base, "test-client", live.clone()).await;
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
 fn prepared_video() -> Value {
     json!({"kind":"video","filename":"folder/日本 clip.mp4","clip_id":"a".repeat(64),
         "sha256":"b".repeat(64),"width":1920,"height":1080,"fps":29.97,"seconds":12.5,

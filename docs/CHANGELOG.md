@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.1.42
 
+- Every red banner and alert message (studio, setup, jobs, logs) gets a Dismiss × button so users can close error banners without the underlying state changing.
+
+- Show localized, actionable backend discovery messages for unavailable connections, timeouts/interrupted requests and HTTP failures instead of raw `object_info` transport URLs. Keep validation and uncertain execution failures distinct. Respect explicit log severity so ComfyUI's `[WARNING] send error` stays a warning rather than becoming an error. Close job-preview WebSockets with a bounded handshake and correlate completion events to their own prompt instead of dropping the transport on any completion event.
+
 - Share the complete Media panel and toolbar between Studio and Prompt Forge. Forge gains the same search, sorting, media-type/view controls and Output/Starred/Input browsing without duplicating browser code; preserve separate host preferences and explicit prompt/reference execution.
 
 - Restore the clickable footer version as a tiny transparent overlay: explicitly remove native button appearance, borders, shadows and minimum sizing without changing update confirmation or workspace layout.

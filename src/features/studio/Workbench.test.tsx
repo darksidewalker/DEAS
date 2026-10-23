@@ -29,6 +29,23 @@ const clickMedia=(image:HTMLImageElement,clientX=400,clientY=300)=>{
  fireEvent.click(image,{clientX,clientY});
  if(bounds)Object.defineProperty(image,'getBoundingClientRect',bounds);else Reflect.deleteProperty(image,'getBoundingClientRect');
 };
+test.each([
+ ['BACKEND_UNAVAILABLE', 'Backend not reachable'],
+ ['BACKEND_TIMEOUT', 'did not respond in time'],
+])('Studio displays friendly discovery failure %s without claiming the model is ready',async(code,expected)=>{
+ const previous=vi.mocked(checkRecipePrerequisites).getMockImplementation()!;
+ vi.mocked(checkRecipePrerequisites).mockRejectedValue(new Error(`${code}: object_info request failed http://127.0.0.1:45519/object_info`));
+ try{
+  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:45519"/></I18nProvider>);
+  dock('Models');
+  fireEvent.click(document.querySelector('[data-run-load]')!);
+  await screen.findByText(new RegExp(expected));
+  expect(document.body.textContent).not.toContain('object_info request failed');
+  expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(true);
+  expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ }finally{vi.mocked(checkRecipePrerequisites).mockImplementation(previous);}
+});
+
 test.each(['success','failure'] as const)('switching model folders scans the installed root and ignores an old scan %s',async(outcome)=>{
  let resolve!:(models:Awaited<ReturnType<typeof scanModels>>)=>void;let reject!:(reason:Error)=>void;
  const old=new Promise<Awaited<ReturnType<typeof scanModels>>>((yes,no)=>{resolve=yes;reject=no;});

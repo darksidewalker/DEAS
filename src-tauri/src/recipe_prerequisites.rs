@@ -455,7 +455,7 @@ mod tests {
         assert!(native_recipe_prerequisites(base)
             .await
             .unwrap_err()
-            .contains("request failed"));
+            .starts_with("BACKEND_TIMEOUT:"));
         assert!(started.elapsed() >= Duration::from_secs(9));
         assert!(started.elapsed() < Duration::from_secs(11));
         request.await.unwrap();

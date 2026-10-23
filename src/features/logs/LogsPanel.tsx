@@ -15,6 +15,12 @@ const SHOWN = 2000;
 
 /** Level from the text itself: Python logging tags, tracebacks and uv/git/pip `error:`/`warning:` prefixes. */
 export function levelOf(text: string): LogLevel {
+  const prefix = text.match(/^\s*(?:\[(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG)\]|(ERROR|CRITICAL|WARNING|WARN|INFO|DEBUG):)/i);
+  const tag = (prefix?.[1] ?? prefix?.[2])?.toUpperCase();
+  if (tag === 'ERROR' || tag === 'CRITICAL') return 'error';
+  if (tag === 'WARNING' || tag === 'WARN') return 'warning';
+  if (tag === 'DEBUG') return 'debug';
+  if (tag === 'INFO') return 'info';
   if (/\[(ERROR|CRITICAL)\]|\b(ERROR|CRITICAL|FATAL)\b|Traceback \(most recent call last\)|^\s*\w*(Error|Exception)\b:|^error\b/i.test(text)) return 'error';
   if (/\[WARNING\]|\bWARN(ING)?\b|\w*Warning\b:|^warning\b/i.test(text)) return 'warning';
   if (/\[DEBUG\]|\bDEBUG\b/.test(text)) return 'debug';

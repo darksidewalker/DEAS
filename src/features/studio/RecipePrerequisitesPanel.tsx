@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { backendErrorText } from '../../lib/backendErrors';
 import { JobOutputPreview } from './JobOutputPreview';
 import { isTauri } from '@tauri-apps/api/core';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, readCurrentDiagnosticJob, type DiagnosticJobPlan, type JobStatus } from '../../lib/jobs';
@@ -58,7 +59,7 @@ export function RecipePrerequisitesPanel({ endpoint }: { endpoint: string }) {
     <div><h3>{t('studio.recipe.title')}</h3><p>{t('studio.recipe.notice')}</p>
       <button type="button" className="action-button" data-recipe-check disabled={pending || jobLocked || !endpoint.trim()} onClick={() => void check()}>{t(pending ? 'studio.recipe.checking' : 'studio.recipe.check')}</button>
       <div aria-live="polite" aria-busy={pending}>
-        {error && <p className="status-message error-message" role="alert">{t('studio.recipe.failed')}: {error}</p>}
+        {error && <p className="status-message error-message" role="alert">{t('studio.recipe.failed')}: {backendErrorText(error,t)}</p>}
         {evidence && <><p role="status">{evidence.baseUrl}</p>
           {evidence.missingNodes.length > 0 && <><h4>{t('studio.recipe.missingNodes')}</h4><ul>{evidence.missingNodes.map(node => <li key={node}>{node}</li>)}</ul></>}
           {evidence.allowlist.checkpoints.length === 0 && <p role="alert">{t('studio.recipe.noCheckpoints')}</p>}

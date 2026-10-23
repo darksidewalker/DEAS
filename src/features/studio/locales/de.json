@@ -585,5 +585,9 @@
   "studio.run.video.ref.drop": "Ignorieren",
   "studio.run.video.ref.dropOf": "Ignorieren aus {name}",
   "studio.editor.restoreFrame": "Zurück in den Rahmen",
-  "studio.run.useInput": "Als Eingabe verwenden"
+  "studio.run.useInput": "Als Eingabe verwenden",
+  "studio.backend.unavailable": "Backend nicht erreichbar. Starte es unter Backend. Falls es bereits gestartet ist, warte auf die Bereitschaft, prüfe die Backend-Adresse und sieh in die Logs.",
+  "studio.backend.timeout": "Das Backend antwortet nicht rechtzeitig. Es startet möglicherweise noch oder ist ausgelastet. Warte kurz und versuche es erneut; prüfe sonst Backend und Logs.",
+  "studio.backend.requestFailed": "Die Verbindung zum Backend ist fehlgeschlagen oder wurde unterbrochen. Prüfe Status und Adresse unter Backend und versuche es erneut. Details stehen in den Logs.",
+  "studio.backend.httpError": "Das Backend antwortet mit HTTP {status}. Prüfe Backend und Logs sowie Adresse und Zugriffseinstellungen und versuche es erneut."
 }

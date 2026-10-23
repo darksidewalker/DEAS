@@ -181,6 +181,32 @@ fn parse_snapshot(
 // Bounds apply even to chunked responses with no Content-Length.
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
+fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
+    let (code, message) = if error.is_timeout() {
+        ("BACKEND_TIMEOUT", "The backend did not respond in time. It may still be starting or busy. Wait briefly and retry; check Backend and Logs if this continues.")
+    } else if error.is_connect() {
+        ("BACKEND_UNAVAILABLE", "The backend is not reachable. Start it under Backend. If it is already started, wait for readiness and check its address and Logs.")
+    } else {
+        (
+            "BACKEND_REQUEST_FAILED",
+            "The backend connection failed or was interrupted. Check Backend and Logs, then retry.",
+        )
+    };
+    // Only the fixed discovery endpoints call this helper; repeated readiness probes share diagnostics.
+    static LAST: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
+        std::sync::Mutex::new(std::collections::BTreeMap::new());
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let key = format!("{endpoint}:{code}");
+    if !last
+        .get(&key)
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60))
+    {
+        last.insert(key, std::time::Instant::now());
+        logs::push(logs::Source::Deas, &format!("WARN: backend operation=GET endpoint={endpoint} code={code}: {} (repeats limited to once per minute)", error.without_url()));
+    }
+    format!("{code}: {message}")
+}
+
 async fn get_json(
     client: &reqwest::Client,
     base: &Url,
@@ -195,13 +221,20 @@ async fn get_json(
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|error| format!("{endpoint} request failed: {error}"))?;
+        .map_err(|error| backend_request_error(endpoint, error))?;
     if optional && response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     // error_for_status doesn't reject redirects, so require a success explicitly.
     if !response.status().is_success() {
-        return Err(format!("{endpoint} returned HTTP {}", response.status()));
+        let status = response.status();
+        logs::push(
+            logs::Source::Deas,
+            &format!("WARN: backend operation=GET endpoint={endpoint} returned HTTP {status}"),
+        );
+        return Err(format!(
+            "BACKEND_HTTP_ERROR: {endpoint} returned HTTP {status}"
+        ));
     }
     if response
         .content_length()
@@ -215,7 +248,7 @@ async fn get_json(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| format!("{endpoint} response failed: {error}"))?
+        .map_err(|error| backend_request_error(endpoint, error))?
     {
         if chunk.len() > MAX_RESPONSE_BYTES - body.len() {
             return Err(format!(
@@ -397,6 +430,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn inspection_reports_unavailable_without_transport_urls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let error = super::inspect_backend(url.clone()).await.unwrap_err();
+        assert!(error.starts_with("BACKEND_UNAVAILABLE:"), "{error}");
+        assert!(!error.contains(&url));
+        assert!(!error.contains("object_info"));
+        assert!(crate::native_logs(0).iter().any(|e| e
+            .text
+            .contains("endpoint=object_info code=BACKEND_UNAVAILABLE")
+            && !e.text.contains(&url)));
+    }
+
+    #[tokio::test]
+    async fn inspection_distinguishes_a_broken_response_from_an_offline_backend() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(b"not an HTTP response\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let error = super::inspect_backend(url).await.unwrap_err();
+        assert!(error.starts_with("BACKEND_REQUEST_FAILED:"), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn inspection_times_out_stalled_backend() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -406,7 +472,7 @@ mod tests {
         });
         let start = std::time::Instant::now();
         let error = super::inspect_backend(url).await.unwrap_err();
-        assert!(error.contains("request failed"), "{error}");
+        assert!(error.starts_with("BACKEND_TIMEOUT:"), "{error}");
         assert!(start.elapsed() < std::time::Duration::from_secs(15));
         server.abort();
     }

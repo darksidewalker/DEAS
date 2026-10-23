@@ -1,5 +1,12 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Backend discovery messages, log severity and preview WebSocket close
+
+- Read-only request to the reported `127.0.0.1:45519/object_info` refused connection; no live ComfyUI process was found during inspection. Native discovery now separates unavailable, timeout/interrupted and HTTP failures; the shared UI formatter translates these in six locales without relabeling malformed data/model errors or uncertain submitted jobs. Real refused-port, stalled-server and malformed-HTTP fixtures exercise the native categories; transport diagnostics are URL-free and rate-limited in shared Logs.
+- Regression RED: `[WARNING] send error: Cannot write to closing transport` was classified as Error. Explicit leading bracketed/bare log severity now wins over payload keywords. Full UI suite: **679 passed**; core suite: **94 passed**; typecheck/production frontend build pass.
+- Per-job preview WebSockets now close with a bounded Close handshake and ignore foreign terminal/progress events after latching their client-directed execution start. Real loopback tests cover Close/pong/binary preview preservation, foreign events, a peer that never acknowledges Close, and availability of the live-view mutex. The complete native library suite, production library/binary strict Clippy, formatting/diff checks and Windows MSVC library crosscheck pass. Unrelated all-target Clippy warning in `install.rs` remains outside this change.
+- `bash build-linux.sh` rebuilt `artifacts/deas-linux-amd64`, SHA-256 prefix `d928deeb114c628f`. No user application/backend was restarted, no GPU generation was submitted and no ComfyUI dependency files were edited. The abrupt-close defect is reproduced/fixed; causality or elimination of the reported live warnings is **not** proven. Other clients can still disconnect. Windows runtime/native-webview acceptance remains untested for this change.
+
 ## Shared Studio / Prompt Forge Media panel
 
 - `MediaPanel` composes one `MediaControls` toolbar with the existing `MediaLibrary`; Studio and Forge use the same implementation and CSS. Studio's dock navigation is extracted once, and Models/LoRAs reuse the controls without unsupported date/type choices. Existing Studio preference keys, resize/navigation behavior and context-specific actions remain; Forge keeps independent `forge.media.*` preferences and Input-image reference limits. No native code or new dependencies.

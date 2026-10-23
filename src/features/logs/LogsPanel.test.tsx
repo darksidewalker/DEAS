@@ -9,6 +9,12 @@ afterEach(()=>{cleanup();vi.resetAllMocks();});
 const entry=(seq:number,source:'deas'|'comfyui'|'cli',text:string)=>({seq,time:0,source,text});
 describe('logs view — mock IPC fixtures',()=>{
  it('classifies levels from Python, uv and git output',()=>{
+  expect(levelOf('[WARNING] send error: Cannot write to closing transport')).toBe('warning');
+  expect(levelOf('WARN: backend request failed: error sending request')).toBe('warning');
+  expect(levelOf('INFO: error was handled')).toBe('info');
+  expect(levelOf('[INFO] Recovered from an error')).toBe('info');
+  expect(levelOf('[DEBUG] warning counter')).toBe('debug');
+  expect(levelOf('[ERROR] warning promoted')).toBe('error');
   expect(levelOf('[INFO] Starting server')).toBe('info');
   expect(levelOf('[WARNING] slow')).toBe('warning');
   expect(levelOf('/x.py:1491: FutureWarning: deprecated')).toBe('warning');
