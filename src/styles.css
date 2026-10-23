@@ -319,12 +319,14 @@ button.footer-version.is-update { background: none; border: 0; padding: 0; color
 }
 .error-message-close {
   position: absolute;
-  top: 0.15em;
-  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 6px;
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
+  font-weight: 700;
   line-height: 1;
   padding: 0 4px;
   cursor: pointer;
