@@ -203,13 +203,18 @@ it('hammer joins the resolved wildcard picks to the idea', async () => {
   expect(build).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:8188', rules });
 });
 
-it('hammer sends the image-to-image source and says when the model could not see it', async () => {
-  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Krea2" value="" image="DEAS_00001_.png [output]" onApply={vi.fn()}/></I18nProvider>);
+it('hammer on an image model is a text rewrite even with an image-to-image source', async () => {
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Krea2" value="girl in rain" image="DEAS_00001_.png [output]" onApply={vi.fn()}/></I18nProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
   await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  expect(document.querySelector('[data-forge-picture]')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: '' } });
+  expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: 'girl in rain' } });
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
-  await screen.findByText('This model cannot see pictures; it wrote from the text only.');
-  expect(forgeCalls().at(-1)).toMatchObject({ route: 'write', body: { write_for: 'Krea2', idea: '', images: ['DEAS_00001_.png [output]'] } });
+  await screen.findByRole('button', { name: 'Use new prompt' });
+  expect(forgeCalls().filter(c => c.route === 'write')).toEqual([]);
+  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'krea2', brief: 'girl in rain', controls: {} }) }]);
 });
 
 it('hammer is disabled for a model without a prompt dialect', () => {

@@ -162,9 +162,9 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         if (request.current !== current || current.cancelled) return;
         setWarnings(Array.isArray(out.warnings) ? out.warnings.filter((w): w is string => typeof w === 'string').slice(0, 8).map(w => w.slice(0, 2048)) : []);
         setResult(out.simple_prompt); setDraftFit(fit); setDrafts(d => [{ text: out.simple_prompt, fit }, ...d].slice(0, 3));
-      } else if (nativeTarget(dialect) && !image) {
+      } else if (nativeTarget(dialect)) {
         // PromptForge's whole pipeline in DEAS (canon, tag search, clean-up) as if only the prompt had been filled in:
-        // every control at PromptForge's default. A source picture still goes to the node writer, which can read it.
+        // every control at PromptForge's default. The hammer is a quick text rewrite: pictures belong to the Prompt Forge tab.
         const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeModelId(forge.model), controls: {} });
         if (request.current !== current || current.cancelled) return;
         setResult(out.prompt); setWarnings(out.warnings);
@@ -202,7 +202,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         <button type="button" disabled={disabled} title={disabled ? t(!root ? 'forge.noBackend' : 'forge.noDialect') : undefined} onClick={() => setChoosing(false)}>{t('wildcards.llm')}</button>
         <button type="button" onClick={() => { setOpen(false); onWildcards?.(); }}>{t('wildcards.title')}</button>
       </> : <>
-      <p className="forge-dialect">{t('forge.target')}: <strong>{dialect}</strong>{image && <> · {t('forge.picture')}: <strong data-forge-picture>{image}</strong></>}</p>
+      <p className="forge-dialect">{t('forge.target')}: <strong>{dialect}</strong>{image && !nativeTarget(dialect) && <> · {t('forge.picture')}: <strong data-forge-picture>{image}</strong></>}</p>
       {h3 && <p className="forge-dialect" data-forge-run>{h3.mode} · {`${h3.duration} s`} · {`${h3.canvas.width}×${h3.canvas.height}`} · {t('forge.references', { count: String(h3.references.length) })}</p>}
       <ModelSelect forge={forge}/>
       {h3 && <>
@@ -217,7 +217,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
       </>}
       <label className="forge-field"><span>{t(h3?.continuity ? 'forge.nextAction' : 'forge.brief')}</span><textarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
       {busy && h3 ? <button type="button" className="action-button" data-forge-cancel onClick={cancel}>{t('forge.cancel')}</button>
-        : <button type="button" className="action-button" data-forge-write disabled={busy || !forge.model || (!brief.trim() && !image && !(h3 && shotBriefs.some(s => s.trim())))} onClick={() => void write()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>}
+        : <button type="button" className="action-button" data-forge-write disabled={busy || !forge.model || (!brief.trim() && !(image && !nativeTarget(dialect)) && !(h3 && shotBriefs.some(s => s.trim())))} onClick={() => void write()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {blind && <p className="forge-warning">{t('forge.blind')}</p>}
       {warnings.map((warning, i) => <p key={i} className="forge-warning">{warning}</p>)}
