@@ -28,6 +28,8 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 futures-util = { version = "0.3.34", default-features = false }
 base64 = "0.22"
 tempfile = "3"
+# Prompt Forge reads PromptForge's tag and character databases as they are.
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
