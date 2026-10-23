@@ -140,6 +140,8 @@
 .aio-topbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; margin-bottom: 4px; flex: none; }
 .aio-topbar .aio-tabs { flex: 1; margin: 0; gap: 3px; }
 .aio-topbar .repo-links { margin-left: auto; flex: none; padding-top: 2px; }
+/* In the topbar the cluster aligns as a unit; the studio-quick auto margin belongs to the Studio toolbar only. */
+.aio-topbar .studio-quick { margin-left: 0; padding-top: 2px; }
 .backend-overview { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 8px; padding: 5px 8px; border-bottom: 1px solid #7c9cac33; font-size: .72rem; color: var(--muted); }
 .backend-overview .is-set { color: #a8cdb7; }
 .is-backend .aio-detail, .is-backend .feature-panel { max-width: none; }
