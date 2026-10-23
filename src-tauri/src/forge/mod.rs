@@ -5,6 +5,8 @@
 //! MiniMax H3 Director Forge stays on the node pack.
 
 pub mod appearance;
+pub mod canon;
+pub mod character;
 pub mod clean;
 pub mod segments;
 pub mod tags;
