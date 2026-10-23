@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
+import { LayoutStudio, applyGenerated, forPrompt, resizeProject, useLayoutProject } from './LayoutStudio';
 import { Randomizer } from './Randomizer';
 import { Reading, ReferenceImages, type RefPicture } from './ReferenceImages';
 import { TagPicker, weighted, type PickedTag } from './TagPicker';
@@ -48,6 +49,8 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const [randomizer, setRandomizer] = useState(false);
   const [tags, setTags] = useState<PickedTag[]>([]);
   const [pictures, setPictures] = useState<RefPicture[]>([]);
+  const studio = useLayoutProject();
+  const [step, setStep] = useState<'' | 'prompt' | 'json'>('');
   const [keepPositive, setKeepPositive] = useState('');
   const [keepNegative, setKeepNegative] = useState('');
   const [result, setResult] = useState<NativeResult | null>(null);
@@ -72,9 +75,11 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const spec = targets?.targets.find(x => x.key === target);
   const modes = spec?.modes ?? [];
   const activeMode = modes.includes(mode) ? mode : spec?.defaultMode && modes.includes(spec.defaultMode) ? spec.defaultMode : modes[0] ?? '';
+  // MOSS Layout JSON: the studio stands in for the result, and the JSON is the whole prompt.
+  const layoutMode = activeMode === 'Layout JSON' && !!spec?.layoutCanvas;
   const optional = spec?.optional ?? [];
   const negativeLabel = optional.find(l => /negative/i.test(l));
-  const notesLabels = optional.filter(l => !/negative/i.test(l));
+  const notesLabels = layoutMode ? [] : optional.filter(l => !/negative/i.test(l));
   const segmentsOn = [...(withNegative && negativeLabel ? [negativeLabel] : []), ...(withNotes ? notesLabels : [])];
   // A pick the current model does not offer is not sent (a stored key from an older pack, say).
   const offered = (list: NativeCameraOption[] | undefined, key: string) => list?.some(o => o.key === key) ? key : '';
@@ -85,6 +90,10 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const lightingNotches = spec?.lightingLevels ?? [];
   const lightingOn = lightingNotches.some(([n]) => n === lighting) ? lighting : 0;
 
+  const canvas = layoutMode ? spec!.layoutCanvas![aspects.includes(aspect) ? aspect : 'N/A'] ?? spec!.layoutCanvas!['N/A'] : null;
+  useEffect(() => {
+    if (canvas && (studio.project.w !== canvas[0] || studio.project.h !== canvas[1])) studio.set(resizeProject(studio.project, canvas[0], canvas[1]));
+  }, [canvas?.[0], canvas?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
   const lengthOk = Number.isInteger(lengthValue) && lengthValue >= LENGTH_MIN && lengthValue <= LENGTH_MAX;
   const request = (): NativeWrite => ({
     target, brief, model: nativeModelId(forge.model), mode: activeMode || undefined, segmentsOn,
@@ -105,6 +114,35 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
     try { show(await nativeForgeWrite(root, request())); setUndo([]); }
     catch (e) { setError(forgeError(e)); }
     finally { setBusy(false); }
+  };
+  // Layout JSON in PromptForge's two steps. Generate prompt: the brief, written as Natural language writes it, into the
+  // Global prompt. Generate JSON: the Global prompt (or the brief while it is empty) into the boxes; drawn boxes stay.
+  const generate = async (which: 'prompt' | 'json') => {
+    if (!root || !forge.model) return;
+    const base = request();
+    const p = studio.project;
+    const text = which === 'json' && p.caption.trim() ? p.caption : brief;
+    if (!text.trim()) return setError(which === 'prompt' ? 'forge.layout.needBrief' : 'forge.layout.needEither');
+    const { positive: _p, tags: _t, imageReferences: _r, ...controls } = base.controls ?? {};
+    setBusy(true); setStep(which); setError('');
+    try {
+      const out = await nativeForgeWrite(root, which === 'prompt'
+        ? { ...base, brief: text, mode: 'Natural language', segmentsOn: base.segmentsOn?.filter(l => /negative/i.test(l)), controls }
+        : { ...base, brief: text, mode: 'Layout JSON', controls: { ...controls, layout: forPrompt(p) } });
+      setResult(out); setNegative(out.negative ?? ''); setUndo([]);
+      if (which === 'prompt') {
+        const prose = out.segments.find(x => x.label === 'Enhanced prompt')?.body ?? out.prompt;
+        if (prose.trim()) studio.set({ ...p, caption: prose.trim() });
+      } else {
+        const body = out.segments.find(x => x.label === 'Layout JSON')?.body;
+        if (body) {
+          // The Global prompt it was written from stays the person's own.
+          try { const laid = applyGenerated(p, body); studio.set(p.caption.trim() ? { ...laid, caption: p.caption } : laid); }
+          catch { setError('forge.layout.unreadable'); }
+        }
+      }
+    } catch (e) { setError(forgeError(e)); }
+    finally { setBusy(false); setStep(''); }
   };
   // The draft as it stands on screen: the person's edits to the prompt and the negative go back with it.
   const onScreen = (): NativeSegment[] => (result?.segments ?? []).map(s =>
@@ -131,7 +169,9 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const visible = FOLDS.filter(f => f !== 'camera' || (spec?.camera?.angle.length || spec?.camera?.shot.length))
     .filter(f => f !== 'lighting' || lightingNotches.length || spec?.camera?.light.length)
     .filter(f => f !== 'tags' || !!root)
-    .filter(f => f !== 'refs' || (!!root && !!targets?.references?.roles.length));
+    .filter(f => f !== 'refs' || (!!root && !!targets?.references?.roles.length))
+    // What the studio makes redundant, as in PromptForge: the pictures, the tags and the kept-verbatim fields.
+    .filter(f => !layoutMode || !['refs', 'tags', 'verbatim'].includes(f));
   const allOpen = visible.every(f => folds.includes(f));
   const camTiles = (list: NativeCameraOption[] | undefined): TileOption[] => [{ key: '', label: t('forge.any'), icon: icon('any') }, ...(list ?? []).map(o => ({ key: o.key, label: o.label, icon: icon(o.icon), title: o.payload }))];
   const label = (list: NativeCameraOption[] | undefined, key: string) => list?.find(o => o.key === key)?.label ?? '';
@@ -204,11 +244,27 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
         {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeModelId(forge.model) : ''} vocab={targets.references} pictures={pictures}
           onPictures={next => { if (next.length > pictures.length && !folds.includes('refs')) setFolds([...folds, 'refs']); setPictures(next); }}/>)}
       </div>}
+      {layoutMode ? <div className="forge-layout-gen">
+        <button type="button" className="action-button forge-write" data-forge-generate-prompt disabled={busy || !forge.model || !brief.trim()} title={t('forge.layout.genPromptHelp')} onClick={() => void generate('prompt')}>{t(step === 'prompt' ? 'forge.writing' : 'forge.layout.genPrompt')}</button>
+        <button type="button" className="action-button forge-write" data-forge-generate-json disabled={busy || !forge.model || (!brief.trim() && !studio.project.caption.trim())} title={t('forge.layout.genJsonHelp')} onClick={() => void generate('json')}>{t(step === 'json' ? 'forge.writing' : 'forge.layout.genJson')}</button>
+      </div> : <>
       <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk)} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
+      </>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {randomizer && root && <Randomizer root={root} onClose={() => setRandomizer(false)} onInsert={(text, replace) => setBrief(replace || !brief.trim() ? text : `${brief.trim().replace(/[,\s]+$/, '')}, ${text}`)}/>}
     </div>
-    <div className="forge-card forge-output" aria-busy={busy}>
+    {layoutMode ? <div className="forge-layout-col">
+      <LayoutStudio root={root} model={forge.model ? nativeModelId(forge.model) : ''} studio={studio} busy={busy}/>
+      {(busy || result) && <div className="forge-card" aria-busy={busy} data-forge-layout-result>
+        {busy && <p className="forge-note">{t(step === 'prompt' ? 'forge.layout.busyPrompt' : 'forge.layout.busyJson')}</p>}
+        {result && <>
+          {spec?.hasNegative && negative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>}
+          {result.characters.length > 0 && <p className="forge-note">{t('forge.canon', { list: result.characters.join(', ') })}</p>}
+          {result.fixes.length > 0 && <p className="forge-note">{t('forge.fixes', { list: result.fixes.join('; ') })}</p>}
+          {result.warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
+        </>}
+      </div>}
+    </div> : <div className="forge-card forge-output" aria-busy={busy}>
       <div className="forge-card-head">
         <h3 className="forge-card-title">{t('forge.result')}</h3>
         <div className="forge-actions">
@@ -242,6 +298,6 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
         {result.referenceAnalysis && <details className="forge-readback" data-forge-reading><summary>{t('forge.refs.writtenFrom')}</summary><Reading text={result.referenceAnalysis}/></details>}
         {meta.map(s => <label key={s.label} className="forge-field"><span>{s.label}</span><textarea readOnly value={s.body}/></label>)}
       </div>}
-    </div>
+    </div>}
   </>;
 }

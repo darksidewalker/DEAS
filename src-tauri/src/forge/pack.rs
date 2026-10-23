@@ -46,6 +46,9 @@ pub struct Shared {
 #[derive(Debug, Deserialize)]
 pub struct PackModel {
     pub entry: Value,
+    /// The Layout Studio's Rewrite instruction (MOSS only).
+    #[serde(default)]
+    pub layout_rewrite: Option<String>,
     pub system: String,
     #[serde(default)]
     pub system_by_mode: HashMap<String, String>,

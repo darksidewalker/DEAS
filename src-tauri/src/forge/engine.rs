@@ -814,6 +814,82 @@ fn drawn_items(size: (f64, f64), controls: &Controls) -> Vec<Value> {
         .collect()
 }
 
+/// The Layout Studio's Rewrite: one section at a time, the whole scene as context.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutRewrite {
+    /// "scene" (the Global prompt) or "item" (the selected box's caption).
+    pub task: String,
+    pub width: f64,
+    pub height: f64,
+    /// The studio's MOSS JSON as it stands.
+    pub layout: Value,
+    pub description: String,
+    #[serde(default)]
+    pub element: Option<Value>,
+}
+
+/// PromptForge's rewriteMessages: the studio's own instruction plus which section to rewrite.
+fn rewrite_messages(base: &str, r: &LayoutRewrite) -> Result<(String, String), String> {
+    let only = match r.task.as_str() {
+        "item" => "Rewrite ONLY the selected element prompt; do not rewrite other elements or the scene.",
+        "scene" => "Rewrite ONLY the global scene prompt; individual element prompts are context and must not be rewritten.",
+        _ => return Err("Only prompt rewriting is supported. Geometry cannot be generated or changed.".into()),
+    };
+    let items = r
+        .layout
+        .get("items")
+        .and_then(Value::as_array)
+        .ok_or("Global scene context is required.")?;
+    let description = r.description.trim();
+    if description.is_empty() {
+        return Err("Write a prompt first.".into());
+    }
+    let context = json!({
+        "section_to_rewrite": description.chars().take(20000).collect::<String>(),
+        "global_scene": r.layout.get("summary").cloned().unwrap_or(Value::Null),
+        "all_elements": items.iter().take(100).collect::<Vec<_>>(),
+        "selected_element": r.element.clone().unwrap_or(Value::Null),
+        "canvas_size": { "width": r.width, "height": r.height },
+    });
+    Ok((format!("{} {only}", base.trim()), context.to_string()))
+}
+
+pub async fn layout_rewrite(
+    data: &Data,
+    config: &LlmConfig,
+    model: &str,
+    r: &LayoutRewrite,
+) -> Result<String, String> {
+    let base = data
+        .pack
+        .models
+        .values()
+        .find_map(|m| m.layout_rewrite.as_deref())
+        .ok_or("No model in the Prompt Forge data has a Layout Studio.")?;
+    let (system, user) = rewrite_messages(base, r)?;
+    let messages = vec![
+        json!({ "role": "system", "content": system }),
+        json!({ "role": "user", "content": user }),
+    ];
+    let reply = chat::round(chat::Round {
+        config,
+        model,
+        messages: &messages,
+        tools: None,
+        temperature: Some(0.25),
+        top_p: None,
+        max_tokens: Some(1200),
+        timeout: ROUND_TIMEOUT,
+    })
+    .await?;
+    let text = reply.content.trim().to_string();
+    if text.is_empty() {
+        return Err("The model returned an empty prompt.".into());
+    }
+    Ok(text)
+}
+
 fn canvas_line(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<String> {
     let (w, h) = layout_size(model, mode, controls)?;
     let (w, h) = (w as i64, h as i64);
@@ -1343,6 +1419,32 @@ mod tests {
         assert!(out.reference_analysis.is_some());
     }
 
+    #[test]
+    fn layout_rewrite_names_the_one_section_and_refuses_geometry() {
+        let r = LayoutRewrite {
+            task: "item".into(),
+            width: 1024.0,
+            height: 1024.0,
+            layout: json!({ "summary": { "caption": "a camp" }, "items": [{ "label": "object", "caption": "a fire", "bbox": [0, 0, 1, 1] }] }),
+            description: "a fire".into(),
+            element: Some(json!({ "name": "Fire" })),
+        };
+        let (system, user) = rewrite_messages("Base rules.", &r).unwrap();
+        assert!(system.starts_with("Base rules. Rewrite ONLY the selected element prompt"));
+        let u: Value = serde_json::from_str(&user).unwrap();
+        assert_eq!(u["section_to_rewrite"], "a fire");
+        assert_eq!(u["selected_element"]["name"], "Fire");
+        assert_eq!(u["canvas_size"]["width"], 1024.0);
+        assert!(rewrite_messages(
+            "x",
+            &LayoutRewrite {
+                task: "move".into(),
+                ..r
+            }
+        )
+        .is_err());
+    }
+
     /// Boxes drawn in the Layout Studio: the canvas and the boxes reach the model, and the
     /// tidy keeps the boxes exactly while taking the model's captions.
     /// `DEAS_FORGE_DATA=<dir> cargo test --lib -- --ignored real_layout --nocapture`
@@ -1560,6 +1662,28 @@ pub async fn native_forge_reference_readback(
 }
 
 #[tauri::command]
+pub async fn native_forge_layout_rewrite(
+    root: String,
+    model: String,
+    request: LayoutRewrite,
+) -> Result<String, String> {
+    let root = PathBuf::from(root);
+    let config = crate::llm::read(&root)?;
+    let dir = data_dir(&root);
+    let data = tokio::task::spawn_blocking(move || Data::load(&dir))
+        .await
+        .map_err(|_| "Prompt Forge data failed to load")??;
+    layout_rewrite(&data, &config, &model, &request)
+        .await
+        .inspect_err(|e| {
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("ERROR: Prompt Forge layout rewrite: {e}"),
+            );
+        })
+}
+
+#[tauri::command]
 pub async fn native_forge_revise(
     root: String,
     request: ReviseRequest,
@@ -1699,6 +1823,8 @@ pub async fn native_forge_targets(root: String) -> Result<Value, String> {
                 "secondPass": pack.shared.second_pass.is_some(),
                 "tagStyle": m.tag_style(),
                 "weightRange": m.entry.get("weight_range"),
+                "layoutCanvas": m.entry.get("layout_canvas"),
+                "layoutRewrite": m.layout_rewrite.is_some(),
                 "detailLevels": ladder(m.entry.get("detail_levels")),
                 "lightingLevels": ladder(m.entry.get("lighting_levels")),
                 "camera": {

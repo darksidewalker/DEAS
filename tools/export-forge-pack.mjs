@@ -4,6 +4,7 @@
 //
 //   node tools/export-forge-pack.mjs /path/to/PromptForge > forge-data/forge-pack.json
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -45,6 +46,8 @@ for (const key of KEYS) {
       guidance.keysFor(m).map((k) => [k, guidance.run(m, JSON.stringify({ name: k })).content])
     ),
     search_tool: toolbox.definitions({ variant: m.tag_style ?? 'underscore' }),
+    // The Layout Studio's Rewrite instruction (MOSS), as /api/moss/assist reads it.
+    layout_rewrite: m.layout_rewrite_prompt ? readFileSync(path.join(ROOT, m.layout_rewrite_prompt), 'utf8') : null,
   };
 }
 
