@@ -1,0 +1,41 @@
+# Application updates
+
+[Documentation index](README.md) · [Backend and settings](BACKEND.md) · [Logs](LOGS.md)
+
+The application's **Update** action requires explicit confirmation before downloading or replacing DEAS. Merely opening a tab or checking update hints never installs an application update. The binary replacement is separate from the existing managed-backend upgrade (`native_install_update`); it never modifies models, environments, settings or projects. The confirmed UI flow completes the backend upgrade first, then automatically closes and reopens DEAS if its binary changed. The confirmation includes this restart.
+
+## Supported installation
+
+- **Linux x86_64, unpackaged/raw executable:** DEAS requests the latest stable GitHub release from `darksidewalker/DEAS`, selects exactly `deas-linux-amd64`, verifies it, and atomically replaces the executable at its current location. Its directory and executable must be owned by the current user, not group/world writable, and accessible without symlink traversal. Hard-linked or setuid/setgid executable files are rejected. An already-updated, still-running old executable must be restarted before updating again.
+- **Windows:** native self-replacement is explicitly unsupported before network or filesystem execution. Download the release manually, quit DEAS, and replace `deas.exe` (or use the published installer). A safe Windows deferred replacement helper is not implemented; no shell script, hidden helper or automatic restart is attempted.
+- **AppImage and other platforms/architectures:** explicit unsupported/manual-update error. System/package-managed installations should be updated through their package manager, not by granting DEAS elevated privileges.
+
+After a successful replacement, **DEAS closes and reopens automatically** once the backend update and project saves complete. The replacement command returns first; a narrowly authorized `native_app_restart` uses Tauri’s native restart lifecycle and cached executable path, preserving exit cleanup of owned processes. Running native generation, downloads and Library scans defer restart. Pending/failed project saves block it until saved or explicitly discarded; no second restart confirmation is required. A failed backend update does not trigger restart. No newer binary means no application restart. There is no retained backup/rollback UI after success. An unsuccessful download, integrity check or atomic rename leaves the previous executable intact; temporary staging files are removed on ordinary errors. A crash/power loss can leave an unreferenced `.deas-update-*` staging file beside the executable; remove it only when no update is active.
+
+## GitHub access
+
+At implementation time the GitHub repository is **private**: anonymous release API and browser asset requests return 404. Configure a GitHub token with repository read access through DEAS Provider authorization. The updater reuses native origin-bound `AuthState` credentials only for `https://api.github.com`, including the fixed release-asset API with `Accept: application/octet-stream`; it manually follows validated asset redirects **without any Authorization header**. Public releases can be accessed anonymously. No token is accepted in this updater IPC or logged.
+
+## Release trust and bounded validation
+
+The authenticated live release inspected during implementation (`v0.1.42`) publishes raw `deas-linux-amd64` and `deas.exe`, `BUILD-MANIFEST.json` and `SHA256SUMS`. It does **not** require tar.zst extraction. The checked-in release workflow also stages a raw Linux executable. This updater deliberately does not unpack archives or select installers: a release containing only archives is rejected, avoiding archive path traversal, ambiguous entries, symlinks and unintended library/environment installation.
+
+The updater requires a strict stable three-component version newer than the compiled version, a single exact asset filename and repository/tag-bound HTTPS asset URL, a nonempty bounded declared size (64 bytes–256 MiB), and a valid GitHub asset `sha256:` digest. Metadata is capped at 1 MiB and streamed under a request deadline. Downloads use no environment proxy, a five-minute total operation deadline, bounded bytes and at most five redirects restricted to HTTPS GitHub release hosts. Metadata redirects are rejected outright. API asset IDs/URLs must match the compiled repository and exact numeric ID. API credentials are removed before every redirect. Downloaded size and SHA-256 must match exactly; ELF64 little-endian x86_64 executable/PIE headers are checked before publication. The download is staged privately beside the executable, synced, and renamed atomically through an anchored directory descriptor. In-process and directory locks reject concurrent updates; the installed/running executable identity is checked before replacement.
+
+GitHub's TLS/API digest establishes transport integrity against published release metadata; **it is not an independent release signature or proof of runtime compatibility**. No fallback to a missing digest, guessed checksum, arbitrary mirror or source build exists. Updated Linux executables may require newer system libraries; the updater does not install system dependencies or guarantee that a future release runs on the current distribution. Release-owner compromise remains in the trust boundary. Filesystem anchoring protects against cross-user substitution, not malicious processes running as the same user. A directory-sync failure after the successful atomic rename is logged as a durability warning, not reported as an uncommitted replacement.
+
+## Native contract and diagnostics
+
+`native_app_update({ confirmed: true }) -> boolean` (native `AuthState` is injected, never a frontend argument):
+
+- `true`: a newer verified executable was installed; automatic restart is authorized after pending work completes.
+- `false`: latest stable release is not newer; no binary download/replacement occurred.
+- Rejected promise (`Err(String)`): missing consent, unsupported platform/package, invalid/unavailable release metadata, missing integrity evidence, download/validation/permission/concurrency/publication failure.
+
+Only this explicit command authorizes application replacement; it accepts no frontend URL, path, tag, executable bytes or destination. The read-only `native_update_check` remains a hint, not authority to execute an update. All command outcomes and operation progress go to shared Logs (`deas` source, `app-update` origin, INFO/WARN/ERROR severity) and stderr/CLI. Transport errors exclude request URLs/redirect signatures. If update fails, inspect Logs and update manually rather than changing environment/model files.
+
+`native_app_restart()` is permitted only after a successful confirmed replacement, returns `false` while native work is active, and requests Tauri restart once when idle. The UI checks the existing project-close state before requesting it. Both commands are exported, registered and covered by local-main permissions. No process plugin or helper script is required.
+
+## Verification boundary
+
+Focused native tests exercise strict release/URL/digest/size/ELF rejection, loopback HTTP transfers and redirects, consent logging, real scratch-file atomic replacement, retained old file descriptors, concurrent/replaced targets, filesystem restrictions and staging cleanup without touching the user's running binary. An ignored live test fetches and verifies the actual published binary into scratch only. It accepts an optional `DEAS_LIVE_GITHUB_TOKEN` process environment variable for a session-only injected credential and never restores/writes OS credentials. The authenticated live test verified v0.1.42, 18,411,664 bytes, SHA-256 `5983c060581823d9f54d6865e9b223d082335f020a7ff75a722a0146617e6c93`; no replacement was performed. Windows cross-compilation is separate from native Windows runtime acceptance. No real user executable replacement or full native-webview update interaction is performed by these tests.

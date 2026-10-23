@@ -238,6 +238,8 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
   if(c==='native_download_catalog')return catalog;
   if(c==='native_models_scan'){expect(a).toEqual({root:'/env/ComfyUI/models'});return [local,{...local,category:'vae',name:'v.pt',path:'/env/ComfyUI/models/vae/v.pt'}];}
   if(c==='native_model_info'){const p=(a as {path:string}).path;expect(a).toEqual({path:p,authenticated:false});return p===local.path?fetched:{...local,category:'vae',name:'v.pt',path:'/env/ComfyUI/models/vae/v.pt',info:{sha256:'cd34',size:2097152,fetchedAt:1,civitai:null}};}
+  if(c==='native_model_scan_status')return {id:'',root:'',state:'idle',file:null,completed:0,total:0,remaining:0,failed:0};
+  if(c==='native_model_scan_start')return {id:'scan',root:'/env/ComfyUI/models',state:'running',file:local.path,completed:0,total:2,remaining:2,failed:0};
   if(c==='native_auth_status')return [{providerId:'civitai',configured:false,persisted:false}];
   throw new Error(`unexpected ${c}`);
  });
@@ -255,9 +257,39 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
  expect(screen.getByText('Euler a · 30 steps · CFG 4.5 · 896x1152')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Refresh metadata'})).toBeTruthy();
  expect(document.querySelector('img.download-preview')?.getAttribute('src')).toBe(fetched.info.civitai.preview);
- // Batch scan: scope select + explicit long-running hint, then one lookup per file in scope.
+ // Batch scan: scope selection + long-running hint, then one native background job.
  expect(screen.getByLabelText('Scope')).toBeTruthy();
  expect(screen.getByText(/take a long time/)).toBeTruthy();
  click('Scan Files');
- await vi.waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_info').length).toBe(3)); // 1 single fetch above + lora + vae
+ // One native job owns the sequential batch; React never drives per-file requests.
+ click('Scan Files');
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_model_scan_start',{root:'/env/ComfyUI/models',scope:'all',authenticated:false}));
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_scan_start')).toHaveLength(1);
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_info')).toHaveLength(1);
+ expect((screen.getByRole('button',{name:'Scan Files'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('reattaches to the native scan after tab changes and unmount without restarting it',async()=>{
+ const local={category:'loras',name:'scan.pt',path:'/models/loras/scan.pt',size:5,info:null};
+ let status={id:'background',root:'/models',state:'running',file:local.path,completed:1,total:3,remaining:2,failed:0};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_models_scan'?[local]:c==='native_model_scan_status'?status:null);
+ const mountLibrary=()=>render(<I18nProvider><DownloadPanel embedded installTarget="/env" modelsDir="/models"/></I18nProvider>);
+ const view=mountLibrary();await screen.findByRole('tab',{name:'Models'});tab('Installed');
+ await screen.findByText(/1\/3 processed · 2 remaining · 0 failed/);
+ expect((screen.getByRole('button',{name:'Scan Files'}) as HTMLButtonElement).disabled).toBe(true);
+ tab('Catalog');status={...status,completed:2,remaining:1};tab('Installed');
+ await screen.findByText(/2\/3 processed · 1 remaining · 0 failed/);
+ view.unmount();mountLibrary();await screen.findByRole('tab',{name:'Models'});tab('Installed');
+ await screen.findByText(/2\/3 processed · 1 remaining · 0 failed/);
+ status={...status,state:'failed',completed:3,remaining:0,failed:1};
+ await waitFor(()=>expect(screen.getByText(/Scan finished with errors.*3\/3 processed · 0 remaining · 1 failed/)).toBeTruthy(),{timeout:2500});
+ expect((screen.getByRole('button',{name:'Scan Files'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_model_scan_start'||c==='native_model_info'||c==='native_download_cancel')).toBe(false);
+});
+it('does not update or continue polling an unmounted scan view',async()=>{
+ vi.useFakeTimers();let resolve!:(value:unknown)=>void;
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_models_scan'?[{category:'loras',name:'scan.pt',path:'/models/loras/scan.pt',size:5,info:null}]:c==='native_model_scan_status'?new Promise(r=>{resolve=r;}):null);
+ const view=render(<I18nProvider><DownloadPanel embedded installTarget="/env" modelsDir="/models"/></I18nProvider>);
+ await act(async()=>{});tab('Installed');await act(async()=>{});expect(resolve).toBeTypeOf('function');view.unmount();
+ await act(async()=>{resolve({id:'job',state:'running',completed:0,total:1,remaining:1,failed:0});await vi.advanceTimersByTimeAsync(5000);});
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_scan_status')).toHaveLength(1);
 });

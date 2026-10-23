@@ -842,9 +842,20 @@ pub fn native_backend_start(
     let _guard = operations.enter()?;
     engine.backend_start()
 }
+#[derive(Serialize)]
+pub struct DependencyCheck {
+    pub id: &'static str,
+    pub ok: bool,
+}
 #[tauri::command]
 pub fn native_backend_status(engine: tauri::State<'_, crate::install::Engine>) -> Status {
     engine.backend.status()
+}
+#[tauri::command]
+pub fn native_backend_test(
+    engine: tauri::State<'_, crate::install::Engine>,
+) -> Vec<DependencyCheck> {
+    engine.backend_test()
 }
 #[tauri::command]
 pub fn native_backend_stop(engine: tauri::State<'_, crate::install::Engine>) -> Status {

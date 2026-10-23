@@ -1,5 +1,19 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Automatic restart after a confirmed binary update
+
+- The confirmed update now includes automatic close/reopen. `native_app_restart` is authorized only by successful replacement, waits for native generation/downloads/Library scans and uses Tauri's exit/restart lifecycle. Frontend waits for successful backend upgrade and ProjectBar's existing pending-close/save state; no newer binary or failed download triggers no restart. The original executable path is cached before replacement.
+- Focused App/backend/project UI tests: **77 passed**; typecheck passed at that checkpoint. Core tests: **94 passed**. Production native Clippy and Windows MSVC library crosscheck pass. A standalone scratch probe atomically replaced its own copied executable, exited PID 44973 and reopened PID 44974 using Tauri's restart primitive. No live user application was restarted.
+- Native tests pass in an isolated scratch snapshot with unrelated concurrent Backend dependency-check edits excluded. Whole-working-tree native tests currently encounter that work's private `install::Inner.approved` access; frontend build/tests also encounter its incomplete `DEPS` fixtures and unrelated H3 timeouts. Those changes were preserved rather than repaired in this update. The later full-suite attempts are not claimed green. Full native-webview update/restart click-through remains unverified.
+
+## Background Library scans and confirmed application updates (local changes)
+
+- Library scans are native-owned sequential jobs with retained status, duplicate-start guards and CLI/shared-Logs file/completed/total/remaining/failure progress. Native loopback tests execute metadata lookup/cache publication, failure continuation and detached lifetime; UI fixtures cover remount/recovered progress. Main state, invoke handlers and local permissions are wired together.
+- Footer version opens Backend and the same consent as Upgrade. Tests cover cancellation without execution, application-before-backend sequencing, download failure without backend update, and the manual-restart notice. All six locale dictionaries pass strict key/placeholder checks.
+- `cargo test --lib --locked --offline`: **369 passed, 21 ignored**. `cargo clippy --lib --bin deas --locked --offline -- -D warnings`, formatting, diff checks and Windows MSVC library crosscheck pass. All-target strict Clippy remains blocked by the pre-existing needless borrow in `install.rs:2129`; that unrelated source is unchanged.
+- Full UI suite: **668 passed, 0 failed**; core suite: **94 passed**; production frontend build passes with existing mixed-import/chunk-size warnings.
+- Updater replacement tests operate only on scratch executables. No user binary replacement, app/backend restart, commit, push or release was performed. Linux raw x86_64 self-update is implemented; Windows/AppImage/other architectures return an explicit manual-update error. Full native-webview click-through and Windows runtime remain unverified. See [Application updates](APP-UPDATES.md) for integrity and compatibility limitations.
+
 ## Separate Presets and Wildcards (0.1.42, local build)
 
 - Independent dock tabs; Wildcards retains its library selectors, weights, activation and hammer navigation. Presets captures live `usePref` Studio controls, including project-scoped unsaved values, rather than reading potentially stale global storage. Existing preference validators reject incompatible loads before any control changes; excluded history, continuity, media and layout remain untouched.
@@ -765,7 +779,7 @@ Independent Cargo test rerun: 46 passed, 5 ignored; clippy/fmt clean. The explic
 
 Launch authorization is held only after successful approved provisioning in the current Engine. Commands accept no target/PID/URL arguments. The Linux launcher uses a checked managed interpreter, loopback ephemeral port and `--disable-auto-launch`; exact child FD/socket-inode ownership is required before/after bounded classic API probes. The startup deadline is 120 seconds; successful API readiness still reports `generationReady:false`. Stop/app-exit cleanup targets only the owned process group with the leader unreaped until termination, avoiding PID reuse. No arbitrary existing environment adoption or unrelated service control is implemented. Guards are not a sandbox against hostile same-user concurrent filesystem mutation.
 
-`OwnedBackendPanel` adds localized explicit Start, Refresh status, Stop and Inspect running backend controls. Start is offered only after native install success; mount/refresh never starts a service. One-second non-overlapping polling, double-click/error/unmount/stale-response guards and the exact returned endpoint are covered by 10 new mock-IPC lifecycle/integration tests. These tests do not claim real GPU or ComfyUI generation acceptance. Browser preview cannot invoke lifecycle commands.
+`OwnedBackendPanel` adds localized explicit Start, Test, Stop, Restart and Inspect controls; Test lists each backend dependency checked (✓) or missing (✗) via `native_backend_test`. Start is offered only after native install success; mount/Test never starts a service. One-second non-overlapping polling, double-click/error/unmount/stale-response guards and the exact returned endpoint are covered by mock-IPC lifecycle/integration tests. These tests do not claim real GPU or ComfyUI generation acceptance. Browser preview cannot invoke lifecycle commands.
 
 ## Artifact
 

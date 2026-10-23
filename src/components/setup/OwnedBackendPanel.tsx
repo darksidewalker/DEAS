@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { NativeBackendStatus } from '../../lib/setup';
+import type { DependencyCheck, NativeBackendStatus } from '../../lib/setup';
 
 /** `children` (e.g. the autostart switch) render above the action row; `actions` extend it; `locked` disables lifecycle buttons while the environment is being changed; each `restartSignal` change restarts a running backend (stopped stays stopped). */
 export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusChange,autoStart=false,children,actions,locked=false,restartSignal=0}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;onStatusChange?:(status:NativeBackendStatus|null)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean;restartSignal?:number}) {
  const {t}=useI18n();
  const native=isTauri();
  const [status,setStatus]=useState<NativeBackendStatus|null>(null);
+ const [checks,setChecks]=useState<DependencyCheck[]|null>(null);
  const [busy,setBusy]=useState(false);
  const [technicalError,setTechnicalError]=useState('');
  const lock=useRef(false);
@@ -50,6 +51,16 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
    if(!quiet&&live.current&&version===epoch.current)setBusy(false);
   }
  },[native]);
+ const test=useCallback(async()=>{
+  if(!native||!live.current)return;
+  if(lock.current){while(lock.current)await new Promise(r=>setTimeout(r,50));if(!live.current)return;}
+  lock.current=true;setBusy(true);const version=epoch.current;
+  try {
+   const next=await invoke<DependencyCheck[]>('native_backend_test');
+   if(live.current&&version===epoch.current){setChecks(Array.isArray(next)?next:[]);setTechnicalError('');}
+  } catch(e) {if(live.current&&version===epoch.current)setTechnicalError(String(e));}
+  finally {lock.current=false;if(live.current&&version===epoch.current)setBusy(false);}
+ },[native]);
  const autoAttempted=useRef(false);
  useEffect(()=>{
   if(!native||!installSucceeded||!autoStart||autoAttempted.current)return;
@@ -83,10 +94,13 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
   <p role={status?'status':undefined}>{t(status?`setup.backendLifecycle.${status.state}`:'setup.backendLifecycle.unknown')}</p>
   <p className="aio-help">{t('setup.backendLifecycle.notReady')}</p>
   {status?.endpoint&&<p>{t('setup.backendLifecycle.endpoint')}: <code>{status.endpoint}</code></p>}
+  {checks&&<ul className="aio-checks">
+   {checks.map(c=><li key={c.id} className={c.ok?'aio-check-pass':'aio-check-fail'}><span aria-hidden="true">{c.ok?'✓':'✗'}</span>{t(`setup.backendLifecycle.dep.${c.id}`)}<span className="neural-sr-only">{c.ok?t('setup.backendLifecycle.depPass'):t('setup.backendLifecycle.depFail')}</span></li>)}
+  </ul>}
   {children}
   <div className="aio-actions">
    {native&&installSucceeded&&!active&&<button disabled={busy||locked} onClick={()=>void request('native_backend_start')}>{t('setup.backendLifecycle.start')}</button>}
-   <button disabled={!native||busy} onClick={()=>void request('native_backend_status')}>{t('setup.backendLifecycle.refresh')}</button>
+   <button disabled={!native||busy} onClick={()=>void (async()=>{await test();await request('native_backend_status');})()}>{t('setup.backendLifecycle.test')}</button>
    {native&&status?.state==='running'&&<button disabled={busy||locked} onClick={()=>void request('native_backend_stop').then(s=>{if(s?.state==='stopped')return request('native_backend_start');})}>{t('setup.backendLifecycle.restart')}</button>}
    {native&&active&&<button disabled={busy} onClick={()=>void request('native_backend_stop')}>{t('setup.backendLifecycle.stop')}</button>}
    {native&&status?.state==='running'&&status.endpoint&&<button disabled={busy} onClick={()=>onConnectExisting(status.endpoint!)}>{t('setup.backendLifecycle.inspect')}</button>}

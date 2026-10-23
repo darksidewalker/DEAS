@@ -21,12 +21,14 @@ const change=(label:string,value:string)=>fireEvent.change(screen.getByLabelText
 const request:NativeInstallRequest={storagePath:'/app/deas-environment',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'};
 const defaults={storagePath:request.storagePath,backend:'cpu',hardware:null,warnings:['CPU fallback fixture']};
 const plan=(r=request)=>({id:'fixture-plan',request:r,steps:[],warnings:[],unsupportedOptions:[],canExecute:true});
+const DEPS=[{id:'environment',ok:true},{id:'python',ok:true},{id:'comfyui',ok:true},{id:'nodes',ok:true},{id:'api',ok:true}];
 function nativeFixture(){
  vi.mocked(isTauri).mockReturnValue(true);
  vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_install_defaults')return defaults;
   if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);
   if(command==='native_detect_hardware')return {backend:null};
+  if(command==='native_backend_test')return DEPS;
   return {state:'running',stepId:'python',logs:['native fixture log'],error:null};
  });
 }
@@ -59,20 +61,21 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
    if(command==='native_llm_read')return defaultLlmConfig;
    if(command==='native_llm_models')return {models:[],warnings:[]};
    if(command==='native_settings_read')return {};
+   if(command==='native_backend_test')return DEPS;
    if(command==='native_backend_status')return {state:backend,endpoint:backend==='running'?'http://127.0.0.1:49312':null,logs:[],error:null,generationReady:false};
    throw Error('Unexpected fixture IPC '+command);
   });
-  await ready();click('Start install');await screen.findByRole('tab',{name:'Studio',selected:true});click('Backend');click('Refresh backend status');
+  await ready();click('Start install');await screen.findByRole('tab',{name:'Studio',selected:true});click('Backend');click('Test');
   await screen.findByText('Backend starting…');vi.useFakeTimers();
   await act(()=>vi.advanceTimersByTimeAsync(10000));expect(screen.getByText('Backend starting…')).toBeTruthy();
-  backend='running';await act(async()=>{click('Refresh backend status');});
+  backend='running';await act(async()=>{click('Test');});
   expect(document.querySelector('[data-backend-notice]')?.textContent).toContain('✓');
   expect(screen.getByText('Backend started')).toBeTruthy();
   await act(()=>vi.advanceTimersByTimeAsync(2000));
-  await act(async()=>{click('Refresh backend status');});
+  await act(async()=>{click('Test');});
   await act(()=>vi.advanceTimersByTimeAsync(1001));expect(document.querySelector('[data-backend-notice]')).toBeNull();
-  backend='starting';await act(async()=>{click('Refresh backend status');});expect(screen.getByText('Backend starting…')).toBeTruthy();
-  backend='failed';await act(async()=>{click('Refresh backend status');});expect(document.querySelector('[data-backend-notice]')).toBeNull();
+  backend='starting';await act(async()=>{click('Test');});expect(screen.getByText('Backend starting…')).toBeTruthy();
+  backend='failed';await act(async()=>{click('Test');});expect(document.querySelector('[data-backend-notice]')).toBeNull();
  });
  it('shows configured-provider marks in the overview and refreshes them with inline authorization',async()=>{
   nativeFixture();vi.mocked(readAuthStatus).mockResolvedValue([{providerId:'github',configured:true,persisted:true}]);
@@ -128,8 +131,8 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));await waitFor(()=>expect(document.querySelector('[data-backend-installed]')?.className).toContain('is-set'));
   fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
   expect(document.querySelector('iframe')).toBeNull();
-  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Refresh backend status');
-  await waitFor(()=>expect(screen.queryByRole('button',{name:'Stop owned backend'})).not.toBeNull());
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Test');
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Stop'})).not.toBeNull());
   await waitFor(()=>expect(document.querySelector('[data-backend-state]')?.textContent).toContain('Started'));
   fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
   const frame=screen.getByTitle('ComfyUI workflow editor');
@@ -143,7 +146,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(screen.getByTitle('ComfyUI workflow editor')).toBe(frame);
   expect(frame.closest('[hidden]')).toBeNull();
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start'||c==='native_backend_stop')).toBe(false);
-  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Stop owned backend');
+  fireEvent.click(screen.getByRole('tab',{name:'Studio'}));click('Backend');click('Stop');
   await waitFor(()=>expect(document.querySelector('iframe')).toBeNull());
   fireEvent.click(screen.getByRole('tab',{name:'Comfy'}));
   expect(document.querySelector('.comfy-loading')?.textContent).toContain('Waiting for backend');
@@ -232,7 +235,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
  });
  it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
   nativeFixture();const installed=vi.fn();
@@ -266,7 +269,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   vi.mocked(invoke).mockImplementation(async command=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_files_present'?[true]:command==='native_settings_read'?{models:'/custom/models'}:command==='native_install_plan'?{...plan({...request,storagePath:'/custom/env'}),id:'reopen',reopenId:'reopen'}:command==='native_install_open'?{state:'succeeded',stepId:null,logs:[],error:null}:defaults);
   mount();await screen.findByRole('tab',{name:'Studio',selected:true});
   expect(invoke).toHaveBeenCalledWith('native_files_present',{paths:['/custom/env/deas-install.json']});
-  open();await screen.findByRole('button',{name:'Start owned backend'});expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true});expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start'||c==='native_install_start')).toBe(false);expect(screen.queryByRole('button',{name:'Run install again'})).toBeNull();
+  open();await screen.findByRole('button',{name:'Start'});expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true});expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start'||c==='native_install_start')).toBe(false);expect(screen.queryByRole('button',{name:'Run install again'})).toBeNull();
  });
  it('forgets a vanished install root and keeps the first run',async()=>{
   nativeFixture();localStorage.setItem('deas.pref.install.root','"/gone/env"');
@@ -283,10 +286,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(screen.queryByRole('button',{name:'Confirm & continue'})).toBeNull();expect(invoke).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('reads defaults on the initial Backend view; automatic planning never starts installation; final click confirms once',async()=>{
-  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual([['native_install_defaults',{}]]);open();await screen.findByText('CPU fallback fixture');
+  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual([['native_install_defaults',{}]]);open();await screen.findByText('CPU fallback fixture');
   expect(invoke).toHaveBeenCalledWith('native_install_defaults',{});
   await screen.findByRole('button',{name:'Start install'});
-  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
   const button=screen.getByRole('button',{name:'Start install'});fireEvent.click(button);fireEvent.click(button);
   await screen.findByText('native fixture log');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_start')).toEqual([['native_install_start',{planId:'fixture-plan',confirmed:true}]]);
   expect(screen.getByLabelText('Storage directory').matches(':disabled')).toBe(true);
@@ -398,6 +401,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
    if(command==='native_pick_directory')return folders[choosing];
    if(command==='native_install_start'){running=true;return {state:'running',stepId:'verify',logs:[],error:null};}
    if(command==='native_install_status')return {state:running?'succeeded':'idle',stepId:null,logs:[],error:null};
+   if(command==='native_backend_test')return DEPS;
    if(command==='native_backend_status')return {state:'stopped',endpoint:null,error:null,generationReady:false};
    if(command==='native_llm_read')return defaultLlmConfig;
    if(command==='native_llm_models')return {models:[],warnings:[]};
@@ -442,7 +446,8 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
  });
  it('takeover rebuilds a foreign folder only after an explicit confirm and marks the request',async()=>{
   nativeFixture();
-  vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_pick_directory'?'/foreign/env':c==='native_files_present'?[true,false]:(async(command,args)=>{if(command==='native_install_defaults')return defaults;if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);if(command==='native_detect_hardware')return {backend:null};return {state:'running',stepId:'python',logs:[],error:null};})(c,a));
+  vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_pick_directory'?'/foreign/env':c==='native_files_present'?[true,false]:(async(command,args)=>{if(command==='native_install_defaults')return defaults;if(command==='native_install_plan')return plan((args as {request:NativeInstallRequest}).request);if(command==='native_detect_hardware')return {backend:null};
+  if(command==='native_backend_test')return DEPS;return {state:'running',stepId:'python',logs:[],error:null};})(c,a));
   mount();open();
   await screen.findByRole('button',{name:'Start install'});
   fireEvent.click(screen.getByRole('button',{name:'Adopt a foreign installation (rebuild its venv)'}));

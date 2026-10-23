@@ -34,6 +34,9 @@
 .aio-detail pre { overflow: auto; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: #121719; padding: 1rem; border-radius: .75rem; color: #b9d9e0; font-size: .8rem; line-height: 1.6; }
 .aio-plan-status { color: #ce9875; font-size: .8rem; font-weight: 600; }
 .aio-error { color: #ffbaaa; }
+.aio-checks { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .35rem; font-size: .85rem; }
+.aio-check-pass > span { color: #7ddea8; margin-right: .4rem; }
+.aio-check-fail > span { color: #ff6b6b; margin-right: .4rem; }
 .aio-notice { color: #b9d9e0; }
 @media (max-width: 640px) { .aio-setup-header { flex-direction: column; } .aio-motion { max-width: 100%; } }
 .aio-controls { border: 0; padding: 0; margin: 0; min-width: 0; }

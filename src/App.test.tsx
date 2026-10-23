@@ -61,6 +61,19 @@ test("language selection updates app, setup, studio metadata and aria without lo
   expect(screen.getByLabelText("Framing")).toHaveProperty("value", "wide");
 });
 
+test('footer version opens Backend and requests consent without starting an update',()=>{
+ localStorage.setItem(LOCALE_STORAGE_KEY,'en');
+ render(<I18nProvider><App/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+ fireEvent.click(screen.getByRole('button',{name:/DEAS v/}));
+ expect(screen.getByRole('tab',{name:'Backend',selected:true})).toBeTruthy();
+ expect(screen.getByRole('alertdialog').textContent).toContain('Update DEAS?');
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_app_update'||c==='native_install_update')).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+ expect(screen.queryByRole('alertdialog')).toBeNull();
+ expect((screen.getByRole('button',{name:'Upgrade'}) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test('Generate preserves the same workbench across map and top-level tab navigation',()=>{
  localStorage.setItem(LOCALE_STORAGE_KEY,'en');
  const view=render(<I18nProvider><App/></I18nProvider>);

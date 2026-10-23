@@ -7,6 +7,9 @@ pub use auth::{
     native_auth_verify,
 };
 pub mod downloads;
+pub use downloads::models::background::{
+    native_model_scan_start, native_model_scan_status, ModelScanEngine,
+};
 pub use downloads::models::{native_model_info, native_models_scan};
 pub use downloads::{
     native_download_browse, native_download_cancel, native_download_catalog,
@@ -28,7 +31,9 @@ pub mod wildcard;
 pub use recipe_prerequisites::native_recipe_prerequisites;
 pub use wildcard::{native_wildcard_build, native_wildcard_library};
 pub mod backend;
-pub use backend::{native_backend_start, native_backend_status, native_backend_stop};
+pub use backend::{
+    native_backend_start, native_backend_status, native_backend_stop, native_backend_test,
+};
 pub mod hardware;
 pub use hardware::native_detect_hardware;
 pub mod projects;
@@ -49,6 +54,8 @@ pub use media::{
 pub use media_metadata::native_media_metadata;
 pub mod token_page;
 pub use token_page::native_open_token_page;
+pub mod app_update;
+pub use app_update::{native_app_restart, native_app_update};
 pub mod repo;
 pub use repo::{
     native_open_releases, native_open_repo, native_repo_star, native_repo_stars,

@@ -433,3 +433,22 @@ fn clean_log_line_strips_terminal_control_sequences() {
     );
     assert_eq!(clean_log_line(b"\n"), "");
 }
+#[test]
+fn native_backend_test_command_is_registered_and_permitted() {
+    assert!(include_str!("../permissions/backend.toml").contains("\"native_backend_test\""));
+    assert!(include_str!("main.rs").contains("deas::native_backend_test"));
+}
+#[test]
+fn native_backend_test_lists_dependencies_of_the_approved_environment() {
+    let (_tmp, approved) = fixture(SERVER);
+    let engine = crate::install::Engine::default();
+    let missing = engine.backend_test();
+    assert_eq!(missing.len(), 5);
+    assert!(missing.iter().all(|c| !c.ok));
+    crate::install::lock(&engine.inner).approved = Some(approved);
+    let checks = engine.backend_test();
+    let ok = |id: &str| checks.iter().find(|c| c.id == id).unwrap().ok;
+    assert!(ok("environment") && ok("python") && ok("comfyui"));
+    assert!(!ok("nodes")); // The fixture environment has no DaSiWa node checkout.
+    assert!(!ok("api"));
+}
