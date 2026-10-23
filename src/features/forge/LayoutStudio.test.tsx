@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { PromptForge } from './PromptForge';
-import { applyGenerated, blankProject, exportLayout, forPrompt, resizeProject, type LayoutProject } from './LayoutStudio';
+import { applyGenerated, blankProject, boxName, exportLayout, forPrompt, resizeProject, type LayoutProject } from './LayoutStudio';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
 
@@ -36,6 +36,13 @@ it('a written layout with the same boxes changes only the words; different boxes
   expect(other.items).toHaveLength(1);
   expect(other.items[0]).toMatchObject({ name: 'a small campfire burning', x: 512, y: 384, w: 100, h: 100 });
   expect(() => applyGenerated(project, 'not json')).toThrow();
+});
+
+it('names a written box by its subject, not its first four words', () => {
+  expect(boxName('Frieren, an elf with long white hair, sits on the bench')).toBe('Frieren');
+  expect(boxName('A small flock of birds flies past against the bright sky')).toBe('A small flock of birds');
+  expect(boxName('A weathered wooden bench in a quiet park')).toBe('A weathered wooden bench');
+  expect(boxName('the tall ancient oak tree casting long morning shadows')).toBe('the tall ancient oak tree');
 });
 
 it('a new canvas size scales the boxes with it', () => {

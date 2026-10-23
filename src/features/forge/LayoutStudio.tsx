@@ -50,6 +50,16 @@ export const forPrompt = (p: LayoutProject) => {
   return { width: p.w, height: p.h, items: o.items.map((i, n) => ({ name: p.items[n].name, ...i })) };
 };
 
+/** Words that end a box's subject: "A small flock of birds flies past" names "A small flock of birds". */
+const VERBS = /^(is|are|was|were|sits?|sitting|stands?|standing|flies|flying|fly|lies|lying|rests?|resting|holds?|holding|leans?|leaning|walks?|walking|looks?|looking|floats?|floating|hangs?|hanging|grows?|growing|appears?|stretches|stretching|wears?|wearing|with|in|on|at|against|beside|near|under|over|above|behind|by|from|that|which|who)$/i;
+
+/** A short name for a written box: its first clause, up to the verb, at most five words. */
+export function boxName(caption: string) {
+  const words = caption.split(/[,.;:(]/)[0].trim().split(/\s+/).filter(Boolean);
+  const end = words.findIndex((w, i) => i > 0 && VERBS.test(w));
+  return words.slice(0, Math.min(end > 0 ? end : words.length, 5)).join(' ');
+}
+
 /** A written Layout JSON back onto the canvas. Same boxes: only the words change; otherwise the boxes are replaced. */
 export function applyGenerated(p: LayoutProject, raw: string): LayoutProject {
   const o = JSON.parse(raw);
@@ -58,7 +68,7 @@ export function applyGenerated(p: LayoutProject, raw: string): LayoutProject {
     const [y1, x1, y2, x2] = i.bbox.map(Number);
     const label = i.label === 'text' ? 'text' : 'object';
     const caption = String(i.caption ?? '');
-    const name = label === 'text' && i.text ? `Text · ${String(i.text).slice(0, 24)}` : caption.split(/\s+/).slice(0, 4).join(' ').replace(/[,.;:]$/, '') || `Box ${n + 1}`;
+    const name = label === 'text' && i.text ? `Text · ${String(i.text).slice(0, 24)}` : boxName(caption) || `Box ${n + 1}`;
     return { id: uid(), name, label, caption, text: String(i.text ?? ''), color: PALETTE[n % PALETTE.length], ...fit({ x: x1 + p.w / 2, y: y1 + p.h / 2, w: x2 - x1, h: y2 - y1 }, p.w, p.h) };
   });
   const same = items.length === p.items.length && items.every((n, k) => { const o2 = p.items[k]; return o2.label === n.label && (['x', 'y', 'w', 'h'] as const).every(d => Math.abs(o2[d] - n[d]) <= 1); });
