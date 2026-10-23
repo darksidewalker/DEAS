@@ -13,6 +13,10 @@ pub struct Controls {
     pub creativity: Option<u8>,
     /// 1..=10.
     pub detail: Option<u8>,
+    /// 0..=10; 0 (the default) sends nothing.
+    pub lighting: Option<u8>,
+    /// The manual length: off unless set.
+    pub max_length: Option<MaxLength>,
     pub aspect_ratio: Option<String>,
     /// A registry preset name, or "none" for no quality tags.
     pub quality_preset: Option<String>,
@@ -26,6 +30,46 @@ pub struct Controls {
     pub camera_angle: Option<String>,
     pub camera_shot: Option<String>,
     pub camera_light: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MaxLength {
+    /// "words" (asked for, not enforced) or "tokens" (a hard cut-off).
+    pub unit: String,
+    pub value: u32,
+}
+
+const LENGTH_MIN: u32 = 10;
+const LENGTH_MAX: u32 = 4000;
+/// How far above a word request the hard ceiling sits: the word count is one segment, the
+/// ceiling caps the whole answer (negative, reasoning). It stops a runaway, never a real answer.
+const WORD_LIMIT_HEADROOM: f64 = 3.0;
+
+fn length(controls: &Controls) -> Result<Option<&MaxLength>, String> {
+    let Some(l) = &controls.max_length else {
+        return Ok(None);
+    };
+    if l.unit != "words" && l.unit != "tokens" {
+        return Err("Length must be in words or tokens.".into());
+    }
+    if !(LENGTH_MIN..=LENGTH_MAX).contains(&l.value) {
+        return Err(format!(
+            "Length must be between {LENGTH_MIN} and {LENGTH_MAX} {}; got {}.",
+            l.unit, l.value
+        ));
+    }
+    Ok(Some(l))
+}
+
+/// The hard token ceiling for one generation, or None for none.
+pub fn token_budget(controls: &Controls) -> Result<Option<u32>, String> {
+    Ok(length(controls)?.map(|l| {
+        if l.unit == "tokens" {
+            l.value
+        } else {
+            (f64::from(l.value) / 0.75 * WORD_LIMIT_HEADROOM).round() as u32
+        }
+    }))
 }
 
 fn title_case(v: &str) -> String {
@@ -229,6 +273,46 @@ pub fn build(
                 lines.push(format!("Detail level {level} of {of} - {label}. {rule}"));
             }
         }
+    }
+    // Lighting only when somebody asked for it: level 0 carries no rule.
+    if let Some(table) = model
+        .entry
+        .get("lighting_levels")
+        .and_then(Value::as_object)
+    {
+        let fallback = model
+            .entry
+            .get("default_lighting")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let level = controls
+            .lighting
+            .map(u64::from)
+            .filter(|l| table.contains_key(&l.to_string()))
+            .unwrap_or(fallback);
+        let entry = table.get(&level.to_string());
+        if let Some(rule) = entry.and_then(|e| e.get("rule")).and_then(Value::as_str) {
+            let of = table.keys().filter(|k| k.parse::<u64>().is_ok()).count() - 1;
+            let label = entry
+                .and_then(|e| e.get("label"))
+                .and_then(Value::as_str)
+                .map_or(level.to_string(), String::from);
+            let standing = model
+                .str("lighting_rule")
+                .or(pack.defaults.get("lighting_rule").and_then(Value::as_str))
+                .map(|r| format!(" {r}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "Lighting level {level} of {of} - {label}. {rule}{standing}"
+            ));
+        }
+    }
+    if let Ok(Some(l)) = length(controls) {
+        lines.push(if l.unit == "words" {
+            format!("Length: approximately {} words. This takes precedence over the detail level above and over any length or tag count this model's format normally expects.", l.value)
+        } else {
+            format!("Length: your output will be cut off at {} tokens, roughly {} words. Finish inside that. This takes precedence over the detail level above and over any length or tag count this model's format normally expects.", l.value, (f64::from(l.value) * 0.75).round())
+        });
     }
     if controls
         .quality_preset

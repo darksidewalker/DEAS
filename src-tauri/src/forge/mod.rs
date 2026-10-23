@@ -12,8 +12,10 @@ pub mod clean;
 pub mod engine;
 pub mod message;
 pub mod pack;
+pub mod picker;
+pub mod randomizer;
 pub mod segments;
 pub mod tags;
 pub mod tools;
 
-pub use engine::{native_forge_targets, native_forge_write};
+pub use engine::{native_forge_revise, native_forge_targets, native_forge_write};

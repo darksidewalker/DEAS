@@ -595,3 +595,130 @@ it('H3 cast cards: one per labelled Character / place, Read fills a card, filled
   expect(forgeCalls().find(c => c.route === 'h3')!.body.cast).toEqual({ 1: 'tall woman, red coat', place: 'old  harbour' });
   expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.textContent)).toEqual(['Read again', 'Read', 'Read again']); // filled cards are read again (`redo`)
 });
+
+it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-written', async () => {
+  const rich = { ...nativeTargets, targets: nativeTargets.targets.map(t => t.key !== 'illustrious' ? t : { ...t, label: 'Illustrious XL', qualityPresets: ['masterpiece', 'high_quality', 'none'], styles: ['Anime', 'None'], aspectRatios: ['N/A', '2:3 Portrait'],
+    detailLevels: [[1, 'Bare'], [5, 'Standard'], [10, 'Exhaustive']], lightingLevels: [[0, 'Off'], [3, 'Dark'], [10, 'Radiant']],
+    camera: { angle: [{ key: 'birds_eye', label: "Bird's eye", icon: 'birds', payload: 'from above' }], shot: [{ key: 'medium', label: 'Medium', icon: 'medium', payload: 'upper body' }], light: [{ key: 'left', label: 'Left', icon: 'l_left', payload: 'light from the left' }] } }) };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(rich) : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: ['frieren'], tools: [], rounds: 1, warnings: [], fixes: [] }) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
+  // Empty state until something is written; actions wait for a result.
+  expect(screen.getByText('No prompt yet')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Copy all' }) as HTMLButtonElement).disabled).toBe(true);
+  // Closed sections say what is set inside them.
+  fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
+  fireEvent.click(document.querySelector('[data-forge-chip="quality:masterpiece"]')!);
+  fireEvent.click(document.querySelector('[data-forge-chip="style:Anime"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3 Portrait"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="angle:birds_eye"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="shot:medium"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="light:left"]')!);
+  fireEvent.change(document.querySelector('[data-forge-ladder="lighting"]')!, { target: { value: '1' } });
+  fireEvent.change(document.querySelector('[data-forge-keep-positive]')!, { target: { value: 'lora_trigger' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close all' }));
+  const summary = (name: string) => document.querySelector(`[data-forge-fold="${name}"] .forge-fold-summary`)!.textContent;
+  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3 Portrait', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('1girl, campfire');
+  expect(nativeCalls().at(-1)!.request).toMatchObject({ target: 'illustrious', brief: 'frieren by a campfire', segmentsOn: ['Negative prompt'],
+    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3 Portrait', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
+  expect((screen.getByRole('textbox', { name: 'Negative prompt' }) as HTMLTextAreaElement).value).toBe('lowres');
+  expect(screen.getByText('Character canon from the local table: frieren')).toBeTruthy();
+  // Picks belong to the model: Anima starts clean.
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Anima' } });
+  await waitFor(() => expect(document.querySelector('[data-forge-native="anima"]')).toBeTruthy());
+  expect(screen.getByText('No prompt yet')).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'x' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(nativeCalls().at(-1)!.request.target).toBe('anima'));
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ qualityPreset: 'none', style: 'None', aspectRatio: 'N/A', cameraAngle: undefined, lighting: undefined });
+});
+
+it('Prompt Forge tab refines, second-passes and undoes the draft on screen, with a length', async () => {
+  const targets = { ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, secondPass: true })) };
+  const drafts = [
+    { segments: [{ label: 'Positive prompt', body: '1girl, campfire' }, { label: 'Negative prompt', body: 'lowres' }], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: [], tools: [], rounds: 0, warnings: [], fixes: [], changed: 0 },
+    { segments: [{ label: 'Positive prompt', body: '1girl, blue fire' }, { label: 'Negative prompt', body: 'lowres' }], refused: false, prompt: '1girl, blue fire', negative: 'lowres', characters: [], tools: [], rounds: 0, warnings: [], fixes: [], changed: 1 },
+  ];
+  const revise = vi.fn(async (_: unknown) => drafts[1]);
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(targets) : c === 'native_forge_write' ? Promise.resolve(drafts[0]) : c === 'native_forge_revise' ? revise(a) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('button', { name: 'Open all' });
+  // Refine, Second pass and Undo wait for a draft.
+  for (const name of ['Refine', 'Second pass', 'Undo']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
+  fireEvent.change(document.querySelector('[data-forge-length-unit]')!, { target: { value: 'words' } });
+  fireEvent.change(document.querySelector('[data-forge-length-value]')!, { target: { value: '5' } });
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
+  expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(true); // below the 10-word floor
+  fireEvent.change(document.querySelector('[data-forge-length-value]')!, { target: { value: '60' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('1girl, campfire');
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ maxLength: { unit: 'words', value: 60 } });
+  // The person's edit goes back with the refine request.
+  fireEvent.change(screen.getByRole('textbox', { name: 'Result' }), { target: { value: '1girl, campfire, night' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Refine' }), { target: { value: 'colder light' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Refine' }));
+  await screen.findByDisplayValue('1girl, blue fire');
+  expect(revise).toHaveBeenLastCalledWith({ root: '/env', request: expect.objectContaining({ target: 'illustrious', instruction: 'colder light', segments: [{ label: 'Positive prompt', body: '1girl, campfire, night' }, { label: 'Negative prompt', body: 'lowres' }] }) });
+  expect(screen.getByText('The revision rewrote 1 section(s).')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Second pass' }));
+  await waitFor(() => expect(revise).toHaveBeenCalledTimes(2));
+  expect((revise.mock.calls[1][0] as { request: { instruction?: string } }).request.instruction).toBeUndefined();
+  // Undo walks back one revision at a time, to the edited draft.
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect((screen.getByRole('textbox', { name: 'Result' }) as HTMLTextAreaElement).value).toBe('1girl, campfire, night');
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('Prompt Forge tab picks tags from the local database, weights them and adds a character\'s traits', async () => {
+  const targets = { ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, tagStyle: 'space', weightRange: { min: 0.5, max: 1.8, step: 0.05, default: 1 } })) };
+  const search = vi.fn(async (_: unknown) => [{ tag: 'frieren', category: 'character', count: 16194 }, { tag: 'frieren (cosplay)', category: 'general', count: 316 }]);
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(targets) : c === 'native_forge_tag_search' ? search(a)
+    : c === 'native_forge_character_traits' ? Promise.resolve(['pointy ears', 'white hair']) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open all' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search tags…' }), { target: { value: 'frier' } });
+  fireEvent.mouseDown(await screen.findByRole('option', { name: /^frieren character/ }));
+  expect(search).toHaveBeenCalledWith({ root: '/env', target: 'illustrious', query: 'frier' });
+  await screen.findByText('frieren: traits from the local character table');
+  fireEvent.click(screen.getByRole('button', { name: 'Add all' }));
+  expect((screen.getByRole('button', { name: 'Add all' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'frieren' }));
+  fireEvent.change(document.querySelector('[data-forge-tag-weight]')!, { target: { value: '1.2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove white hair' }));
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'by a campfire' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(nativeCalls()).toHaveLength(1));
+  expect(nativeCalls()[0].request.controls).toMatchObject({ tags: ['(frieren:1.20)', 'pointy ears'] });
+});
+
+it('Randomizer rolls the ticked boxes with the cast and adds the result to the brief', async () => {
+  const roll = vi.fn(async (_: unknown) => ({ boxes: [{ id: 'hair', label: 'Hair', picks: [{ id: 'h', label: 'Colour', text: 'grey hair' }] }], cast: ['1girl'], text: '1girl, grey hair' }));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_randomizer_list' ? Promise.resolve([{ id: 'hair', label: 'Hair', children: [{ id: 'hair_colour', label: 'Colour', options: 40 }, { id: 'hair_len', label: 'Length', options: 9 }] }, { id: 'nsfw', label: 'NSFW', children: [{ id: 'x', label: 'X', options: 3 }] }])
+    : c === 'native_forge_randomizer_roll' ? roll(a) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'by a campfire' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Randomizer' }));
+  const roller = await screen.findByRole('dialog', { name: 'Randomizer' });
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Everything in Hair' }));
+  fireEvent.change(roller.querySelector('[data-forge-random-cast="women"]')!, { target: { value: '1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Roll' }));
+  await screen.findByDisplayValue('1girl, grey hair');
+  expect(roll).toHaveBeenCalledWith({ root: '/env', request: { categories: ['hair'], women: 1, men: 0, surprise: false, limits: {} } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add to brief' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect((document.querySelector('[data-forge-brief]') as HTMLTextAreaElement).value).toBe('by a campfire, 1girl, grey hair');
+});

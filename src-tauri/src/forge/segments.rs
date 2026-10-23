@@ -5,7 +5,7 @@
 
 pub const REFUSED: &str = "Refused";
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Segment {
     pub label: String,
     pub body: String,

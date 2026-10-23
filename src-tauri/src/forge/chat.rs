@@ -33,6 +33,8 @@ pub struct Round<'a> {
     pub tools: Option<&'a [Value]>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
+    /// A hard ceiling on the answer (num_predict / max_tokens).
+    pub max_tokens: Option<u32>,
     pub timeout: Duration,
 }
 
@@ -52,6 +54,9 @@ pub async fn round(r: Round<'_>) -> Result<Reply, String> {
         if let Some(p) = r.top_p {
             options["top_p"] = json!(p);
         }
+        if let Some(n) = r.max_tokens {
+            options["num_predict"] = json!(n);
+        }
         json!({ "model": r.model, "messages": r.messages, "stream": false, "think": false, "options": options })
     } else {
         let mut b = json!({ "model": r.model, "messages": r.messages, "stream": false, "chat_template_kwargs": { "enable_thinking": false } });
@@ -60,6 +65,9 @@ pub async fn round(r: Round<'_>) -> Result<Reply, String> {
         }
         if let Some(p) = r.top_p {
             b["top_p"] = json!(p);
+        }
+        if let Some(n) = r.max_tokens {
+            b["max_tokens"] = json!(n);
         }
         b
     };

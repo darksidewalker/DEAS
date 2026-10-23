@@ -65,7 +65,7 @@ export function PromptForge({ endpoint, root, inputDir, onSend, active = true }:
   const level = (key: string, value: number, set: (v: number) => void) => <label className="forge-field"><span>{t(key)} {value}</span><input type="range" min={1} max={10} value={value} onChange={e => set(Number(e.target.value))}/></label>;
   const picker = <label className="forge-field"><span>{t('forge.target')}</span><select data-forge-target value={target} onChange={e => setTarget(e.target.value)}>{dialects.map(d => <option key={d} value={d}>{d}</option>)}</select></label>;
   const native = nativeTarget(target);
-  if (native) return <section className="forge-tab" aria-label={t('studio.tab.forge')}><NativeForge root={root} target={native} forge={forge} onSend={onSend} header={picker} active={active}/></section>;
+  if (native) return <section className="forge-tab" aria-label={t('studio.tab.forge')}><NativeForge key={native} root={root} target={native} forge={forge} onSend={onSend} header={picker} active={active}/></section>;
   return <section className="forge-tab" aria-label={t('studio.tab.forge')}>
     <div className="forge-controls">
       {picker}

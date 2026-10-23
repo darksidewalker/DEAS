@@ -29,6 +29,9 @@ pub struct Shared {
     pub tag_search: Option<String>,
     #[serde(default)]
     pub guidance: Option<String>,
+    /// PromptForge's second-pass instruction; without it there is no Second pass.
+    #[serde(default)]
+    pub second_pass: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

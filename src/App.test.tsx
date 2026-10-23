@@ -102,7 +102,8 @@ test.each(['Library','Comfy','Backend','Logs',null])('deferred missing Forge con
   await screen.findByRole('tab',{name:'Studio',selected:true});
   fireEvent.click(screen.getByRole('tab',{name:'Prompt Forge'}));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_llm_read',{root:'/env'}));
-  const result=screen.getByRole('textbox',{name:'Result'});
+  // The result panel is an empty state until something is written; the brief is the draft that must survive.
+  const result=screen.getByRole('textbox',{name:'Idea or prompt to enhance'});
   fireEvent.change(result,{target:{value:'retained Forge result'}});
   const workbench=view.container.querySelector('[data-workbench]');
   if(destination)fireEvent.click(screen.getByRole('tab',{name:destination}));

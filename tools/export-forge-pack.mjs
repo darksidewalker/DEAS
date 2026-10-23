@@ -73,6 +73,7 @@ process.stdout.write(JSON.stringify({
     meta_segment: metaSegment,
     tag_search: prompts.tagSearch(),
     guidance: prompts.guidance(),
+    second_pass: prompts.secondPass(),
   },
   models,
 }, null, 1));
