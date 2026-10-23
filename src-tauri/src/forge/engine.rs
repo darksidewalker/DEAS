@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const ROUND_TIMEOUT: Duration = Duration::from_secs(600);
+pub(crate) const ROUND_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

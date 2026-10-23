@@ -80,7 +80,7 @@ pub fn order(refs: &[ImageRef], pack: &Pack) -> Vec<ImageRef> {
     out
 }
 
-fn sendable(uri: &str) -> bool {
+pub(crate) fn sendable(uri: &str) -> bool {
     let Some(rest) = [
         "data:image/png;base64,",
         "data:image/jpeg;base64,",

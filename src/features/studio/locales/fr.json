@@ -586,5 +586,6 @@
   "studio.run.video.ref.dropOf": "Ignorer de {name}",
   "studio.editor.restoreFrame": "Replacer dans le cadre",
   "studio.run.useInput": "Utiliser comme entrée",
-  "studio.quick.scheme": "Palette de couleurs"
+  "studio.quick.scheme": "Palette de couleurs",
+  "studio.tab.chat": "Discussion"
 }

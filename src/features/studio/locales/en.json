@@ -586,5 +586,6 @@
   "studio.run.video.ref.dropOf": "Ignore from {name}",
   "studio.editor.restoreFrame": "Restore to frame",
   "studio.run.useInput": "Use as input",
-  "studio.quick.scheme": "Colour scheme"
+  "studio.quick.scheme": "Colour scheme",
+  "studio.tab.chat": "Chat"
 }

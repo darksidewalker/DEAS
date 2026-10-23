@@ -10,7 +10,7 @@ const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const readAs = (file: Blob) => new Promise<string>((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(r.error); r.readAsDataURL(file); });
 
 /** A data URI the model can take: PNG, JPEG or WebP, scaled down when it is large. */
-async function prepare(file: File): Promise<string> {
+export async function prepare(file: File): Promise<string> {
   const bitmap = typeof createImageBitmap === 'function' ? await createImageBitmap(file).catch(() => null) : null;
   if (!bitmap) {
     if (TYPES.includes(file.type)) return readAs(file);

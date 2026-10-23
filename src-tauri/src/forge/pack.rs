@@ -41,6 +41,18 @@ pub struct Shared {
     /// Analyze's read-back of one reference picture.
     #[serde(default)]
     pub reference_analysis: Option<String>,
+    /// Chat's system prompt (PromptForge's prompts/chat/default.md).
+    #[serde(default)]
+    pub chat: Option<String>,
+    /// The video models' composed prompts, which Chat reads as guides.
+    #[serde(default)]
+    pub video_guides: HashMap<String, Guide>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Guide {
+    pub label: String,
+    pub system: String,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,0 +1,232 @@
+import { Fragment, useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
+import { useI18n } from '../../i18n/I18nProvider';
+import { cancelChat, chatSettings, deleteChat, getChat, listChats, renameChat, saveChatSettings, sendChat, workingContext, type ChatEvent, type ChatHit, type ChatMessage, type ChatSettings, type ChatSummary, type WrittenPrompt } from '../../lib/chat';
+import { forgeError, nativeModelId } from '../../lib/forge';
+import { isBoolean, isString, usePref } from '../../lib/preferences';
+import { ModelSelect, useForgeModels } from '../forge/ForgeButton';
+import { prepare } from '../forge/ReferenceImages';
+import './chat.css';
+
+const MAX_PICTURES = 4;
+
+/** Light markdown: headings, lists, code blocks, **bold**, `code` and [n] citations. Built as elements, never HTML. */
+function Rich({ text, citations }: { text: string; citations: ChatHit[] }) {
+  const inline = (line: string, key: string): ReactNode[] => line.split(/(`[^`]+`|\*\*[^*]+\*\*|\[\d+\])/g).map((part, i) => {
+    if (/^`[^`]+`$/.test(part)) return <code key={`${key}-${i}`}>{part.slice(1, -1)}</code>;
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={`${key}-${i}`}>{part.slice(2, -2)}</strong>;
+    const cite = /^\[(\d+)\]$/.exec(part);
+    const hit = cite && citations.find(c => c.n === Number(cite[1]));
+    if (hit) return <a key={`${key}-${i}`} className="chat-cite" href={hit.url} target="_blank" rel="noreferrer" title={hit.title}>{part}</a>;
+    return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
+  });
+  const blocks: ReactNode[] = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith('```')) {
+      const body: string[] = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith('```'); i++) body.push(lines[i]);
+      blocks.push(<pre key={i}><code>{body.join('\n')}</code></pre>);
+      continue;
+    }
+    const head = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (head) { blocks.push(<p key={i} className="chat-h">{inline(head[2], `h${i}`)}</p>); continue; }
+    if (/^\s*([-*]|\d+[.)])\s+/.test(line)) {
+      const items: string[] = [];
+      const ordered = /^\s*\d+[.)]/.test(line);
+      for (; i < lines.length && /^\s*([-*]|\d+[.)])\s+/.test(lines[i]); i++) items.push(lines[i].replace(/^\s*([-*]|\d+[.)])\s+/, ''));
+      i--;
+      const List = ordered ? 'ol' : 'ul';
+      blocks.push(<List key={i}>{items.map((it, k) => <li key={k}>{inline(it, `l${i}-${k}`)}</li>)}</List>);
+      continue;
+    }
+    if (line.trim()) blocks.push(<p key={i}>{inline(line, `p${i}`)}</p>);
+  }
+  return <div className="chat-rich">{blocks}</div>;
+}
+
+function PromptCard({ prompt, onSend }: { prompt: WrittenPrompt; onSend: (positive: string, negative: string) => void }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(prompt.negative ? `${prompt.prompt}\n\n${t('forge.negativeShort')}: ${prompt.negative}` : prompt.prompt); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* the text is on screen to copy by hand */ } };
+  return <div className="chat-prompt" data-chat-prompt={prompt.target}>
+    <div className="chat-prompt-head"><strong>{prompt.label}</strong>
+      <div className="forge-actions">
+        <button type="button" className="forge-ghost" onClick={() => void copy()}>{t(copied ? 'forge.copied' : 'chat.copy')}</button>
+        <button type="button" className="forge-ghost" data-chat-send-prompt onClick={() => onSend(prompt.prompt, prompt.negative ?? '')}>{t('chat.toGenerate')}</button>
+      </div>
+    </div>
+    <pre>{prompt.prompt}</pre>
+    {prompt.negative && <><span className="forge-note">{t('forge.negativeShort')}</span><pre className="chat-prompt-neg">{prompt.negative}</pre></>}
+  </div>;
+}
+
+/** A finished message: prompts as cards (their text is already in the reply), citations, what it looked at. */
+function Bubble({ m, onSend }: { m: ChatMessage; onSend: (p: string, n: string) => void }) {
+  const { t } = useI18n();
+  // The reply carries the prompt text for the model's history; the card shows it, so the body drops it.
+  const body = m.prompts.reduce((text, p) => {
+    const at = text.indexOf(`${p.label} prompt, written by`);
+    return at >= 0 ? text.slice(0, at).trim() : text;
+  }, m.content);
+  return <div className={`chat-msg ${m.role}`} data-chat-msg={m.role}>
+    {m.pictures > 0 && <span className="forge-note">{t('chat.picturesSent', { count: String(m.pictures) })}</span>}
+    {body && (m.role === 'assistant' ? <Rich text={body} citations={m.citations}/> : <p className="chat-user-text">{body}</p>)}
+    {m.prompts.map((p, i) => <PromptCard key={i} prompt={p} onSend={onSend}/>)}
+    {m.citations.length > 0 && <ol className="chat-sources">{m.citations.map(c => <li key={c.n}><a href={c.url} target="_blank" rel="noreferrer">{c.title}</a> <span>{c.domain}</span></li>)}</ol>}
+    {m.tools.length > 0 && <p className="chat-tools">{m.tools.join(' · ')}</p>}
+  </div>;
+}
+
+/**
+ * Chat: PromptForge's chat, natively. A streamed conversation with the LLM that can write prompts with the image
+ * models' own writers, read how any model (or DEAS) works, look tags up, and search the web when switched on.
+ */
+export function Chat({ endpoint, root, active = true, onSend }: { endpoint: string; root?: string; active?: boolean; onSend: (positive: string, negative: string) => void }) {
+  const { t } = useI18n();
+  const forge = useForgeModels(endpoint, root, active);
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [id, setId] = useState<string | undefined>();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = usePref('chat.draft', '', isString);
+  const [pictures, setPictures] = useState<string[]>([]);
+  const [search, setSearch] = usePref('chat.search', false, isBoolean);
+  const [includeWork, setIncludeWork] = usePref('chat.includeWork', false, isBoolean);
+  const [settings, setSettings] = useState<ChatSettings | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState<{ text: string; status: string; detail: string | null; prompts: WrittenPrompt[]; searched: ChatHit[] | null; searchDetail: string | null } | null>(null);
+  const [error, setError] = useState('');
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const thread = useRef<HTMLDivElement>(null);
+  const current = useRef<string | undefined>(undefined);
+
+  useEffect(() => { if (active) forge.load(); }, [root, endpoint, forge.rev, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refresh = () => { if (root) listChats(root).then(setChats, e => setError(forgeError(e))); };
+  useEffect(() => { if (!active || !root) return; refresh(); chatSettings(root).then(setSettings, () => setSettings({ search: 'off', searxngUrl: '' })); }, [active, root]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const el = thread.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, live?.text, live?.prompts.length]);
+
+  const open = async (next?: string) => {
+    if (busy) return;
+    setError(''); setLive(null); setPictures([]); setConfirmDelete(null);
+    current.current = next; setId(next);
+    if (!next || !root) { setMessages([]); return; }
+    try { setMessages((await getChat(root, next)).messages); } catch (e) { setError(forgeError(e)); }
+  };
+  const searchOn = !!settings && settings.search !== 'off';
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!root || !forge.model || busy || (!text && !pictures.length)) return;
+    const mine: ChatMessage = { role: 'user', content: text, pictures: pictures.length, prompts: [], citations: [], tools: [], at: Date.now() };
+    setMessages(m => [...m, mine]); setDraft(''); setError(''); setBusy(true);
+    const sentPictures = pictures; setPictures([]);
+    setLive({ text: '', status: 'thinking', detail: null, prompts: [], searched: null, searchDetail: null });
+    const onEvent = (e: ChatEvent) => {
+      if (e.event === 'chat') { current.current = e.id; setId(e.id); }
+      else if (e.event === 'text') setLive(l => l && { ...l, text: l.text + e.text });
+      else if (e.event === 'status') setLive(l => l && { ...l, status: e.state, detail: e.detail });
+      else if (e.event === 'prompt') setLive(l => l && { ...l, prompts: [...l.prompts, e.prompt] });
+      else if (e.event === 'searched') setLive(l => l && { ...l, searched: e.results, searchDetail: e.detail });
+    };
+    try {
+      const done = await sendChat(root, { id, message: text, model: nativeModelId(forge.model), pictures: sentPictures, context: includeWork ? workingContext() || undefined : undefined, search: searchOn && search }, onEvent);
+      setMessages(m => [...m, done]);
+    } catch (e) {
+      setError(forgeError(e));
+      // The question is saved before the answer; reload so the thread matches the file.
+      if (current.current) getChat(root, current.current).then(c => setMessages(c.messages), () => {});
+    } finally { setBusy(false); setLive(null); refresh(); }
+  };
+  const stop = () => { if (current.current) void cancelChat(current.current); };
+
+  const addPictures = async (files: File[]) => {
+    const room = MAX_PICTURES - pictures.length;
+    const usable = files.filter(f => f.type.startsWith('image/')).slice(0, Math.max(0, room));
+    if (files.length > room) setError(t('chat.tooManyPictures', { max: String(MAX_PICTURES) }));
+    try { const added = await Promise.all(usable.map(prepare)); setPictures(p => [...p, ...added]); }
+    catch { setError(t('forge.refs.unreadable')); }
+  };
+  const paste = (e: ClipboardEvent) => {
+    const files = [...e.clipboardData.files].filter(f => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); void addPictures(files); }
+  };
+  const statusText = (s: string, d: string | null) => t(`chat.status.${s}`, { detail: d ?? '' });
+
+  if (!root) return <section className="chat-tab"><p className="field-help">{t('forge.noBackend')}</p></section>;
+  return <section className="chat-tab" aria-label={t('studio.tab.chat')}>
+    <aside className="forge-card chat-side">
+      <button type="button" className="action-button" data-chat-new disabled={busy} onClick={() => void open(undefined)}>{t('chat.new')}</button>
+      <nav className="chat-list" aria-label={t('chat.history')}>
+        {chats.map(c => <div key={c.id} className={`chat-row${c.id === id ? ' on' : ''}`} data-chat-row={c.id}>
+          {renaming?.id === c.id
+            ? <input type="text" autoFocus aria-label={t('chat.rename')} value={renaming.title} maxLength={120}
+              onChange={e => setRenaming({ id: c.id, title: e.target.value })}
+              onKeyDown={e => { if (e.key === 'Enter') { void renameChat(root, c.id, renaming.title).then(refresh, err => setError(forgeError(err))); setRenaming(null); } else if (e.key === 'Escape') setRenaming(null); }}
+              onBlur={() => setRenaming(null)}/>
+            : <button type="button" className="chat-row-open" disabled={busy} onClick={() => void open(c.id)}>{c.title}</button>}
+          <div className="chat-row-actions">
+            <button type="button" className="forge-ghost" aria-label={t('chat.rename')} title={t('chat.rename')} onClick={() => setRenaming({ id: c.id, title: c.title })}>✎</button>
+            {confirmDelete === c.id
+              ? <button type="button" className="forge-ghost danger" data-chat-delete-confirm onClick={() => { void deleteChat(root, c.id).then(() => { if (c.id === id) void open(undefined); refresh(); }, err => setError(forgeError(err))); setConfirmDelete(null); }}>{t('chat.deleteConfirm')}</button>
+              : <button type="button" className="forge-ghost" aria-label={t('chat.delete')} title={t('chat.delete')} disabled={busy && c.id === id} onClick={() => setConfirmDelete(c.id)}>×</button>}
+          </div>
+        </div>)}
+        {!chats.length && <p className="forge-note">{t('chat.noHistory')}</p>}
+      </nav>
+    </aside>
+    <div className="forge-card chat-main">
+      <div className="forge-card-head chat-head">
+        <h3 className="forge-card-title">{t('studio.tab.chat')}</h3>
+        <div className="chat-model"><ModelSelect forge={forge}/></div>
+        <button type="button" className="forge-ghost" data-chat-settings aria-expanded={showSettings} onClick={() => setShowSettings(!showSettings)}>{t('chat.searchSettings')}</button>
+      </div>
+      {showSettings && settings && <SearchSettings root={root} settings={settings} onSaved={s => { setSettings(s); setShowSettings(false); }}/>}
+      <div className="chat-thread" ref={thread} data-chat-thread>
+        {!messages.length && !live && <div className="forge-empty"><strong>{t('chat.emptyTitle')}</strong><span>{t('chat.emptyBody')}</span></div>}
+        {messages.map((m, i) => <Bubble key={i} m={m} onSend={onSend}/>)}
+        {live && <div className="chat-msg assistant live" aria-live="polite" data-chat-live>
+          {live.searched && <p className="forge-note">{live.searched.length ? t('chat.searchedCount', { count: String(live.searched.length) }) : live.searchDetail}</p>}
+          {live.text ? <Rich text={live.text} citations={live.searched ?? []}/> : null}
+          {live.prompts.map((p, i) => <PromptCard key={i} prompt={p} onSend={onSend}/>)}
+          <p className="chat-status">{statusText(live.status, live.detail)}</p>
+        </div>}
+      </div>
+      {error && <p className="error-message" role="alert">{t(error)}</p>}
+      {pictures.length > 0 && <div className="chat-pictures">{pictures.map((p, i) => <span key={i} className="chat-pic"><img src={p} alt=""/><button type="button" aria-label={t('chat.removePicture')} onClick={() => setPictures(pictures.filter((_, k) => k !== i))}>×</button></span>)}</div>}
+      <div className="chat-compose">
+        <textarea data-chat-input aria-label={t('chat.message')} value={draft} maxLength={32000} rows={Math.min(8, Math.max(2, draft.split('\n').length))} placeholder={t('chat.placeholder')}
+          onChange={e => setDraft(e.target.value)} onPaste={paste}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}/>
+        <div className="chat-compose-bar">
+          <label className="chat-attach forge-ghost">
+            <input type="file" data-chat-picture accept="image/png,image/jpeg,image/webp" multiple onChange={e => { if (e.target.files) void addPictures([...e.target.files]); e.target.value = ''; }}/>
+            {t('chat.picture')}
+          </label>
+          {searchOn && <button type="button" className="forge-chip" data-chat-search aria-pressed={search} title={t(settings!.search === 'duckduckgo' ? 'chat.searchDdgNote' : 'chat.searchSearxNote')} onClick={() => setSearch(!search)}>{t('chat.search')}</button>}
+          <label className="forge-switch chat-include" title={t('chat.includeHelp')}><input type="checkbox" data-chat-include checked={includeWork} onChange={e => setIncludeWork(e.target.checked)}/><span>{t('chat.include')}</span></label>
+          {busy
+            ? <button type="button" className="action-button" data-chat-stop onClick={stop}>{t('chat.stop')}</button>
+            : <button type="button" className="action-button" data-chat-send disabled={!forge.model || (!draft.trim() && !pictures.length)} onClick={() => void send()}>{t('chat.send')}</button>}
+        </div>
+      </div>
+    </div>
+  </section>;
+}
+
+function SearchSettings({ root, settings, onSaved }: { root: string; settings: ChatSettings; onSaved: (s: ChatSettings) => void }) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState(settings.search);
+  const [url, setUrl] = useState(settings.searxngUrl);
+  const [error, setError] = useState('');
+  return <div className="chat-settings" data-chat-settings-panel>
+    <div className="forge-group" role="radiogroup" aria-label={t('chat.searchSettings')}>
+      {(['off', 'duckduckgo', 'searxng'] as const).map(m => <label key={m} className="forge-switch"><input type="radio" name="chat-search" data-chat-search-mode={m} checked={mode === m} onChange={() => setMode(m)}/><span>{t(`chat.search.${m}`)}</span></label>)}
+    </div>
+    {mode === 'searxng' && <label className="forge-field"><span>{t('chat.searxngUrl')}</span><input type="text" data-chat-searxng value={url} placeholder="http://127.0.0.1:8080" onChange={e => setUrl(e.target.value)}/></label>}
+    <p className="forge-note">{t(mode === 'duckduckgo' ? 'chat.searchDdgNote' : mode === 'searxng' ? 'chat.searchSearxNote' : 'chat.searchOffNote')}</p>
+    {error && <p className="error-message" role="alert">{t(error)}</p>}
+    <button type="button" className="action-button" data-chat-settings-save onClick={() => void saveChatSettings(root, { search: mode, searxngUrl: url.trim() }).then(onSaved, e => setError(forgeError(e)))}>{t('chat.save')}</button>
+  </div>;
+}

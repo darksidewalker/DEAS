@@ -586,5 +586,6 @@
   "studio.run.video.ref.dropOf": "从 {name} 忽略",
   "studio.editor.restoreFrame": "放回画框",
   "studio.run.useInput": "用作输入",
-  "studio.quick.scheme": "配色方案"
+  "studio.quick.scheme": "配色方案",
+  "studio.tab.chat": "聊天"
 }
