@@ -10,6 +10,13 @@
 - Executed `tools/verify_presets.py`: **12 Chromium IPC-fixture cases**, six locales at 1440/320px, save/load/reload, separate Wildcards tab, no submission and no horizontal overflow. English 320px screenshot inspected: tabs wrap, controls stack without overlap. These are mocked IPC browser tests, not native filesystem or webview interaction. Scratch screenshots: `deas-presets/deas-presets-fixture-{1440,320}.png`.
 - `bash build-linux.sh` rebuilt **0.1.42**, staged at `artifacts/deas-linux-amd64` (SHA-256 prefix `2f2b1bcd4a7f04c5`). Quit/relaunch is user-controlled; no running application or service was restarted. No commit, push or release. Full Tauri click-through, Windows runtime, model inference and controlled before/after idle/resource benchmarks remain unverified.
 
+## v0.1.42 release publication (tag `3362b68`)
+
+- Presets/strip commit `3362b68` pushed to gitea and github with tag `v0.1.42`; **94 core / 663 UI tests** and the frontend build pass on the tag commit.
+- GitHub Actions remained blocked by the account billing gate (tag-triggered run failed with zero steps, as with 0.1.39), so the release was built locally and published via `gh release create`: <https://github.com/darksidewalker/DEAS/releases/tag/v0.1.42>.
+- Assets: `deas-linux-amd64` SHA-256 **`5983c060581823d9f54d6865e9b223d082335f020a7ff75a722a0146617e6c93`** (17.6 MB, stripped via `strip = true`, superseding the 25.1 MB unstripped `2f2b1bcd` build above and `ff854e1a…` 0.1.39 binary), `deas.exe` SHA-256 **`d0f6fc927cc92415f64bfb8dc00f3468b73293c972bab397aff5fff5afc8e7fc`** (17.7 MB, `cargo xwin` MSVC cross-link), `SHA256SUMS`, `BUILD-MANIFEST.json`. Staged copy: `artifacts/releases/v0.1.42/`.
+- The Windows exe is cross-compiled on Linux and **not** runtime-tested on Windows; WebView2 required. NSIS installer, deb and AppImage skipped in the local fallback (no makensis/patchelf on the host). Release notes state this provenance.
+
 
 ## Compact Settings, Model files disclosure and checkpoint sync (0.1.41, local build)
 
