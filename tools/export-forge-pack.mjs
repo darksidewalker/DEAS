@@ -55,11 +55,12 @@ for (const key of KEYS) {
 const metaProbe = prompts.segmentTail({ key: '__probe__', meta_segments: ['X'] }, ['X']);
 const metaSegment = metaProbe.split('\n\n---\n\n').slice(1).join('\n\n---\n\n');
 
-const commit = execFileSync('git', ['-C', ROOT, 'log', '-1', '--format=%h'], { encoding: 'utf8' }).trim();
+const commit = process.argv[3] ?? execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Expected the full source commit SHA');
 const pick = (o, ks) => Object.fromEntries(ks.filter((k) => o?.[k] !== undefined).map((k) => [k, o[k]]));
 
 process.stdout.write(JSON.stringify({
-  source: { project: 'PromptForge', commit, exported_at: new Date().toISOString() },
+  source: { project: 'PromptForge', commit },
   config: {
     tools: config.tools ?? {},
     negative: config.negative ?? {},

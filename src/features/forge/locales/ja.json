@@ -1,4 +1,5 @@
 {
+  "forge.native.serverRequired": "ネイティブの Prompt Forge と Chat には Ollama または OpenAI 互換サーバーが必要です。ローカル GGUF ランナーはまだツール呼び出しに対応していません。",
   "forge.setup.required": "Prompt ForgeやAI補助を使う前に、ここでLLMモデルを設定してください。下書きは保持され、生成は開始されていません。",
   "forge.setup.environment": "まずDEAS環境をインストールまたは開き、ローカルGGUFモデルを追加するかLLMサーバーを設定してください。",
   "forge.button": "Prompt Forge",

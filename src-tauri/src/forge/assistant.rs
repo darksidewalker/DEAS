@@ -565,14 +565,20 @@ async fn answer(
             state: "searching".into(),
             detail: Some(req.message.trim().chars().take(120).collect()),
         });
-        let found = search::run(&settings, &req.message).await;
-        emit(ChatEvent::Searched {
-            query: found.query.clone(),
-            results: found.results.clone(),
-            detail: found.detail.clone(),
-        });
-        lead = search::as_context(&found);
-        citations = found.results;
+        let found = tokio::select! {
+            biased;
+            _ = chat::cancelled(stop) => None,
+            found = search::run(&settings, &req.message) => Some(found),
+        };
+        if let Some(found) = found {
+            emit(ChatEvent::Searched {
+                query: found.query.clone(),
+                results: found.results.clone(),
+                detail: found.detail.clone(),
+            });
+            lead = search::as_context(&found);
+            citations = found.results;
+        }
     }
 
     let mut messages = vec![
@@ -848,6 +854,70 @@ mod tests {
         let d = std::env::temp_dir().join(format!("deas-chat-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_blocked_web_search_without_starting_llm() {
+        use chat::tests::fixture;
+        use std::time::Duration;
+        let (url, mut received, server) = fixture(vec![String::new()]).await;
+        let root = temp_root();
+        search::write(
+            &root,
+            &search::Settings {
+                search: "searxng".into(),
+                searxng_url: url.clone(),
+            },
+        )
+        .unwrap();
+        let data = Data::load(&root.join("forge-data")).unwrap();
+        let config = LlmConfig {
+            provider: Provider::Openai,
+            base_url: url,
+        };
+        let id = Mutex::new(None);
+        let mut events = vec![];
+        let mut emit = |event: ChatEvent| {
+            if let ChatEvent::Chat { id: chat_id, .. } = &event {
+                *id.lock().unwrap() = Some(chat_id.clone());
+            }
+            events.push(event);
+        };
+        let work = send(
+            &root,
+            &data,
+            &config,
+            SendRequest {
+                id: None,
+                message: "search fixture".into(),
+                model: "fixture".into(),
+                pictures: vec![],
+                context: None,
+                search: true,
+            },
+            &mut emit,
+        );
+        let cancel = async {
+            assert_eq!(received.recv().await, Some(0));
+            assert!(native_chat_cancel(id.lock().unwrap().clone().unwrap()));
+        };
+        let (reply, ()) =
+            tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(work, cancel) })
+                .await
+                .expect("Stop must cancel the blocked search before its eight-second timeout");
+        assert!(reply.unwrap().content.is_empty());
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e, ChatEvent::Searched { .. } | ChatEvent::Text { .. })));
+        assert!(matches!(events.last(), Some(ChatEvent::Done { .. })));
+        let chat_id = id.lock().unwrap().clone().unwrap();
+        assert_eq!(load(&root, &chat_id).unwrap().messages.len(), 2);
+        assert!(!native_chat_cancel(chat_id));
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

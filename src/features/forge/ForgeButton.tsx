@@ -36,7 +36,9 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
     (async (): Promise<ForgeModels | null> => {
       if (!nodepack) {
         const result = await discoverLlmModels(root);
-        return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name })), errors: Object.fromEntries(result.warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
+        const warnings = [...result.warnings];
+        if (result.models.some(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
+        return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name, disabled: m.provider === 'local' })), errors: Object.fromEntries(warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
       }
       if (!await hasLlmConfiguration(root)) {
         if (current.active) requestLlmSetup();
@@ -66,7 +68,7 @@ export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels
     <select data-forge-model value={forge.model} disabled={!forge.usable.length} onChange={e => forge.setModel(e.target.value)}>
       {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{t(forge.list ? 'forge.noModels' : 'forge.loading')}</option>}
     </select>
-    {forge.list && Object.values(forge.list.errors).map(text => <small key={text} className="forge-warning">{text}</small>)}
+    {forge.list && Object.values(forge.list.errors).map(text => <small key={text} className="forge-warning">{t(text)}</small>)}
     {forge.error && <span className="error-message" role="alert">{t(forge.error)} <button type="button" data-forge-retry onClick={forge.load}>{t('forge.retry')}</button></span>}
   </label>;
 }

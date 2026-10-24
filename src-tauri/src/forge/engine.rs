@@ -1793,7 +1793,7 @@ pub async fn native_forge_targets(root: String) -> Result<Value, String> {
         let file = dir.join("forge-pack.json");
         let pack = Pack::load(&file)?;
         // Best effort: without it the lists are alphabetical, not wrong.
-        let order = std::fs::read(&file)
+        let order = super::data::read(&file)
             .ok()
             .and_then(|b| serde_json::from_slice::<OrderFile>(&b).ok())
             .map(|f| f.models)

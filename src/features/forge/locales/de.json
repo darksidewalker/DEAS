@@ -1,4 +1,5 @@
 {
+  "forge.native.serverRequired": "Native Prompt Forge und Chat benötigen einen Ollama- oder OpenAI-kompatiblen Server. Der lokale GGUF-Runner unterstützt noch keine Tool-Aufrufe.",
   "forge.setup.required": "Konfiguriere hier ein LLM-Modell, bevor du Prompt Forge oder eine KI-Hilfe nutzt. Dein Entwurf bleibt erhalten; es wurde keine Generierung gestartet.",
   "forge.setup.environment": "Installiere oder öffne zuerst eine DEAS-Umgebung und füge dann ein lokales GGUF-Modell hinzu oder konfiguriere einen LLM-Server.",
   "forge.button": "Prompt Forge",

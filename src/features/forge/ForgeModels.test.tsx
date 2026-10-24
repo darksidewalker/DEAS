@@ -23,8 +23,10 @@ test('native model discovery lists provider-qualified models and diagnostics wit
   });
   const { result } = renderHook(() => useForgeModels('', '/env'));
   act(() => result.current.load());
-  await waitFor(() => expect(result.current.usable.map(m => m.id)).toEqual(['local:nested/model.gguf', 'ollama:qwen:latest', 'openai:remote']));
-  expect(result.current.usable.map(m => m.label)).toEqual(['Local model', 'Qwen', 'Remote']);
-  expect(Object.values(result.current.list!.errors)).toEqual(['Optional endpoint unavailable']);
+  await waitFor(() => expect(result.current.usable.map(m => m.id)).toEqual(['ollama:qwen:latest', 'openai:remote']));
+  expect(result.current.usable.map(m => m.label)).toEqual(['Qwen', 'Remote']);
+  expect(result.current.model).toBe('ollama:qwen:latest');
+  expect(result.current.list!.models.find(m => m.id.startsWith('local:'))?.disabled).toBe(true);
+  expect(Object.values(result.current.list!.errors)).toEqual(['Optional endpoint unavailable', 'forge.native.serverRequired']);
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_llm_models', { root: '/env' }]]);
 });

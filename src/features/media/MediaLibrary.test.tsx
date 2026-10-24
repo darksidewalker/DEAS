@@ -139,7 +139,7 @@ describe('media library plugin — IPC fixtures, not real filesystem access',()=
   });
   render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{output:path.startsWith('C:')?'C:/env/out/':'/env/out/'}}/></I18nProvider>);
   expect(await screen.findByRole('button',{name:'Star a.png'})).toBeTruthy();
-  expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path});
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path}));
  });
  it.each(['/toggle/out','C:\\toggle\\out\\'])('browses raw and starred read-only from Input, preserving controls and selection (%s)',async output=>{
   vi.mocked(isTauri).mockReturnValue(true);

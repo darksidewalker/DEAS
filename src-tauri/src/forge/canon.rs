@@ -6,7 +6,7 @@
 use super::appearance::canon_traits;
 use super::character::{Ambiguous, Resolved};
 use super::tags::{key_of, TagStore};
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Mutex;
@@ -252,11 +252,8 @@ fn repair_table_tags(items: Vec<Item>, store: Option<&TagStore>) -> Vec<Item> {
 
 impl CanonTable {
     pub fn open(path: &Path, corrections: Corrections) -> Result<Self, String> {
-        let db = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|e| format!("Character table could not be opened: {e}"))?;
+        let db = super::data::database(path)
+            .map_err(|e| format!("Character table could not be opened: {e}"))?;
         Ok(Self {
             db: Mutex::new(db),
             corrections,

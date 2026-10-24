@@ -4,7 +4,7 @@
 //! server/tags.mjs. A missing database is a normal state: every caller
 //! degrades to the behaviour it had without one.
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
@@ -68,11 +68,8 @@ fn escape_like(s: &str) -> String {
 
 impl TagStore {
     pub fn open(path: &Path) -> Result<Self, String> {
-        let db = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|e| format!("Tag database could not be opened: {e}"))?;
+        let db = super::data::database(path)
+            .map_err(|e| format!("Tag database could not be opened: {e}"))?;
         let has_deprecated = db
             .prepare("PRAGMA table_info(tags)")
             .and_then(|mut s| {

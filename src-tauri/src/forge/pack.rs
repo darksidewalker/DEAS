@@ -76,7 +76,7 @@ pub struct PackModel {
 
 impl Pack {
     pub fn load(path: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|e| {
+        let bytes = super::data::read(path).map_err(|e| {
             format!(
                 "Prompt Forge data pack unavailable ({}): {e}",
                 path.display()

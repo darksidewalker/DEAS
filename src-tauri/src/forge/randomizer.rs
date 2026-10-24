@@ -214,7 +214,7 @@ fn cast(women: u8, men: u8) -> Vec<String> {
 
 impl Randomizer {
     pub fn load(dir: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(dir.join("randomizer.json"))
+        let bytes = super::data::read(&dir.join("randomizer.json"))
             .map_err(|_| "The randomizer's vocabulary (forge-data/randomizer.json) is missing.")?;
         let file: File = serde_json::from_slice(&bytes)
             .map_err(|e| format!("forge-data/randomizer.json is not valid: {e}"))?;

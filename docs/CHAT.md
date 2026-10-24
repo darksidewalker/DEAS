@@ -5,7 +5,7 @@
 ## Requirements
 
 - An Ollama or OpenAI-compatible LLM server under **Backend → LLM backend** (llama.cpp, llama-swap, vLLM, Ollama). The local GGUF runner cannot call tools yet, so Chat says so instead of answering.
-- The Prompt Forge data in `<environment>/forge-data` (or `DEAS_FORGE_DATA`): `forge-pack.json` carries the chat system prompt and the model guides; `tags.sqlite` enables tag lookups. See [Prompting](PROMPTING.md#prompt-forge).
+- Prompt Forge data is included in the executable, including the chat prompt, model guides and tag database. Existing files in `<environment>/forge-data` (or `DEAS_FORGE_DATA`) override the bundled defaults. No separate download or running ComfyUI backend is required for Chat. See [Prompting](PROMPTING.md#prompt-forge).
 - The model is picked at the top of the tab, from the same list as Prompt Forge.
 
 ## Using it
