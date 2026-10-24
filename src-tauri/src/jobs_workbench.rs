@@ -3,6 +3,15 @@ use super::*;
 
 const WORKBENCH_LIMIT: usize = 20;
 
+// Shared Workbench failure log limiter: once per minute.
+static WORKBENCH_FAILURE_LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+/// Test-only: log assertions run in one process sharing this limiter.
+#[cfg(test)]
+pub(super) fn reset_workbench_failure_logging() {
+    *WORKBENCH_FAILURE_LAST.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 impl Session {
     pub(super) fn workbench_busy(&self) -> Result<bool, String> {
         for held in &self.workbench {
@@ -65,8 +74,7 @@ impl Jobs {
         match &result {
             Ok(job) => report_job("run", job),
             Err(_) => {
-                static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-                let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+                let mut last = WORKBENCH_FAILURE_LAST.lock().unwrap_or_else(|e| e.into_inner());
                 if last.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
                     *last = Some(std::time::Instant::now());
                     crate::logs::push(crate::logs::Source::Deas, "ERROR: Workbench run: preparation or admission failed; see operation result (repeats limited to once per minute)");

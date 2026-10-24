@@ -788,6 +788,8 @@ async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
 #[tokio::test]
 async fn workbench_failures_reach_shared_logs_without_private_intent() {
     let jobs = Jobs::default();
+    crate::jobs::workbench::reset_workbench_failure_logging();
+    let start = crate::logs::native_logs(0).last().map_or(0, |e| e.seq);
     let mut draft = intent();
     draft["positivePrompt"] = json!("secret-queue-prompt");
     assert!(jobs
@@ -808,7 +810,7 @@ async fn workbench_failures_reach_shared_logs_without_private_intent() {
         )
         .await
         .is_err());
-    let reports: Vec<_> = crate::logs::native_logs(0)
+    let reports: Vec<_> = crate::logs::native_logs(start)
         .into_iter()
         .filter(|e| e.text.starts_with("ERROR: Workbench run:"))
         .collect();

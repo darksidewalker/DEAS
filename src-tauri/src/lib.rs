@@ -183,6 +183,16 @@ fn parse_snapshot(
 // Bounds apply even to chunked responses with no Content-Length.
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
+// Shared probe diagnostics limiter: once per endpoint+code per minute.
+static BACKEND_PROBE_LAST: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Test-only: probe log assertions run in one process sharing this limiter.
+#[cfg(test)]
+pub fn reset_backend_probe_diagnostics() {
+    BACKEND_PROBE_LAST.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
     let (code, message) = if error.is_timeout() {
         ("BACKEND_TIMEOUT", "The backend did not respond in time. It may still be starting or busy. Wait briefly and retry; check Backend and Logs if this continues.")
@@ -195,9 +205,7 @@ fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
         )
     };
     // Only the fixed discovery endpoints call this helper; repeated readiness probes share diagnostics.
-    static LAST: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
-        std::sync::Mutex::new(std::collections::BTreeMap::new());
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let mut last = BACKEND_PROBE_LAST.lock().unwrap_or_else(|e| e.into_inner());
     let key = format!("{endpoint}:{code}");
     if !last
         .get(&key)
@@ -436,11 +444,14 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         drop(listener);
+        crate::reset_backend_probe_diagnostics();
+        // Shared per-minute probe limiter: only entries from this call onward are eligible.
+        let start = crate::native_logs(0).last().map_or(0, |e| e.seq);
         let error = super::inspect_backend(url.clone()).await.unwrap_err();
         assert!(error.starts_with("BACKEND_UNAVAILABLE:"), "{error}");
         assert!(!error.contains(&url));
         assert!(!error.contains("object_info"));
-        assert!(crate::native_logs(0).iter().any(|e| e
+        assert!(crate::native_logs(start).iter().any(|e| e
             .text
             .contains("endpoint=object_info code=BACKEND_UNAVAILABLE")
             && !e.text.contains(&url)));
