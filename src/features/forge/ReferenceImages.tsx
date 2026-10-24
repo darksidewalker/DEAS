@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { useState, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, referenceReadback, tagSearch, type NativeReferences } from '../../lib/forge';
 
@@ -40,7 +40,7 @@ const readKey = (p: RefPicture) => JSON.stringify([p.role, p.fidelity, p.note.tr
  * both. Before writing, the model reads them under their roles and the prompt is written from that reading; Analyze
  * shows the read-back first, so a wrong role is fixed before a write is spent.
  */
-export function ReferenceImages({ root, target, model, vocab, pictures, onPictures }: { root: string; target: string; model: string; vocab: NativeReferences; pictures: RefPicture[]; onPictures: (p: RefPicture[]) => void }) {
+export function ReferenceImages({ root, target, model, vocab, pictures, onPictures }: { root: string; target: string; model: string; vocab: NativeReferences; pictures: RefPicture[]; onPictures: Dispatch<SetStateAction<RefPicture[]>> }) {
   const { t } = useI18n();
   const [role, setRole] = useState(vocab.defaultRole ?? vocab.roles[0]?.key ?? '');
   const [fidelity, setFidelity] = useState(vocab.defaultFidelity ?? vocab.fidelity[0]?.key ?? '');
@@ -56,10 +56,10 @@ export function ReferenceImages({ root, target, model, vocab, pictures, onPictur
     if (usable.length > room) setError(t('forge.refs.tooMany', { max: String(vocab.max) }));
     try {
       const added = await Promise.all(usable.slice(0, Math.max(0, room)).map(async f => ({ id: crypto.randomUUID(), name: f.name, image: await prepare(f), role, fidelity, note: '', character: '' })));
-      onPictures([...pictures, ...added]);
+      onPictures(current => [...current, ...added].slice(0, vocab.max));
     } catch { setError(t('forge.refs.unreadable')); }
   };
-  const set = (id: string, change: Partial<RefPicture>) => onPictures(pictures.map(p => p.id === id ? { ...p, ...change } : p));
+  const set = (id: string, change: Partial<RefPicture>) => onPictures(current => current.map(p => p.id === id ? { ...p, ...change } : p));
   const analyze = async (p: RefPicture) => {
     setReading(p.id); setError('');
     try { set(p.id, { readback: { text: await referenceReadback(root, model, { role: p.role, fidelity: p.fidelity, note: p.note, character: p.character, image: p.image }), key: readKey(p) } }); }
@@ -89,7 +89,7 @@ export function ReferenceImages({ root, target, model, vocab, pictures, onPictur
           <label className="forge-field"><span>{t('forge.refs.note')} <em>{t('forge.refs.noteHint')}</em></span><input type="text" data-forge-ref-note maxLength={2000} value={p.note} onChange={e => set(p.id, { note: e.target.value })}/></label>
           <div className="forge-actions">
             {vocab.analyze && <button type="button" className="forge-ghost" data-forge-ref-analyze disabled={!!reading || !model} onClick={() => void analyze(p)}>{t(reading === p.id ? 'forge.refs.reading' : fresh ? 'forge.refs.analyzeAgain' : 'forge.refs.analyze')}</button>}
-            <button type="button" className="forge-ghost" data-forge-ref-remove aria-label={t('forge.refs.remove', { n: String(i + 1) })} onClick={() => onPictures(pictures.filter(x => x.id !== p.id))}>{t('forge.refs.removeShort')}</button>
+            <button type="button" className="forge-ghost" data-forge-ref-remove aria-label={t('forge.refs.remove', { n: String(i + 1) })} onClick={() => onPictures(current => current.filter(x => x.id !== p.id))}>{t('forge.refs.removeShort')}</button>
           </div>
           {p.readback && <details className="forge-readback" open={!!fresh} data-forge-readback>
             <summary>{t(fresh ? 'forge.refs.readback' : 'forge.refs.readbackStale')}</summary>

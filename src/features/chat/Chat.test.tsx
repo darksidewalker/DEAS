@@ -1,8 +1,15 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
+import { PreferencePersistenceContext, isString, usePref } from '../../lib/preferences';
 import { Chat } from './Chat';
+
+function StudioControls() {
+  const [positive, setPositive] = usePref('studio.run.positive', '', isString);
+  const [checkpoint] = usePref('studio.run.checkpoint', '', isString);
+  return <><input aria-label="Studio draft" value={positive} onChange={e => setPositive(e.target.value)}/><span>{checkpoint}</span></>;
+}
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -25,6 +32,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     const a = args as Record<string, any>;
     if (command === 'native_llm_read') return { provider: 'openai', baseUrl: 'http://127.0.0.1:8080' };
+    if (command === 'native_llm_models') return { models: [{ provider: 'openai', id: 'qwen', name: 'qwen' }], warnings: [] };
     if (command === 'native_forge') return { models: [{ id: 'openai:qwen', label: 'qwen' }], errors: {}, creativity: [], shot_counts: ['Auto'], default_shots: 'Auto' };
     if (command === 'native_chat_list') return [{ id: ID, title: old.title, updated: 2, count: 2 }];
     if (command === 'native_chat_get') return old;
@@ -49,7 +57,7 @@ it('opens a saved conversation, streams a reply with a prompt card and sends tha
   const onSend = vi.fn();
   localStorage.setItem('deas.pref.studio.run.positive', JSON.stringify('1girl, rain'));
   localStorage.setItem('deas.pref.studio.run.checkpoint', JSON.stringify('waiIllustrious.safetensors'));
-  render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={onSend}/></I18nProvider>);
+  render(<I18nProvider><StudioControls/><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={onSend}/></I18nProvider>);
   fireEvent.click(await screen.findByRole('button', { name: old.title }));
   await screen.findByText('flowing paragraph');
   expect(screen.getByText('read_guide: ltx')).toBeTruthy();
@@ -68,6 +76,99 @@ it('opens a saved conversation, streams a reply with a prompt card and sends tha
   fireEvent.click(screen.getByRole('button', { name: 'Send to Generate' }));
   expect(onSend).toHaveBeenCalledWith('frieren, reading, under tree', '');
   expect((screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement).value).toBe('');
+});
+
+it('includes live project controls rather than the global Studio defaults', async () => {
+  localStorage.setItem('deas.pref.studio.run.positive', JSON.stringify('global default'));
+  render(<I18nProvider><PreferencePersistenceContext.Provider value={false}><StudioControls/></PreferencePersistenceContext.Provider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Studio draft' }), { target: { value: 'unsaved project prompt' } });
+  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.positive')!)).toBe('global default');
+  fireEvent.click(screen.getByRole('checkbox', { name: "Include what I'm working on" }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'help me with this' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  expect(sends()[0].context).toContain('Studio positive prompt:\nunsaved project prompt');
+  expect(sends()[0].context).not.toContain('global default');
+  await screen.findByText('Here it is.');
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+it('does not send while opening history and ignores an older open after New', async () => {
+  const pending = deferred<typeof old>();
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_chat_get' ? pending.promise as any : original(command, args));
+  render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('button', { name: old.title });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'new question' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: old.title }));
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Message' }), { key: 'Enter' });
+  expect(sends()).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  await act(async () => pending.resolve(old));
+  expect(screen.queryByText('flowing paragraph')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(sends()).toHaveLength(1));
+  expect(sends()[0].id).toBeUndefined();
+});
+
+it.each(['older open', 'root change'])('ignores a pending history result after %s', async reason => {
+  const pending = deferred<typeof old>();
+  const other = { ...old, id: 'other', title: 'Other conversation', messages: [{ ...old.messages[0], content: 'Other question' }] };
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => {
+    if (command === 'native_chat_list') return Promise.resolve([{ id: ID, title: old.title }, { id: other.id, title: other.title }]) as any;
+    if (command === 'native_chat_get') return ((args as { id: string }).id === ID ? pending.promise : Promise.resolve(other)) as any;
+    return original(command, args);
+  });
+  const view = render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: old.title }));
+  if (reason === 'older open') {
+    fireEvent.click(screen.getByRole('button', { name: other.title }));
+    await screen.findByText('Other question');
+  } else {
+    view.rerender(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/other" onSend={vi.fn()}/></I18nProvider>);
+  }
+  await act(async () => pending.resolve(old));
+  expect(screen.queryByText('flowing paragraph')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'new question' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(sends()).toHaveLength(1));
+  expect(sends()[0].id).toBe(reason === 'older open' ? other.id : undefined);
+});
+
+it('does not show an old root stream or reply in a new root', async () => {
+  const pending = deferred<typeof old.messages[number]>();
+  let emit!: (event: unknown) => void;
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => {
+    if (command === 'native_chat_send') { emit = (args as any).onEvent.onmessage; return pending.promise as any; }
+    return original(command, args);
+  });
+  const view = render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'old root question' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  view.rerender(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/other" onSend={vi.fn()}/></I18nProvider>);
+  await act(async () => {
+    emit({ event: 'chat', id: ID, title: old.title });
+    emit({ event: 'text', text: 'stale streamed answer' });
+    pending.resolve(old.messages[1]);
+  });
+  expect(screen.queryByText('old root question')).toBeNull();
+  expect(screen.queryByText('stale streamed answer')).toBeNull();
+  expect(screen.queryByText('flowing paragraph')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'new root question' } });
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  expect(sends()[1].id).toBeUndefined();
 });
 
 it('web search is chosen in settings, then offered as a toggle; deleting asks once more', async () => {

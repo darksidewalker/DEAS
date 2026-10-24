@@ -1,5 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
-import { isString, readPref } from './preferences';
+import { captureStudioSettings, isString, readPref } from './preferences';
 
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -34,8 +34,12 @@ export const saveChatSettings = (root: string, settings: ChatSettings) => invoke
 
 /** What the person is working on, read from Studio and Prompt Forge at the moment they send. */
 export function workingContext() {
-  const s = (key: string) => readPref(key, '', isString).trim();
-  const n = (key: string) => readPref(key, 0, isNumber);
+  const studio = captureStudioSettings();
+  const s = (key: string) => {
+    const value = key.startsWith('studio.run.') ? studio[key] : readPref(key, '', isString);
+    return isString(value) ? value.trim() : '';
+  };
+  const n = (key: string) => isNumber(studio[key]) ? studio[key] : 0;
   const lines = [
     s('studio.tab') && `Open tab: ${s('studio.tab')}`,
     s('studio.run.pipeline') && `Studio pipeline: ${s('studio.run.pipeline')}`,

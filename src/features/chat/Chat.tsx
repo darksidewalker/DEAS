@@ -95,6 +95,12 @@ export function Chat({ endpoint, root, active = true, onSend }: { endpoint: stri
   const [settings, setSettings] = useState<ChatSettings | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const pending = useRef(false);
+  const sending = useRef(false);
+  const revision = useRef(0);
+  const latestRoot = useRef(root);
+  latestRoot.current = root;
   const [live, setLive] = useState<{ text: string; status: string; detail: string | null; prompts: WrittenPrompt[]; searched: ChatHit[] | null; searchDetail: string | null } | null>(null);
   const [error, setError] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -102,28 +108,56 @@ export function Chat({ endpoint, root, active = true, onSend }: { endpoint: stri
   const thread = useRef<HTMLDivElement>(null);
   const current = useRef<string | undefined>(undefined);
 
+  const rootRevision = useRef(0);
+  useEffect(() => {
+    ++revision.current;
+    current.current = undefined; pending.current = false; sending.current = false;
+    setId(undefined); setMessages([]); setLive(null); setPictures([]); setError('');
+    setBusy(false); setOpening(false); setChats([]); setSettings(null);
+    setRenaming(null); setConfirmDelete(null); setShowSettings(false);
+    return () => { ++revision.current; ++rootRevision.current; };
+  }, [root]);
   useEffect(() => { if (active) forge.load(); }, [root, endpoint, forge.rev, active]); // eslint-disable-line react-hooks/exhaustive-deps
-  const refresh = () => { if (root) listChats(root).then(setChats, e => setError(forgeError(e))); };
-  useEffect(() => { if (!active || !root) return; refresh(); chatSettings(root).then(setSettings, () => setSettings({ search: 'off', searxngUrl: '' })); }, [active, root]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refresh = () => {
+    const request = rootRevision.current;
+    const valid = () => request === rootRevision.current && latestRoot.current === root;
+    if (root) listChats(root).then(c => { if (valid()) setChats(c); }, e => { if (valid()) setError(forgeError(e)); });
+  };
+  useEffect(() => {
+    if (!active || !root) return;
+    let alive = true;
+    refresh();
+    chatSettings(root).then(s => { if (alive) setSettings(s); }, () => { if (alive) setSettings({ search: 'off', searxngUrl: '' }); });
+    return () => { alive = false; };
+  }, [active, root]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const el = thread.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, live?.text, live?.prompts.length]);
 
   const open = async (next?: string) => {
-    if (busy) return;
-    setError(''); setLive(null); setPictures([]); setConfirmDelete(null);
+    if (sending.current) return;
+    const request = ++revision.current;
+    const valid = () => revision.current === request && latestRoot.current === root;
+    setError(''); setLive(null); setPictures([]); setConfirmDelete(null); setMessages([]);
     current.current = next; setId(next);
-    if (!next || !root) { setMessages([]); return; }
-    try { setMessages((await getChat(root, next)).messages); } catch (e) { setError(forgeError(e)); }
+    pending.current = !!next && !!root; setOpening(pending.current);
+    if (!next || !root) return;
+    try { const chat = await getChat(root, next); if (valid()) setMessages(chat.messages); }
+    catch (e) { if (valid()) { current.current = undefined; setId(undefined); setError(forgeError(e)); } }
+    finally { if (valid()) { pending.current = false; setOpening(false); } }
   };
   const searchOn = !!settings && settings.search !== 'off';
 
   const send = async () => {
     const text = draft.trim();
-    if (!root || !forge.model || busy || (!text && !pictures.length)) return;
+    if (!root || !forge.model || sending.current || pending.current || (!text && !pictures.length)) return;
+    const request = revision.current;
+    const valid = () => revision.current === request && latestRoot.current === root;
+    sending.current = true;
     const mine: ChatMessage = { role: 'user', content: text, pictures: pictures.length, prompts: [], citations: [], tools: [], at: Date.now() };
     setMessages(m => [...m, mine]); setDraft(''); setError(''); setBusy(true);
     const sentPictures = pictures; setPictures([]);
     setLive({ text: '', status: 'thinking', detail: null, prompts: [], searched: null, searchDetail: null });
     const onEvent = (e: ChatEvent) => {
+      if (!valid()) return;
       if (e.event === 'chat') { current.current = e.id; setId(e.id); }
       else if (e.event === 'text') setLive(l => l && { ...l, text: l.text + e.text });
       else if (e.event === 'status') setLive(l => l && { ...l, status: e.state, detail: e.detail });
@@ -131,13 +165,17 @@ export function Chat({ endpoint, root, active = true, onSend }: { endpoint: stri
       else if (e.event === 'searched') setLive(l => l && { ...l, searched: e.results, searchDetail: e.detail });
     };
     try {
-      const done = await sendChat(root, { id, message: text, model: nativeModelId(forge.model), pictures: sentPictures, context: includeWork ? workingContext() || undefined : undefined, search: searchOn && search }, onEvent);
-      setMessages(m => [...m, done]);
+      const done = await sendChat(root, { id: current.current, message: text, model: nativeModelId(forge.model), pictures: sentPictures, context: includeWork ? workingContext() || undefined : undefined, search: searchOn && search }, onEvent);
+      if (valid()) setMessages(m => [...m, done]);
     } catch (e) {
+      if (!valid()) return;
       setError(forgeError(e));
       // The question is saved before the answer; reload so the thread matches the file.
-      if (current.current) getChat(root, current.current).then(c => setMessages(c.messages), () => {});
-    } finally { setBusy(false); setLive(null); refresh(); }
+      if (current.current) {
+        try { const chat = await getChat(root, current.current); if (valid()) setMessages(chat.messages); }
+        catch { /* Keep the original send error visible. */ }
+      }
+    } finally { if (valid()) { sending.current = false; setBusy(false); setLive(null); refresh(); } }
   };
   const stop = () => { if (current.current) void cancelChat(current.current); };
 
@@ -208,7 +246,7 @@ export function Chat({ endpoint, root, active = true, onSend }: { endpoint: stri
           <label className="forge-switch chat-include" title={t('chat.includeHelp')}><input type="checkbox" data-chat-include checked={includeWork} onChange={e => setIncludeWork(e.target.checked)}/><span>{t('chat.include')}</span></label>
           {busy
             ? <button type="button" className="action-button" data-chat-stop onClick={stop}>{t('chat.stop')}</button>
-            : <button type="button" className="action-button" data-chat-send disabled={!forge.model || (!draft.trim() && !pictures.length)} onClick={() => void send()}>{t('chat.send')}</button>}
+            : <button type="button" className="action-button" data-chat-send disabled={opening || !forge.model || (!draft.trim() && !pictures.length)} onClick={() => void send()}>{t('chat.send')}</button>}
         </div>
       </div>
     </div>
