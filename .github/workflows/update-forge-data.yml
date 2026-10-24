@@ -140,7 +140,9 @@ jobs:
             Review MANIFEST.json provenance, hashes, model changes and SQLite counts.
             The separate forge-data-report workflow artifact contains the JSON change report.
             Run the existing Verify DEAS workflow on this PR head before manual merge:
-            GITHUB_TOKEN-created PRs do not automatically trigger other workflows.
+            it is currently disabled to cut hosted cost, so supply local verification evidence
+            or re-enable it with `gh workflow enable "Verify DEAS"`. GITHUB_TOKEN-created PRs
+            do not automatically trigger other workflows.
             No runtime updates or automatic merge are enabled.
           add-paths: |
             src-tauri/forge-data/forge-pack.json
