@@ -1,0 +1,150 @@
+name: Update Forge data
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-forge-data
+  cancel-in-progress: false
+
+jobs:
+  import:
+    # Manual runs from other refs must not supply code to the write-token job.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      updated: ${{ steps.update.outputs.updated }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install sandbox prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          /usr/bin/node --version
+          /usr/bin/npm --version
+          # Hosted Ubuntu's AppArmor userns restriction otherwise blocks bwrap.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install locked export dependency without lifecycle scripts
+        run: npm ci --ignore-scripts --prefix tools/forge-export
+      - name: Updater regression fixtures
+        run: python3 -m unittest discover -s tools/tests -p 'test_forge_data*.py'
+      - name: Acquire fixed upstream
+        run: git clone --depth 1 https://github.com/yoimtrashgaming-prog/PromptForge-Public "$RUNNER_TEMP/PromptForge-Public"
+      - name: Import candidate through the updater's read-only sandbox
+        id: update
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/forge-report"
+          python3 tools/update-forge-data.py --update --repo "$RUNNER_TEMP/PromptForge-Public" > "$RUNNER_TEMP/forge-report/report.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'forge-report/report.json').read_text())
+          if report['status'] not in ('current', 'updated'):
+              raise SystemExit('Unexpected successful updater status')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('updated=' + str(report['status'] == 'updated').lower() + '\n')
+          PY
+      - name: Verify candidate without export or network
+        if: steps.update.outputs.updated == 'true'
+        run: python3 tools/update-forge-data.py --verify
+      - uses: actions/upload-artifact@v6
+        if: steps.update.outputs.updated == 'true'
+        with:
+          name: forge-data-candidate
+          path: |
+            src-tauri/forge-data/forge-pack.json
+            src-tauri/forge-data/randomizer.json
+            src-tauri/forge-data/tags.sqlite
+            src-tauri/forge-data/character_traits.sqlite
+            src-tauri/forge-data/MANIFEST.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: forge-data-report
+          path: ${{ runner.temp }}/forge-report/report.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: import
+    if: needs.import.outputs.updated == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: forge-data-candidate
+          path: ${{ runner.temp }}/forge-data-candidate
+      - name: Reject unexpected artifact entries
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          candidate = Path(os.environ['RUNNER_TEMP']) / 'forge-data-candidate'
+          names = {'forge-pack.json', 'randomizer.json', 'tags.sqlite', 'character_traits.sqlite', 'MANIFEST.json'}
+          if {entry.name for entry in candidate.iterdir()} != names:
+              raise SystemExit('Candidate must contain exactly the five allowed data files')
+          if any(entry.is_symlink() or not entry.is_file() for entry in candidate.iterdir()):
+              raise SystemExit('Candidate entries must be regular files')
+          PY
+      - name: Validate untrusted data with the trusted checked-out verifier
+        run: python3 tools/update-forge-data.py --verify --data-dir "$RUNNER_TEMP/forge-data-candidate"
+      - name: Copy only allowed data files
+        run: |
+          python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          candidate = Path(os.environ['RUNNER_TEMP']) / 'forge-data-candidate'
+          for name in ('forge-pack.json', 'randomizer.json', 'tags.sqlite', 'character_traits.sqlite', 'MANIFEST.json'):
+              shutil.copyfile(candidate / name, Path('src-tauri/forge-data') / name)
+          PY
+      - name: Create or update the review PR (never merge)
+        # v8.1.1: reviewed action inputs and branch/PR implementation; immutable pin.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1
+        with:
+          token: ${{ github.token }}
+          base: main
+          branch: bot/update-forge-data
+          delete-branch: false
+          author: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+          commit-message: 'chore(forge): update bundled PromptForge data'
+          title: 'chore(forge): update bundled PromptForge data'
+          body: |
+            Validated data-only update from the fixed PromptForge-Public upstream.
+            Review MANIFEST.json provenance, hashes, model changes and SQLite counts.
+            The separate forge-data-report workflow artifact contains the JSON change report.
+            Run the existing Verify DEAS workflow on this PR head before manual merge:
+            GITHUB_TOKEN-created PRs do not automatically trigger other workflows.
+            No runtime updates or automatic merge are enabled.
+          add-paths: |
+            src-tauri/forge-data/forge-pack.json
+            src-tauri/forge-data/randomizer.json
+            src-tauri/forge-data/tags.sqlite
+            src-tauri/forge-data/character_traits.sqlite
+            src-tauri/forge-data/MANIFEST.json

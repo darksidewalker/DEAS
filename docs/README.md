@@ -35,6 +35,7 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 - [Consolidated current status and implementation plan](IMPLEMENTATION-STATUS.md)
 - [Video, references and Director parity — working plan](VIDEO-PLAN.md)
 - [Development, builds and diagnostic API](DEVELOPMENT.md)
+- [Bundled PromptForge data updates and weekly review PRs](FORGE-DATA-UPDATES.md)
 - [Execution ownership and trust boundaries](EXECUTION-CONTRACT.md)
 - [Installer integration ledger](INSTALLER-INTEGRATION.md) and [native IPC reference](../src-tauri/README.md)
 - [Download catalog guide](DOWNLOAD-PLUGINS.md), [download plugin contract](DOWNLOAD-PLUGIN-CONTRACT.md), [authentication contract](AUTH-PLUGIN.md)

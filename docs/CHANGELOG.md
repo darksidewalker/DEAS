@@ -15,6 +15,8 @@
 - The Generate hammer for image models is a quick text rewrite with PromptForge's defaults: the popup shows the current and the new prompt side by side (**Use new prompt** / **Keep current**), and an Image to Image source picture is no longer sent.
 - Fix Windows owned-backend start failing with "Startup collision: foreign listener owns the chosen port": the venv `python.exe` is a launcher whose child owns the socket, so a live member of the backend's Job Object is now accepted as the owner.
 
+- **Bundled PromptForge data has a reviewed update path**: `tools/update-forge-data.py` (`--check`, `--update`, `--verify`) selects a pinned upstream revision, exports the pack inside a read-only Bubblewrap sandbox, validates digests, SQLite integrity/schema and row counts, writes only substantive changes with a rollback-safe swap, and stops with `review-required` on license/notice changes. A weekly review PR workflow runs the same import; no runtime updater and no automatic merge. See [Bundled PromptForge data updates](FORGE-DATA-UPDATES.md).
+
 ## Unreleased — 0.1.42
 
 - Every red banner and alert message (studio, setup, jobs, logs) gets a Dismiss × button so users can close error banners without the underlying state changing.

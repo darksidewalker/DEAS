@@ -31,6 +31,8 @@ const KEYS = ['illustrious', 'anima', 'krea2', 'moss'];
 const models = {};
 for (const key of KEYS) {
   const m = registry.get(key);
+  // An upstream revision may predate a model; DEAS still requires all four.
+  if (!m) continue;
   const entry = JSON.parse(JSON.stringify(m));
   delete entry.render;
   const modes = Array.isArray(m.modes) ? m.modes : [];

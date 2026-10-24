@@ -1,0 +1,9 @@
+{
+  "name": "deas-forge-export",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Development-only dependency for the isolated upstream Forge exporter",
+  "dependencies": {
+    "yaml": "2.6.1"
+  }
+}
