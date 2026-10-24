@@ -652,6 +652,104 @@ async fn discovery_keeps_local_models_with_remote_success_or_failure() {
     assert_eq!(result.models.len(), 1);
     assert!(result.warnings.is_empty());
 }
+fn delayed_sequence(
+    delay: Duration,
+    responses: Vec<(u16, Value)>,
+) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/prefix", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let mut requests = vec![];
+        for (status, body) in responses {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut header = vec![];
+            while !header.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+            }
+            let header = String::from_utf8(header).unwrap();
+            let length = header
+                .lines()
+                .find_map(|line| {
+                    line.to_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|s| s.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            let mut payload = vec![0; length];
+            stream.read_exact(&mut payload).unwrap();
+            requests.push((
+                header.lines().next().unwrap().into(),
+                if length == 0 {
+                    Value::Null
+                } else {
+                    serde_json::from_slice(&payload).unwrap()
+                },
+            ));
+            std::thread::sleep(delay);
+            let body = serde_json::to_vec(&body).unwrap();
+            write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+        requests
+    });
+    (url, server)
+}
+
+#[tokio::test]
+async fn listing_scans_local_and_fetches_remote_in_parallel() {
+    use std::time::Instant;
+    let root = tempfile::tempdir().unwrap();
+    let base = local_fixture(root.path());
+    let bulk = base.join("bulk");
+    for i in 0..5000 {
+        gguf(&bulk.join(format!("{i}.gguf")), "llama", Some("model"));
+    }
+    // A slow scan and a slow peer answer: sequential listing pays both, parallel pays the longer one.
+    let scan = {
+        let at = Instant::now();
+        let found = local_models(root.path()).unwrap();
+        // Enough work for the scan to be measurable against the peer delay.
+        assert!(found.len() > 4000);
+        (found.len(), at.elapsed().as_millis())
+    };
+    let delay = Duration::from_millis(600);
+    let body = json!({"data":[{"id":"remote:tag"}]});
+    let (url, server) = delayed_sequence(delay, vec![(200, body.clone()), (200, body.clone())]);
+    let cfg = config(Provider::Openai, format!("{url}/v1"));
+    let sequential = {
+        let at = Instant::now();
+        let local = local_models(root.path()).unwrap();
+        remote_models(&cfg).await.unwrap();
+        assert_eq!(local.len(), scan.0);
+        at.elapsed().as_millis()
+    };
+    let parallel = {
+        let at = Instant::now();
+        let list = models(root.path(), &cfg).await.unwrap();
+        assert_eq!(list.models.len(), scan.0 + 1);
+        assert_eq!(list.models[0].provider, Provider::Local);
+        assert_eq!(list.models.last().unwrap().provider, Provider::Openai);
+        assert!(list.warnings.is_empty());
+        at.elapsed().as_millis()
+    };
+    assert!(
+        parallel <= scan.1 + delay.as_millis() + 200,
+        "parallel {parallel}ms must stay near scan {}ms plus the peer delay",
+        scan.1
+    );
+    assert!(
+        parallel <= sequential + scan.1 / 2,
+        "parallel {parallel}ms must stay within sequential {sequential}ms plus half the scan {}ms",
+        scan.1
+    );
+    server.join().unwrap();
+}
+
 fn http_sequence(
     responses: Vec<(u16, Value)>,
 ) -> (String, std::thread::JoinHandle<Vec<(String, Value)>>) {

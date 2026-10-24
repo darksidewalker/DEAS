@@ -406,11 +406,13 @@ pub async fn models(root: &Path, config: &LlmConfig) -> Result<ModelList, String
         models: vec![],
         warnings: vec![],
     };
-    match local_models(root) {
+    // Remote listed first in join! so its request starts before the blocking folder scan.
+    let (remote, local) = tokio::join!(remote_models(config), async { local_models(root) });
+    match local {
         Ok(models) => result.models = models,
         Err(e) => result.warnings.push(e),
     }
-    match remote_models(config).await {
+    match remote {
         Ok(models) => result.models.extend(models),
         Err(e) => result.warnings.push(e),
     }

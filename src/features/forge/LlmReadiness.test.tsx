@@ -18,7 +18,7 @@ test.each(['forge','inline','continuity','people','wildcard-llm'])('%s redirects
  else if(entry==='people')wrap(<PeopleDetector endpoint="http://localhost:7801" root="/env" reference={{kind:'image',path:'private.png'}} onApply={vi.fn()}/>);
  else {wrap(<ForgeButton endpoint="http://localhost:7801" root="/env" dialect="MiniMax H3" value="keep draft" onApply={vi.fn()} {...(entry==='wildcard-llm'?{onWildcards:vi.fn(),wildcard:{style:'Booru',seed:1,reroll:0,token_budget:200,auto_reroll:false,selection_state:{}}}: {})} {...(entry==='continuity'?{h3:{mode:'T2VA',duration:5,canvas:{width:1024,height:576},references:[],easy:false}}:{})}/>);fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));if(entry==='wildcard-llm')fireEvent.click(screen.getByRole('button',{name:'LLM · Prompt Forge'}));}
  await waitFor(()=>expect(redirected).toHaveBeenCalledOnce());
- expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(entry==='forge'?['native_llm_models']:['native_llm_read','native_llm_models']);
+ expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(entry==='forge'?['native_llm_models']:['native_forge','native_llm_read','native_llm_models']);
  if(entry==='inline'||entry==='continuity')expect(screen.getByRole('textbox',{name:'Idea or prompt to enhance'})).toHaveProperty('value','keep draft');
 });
 test('rootless people helper requests setup without IPC',async()=>{

@@ -40,11 +40,15 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
         if (result.models.some(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
         return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name, disabled: m.provider === 'local' })), errors: Object.fromEntries(warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
       }
+      // The node pack lists its models concurrently with the readiness check.
+      const models = forgeModels(endpoint, root);
       if (!await hasLlmConfiguration(root)) {
+        // A node-pack failure while unconfigured must not become an alert.
+        await models.catch(() => null);
         if (current.active) requestLlmSetup();
         return null;
       }
-      return current.active ? forgeModels(endpoint, root) : null;
+      return current.active ? await models : null;
     })().then(result => {
       if (!current.active) return;
       current.pending = false;
