@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { bundledCatalog, I18nProvider } from '../../i18n/I18nProvider';
 import { ForgeButton, type H3Context } from './ForgeButton';
 import { PromptForge } from './PromptForge';
+import * as references from './ReferenceImages';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
 const models = { models: [{ id: 'ollama:qwen', label: 'qwen' }], errors: {}, creativity: ['literal', 'precise', 'faithful', 'measured', 'balanced', 'loose', 'inventive', 'creative', 'daring', 'wild'], shot_counts: ['Auto', 1, 2], default_shots: 'Auto', durations: [5, 8] };
@@ -14,6 +15,7 @@ beforeEach(() => {
   localStorage.clear(); localStorage.setItem('deas.locale.v1', 'en');
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     if (command === 'native_llm_read') return { provider: 'ollama', baseUrl: 'http://localhost:11434' };
+    if (command === 'native_llm_models') return { models: [{ provider: 'ollama', id: 'qwen', name: 'qwen' }], warnings: [] };
     if (command === 'native_media_star_status') return { starred: false, unavailable: null };
     const { route } = args as { route: string };
     if (command === 'native_forge' && route === 'models') return models;
@@ -26,6 +28,54 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
+
+it('open hammer switches from native discovery to node-pack discovery with its dialect', async () => {
+  const view = (dialect: string) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect={dialect} value="idea" onApply={vi.fn()}/></I18nProvider>;
+  const { rerender } = render(view('Anima'));
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  expect(forgeCalls()).toEqual([]);
+  rerender(view('Wan 2.2'));
+  await waitFor(() => expect(forgeCalls()).toEqual([expect.objectContaining({ route: 'models' })]));
+  await screen.findByRole('option', { name: 'qwen' });
+});
+
+it('accepts functional reference updates and opens the references fold after additions', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, references: { roles: [{ key: 'style', label: 'Style' }], fidelity: [], defaultRole: null, defaultFidelity: null, max: 4, analyze: false } }) : base(c, a));
+  vi.spyOn(references, 'ReferenceImages').mockImplementation(({ pictures, onPictures }) => {
+    const update = onPictures as React.Dispatch<React.SetStateAction<references.RefPicture[]>>;
+    return <button onClick={() => update(current => [...current, { id: String(current.length), name: 'reference', image: 'data:image/png;base64,A', role: '', fidelity: '', note: '', character: '' }])}>Add reference {pictures.length}</button>;
+  });
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  const add = await screen.findByRole('button', { name: 'Add reference 0', hidden: true });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(false);
+  fireEvent.click(add);
+  await screen.findByRole('button', { name: 'Add reference 1' });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(true);
+  fireEvent.click(document.querySelector('[data-forge-fold="refs"] > button')!);
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reference 1', hidden: true }));
+  await screen.findByRole('button', { name: 'Add reference 2' });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(true);
+});
+
+it('shares brief/detail/creativity across native and node-pack target switches', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, detailLevels: Array.from({ length: 10 }, (_, i) => [i + 1, String(i + 1)]) })) }) : base(c, a));
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: 'preserved idea' } });
+  fireEvent.change(document.querySelector('[data-forge-ladder="detail"]')!, { target: { value: '8' } });
+  fireEvent.change(document.querySelector('[data-forge-ladder="creativity"]')!, { target: { value: '7' } });
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'MiniMax H3' } });
+  await screen.findByRole('option', { name: 'qwen' });
+  expect(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' })).toHaveProperty('value', 'preserved idea');
+  expect(screen.getByRole('slider', { name: 'Detail 9' })).toHaveProperty('value', '9');
+  expect(screen.getByRole('slider', { name: 'Creativity 8' })).toHaveProperty('value', '8');
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Anima' } });
+  expect(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' })).toHaveProperty('value', 'preserved idea');
+});
 
 const continuityRun: H3Context & { continuity: NonNullable<H3Context['continuity']> } = {
   mode: 'T2VA', duration: 5, canvas: { width: 1024, height: 576 }, references: [], easy: false,
@@ -232,11 +282,11 @@ it.each([
   await screen.findByRole('option', { name: 'qwen' });
   // Command-specific: a late media thumbnail call must not consume the new model list.
   const base = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'ollama:new', label: 'new backend' }] } : base(command, args));
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_llm_models' ? { models: [{ provider: 'ollama', id: 'new', name: 'new backend' }], warnings: [] } : base(command, args));
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'new backend' });
-  expect(forgeCalls()).toHaveLength(2);
-  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge').at(-1)).toEqual(['native_forge', expect.objectContaining({ baseUrl: endpoint, root, route: 'models' })]);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models').at(-1)).toEqual(['native_llm_models', { root }]);
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:new');
 });
 
@@ -245,10 +295,10 @@ it('forge and hammer reload models after the LLM backend setting changes', async
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
   await waitFor(() => expect(screen.getAllByRole('option', { name: 'qwen' })).toHaveLength(2));
   const base = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'openai:new', label: 'new server' }] } : base(command, args));
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_llm_models' ? { models: [{ provider: 'openai', id: 'new', name: 'new server' }], warnings: [] } : base(command, args));
   act(() => { window.dispatchEvent(new Event('deas:llm-changed')); });
   await waitFor(() => expect(screen.getAllByRole('option', { name: 'new server' })).toHaveLength(2));
-  expect(forgeCalls()).toHaveLength(4);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(4);
 });
 
 it('reloads models when the backend changes with the hammer open', async () => {
@@ -258,7 +308,7 @@ it('reloads models when the backend changes with the hammer open', async () => {
   await screen.findByRole('option', { name: 'qwen' });
   rerender(view('http://127.0.0.1:8288'));
   await screen.findByRole('option', { name: 'qwen' });
-  expect(forgeCalls()).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
 });
 
 it.each([
@@ -267,13 +317,13 @@ it.each([
   ['success', 'http://127.0.0.1:8188', '/other'],
   ['error', 'http://127.0.0.1:8188', '/other'],
 ])('ignores a late model %s after switching to %s %s', async (outcome, endpoint, root) => {
-  let resolve!: (value: typeof models) => void;
+  let resolve!: (value: unknown) => void;
   let reject!: (error: Error) => void;
-  const pending = new Promise<typeof models>((yes, no) => { resolve = yes; reject = no; });
+  const pending = new Promise<unknown>((yes, no) => { resolve = yes; reject = no; });
   const original = vi.mocked(invoke).getMockImplementation()!;
   let first = true;
   vi.mocked(invoke).mockImplementation((command, args) => {
-    if (first && command === 'native_forge' && (args as { route: string }).route === 'models') {
+    if (first && command === 'native_llm_models') {
       first = false;
       return pending as ReturnType<typeof invoke>;
     }
@@ -285,13 +335,13 @@ it.each([
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'qwen' });
   await act(async () => {
-    if (outcome === 'success') resolve({ ...models, models: [{ id: 'ollama:old', label: 'old backend' }] });
+    if (outcome === 'success') resolve({ models: [{ provider: 'ollama', id: 'old', name: 'old backend' }], warnings: [] });
     else reject(new Error('old backend failed'));
   });
   expect(screen.queryByRole('option', { name: 'old backend' })).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:qwen');
-  expect(forgeCalls()).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
 });
 
 it('Forge uses the shared media controls and roots without changing reference or execution rules', async () => {

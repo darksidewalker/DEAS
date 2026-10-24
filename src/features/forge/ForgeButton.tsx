@@ -4,16 +4,16 @@ import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
 import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeWrite, nativeModelId, nativeTarget, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
-import { hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
+import { discoverLlmModels, hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
 import './forge.css';
 
-/** The node pack's model list for one backend; read once per endpoint/root/LLM setting, on demand. */
-export function useForgeModels(endpoint: string, root?: string, active = true) {
+/** Read-only native discovery by default; video/node-pack tools also need their metadata. */
+export function useForgeModels(endpoint: string, root?: string, active = true, nodepack = false) {
   const [list, setList] = useState<ForgeModels | null>(null);
   const [error, setError] = useState('');
   const [model, setModel] = usePref('forge.model', '', isString);
   const [rev, setRev] = useState(0);
-  const identity = JSON.stringify([endpoint, root, rev, active]);
+  const identity = JSON.stringify([endpoint, root, rev, active, nodepack]);
   const scope = useRef<{ identity: string; active: boolean; loaded: boolean; pending: boolean } | null>(null);
   useEffect(() => {
     const bump = () => setRev(n => n + 1);
@@ -25,7 +25,7 @@ export function useForgeModels(endpoint: string, root?: string, active = true) {
     scope.current = current;
     setList(null); setError('');
     return () => { current.active = false; };
-  }, [endpoint, root, rev, active]);
+  }, [endpoint, root, rev, active, nodepack]);
   const load = () => {
     const current = scope.current;
     if (!current?.active || current.pending) return;
@@ -33,7 +33,11 @@ export function useForgeModels(endpoint: string, root?: string, active = true) {
     if (current.loaded) { if (list && !list.models.some(m => !m.disabled) && !Object.keys(list.errors).length) requestLlmSetup(); return; }
     current.pending = true;
     setError('');
-    (async () => {
+    (async (): Promise<ForgeModels | null> => {
+      if (!nodepack) {
+        const result = await discoverLlmModels(root);
+        return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name })), errors: Object.fromEntries(result.warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
+      }
       if (!await hasLlmConfiguration(root)) {
         if (current.active) requestLlmSetup();
         return null;
@@ -76,7 +80,7 @@ const isShots = (v: unknown): v is string | number => v === 'Auto' || isNumber(v
  * With `h3`, it is the Director's Prompt Forge for the current run: Shots, Detail, Creativity, Cancel, the last three drafts and the `tools` prompt helpers. */
 export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools, onBusyChange }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onBusyChange?: (busy: boolean) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
   const { t } = useI18n();
-  const forge = useForgeModels(endpoint, root);
+  const forge = useForgeModels(endpoint, root, true, !!h3 || !nativeTarget(dialect));
   const opener = useRef<HTMLButtonElement>(null);
   const [shots, setShots] = usePref<string | number>('forge.h3.shots', 'Auto', isShots);
   const [shotBriefs, setShotBriefs] = useState<string[]>([]);
@@ -134,7 +138,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const [blind, setBlind] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const disabled = !dialect;
-  useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev, dialect, !!h3]); // eslint-disable-line react-hooks/exhaustive-deps
   const wildcardResolved = useRef(false);
   useEffect(() => {
     if (!open || choosing || !forge.model || !wildcard || wildcardResolved.current) return;

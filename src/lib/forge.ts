@@ -65,7 +65,7 @@ export const layoutRewrite = (root: string, model: string, request: LayoutRewrit
 export const nativeForgeTargets = (root: string) => invoke<NativeTargets>('native_forge_targets', { root });
 /** Family dialect -> native writer key; dialects without one stay on the node pack. */
 export const nativeTarget = (dialect?: string) => ({ Illustrious: 'illustrious', Anima: 'anima', Krea2: 'krea2', MOSS: 'moss' } as Record<string, string>)[dialect ?? ''];
-/** The node pack prefixes server models (`openai:…`, `ollama:…`); the native writer takes the bare id on DEAS's configured server. */
-export const nativeModelId = (id: string) => id.replace(/^(openai|ollama):/, '');
+/** Discovery qualifies model ids by provider; native requests take the bare id. */
+export const nativeModelId = (id: string) => id.replace(/^(local|openai|ollama):/, '');
 /** A 404 — or 405, since ComfyUI's GET-only static `/` route catches unknown POST paths — means the node pack predates these routes. */
 export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return /^40[45]\b/.test(text) ? 'forge.outdated' : text; };

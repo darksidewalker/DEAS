@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
@@ -24,14 +24,11 @@ interface Draft { result: NativeResult; prompt: string; negative: string }
  * tables, the tag-search and guidance tools, then the mechanical clean-up — with PromptForge's builder: named-notch
  * sliders, folding sections that say what is set inside them, and camera/light tiles. The result goes to Generate.
  */
-export function NativeForge({ root, target, forge, onSend, header, active = true }: { root?: string; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
+export function NativeForge({ root, target, forge, brief, setBrief, detail, setDetail, creativity, setCreativity, onSend, header, active = true }: { brief: string; setBrief: (value: string) => void; detail: number; setDetail: (value: number) => void; creativity: number; setCreativity: (value: number) => void; root?: string; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<NativeTargets | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [detail, setDetail] = usePref('forge.detail', 5, isNumber);
-  const [creativity, setCreativity] = usePref('forge.creativity', 5, isNumber);
   const [lighting, setLighting] = usePref('forge.native.lighting', 0, isNumber);
-  const [brief, setBrief] = usePref('forge.brief', '', isString);
   const [mode, setMode] = usePref(`forge.native.${target}.mode`, '', isString);
   const [quality, setQuality] = usePref(`forge.native.${target}.quality`, 'none', isString);
   const [style, setStyle] = usePref(`forge.native.${target}.style`, 'None', isString);
@@ -49,6 +46,11 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
   const [randomizer, setRandomizer] = useState(false);
   const [tags, setTags] = useState<PickedTag[]>([]);
   const [pictures, setPictures] = useState<RefPicture[]>([]);
+  const pictureCount = useRef(0);
+  useEffect(() => {
+    if (pictures.length > pictureCount.current) setFolds(current => current.includes('refs') ? current : [...current, 'refs']);
+    pictureCount.current = pictures.length;
+  }, [pictures.length, setFolds]);
   const studio = useLayoutProject();
   const [step, setStep] = useState<'' | 'prompt' | 'json'>('');
   const [keepPositive, setKeepPositive] = useState('');
@@ -242,7 +244,7 @@ export function NativeForge({ root, target, forge, onSend, header, active = true
         </>)}
         {fold('tags', root && <TagPicker root={root} target={target} tags={tags} onTags={setTags} weightRange={spec.weightRange}/>)}
         {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeModelId(forge.model) : ''} vocab={targets.references} pictures={pictures}
-          onPictures={next => { if (next.length > pictures.length && !folds.includes('refs')) setFolds([...folds, 'refs']); setPictures(next); }}/>)}
+          onPictures={setPictures}/>)}
       </div>}
       {layoutMode ? <div className="forge-layout-gen">
         <button type="button" className="action-button forge-write" data-forge-generate-prompt disabled={busy || !forge.model || !brief.trim()} title={t('forge.layout.genPromptHelp')} onClick={() => void generate('prompt')}>{t(step === 'prompt' ? 'forge.writing' : 'forge.layout.genPrompt')}</button>
