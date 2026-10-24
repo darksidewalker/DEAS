@@ -1023,3 +1023,53 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 }
+
+#[cfg(test)]
+mod acl_tests {
+    /// Every command main.rs registers must be allowed by a permission the main window has.
+    /// Tauri refuses the rest at run time ("not allowed by ACL"), which no unit test sees.
+    #[test]
+    fn every_registered_command_is_allowed_for_the_main_window() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        let start = main.find("generate_handler![").expect("the handler list");
+        let list = &main[start..start + main[start..].find(']').unwrap()];
+        let registered: Vec<&str> = list
+            .split([',', '\n', ' ', '['])
+            .filter_map(|p| p.trim().rsplit("::").next())
+            .filter(|n| n.starts_with("native_") || n.starts_with("inspect_"))
+            .collect();
+        let caps: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("capabilities/main.json")).unwrap(),
+        )
+        .unwrap();
+        let granted: Vec<String> = caps["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str().map(String::from))
+            .collect();
+        let mut allowed = String::new();
+        for entry in std::fs::read_dir(root.join("permissions"))
+            .unwrap()
+            .flatten()
+        {
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            let doc: toml::Value = toml::from_str(&text).unwrap();
+            for p in doc["permission"].as_array().unwrap() {
+                if granted.iter().any(|g| p["identifier"].as_str() == Some(g)) {
+                    allowed.push_str(&p["commands"]["allow"].to_string());
+                }
+            }
+        }
+        let missing: Vec<&&str> = registered
+            .iter()
+            .filter(|n| !allowed.contains(&format!("\"{n}\"")))
+            .collect();
+        assert!(registered.len() > 20, "{registered:?}");
+        assert!(
+            missing.is_empty(),
+            "registered but not allowed for the main window: {missing:?}"
+        );
+    }
+}
