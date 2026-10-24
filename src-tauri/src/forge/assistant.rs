@@ -651,7 +651,12 @@ async fn answer(
                     segments_on: None,
                     controls: Default::default(),
                 };
-                match engine::write(data, config, &write).await {
+                let written = tokio::select! {
+                    biased;
+                    _ = chat::cancelled(stop) => break,
+                    result = engine::write(data, config, &write) => result,
+                };
+                match written {
                     Ok(r) if r.refused => format!("The {label} prompt writer declined this one."),
                     Ok(r) => {
                         let p = WrittenPrompt {
@@ -843,6 +848,74 @@ mod tests {
         let d = std::env::temp_dir().join(format!("deas-chat-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_nested_prompt_writer_and_saves_partial_reply() {
+        use chat::tests::{complete, fixture};
+        use std::time::Duration;
+        for stalled in ["", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"] {
+            let tool = "data: {\"choices\":[{\"delta\":{\"content\":\"Before\",\"tool_calls\":[{\"index\":0,\"id\":\"write\",\"function\":{\"name\":\"write_prompt\",\"arguments\":\"{\\\"model\\\":\\\"anima\\\",\\\"brief\\\":\\\"a tree\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n";
+            let (url, mut received, server) = fixture(vec![complete(tool), stalled.into()]).await;
+            let config = LlmConfig {
+                provider: Provider::Openai,
+                base_url: url,
+            };
+            let data = Data {
+                pack: serde_json::from_value(json!({
+                    "source": {}, "config": {}, "defaults": {}, "shared": {},
+                    "models": {"anima": {"entry": {"label": "Anima"}, "system": "Write a prompt"}}
+                }))
+                .unwrap(),
+                tags: None,
+                canon: None,
+            };
+            let root = temp_root();
+            let id = Mutex::new(None);
+            let mut events = vec![];
+            let mut emit = |event: ChatEvent| {
+                if let ChatEvent::Chat { id: chat_id, .. } = &event {
+                    *id.lock().unwrap() = Some(chat_id.clone());
+                }
+                events.push(event);
+            };
+            let work = send(
+                &root,
+                &data,
+                &config,
+                SendRequest {
+                    id: None,
+                    message: "Write a prompt".into(),
+                    model: "fixture".into(),
+                    pictures: vec![],
+                    context: None,
+                    search: false,
+                },
+                &mut emit,
+            );
+            let cancel = async {
+                assert_eq!(received.recv().await, Some(0));
+                assert_eq!(received.recv().await, Some(1));
+                assert!(native_chat_cancel(id.lock().unwrap().clone().unwrap()));
+            };
+            let (result, ()) =
+                tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(work, cancel) })
+                    .await
+                    .expect("stop must drop the nested engine HTTP future");
+            let reply = result.unwrap();
+            assert_eq!(reply.content, "Before");
+            assert!(reply.prompts.is_empty());
+            assert!(!events.iter().any(|e| matches!(e, ChatEvent::Prompt { .. })));
+            assert!(matches!(events.last(), Some(ChatEvent::Done { .. })));
+            let chat_id = id.lock().unwrap().clone().unwrap();
+            assert_eq!(load(&root, &chat_id).unwrap().messages.len(), 2);
+            assert!(!native_chat_cancel(chat_id));
+            tokio::time::timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

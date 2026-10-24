@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 const MAX_RESPONSE: usize = 4 * 1024 * 1024;
+const MAX_TOOL_CALLS: usize = 128;
 /// Ollama loads context at request time; PromptForge runs prompts at 32k.
 const OLLAMA_NUM_CTX: u32 = 32_768;
 
@@ -144,34 +145,49 @@ pub async fn stream_round(
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<Reply, String> {
     let (url, body, ollama) = request(&r, true)?;
-    let mut response = post(url, &body, r.timeout).await?;
-    let status = response.status();
-    if !status.is_success() {
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| "LLM response failed")? {
-            if bytes.len() > 4096 {
-                break;
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        return Err(http_error(status, &bytes));
-    }
     let mut parser = StreamParser::new(ollama);
-    let mut total = 0usize;
-    while let Some(chunk) = response.chunk().await.map_err(|_| "LLM response failed")? {
-        total += chunk.len();
-        if total > MAX_RESPONSE {
-            return Err("LLM response exceeds byte limit".into());
+    let receive = async {
+        let mut response = post(url, &body, r.timeout).await?;
+        let status = response.status();
+        if !status.is_success() {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|_| "LLM response failed")? {
+                let take = chunk.len().min(4096 - bytes.len());
+                bytes.extend_from_slice(&chunk[..take]);
+                if bytes.len() == 4096 {
+                    break;
+                }
+            }
+            return Err(http_error(status, &bytes));
         }
-        for piece in parser.feed(&chunk) {
-            on_text(&piece);
+        let mut total = 0usize;
+        while let Some(chunk) = response.chunk().await.map_err(|_| "LLM response failed")? {
+            total += chunk.len();
+            if total > MAX_RESPONSE {
+                return Err("LLM response exceeds byte limit".into());
+            }
+            for piece in parser.feed(&chunk) {
+                on_text(&piece);
+            }
+            if let Some(error) = &parser.error {
+                return Err(error.clone());
+            }
         }
-        if stop.load(std::sync::atomic::Ordering::Relaxed) {
-            parser.stopped = true;
-            break;
-        }
+        Ok(())
+    };
+    tokio::select! {
+        biased;
+        _ = cancelled(stop) => parser.stopped = true,
+        result = receive => result?,
     }
     parser.finish()
+}
+
+/// Poll the existing IPC stop flag while network futures are pending.
+pub(super) async fn cancelled(stop: &std::sync::atomic::AtomicBool) {
+    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 /// Assembles a streamed answer: OpenAI's SSE `data:` lines with `delta`s (tool
@@ -184,6 +200,7 @@ pub struct StreamParser {
     finish: Option<String>,
     pub stopped: bool,
     saw_any: bool,
+    error: Option<String>,
 }
 
 impl StreamParser {
@@ -196,11 +213,15 @@ impl StreamParser {
             finish: None,
             stopped: false,
             saw_any: false,
+            error: None,
         }
     }
 
     /// The text pieces in this chunk, in order.
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<String> {
+        if self.error.is_some() {
+            return vec![];
+        }
         self.pending.extend_from_slice(chunk);
         let mut out = vec![];
         while let Some(at) = self.pending.iter().position(|&b| b == b'\n') {
@@ -214,6 +235,9 @@ impl StreamParser {
     }
 
     fn line(&mut self, line: &str) -> Option<String> {
+        if self.error.is_some() {
+            return None;
+        }
         let json = if self.ollama {
             line
         } else {
@@ -226,10 +250,21 @@ impl StreamParser {
         let v: Value = serde_json::from_str(json).ok()?;
         self.saw_any = true;
         if self.ollama {
+            if let Some(error) = v["error"].as_str() {
+                self.error = Some(format!(
+                    "LLM server error: {}",
+                    error.chars().take(300).collect::<String>()
+                ));
+                return None;
+            }
             if let Some(calls) = v["message"]["tool_calls"].as_array() {
                 for c in calls {
                     let f = &c["function"];
                     if let Some(name) = f["name"].as_str() {
+                        if self.calls.len() >= MAX_TOOL_CALLS {
+                            self.error = Some("LLM tool call count exceeds limit".into());
+                            return None;
+                        }
                         self.calls.push((
                             c["id"].as_str().map(String::from),
                             name.to_string(),
@@ -256,10 +291,17 @@ impl StreamParser {
         let delta = &choice["delta"];
         if let Some(calls) = delta["tool_calls"].as_array() {
             for c in calls {
-                let index = c["index"]
-                    .as_u64()
-                    .unwrap_or(self.calls.len().saturating_sub(1) as u64)
-                    as usize;
+                let index = match c.get("index") {
+                    None => self.calls.len().saturating_sub(1),
+                    Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
+                        Some(n) if n < MAX_TOOL_CALLS => n,
+                        _ => {
+                            self.error =
+                                Some("LLM tool call index exceeds limit or is invalid".into());
+                            return None;
+                        }
+                    },
+                };
                 while self.calls.len() <= index {
                     self.calls.push((None, String::new(), String::new(), None));
                 }
@@ -291,6 +333,9 @@ impl StreamParser {
                 .trim()
                 .to_string();
             self.line(&rest);
+        }
+        if let Some(error) = self.error {
+            return Err(error);
         }
         if !self.saw_any && !self.stopped {
             return Err("LLM server returned no message".into());
@@ -413,8 +458,220 @@ pub fn tool_result(call: &ToolCall, content: &str) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Real HTTP peers: an unfinished response stays open until the client drops it.
+    pub(in crate::forge) async fn fixture(
+        responses: Vec<String>,
+    ) -> (
+        String,
+        tokio::sync::mpsc::Receiver<usize>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = tokio::sync::mpsc::channel(responses.len());
+        let server = tokio::spawn(async move {
+            for (index, response) in responses.into_iter().enumerate() {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![];
+                let mut buf = [0; 4096];
+                loop {
+                    let n = socket.read(&mut buf).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buf[..n]);
+                    if let Some(end) = request.windows(4).position(|b| b == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&request[..end]);
+                        let length: usize = head
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .and_then(|n| n.trim().parse().ok())
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                socket.write_all(response.as_bytes()).await.unwrap();
+                tx.send(index).await.unwrap();
+                if !response.contains("Content-Length:") {
+                    socket.read_to_end(&mut vec![]).await.unwrap();
+                }
+            }
+        });
+        (url, rx, server)
+    }
+
+    pub(in crate::forge) fn complete(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_waiting_headers_chunks_and_http_error_body() {
+        for response in [
+            "",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "HTTP/1.1 500 Error\r\nTransfer-Encoding: chunked\r\n\r\n",
+        ] {
+            let (url, mut received, server) = fixture(vec![response.into()]).await;
+            let config = LlmConfig {
+                provider: Provider::Openai,
+                base_url: url,
+            };
+            let stop = std::sync::atomic::AtomicBool::new(false);
+            let mut on_text = |_: &str| {};
+            let work = stream_round(
+                Round {
+                    config: &config,
+                    model: "fixture",
+                    messages: &[],
+                    tools: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    timeout: Duration::from_secs(30),
+                },
+                &mut on_text,
+                &stop,
+            );
+            let cancel = async {
+                received.recv().await.unwrap();
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            };
+            let (reply, ()) =
+                tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(work, cancel) })
+                    .await
+                    .expect("stop must interrupt blocked network await");
+            assert!(reply.unwrap().content.is_empty());
+            tokio::time::timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn ollama_stream_error_is_not_a_successful_empty_reply() {
+        let body = "{\"error\":\"fixture model failed\"}\n";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{body}\r\n",
+            body.len()
+        );
+        let (url, _received, server) = fixture(vec![response]).await;
+        let config = LlmConfig {
+            provider: Provider::Ollama,
+            base_url: url,
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            stream_round(
+                Round {
+                    config: &config,
+                    model: "fixture",
+                    messages: &[],
+                    tools: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    timeout: Duration::from_secs(30),
+                },
+                &mut |_| {},
+                &stop,
+            ),
+        )
+        .await
+        .expect("error object must fail without waiting for EOF");
+        assert!(result.unwrap_err().contains("fixture model failed"));
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_preserves_streams_and_rejects_bad_indices_before_eof() {
+        for ollama in [false, true] {
+            let body = if ollama {
+                "{\"message\":{\"content\":\"Hello\",\"tool_calls\":[{\"function\":{\"name\":\"read_guide\",\"arguments\":{\"name\":\"ltx\"}}}]},\"done\":true}\n"
+            } else {
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\",\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"read_guide\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+            };
+            let (url, _received, server) = fixture(vec![complete(body)]).await;
+            let config = LlmConfig {
+                provider: if ollama {
+                    Provider::Ollama
+                } else {
+                    Provider::Openai
+                },
+                base_url: url,
+            };
+            let mut text = String::new();
+            let reply = stream_round(
+                Round {
+                    config: &config,
+                    model: "fixture",
+                    messages: &[],
+                    tools: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    timeout: Duration::from_secs(2),
+                },
+                &mut |s| text.push_str(s),
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .await
+            .unwrap();
+            assert_eq!(text, "Hello");
+            assert_eq!(reply.content, text);
+            assert_eq!(reply.calls.len(), 1);
+            assert_eq!(reply.calls[0].name, "read_guide");
+            server.await.unwrap();
+        }
+        let body = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":18446744073709551615,\"function\":{\"name\":\"read_guide\"}}]}}]}\n\n";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{body}\r\n",
+            body.len()
+        );
+        let (url, _received, server) = fixture(vec![response]).await;
+        let config = LlmConfig {
+            provider: Provider::Openai,
+            base_url: url,
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            stream_round(
+                Round {
+                    config: &config,
+                    model: "fixture",
+                    messages: &[],
+                    tools: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    timeout: Duration::from_secs(30),
+                },
+                &mut |_| {},
+                &std::sync::atomic::AtomicBool::new(false),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(result.unwrap_err().contains("index"));
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 
     #[test]
     fn openai_stream_assembles_text_and_tool_calls_split_across_chunks() {
@@ -459,6 +716,39 @@ mod tests {
         assert!(r.truncated);
         assert_eq!(r.calls[0].arguments, json!({ "query": "boots" }));
         assert!(StreamParser::new(false).finish().is_err());
+    }
+
+    #[test]
+    fn streamed_tool_allocation_is_bounded_and_fails_closed() {
+        let mut p = StreamParser::new(false);
+        p.feed(b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":10000,\"function\":{\"name\":\"read_guide\"}}]}}]}\n");
+        assert!(p.calls.len() <= 128, "untrusted index allocated slots");
+        assert!(p.finish().is_err());
+        for index in [
+            json!(128),
+            json!(u64::MAX),
+            json!(-1),
+            json!(1.5),
+            json!("0"),
+            Value::Null,
+        ] {
+            let mut p = StreamParser::new(false);
+            let event = json!({"choices":[{"delta":{"tool_calls":[{"index":index,"function":{"name":"read_guide"}}]}}]});
+            p.feed(format!("data: {event}\n").as_bytes());
+            assert!(p.calls.is_empty());
+            assert!(p.finish().is_err());
+        }
+        let mut p = StreamParser::new(false);
+        p.feed(b"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":127,\"function\":{\"name\":\"read_guide\"}}]}}]}\n");
+        assert_eq!(p.calls.len(), 128);
+        assert_eq!(p.finish().unwrap().calls[0].name, "read_guide");
+
+        let mut p = StreamParser::new(true);
+        for _ in 0..129 {
+            p.feed(b"{\"message\":{\"tool_calls\":[{\"function\":{\"name\":\"read_guide\"}}]}}\n");
+        }
+        assert!(p.calls.len() <= 128, "untrusted count allocated slots");
+        assert!(p.finish().is_err());
     }
 
     #[test]
