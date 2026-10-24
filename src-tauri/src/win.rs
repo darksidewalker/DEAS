@@ -22,11 +22,11 @@ use windows_sys::Win32::{
     },
     System::{
         JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-            SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+            JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         },
-        Threading::GetExitCodeProcess,
+        Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
     },
 };
 
@@ -132,6 +132,19 @@ impl Job {
     }
     pub fn kill(&self) {
         unsafe { TerminateJobObject(self.0, 1) };
+    }
+    /// Whether `pid` is a live member of this job. A venv `python.exe` is a launcher
+    /// that runs the base interpreter as a child, so the listener belongs to a job
+    /// member rather than to the spawned PID itself.
+    pub fn contains(&self, pid: u32) -> bool {
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if process.is_null() {
+            return false;
+        }
+        let mut member = 0;
+        let ok = unsafe { IsProcessInJob(process, self.0, &mut member) };
+        unsafe { CloseHandle(process) };
+        ok != 0 && member != 0
     }
 }
 impl Drop for Job {
