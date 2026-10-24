@@ -385,7 +385,8 @@ fn fail(inner: &mut Inner, error: String) {
 // Require the listening socket to belong to the exact unreaped child, not just
 // a successful response on a raced ephemeral port. Do not adopt any other PID.
 #[cfg(target_os = "linux")]
-fn owns_listener(child: &Child, port: u16) -> Result<bool, String> {
+fn owns_listener(inner: &Inner, port: u16) -> Result<bool, String> {
+    let child = inner.child.as_ref().ok_or("No owned child")?;
     let table = fs::read_to_string("/proc/net/tcp").map_err(|e| e.to_string())?;
     let address = format!("0100007F:{port:04X}");
     let inodes: Vec<&str> = table
@@ -416,17 +417,23 @@ fn owns_listener(child: &Child, port: u16) -> Result<bool, String> {
     }
     Ok(false)
 }
+// On Windows the venv python.exe is a launcher, so the listener is usually its
+// child: accept the spawned PID or a member of its kill-on-close job, nothing else.
 #[cfg(windows)]
-fn owns_listener(child: &Child, port: u16) -> Result<bool, String> {
+fn owns_listener(inner: &Inner, port: u16) -> Result<bool, String> {
+    let child = inner.child.as_ref().ok_or("No owned child")?;
     let loopback: Vec<u32> = crate::win::listeners(port)?
         .into_iter()
         .filter(|(addr, _)| *addr == Some(crate::win::LOOPBACK_V4))
         .map(|(_, pid)| pid)
         .collect();
-    Ok(loopback == [child.id()])
+    Ok(match loopback[..] {
+        [pid] => pid == child.id() || inner.job.as_ref().is_some_and(|job| job.contains(pid)),
+        _ => false,
+    })
 }
 #[cfg(not(any(target_os = "linux", windows)))]
-fn owns_listener(_: &Child, _: u16) -> Result<bool, String> {
+fn owns_listener(_: &Inner, _: u16) -> Result<bool, String> {
     Err("Unsupported platform".into())
 }
 #[cfg(windows)]
@@ -646,7 +653,7 @@ impl Lifecycle {
                 Err(error) => fail(&mut inner, error),
                 Ok(false) => {
                     if inner.status.state == "running"
-                        && !owns_listener(child, inner.port).unwrap_or(false)
+                        && !owns_listener(&inner, inner.port).unwrap_or(false)
                     {
                         fail(
                             &mut inner,
@@ -757,8 +764,8 @@ fn supervise(inner: Arc<Mutex<Inner>>, serial: u64, port: u16, timeout: Duration
                 );
                 return;
             }
-            if !owns_listener(child, port).unwrap_or(false) {
-                if port_has_listener(port) && !owns_listener(child, port).unwrap_or(false) {
+            if !owns_listener(&guard, port).unwrap_or(false) {
+                if port_has_listener(port) && !owns_listener(&guard, port).unwrap_or(false) {
                     fail(
                         &mut guard,
                         "Startup collision: foreign listener owns the chosen port".into(),
@@ -799,7 +806,7 @@ fn supervise(inner: Arc<Mutex<Inner>>, serial: u64, port: u16, timeout: Duration
         }
         if result.is_ok()
             && Instant::now() < deadline
-            && owns_listener(child, port).unwrap_or(false)
+            && owns_listener(&guard, port).unwrap_or(false)
         {
             guard.status.state = "running".into();
             guard.status.endpoint = Some(base.to_string());
@@ -816,7 +823,7 @@ fn supervise(inner: Arc<Mutex<Inner>>, serial: u64, port: u16, timeout: Duration
                     fail(&mut g, "Owned backend exited".into());
                     return;
                 }
-                if !owns_listener(g.child.as_ref().unwrap(), port).unwrap_or(false) {
+                if !owns_listener(&g, port).unwrap_or(false) {
                     fail(&mut g, "Owned backend lost its loopback listener".into());
                     return;
                 }
