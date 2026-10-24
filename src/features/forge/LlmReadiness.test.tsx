@@ -18,7 +18,7 @@ test.each(['forge','inline','continuity','people','wildcard-llm'])('%s redirects
  else if(entry==='people')wrap(<PeopleDetector endpoint="http://localhost:7801" root="/env" reference={{kind:'image',path:'private.png'}} onApply={vi.fn()}/>);
  else {wrap(<ForgeButton endpoint="http://localhost:7801" root="/env" dialect="MiniMax H3" value="keep draft" onApply={vi.fn()} {...(entry==='wildcard-llm'?{onWildcards:vi.fn(),wildcard:{style:'Booru',seed:1,reroll:0,token_budget:200,auto_reroll:false,selection_state:{}}}: {})} {...(entry==='continuity'?{h3:{mode:'T2VA',duration:5,canvas:{width:1024,height:576},references:[],easy:false}}:{})}/>);fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));if(entry==='wildcard-llm')fireEvent.click(screen.getByRole('button',{name:'LLM · Prompt Forge'}));}
  await waitFor(()=>expect(redirected).toHaveBeenCalledOnce());
- expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(['native_llm_read','native_llm_models']);
+ expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(entry==='forge'?['native_llm_models']:['native_llm_read','native_llm_models']);
  if(entry==='inline'||entry==='continuity')expect(screen.getByRole('textbox',{name:'Idea or prompt to enhance'})).toHaveProperty('value','keep draft');
 });
 test('rootless people helper requests setup without IPC',async()=>{
@@ -42,7 +42,7 @@ test('no environment opens Backend LLM guidance and returning keeps the Studio d
  await waitFor(()=>expect(redirected).toHaveBeenCalledTimes(2));
 });
 test('configured remote is not probed by readiness and transport failure does not redirect',async()=>{
- vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_llm_read')return {provider:'openai',baseUrl:'https://example.invalid/v1'};if(c==='native_forge')throw Error('503 configured service unavailable');throw Error('Unexpected '+c);});
+ vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_llm_read')return {provider:'openai',baseUrl:'https://example.invalid/v1'};if(c==='native_llm_models')throw Error('503 configured service unavailable');throw Error('Unexpected '+c);});
  expect(await hasLlmConfiguration('/env')).toBe(true);expect(invoke).toHaveBeenCalledTimes(1);
  wrap(<ForgeButton endpoint="http://localhost:7801" root="/env" dialect="Anima" value="private draft" onApply={vi.fn()}/>);
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
@@ -58,37 +58,45 @@ test('Forge brief, result and negative drafts survive setup redirect and recover
  let configured=true;
  vi.mocked(invoke).mockImplementation(async c=>{
   if(c==='native_llm_read')return configured?{provider:'ollama',baseUrl:'http://localhost:11434'}:{provider:'local',baseUrl:''};
-  if(c==='native_llm_models')return {models:[],warnings:[]};
-  if(c==='native_forge')return {models:[{id:'m',label:'Configured model'}],errors:{},creativity:[],shot_counts:['Auto'],default_shots:'Auto'};
+  if(c==='native_llm_models')return {models:configured?[{provider:'ollama',id:'m',name:'Configured model'}]:[],warnings:[]};
+  if(c==='native_forge_targets')return {source:{},creativity:[],targets:[{key:'illustrious',label:'Illustrious',modes:[],defaultMode:null,optional:['Reasoning','Negative prompt'],qualityPresets:[],styles:[],aspectRatios:null,hasNegative:true,tools:true,guidance:[]}]};
   if(c==='native_media_list')return {path:'',parent:null,entries:[],truncated:false};
+  if(c==='native_forge_write')return {segments:[],refused:false,prompt:'written',negative:'bad hands',characters:[],tools:[],rounds:0,warnings:[],fixes:[]};
   throw Error('Unexpected '+c);
  });
  wrap(<PromptForge endpoint="http://localhost:7801" root="/env" onSend={vi.fn()}/>);
  await screen.findByRole('option',{name:'Configured model'});
- for(const [name,value] of [['Idea or prompt to enhance','keep idea'],['Result','keep edited result'],['Negative prompt (optional)','keep negative']])fireEvent.change(screen.getByRole('textbox',{name}),{target:{value}});
+ // The result panel shows its empty state until something is written.
+ fireEvent.change(screen.getByRole('textbox',{name:'Idea or prompt to enhance'}),{target:{value:'keep idea'}});
+ fireEvent.click(await screen.findByRole('button',{name:'Write'}));
+ await screen.findByRole('textbox',{name:'Negative prompt'});
+ for(const [name,value] of [['Result','keep edited result'],['Negative prompt','keep negative']])fireEvent.change(screen.getByRole('textbox',{name}),{target:{value}});
  configured=false;act(()=>window.dispatchEvent(new Event('deas:llm-changed')));
  await waitFor(()=>expect(redirected).toHaveBeenCalledOnce());
  configured=true;act(()=>window.dispatchEvent(new Event('deas:llm-changed')));
  await screen.findByRole('option',{name:'Configured model'});
- for(const [name,value] of [['Idea or prompt to enhance','keep idea'],['Result','keep edited result'],['Negative prompt (optional)','keep negative']])expect(screen.getByRole('textbox',{name})).toHaveProperty('value',value);
+ for(const [name,value] of [['Idea or prompt to enhance','keep idea'],['Result','keep edited result'],['Negative prompt','keep negative']])expect(screen.getByRole('textbox',{name})).toHaveProperty('value',value);
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_forge').every(([,a])=>(a as {route:string}).route==='models')).toBe(true);
+ // Only the write clicked above: recovery itself starts nothing.
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_forge_write')).toHaveLength(1);
 });
 test.each(['readiness','models','changed-origin'])('leaving retained Forge suppresses late %s redirects until reactivation',async phase=>{
  let finish!:(value:unknown)=>void;
  const deferred=new Promise(done=>{finish=done;});
  vi.mocked(invoke).mockImplementation(async c=>{
   if(c==='native_llm_read')return phase==='models'?{provider:'ollama',baseUrl:'http://localhost:11434'}:deferred;
-  if(c==='native_llm_models')return {models:[],warnings:[]};
+  if(c==='native_llm_models')return phase==='models'?deferred:{models:[],warnings:[]};
   if(c==='native_forge')return deferred;
   throw Error('Unexpected '+c);
  });
+ if(phase!=='models')localStorage.setItem('deas.pref.forge.target',JSON.stringify('MiniMax H3'));
  const content=(active:boolean,root='/env')=><I18nProvider><PromptForge active={active} endpoint="http://localhost:7801" root={root} onSend={vi.fn()}/></I18nProvider>;
  const view=render(content(true));
- await waitFor(()=>expect(invoke).toHaveBeenCalledWith(phase==='models'?'native_forge':'native_llm_read',expect.anything()));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith(phase==='models'?'native_llm_models':'native_llm_read',expect.anything()));
  fireEvent.change(screen.getByRole('textbox',{name:'Idea or prompt to enhance'}),{target:{value:'retained idea'}});
  view.rerender(content(false,phase==='changed-origin'?'/other':'/env'));
  act(()=>window.dispatchEvent(new Event('deas:forge-open')));
- await act(async()=>finish(phase==='models'?{models:[],errors:{},creativity:[]}:{provider:'local',baseUrl:''}));
+ await act(async()=>finish(phase==='models'?{models:[],warnings:[]}:{provider:'local',baseUrl:''}));
  expect(redirected).not.toHaveBeenCalled();
  expect(screen.getByRole('textbox',{name:'Idea or prompt to enhance'})).toHaveProperty('value','retained idea');
  view.rerender(content(true,phase==='changed-origin'?'/other':'/env'));

@@ -40,6 +40,7 @@ In the app, review **AiO installer**, choose a **new writable environment folder
 | --- | --- |
 | Generate, choose models/LoRAs, edit images, configure output/video/continuity | [Studio](docs/STUDIO.md) |
 | Write/enhance prompts, configure LLMs, use presets and wildcards | [Prompting](docs/PROMPTING.md) |
+| Discuss prompts with the configured LLM and optional web search | [Chat](docs/CHAT.md) |
 | Save/reopen image drafts and import/export draft ZIP packages | [Projects](docs/PROJECTS.md) |
 | Browse media, inspect metadata and preview results | [Media](docs/MEDIA.md) |
 | Browse/download resources and authorize providers | [Library](docs/LIBRARY.md) |
@@ -49,3 +50,7 @@ In the app, review **AiO installer**, choose a **new writable environment folder
 | Develop or extend DEAS | [Project rules](docs/PROJECT-RULES.md), [ComfyUI rules](docs/COMFYUI-RULES.md), [development](docs/DEVELOPMENT.md) |
 
 Detailed contracts, screenshots, verification records and planning are indexed in **[docs/](docs/README.md)**. Source and issues: [darksidewalker/DEAS](https://github.com/darksidewalker/DEAS).
+
+## License
+
+DEAS is free software under [GNU GPL version 3 or later](LICENSE), without warranty. Third-party code, bundled data and model/runtime resources retain their own terms; see [Credits](docs/CREDITS.md) and [Forge data provenance](src-tauri/forge-data/README.md).

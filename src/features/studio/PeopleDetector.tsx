@@ -5,7 +5,7 @@ import {ModelSelect,useForgeModels} from '../forge/ForgeButton';
 
 /** Explicit vision operation; candidates never overwrite manual boxes until Apply. */
 export function PeopleDetector({endpoint,root,reference,onApply}:{endpoint:string;root?:string;reference:H3Reference;onApply:(boxes:PeopleBox[])=>void}){
- const {t}=useI18n();const forge=useForgeModels(endpoint,root);
+ const {t}=useI18n();const forge=useForgeModels(endpoint,root,true,true);
  const fit=JSON.stringify([endpoint,root,reference,forge.model,forge.rev]);const latest=useRef(fit);latest.current=fit;
  const current=useRef<{id:string;fit:string;endpoint:string;root:string;pending:boolean;cancelled:boolean}|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[cancelled,setCancelled]=useState(false);

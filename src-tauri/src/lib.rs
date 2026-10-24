@@ -69,6 +69,7 @@ pub use presets::{native_presets_invalid, native_presets_read, native_presets_wr
 pub use settings::{native_files_present, native_settings_read, native_settings_write};
 pub mod startup;
 pub use startup::{native_startup_read, native_startup_write};
+pub mod forge;
 pub mod llm;
 pub use llm::{
     native_forge, native_llm_generate, native_llm_models, native_llm_read, native_llm_write,

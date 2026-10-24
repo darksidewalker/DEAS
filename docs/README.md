@@ -14,6 +14,7 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
+| Studio → Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |
 | Studio → Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
 | Media dock, navigation, preview and embedded metadata | [Media](MEDIA.md) |
 | Library → Catalog / Installed and provider authorization | [Library and authorization](LIBRARY.md) |

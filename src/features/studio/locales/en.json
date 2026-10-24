@@ -589,5 +589,7 @@
   "studio.backend.unavailable": "Backend not reachable. Start it under Backend. If it is already started, wait until it is ready, check the backend address and look in Logs.",
   "studio.backend.timeout": "The backend did not respond in time. It may still be starting or busy. Wait briefly and try again; check Backend and Logs if this continues.",
   "studio.backend.requestFailed": "The backend connection failed or was interrupted. Check its status and address under Backend, then try again. Details are in Logs.",
-  "studio.backend.httpError": "The backend replied with HTTP {status}. Check Backend and Logs; verify the address and access settings, then try again."
+  "studio.backend.httpError": "The backend replied with HTTP {status}. Check Backend and Logs; verify the address and access settings, then try again.",
+  "studio.quick.scheme": "Colour scheme",
+  "studio.tab.chat": "Chat"
 }

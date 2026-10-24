@@ -4,24 +4,78 @@ import { invoke } from '@tauri-apps/api/core';
 import { bundledCatalog, I18nProvider } from '../../i18n/I18nProvider';
 import { ForgeButton, type H3Context } from './ForgeButton';
 import { PromptForge } from './PromptForge';
+import * as references from './ReferenceImages';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
 const models = { models: [{ id: 'ollama:qwen', label: 'qwen' }], errors: {}, creativity: ['literal', 'precise', 'faithful', 'measured', 'balanced', 'loose', 'inventive', 'creative', 'daring', 'wild'], shot_counts: ['Auto', 1, 2], default_shots: 'Auto', durations: [5, 8] };
+const nativeTargets = { source: { commit: 'test' }, creativity: models.creativity, targets: ['illustrious', 'anima', 'krea2', 'moss'].map(key => ({ key, label: key, modes: [], defaultMode: null, optional: ['Reasoning', 'Negative prompt'], qualityPresets: [], styles: [], aspectRatios: null, hasNegative: key !== 'krea2', tools: true, guidance: [] })) };
+const nativeCalls = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge_write').map(([, a]) => a as { root: string; request: Record<string, unknown> });
 const forgeCalls = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge').map(([, a]) => a as { route: string; body: Record<string, unknown> });
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('deas.locale.v1', 'en');
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     if (command === 'native_llm_read') return { provider: 'ollama', baseUrl: 'http://localhost:11434' };
+    if (command === 'native_llm_models') return { models: [{ provider: 'ollama', id: 'qwen', name: 'qwen' }], warnings: [] };
     if (command === 'native_media_star_status') return { starred: false, unavailable: null };
     const { route } = args as { route: string };
     if (command === 'native_forge' && route === 'models') return models;
     if (command === 'native_forge' && route === 'write') return { prompt: '1girl, rain', saw_images: 0 };
     if (command === 'native_forge' && route === 'h3') return { simple_prompt: 'H3 structured prompt', warnings: ['check cut'] };
+    if (command === 'native_forge_targets') return nativeTargets;
+    if (command === 'native_forge_write') return { segments: [{ label: 'Positive prompt', body: '1girl, rain' }], refused: false, prompt: '1girl, rain', negative: null, characters: [], tools: [], rounds: 0, warnings: [], fixes: [] };
     if (command === 'native_media_list') return { path: '/env/input', parent: null, truncated: false, entries: [{ name: 'a.png', path: '/env/input/a.png', kind: 'file', symlink: false, media: 'image', size: 1, modified: 1 }] };
     throw new Error(`Unexpected command: ${command}`);
   });
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
+
+it('open hammer switches from native discovery to node-pack discovery with its dialect', async () => {
+  const view = (dialect: string) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect={dialect} value="idea" onApply={vi.fn()}/></I18nProvider>;
+  const { rerender } = render(view('Anima'));
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await screen.findByRole('option', { name: 'qwen' });
+  expect(forgeCalls()).toEqual([]);
+  rerender(view('Wan 2.2'));
+  await waitFor(() => expect(forgeCalls()).toEqual([expect.objectContaining({ route: 'models' })]));
+  await screen.findByRole('option', { name: 'qwen' });
+});
+
+it('accepts functional reference updates and opens the references fold after additions', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, references: { roles: [{ key: 'style', label: 'Style' }], fidelity: [], defaultRole: null, defaultFidelity: null, max: 4, analyze: false } }) : base(c, a));
+  vi.spyOn(references, 'ReferenceImages').mockImplementation(({ pictures, onPictures }) => {
+    const update = onPictures as React.Dispatch<React.SetStateAction<references.RefPicture[]>>;
+    return <button onClick={() => update(current => [...current, { id: String(current.length), name: 'reference', image: 'data:image/png;base64,A', role: '', fidelity: '', note: '', character: '' }])}>Add reference {pictures.length}</button>;
+  });
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  const add = await screen.findByRole('button', { name: 'Add reference 0', hidden: true });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(false);
+  fireEvent.click(add);
+  await screen.findByRole('button', { name: 'Add reference 1' });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(true);
+  fireEvent.click(document.querySelector('[data-forge-fold="refs"] > button')!);
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reference 1', hidden: true }));
+  await screen.findByRole('button', { name: 'Add reference 2' });
+  expect(document.querySelector('[data-forge-fold="refs"]')!.classList.contains('open')).toBe(true);
+});
+
+it('shares brief/detail/creativity across native and node-pack target switches', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, detailLevels: Array.from({ length: 10 }, (_, i) => [i + 1, String(i + 1)]) })) }) : base(c, a));
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('option', { name: 'qwen' });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: 'preserved idea' } });
+  fireEvent.change(document.querySelector('[data-forge-ladder="detail"]')!, { target: { value: '8' } });
+  fireEvent.change(document.querySelector('[data-forge-ladder="creativity"]')!, { target: { value: '7' } });
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'MiniMax H3' } });
+  await screen.findByRole('option', { name: 'qwen' });
+  expect(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' })).toHaveProperty('value', 'preserved idea');
+  expect(screen.getByRole('slider', { name: 'Detail 9' })).toHaveProperty('value', '9');
+  expect(screen.getByRole('slider', { name: 'Creativity 8' })).toHaveProperty('value', '8');
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Anima' } });
+  expect(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' })).toHaveProperty('value', 'preserved idea');
+});
 
 const continuityRun: H3Context & { continuity: NonNullable<H3Context['continuity']> } = {
   mode: 'T2VA', duration: 5, canvas: { width: 1024, height: 576 }, references: [], easy: false,
@@ -155,7 +209,19 @@ it('checkpoint Forge forwards continuity through h3 and only applies on explicit
   expect(apply).toHaveBeenLastCalledWith('turn left');
 });
 
-it('hammer enhances the prompt in the model dialect, applies after review and undoes', async () => {
+it('Keep current closes the hammer without touching the prompt', async () => {
+  const apply = vi.fn();
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Illustrious" value="girl in rain" onApply={apply}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
+  await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Keep current' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(apply).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+});
+
+it('hammer rewrites an image prompt with the native Forge, applies after review and undoes', async () => {
   const apply = vi.fn();
   render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Anima" value="girl in rain" onApply={apply}/></I18nProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
@@ -163,8 +229,13 @@ it('hammer enhances the prompt in the model dialect, applies after review and un
   await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
-  expect(forgeCalls()[1]).toMatchObject({ route: 'write', body: { model: 'ollama:qwen', write_for: 'Anima', idea: 'girl in rain' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  // The node's Prompt Writer is not involved: the model id loses its node prefix and the brief goes to DEAS's own engine.
+  expect(forgeCalls().filter(c => c.route === 'write')).toEqual([]);
+  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'anima', model: 'qwen', brief: 'girl in rain', controls: {} }) }]);
+  // The prompt in the box and the rewrite side by side; nothing changes until the new one is chosen.
+  expect((screen.getByRole('textbox', { name: 'Current prompt' }) as HTMLTextAreaElement).value).toBe('girl in rain');
+  expect(apply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use new prompt' }));
   expect(apply).toHaveBeenLastCalledWith('1girl, rain');
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(apply).toHaveBeenLastCalledWith('girl in rain');
@@ -182,13 +253,18 @@ it('hammer joins the resolved wildcard picks to the idea', async () => {
   expect(build).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:8188', rules });
 });
 
-it('hammer sends the image-to-image source and says when the model could not see it', async () => {
-  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Krea2" value="" image="DEAS_00001_.png [output]" onApply={vi.fn()}/></I18nProvider>);
+it('hammer on an image model is a text rewrite even with an image-to-image source', async () => {
+  render(<I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect="Krea2" value="girl in rain" image="DEAS_00001_.png [output]" onApply={vi.fn()}/></I18nProvider>);
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
   await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
+  expect(document.querySelector('[data-forge-picture]')).toBeNull();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: '' } });
+  expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: 'girl in rain' } });
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
-  await screen.findByText('This model cannot see pictures; it wrote from the text only.');
-  expect(forgeCalls().at(-1)).toMatchObject({ route: 'write', body: { write_for: 'Krea2', idea: '', images: ['DEAS_00001_.png [output]'] } });
+  await screen.findByRole('button', { name: 'Use new prompt' });
+  expect(forgeCalls().filter(c => c.route === 'write')).toEqual([]);
+  expect(nativeCalls()).toEqual([{ root: '/env', request: expect.objectContaining({ target: 'krea2', brief: 'girl in rain', controls: {} }) }]);
 });
 
 it('hammer is disabled for a model without a prompt dialect', () => {
@@ -206,11 +282,11 @@ it.each([
   await screen.findByRole('option', { name: 'qwen' });
   // Command-specific: a late media thumbnail call must not consume the new model list.
   const base = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'ollama:new', label: 'new backend' }] } : base(command, args));
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_llm_models' ? { models: [{ provider: 'ollama', id: 'new', name: 'new backend' }], warnings: [] } : base(command, args));
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'new backend' });
-  expect(forgeCalls()).toHaveLength(2);
-  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_forge').at(-1)).toEqual(['native_forge', expect.objectContaining({ baseUrl: endpoint, root, route: 'models' })]);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models').at(-1)).toEqual(['native_llm_models', { root }]);
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:new');
 });
 
@@ -219,10 +295,10 @@ it('forge and hammer reload models after the LLM backend setting changes', async
   fireEvent.click(screen.getByRole('button', { name: 'Prompt Forge' }));
   await waitFor(() => expect(screen.getAllByRole('option', { name: 'qwen' })).toHaveLength(2));
   const base = vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_forge' ? { ...models, models: [{ id: 'openai:new', label: 'new server' }] } : base(command, args));
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_llm_models' ? { models: [{ provider: 'openai', id: 'new', name: 'new server' }], warnings: [] } : base(command, args));
   act(() => { window.dispatchEvent(new Event('deas:llm-changed')); });
   await waitFor(() => expect(screen.getAllByRole('option', { name: 'new server' })).toHaveLength(2));
-  expect(forgeCalls()).toHaveLength(4);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(4);
 });
 
 it('reloads models when the backend changes with the hammer open', async () => {
@@ -232,7 +308,7 @@ it('reloads models when the backend changes with the hammer open', async () => {
   await screen.findByRole('option', { name: 'qwen' });
   rerender(view('http://127.0.0.1:8288'));
   await screen.findByRole('option', { name: 'qwen' });
-  expect(forgeCalls()).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
 });
 
 it.each([
@@ -241,13 +317,13 @@ it.each([
   ['success', 'http://127.0.0.1:8188', '/other'],
   ['error', 'http://127.0.0.1:8188', '/other'],
 ])('ignores a late model %s after switching to %s %s', async (outcome, endpoint, root) => {
-  let resolve!: (value: typeof models) => void;
+  let resolve!: (value: unknown) => void;
   let reject!: (error: Error) => void;
-  const pending = new Promise<typeof models>((yes, no) => { resolve = yes; reject = no; });
+  const pending = new Promise<unknown>((yes, no) => { resolve = yes; reject = no; });
   const original = vi.mocked(invoke).getMockImplementation()!;
   let first = true;
   vi.mocked(invoke).mockImplementation((command, args) => {
-    if (first && command === 'native_forge' && (args as { route: string }).route === 'models') {
+    if (first && command === 'native_llm_models') {
       first = false;
       return pending as ReturnType<typeof invoke>;
     }
@@ -259,13 +335,13 @@ it.each([
   rerender(view(endpoint, root));
   await screen.findByRole('option', { name: 'qwen' });
   await act(async () => {
-    if (outcome === 'success') resolve({ ...models, models: [{ id: 'ollama:old', label: 'old backend' }] });
+    if (outcome === 'success') resolve({ models: [{ provider: 'ollama', id: 'old', name: 'old backend' }], warnings: [] });
     else reject(new Error('old backend failed'));
   });
   expect(screen.queryByRole('option', { name: 'old backend' })).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();
   expect((screen.getByRole('combobox', { name: 'LLM model' }) as HTMLSelectElement).value).toBe('ollama:qwen');
-  expect(forgeCalls()).toHaveLength(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_llm_models')).toHaveLength(2);
 });
 
 it('Forge uses the shared media controls and roots without changing reference or execution rules', async () => {
@@ -281,6 +357,8 @@ it('Forge uses the shared media controls and roots without changing reference or
     }
     return base(command, args);
   });
+  // The image models use the native editor (pictures via Reference images); the video models keep this panel.
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Wan 2.2'));
   const { container } = render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" inputDir="/shared-forge/input" outputDir="/shared-forge/output" onSend={vi.fn()}/></I18nProvider>);
   await screen.findByRole('option', { name: 'qwen' });
   const panel = container.querySelector('.forge-media')!;
@@ -635,4 +713,160 @@ it('H3 cast cards: one per labelled Character / place, Read fills a card, filled
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Result' })).toBeTruthy());
   expect(forgeCalls().find(c => c.route === 'h3')!.body.cast).toEqual({ 1: 'tall woman, red coat', place: 'old  harbour' });
   expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.textContent)).toEqual(['Read again', 'Read', 'Read again']); // filled cards are read again (`redo`)
+});
+
+it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-written', async () => {
+  const rich = { ...nativeTargets, targets: nativeTargets.targets.map(t => t.key !== 'illustrious' ? t : { ...t, label: 'Illustrious XL', qualityPresets: ['masterpiece', 'high_quality', 'none'], styles: ['Anime', 'None'], aspectRatios: ['N/A', '2:3 Portrait'],
+    detailLevels: [[1, 'Bare'], [5, 'Standard'], [10, 'Exhaustive']], lightingLevels: [[0, 'Off'], [3, 'Dark'], [10, 'Radiant']],
+    camera: { angle: [{ key: 'birds_eye', label: "Bird's eye", icon: 'birds', payload: 'from above' }], shot: [{ key: 'medium', label: 'Medium', icon: 'medium', payload: 'upper body' }], light: [{ key: 'left', label: 'Left', icon: 'l_left', payload: 'light from the left' }] } }) };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(rich) : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: ['frieren'], tools: [], rounds: 1, warnings: [], fixes: [] }) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
+  // Empty state until something is written; actions wait for a result.
+  expect(screen.getByText('No prompt yet')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Copy all' }) as HTMLButtonElement).disabled).toBe(true);
+  // Closed sections say what is set inside them.
+  fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
+  fireEvent.click(document.querySelector('[data-forge-chip="quality:masterpiece"]')!);
+  fireEvent.click(document.querySelector('[data-forge-chip="style:Anime"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3 Portrait"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="angle:birds_eye"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="shot:medium"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="light:left"]')!);
+  fireEvent.change(document.querySelector('[data-forge-ladder="lighting"]')!, { target: { value: '1' } });
+  fireEvent.change(document.querySelector('[data-forge-keep-positive]')!, { target: { value: 'lora_trigger' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close all' }));
+  const summary = (name: string) => document.querySelector(`[data-forge-fold="${name}"] .forge-fold-summary`)!.textContent;
+  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3 Portrait', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('1girl, campfire');
+  expect(nativeCalls().at(-1)!.request).toMatchObject({ target: 'illustrious', brief: 'frieren by a campfire', segmentsOn: ['Negative prompt'],
+    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3 Portrait', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
+  expect((screen.getByRole('textbox', { name: 'Negative prompt' }) as HTMLTextAreaElement).value).toBe('lowres');
+  expect(screen.getByText('Character canon from the local table: frieren')).toBeTruthy();
+  // Picks belong to the model: Anima starts clean.
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Anima' } });
+  await waitFor(() => expect(document.querySelector('[data-forge-native="anima"]')).toBeTruthy());
+  expect(screen.getByText('No prompt yet')).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'x' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(nativeCalls().at(-1)!.request.target).toBe('anima'));
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ qualityPreset: 'none', style: 'None', aspectRatio: 'N/A', cameraAngle: undefined, lighting: undefined });
+});
+
+it('Prompt Forge tab refines, second-passes and undoes the draft on screen, with a length', async () => {
+  const targets = { ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, secondPass: true })) };
+  const drafts = [
+    { segments: [{ label: 'Positive prompt', body: '1girl, campfire' }, { label: 'Negative prompt', body: 'lowres' }], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: [], tools: [], rounds: 0, warnings: [], fixes: [], changed: 0 },
+    { segments: [{ label: 'Positive prompt', body: '1girl, blue fire' }, { label: 'Negative prompt', body: 'lowres' }], refused: false, prompt: '1girl, blue fire', negative: 'lowres', characters: [], tools: [], rounds: 0, warnings: [], fixes: [], changed: 1 },
+  ];
+  const revise = vi.fn(async (_: unknown) => drafts[1]);
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(targets) : c === 'native_forge_write' ? Promise.resolve(drafts[0]) : c === 'native_forge_revise' ? revise(a) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('button', { name: 'Open all' });
+  // Refine, Second pass and Undo wait for a draft.
+  for (const name of ['Refine', 'Second pass', 'Undo']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
+  fireEvent.change(document.querySelector('[data-forge-length-unit]')!, { target: { value: 'words' } });
+  fireEvent.change(document.querySelector('[data-forge-length-value]')!, { target: { value: '5' } });
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
+  expect((screen.getByRole('button', { name: 'Write' }) as HTMLButtonElement).disabled).toBe(true); // below the 10-word floor
+  fireEvent.change(document.querySelector('[data-forge-length-value]')!, { target: { value: '60' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('1girl, campfire');
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ maxLength: { unit: 'words', value: 60 } });
+  // The person's edit goes back with the refine request.
+  fireEvent.change(screen.getByRole('textbox', { name: 'Result' }), { target: { value: '1girl, campfire, night' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Refine' }), { target: { value: 'colder light' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Refine' }));
+  await screen.findByDisplayValue('1girl, blue fire');
+  expect(revise).toHaveBeenLastCalledWith({ root: '/env', request: expect.objectContaining({ target: 'illustrious', instruction: 'colder light', segments: [{ label: 'Positive prompt', body: '1girl, campfire, night' }, { label: 'Negative prompt', body: 'lowres' }] }) });
+  expect(screen.getByText('The revision rewrote 1 section(s).')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Second pass' }));
+  await waitFor(() => expect(revise).toHaveBeenCalledTimes(2));
+  expect((revise.mock.calls[1][0] as { request: { instruction?: string } }).request.instruction).toBeUndefined();
+  // Undo walks back one revision at a time, to the edited draft.
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect((screen.getByRole('textbox', { name: 'Result' }) as HTMLTextAreaElement).value).toBe('1girl, campfire, night');
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('Prompt Forge tab picks tags from the local database, weights them and adds a character\'s traits', async () => {
+  const targets = { ...nativeTargets, targets: nativeTargets.targets.map(t => ({ ...t, tagStyle: 'space', weightRange: { min: 0.5, max: 1.8, step: 0.05, default: 1 } })) };
+  const search = vi.fn(async (_: unknown) => [{ tag: 'frieren', category: 'character', count: 16194 }, { tag: 'frieren (cosplay)', category: 'general', count: 316 }]);
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(targets) : c === 'native_forge_tag_search' ? search(a)
+    : c === 'native_forge_character_traits' ? Promise.resolve(['pointy ears', 'white hair']) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open all' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search tags…' }), { target: { value: 'frier' } });
+  fireEvent.mouseDown(await screen.findByRole('option', { name: /^frieren character/ }));
+  expect(search).toHaveBeenCalledWith({ root: '/env', target: 'illustrious', query: 'frier' });
+  await screen.findByText('frieren: traits from the local character table');
+  fireEvent.click(screen.getByRole('button', { name: 'Add all' }));
+  expect((screen.getByRole('button', { name: 'Add all' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'frieren' }));
+  fireEvent.change(document.querySelector('[data-forge-tag-weight]')!, { target: { value: '1.2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove white hair' }));
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'by a campfire' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await waitFor(() => expect(nativeCalls()).toHaveLength(1));
+  expect(nativeCalls()[0].request.controls).toMatchObject({ tags: ['(frieren:1.20)', 'pointy ears'] });
+});
+
+it('Randomizer rolls the ticked boxes with the cast and adds the result to the brief', async () => {
+  const roll = vi.fn(async (_: unknown) => ({ boxes: [{ id: 'hair', label: 'Hair', picks: [{ id: 'h', label: 'Colour', text: 'grey hair' }] }], cast: ['1girl'], text: '1girl, grey hair' }));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_randomizer_list' ? Promise.resolve([{ id: 'hair', label: 'Hair', children: [{ id: 'hair_colour', label: 'Colour', options: 40 }, { id: 'hair_len', label: 'Length', options: 9 }] }, { id: 'nsfw', label: 'NSFW', children: [{ id: 'x', label: 'X', options: 3 }] }])
+    : c === 'native_forge_randomizer_roll' ? roll(a) : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'by a campfire' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Randomizer' }));
+  const roller = await screen.findByRole('dialog', { name: 'Randomizer' });
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Everything in Hair' }));
+  fireEvent.change(roller.querySelector('[data-forge-random-cast="women"]')!, { target: { value: '1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Roll' }));
+  await screen.findByDisplayValue('1girl, grey hair');
+  expect(roll).toHaveBeenCalledWith({ root: '/env', request: { categories: ['hair'], women: 1, men: 0, surprise: false, limits: {} } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add to brief' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect((document.querySelector('[data-forge-brief]') as HTMLTextAreaElement).value).toBe('by a campfire, 1girl, grey hair');
+});
+
+it('Prompt Forge tab sends reference pictures with their roles, analyzes one and shows what the write was read from', async () => {
+  const references = { roles: [{ key: 'general', label: 'General' }, { key: 'pose', label: 'Pose', rule: 'posture and hands' }], fidelity: [{ key: 'close', label: 'Keep most of it' }, { key: 'loose', label: 'Loose inspiration' }], defaultRole: 'general', defaultFidelity: 'close', max: 6, analyze: true };
+  const readback = vi.fn(async (_: unknown) => '**What I see**\nA girl with her arms out.');
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve({ ...nativeTargets, references })
+    : c === 'native_forge_reference_readback' ? readback(a)
+    : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: 'frieren, arms out', negative: null, characters: [], tools: [], rounds: 0, warnings: [], fixes: [], referenceAnalysis: 'REFERENCE 1 — POSE\nUSE: arms horizontal' })
+    : base(c, a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: /Reference images/ }));
+  fireEvent.change(document.querySelector('[data-forge-ref-select="next-role"]')!, { target: { value: 'pose' } });
+  fireEvent.change(document.querySelector('[data-forge-ref-file]')!, { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], 'pose.png', { type: 'image/png' })] } });
+  await waitFor(() => expect(document.querySelectorAll('[data-forge-ref]')).toHaveLength(1));
+  expect(screen.getByText('posture and hands')).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-ref-note]')!, { target: { value: 'the arms only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+  await screen.findByText('A girl with her arms out.');
+  expect(readback).toHaveBeenCalledWith({ root: '/env', model: 'qwen', reference: expect.objectContaining({ role: 'pose', fidelity: 'close', note: 'the arms only', image: expect.stringMatching(/^data:image\/png;base64,/) }) });
+  // A changed note makes the read-back out of date.
+  fireEvent.change(document.querySelector('[data-forge-ref-note]')!, { target: { value: 'the arms and the gaze' } });
+  expect(screen.getByText(/out of date/)).toBeTruthy();
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren in a meadow' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Write' }));
+  await screen.findByDisplayValue('frieren, arms out');
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ imageReferences: [{ role: 'pose', fidelity: 'close', note: 'the arms and the gaze', character: '', image: expect.stringMatching(/^data:image\/png;base64,/) }] });
+  expect(screen.getByText(/What the pictures were read as/)).toBeTruthy();
 });

@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { H3, dialects, forgeError, forgeH3, writePrompt, type H3Reference } from '../../lib/forge';
+import { H3, dialects as familyDialects, forgeError, forgeH3, nativeTarget, writePrompt, type H3Reference } from '../../lib/forge';
+import { NativeForge } from './NativeForge';
+
+/** MOSS has a native writer but no generation family yet. */
+const dialects = [...new Set([...familyDialects, 'MOSS'])];
 import { isString, oneOf, usePref } from '../../lib/preferences';
 import type { MediaItem } from '../../lib/media';
 import { mediaTypes, mediaViews, type MediaSort, type MediaType, type MediaView } from '../media/MediaLibrary';
@@ -19,8 +23,9 @@ interface Picture { path: string; src: string; role: string }
 /** Standalone Prompt Forge: every dialect the families name, H3 with labelled references; the result goes to Generate. */
 export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, active = true }: { active?: boolean; endpoint: string; root?: string; inputDir?: string; outputDir?: string; onSend: (positive: string, negative: string) => void }) {
   const { t } = useI18n();
-  const forge = useForgeModels(endpoint, root, active);
   const [target, setTarget] = usePref('forge.target', dialects[0], oneOf(...dialects));
+  const native = nativeTarget(target);
+  const forge = useForgeModels(endpoint, root, active, !native);
   const [mode, setMode] = usePref('forge.h3.mode', 'T2VA', oneOf(...modes));
   const [duration, setDuration] = usePref('forge.h3.duration', 5, isNumber);
   const [shots, setShots] = usePref<string | number>('forge.h3.shots', 'Auto', (v): v is string | number => v === 'Auto' || isNumber(v));
@@ -39,7 +44,7 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, activ
   const [blind, setBlind] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (active) forge.load(); }, [root, endpoint, forge.rev, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active) forge.load(); }, [root, endpoint, forge.rev, active, native]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const open = () => forge.load(); window.addEventListener('deas:forge-open', open); return () => window.removeEventListener('deas:forge-open', open); });
   const h3 = target === H3, limit = maxPictures(target, mode);
   const shown = pictures.slice(0, limit);
@@ -64,9 +69,11 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, activ
     finally { setBusy(false); }
   };
   const level = (key: string, value: number, set: (v: number) => void) => <label className="forge-field"><span>{t(key)} {value}</span><input type="range" min={1} max={10} value={value} onChange={e => set(Number(e.target.value))}/></label>;
+  const picker = <label className="forge-field"><span>{t('forge.target')}</span><select data-forge-target value={target} onChange={e => setTarget(e.target.value)}>{dialects.map(d => <option key={d} value={d}>{d}</option>)}</select></label>;
+  if (native) return <section className="forge-tab" aria-label={t('studio.tab.forge')}><NativeForge key={native} root={root} target={native} forge={forge} brief={brief} setBrief={setBrief} detail={detail} setDetail={setDetail} creativity={creativity} setCreativity={setCreativity} onSend={onSend} header={picker} active={active}/></section>;
   return <section className="forge-tab" aria-label={t('studio.tab.forge')}>
     <div className="forge-controls">
-      <label className="forge-field"><span>{t('forge.target')}</span><select data-forge-target value={target} onChange={e => setTarget(e.target.value)}>{dialects.map(d => <option key={d} value={d}>{d}</option>)}</select></label>
+      {picker}
       <ModelSelect forge={forge}/>
       {!root && <p className="field-help">{t('forge.noBackend')}</p>}
       {h3 && <div className="forge-row">

@@ -2,7 +2,7 @@
 .project-menu { position: relative; }
 .project-menu > summary { cursor: pointer; list-style: none; padding: .4rem .6rem; }
 .project-menu > summary::-webkit-details-marker { display: none; }
-.project-menu-actions { position: fixed; z-index: 40; max-height: calc(100vh - 16px); overflow-y: auto; width: min(20rem, calc(100vw - 2rem)); padding: .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px #0006; }
+.project-menu-actions { position: fixed; z-index: 40; max-height: calc(100vh - 16px); overflow-y: auto; width: min(20rem, calc(100vw - 2rem)); padding: .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px rgb(var(--shadow-rgb) / 0.4); }
 .project-menu:not([open]) > .project-menu-actions { display: none; }
 .project-menu-actions > button { display: block; width: 100%; max-width: 100%; margin-bottom: .3rem; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .project-menu-actions > small { display: block; font-size: .75rem; }

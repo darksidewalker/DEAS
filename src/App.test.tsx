@@ -1,4 +1,4 @@
-import { defaultLlmConfig, llmSetupEvent } from './lib/llm';
+import { defaultLlmConfig, llmSetupEvent, type LlmModels } from './lib/llm';
 import { readAuthStatus } from './lib/downloads';
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
@@ -94,8 +94,8 @@ test.each(['Library','Comfy','Backend','Logs',null])('deferred missing Forge con
  localStorage.setItem('deas.pref.install.root','"/env"');
  localStorage.setItem('deas.pref.backend.autostart','false');
  vi.mocked(isTauri).mockReturnValue(true);
- let finish!:(value:typeof defaultLlmConfig)=>void;
- const read=new Promise<typeof defaultLlmConfig>(resolve=>{finish=resolve;});
+ let finish!:(value:LlmModels)=>void;
+ const read=new Promise<LlmModels>(resolve=>{finish=resolve;});
  vi.mocked(invoke).mockImplementation(async(command,args)=>{
   if(command==='native_install_defaults')return {storagePath:'/env',backend:'cpu',warnings:[]};
   if(command==='native_files_present')return [true];
@@ -105,8 +105,8 @@ test.each(['Library','Comfy','Backend','Logs',null])('deferred missing Forge con
   if(command==='native_backend_status')return {state:'stopped',logs:[],error:null};
   if(command==='native_models_scan')return [];
   if(command==='native_media_list')return {path:'/env',parent:null,entries:[],truncated:false};
-  if(command==='native_llm_read')return read;
-  if(command==='native_llm_models')return {models:[],warnings:[]};
+  if(command==='native_llm_read')return defaultLlmConfig;
+  if(command==='native_llm_models')return read;
   throw Error('Unexpected fixture IPC '+command);
  });
  const redirected=vi.fn();window.addEventListener(llmSetupEvent,redirected);
@@ -114,12 +114,13 @@ test.each(['Library','Comfy','Backend','Logs',null])('deferred missing Forge con
   const view=render(<I18nProvider><App/></I18nProvider>);
   await screen.findByRole('tab',{name:'Studio',selected:true});
   fireEvent.click(screen.getByRole('tab',{name:'Prompt Forge'}));
-  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_llm_read',{root:'/env'}));
-  const result=screen.getByRole('textbox',{name:'Result'});
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_llm_models',{root:'/env'}));
+  // The result panel is an empty state until something is written; the brief is the draft that must survive.
+  const result=screen.getByRole('textbox',{name:'Idea or prompt to enhance'});
   fireEvent.change(result,{target:{value:'retained Forge result'}});
   const workbench=view.container.querySelector('[data-workbench]');
   if(destination)fireEvent.click(screen.getByRole('tab',{name:destination}));
-  await act(async()=>finish(defaultLlmConfig));
+  await act(async()=>finish({models:[],warnings:[]}));
   expect(screen.getByRole('tab',{name:destination??'Backend',selected:true})).toBeTruthy();
   if(destination){
    expect(redirected).not.toHaveBeenCalled();

@@ -1,7 +1,8 @@
 {
   "name": "deas",
   "private": true,
-  "version": "0.1.42",
+  "version": "0.1.43",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite",

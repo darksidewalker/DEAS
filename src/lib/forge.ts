@@ -39,5 +39,33 @@ export const readCast = (baseUrl: string, root: string, body: CastRequest) => ca
 export const findPeople = (baseUrl:string,root:string,body:{model:string;path:string;request_id:string}) => call<{people:{box:PeopleBox['box']}[]}>(baseUrl,root,'people',body);
 /** Stops the running Director Forge call that carries this `request_id`. */
 export const cancelForge = (baseUrl: string, root: string, request_id: string) => call<{ cancelled: boolean }>(baseUrl, root, 'cancel', { request_id });
+/** The native Prompt Forge (image models): PromptForge's whole pipeline in DEAS — character canon, tag-search and guidance tools, clean-up — straight to the LLM server. */
+export interface NativeControls { creativity?: number; detail?: number; aspectRatio?: string; qualityPreset?: string; style?: string; positive?: string; negative?: string; tags?: string[]; cameraAngle?: string; cameraShot?: string; cameraLight?: string; lighting?: number; imageReferences?: NativeImageRef[]; layout?: { width: number; height: number; items: { name: string; label: string; caption: string; text?: string; bbox: number[] }[] }; maxLength?: { unit: 'words' | 'tokens'; value: number } }
+export interface NativeWrite { target: string; brief: string; model: string; mode?: string; segmentsOn?: string[]; controls?: NativeControls }
+export interface NativeSegment { label: string; body: string }
+export interface NativeResult { segments: NativeSegment[]; refused: boolean; prompt: string; negative: string | null; characters: string[]; tools: { name: string; queries: string[]; document: string | null; ok: boolean }[]; rounds: number; warnings: string[]; fixes: string[]; changed?: number; referenceAnalysis?: string | null }
+export interface NativeTarget { key: string; label: string; modes: string[]; defaultMode: string | null; optional: string[]; qualityPresets: string[]; styles: string[]; aspectRatios: string[] | null; hasNegative: boolean; tools: boolean; guidance: string[]; secondPass?: boolean; tagStyle?: string | null; layoutCanvas?: Record<string, [number, number]> | null; layoutRewrite?: boolean; weightRange?: { min: number; max: number; step: number; default: number } | null; detailLevels?: [number, string][]; lightingLevels?: [number, string][]; camera?: Record<'angle' | 'shot' | 'light', NativeCameraOption[]> }
+export interface NativeCameraOption { key: string; label: string; icon: string | null; payload: string }
+export interface NativeImageRef { role: string; fidelity: string; note: string; character: string; image: string }
+export interface NativeReferences { roles: { key: string; label: string; rule?: string }[]; fidelity: { key: string; label: string; rule?: string }[]; defaultRole: string | null; defaultFidelity: string | null; max: number; analyze: boolean }
+export interface NativeTargets { source: { commit?: string }; creativity: string[]; targets: NativeTarget[]; references?: NativeReferences }
+export const nativeForgeWrite = (root: string, request: NativeWrite) => invoke<NativeResult>('native_forge_write', { root, request });
+export const nativeForgeRevise = (root: string, request: NativeWrite & { segments: NativeSegment[]; instruction?: string; referenceAnalysis?: string }) => invoke<NativeResult>('native_forge_revise', { root, request });
+export interface RandomizerBox { id: string; label: string; children: { id: string; label: string; options: number }[] }
+export interface RandomizerRolled { boxes: { id: string; label: string; picks: { id: string; label: string; text: string }[] }[]; cast: string[]; text: string }
+export interface RandomizerRoll { categories: string[]; women: number; men: number; surprise: boolean; limits: Record<string, number> }
+export const randomizerList = (root: string) => invoke<RandomizerBox[]>('native_forge_randomizer_list', { root });
+export const randomizerRoll = (root: string, request: RandomizerRoll) => invoke<RandomizerRolled>('native_forge_randomizer_roll', { root, request });
+export interface TagSuggestion { tag: string; category: string; count: number }
+export const tagSearch = (root: string, target: string, query: string) => invoke<TagSuggestion[]>('native_forge_tag_search', { root, target, query });
+export const characterTraits = (root: string, target: string, character: string) => invoke<string[]>('native_forge_character_traits', { root, target, character });
+export const referenceReadback = (root: string, model: string, reference: NativeImageRef) => invoke<string>('native_forge_reference_readback', { root, model, reference });
+export interface LayoutRewriteRequest { task: 'scene' | 'item'; width: number; height: number; layout: unknown; description: string; element: unknown }
+export const layoutRewrite = (root: string, model: string, request: LayoutRewriteRequest) => invoke<string>('native_forge_layout_rewrite', { root, model, request });
+export const nativeForgeTargets = (root: string) => invoke<NativeTargets>('native_forge_targets', { root });
+/** Family dialect -> native writer key; dialects without one stay on the node pack. */
+export const nativeTarget = (dialect?: string) => ({ Illustrious: 'illustrious', Anima: 'anima', Krea2: 'krea2', MOSS: 'moss' } as Record<string, string>)[dialect ?? ''];
+/** Discovery qualifies model ids by provider; native requests take the bare id. */
+export const nativeModelId = (id: string) => id.replace(/^(local|openai|ollama):/, '');
 /** A 404 — or 405, since ComfyUI's GET-only static `/` route catches unknown POST paths — means the node pack predates these routes. */
 export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return /^40[45]\b/.test(text) ? 'forge.outdated' : text; };

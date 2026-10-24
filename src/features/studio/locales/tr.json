@@ -589,5 +589,7 @@
   "studio.backend.unavailable": "Arka uca ulaşılamıyor. Backend bölümünden başlatın. Zaten başlatıldıysa hazır olmasını bekleyin, adresi ve günlükleri kontrol edin.",
   "studio.backend.timeout": "Arka uç zamanında yanıt vermedi. Hâlâ başlatılıyor veya meşgul olabilir. Biraz bekleyip yeniden deneyin; sürerse Backend bölümünü ve günlükleri kontrol edin.",
   "studio.backend.requestFailed": "Arka uç bağlantısı başarısız oldu veya kesildi. Backend bölümünde durumunu ve adresini kontrol edip yeniden deneyin. Ayrıntılar günlüklerde.",
-  "studio.backend.httpError": "Arka uç HTTP {status} yanıtı verdi. Backend bölümünü, günlükleri, adresi ve erişim ayarlarını kontrol edip yeniden deneyin."
+  "studio.backend.httpError": "Arka uç HTTP {status} yanıtı verdi. Backend bölümünü, günlükleri, adresi ve erişim ayarlarını kontrol edip yeniden deneyin.",
+  "studio.quick.scheme": "Renk şeması",
+  "studio.tab.chat": "Sohbet"
 }
