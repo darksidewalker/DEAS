@@ -17,7 +17,7 @@
 
 - Fix Windows owned-backend start failing with "Startup collision: foreign listener owns the chosen port": the venv `python.exe` is a launcher whose child owns the socket, so a live member of the backend's Job Object is now accepted as the owner.
 
-- The embedded PromptForge data is zstd-compressed (fixed level, deterministic) and decoded before use; manifest digests pin the compressed payload and a raw override file still reads as-is. The release profile also uses LTO with one codegen unit.
+- The embedded PromptForge data is zstd-compressed (fixed level, deterministic) and decoded before use; manifest digests pin the compressed payload and a raw override file still reads as-is. The release profile also uses LTO with one codegen unit. The Linux executable drops from 74.5 MiB to 29.1 MiB.
 
 - **Bundled PromptForge data has a reviewed update path**: `tools/update-forge-data.py` (`--check`, `--update`, `--verify`) selects a pinned upstream revision, exports the pack inside a read-only Bubblewrap sandbox, validates digests, SQLite integrity/schema and row counts, writes only substantive changes with a rollback-safe swap, and stops with `review-required` on license/notice changes. A weekly review PR workflow runs the same import; no runtime updater and no automatic merge. See [Bundled PromptForge data updates](FORGE-DATA-UPDATES.md).
 
