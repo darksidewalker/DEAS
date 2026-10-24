@@ -15,6 +15,13 @@ TOOL = ROOT / "tools/update-forge-data.py"
 
 
 class ForgeDataUpdateTests(unittest.TestCase):
+    def module(self):
+        spec = importlib.util.spec_from_file_location("forge_updater", TOOL)
+        assert spec is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def fixture(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -36,7 +43,7 @@ class ForgeDataUpdateTests(unittest.TestCase):
         sha = git("rev-parse", "HEAD")
         git("update-ref", "refs/remotes/origin/main", sha)
         shutil.copytree(ROOT / "src-tauri/forge-data", data)
-        pack = json.loads((data / "forge-pack.json").read_text())
+        pack = json.loads(self.module().decompress((data / "forge-pack.json").read_bytes()))
         pack["source"]["commit"] = sha
         raw = (json.dumps(pack, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
         (data / "forge-pack.json").write_bytes(raw)

@@ -1,8 +1,12 @@
 //! Built-in, pinned Forge data; existing environment files override it without writes.
+//! The embedded payload is zstd-compressed; a raw override file is read as-is.
 use rusqlite::{Connection, OpenFlags};
-use std::{io, path::Path};
+use std::io::{self, Read};
+use std::path::Path;
 
-fn bundled(name: &str) -> Option<&'static [u8]> {
+const MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+
+pub fn bundled(name: &str) -> Option<&'static [u8]> {
     match name {
         "forge-pack.json" => Some(include_bytes!("../../forge-data/forge-pack.json")),
         "randomizer.json" => Some(include_bytes!("../../forge-data/randomizer.json")),
@@ -14,15 +18,29 @@ fn bundled(name: &str) -> Option<&'static [u8]> {
     }
 }
 
+// A compressed override or bundle must decode; a raw one is returned unchanged.
+fn decompress(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    if !bytes.starts_with(&MAGIC) {
+        return Ok(bytes.to_vec());
+    }
+    let mut out = Vec::new();
+    let mut decoder = ruzstd::decoding::StreamingDecoder::new(bytes)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    decoder.read_to_end(&mut out)?;
+    Ok(out)
+}
+
 pub fn read(path: &Path) -> io::Result<Vec<u8>> {
     match std::fs::read(path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(bundled)
-            .map(<[u8]>::to_vec)
-            .ok_or(e),
-        result => result,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let bytes = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(bundled)
+                .ok_or(e)?;
+            decompress(bytes)
+        }
+        result => result.and_then(|bytes| decompress(&bytes)),
     }
 }
 
@@ -35,8 +53,9 @@ pub fn database(path: &Path) -> Result<Connection, String> {
                 .and_then(|n| n.to_str())
                 .and_then(bundled)
                 .ok_or_else(|| e.to_string())?;
+            let bytes = decompress(bytes).map_err(|e| e.to_string())?;
             let mut db = Connection::open_in_memory().map_err(|e| e.to_string())?;
-            db.deserialize_read_exact(rusqlite::MAIN_DB, bytes, bytes.len(), true)
+            db.deserialize_read_exact(rusqlite::MAIN_DB, bytes.as_slice(), bytes.len(), true)
                 .map_err(|e| e.to_string())?;
             Ok(db)
         }

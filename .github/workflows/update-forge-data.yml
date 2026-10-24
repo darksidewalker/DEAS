@@ -31,6 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
+          command -v zstd || { echo "zstd CLI missing"; exit 1; }
           /usr/bin/node --version
           /usr/bin/npm --version
           # Hosted Ubuntu's AppArmor userns restriction otherwise blocks bwrap.

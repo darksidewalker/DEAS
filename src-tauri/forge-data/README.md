@@ -11,7 +11,7 @@ These files are embedded in the Linux and Windows executable. Discovery does not
 | `tags.sqlite` | `data/seed/tags.sqlite` | SQLite backup, journal mode DELETE, integrity checked |
 | `character_traits.sqlite` | `data/seed/character_traits.sqlite` | SQLite backup, journal mode DELETE, integrity checked |
 
-The databases are opened read-only. Bundled databases are deserialized into memory: their upstream WAL headers were normalized through SQLite backup so they do not require writable sidecars. `MANIFEST.json` records both source and bundled SHA-256 digests. No image-tagging model weights or official MiniMax H3 documents are included. The export uses upstream's reduced H3 guide when its separately licensed documents are absent.
+The databases are opened read-only. Bundled databases are deserialized into memory: their upstream WAL headers were normalized through SQLite backup so they do not require writable sidecars. `MANIFEST.json` records source digests and the bundled payload digests. **The embedded payload is zstd-compressed** (`zstd -19`, deterministic: fixed level, no frame timestamp), decoded before the SQLite deserialize; `bytes`/`sha256` in the manifest describe the compressed payload, `upstreamSha256` the upstream file. A raw override file (or an uncompressed fixture) is read as-is, detected by the frame magic. Compression keeps the executable ~34 MB instead of ~78 MB. The export uses upstream's reduced H3 guide when its separately licensed documents are absent.
 
 ## Attribution and terms
 

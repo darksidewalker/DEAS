@@ -3,24 +3,24 @@
   "commit": "29a37c4e43f144f6ff4c0bc8c02f96b440b64826",
   "files": {
     "forge-pack.json": {
-      "sha256": "05d0dc8e11027e7475323cd4ac748ee490697bfa72498f710f99b8c5960704a8",
-      "bytes": 237011
+      "sha256": "edf3fd2b58d849017b8fce27c6326bd673e0101f5a5fb43c0bc22a221c4fb392",
+      "bytes": 45960
     },
     "randomizer.json": {
-      "sha256": "3a5bd226421215ef16cad893a2427e2a2b068512bcfd46a187de4394460f5bd3",
-      "bytes": 111217,
+      "sha256": "9d95aeb3a73fe02669838c7db4f6e1f0a1a702b882d4079b90480e2326f182a3",
+      "bytes": 28153,
       "upstreamPath": "config/randomizer.json",
       "upstreamSha256": "3a5bd226421215ef16cad893a2427e2a2b068512bcfd46a187de4394460f5bd3"
     },
     "tags.sqlite": {
-      "sha256": "b95fd4cbefd124d48e936fed6e1b3a477a21e53c59bf4fa937d81b2641c3256c",
-      "bytes": 31080448,
+      "sha256": "689c58d5c692bebf41b3f8e11d1bb74984646dacfeb728f076fd7bcd68e16134",
+      "bytes": 9170893,
       "upstreamPath": "data/seed/tags.sqlite",
       "upstreamSha256": "02173bc88b5d0a457622130eb1b540040bccdf2b9c68a8a04d0d8b55445a716d"
     },
     "character_traits.sqlite": {
-      "sha256": "77f7582a203f7c51d64c02ccaf236692effb29e32fae75f1bb49ae9d24ee5a38",
-      "bytes": 23756800,
+      "sha256": "70784053b2d67c2398ea4bc9d1c82199d99f2e9ae517bf81f006648c5eba68ce",
+      "bytes": 2044773,
       "upstreamPath": "data/seed/character_traits.sqlite",
       "upstreamSha256": "14ebf7966b792bc172bfd3a596f4fc259ec9ebafe47239e463b756870dc58c62"
     }

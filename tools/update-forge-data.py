@@ -30,6 +30,26 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def zstd(data, args):
+    binary = shutil.which("zstd")
+    if not binary:
+        raise ValueError("The zstd CLI is required for compressed bundle data")
+    return subprocess.run([binary, "-q", *args], input=data, capture_output=True, check=True).stdout
+
+
+def decompress(data):
+    # A raw override file is returned unchanged; a compressed one is decoded.
+    return data if not data.startswith(MAGIC) else zstd(data, ["-d", "-c"])
+
+
+def compress(data):
+    # Deterministic: fixed level, no frame timestamp.
+    return zstd(data, ["-19", "-c"])
+
+
 def read_file(path, limit):
     if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
         raise ValueError(f"Not a regular bounded data file: {path.name}")
@@ -65,7 +85,7 @@ def validate_data(directory):
         if name in SOURCES and (entry.get("upstreamPath") != SOURCES[name] or not DIGEST.fullmatch(str(entry.get("upstreamSha256", "")))):
             raise ValueError(f"Missing upstream provenance: {name}")
         if name.endswith(".json"):
-            payload[name] = json.loads(data)
+            payload[name] = json.loads(decompress(data))
     pack = payload["forge-pack.json"]
     if pack.get("source", {}).get("commit") != manifest["commit"]:
         raise ValueError("Pack and manifest source revisions differ")
@@ -96,22 +116,25 @@ def validate_data(directory):
     for item in categories:
         category(item)
     counts = {}
-    for name, table, required in [
-        ("tags.sqlite", "tags", {"tag", "category", "post_count", "variant", "aliases"}),
-        ("character_traits.sqlite", "characters", {"tag", "traits"}),
-    ]:
-        with database(directory / name) as db:
-            if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
-                raise ValueError(f"SQLite integrity failure: {name}")
-            if any(kind in ("view", "trigger") or (sql and "CREATE VIRTUAL" in sql.upper()) for kind, sql in db.execute("SELECT type,sql FROM sqlite_master")):
-                raise ValueError(f"Unsupported active SQLite schema: {name}")
-            cols = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
-            if not required.issubset(cols):
-                raise ValueError(f"SQLite schema incompatible with native reader: {name}")
-            count = db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-            if not 0 < count <= 2_000_000:
-                raise ValueError(f"Invalid table row count: {name}")
-            counts[table] = count
+    with tempfile.TemporaryDirectory(prefix="forge-data-verify-") as temp:
+        for name, table, required in [
+            ("tags.sqlite", "tags", {"tag", "category", "post_count", "variant", "aliases"}),
+            ("character_traits.sqlite", "characters", {"tag", "traits"}),
+        ]:
+            staged = pathlib.Path(temp) / name
+            staged.write_bytes(decompress(read_file(directory / name, 128 * 1024 * 1024)))
+            with database(staged) as db:
+                if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                    raise ValueError(f"SQLite integrity failure: {name}")
+                if any(kind in ("view", "trigger") or (sql and "CREATE VIRTUAL" in sql.upper()) for kind, sql in db.execute("SELECT type,sql FROM sqlite_master")):
+                    raise ValueError(f"Unsupported active SQLite schema: {name}")
+                cols = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+                if not required.issubset(cols):
+                    raise ValueError(f"SQLite schema incompatible with native reader: {name}")
+                count = db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                if not 0 < count <= 2_000_000:
+                    raise ValueError(f"Invalid table row count: {name}")
+                counts[table] = count
     return manifest, {"models": sorted(pack["models"]), "tagRows": counts["tags"], "characterRows": counts["characters"]}
 
 
@@ -270,7 +293,7 @@ def update_data(repo, revision, destination, original, summary, report):
         source = source_snapshot(repo, revision, work)
         candidate = work / "candidate"
         candidate.mkdir()
-        (candidate / "forge-pack.json").write_bytes(export_pack(source, revision, work))
+        (candidate / "forge-pack.json").write_bytes(compress(export_pack(source, revision, work)))
         manifest = {"repository": UPSTREAM, "commit": revision, "sourceLicenseSha256": sha256(read_file(source / "LICENSE", 1024 * 1024)), "files": {}}
         for name, upstream in SOURCES.items():
             raw = read_file(source / upstream, 128 * 1024 * 1024)
@@ -280,8 +303,11 @@ def update_data(repo, revision, destination, original, summary, report):
                 with database(source / upstream) as before, sqlite3.connect(out) as after:
                     before.backup(after)
                     after.execute("PRAGMA journal_mode=DELETE")
+                raw = out.read_bytes()
             else:
-                out.write_bytes((destination / name).read_bytes() if name.endswith(".sqlite") else raw)
+                # An unchanged table keeps the bundled bytes; decode them before re-compressing.
+                raw = decompress((destination / name).read_bytes())
+            out.write_bytes(compress(raw))
             manifest["files"][name] = {"upstreamPath": upstream, "upstreamSha256": raw_digest}
         for name in FILES:
             raw = (candidate / name).read_bytes()

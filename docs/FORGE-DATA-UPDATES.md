@@ -14,7 +14,7 @@ Use Python 3 and Git. Export/update additionally requires Linux, working user na
 npm ci --ignore-scripts --prefix tools/forge-export
 ```
 
-The small Python/Node tooling is a development-only adapter for exporting the upstream format; it is not a new application service. `--check` and `--verify` work on Windows without executing upstream loaders. `--update` fails closed outside Linux or when its Bubblewrap sandbox cannot start; there is no unsandboxed fallback. On Windows, prepare the update in Linux/WSL with working Bubblewrap, then review the resulting data-only diff.
+The small Python/Node tooling is a development-only adapter for exporting the upstream format; it is not a new application service. `--check` and `--verify` work on Windows without executing upstream loaders. `--update` fails closed outside Linux or when its Bubblewrap sandbox cannot start; there is no unsandboxed fallback. Exported files are zstd-compressed at a fixed level, so a repeat export of the same revision is byte-identical. On Windows, prepare the update in Linux/WSL with working Bubblewrap, then review the resulting data-only diff.
 
 ## Local checkout and commands
 
@@ -66,7 +66,7 @@ The only update targets are:
 - `src-tauri/forge-data/character_traits.sqlite`
 - `src-tauri/forge-data/MANIFEST.json`
 
-The manifest records the selected source commit, `sourceLicenseSha256`, and file sizes/SHA-256 digests. Review the JSON report and manifest, model additions/removals, database schema/integrity and row counts, and applicable redistribution/attribution requirements. Run the updater fixtures:
+The manifest records the selected source commit, `sourceLicenseSha256`, and file sizes/SHA-256 digests of the compressed payload; validation decodes it before SQLite integrity/schema/row-count checks. Review the JSON report and manifest, model additions/removals, database schema/integrity and row counts, and applicable redistribution/attribution requirements. Run the updater fixtures:
 
 ```sh
 python -m unittest discover -s tools/tests -p 'test_forge_data*.py'
@@ -80,7 +80,7 @@ A changed source license or required notice stops `--update` with `review-requir
 
 The two jobs run on separate hosted runners:
 
-1. **Import:** `contents: read`, no write token, no custom secrets, checkout credentials not persisted. It installs the locked export dependency without scripts, runs updater fixtures, clones the fixed upstream and imports through the updater's sandbox. Ubuntu's hosted-runner AppArmor user-namespace restriction is relaxed solely on this disposable runner so Bubblewrap can create its namespaces; export itself remains isolated. Trusted Python parses the redirected JSON report and emits only a literal `updated=true/false`. Only `updated` uploads the exact five-file candidate; the report is a separate artifact. Exit `3` fails the job for manual review, and same-content no-ops skip publication.
+1. **Import:** `contents: read`, no write token, no custom secrets, checkout credentials not persisted. It installs the locked export dependency without scripts, runs updater fixtures, clones the fixed upstream and imports through the updater's sandbox (the runner needs the `zstd` CLI, checked in the prerequisites step). Ubuntu's hosted-runner AppArmor user-namespace restriction is relaxed solely on this disposable runner so Bubblewrap can create its namespaces; export itself remains isolated. Trusted Python parses the redirected JSON report and emits only a literal `updated=true/false`. Only `updated` uploads the exact five-file candidate; the report is a separate artifact. Exit `3` fails the job for manual review, and same-content no-ops skip publication.
 2. **Publish:** a fresh checkout of the same trusted DEAS commit; only this job receives `contents: write` and `pull-requests: write`. It downloads the candidate outside the checkout, rejects unexpected names/non-regular files, and runs the checked-out trusted `--verify --data-dir ...` without network/export. It never runs code from the artifact or upstream. It copies only the five literal filenames and supplies the same exact allowlist to the PR action.
 
 Publication uses dedicated branch `bot/update-forge-data` and creates/updates one review PR against `main`. Do not use that bot branch for manual work: later updates may replace its contents. No merge action or auto-merge setting is configured. The PR action is pinned to `peter-evans/create-pull-request` **v8.1.1**, commit `5f6978faf089d4d20b00c7766989d076bb2fc7f1`; its action inputs and branch/PR implementation were reviewed for this use. Built-in actions follow the repository's existing version conventions. Treat future action-pin upgrades as reviewed dependency changes, not floating updates.

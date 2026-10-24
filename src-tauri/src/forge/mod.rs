@@ -61,11 +61,10 @@ mod bundle_tests {
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../../forge-data/MANIFEST.json")).unwrap();
         for (name, entry) in manifest["files"].as_object().unwrap() {
-            let bytes =
-                super::data::read(&std::path::Path::new("nonexistent-bundle-fixture").join(name))
-                    .unwrap();
+            // The manifest pins the embedded (compressed) payload, not the decoded bytes.
+            let bytes = super::data::bundled(name).unwrap();
             assert_eq!(
-                format!("{:x}", Sha256::digest(&bytes)),
+                format!("{:x}", Sha256::digest(bytes)),
                 entry["sha256"].as_str().unwrap()
             );
         }
