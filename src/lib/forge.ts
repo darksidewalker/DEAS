@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import families from '../families/builtin.json';
+import families from '../families/builtin.json' with { type: 'json' };
 
 /** Prompt Forge runs in the DaSiWa node pack on the backend; `native_forge` forwards one call and adds DEAS's saved LLM endpoint. */
 export interface ForgeModel { id: string; label: string; disabled?: boolean }

@@ -683,6 +683,228 @@ where
 }
 
 #[tokio::test]
+async fn workbench_failed_preparation_releases_reservation_and_diagnostic_exclusion() {
+    let mut fail = true;
+    let (base, task) = server(move |path, _| match path.as_str() {
+        "GET /comfy/object_info HTTP/1.1" if fail => {
+            fail = false;
+            (503, "{}".into())
+        }
+        "GET /comfy/object_info HTTP/1.1" => (200, nodes().to_string()),
+        "POST /comfy/prompt HTTP/1.1" => (
+            200,
+            json!({"prompt_id":PROMPT_ID,"number":1,"node_errors":{}}).to_string(),
+        ),
+        _ => panic!("unexpected {path}"),
+    })
+    .await;
+    let jobs = Jobs::default();
+    assert!(jobs.prepare(base.clone(), intent()).await.is_err());
+    let job = jobs
+        .workbench_run(base, intent(), true, None)
+        .await
+        .unwrap();
+    assert_eq!(job["state"], "queued");
+    task.abort();
+    let jobs = Jobs::default();
+    assert!(jobs
+        .workbench_run("http://127.0.0.1:9".into(), json!({}), true, None)
+        .await
+        .is_err());
+    assert_eq!(jobs.workbench_current().unwrap()["preparing"], 0);
+    assert!(jobs.lock().unwrap().workbench.is_empty());
+}
+
+#[tokio::test]
+async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
+    let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = posts.clone();
+    let (base, task) = server(move |path, _| match path.as_str() {
+        "GET /comfy/object_info HTTP/1.1" => (200, nodes().to_string()),
+        "POST /comfy/prompt HTTP/1.1" => {
+            let n = observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n == 0 { (0, "".into()) } else {
+                (200, json!({"prompt_id":uuid::Uuid::new_v4().to_string(),"number":n,"node_errors":{}}).to_string())
+            }
+        }
+        _ => panic!("unexpected {path}"),
+    }).await;
+    let jobs = Jobs::default();
+    assert!(jobs
+        .workbench_run(base.clone(), intent(), false, None)
+        .await
+        .is_err());
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let mut ids = vec![];
+    for _ in 0..20 {
+        ids.push(
+            jobs.workbench_run(base.clone(), intent(), true, None)
+                .await
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    let unknown = jobs.workbench_job(&ids[0]).unwrap().unwrap();
+    assert_eq!(unknown.current().unwrap()["state"], "unknown");
+    let plan_id = unknown.lock().unwrap().plan.as_ref().unwrap().id.clone();
+    assert!(unknown.submit(plan_id, true).await.is_err());
+    assert!(jobs
+        .workbench_run(base.clone(), intent(), true, None)
+        .await
+        .unwrap_err()
+        .contains("capacity"));
+    for id in &ids {
+        assert!(jobs.workbench_job(id).unwrap().is_some());
+    }
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 20);
+    // Only a positively terminal record may make room; uncertainty must not be evicted.
+    jobs.workbench_job(&ids[1])
+        .unwrap()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .job
+        .as_mut()
+        .unwrap()
+        .state = "failed";
+    jobs.workbench_run(base, intent(), true, None)
+        .await
+        .unwrap();
+    assert!(jobs.workbench_job(&ids[0]).unwrap().is_some());
+    assert!(jobs.workbench_job(&ids[1]).unwrap().is_none());
+    assert_eq!(
+        jobs.workbench_current().unwrap()["jobs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        20
+    );
+    assert_eq!(jobs.workbench_current().unwrap()["stopAvailable"], false);
+    task.abort();
+}
+
+#[tokio::test]
+async fn workbench_failures_reach_shared_logs_without_private_intent() {
+    let jobs = Jobs::default();
+    let mut draft = intent();
+    draft["positivePrompt"] = json!("secret-queue-prompt");
+    assert!(jobs
+        .workbench_run(
+            "http://127.0.0.1:9/private-endpoint".into(),
+            draft.clone(),
+            true,
+            None
+        )
+        .await
+        .is_err());
+    assert!(jobs
+        .workbench_run(
+            "http://127.0.0.1:9/private-endpoint".into(),
+            draft,
+            true,
+            None
+        )
+        .await
+        .is_err());
+    let reports: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|e| e.text.starts_with("ERROR: Workbench run:"))
+        .collect();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].source, crate::logs::Source::Deas);
+    assert!(!reports[0].text.contains("secret-queue-prompt"));
+    assert!(!reports[0].text.contains("private-endpoint"));
+}
+
+#[test]
+fn workbench_commands_are_registered_exported_and_local_only() {
+    let main = include_str!("main.rs");
+    let permission: toml::Value = toml::from_str(include_str!("../permissions/api.toml")).unwrap();
+    let jobs = permission["permission"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["identifier"].as_str() == Some("allow-native-diagnostic-jobs"))
+        .unwrap();
+    for command in ["native_workbench_run", "native_workbench_current"] {
+        assert!(main.contains(&format!("deas::{command},")));
+        assert!(jobs["commands"]["allow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c.as_str() == Some(command)));
+    }
+    let capability: Value =
+        serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+    assert_eq!(capability["local"], true);
+    assert_eq!(capability["windows"], json!(["main"]));
+    assert!(capability["permissions"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("allow-native-diagnostic-jobs")));
+    let _ = crate::native_workbench_run;
+    let _ = crate::native_workbench_current;
+}
+
+#[tokio::test]
+async fn workbench_runs_keep_three_immutable_correlated_jobs() {
+    let mut tuples = std::collections::HashMap::new();
+    let (base, task) = server(move |path, body| {
+        if path == "GET /comfy/object_info HTTP/1.1" {
+            return (200, nodes().to_string());
+        }
+        if path == "POST /comfy/prompt HTTP/1.1" {
+            let id = uuid::Uuid::new_v4().to_string();
+            tuples.insert(id.clone(), json!([1,id,body["prompt"],{"client_id":body["client_id"]},["7"]]));
+            return (200, json!({"prompt_id":id,"number":1,"node_errors":{}}).to_string());
+        }
+        if path.starts_with("GET /comfy/history/") {
+            let id = path.split('/').nth(3).unwrap().split(' ').next().unwrap();
+            return (200, json!({id:{"prompt":tuples[id],"outputs":{"7":{"images":[{"filename":"out.png","subfolder":"","type":"output"}]}},"status":{"completed":true,"status_str":"success","messages":[]}}}).to_string());
+        }
+        panic!("Unexpected request: {path}");
+    }).await;
+    let jobs = Jobs::default();
+    let mut submitted = vec![];
+    for seed in 1..=3 {
+        let mut draft = intent();
+        draft["seed"] = json!(seed);
+        let job = jobs
+            .workbench_run(base.clone(), draft.clone(), true, None)
+            .await
+            .unwrap();
+        draft["seed"] = json!(999);
+        assert_eq!(job["intent"]["seed"], seed);
+        submitted.push(job);
+    }
+    assert_eq!(
+        jobs.workbench_current().unwrap()["jobs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(jobs.prepare(base.clone(), intent()).await.is_err());
+    for (index, job) in submitted.iter().enumerate() {
+        let id = job["id"].as_str().unwrap();
+        assert!(submitted[..index]
+            .iter()
+            .all(|other| other["id"] != job["id"]));
+        let held = jobs.workbench_job(id).unwrap().unwrap();
+        assert_eq!(
+            jobs.status_for(id.into()).await.unwrap()["state"],
+            "succeeded"
+        );
+        assert_eq!(held.current().unwrap()["intent"]["seed"], index + 1);
+    }
+    assert!(jobs.workbench_job("foreign").unwrap().is_none());
+    assert!(jobs.prepare(base, intent()).await.is_ok());
+    task.abort();
+}
+
+#[tokio::test]
 async fn explicit_prepare_submit_and_correlated_completion() {
     let dir = tempfile::tempdir().unwrap();
     let root = dunce::canonicalize(dir.path()).unwrap();
@@ -2279,6 +2501,143 @@ async fn prepare_requires_only_used_resize_nodes() {
         v["inputResize"]["pad"] = json!({"left":0,"right":0,"top":0,"bottom":0});
         assert_eq!(jobs.prepare(base, v).await.is_ok(), absent.is_none());
         task.abort();
+    }
+}
+
+#[test]
+fn moss_compiles_flux2_t2i_and_plain_vae_i2i() {
+    let mut value = intent();
+    value["diffusion"] = json!({"textEncoder":"encoder.safetensors","clipType":"moss_image","vae":"flux2.safetensors"});
+    let g = compile(&value).unwrap();
+    assert_eq!(
+        g["4"],
+        json!({"class_type":"EmptyFlux2LatentImage","inputs":{"width":512,"height":768,"batch_size":1}})
+    );
+    assert_eq!(
+        g["C"]["inputs"],
+        json!({"clip_name":"encoder.safetensors","type":"moss_image"})
+    );
+    assert_eq!(g["2"]["inputs"]["clip"], json!(["C", 0]));
+    assert_eq!(g["6"]["inputs"]["vae"], json!(["V", 0]));
+    value["inputImage"] = json!("ref.png");
+    value["denoise"] = json!(0.37);
+    let g = compile(&value).unwrap();
+    assert!(g.get("4").is_none());
+    assert_eq!(
+        g["9"],
+        json!({"class_type":"VAEEncode","inputs":{"pixels":["8",0],"vae":["V",0]}})
+    );
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["9", 0]));
+    assert_eq!(g["5"]["inputs"]["denoise"], 0.37);
+}
+
+#[test]
+fn moss_rejects_unaligned_dimensions_and_unproved_combinations() {
+    let mut value = intent();
+    value["diffusion"] = json!({"textEncoder":"encoder.safetensors","clipType":"moss_image","vae":"flux2.safetensors"});
+    for field in ["width", "height"] {
+        let mut bad = value.clone();
+        bad[field] = json!(520);
+        assert!(compile(&bad).unwrap_err().contains("multiples of 16"));
+    }
+    value["inputImage"] = json!("ref.png");
+    value["denoise"] = json!(0.37);
+    for (key, extra) in [
+        ("refine", json!({"width":1024,"height":1024,"denoise":0.5})),
+        (
+            "inputMask",
+            json!("deas-masks/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png"),
+        ),
+        (
+            "inputLayers",
+            json!([{"image":"ref.png","x":0,"y":0,"width":512,"height":768}]),
+        ),
+        ("sigmas", json!([1, 0])),
+        ("loras", json!([{"name":"style.safetensors","strength":1}])),
+        ("options", json!({"vaeTile":512})),
+        (
+            "inputResize",
+            json!({"width":512,"height":768,"crop":"disabled","pad":{"left":0,"right":0,"top":0,"bottom":0}}),
+        ),
+    ] {
+        let mut bad = value.clone();
+        bad[key] = extra;
+        let error = compile(&bad).unwrap_err();
+        assert!(
+            error.contains("MOSS-Image supports only plain"),
+            "{key}: {error}"
+        );
+    }
+    value["inputResize"] = json!({"width":512,"height":768,"crop":"disabled"});
+    assert!(compile(&value).is_ok());
+}
+
+#[tokio::test]
+async fn moss_prepare_requires_exact_emitted_nodes_and_components_only() {
+    for (image, metadata) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut value = intent();
+        value["diffusion"] = json!({"textEncoder":"encoder.safetensors","clipType":"moss_image","vae":"flux2.safetensors"});
+        if image {
+            value["inputImage"] = json!("ref.png");
+            value["denoise"] = json!(0.37);
+        }
+        let mut graph = compile(&value).unwrap();
+        let mut info = json!({
+            "UNETLoader":{"input":{"required":{"unet_name":[[value["checkpoint"]]]}}},
+            "CLIPLoader":{"input":{"required":{"clip_name":[["encoder.safetensors"]],"type":[["moss_image"]]}}},
+            "VAELoader":{"input":{"required":{"vae_name":[["flux2.safetensors"]]}}},
+            "KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}}
+        });
+        if image {
+            info["LoadImage"] = json!({"input":{"required":{"image":[["ref.png"]]}}});
+        }
+        for node in graph.as_object().unwrap().values() {
+            let name = node["class_type"].as_str().unwrap();
+            if info.get(name).is_none() {
+                info[name] = json!({});
+            }
+        }
+        if metadata {
+            info.as_object_mut().unwrap().remove("SaveImage");
+            info["DaSiWa_MetadataImageSaver"] = json!({});
+            info["DaSiWa_MetadataConfig"] = json!({});
+            civitai_saver(
+                &mut graph,
+                &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+                &value,
+            );
+        }
+        let complete = info.clone();
+        let (base, task) = server(move |_, _| (200, complete.to_string())).await;
+        let prepared = Jobs::default().prepare(base, value.clone()).await;
+        task.abort();
+        assert_eq!(prepared.unwrap()["graph"], graph);
+        for missing in graph
+            .as_object()
+            .unwrap()
+            .values()
+            .filter_map(|n| n["class_type"].as_str())
+        {
+            let mut incomplete = info.clone();
+            incomplete.as_object_mut().unwrap().remove(missing);
+            let (base, task) = server(move |_, _| (200, incomplete.to_string())).await;
+            let result = Jobs::default().prepare(base, value.clone()).await;
+            task.abort();
+            assert!(result.is_err(), "accepted absent {missing}, image={image}");
+        }
+        for (node, field) in [
+            ("UNETLoader", "unet_name"),
+            ("CLIPLoader", "clip_name"),
+            ("CLIPLoader", "type"),
+            ("VAELoader", "vae_name"),
+        ] {
+            let mut incomplete = info.clone();
+            incomplete[node]["input"]["required"][field] = json!([[]]);
+            let (base, task) = server(move |_, _| (200, incomplete.to_string())).await;
+            let result = Jobs::default().prepare(base, value.clone()).await;
+            task.abort();
+            assert!(result.is_err(), "accepted absent {node}.{field}");
+        }
     }
 }
 

@@ -340,6 +340,61 @@ async fn latest_relocation_preserves_original_png_cache_and_executed_settings_on
     assert_eq!(std::fs::read(target).unwrap(), bytes);
 }
 
+#[tokio::test]
+async fn workbench_all_job_png_lookup_and_alias_repair() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dunce::canonicalize(dir.path()).unwrap();
+    let jobs = Jobs::default();
+    let mut entries = vec![];
+    for index in 0..3 {
+        let bytes = png_bytes(512, 768);
+        let (base, server) = binary_server(bytes.clone(), 200, "Content-Type: image/png").await;
+        let held = Arc::new(completed(&base));
+        let id = format!("job-{index}");
+        held.lock().unwrap().job.as_mut().unwrap().id = id.clone();
+        register_completed(&held, &root);
+        jobs.lock().unwrap().workbench.push(held.clone());
+        entries.push((held, id, bytes, server));
+    }
+    for (_, id, bytes, server) in &mut entries {
+        assert_eq!(jobs.output(id.clone(), 0).await.unwrap().bytes, *bytes);
+        (&mut *server).await.unwrap();
+    }
+    let source = root.join("DEAS/run-1/image.png");
+    std::fs::create_dir(root.join("starred")).unwrap();
+    let target = root.join("starred/image.png");
+    jobs.relocate_media(&root, &source, || {
+        std::fs::rename(&source, &target).unwrap();
+        Ok(target.clone())
+    })
+    .unwrap();
+    for (held, id, bytes, _) in entries {
+        assert_eq!(
+            held.current().unwrap()["outputs"][0]["subfolder"],
+            "starred"
+        );
+        assert_eq!(
+            held.lock().unwrap().completed[0].outputs[0]["subfolder"],
+            "starred"
+        );
+        assert_eq!(jobs.output(id, 0).await.unwrap().bytes, bytes);
+    }
+}
+
+#[test]
+fn workbench_nonterminal_jobs_block_media_moves() {
+    let jobs = Jobs::default();
+    let held = Arc::new(completed("http://127.0.0.1:9/"));
+    jobs.lock().unwrap().workbench.push(held.clone());
+    assert!(jobs.media_move_idle().is_ok());
+    for state in ["queued", "running", "unknown"] {
+        held.lock().unwrap().job.as_mut().unwrap().state = state;
+        assert!(jobs.media_move_idle().is_err(), "{state}");
+    }
+    held.lock().unwrap().job = None;
+    assert!(jobs.media_move_idle().is_err(), "preparation reservation");
+}
+
 #[test]
 fn native_move_rejects_missing_active_uncertain_and_unsafe_roots() {
     let dir = tempfile::tempdir().unwrap();

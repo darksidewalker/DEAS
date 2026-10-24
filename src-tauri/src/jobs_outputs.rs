@@ -95,7 +95,10 @@ impl CachedOutput {
 impl Jobs {
     pub(crate) fn media_move_idle(&self) -> Result<(), String> {
         let session = self.lock()?;
-        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+        if session.preparing.is_some()
+            || session.job.as_ref().is_some_and(|j| !j.terminal())
+            || session.workbench_busy()?
+        {
             return Err("Wait for native generation to finish before moving media".into());
         }
         Ok(())
@@ -113,7 +116,10 @@ impl Jobs {
         root: &std::path::Path,
         source: &std::path::Path,
     ) -> Result<(), String> {
-        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+        if session.preparing.is_some()
+            || session.job.as_ref().is_some_and(|j| !j.terminal())
+            || session.workbench_busy()?
+        {
             return Err("Wait for native generation to finish before moving media".into());
         }
         crate::media::star::validate(root, source).map(|_| ())
@@ -125,7 +131,10 @@ impl Jobs {
         relocate: impl FnOnce() -> Result<std::path::PathBuf, String>,
     ) -> Result<std::path::PathBuf, String> {
         let mut session = self.lock()?;
-        if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
+        if session.preparing.is_some()
+            || session.job.as_ref().is_some_and(|j| !j.terminal())
+            || session.workbench_busy()?
+        {
             return Err("Wait for native generation to finish before moving media".into());
         }
         Self::check_media_source(&session, root, source)?;
@@ -148,18 +157,24 @@ impl Jobs {
                 }
             }
         };
-        if let Some(job) = session.job.as_mut().filter(|job| {
-            job.plan
-                .media_root
-                .as_ref()
-                .is_some_and(|owned| owned.path == root && owned.identity == identity)
-        }) {
-            repair(&mut job.outputs);
-        }
-        for record in &mut session.completed {
-            if record.root.path == root && record.root.identity == identity {
-                repair(&mut record.outputs);
+        let repair_session = |session: &mut Session| {
+            if let Some(job) = session.job.as_mut().filter(|job| {
+                job.plan
+                    .media_root
+                    .as_ref()
+                    .is_some_and(|owned| owned.path == root && owned.identity == identity)
+            }) {
+                repair(&mut job.outputs);
             }
+            for record in &mut session.completed {
+                if record.root.path == root && record.root.identity == identity {
+                    repair(&mut record.outputs);
+                }
+            }
+        };
+        repair_session(&mut session);
+        for held in &session.workbench {
+            repair_session(&mut *held.lock()?);
         }
         // Cached PNG bytes retain job/index identity; only the on-disk location changed.
         Ok(target)
@@ -223,6 +238,13 @@ impl Jobs {
     }
 
     async fn output(&self, job_id: String, index: usize) -> Result<OutputPreview, String> {
+        if let Some(held) = self.workbench_job(&job_id)? {
+            return held.output_local(job_id, index).await;
+        }
+        self.output_local(job_id, index).await
+    }
+
+    async fn output_local(&self, job_id: String, index: usize) -> Result<OutputPreview, String> {
         let job = self.selected_job(&job_id, index)?;
         let _fetch = self
             .1
@@ -427,7 +449,9 @@ pub async fn native_job_export(
     if title.chars().count() > 240 || title.chars().any(char::is_control) {
         return Err("Invalid PNG save dialog title".into());
     }
-    state.cached_output(&job_id, index)?;
+    let held = state.workbench_job(&job_id)?;
+    let jobs = held.as_deref().unwrap_or(&state);
+    jobs.cached_output(&job_id, index)?;
     let selected = rfd::AsyncFileDialog::new()
         .set_title(title)
         .add_filter("PNG", &["png"])
@@ -435,7 +459,7 @@ pub async fn native_job_export(
         .set_can_create_directories(false)
         .save_file()
         .await;
-    state.export_to(&job_id, index, selected.as_ref().map(|file| file.path()))
+    jobs.export_to(&job_id, index, selected.as_ref().map(|file| file.path()))
 }
 #[cfg(test)]
 #[path = "jobs_outputs_tests.rs"]

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — 0.1.45
+
+- Add a bounded MOSS-Image family adapter for Text → Image and ordinary denoise-based Image → Image, using the dedicated MOSS text encoder, Flux2 VAE/empty latent and model-aligned dimensions. Validate the nodes actually emitted by the selected image graph instead of unused baseline nodes. Model loading, packed encoder support and generation quality remain unverified; unsupported MOSS combinations fail closed.
+- Queue outputs have individually associated corner star overlays and localized measured generation time in succeeded rows/details. Image and video metadata share timing formatting; unknown/failed durations are omitted. Repeated Run, split Stop and client elapsed timers remain planned.
+
 ## Unreleased — 0.1.44
 
 - Centralize dropdown styling across all tabs using the compact Settings appearance. New native select fields inherit it automatically; theme-aware arrows, option colours, focus and disabled states replace per-feature styling. Keep native keyboard interaction and high-contrast fallback.

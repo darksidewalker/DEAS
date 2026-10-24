@@ -1,5 +1,9 @@
 # News
 
+## Unreleased — 0.1.45
+
+MOSS-Image gains a bounded t2i/i2i generation adapter through the existing image pipeline. Queue thumbnails now place stars on their corresponding outputs and show measured generation duration. These are development changes, not a tagged release or MOSS inference acceptance. Repeated Run/Stop, generation-reference prompting and Prompt Forge aspect-ratio parity remain open. See [Studio](STUDIO.md) and [verification](VERIFICATION.md#moss-image-adapter-and-queue-presentation-0145).
+
 ## Unreleased — 0.1.44
 
 Native image Prompt Forge, Studio Chat and colour schemes are integrated. The required prompts, Randomizer and optional tag/character tables ship in the executable; native LLM model selection works without starting ComfyUI. DEAS is now licensed under GPL-3.0-or-later. This is a Git development update, not a tagged release. See [Prompting](PROMPTING.md), [Chat](CHAT.md) and [data provenance](../src-tauri/forge-data/README.md).

@@ -13,12 +13,33 @@ const job:JobStatus={id:'a',baseUrl:'http://127.0.0.1',promptId:'p',state:'succe
 test('renders native generation settings as text and switches with the selected job without stale metadata',()=>{
  localStorage.setItem('deas.locale.v1','en');
  const {container,rerender}=render(<I18nProvider><GenerationMetadata job={job}/></I18nProvider>);
- for(const value of ['<img src=x onerror=alert(1)> forest','blur','Krea2/model.safetensors','896 × 1152','940563189','13.31 s','0.1.14','qwen3vl_4b.safetensors','qwen_vae.safetensors','style.safetensors (0.7)'])expect(screen.getByText(value)).toBeTruthy();
+ for(const value of ['<img src=x onerror=alert(1)> forest','blur','Krea2/model.safetensors','896 × 1152','940563189','13.31 sec','0.1.14','qwen3vl_4b.safetensors','qwen_vae.safetensors','style.safetensors (0.7)'])expect(screen.getByText(value)).toBeTruthy();
  expect(container.querySelector('img')).toBeNull();
  rerender(<I18nProvider><GenerationMetadata job={{...job,id:'b',metadata:null,intent:{...(job.intent as DiagnosticImageIntentV1),positivePrompt:'second',checkpoint:'second.safetensors'}}}/></I18nProvider>);
- expect(screen.queryByText('13.31 s')).toBeNull();expect(screen.queryByText('Krea2/model.safetensors')).toBeNull();expect(screen.getByText('second')).toBeTruthy();
+ expect(screen.queryByText('13.31 sec')).toBeNull();expect(screen.queryByText('Krea2/model.safetensors')).toBeNull();expect(screen.getByText('second')).toBeTruthy();
  rerender(<I18nProvider><GenerationMetadata job={null}/></I18nProvider>);
  expect(screen.queryByText('second')).toBeNull();expect(screen.getByText('Select an image or generated job to see its metadata.')).toBeTruthy();
+});
+
+test.each(['de','en','fr','ja','tr','zh'])('formats actual image/video duration using selected locale %s',locale=>{
+ localStorage.setItem('deas.locale.v1',locale);
+ const video:JobStatus['intent']={recipeId:'video-generation',version:1,family:'wan',positivePrompt:'video prompt',negativePrompt:'blur',model:'video.safetensors',textEncoder:'encoder',vae:'vae',seed:42,width:832,height:480,frames:81,frameRate:16,steps:12,cfg:3,sampler:'euler',scheduler:'simple',outputPrefix:'DEAS',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'Auto',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},wan:{lowModel:'low',shiftHigh:5,shiftLow:5,refinerStep:6}};
+ const {container,rerender}=render(<I18nProvider><GenerationMetadata job={job}/></I18nProvider>);
+ const expected=new Intl.NumberFormat(locale,{style:'unit',unit:'second',unitDisplay:'short',maximumFractionDigits:2}).format(13.31);
+ expect(container.textContent).toContain(expected);
+ rerender(<I18nProvider><GenerationMetadata job={{...job,intent:video}}/></I18nProvider>);
+ expect(container.textContent).toContain(expected);
+ expect(screen.getByText('video.safetensors')).toBeTruthy();expect(screen.getByText('42')).toBeTruthy();expect(screen.getByText('12')).toBeTruthy();
+ expect(container.textContent).toContain(new Date(job.metadata!.startedAt).toLocaleString(locale));
+});
+
+test.each([
+ ['unknown',null,'succeeded'],['zero',0,'succeeded'],['failed',13310,'failed'],['running',13310,'running'],['invalid',-1,'succeeded'],['nonfinite',Infinity,'succeeded'],
+] as const)('does not invent metadata duration: %s',(_name,generationMs,state)=>{
+ localStorage.setItem('deas.locale.v1','en');
+ const {container}=render(<I18nProvider><GenerationMetadata job={{...job,state,metadata:{startedAt:1700000000000,generationMs}}}/></I18nProvider>);
+ const time=Array.from(container.querySelectorAll('dt')).find(el=>el.textContent==='Generation time');
+ if(generationMs===0)expect(time?.nextElementSibling?.textContent).toBe('0 sec');else expect(time).toBeUndefined();
 });
 
 test('an explicit apply button hands reusable settings back and reports what was skipped; absent for metadata without generation data',async()=>{

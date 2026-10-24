@@ -13,7 +13,9 @@ const REQUIRED_NODES: [&str; 6] = [
 ];
 /// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
 /// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 20] = [
+const OPTIONAL_NODES: [&str; 22] = [
+    "EmptyFlux2LatentImage",
+    "LoraLoader",
     crate::wildcard::NODE,
     "ImageScale",
     "ImagePadForOutpaint",
@@ -146,7 +148,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
             "images":combo(nodes, "LoadImage", "image")?,
@@ -248,6 +250,7 @@ mod tests {
                 json!(REQUIRED_NODES
                     .iter()
                     .filter(|n| !absent.contains(n))
+                    .chain([&"LoraLoader"])
                     .collect::<Vec<_>>())
             );
             if absent.contains(&"CheckpointLoaderSimple") {
@@ -564,7 +567,7 @@ mod tests {
             json!({
                 "baseUrl": format!("{base}/"), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
                 "allowlist":{
-                    "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage"],
+                    "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
                     "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[]
                 }, "missingNodes":[], "generationReady":false

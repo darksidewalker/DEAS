@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { RecipeAllowlist, RunOptions } from '../../lib/execution';
 import { defaultOutputNaming, outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
-import builtinFamilies from '../../families/builtin.json';
+import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 import { audioBitrates, audioCodecs, bitDepths, defaultVideoOutput, isVideoOutput, videoCodecs, videoContainers, type VideoOutput } from '../../lib/videoIntent';
 
 /** Remembered Options tab state; only what the backend lists is ever submitted. `attention` is `a:<ModelAttentionBackend>`, `s:<Sage mode>` or '' (launch default). `sigmas` is the custom schedule text ('' = the model's own, if any). */

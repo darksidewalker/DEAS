@@ -5,6 +5,11 @@ import { bundledCatalog, I18nProvider } from '../../i18n/I18nProvider';
 import { ForgeButton, type H3Context } from './ForgeButton';
 import { PromptForge } from './PromptForge';
 import * as references from './ReferenceImages';
+import { dialectOf } from '../../lib/forge';
+
+it('routes the MOSS generation family to the existing MOSS prompt writer', () => {
+  expect(dialectOf('moss-image')).toBe('MOSS');
+});
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
 const models = { models: [{ id: 'ollama:qwen', label: 'qwen' }], errors: {}, creativity: ['literal', 'precise', 'faithful', 'measured', 'balanced', 'loose', 'inventive', 'creative', 'daring', 'wild'], shot_counts: ['Auto', 1, 2], default_shots: 'Auto', durations: [5, 8] };

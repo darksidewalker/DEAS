@@ -9,6 +9,9 @@ use std::{
 mod job_outputs;
 pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
+#[path = "jobs_workbench.rs"]
+mod workbench;
+pub use workbench::{native_workbench_current, native_workbench_run};
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
 /// MiniMax H3 image edit (the Director's "Image Inpaint" mode, built from the native node it calls).
@@ -21,20 +24,12 @@ pub(crate) const H3_EDIT_NODES: [&str; 7] = [
     "LTXVSeparateAVLatent",
     "ImageFromBatch",
 ];
-const REQUIRED_NODES: [&str; 6] = [
-    "CheckpointLoaderSimple",
-    "CLIPTextEncode",
-    "EmptyLatentImage",
-    "KSampler",
-    "VAEDecode",
-    "SaveImage",
-];
-
 #[derive(Default)]
 pub struct Jobs(Mutex<Session>, tokio::sync::Mutex<()>);
 
 #[derive(Default)]
 struct Session {
+    workbench: Vec<Arc<Jobs>>,
     preparing: Option<String>,
     plan: Option<Plan>,
     job: Option<Job>,
@@ -286,6 +281,35 @@ fn compile(i: &Value) -> Result<Value, String> {
     }) {
         return Err("Invalid diffusion: expected {textEncoder, clipType, vae}".into());
     }
+    if diffusion.is_some_and(|d| d["clipType"] == "moss_image") {
+        let multiple =
+            crate::model_families::image_multiple("moss_image").expect("MOSS canvas grid");
+        if ["width", "height"]
+            .iter()
+            .any(|k| i[*k].as_u64().is_none_or(|n| n % multiple != 0))
+        {
+            return Err(format!(
+                "MOSS-Image dimensions must be multiples of {multiple}"
+            ));
+        }
+        if [
+            "inputMask",
+            "inputLayers",
+            "refine",
+            "sigmas",
+            "upscaleModel",
+        ]
+        .iter()
+        .any(|k| object.contains_key(*k))
+            || loras.is_some_and(|l| !l.is_empty())
+            || object
+                .get("options")
+                .is_some_and(|o| o.as_object().is_none_or(|o| !o.is_empty()))
+            || resize.is_some_and(|r| r.get("pad").is_some())
+        {
+            return Err("MOSS-Image supports only plain text-to-image or VAE image-to-image; LoRAs, masks, layers, refine, custom sigmas, padding and model options are unverified".into());
+        }
+    }
     // `h3Edit` (MiniMax H3 sigma shifts) marks the H3 image edit; it belongs exactly to the `minimax` text encoder.
     let h3 = object.get("h3Edit");
     let h3_family = diffusion.is_some_and(|d| d["clipType"] == "minimax");
@@ -474,7 +498,7 @@ fn compile(i: &Value) -> Result<Value, String> {
         "1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":i["checkpoint"]}},
         "2":{"class_type":"CLIPTextEncode","inputs":{"text":i["positivePrompt"],"clip":["1",1]}},
         "3":{"class_type":"CLIPTextEncode","inputs":{"text":i["negativePrompt"],"clip":["1",1]}},
-        "4":{"class_type":"EmptyLatentImage","inputs":{"width":i["width"],"height":i["height"],"batch_size":1}},
+        "4":{"class_type":if diffusion.is_some_and(|d| d["clipType"] == "moss_image") { "EmptyFlux2LatentImage" } else { "EmptyLatentImage" },"inputs":{"width":i["width"],"height":i["height"],"batch_size":1}},
         "5":{"class_type":"KSampler","inputs":{"model":["1",0],"positive":["2",0],"negative":["3",0],"latent_image":["4",0],"seed":i["seed"],"steps":i["steps"],"cfg":i["cfg"],"sampler_name":i["sampler"],"scheduler":i["scheduler"],"denoise":1}},
         "6":{"class_type":"VAEDecode","inputs":{"samples":["5",0],"vae":["1",2]}},
         "7":{"class_type":"SaveImage","inputs":{"images":["6",0],"filename_prefix":i["outputPrefix"]}}
@@ -944,181 +968,149 @@ impl Jobs {
         let id = uuid::Uuid::new_v4().to_string();
         {
             let mut session = self.lock()?;
+            if session.workbench_busy()? {
+                return Err("Workbench jobs are in flight or unknown".into());
+            }
             if session.job.as_ref().is_some_and(|j| !j.terminal()) {
                 return Err("An in-flight or unknown native job must not be replaced".into());
             }
             session.plan = None;
             session.preparing = Some(id.clone());
         }
-        let prerequisites =
-            crate::recipe_prerequisites::native_recipe_prerequisites(base.to_string()).await?;
-        let allow = &prerequisites["allowlist"];
-        let diffusion = &intent["diffusion"];
-        let split = diffusion.is_object();
-        let video = crate::jobs_video::is_video(&intent);
-        // Video recipes name their models/encoders/VAEs/images per family; image recipes below.
-        let mut required: Vec<(&str, Vec<&str>)> = if video {
-            crate::jobs_video::requirements(&intent)
-        } else {
-            vec![
+        let result = async {
+            let prerequisites =
+                crate::recipe_prerequisites::native_recipe_prerequisites(base.to_string()).await?;
+            let allow = &prerequisites["allowlist"];
+            let diffusion = &intent["diffusion"];
+            let split = diffusion.is_object();
+            let video = crate::jobs_video::is_video(&intent);
+            if !video {
+                civitai_saver(&mut graph, &allow["nodes"], &intent);
+            }
+            // Video recipes name their models/encoders/VAEs/images per family; image recipes below.
+            let mut required: Vec<(&str, Vec<&str>)> = if video {
+                crate::jobs_video::requirements(&intent)
+            } else {
+                vec![
+                    (
+                        if split {
+                            "diffusionModels"
+                        } else {
+                            "checkpoints"
+                        },
+                        vec![intent["checkpoint"].as_str().unwrap()],
+                    ),
+                    (
+                        "textEncoders",
+                        diffusion["textEncoder"].as_str().into_iter().collect(),
+                    ),
+                    (
+                        "clipTypes",
+                        diffusion["clipType"].as_str().into_iter().collect(),
+                    ),
+                    ("vaes", diffusion["vae"].as_str().into_iter().collect()),
+                    (
+                        "images",
+                        // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
+                        intent["inputImage"]
+                            .as_str()
+                            .into_iter()
+                            .chain(
+                                intent["inputLayers"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|l| l["image"].as_str()),
+                            )
+                            .filter(|s| !s.ends_with(" [output]") && !mask_name(s))
+                            .collect(),
+                    ),
+                ]
+            };
+            required.extend([
                 (
-                    if split {
-                        "diffusionModels"
-                    } else {
-                        "checkpoints"
-                    },
-                    vec![intent["checkpoint"].as_str().unwrap()],
-                ),
-                (
-                    "textEncoders",
-                    diffusion["textEncoder"].as_str().into_iter().collect(),
-                ),
-                (
-                    "clipTypes",
-                    diffusion["clipType"].as_str().into_iter().collect(),
-                ),
-                ("vaes", diffusion["vae"].as_str().into_iter().collect()),
-                (
-                    "images",
-                    // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-                    intent["inputImage"]
-                        .as_str()
-                        .into_iter()
-                        .chain(
-                            intent["inputLayers"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(|l| l["image"].as_str()),
-                        )
-                        .filter(|s| !s.ends_with(" [output]") && !mask_name(s))
+                    "nodes",
+                    graph
+                        .as_object()
+                        .unwrap()
+                        .values()
+                        .filter_map(|n| n["class_type"].as_str())
                         .collect(),
                 ),
-            ]
-        };
-        required.extend([
-            (
-                "nodes",
-                REQUIRED_NODES
-                    .iter()
-                    .copied()
-                    .filter(|_| !video)
-                    .chain(
-                        graph
-                            .as_object()
-                            .unwrap()
-                            .values()
-                            .filter_map(|n| n["class_type"].as_str())
-                            .filter(|name| {
-                                video
-                                    || [
-                                        "ImageScale",
-                                        "ImageCrop",
-                                        "CropMask",
-                                        "MaskToImage",
-                                        "ImageToMask",
-                                        "ImageBlur",
-                                        "ImagePadForOutpaint",
-                                        "LoadImageMask",
-                                        "SetLatentNoiseMask",
-                                        "ImageCompositeMasked",
-                                        "VAEEncode",
-                                        "UpscaleModelLoader",
-                                        "ImageUpscaleWithModel",
-                                    ]
-                                    .contains(name)
-                                    || crate::recipe_prerequisites::SIGMA_NODES.contains(name)
-                                    || H3_EDIT_NODES.contains(name)
-                                    || crate::recipe_prerequisites::OPTION_NODES.contains(name)
-                                    || *name == crate::wildcard::NODE
-                            }),
-                    )
-                    .collect(),
-            ),
-            (
-                "nodes",
-                if split || video {
-                    vec!["UNETLoader", "CLIPLoader", "VAELoader"]
-                } else {
-                    vec![]
-                },
-            ),
-            (
-                "nodes",
-                if intent["inputImage"].is_string() {
-                    vec!["LoadImage", "VAEEncode"]
-                } else {
-                    vec![]
-                },
-            ),
-            (
-                "loras",
-                intent["loras"]
+                (
+                    "loras",
+                    intent["loras"]
+                        .as_array()
+                        .map(|l| l.iter().filter_map(|x| x["name"].as_str()).collect())
+                        .unwrap_or_default(),
+                ),
+                ("samplers", vec![intent["sampler"].as_str().unwrap()]),
+                (
+                    "attention",
+                    intent["options"]["attention"]
+                        .as_str()
+                        .into_iter()
+                        .collect(),
+                ),
+                (
+                    "sage",
+                    intent["options"]["sage"].as_str().into_iter().collect(),
+                ),
+                (
+                    "compile",
+                    intent["options"]["compile"].as_str().into_iter().collect(),
+                ),
+                ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
+                (
+                    "upscaleModels",
+                    [&intent["upscaleModel"], &intent["refine"]["upscaleModel"]]
+                        .into_iter()
+                        .filter_map(Value::as_str)
+                        .collect(),
+                ),
+            ]);
+            for (field, required) in required {
+                let available = allow[field]
                     .as_array()
-                    .map(|l| l.iter().filter_map(|x| x["name"].as_str()).collect())
-                    .unwrap_or_default(),
-            ),
-            ("samplers", vec![intent["sampler"].as_str().unwrap()]),
-            (
-                "attention",
-                intent["options"]["attention"]
-                    .as_str()
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                "sage",
-                intent["options"]["sage"].as_str().into_iter().collect(),
-            ),
-            (
-                "compile",
-                intent["options"]["compile"].as_str().into_iter().collect(),
-            ),
-            ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
-            (
-                "upscaleModels",
-                [&intent["upscaleModel"], &intent["refine"]["upscaleModel"]]
-                    .into_iter()
-                    .filter_map(Value::as_str)
-                    .collect(),
-            ),
-        ]);
-        for (field, required) in required {
-            let available = allow[field]
-                .as_array()
-                .ok_or("Malformed native prerequisites")?;
-            if let Some(missing) = required
-                .iter()
-                // LoadImage lists only top-level files; the backend loader/Director validates DEAS-uploaded references.
-                .find(|name| {
-                    !(field == "images" && name.starts_with("deas-inputs/"))
-                        && !available.iter().any(|v| v.as_str() == Some(**name))
-                })
-            {
-                return Err(format!(
-                    "Diagnostic {field} are not available on this backend: {missing}"
-                ));
+                    .ok_or("Malformed native prerequisites")?;
+                if let Some(missing) = required
+                    .iter()
+                    // LoadImage lists only top-level files; the backend loader/Director validates DEAS-uploaded references.
+                    .find(|name| {
+                        !(field == "images" && name.starts_with("deas-inputs/"))
+                            && !available.iter().any(|v| v.as_str() == Some(**name))
+                    })
+                {
+                    return Err(format!(
+                        "Diagnostic {field} are not available on this backend: {missing}"
+                    ));
+                }
+            }
+            let plan = Plan {
+                id: id.clone(),
+                base,
+                intent,
+                graph,
+                consumed: false,
+                media_root: None,
+            };
+            let mut session = self.lock()?;
+            if session.preparing.as_deref() != Some(id.as_str()) {
+                return Err("Diagnostic preparation was superseded".into());
+            }
+            session.preparing = None;
+            let snapshot = plan.snapshot();
+            session.plan = Some(plan);
+            Ok(snapshot)
+        }
+        .await;
+        if result.is_err() {
+            let mut session = self.lock()?;
+            if session.preparing.as_deref() == Some(id.as_str()) {
+                session.preparing = None;
             }
         }
-        if !video {
-            civitai_saver(&mut graph, &allow["nodes"], &intent);
-        }
-        let plan = Plan {
-            id: id.clone(),
-            base,
-            intent,
-            graph,
-            consumed: false,
-            media_root: None,
-        };
-        let mut session = self.lock()?;
-        if session.preparing.as_deref() != Some(id.as_str()) {
-            return Err("Diagnostic preparation was superseded".into());
-        }
-        session.preparing = None;
-        let snapshot = plan.snapshot();
-        session.plan = Some(plan);
-        Ok(snapshot)
+        result
     }
 
     async fn submit(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
@@ -1129,6 +1121,9 @@ impl Jobs {
         // Consume before the first await: a lost response must never authorize a retry.
         let mut job = {
             let mut session = self.lock()?;
+            if session.workbench_busy()? {
+                return Err("Workbench jobs are in flight or unknown".into());
+            }
             if session.job.as_ref().is_some_and(|j| !j.terminal()) {
                 return Err("A native job is already in flight or unknown".into());
             }
@@ -1584,7 +1579,7 @@ pub async fn native_job_status(
     state: tauri::State<'_, Jobs>,
     job_id: String,
 ) -> Result<Value, String> {
-    state.status(job_id).await
+    state.status_for(job_id).await
 }
 
 /// Read the last native session job without contacting or adopting a backend.

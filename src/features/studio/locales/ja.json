@@ -1,4 +1,6 @@
 {
+  "studio.run.moss.plain": "MOSS-Image は通常の生成のみ対応しています。{name} を明示的に無効にしてください。保存済みの設定は保持されます。",
+  "studio.run.moss.resize": "MOSS-Image の入力辺は {multiple} の倍数が必要です。ターゲット、フィット、クロップで明示的にサイズ変更してください。オフと変更なしの自動では元画像が切り取られます。",
   "studio.components.title": "モデルファイル",
   "studio.components.filtered": "適合候補",
   "studio.components.all": "すべてのファイル",

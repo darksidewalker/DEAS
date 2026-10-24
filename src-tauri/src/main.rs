@@ -70,6 +70,8 @@ fn main() {
             deas::inspect_backend,
             deas::native_negotiate_api,
             deas::native_recipe_prerequisites,
+            deas::native_workbench_current,
+            deas::native_workbench_run,
             deas::native_job_current,
             deas::native_job_output,
             deas::native_job_export,

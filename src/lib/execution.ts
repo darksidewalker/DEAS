@@ -1,3 +1,4 @@
+import families from '../families/builtin.json' with { type: 'json' };
 import { safeOutputPrefix } from './outputNaming.ts';
 import { isWildcardRules, wildcardNode, type WildcardRules } from './wildcard.ts';
 /** DEAS-owned diagnostic intent, not a Director/video recipe or widget schema. */
@@ -93,7 +94,7 @@ export interface CompiledRecipe {
   readonly version: 1;
   readonly graph: Readonly<Record<string, ApiNode>>;
   readonly requiredNodes: readonly string[];
-  readonly requiredModels: readonly { readonly kind: 'checkpoint'; readonly identifier: string }[];
+  readonly requiredModels: readonly { readonly kind: 'checkpoint' | 'diffusionModel' | 'textEncoder' | 'vae'; readonly identifier: string }[];
   readonly generationReady: false;
 }
 
@@ -110,7 +111,6 @@ export class RecipeCompileError extends Error {
     this.remedy = remedy;
   }
 }
-const requiredNodes = Object.freeze(['CheckpointLoaderSimple', 'CLIPTextEncode', 'EmptyLatentImage', 'KSampler', 'VAEDecode', 'SaveImage']);
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -199,6 +199,16 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (d !== undefined && !(isRecord(d) && Object.keys(d).length === 3 && safeModel(d.textEncoder) && safeModel(d.vae) && safeChoice(d.clipType))) {
     invalid('diffusion', 'Invalid diffusion loader.', 'Supply {textEncoder, clipType, vae} from the verified backend lists.');
   }
+  if (isRecord(d) && d.clipType === 'moss_image') {
+    const multiple = families.find(f => f.id === 'moss-image')!.multiple!;
+    if ((input.width as number) % multiple !== 0 || (input.height as number) % multiple !== 0) invalid('dimensions', `MOSS-Image dimensions must be multiples of ${multiple}.`, 'Use the MOSS-Image canvas grid.');
+    if (['inputMask', 'inputLayers', 'refine', 'sigmas', 'upscaleModel'].some(k => Object.hasOwn(input, k))
+      || (Array.isArray(input.loras) && input.loras.length > 0)
+      || (isRecord(input.options) && Object.keys(input.options).length > 0)
+      || (isRecord(input.inputResize) && Object.hasOwn(input.inputResize, 'pad'))) {
+      invalid('diffusion', 'MOSS-Image supports only plain text-to-image or VAE image-to-image.', 'Disable unverified LoRAs, masks, layers, refine, custom sigmas, padding and model options.');
+    }
+  }
   // Same grammar as native `safe_option`: option enums may carry spaces and `+` (`pytorch attention`, `…fp8_cuda++`).
   const safeOption = (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9 _.+-]{1,64}$/u.test(v) && v.trim() === v;
   const o = input.options;
@@ -246,26 +256,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   const allowlist = verified as unknown as RecipeAllowlist;
   if (intent.wildcard&&!allowlist.nodes.includes(wildcardNode)) throw new RecipeCompileError('MISSING_CAPABILITY',wildcardNode,'Wildcard plugin is unavailable.','Install the DaSiWa node pack or disable wildcards.');
-  const sigmaNodes = ['RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
-  for (const node of [...requiredNodes, ...(intent.inputImage !== undefined ? ['LoadImage', 'VAEEncode'] : []), ...(intent.inputResize ? ['ImageScale', ...(intent.inputResize.pad ? ['ImagePadForOutpaint'] : [])] : []), ...(intent.sigmas ? sigmaNodes : []), ...(intent.inputMask ? ['LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked'] : []), ...(intent.inputLayers ? ['ImageScale', 'ImageCompositeMasked'] : []), ...(intent.maskBlur ? ['MaskToImage','ImageBlur','ImageToMask'] : []), ...(intent.inpaintCrop ? ['ImageCrop','CropMask','ImageScale','MaskToImage','ImageToMask'] : []), ...(intent.refine ? ['ImageScale', 'VAEEncode'] : []), ...(intent.refine?.tiled ? ['DaSiWaTiledDiffusion'] : []), ...(intent.upscaleModel || intent.refine?.upscaleModel ? ['UpscaleModelLoader', 'ImageUpscaleWithModel'] : [])]) {
-    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
-  }
   const d = intent.diffusion;
-  for (const node of d ? ['UNETLoader', 'CLIPLoader', 'VAELoader'] : []) {
-    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
-  }
-  if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
-  if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
-  // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
-  for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
   const loras = intent.loras ?? [];
-  for (const lora of loras) {
-    if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');
-  }
-  for (const [field, available] of [['sampler', allowlist.samplers], ['scheduler', allowlist.schedulers]] as const) {
-    if (!available.includes(intent[field])) throw new RecipeCompileError('MISSING_CAPABILITY', field, 'Choice is not verified on this backend.', 'Select a choice available in the verified backend capability list.');
-  }
   const o = intent.options ?? {};
   const tiled = o.vaeTile !== undefined;
   const patches: (readonly [id: string, node: string, inputs: Record<string, string | number | boolean>])[] = [
@@ -302,13 +294,13 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   const tiles: Record<string, number> = tiled ? { tile_size: o.vaeTile!, overlap: 64, temporal_size: 64, temporal_overlap: 8 } : {};
   const result: CompiledRecipe = {
     recipeId: intent.recipeId, version: 1, generationReady: false,
-    requiredNodes,
-    requiredModels: [{ kind: 'checkpoint', identifier: intent.checkpoint }],
+    requiredNodes: [],
+    requiredModels: d ? [{ kind: 'diffusionModel', identifier: intent.checkpoint }, { kind: 'textEncoder', identifier: d.textEncoder }, { kind: 'vae', identifier: d.vae }] : [{ kind: 'checkpoint', identifier: intent.checkpoint }],
     graph: {
       '1': d ? { class_type: 'UNETLoader', inputs: { unet_name: intent.checkpoint, weight_dtype: 'default' } } : { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: intent.checkpoint } },
       '2': { class_type: 'CLIPTextEncode', inputs: { text: intent.positivePrompt, clip } },
       '3': { class_type: 'CLIPTextEncode', inputs: { text: intent.negativePrompt, clip } },
-      '4': { class_type: 'EmptyLatentImage', inputs: { width: intent.width, height: intent.height, batch_size: 1 } },
+      '4': { class_type: d?.clipType === 'moss_image' ? 'EmptyFlux2LatentImage' : 'EmptyLatentImage', inputs: { width: intent.width, height: intent.height, batch_size: 1 } },
       '5': { class_type: 'KSampler', inputs: { model, positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0], seed: intent.seed, steps: intent.steps, cfg: intent.cfg, sampler_name: intent.sampler, scheduler: intent.scheduler, denoise: 1 } },
       '6': { class_type: tiled ? 'VAEDecodeTiled' : 'VAEDecode', inputs: { samples: ['5', 0], vae, ...tiles } },
       '7': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: intent.outputPrefix } },
@@ -422,6 +414,22 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     graph['3']={...graph['3'],inputs:{...graph['3'].inputs,text:['WP',1]}};
     if (graph.M) graph.M={...graph.M,inputs:{...graph.M.inputs,text_positive:['WP',0],text_negative:['WP',1]}};
   }
+  const emitted = Object.freeze([...new Set(Object.values(result.graph).map(node => node.class_type))]);
+  for (const node of emitted) {
+    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
+  }
+  if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
+  if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
+  // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
+  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
+  for (const lora of loras) {
+    if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');
+  }
+  for (const [field, available] of [['sampler', allowlist.samplers], ['scheduler', allowlist.schedulers]] as const) {
+    if (!available.includes(intent[field])) throw new RecipeCompileError('MISSING_CAPABILITY', field, 'Choice is not verified on this backend.', 'Select a choice available in the verified backend capability list.');
+  }
+  (result as { requiredNodes: readonly string[] }).requiredNodes = emitted;
   for (const node of Object.values(result.graph)) {
     for (const value of Object.values(node.inputs)) if (Array.isArray(value)) Object.freeze(value);
     Object.freeze(node.inputs);

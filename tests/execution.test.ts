@@ -152,13 +152,14 @@ test('requires explicit verified capability and model allowlists, failing closed
 
 test('optional LoRAs chain after the checkpoint and must be verified', () => {
   const loras = [{ name: 'style/a.safetensors', strength: 0.8 }, { name: 'b.safetensors', strength: -1 }];
-  const graph = compileRecipe({ ...intent, loras }, { ...allowlist, loras: loras.map(l => l.name) }).graph;
+  const graph = compileRecipe({ ...intent, loras }, { ...allowlist, nodes: [...allowlist.nodes, 'LoraLoader'], loras: loras.map(l => l.name) }).graph;
   assert.deepEqual(graph.L1.inputs, { model: ['1', 0], clip: ['1', 1], lora_name: 'style/a.safetensors', strength_model: 0.8, strength_clip: 0.8 });
   assert.deepEqual(graph.L2.inputs.model, ['L1', 0]);
   assert.deepEqual(graph['5'].inputs.model, ['L2', 0]);
   assert.deepEqual(graph['2'].inputs.clip, ['L2', 1]);
   assert.deepEqual(compileRecipe({ ...intent, loras: [] }, allowlist).graph, compileRecipe(intent, allowlist).graph);
-  rejects({ ...intent, loras }, allowlist, 'MISSING_MODEL', 'loras');
+  rejects({ ...intent, loras }, { ...allowlist, nodes: [...allowlist.nodes, 'LoraLoader'] }, 'MISSING_MODEL', 'loras');
+  rejects({ ...intent, loras }, { ...allowlist, loras: loras.map(l => l.name) }, 'MISSING_CAPABILITY', 'LoraLoader');
   for (const bad of ['x', [{ name: '../a', strength: 1 }], [{ name: 'a', strength: 11 }], [{ name: 'a', strength: 1, extra: 1 }], Array(9).fill({ name: 'a', strength: 1 })]) {
     rejects({ ...intent, loras: bad }, allowlist, 'INVALID_INPUT', 'loras');
   }
@@ -244,7 +245,7 @@ test('inputResize builds scale/pad chains and requires only the used optional no
     assert.deepEqual(graph.S, { class_type: 'ImageScale', inputs: { image: ['8', 0], upscale_method: 'lanczos', ...resize } });
     assert.deepEqual(graph['9'].inputs.pixels, ['S', 0]);
     assert.equal(graph.P, undefined);
-    const split = compileRecipe({ ...image, inputResize: resize, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, loras: [{ name: 'lora', strength: 1 }] }, { ...lists, nodes: [...lists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'], diffusionModels: [intent.checkpoint], textEncoders: ['clip'], clipTypes: ['sdxl'], vaes: ['vae'], loras: ['lora'] }).graph;
+    const split = compileRecipe({ ...image, inputResize: resize, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, loras: [{ name: 'lora', strength: 1 }] }, { ...lists, nodes: [...lists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoraLoader'], diffusionModels: [intent.checkpoint], textEncoders: ['clip'], clipTypes: ['sdxl'], vaes: ['vae'], loras: ['lora'] }).graph;
     assert.deepEqual(split['9'].inputs.vae, ['V', 0]);
     assert.deepEqual(split['5'].inputs.model, ['L1', 0]);
     const pad = { left: 8, right: 16, top: 24, bottom: 32 };
@@ -282,7 +283,7 @@ test('4K dimensions and pixel boundary are supported without allowing oversized 
 
 test('diffusion loads the model through UNETLoader with its own text encoder and VAE, all verified', () => {
   const split = { ...intent, checkpoint: 'krea/k2.safetensors', diffusion: { textEncoder: 'qwen3vl_4b.safetensors', clipType: 'krea2', vae: 'q/qwen_image_vae.safetensors' }, loras: [{ name: 'k.safetensors', strength: 0.5 }] };
-  const lists = { ...allowlist, nodes: [...allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'], loras: ['k.safetensors'], diffusionModels: ['krea/k2.safetensors'], textEncoders: ['qwen3vl_4b.safetensors'], clipTypes: ['krea2'], vaes: ['q/qwen_image_vae.safetensors'] };
+  const lists = { ...allowlist, nodes: [...allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoraLoader'], loras: ['k.safetensors'], diffusionModels: ['krea/k2.safetensors'], textEncoders: ['qwen3vl_4b.safetensors'], clipTypes: ['krea2'], vaes: ['q/qwen_image_vae.safetensors'] };
   const g = compileRecipe(split, lists).graph;
   assert.deepEqual(g['1'], { class_type: 'UNETLoader', inputs: { unet_name: 'krea/k2.safetensors', weight_dtype: 'default' } });
   assert.deepEqual(g.C.inputs, { clip_name: 'qwen3vl_4b.safetensors', type: 'krea2' });

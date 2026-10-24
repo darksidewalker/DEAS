@@ -1,4 +1,6 @@
 {
+  "studio.run.moss.plain": "MOSS-Image unterstützt nur einfache Generierung; {name} ausdrücklich deaktivieren. Gespeicherte Einstellungen bleiben erhalten.",
+  "studio.run.moss.resize": "MOSS-Image benötigt durch {multiple} teilbare Bildkanten. Ziel, Einpassen oder Zuschneiden zum ausdrücklichen Skalieren wählen; Aus und unverändertes Auto würden das Quellbild beschneiden.",
   "studio.components.title": "Modelldateien",
   "studio.components.filtered": "Passend",
   "studio.components.all": "Alle Dateien",

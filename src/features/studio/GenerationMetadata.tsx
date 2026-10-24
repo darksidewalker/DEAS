@@ -6,6 +6,7 @@ import { generationSettings, imageMetadataRows, readImageMetadata, type Generati
 import { embeddedWorkflow, OpenComfyWorkflow, type ComfyWorkflow } from '../../lib/comfyWorkflow';
 import type { JobStatus } from '../../lib/jobs';
 import { useI18n } from '../../i18n/I18nProvider';
+import { generationDuration } from './generationDuration';
 
 /** The explicit apply button plus what could not be carried over (unknown sampler, model not in the folder). */
 function Apply({settings,onApply}:{settings:GenerationSettings;onApply:(s:GenerationSettings)=>string[]}) {
@@ -38,10 +39,12 @@ function FileMetadata({media,onApply}:{media:MediaItem;onApply?:(s:GenerationSet
 
 /** Read the selected job's native snapshot or the selected image; controls change only through the explicit apply button. */
 export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;media?:MediaItem|null;onApply?:(s:GenerationSettings)=>string[]}) {
- const {t}=useI18n();
+ const {t,locale}=useI18n();
+ const duration=generationDuration(job,locale);
  // Image intents list every field; video intents share the sampling rows plus frames/fps and the family block.
  const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&!isVideoIntent(intent)?intent:undefined;
  const row=(key:string,value:ReactNode)=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>;
+ const timing=<>{job?.metadata&&Number.isFinite(new Date(job.metadata.startedAt).getTime())&&row('studio.run.metadata.date',new Date(job.metadata.startedAt).toLocaleString(locale))}{duration!==null&&row('studio.run.metadata.time',duration)}</>;
  return <section className="wb-metadata" aria-label={t('studio.run.metadata')}>
   <h3>{t('studio.run.metadata')}</h3>
   {v?<>{onApply&&<Apply key={job?.id} settings={{positive:v.positivePrompt,negative:v.negativePrompt,checkpoint:v.model,seed:v.seed,steps:v.steps,cfg:v.cfg,sampler:v.sampler,scheduler:v.scheduler,width:v.width,height:v.height,loras:v.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
@@ -49,7 +52,7 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
    {row('studio.run.seed',v.seed)}{row('studio.run.steps',v.steps)}{row('studio.run.cfg',v.cfg)}{row('studio.recipe.sampler',v.sampler)}{row('studio.recipe.scheduler',v.scheduler)}{row('studio.run.textEncoder',v.textEncoder)}{row('studio.run.vae',v.vae)}
    {!!v.loras?.length&&row('studio.run.loras',v.loras.map(l=>`${l.name} (${l.strength})`).join(', '))}{(v.firstFrame||v.lastFrame)&&row('studio.run.pipe.input',[v.firstFrame,v.lastFrame].filter(Boolean).join(' → '))}
    {row('studio.run.video.settings',JSON.stringify(v.family==='ltx-2'?v.ltx:v.family==='wan'?v.wan:{...v.h3,references:v.h3.references.map(r=>r.image)}))}
-   {job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
+   {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
   </dl></>:i?<>{onApply&&<Apply key={job?.id} settings={{positive:i.positivePrompt,negative:i.negativePrompt,checkpoint:i.checkpoint,seed:i.seed,steps:i.steps,cfg:i.cfg,sampler:i.sampler,scheduler:i.scheduler,width:i.width,height:i.height,...(i.wildcard?{wildcard:i.wildcard}:{}),loras:i.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
    {row('studio.run.positive',i.positivePrompt)}
    {i.negativePrompt&&row('studio.run.negative',i.negativePrompt)}
@@ -67,9 +70,7 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
    {i.maskBlur!=null&&row('studio.run.maskBlur',i.maskBlur)}
    {i.inpaintCrop&&row('studio.run.inpaintOnlyMasked',`${i.inpaintCrop.x}, ${i.inpaintCrop.y} · ${i.inpaintCrop.width} × ${i.inpaintCrop.height} → ${i.inpaintCrop.targetWidth} × ${i.inpaintCrop.targetHeight}`)}
    {i.options&&row('studio.run.dock.options',Object.entries(i.options).map(([k,v])=>typeof v==='object'?`${v.node} ${v.threshold}`:v===true?k:`${k}: ${v}`).join(' · '))}
-   {job?.metadata&&Number.isFinite(new Date(job?.metadata.startedAt).getTime())&&row('studio.run.metadata.date',new Date(job?.metadata.startedAt).toLocaleString())}
-   {job?.metadata?.generationMs!=null&&row('studio.run.metadata.time',`${(job?.metadata.generationMs/1000).toFixed(2)} s`)}
-   {job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
+   {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
   </dl></>:!job&&media&&media.media!=='audio'?<FileMetadata key={media.src} media={media} onApply={onApply}/>:<p className="media-help">{t('studio.run.metadata.empty')}</p>}
  </section>;
 }

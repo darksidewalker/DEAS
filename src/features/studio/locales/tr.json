@@ -1,4 +1,6 @@
 {
+  "studio.run.moss.plain": "MOSS-Image yalnızca sade üretimi destekler; {name} seçimini açıkça devre dışı bırakın. Hatırlanan ayarlar korunur.",
+  "studio.run.moss.resize": "MOSS-Image giriş kenarları {multiple} ile bölünebilmelidir. Açıkça boyutlandırmak için Hedef, Sığdır veya Kırp seçin; Kapalı ve değişmeyen Otomatik kaynak görüntüyü kırpar.",
   "studio.components.title": "Model dosyaları",
   "studio.components.filtered": "Uygun",
   "studio.components.all": "Tüm dosyalar",

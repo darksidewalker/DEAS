@@ -1,6 +1,6 @@
 {
   "productName": "DEAS",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "identifier": "com.dasiwa.deas",
   "build": {
     "frontendDist": "../dist",

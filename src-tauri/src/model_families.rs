@@ -14,6 +14,10 @@ const MAX_HEADER: u64 = 64 << 20;
 #[derive(Deserialize)]
 struct Family {
     id: String,
+    #[serde(default, rename = "clipType")]
+    clip_type: Option<String>,
+    #[serde(default)]
+    multiple: Option<u64>,
     architectures: Vec<String>,
     bases: Vec<String>,
     model: Vec<Vec<String>>,
@@ -30,6 +34,13 @@ fn families() -> &'static [Family] {
         serde_json::from_str(include_str!("../../src/families/builtin.json"))
             .expect("bundled family plugin is valid")
     })
+}
+
+pub(crate) fn image_multiple(clip_type: &str) -> Option<u64> {
+    families()
+        .iter()
+        .find(|f| f.clip_type.as_deref() == Some(clip_type))?
+        .multiple
 }
 
 fn read_header(path: &Path) -> Option<(serde_json::Map<String, Value>, u64)> {
@@ -146,6 +157,16 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
             })
     };
     if category == "vae" {
+        // Flux2 packs a 32-channel spatial VAE into 128-channel /16 latents (comfy/sd.py).
+        if shape("encoder.conv_in.weight", &[128, 3, 3, 3])
+            && shape("decoder.conv_in.weight", &[512, 32, 3, 3])
+            && shape("decoder.conv_out.weight", &[3, 128, 3, 3])
+            && shape("encoder.quant_conv.weight", &[64, 64, 1, 1])
+            && shape("bn.running_mean", &[128])
+            && shape("bn.running_var", &[128])
+        {
+            return Some("flux2-vae");
+        }
         // Wan 2.1 and original Qwen Image share this architecture; do not invent separate IDs.
         if shape("conv2.weight", &[16, 16, 1, 1, 1])
             && shape("encoder.conv1.weight", &[96, 3, 3, 3, 3])
@@ -187,6 +208,28 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
             }
         }
         return None;
+    }
+    // Qwen3.5-9B hybrid linear/full attention, as selected by MOSS_IMAGE in comfy/sd.py.
+    if shape("model.language_model.embed_tokens.weight", &[248320, 4096])
+        && shape(
+            "model.language_model.layers.0.input_layernorm.weight",
+            &[4096],
+        )
+        && shape("model.language_model.layers.0.linear_attn.A_log", &[32])
+        && shape(
+            "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+            &[8192, 4096],
+        )
+        && shape(
+            "model.language_model.layers.31.self_attn.q_proj.weight",
+            &[8192, 4096],
+        )
+        && shape(
+            "model.language_model.layers.31.mlp.up_proj.weight",
+            &[12288, 4096],
+        )
+    {
+        return Some("qwen3.5-9b");
     }
     // Both raw HF and ComfyUI's flattened Qwen3-VL text prefixes occur in local exports.
     for prefix in ["model.", "model.language_model."] {
@@ -394,6 +437,28 @@ mod tests {
         assert_eq!(detect("checkpoints", &huge, None), None);
     }
 
+    #[test]
+    fn moss_identity_requires_both_model_signature_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let keys = [
+            "shared_block_modulation.weight",
+            "layers.0.proj.ffn_up_gate.weight",
+        ];
+        let both = serde_json::json!({keys[0]:{}, keys[1]:{}});
+        let path = write(dir.path(), "renamed.safetensors", both.clone());
+        assert_eq!(
+            detect("diffusion_models", &path, None).as_deref(),
+            Some("moss-image")
+        );
+        assert_eq!(detect("loras", &path, None), None);
+        for key in keys {
+            let mut partial = both.clone();
+            partial.as_object_mut().unwrap().remove(key);
+            let path = write(dir.path(), "mossImage_sft_bf16.safetensors", partial);
+            assert_eq!(detect("diffusion_models", &path, None), None);
+        }
+    }
+
     type Signature<'a> = &'a [(&'a str, &'a [u64])];
 
     // Sparse payloads exercise real header/offset validation without allocating model weights.
@@ -412,6 +477,60 @@ mod tests {
         let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
         file.set_len(file.metadata().unwrap().len() + end).unwrap();
         path
+    }
+
+    #[test]
+    fn moss_companions_identify_unpacked_architectures_not_packed_weights() {
+        let dir = tempfile::tempdir().unwrap();
+        let qwen: Signature<'_> = &[
+            ("model.language_model.embed_tokens.weight", &[248320, 4096]),
+            (
+                "model.language_model.layers.0.input_layernorm.weight",
+                &[4096],
+            ),
+            ("model.language_model.layers.0.linear_attn.A_log", &[32]),
+            (
+                "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+                &[8192, 4096],
+            ),
+            (
+                "model.language_model.layers.31.self_attn.q_proj.weight",
+                &[8192, 4096],
+            ),
+            (
+                "model.language_model.layers.31.mlp.up_proj.weight",
+                &[12288, 4096],
+            ),
+        ];
+        let vae: Signature<'_> = &[
+            ("encoder.conv_in.weight", &[128, 3, 3, 3]),
+            ("decoder.conv_in.weight", &[512, 32, 3, 3]),
+            ("decoder.conv_out.weight", &[3, 128, 3, 3]),
+            ("encoder.quant_conv.weight", &[64, 64, 1, 1]),
+            ("bn.running_mean", &[128]),
+            ("bn.running_var", &[128]),
+        ];
+        for (category, id, signature) in [("clip", "qwen3.5-9b", qwen), ("vae", "flux2-vae", vae)] {
+            let path = component_file(dir.path(), "renamed.safetensors", signature);
+            assert_eq!(detect_component(category, &path), Some(id));
+            for n in 0..signature.len() {
+                let mut wrong = signature.to_vec();
+                wrong[n].1 = &[1];
+                let path = component_file(dir.path(), "mossImage_sft_txt_int4.safetensors", &wrong);
+                assert_eq!(
+                    detect_component(category, &path),
+                    None,
+                    "{}",
+                    signature[n].0
+                );
+            }
+        }
+        let mut packed = qwen.to_vec();
+        packed[3].1 = &[8192, 2048];
+        packed[4].1 = &[8192, 2048];
+        packed[5].1 = &[12288, 2048];
+        let path = component_file(dir.path(), "qwen3.5_9b.safetensors", &packed);
+        assert_eq!(detect_component("text_encoders", &path), None);
     }
 
     const QWEN_06: &[(&str, &[u64])] = &[

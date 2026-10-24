@@ -1,4 +1,6 @@
 {
+  "studio.run.moss.plain": "MOSS-Image supports plain generation only; disable {name} explicitly. Remembered settings are retained.",
+  "studio.run.moss.resize": "MOSS-Image requires input edges divisible by {multiple}. Choose Target, Fit or Crop to resize explicitly; Off and unchanged Auto would crop the source.",
   "studio.components.title": "Model files",
   "studio.components.filtered": "Matching",
   "studio.components.all": "All files",

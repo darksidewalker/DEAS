@@ -251,7 +251,8 @@ test('stars every queued result and repairs output locations without changing it
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(command,args)=>{
   if(command==='native_media_star_status')return {starred:(args as {path:string}).path.includes('/starred/'),unavailable:null};
-  if(command==='native_media_star')return {oldPath:'/out/one.png',path:'/out/starred/one.png'};
+  if(command==='native_media_star'){const path=(args as {path:string}).path;return {oldPath:path,path:path.replace('/out/','/out/starred/')};}
+  if(command==='native_media_unstar'){const path=(args as {path:string}).path;return {oldPath:path,path:path.replace('/starred/','/')};}
   return {path:'/out',parent:'/',entries:[],truncated:false};
  });
  let intent:JobStatus['intent'];
@@ -264,14 +265,63 @@ test('stars every queued result and repairs output locations without changing it
  const queue=screen.getByRole('region',{name:'Queue'});
  await within(queue).findByRole('button',{name:'Star one.png'});
  expect(within(queue).getByRole('button',{name:'Star two.png'})).toBeTruthy();
+ for(const name of ['one.png','two.png']){
+  const star=within(queue).getByRole('button',{name:`Star ${name}`});
+  const tile=star.closest('.wb-queue-output')!;
+  expect(tile).not.toBeNull();
+  const select=within(tile as HTMLElement).getByRole('button',{name:new RegExp(`Succeeded.*${name.replace('.', '\\.')}`)});
+  expect(select.contains(star)).toBe(false);expect(star.closest('button')).toBe(star);
+  expect(select.querySelector('img')?.getAttribute('src')).toContain(name);
+  select.focus();expect(document.activeElement).toBe(select);
+  fireEvent.click(select);expect(select.getAttribute('aria-current')).toBe('true');
+  star.focus();expect(document.activeElement).toBe(star);
+ }
+ expect(queue.querySelector('button button')).toBeNull();
  const snapshot=JSON.stringify(intent);
  const result=document.querySelector('.wb-shown')!;
  await waitFor(()=>expect(within(result as HTMLElement).getByRole('button',{name:'Star one.png'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(within(result as HTMLElement).getByRole('button',{name:'Star one.png'}));
  await waitFor(()=>expect(result.querySelector('img')?.getAttribute('src')).toContain('/out/starred/one.png'));
  expect(within(queue).getByRole('button',{name:'Unstar one.png'})).toBeTruthy();
+ const selectedBefore=Array.from(queue.querySelectorAll('.wb-queue-select')).map(button=>button.getAttribute('aria-current'));
+ await waitFor(()=>expect(within(queue).getByRole('button',{name:'Star two.png'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(within(queue).getByRole('button',{name:'Star two.png'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star',{path:'/out/two.png'}));
+ expect(within(queue).getByRole('button',{name:'Unstar two.png'}).closest('.wb-queue-output')?.querySelector('img')?.getAttribute('src')).toContain('/out/starred/two.png');
+ await waitFor(()=>expect(within(queue).getByRole('button',{name:'Unstar one.png'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(within(queue).getByRole('button',{name:'Unstar one.png'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_unstar',{path:'/out/starred/one.png'}));
+ expect(within(queue).getByRole('button',{name:'Star one.png'}).closest('.wb-queue-output')?.querySelector('img')?.getAttribute('src')).toContain('/out/one.png');
+ expect(Array.from(queue.querySelectorAll('.wb-queue-select')).map(button=>button.getAttribute('aria-current'))).toEqual(selectedBefore);
+ expect(document.querySelector('.wb-shown')).toBe(result);
  expect(outputs[0].subfolder).toBe('');expect(JSON.stringify(intent)).toBe(snapshot);
  expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+ ...['de','en','fr','ja','tr','zh'].map(locale=>({locale,generationMs:13310,state:'succeeded' as const,filename:'result.png'})),
+ {locale:'en',generationMs:0,state:'succeeded' as const,filename:'zero.png'},
+ {locale:'en',generationMs:null,state:'succeeded' as const,filename:'unknown.png'},
+ {locale:'en',generationMs:13310,state:'failed' as const,filename:'failed.png'},
+ {locale:'en',generationMs:13310,state:'succeeded' as const,filename:'clip.webm'},
+])('queue and selected details use actual timing: $locale / $filename',async({locale,generationMs,state,filename})=>{
+ localStorage.setItem('deas.locale.v1',locale);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/out',parent:'/',entries:[],truncated:false});
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'timing-plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'timing-job',baseUrl:evidence.baseUrl,promptId:'p',state,outputs:[{filename,subfolder:'',type:'output'}],error:null,generationReady:false,metadata:{startedAt:1700000000000,generationMs}});
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ await waitFor(()=>expect(document.querySelector('.wb-queue-select')).not.toBeNull());
+ const tile=document.querySelector<HTMLButtonElement>('.wb-queue-select')!;
+ const header=document.querySelector('.wb-job-line')!;
+ expect(tile.textContent).toContain(filename);expect(header.textContent).toContain('timing-j');
+ const expected=generationMs!==null&&state==='succeeded'?new Intl.NumberFormat(locale,{style:'unit',unit:'second',unitDisplay:'short',maximumFractionDigits:2}).format(generationMs/1000):null;
+ if(expected){expect(tile.textContent).toContain(expected);expect(header.textContent).toContain(expected);}
+ else {expect(tile.querySelector('[data-generation-duration]')).toBeNull();expect(header.querySelector('[data-generation-duration]')).toBeNull();}
+ fireEvent.click(tile);expect(tile.getAttribute('aria-current')).toBe('true');
+ expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
 });
 
 test('missing remembered model and LoRAs are explicit blockers, never silently substituted',async()=>{
@@ -1642,4 +1692,127 @@ test('prompt fields expand into a floating editor that edits the same text and c
  expect((document.querySelector('[data-run-negative]') as HTMLTextAreaElement).value).toBe('blurry');
  fireEvent.click(within(screen.getByRole('dialog',{name:'Negative prompt'})).getByRole('button',{name:'Close editor'}));
  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+const mossNodes=['UNETLoader','CLIPLoader','VAELoader','CLIPTextEncode','KSampler','VAEDecode','SaveImage','EmptyFlux2LatentImage','LoadImage','VAEEncode','ImageScale'];
+async function mountMoss(nodes=mossNodes,clipTypes=['moss_image']){
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},
+  {category:'diffusion_models',name:'moss.safetensors',family:'moss-image',path:'/m/moss',size:1,info:null},
+  {category:'text_encoders',name:'qwen3.5_9b.safetensors',component:'qwen3.5-9b',path:'/m/clip',size:1,info:null},
+  {category:'vae',name:'flux2-vae.safetensors',component:'flux2-vae',path:'/m/vae',size:1,info:null},
+  {category:'loras',name:'unknown.safetensors',path:'/m/lora',size:1,info:null},
+ ]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,missingNodes:['CheckpointLoaderSimple','EmptyLatentImage'],allowlist:{...evidence.allowlist,nodes,clipTypes}});
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'moss-job',promptId:'p',baseUrl:evidence.baseUrl,state:'succeeded',outputs:[],error:null,generationReady:false} as JobStatus);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input'}}/></I18nProvider>);
+ await screen.findByRole('option',{name:'moss.safetensors'});
+ fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:'moss.safetensors'}});
+}
+test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
+ await mountMoss(mossNodes.filter(n=>n!==missing),missing==='moss_image'?[]:['moss_image']);
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain(missing);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
+test.each([['SaveImage'],['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']])('MOSS uses the available saver %s without checkpoint diagnostic nodes',async(...saver)=>{
+ await mountMoss([...mossNodes.filter(n=>n!=='SaveImage'),...saver]);
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+});
+async function mossInput(width=520,height=768){
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ fireEvent.click(await screen.findByRole('button',{name:'source.png'}));adopt();
+ const image=screen.getByRole('img',{name:'source.png'});
+ Object.defineProperties(image,{naturalWidth:{value:width},naturalHeight:{value:height}});fireEvent.load(image);
+ choosePipe('Image → Image');
+}
+test.each(['off','auto'])('MOSS blocks an unaligned source in %s without hiding its declared size',async(mode)=>{
+ localStorage.setItem('deas.pref.studio.run.inputScaling',JSON.stringify(mode));
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss(mossNodes.filter(n=>n!=='EmptyFlux2LatentImage'));
+ await mossInput();
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(document.body.textContent).toContain('Choose Target, Fit or Crop');
+ expect(screen.getByTestId('editor-world').style.width).toBe('520px');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+});
+test.each(['fit','crop','target'])('MOSS explicit %s resizes an unaligned source and i2i does not need an empty latent',async(mode)=>{
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss(mossNodes.filter(n=>n!=='EmptyFlux2LatentImage'));await mossInput();
+ fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:mode}});
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).toMatchObject({inputImage:'source.png',inputResize:{crop:mode==='crop'?'center':'disabled'}});
+ expect(screen.getByTestId('editor-world').style.width).toBe('520px');
+});
+test.each([
+ ['attention',{attention:'a:test'},'Attention backend'],
+ ['cache',{cache:'EasyCache'},'Step cache'],
+ ['compile',{compile:'inductor'},'torch.compile'],
+ ['vae',{vae:'tiled'},'VAE processing'],
+ ['sigmas',{sigmas:'1, 0.5, 0'},'Custom sigmas'],
+] as const)('MOSS blocks remembered %s independently and preserves unrelated options on reset',async(_key,patch,label)=>{
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,...patch,outputNaming:'keep/%seed%'}));
+ await mountMoss();
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain('MOSS-Image supports plain generation only');
+ fireEvent.click(screen.getByRole('button',{name:`Restore ${label} defaults`}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.options')!).outputNaming).toBe('keep/%seed%');
+});
+test('MOSS blocks an unknown-family LoRA until it is explicitly removed',async()=>{
+ localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name:'unknown.safetensors',strength:0.5}]));
+ await mountMoss();
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Restore LoRAs defaults'}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+});
+test.each(['LoadImage','VAEEncode','ImageScale'])('MOSS i2i blocks its emitted %s capability',async(missing)=>{
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss(mossNodes.filter(n=>n!==missing));await mossInput(512);
+ if(missing==='ImageScale'){
+  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'fit'}});
+ }
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain(missing);
+});
+test.each(['inpaint','pad'])('MOSS retains unsupported %s until a visible reset',async(mode)=>{
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss();await mossInput(512);
+ if(mode==='inpaint')fireEvent.click(document.querySelector('[data-edit="inpaint"]')!);
+ else fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'pad'}});
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:`Restore ${mode==='inpaint'?'Inpaint':'Input scaling'} defaults`}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(document.querySelector('[data-run-post]')).toBeNull();
+});
+test('MOSS disables inserted layers explicitly without deleting the editor draft',async()=>{
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ vi.stubGlobal('Image',class{naturalWidth=200;naturalHeight=100;onload=()=>{};onerror=()=>{};set src(_:string){setTimeout(()=>this.onload());}});
+ await mountMoss();await mossInput(512);dropTile('source.png');
+ await screen.findByRole('group',{name:'Inserted image source.png'});
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Restore Layers defaults'}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(screen.queryByRole('group',{name:'Inserted image source.png'})).toBeNull();
+ expect(screen.getByTestId('editor-world').style.width).toBe('512px');
+});
+test('MOSS retains incompatible options and post on a family switch until explicit per-feature resets',async()=>{
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,cache:'EasyCache',outputNaming:'kept/%seed%'}));
+ localStorage.setItem('deas.pref.studio.run.post','true');
+ await mountMoss([...mossNodes,'EasyCache']);
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(localStorage.getItem('deas.pref.studio.run.post')).toBe('true');
+ fireEvent.click(screen.getByRole('tab',{name:/^Options/}));expect((screen.getByLabelText('Step cache') as HTMLSelectElement).value).toBe('EasyCache');
+ fireEvent.click(screen.getByRole('button',{name:'Restore Step cache defaults'}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Restore Post-Processing defaults'}));
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.options')!).outputNaming).toBe('kept/%seed%');
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('options');
+ expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('refine');
 });
