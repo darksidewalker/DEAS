@@ -1,6 +1,6 @@
 # DEAS consolidated implementation status and plan
 
-## Native Prompt Forge, Chat and colour schemes (0.1.43, Unreleased)
+## Native Prompt Forge, Chat and colour schemes (0.1.44, Unreleased)
 
 Integrated the image-model writer, reference builder, MOSS Layout Studio, streamed Chat and colour schemes from the contributor PR, with bounded streamed allocation, real HTTP cancellation, live-project context and stale-result protections. Native model discovery does not require ComfyUI; video/people helpers keep their node-pack requirements, and the local GGUF tool limitation remains explicit. Required and optional Forge data are embedded from pinned PromptForge-Public sources with read-only overrides and provenance. GPL-3.0-or-later was adopted with maintainer approval; optional-data redistribution permission was separately confirmed. [Verification](VERIFICATION.md#native-prompt-forge-and-chat-integration-0143) records full test/build/crosscheck evidence and remaining real-LLM, native-webview, Windows-runtime and performance limits. This is not a tagged release or model-quality acceptance.
 

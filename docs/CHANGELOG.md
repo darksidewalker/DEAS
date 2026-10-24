@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.1.43
+## Unreleased — 0.1.44
 
 - Bundle pinned PromptForge prompts, Randomizer, tag and character data in the portable executable, with local read-only overrides and no first-use download. Adopt GPL-3.0-or-later with upstream notices.
 - Bound streamed tool-call indices, make Chat requests cancellable, and retain current project/chat/reference state when asynchronous results arrive. Native model discovery no longer requires a running ComfyUI backend.

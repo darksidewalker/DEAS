@@ -1,6 +1,6 @@
 # News
 
-## Unreleased — 0.1.43
+## Unreleased — 0.1.44
 
 Native image Prompt Forge, Studio Chat and colour schemes are integrated. The required prompts, Randomizer and optional tag/character tables ship in the executable; native LLM model selection works without starting ComfyUI. DEAS is now licensed under GPL-3.0-or-later. This is a Git development update, not a tagged release. See [Prompting](PROMPTING.md), [Chat](CHAT.md) and [data provenance](../src-tauri/forge-data/README.md).
 
