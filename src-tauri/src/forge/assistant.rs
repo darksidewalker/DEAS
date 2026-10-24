@@ -31,7 +31,7 @@ const MAX_MESSAGE: usize = 32_000;
 const MAX_PICTURES: usize = 4;
 /// Tool rounds before the model has to answer.
 const MAX_ROUNDS: usize = 4;
-/// A guide is cut here: the 8B models on the Z440 run 32k contexts.
+/// A guide is cut here: small local models often run 32k contexts.
 const GUIDE_LIMIT: usize = 16_000;
 const IMAGE_MODELS: &[&str] = &["illustrious", "anima", "krea2", "moss"];
 
@@ -960,7 +960,7 @@ mod tests {
         assert!(data.pack.shared.chat.as_deref().unwrap_or("").len() > 1000);
     }
 
-    /// A real conversation on the Z440, printed in full:
+    /// A real conversation against a live server, printed in full:
     /// `DEAS_FORGE_DATA=<dir> DEAS_FORGE_LLM=<url> DEAS_FORGE_MODEL=<id> cargo test --lib -- --ignored live_chat --nocapture`
     #[tokio::test]
     #[ignore = "needs a live LLM server and the data pack"]

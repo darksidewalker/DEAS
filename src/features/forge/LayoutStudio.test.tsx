@@ -56,7 +56,7 @@ const writes = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'native_
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('deas.locale.v1', 'en'); localStorage.setItem('deas.pref.forge.target', JSON.stringify('MOSS'));
   vi.mocked(invoke).mockImplementation(async (command, args) => {
-    if (command === 'native_llm_read') return { provider: 'openai', baseUrl: 'http://127.0.0.1:8099' };
+    if (command === 'native_llm_read') return { provider: 'openai', baseUrl: 'http://127.0.0.1:8080' };
     if (command === 'native_forge') return { models: [{ id: 'openai:qwen', label: 'qwen' }], errors: {}, creativity: ['balanced'], shot_counts: ['Auto'], default_shots: 'Auto', durations: [5] };
     if (command === 'native_forge_targets') return nativeTargets;
     if (command === 'native_forge_layout_rewrite') return 'a tighter fire';

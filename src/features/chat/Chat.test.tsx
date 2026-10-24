@@ -24,7 +24,7 @@ beforeEach(() => {
   settings = { search: 'off', searxngUrl: '' };
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     const a = args as Record<string, any>;
-    if (command === 'native_llm_read') return { provider: 'openai', baseUrl: 'http://127.0.0.1:8099' };
+    if (command === 'native_llm_read') return { provider: 'openai', baseUrl: 'http://127.0.0.1:8080' };
     if (command === 'native_forge') return { models: [{ id: 'openai:qwen', label: 'qwen' }], errors: {}, creativity: [], shot_counts: ['Auto'], default_shots: 'Auto' };
     if (command === 'native_chat_list') return [{ id: ID, title: old.title, updated: 2, count: 2 }];
     if (command === 'native_chat_get') return old;
