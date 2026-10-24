@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add confirmed native-only interruption of one correlated running Workbench prompt through an owned, per-launch-authenticated route that holds the queue mutex across target validation and flag setting. Never call core's racy/global `/interrupt`; require launch-captured inspected sources, retain uncertain outcomes and prevent repeat mutations. Fix standalone status-waiter abortion leaving polling permanently busy. Whole-queue Stop and frontend cancellation controls remain deferred.
+- Add explicit native-only cancellation of one correlated pending Workbench prompt on the currently owned running backend. Verify queue/history after the targeted delete, retain uncertain outcomes and prevent repeat delete attempts. Add the terminal Cancelled state and six-language presentation; whole-queue Stop and frontend cancellation controls remain deferred.
+- Add the native-only Workbench all-job polling foundation for the existing bounded session collection. Refresh correlated submitted jobs without resubmitting, preserve unknown outcomes and keep no-network session snapshots separate. The Studio UI is not connected to this path yet; repeated Run and targeted Stop remain planned.
+- Block image Run before preparation when Wildcards is enabled but its node is missing, including MOSS. Keep the user's wildcard choices until they explicitly disable the feature; available plugins retain the existing intent.
+
 ## Unreleased — 0.1.45
 
 - Add a bounded MOSS-Image family adapter for Text → Image and ordinary denoise-based Image → Image, using the dedicated MOSS text encoder, Flux2 VAE/empty latent and model-aligned dimensions. Validate the nodes actually emitted by the selected image graph instead of unused baseline nodes. Model loading, packed encoder support and generation quality remain unverified; unsupported MOSS combinations fail closed.

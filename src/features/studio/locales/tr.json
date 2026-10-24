@@ -166,6 +166,7 @@
   "studio.jobs.running": "Çalışıyor",
   "studio.jobs.succeeded": "Başarılı",
   "studio.jobs.failed": "Başarısız",
+  "studio.jobs.cancelled": "İptal edildi",
   "studio.jobs.unknown": "Bilinmiyor — durumu yenileyin; yeniden göndermeyin.",
   "studio.jobs.identity": "İş {id} · özgün uç nokta: {url}",
   "studio.jobs.promptId": "İstem kimliği",

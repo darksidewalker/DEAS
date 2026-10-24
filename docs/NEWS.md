@@ -1,5 +1,11 @@
 # News
 
+## Unreleased
+
+The native-only cancellation foundation can remove one correlated queued prompt or request a scoped interruption of one running prompt on the current owned backend, with explicit confirmation and readback. Running interruption uses an authenticated DEAS queue-locked route and is confined to inspected backend sources; no Studio cancellation button or whole-queue Stop is enabled. Confirmed cancellation has a six-language terminal label. Repeated Run/Stop still awaits whole-queue lifecycle integration. See [running-interrupt verification](VERIFICATION.md#scoped-running-interruption-and-status-abort-recovery-unreleased) and [pending-cancel verification](VERIFICATION.md#native-pending-cancellation-foundation-unreleased).
+
+Image Run now reports a missing Wildcards plugin before preparation instead of failing after the click; enabled settings remain until explicitly disabled. The native all-job polling foundation is tested but is not connected to Studio yet, so repeated Run/Stop remains planned. See [verification](VERIFICATION.md#workbench-all-job-polling-foundation-and-wildcards-readiness-unreleased).
+
 ## Unreleased — 0.1.45
 
 MOSS-Image gains a bounded t2i/i2i generation adapter through the existing image pipeline. Queue thumbnails now place stars on their corresponding outputs and show measured generation duration. These are development changes, not a tagged release or MOSS inference acceptance. Repeated Run/Stop, generation-reference prompting and Prompt Forge aspect-ratio parity remain open. See [Studio](STUDIO.md) and [verification](VERIFICATION.md#moss-image-adapter-and-queue-presentation-0145).

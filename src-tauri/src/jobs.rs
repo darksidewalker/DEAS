@@ -9,9 +9,12 @@ use std::{
 mod job_outputs;
 pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
+#[path = "jobs_cancel.rs"]
+mod cancel;
 #[path = "jobs_workbench.rs"]
 mod workbench;
-pub use workbench::{native_workbench_current, native_workbench_run};
+pub use cancel::{native_workbench_cancel_pending, native_workbench_interrupt_running};
+pub use workbench::{native_workbench_current, native_workbench_poll, native_workbench_run};
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
 /// MiniMax H3 image edit (the Director's "Image Inpaint" mode, built from the native node it calls).
@@ -25,11 +28,17 @@ pub(crate) const H3_EDIT_NODES: [&str; 7] = [
     "ImageFromBatch",
 ];
 #[derive(Default)]
-pub struct Jobs(Mutex<Session>, tokio::sync::Mutex<()>);
+pub struct Jobs(
+    Mutex<Session>,
+    tokio::sync::Mutex<()>,
+    Arc<tokio::sync::Mutex<()>>,
+);
 
 #[derive(Default)]
 struct Session {
     workbench: Vec<Arc<Jobs>>,
+    cancel_attempted: bool,
+    interrupt_attempted: bool,
     preparing: Option<String>,
     plan: Option<Plan>,
     job: Option<Job>,
@@ -78,7 +87,7 @@ struct Live {
 
 impl Job {
     fn terminal(&self) -> bool {
-        matches!(self.state, "succeeded" | "failed")
+        matches!(self.state, "succeeded" | "failed" | "cancelled")
     }
     fn snapshot(&self) -> Value {
         let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false,"intent":self.plan.intent,"metadata":self.metadata,"appVersion":env!("CARGO_PKG_VERSION")});
@@ -946,14 +955,39 @@ fn safe_path(s: &str, empty: bool) -> bool {
         })
 }
 
+impl Session {
+    fn snapshot(&self) -> Value {
+        let mut value = self.job.as_ref().map(Job::snapshot).unwrap_or(Value::Null);
+        if self.cancel_attempted && !value.is_null() {
+            value["pendingCancellationAttempted"] = json!(true);
+        }
+        if self.interrupt_attempted && !value.is_null() {
+            value["interruptCancellationAttempted"] = json!(true);
+        }
+        value
+    }
+}
+
+struct StatusPolling<'a> {
+    jobs: &'a Jobs,
+    id: &'a str,
+    armed: bool,
+}
+impl Drop for StatusPolling<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            if let Ok(mut session) = self.jobs.lock() {
+                if let Some(job) = session.job.as_mut().filter(|job| job.id == self.id) {
+                    job.polling = false;
+                }
+            }
+        }
+    }
+}
+
 impl Jobs {
     fn current(&self) -> Result<Value, String> {
-        Ok(self
-            .lock()?
-            .job
-            .as_ref()
-            .map(Job::snapshot)
-            .unwrap_or(Value::Null))
+        Ok(self.lock()?.snapshot())
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Session>, String> {
@@ -1209,10 +1243,15 @@ impl Jobs {
                 .filter(|j| j.id == job_id)
                 .ok_or("Unknown native job")?;
             if job.terminal() || job.submitting || job.polling || job.prompt_id.is_none() {
-                return Ok(job.snapshot());
+                return Ok(session.snapshot());
             }
             job.polling = true;
             job.clone()
+        };
+        let mut polling = StatusPolling {
+            jobs: self,
+            id: &job_id,
+            armed: true,
         };
         let result = tokio::time::timeout(Duration::from_secs(15), poll(&mut job)).await;
         match result {
@@ -1228,9 +1267,10 @@ impl Jobs {
             .filter(|j| j.id == job_id)
             .ok_or("Native job changed during status request")?;
         *current = job;
-        let result = current.snapshot();
+        // Disarm under the same lock: Drop must never clear a subsequent operation's flag.
+        polling.armed = false;
         session.retain_completed();
-        Ok(result)
+        Ok(session.snapshot())
     }
 }
 
@@ -1469,6 +1509,14 @@ fn execution_metadata(messages: &[Value], prompt_id: &str) -> Option<Value> {
 }
 
 async fn poll(job: &mut Job) -> Result<(), String> {
+    if poll_present(job).await? {
+        Ok(())
+    } else {
+        Err("Correlated prompt absent from history and queue; execution unknown".into())
+    }
+}
+
+async fn poll_present(job: &mut Job) -> Result<bool, String> {
     let client = client()?;
     let prompt_id = job.prompt_id.as_deref().ok_or("No correlated prompt ID")?;
     let history = get(&client, &job.plan.base, &format!("history/{prompt_id}")).await?;
@@ -1488,6 +1536,22 @@ async fn poll(job: &mut Job) -> Result<(), String> {
         job.metadata = execution_metadata(messages, prompt_id);
         match status["status_str"].as_str() {
             Some("error") => {
+                let interrupted: Vec<_> = messages
+                    .iter()
+                    .filter(|m| m[0] == "execution_interrupted")
+                    .collect();
+                if !interrupted.is_empty() {
+                    if interrupted.len() != 1
+                        || interrupted[0][1]["prompt_id"].as_str() != Some(prompt_id)
+                        || messages.iter().any(|m| m[0] == "execution_error")
+                    {
+                        return Err("Uncorrelated or conflicting interruption history".into());
+                    }
+                    job.outputs = outputs(entry)?;
+                    job.state = "cancelled";
+                    job.error = None;
+                    return Ok(true);
+                }
                 job.state = "failed";
                 let diagnostic = messages
                     .iter()
@@ -1510,7 +1574,7 @@ async fn poll(job: &mut Job) -> Result<(), String> {
                         .to_owned(),
                 );
                 job.outputs.clear();
-                return Ok(());
+                return Ok(true);
             }
             Some("success") if completed => {
                 let images = outputs(entry)?;
@@ -1520,7 +1584,7 @@ async fn poll(job: &mut Job) -> Result<(), String> {
                 job.outputs = images;
                 job.state = "succeeded";
                 job.error = None;
-                return Ok(());
+                return Ok(true);
             }
             Some("success") => {}
             _ => return Err("Malformed history execution status".into()),
@@ -1540,11 +1604,11 @@ async fn poll(job: &mut Job) -> Result<(), String> {
             }
         }
     }
-    job.state =
-        found.ok_or("Correlated prompt absent from history and queue; execution unknown")?;
+    let Some(state) = found else { return Ok(false) };
+    job.state = state;
     job.error = None;
     job.outputs.clear();
-    Ok(())
+    Ok(true)
 }
 
 #[tauri::command]

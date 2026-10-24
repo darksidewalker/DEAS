@@ -166,6 +166,7 @@
   "studio.jobs.running": "运行中",
   "studio.jobs.succeeded": "成功",
   "studio.jobs.failed": "失败",
+  "studio.jobs.cancelled": "已取消",
   "studio.jobs.unknown": "未知 — 请刷新状态，不要重新提交。",
   "studio.jobs.identity": "任务 {id} · 原始端点：{url}",
   "studio.jobs.promptId": "提示词 ID",

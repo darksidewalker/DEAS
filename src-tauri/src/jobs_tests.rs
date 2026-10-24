@@ -1,4 +1,6 @@
 use super::*;
+#[path = "jobs_cancel_tests.rs"]
+mod cancel_tests;
 
 #[tokio::test]
 async fn watch_completion_sends_close_frame() {
@@ -627,6 +629,13 @@ async fn server<F>(mut respond: F) -> (String, tokio::task::JoinHandle<()>)
 where
     F: FnMut(String, Value) -> (u16, String) + Send + 'static,
 {
+    server_with_headers(move |path, body, _| respond(path, body)).await
+}
+
+async fn server_with_headers<F>(mut respond: F) -> (String, tokio::task::JoinHandle<()>)
+where
+    F: FnMut(String, Value, String) -> (u16, String) + Send + 'static,
+{
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/comfy", listener.local_addr().unwrap());
     let task = tokio::spawn(async move {
@@ -669,7 +678,11 @@ where
             let (code, body) = if path.starts_with("GET /comfy/ws?clientId=") {
                 (404, "{}".to_owned())
             } else {
-                respond(path, body)
+                respond(
+                    path,
+                    body,
+                    String::from_utf8_lossy(&bytes[..head_end]).into_owned(),
+                )
             };
             if code == 0 {
                 continue;
@@ -680,6 +693,265 @@ where
         }
     });
     (base, task)
+}
+
+#[tokio::test]
+async fn workbench_poll_isolates_errors_preserves_intents_and_never_resubmits() {
+    let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (sent, received) = (posts.clone(), reads.clone());
+    let mut tuples = std::collections::HashMap::new();
+    let (base, task) = server(move |path, body| {
+        if path == "GET /comfy/object_info HTTP/1.1" {
+            return (200, nodes().to_string());
+        }
+        if path == "POST /comfy/prompt HTTP/1.1" {
+            sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let seed = body["prompt"]["5"]["inputs"]["seed"].as_u64().unwrap();
+            if seed == 4 {
+                return (0, String::new()); // Lost submission reply: no prompt ID to reconcile.
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            tuples.insert(id.clone(), (seed, json!([1,id,body["prompt"],{"client_id":body["client_id"]},["7"]])));
+            return (200, json!({"prompt_id":id,"number":1,"node_errors":{}}).to_string());
+        }
+        received.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if path.starts_with("GET /comfy/history/") {
+            let id = path.split('/').nth(3).unwrap().split(' ').next().unwrap();
+            let (seed, tuple) = &tuples[id];
+            return match seed {
+                1 => (0, String::new()), // Transport failure must not prevent later refreshes.
+                2 => (200, json!({id:{"prompt":tuple,"outputs":{"7":{"images":[{"filename":"out.png","subfolder":"","type":"output"}]}},"status":{"completed":true,"status_str":"success","messages":[]}}}).to_string()),
+                _ => (200, "{}".into()),
+            };
+        }
+        assert_eq!(path, "GET /comfy/queue HTTP/1.1");
+        let running: Vec<_> = tuples.values().filter(|(seed, _)| *seed == 5).map(|(_, tuple)| tuple).collect();
+        (200, json!({"queue_running":running,"queue_pending":[]}).to_string())
+    }).await;
+    let jobs = Jobs::default();
+    let mut plans = vec![];
+    for seed in 1..=5 {
+        let mut draft = intent();
+        draft["seed"] = json!(seed);
+        let result = jobs
+            .workbench_run(base.clone(), draft.clone(), true, None)
+            .await
+            .unwrap();
+        let held = jobs
+            .workbench_job(result["id"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        let session = held.lock().unwrap();
+        plans.push((
+            session.plan.as_ref().unwrap().snapshot(),
+            session.job.as_ref().unwrap().plan.snapshot(),
+        ));
+    }
+    let before = jobs.workbench_current().unwrap();
+    assert_eq!(
+        reads.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "current must be network-free"
+    );
+    assert_eq!(before["jobs"][3]["state"], "unknown");
+    let refreshed = jobs.workbench_poll().await.unwrap();
+    assert_eq!(refreshed["capacity"], 20);
+    assert_eq!(refreshed["preparing"], 0);
+    assert_eq!(refreshed["stopAvailable"], false);
+    for (index, state) in ["unknown", "succeeded", "unknown", "unknown", "running"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(refreshed["jobs"][index]["state"], *state);
+        assert_eq!(
+            refreshed["jobs"][index]["intent"],
+            before["jobs"][index]["intent"]
+        );
+        let held = jobs
+            .workbench_job(before["jobs"][index]["id"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        let session = held.lock().unwrap();
+        assert_eq!(session.plan.as_ref().unwrap().snapshot(), plans[index].0);
+        assert_eq!(
+            session.job.as_ref().unwrap().plan.snapshot(),
+            plans[index].1
+        );
+        assert!(session.plan.as_ref().unwrap().consumed);
+    }
+    assert_eq!(refreshed["jobs"][1]["outputs"][0]["filename"], "out.png");
+    assert!(refreshed["jobs"][0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("request failed"));
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 6);
+    let again = jobs.workbench_poll().await.unwrap();
+    assert_eq!(
+        again["jobs"].as_array().unwrap().len(),
+        5,
+        "unknowns are retained"
+    );
+    assert_eq!(
+        reads.load(std::sync::atomic::Ordering::SeqCst),
+        11,
+        "terminal and missing-prompt jobs need no reads"
+    );
+    assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 5);
+    task.abort();
+}
+
+#[tokio::test]
+async fn workbench_poll_coalesces_concurrent_reads_and_survives_cancelled_waiter() {
+    let (base, submission) = server(|path, _| match path.as_str() {
+        "GET /comfy/object_info HTTP/1.1" => (200, nodes().to_string()),
+        "POST /comfy/prompt HTTP/1.1" => (
+            200,
+            json!({"prompt_id":PROMPT_ID,"number":1,"node_errors":{}}).to_string(),
+        ),
+        _ => panic!("unexpected {path}"),
+    })
+    .await;
+    let seed = Jobs::default();
+    seed.workbench_run(base, intent(), true, None)
+        .await
+        .unwrap();
+    let template = seed.lock().unwrap().workbench[0]
+        .lock()
+        .unwrap()
+        .job
+        .clone()
+        .unwrap();
+    submission.abort();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let gate = release.clone();
+    let (arrived, mut requests) = tokio::sync::mpsc::channel(64);
+    let fixture = tokio::spawn(async move {
+        let mut children = tokio::task::JoinSet::new();
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (gate, arrived) = (gate.clone(), arrived.clone());
+            children.spawn(async move {
+                let mut bytes = vec![];
+                while !bytes.windows(4).any(|b| b == b"\r\n\r\n") {
+                    let mut buf = [0; 1024];
+                    let n = socket.read(&mut buf).await.unwrap();
+                    assert!(n > 0);
+                    bytes.extend_from_slice(&buf[..n]);
+                }
+                let head = String::from_utf8(bytes).unwrap();
+                assert_eq!(
+                    head.lines().next().unwrap(),
+                    format!("GET /history/{PROMPT_ID} HTTP/1.1")
+                );
+                arrived.send(()).await.unwrap();
+                gate.acquire().await.unwrap().forget();
+                socket
+                    .write_all(
+                        b"HTTP/1.1 503 Fixture\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    let jobs = Arc::new(Jobs::default());
+    for index in 0..20 {
+        let held = Arc::new(Jobs::default());
+        if index != 19 {
+            let mut job = template.clone();
+            job.id = uuid::Uuid::new_v4().to_string();
+            job.plan.base = base.clone();
+            match index {
+                16 => job.state = "succeeded",
+                17 => job.state = "failed",
+                18 => job.submitting = true,
+                _ => {}
+            }
+            held.lock().unwrap().job = Some(job);
+        }
+        jobs.lock().unwrap().workbench.push(held);
+    }
+    // Aggregate polling must not refresh the exclusive diagnostic slot either.
+    jobs.lock().unwrap().job = Some(template.clone());
+    for round in 0..4 {
+        let owner = jobs.clone();
+        let waiter = tokio::spawn(async move { owner.workbench_poll().await });
+        // Every eligible request arrives before any reply: no serialized timeout chain.
+        for _ in 0..16 {
+            tokio::time::timeout(Duration::from_secs(3), requests.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        let snapshot = jobs.workbench_current().unwrap();
+        let overlapping = tokio::time::timeout(Duration::from_secs(1), jobs.workbench_poll())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(overlapping, snapshot);
+        assert_eq!(overlapping["preparing"], 1);
+        assert_eq!(overlapping["stopAvailable"], false);
+        assert!(
+            requests.try_recv().is_err(),
+            "overlap must not queue another pass"
+        );
+        if round == 1 {
+            waiter.abort();
+            assert!(waiter.await.unwrap_err().is_cancelled());
+            assert_eq!(jobs.workbench_poll().await.unwrap(), snapshot);
+            release.add_permits(16);
+            // The detached pass owns the gate until every status has cleared polling.
+            let guard = tokio::time::timeout(Duration::from_secs(3), jobs.2.lock())
+                .await
+                .unwrap();
+            drop(guard);
+        } else if round == 3 {
+            // A whole stalled cohort must finish within one status deadline, not 16 of them.
+            tokio::time::timeout(Duration::from_secs(18), waiter)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        } else {
+            release.add_permits(16);
+            tokio::time::timeout(Duration::from_secs(3), waiter)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+        let session = jobs.lock().unwrap();
+        assert_eq!(
+            session.job.as_ref().unwrap().snapshot(),
+            template.snapshot()
+        );
+        for held in &session.workbench[..16] {
+            let held = held.lock().unwrap();
+            let job = held.job.as_ref().unwrap();
+            assert!(!job.polling, "cancelled IPC must not strand status flags");
+            assert_eq!(job.state, "unknown");
+        }
+        assert_eq!(
+            session.workbench[16].current().unwrap()["state"],
+            "succeeded"
+        );
+        assert_eq!(session.workbench[17].current().unwrap()["state"], "failed");
+        assert!(
+            session.workbench[18]
+                .lock()
+                .unwrap()
+                .job
+                .as_ref()
+                .unwrap()
+                .submitting
+        );
+    }
+    fixture.abort();
 }
 
 #[tokio::test]
@@ -814,7 +1086,7 @@ async fn workbench_failures_reach_shared_logs_without_private_intent() {
         .into_iter()
         .filter(|e| e.text.starts_with("ERROR: Workbench run:"))
         .collect();
-    assert_eq!(reports.len(), 1);
+    assert_eq!(reports.len(), 1, "start={start}; reports={reports:?}");
     assert_eq!(reports[0].source, crate::logs::Source::Deas);
     assert!(!reports[0].text.contains("secret-queue-prompt"));
     assert!(!reports[0].text.contains("private-endpoint"));
@@ -830,7 +1102,13 @@ fn workbench_commands_are_registered_exported_and_local_only() {
         .iter()
         .find(|p| p["identifier"].as_str() == Some("allow-native-diagnostic-jobs"))
         .unwrap();
-    for command in ["native_workbench_run", "native_workbench_current"] {
+    for command in [
+        "native_workbench_run",
+        "native_workbench_current",
+        "native_workbench_poll",
+        "native_workbench_cancel_pending",
+        "native_workbench_interrupt_running",
+    ] {
         assert!(main.contains(&format!("deas::{command},")));
         assert!(jobs["commands"]["allow"]
             .as_array()
@@ -848,6 +1126,9 @@ fn workbench_commands_are_registered_exported_and_local_only() {
         .contains(&json!("allow-native-diagnostic-jobs")));
     let _ = crate::native_workbench_run;
     let _ = crate::native_workbench_current;
+    let _ = crate::native_workbench_poll;
+    let _ = crate::native_workbench_cancel_pending;
+    let _ = crate::native_workbench_interrupt_running;
 }
 
 #[tokio::test]

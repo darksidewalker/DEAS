@@ -16,7 +16,7 @@ export interface JobStatus {
   id: string;
   baseUrl: string;
   promptId: string | null;
-  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown';
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
   /** `format` is the MIME type the video combine reports (`video/webm`); image savers omit it. */
   outputs: { filename: string; subfolder: string; type: 'output'; format?: string }[];
   error: string | null;
@@ -25,6 +25,10 @@ export interface JobStatus {
   intent?: JobIntent;
   appVersion?: string;
   metadata?: { startedAt: number; generationMs: number | null } | null;
+  /** Native-held delete attempt; even an unknown result must not authorize another delete. */
+  pendingCancellationAttempted?: true;
+  /** A running-interrupt attempt is never retried merely because its result is unknown. */
+  interruptCancellationAttempted?: true;
   /** Live sampler steps and latest preview data URL, only while queued/running. */
   progress?: { value: number; max: number };
   preview?: string;

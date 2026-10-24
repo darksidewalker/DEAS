@@ -9,7 +9,9 @@ static WORKBENCH_FAILURE_LAST: Mutex<Option<std::time::Instant>> = Mutex::new(No
 /// Test-only: log assertions run in one process sharing this limiter.
 #[cfg(test)]
 pub(super) fn reset_workbench_failure_logging() {
-    *WORKBENCH_FAILURE_LAST.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *WORKBENCH_FAILURE_LAST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 impl Session {
@@ -38,8 +40,9 @@ impl Jobs {
         let mut jobs = Vec::new();
         let mut preparing = 0;
         for held in &session.workbench {
-            if let Some(job) = &held.lock()?.job {
-                jobs.push(job.snapshot());
+            let held = held.lock()?;
+            if held.job.is_some() {
+                jobs.push(held.snapshot());
             } else {
                 preparing += 1;
             }
@@ -49,14 +52,53 @@ impl Jobs {
         )
     }
 
+    pub(super) async fn workbench_poll(&self) -> Result<Value, String> {
+        use futures_util::{stream, StreamExt};
+        let Ok(guard) = self.2.clone().try_lock_owned() else {
+            return self.workbench_current();
+        };
+        let mut pending = Vec::new();
+        for held in &self.lock()?.workbench {
+            let session = held.lock()?;
+            if let Some(job) = session
+                .job
+                .as_ref()
+                .filter(|j| !j.terminal() && !j.submitting)
+            {
+                pending.push((held.clone(), job.id.clone()));
+            }
+        }
+        // Finish even if the IPC waiter disappears: status must clear its per-job polling flag.
+        tokio::spawn(async move {
+            let _guard = guard;
+            let results = stream::iter(pending)
+                .map(|(held, id)| async move { held.workbench_status(id).await })
+                .buffer_unordered(WORKBENCH_LIMIT)
+                .collect::<Vec<_>>()
+                .await;
+            // Transport errors become unknown in status; storage errors cannot short-circuit peers.
+            for result in results {
+                result?;
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|_| "Workbench polling task failed")??;
+        self.workbench_current()
+    }
+
+    async fn workbench_status(&self, job_id: String) -> Result<Value, String> {
+        let before = self.current()?;
+        let result = self.status(job_id).await?;
+        if before["state"] != result["state"] || before["error"] != result["error"] {
+            report_job("status", &result);
+        }
+        Ok(result)
+    }
+
     pub(super) async fn status_for(&self, job_id: String) -> Result<Value, String> {
         if let Some(held) = self.workbench_job(&job_id)? {
-            let before = held.current()?;
-            let result = held.status(job_id).await?;
-            if before["state"] != result["state"] || before["error"] != result["error"] {
-                report_job("status", &result);
-            }
-            return Ok(result);
+            return held.workbench_status(job_id).await;
         }
         self.status(job_id).await
     }
@@ -74,7 +116,9 @@ impl Jobs {
         match &result {
             Ok(job) => report_job("run", job),
             Err(_) => {
-                let mut last = WORKBENCH_FAILURE_LAST.lock().unwrap_or_else(|e| e.into_inner());
+                let mut last = WORKBENCH_FAILURE_LAST
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 if last.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
                     *last = Some(std::time::Instant::now());
                     crate::logs::push(crate::logs::Source::Deas, "ERROR: Workbench run: preparation or admission failed; see operation result (repeats limited to once per minute)");
@@ -170,6 +214,12 @@ pub async fn native_workbench_run(
     state
         .workbench_run(base_url, intent, confirmed, Some(&engine))
         .await
+}
+
+/// Refresh only held Workbench jobs; no submission, cancellation, or diagnostic polling.
+#[tauri::command]
+pub async fn native_workbench_poll(state: tauri::State<'_, Jobs>) -> Result<Value, String> {
+    state.workbench_poll().await
 }
 
 /// Session recovery only: no backend requests, automatic retries, or cancellation.

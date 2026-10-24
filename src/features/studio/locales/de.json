@@ -166,6 +166,7 @@
   "studio.jobs.running": "Wird ausgeführt",
   "studio.jobs.succeeded": "Erfolgreich",
   "studio.jobs.failed": "Fehlgeschlagen",
+  "studio.jobs.cancelled": "Abgebrochen",
   "studio.jobs.unknown": "Unbekannt — Status aktualisieren; nicht erneut senden.",
   "studio.jobs.identity": "Auftrag {id} · ursprünglicher Endpunkt: {url}",
   "studio.jobs.promptId": "Prompt-ID",

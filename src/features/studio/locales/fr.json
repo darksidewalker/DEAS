@@ -166,6 +166,7 @@
   "studio.jobs.running": "En cours",
   "studio.jobs.succeeded": "Réussie",
   "studio.jobs.failed": "Échouée",
+  "studio.jobs.cancelled": "Annulé",
   "studio.jobs.unknown": "Inconnu — actualisez le statut ; ne renvoyez pas.",
   "studio.jobs.identity": "Tâche {id} · adresse d’origine : {url}",
   "studio.jobs.promptId": "ID du prompt",

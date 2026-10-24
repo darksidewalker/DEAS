@@ -298,6 +298,23 @@ test('stars every queued result and repairs output locations without changing it
  expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
 });
 
+test.each([['de','Abgebrochen'],['en','Cancelled'],['fr','Annulé'],['ja','キャンセル済み'],['tr','İptal edildi'],['zh','已取消']])('cancelled job is a terminal localized result without output actions (%s)',async(locale,label)=>{
+ localStorage.setItem('deas.locale.v1',locale);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'cancel-plan',baseUrl,intent,graph:{},generationReady:false}));
+ vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'cancelled-job',baseUrl:evidence.baseUrl,promptId:'p',state:'cancelled',outputs:[],error:null,generationReady:false});
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ const tile=await waitFor(()=>{const tile=document.querySelector<HTMLButtonElement>('.wb-queue-select');expect(tile).not.toBeNull();return tile!;});
+ expect(tile.textContent).toContain(label);expect(tile.querySelector('.wb-thumb')?.textContent).toBe('×');
+ expect(tile.querySelector('[data-generation-duration]')).toBeNull();
+ expect(document.querySelector('.wb-queue-output')?.querySelectorAll('button')).toHaveLength(1);
+ expect(run.disabled).toBe(false);expect(readDiagnosticJobStatus).not.toHaveBeenCalled();
+ expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+});
+
 test.each([
  ...['de','en','fr','ja','tr','zh'].map(locale=>({locale,generationMs:13310,state:'succeeded' as const,filename:'result.png'})),
  {locale:'en',generationMs:0,state:'succeeded' as const,filename:'zero.png'},
@@ -530,6 +547,7 @@ test('a reopened managed PNG becomes an image source and uploads only on explici
  expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/project.png',seed:42,denoise:0.5});
 });
 test('wildcard dock and hammer keep base text, snapshot active rules per run and allow disabling without clearing',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['m.safetensors'],nodes:[...evidence.allowlist.nodes,'DaSiWa_WildcardPresetPromptBuilder']}});
  localStorage.setItem('deas.pref.studio.run.wildcard',JSON.stringify({style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:true,selection_state:{'Art/Light/wildcards':{enabled:true,weight:1.2}}}));
  vi.mocked(invoke).mockImplementation(async c=>c==='native_wildcard_library'?JSON.stringify({categories:{Art:[{subject:'Light',booru_wildcards:['{red|blue} light']}]}}):{entries:[],truncated:false});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'m.safetensors',path:'/m/checkpoints/m.safetensors',size:1,info:null}]);
@@ -1629,7 +1647,7 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
   :family==='wan'?[m('diffusion_models','wan_high_noise.safetensors',family),m('diffusion_models','wan_low_noise.safetensors',family),m('text_encoders','umt5_xxl_fp8.safetensors'),m('vae','wan_2.1_vae.safetensors')]
   :[m('diffusion_models','h3.safetensors',family),m('text_encoders','qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'),m('vae','minimax_h3_video_vae_fp16.safetensors'),m('vae','minimax_h3_audio_vae_fp32.safetensors')];
  vi.mocked(scanModels).mockResolvedValue(list);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWa_WildcardPresetPromptBuilder']}});
  const options={...defaultOptions,outputNaming:'test/%seed%'};
  localStorage.setItem('deas.pref.studio.run.options',JSON.stringify(options));
  localStorage.setItem('deas.pref.studio.run.seed','42');
@@ -1710,6 +1728,26 @@ async function mountMoss(nodes=mossNodes,clipTypes=['moss_image']){
  await screen.findByRole('option',{name:'moss.safetensors'});
  fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:'moss.safetensors'}});
 }
+test.each(['moss.safetensors','a.safetensors'])('image Wildcards block %s until its plugin is available or explicitly disabled',async(checkpoint)=>{
+ localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
+ await mountMoss([...mossNodes,...evidence.allowlist.nodes]);
+ fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:checkpoint}});
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain('DaSiWa_WildcardPresetPromptBuilder');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Disable wildcards'}));
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('wildcard');
+});
+test.each(['moss.safetensors','a.safetensors'])('image Wildcards preserve enabled intent for %s with its plugin available',async(checkpoint)=>{
+ localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
+ await mountMoss([...mossNodes,...evidence.allowlist.nodes,'DaSiWa_WildcardPresetPromptBuilder']);
+ fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:checkpoint}});
+ expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).toHaveProperty('wildcard');
+});
 test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
  await mountMoss(mossNodes.filter(n=>n!==missing),missing==='moss_image'?[]:['moss_image']);
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);

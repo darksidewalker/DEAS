@@ -80,6 +80,125 @@ pub(crate) fn await_state(lifecycle: &Lifecycle, state: &str) -> Status {
     }
 }
 #[test]
+fn running_interrupt_adapter_auth_and_mutex_race_fixture() {
+    let result = Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            include_str!("running_interrupt_tests.py"),
+            include_str!("running_interrupt.py"),
+        ])
+        .env_remove("DEAS_TEST_COMFY_SOURCE")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn running_interrupt_unsupported_source_cannot_gain_authority_after_launch() {
+    let (tmp, approved) = fixture(SERVER);
+    let lifecycle = Lifecycle::default();
+    lifecycle.launch(approved, Duration::from_secs(5)).unwrap();
+    let base = reqwest::Url::parse(&await_state(&lifecycle, "running").endpoint.unwrap()).unwrap();
+    let owner = lifecycle.interruption_owner();
+    assert!(owner(&base).is_err());
+    fs::write(
+        tmp.path().join("ComfyUI/server.py"),
+        "# unsupported legacy handler",
+    )
+    .unwrap();
+    assert!(owner(&base).is_err());
+    assert!(locked(&lifecycle.inner).interrupt_source.is_none());
+    lifecycle.stop();
+    assert!(owner(&base).is_err());
+}
+
+#[test]
+#[ignore = "explicit DEAS_TEST_COMFY_SOURCE directory: read-only exact pinned source, no model imports"]
+fn running_interrupt_source_backed_launch_proof_and_queue_race() {
+    let source = PathBuf::from(
+        std::env::var_os("DEAS_TEST_COMFY_SOURCE").expect("set DEAS_TEST_COMFY_SOURCE"),
+    );
+    for crlf in [false, true] {
+        let (tmp, approved) = fixture(SERVER);
+        let root = tmp.path();
+        for (name, _) in INTERRUPT_PINS {
+            let bytes = fs::read(source.join(name)).unwrap();
+            let bytes = if crlf {
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .replace("\r\n", "\n")
+                    .replace('\n', "\r\n")
+                    .into_bytes()
+            } else {
+                bytes
+            };
+            fs::write(root.join("ComfyUI").join(name), bytes).unwrap();
+        }
+        InterruptSource::capture(root).unwrap().validate().unwrap();
+        // Fixture interpreter serves only bounded CPU HTTP; pinned main.py is never imported/executed.
+        fs::write(
+            root.join(VENV_PYTHON),
+            format!(
+                "#!/usr/bin/python3\n{}",
+                SERVER.replace(
+                    "args=sys.argv[1:]",
+                    "assert os.environ.get('DEAS_RUNNING_INTERRUPT_TOKEN')\nargs=sys.argv[1:]"
+                )
+            ),
+        )
+        .unwrap();
+        let approved = Approved::capture(approved.plan()).unwrap();
+        let lifecycle = Lifecycle::default();
+        lifecycle.launch(approved, Duration::from_secs(5)).unwrap();
+        let endpoint = await_state(&lifecycle, "running").endpoint.unwrap();
+        let base = reqwest::Url::parse(&endpoint).unwrap();
+        let owner = lifecycle.interruption_owner();
+        let (epoch, token) = owner(&base).unwrap();
+        assert!(!token.is_empty());
+        assert_eq!(owner(&base).unwrap(), (epoch, token.clone()));
+        assert!(owner(&reqwest::Url::parse(&format!("{endpoint}foreign/")).unwrap()).is_err());
+        let adapter = root.join("ComfyUI/custom_nodes/deas_running_interrupt.py");
+        assert_eq!(
+            fs::read(&adapter).unwrap(),
+            include_bytes!("running_interrupt.py")
+        );
+        fs::write(&adapter, "# changed").unwrap();
+        assert!(owner(&base).is_err());
+        fs::write(&adapter, include_bytes!("running_interrupt.py")).unwrap();
+        assert!(owner(&base).is_ok());
+        let core = root.join("ComfyUI/server.py");
+        let original = fs::read(&core).unwrap();
+        fs::write(&core, b"# changed after launch").unwrap();
+        assert!(owner(&base).is_err());
+        fs::write(&core, original).unwrap();
+        assert!(owner(&base).is_ok());
+        lifecycle.stop();
+        assert!(owner(&base).is_err());
+        assert!(!crate::logs::native_logs(0)
+            .iter()
+            .any(|e| e.text.contains(&token)));
+    }
+    let result = Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            include_str!("running_interrupt_tests.py"),
+            include_str!("running_interrupt.py"),
+        ])
+        .env("DEAS_TEST_COMFY_SOURCE", source)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn output_naming_adapter_is_installed_and_refuses_symlinks() {
     let (tmp, _) = fixture(SERVER);
     install_output_naming(tmp.path()).unwrap();
@@ -122,6 +241,8 @@ fn a_second_lifecycle_cannot_start_the_same_environment_until_the_first_stops() 
 fn real_owned_child_requires_api_before_running_and_stop_is_exact() {
     let (tmp, approved) = fixture(SERVER);
     let lifecycle = Lifecycle::default();
+    let cancellation_owner = lifecycle.cancellation_owner();
+    assert!(cancellation_owner(&reqwest::Url::parse("http://127.0.0.1:1/").unwrap()).is_err());
     let initial = lifecycle
         .launch(approved.clone(), Duration::from_secs(5))
         .unwrap();
@@ -133,12 +254,26 @@ fn real_owned_child_requires_api_before_running_and_stop_is_exact() {
     assert!(!status.generation_ready);
     let endpoint = status.endpoint.unwrap();
     assert!(endpoint.starts_with("http://127.0.0.1:"));
+    let base = reqwest::Url::parse(&endpoint).unwrap();
+    let epoch = cancellation_owner(&base).unwrap();
+    assert_eq!(cancellation_owner(&base).unwrap(), epoch);
+    for suffix in ["other/", "?token=private", "#fragment"] {
+        assert!(
+            cancellation_owner(&reqwest::Url::parse(&format!("{endpoint}{suffix}")).unwrap())
+                .is_err()
+        );
+    }
+    assert!(cancellation_owner(
+        &reqwest::Url::parse(&endpoint.replace("127.0.0.1", "localhost")).unwrap()
+    )
+    .is_err());
     assert_eq!(
         fs::read_to_string(tmp.path().join("ComfyUI/requests.log")).unwrap(),
         "/object_info\n/system_stats\n"
     );
     let pid = locked(&lifecycle.inner).child.as_ref().unwrap().id();
     assert_eq!(lifecycle.stop().state, "stopped");
+    assert!(cancellation_owner(&base).is_err());
     assert!(!Path::new(&format!("/proc/{pid}")).exists());
     assert!(lifecycle.status().endpoint.is_none());
     assert!(lifecycle.status().output_root.is_none());

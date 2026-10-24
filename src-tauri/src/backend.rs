@@ -3,6 +3,13 @@
 use crate::install::{Backend, Plan, VENV_BIN, VENV_PYTHON};
 use serde::Serialize;
 fn install_output_naming(root: &Path) -> Result<(), String> {
+    install_adapter(
+        root,
+        "deas_output_naming.py",
+        include_str!("output_naming.py").as_bytes(),
+    )
+}
+fn install_adapter(root: &Path, name: &str, source: &[u8]) -> Result<(), String> {
     use crate::downloads::fs::Anchor;
     use std::io::Write;
     let directory = root.join("ComfyUI/custom_nodes");
@@ -11,8 +18,6 @@ fn install_output_naming(root: &Path) -> Result<(), String> {
     }
     let anchor = Anchor::open(&directory)?;
     anchor.validate_directory(false)?;
-    let name = "deas_output_naming.py";
-    let source = include_str!("output_naming.py").as_bytes();
     if directory.join(name).symlink_metadata().is_ok() {
         if read_owned(&directory.join(name), 1024 * 1024)? == source {
             return Ok(());
@@ -244,6 +249,60 @@ impl Approved {
     }
 }
 
+// shortcut: only the inspected ComfyUI b1a247c9 protocol is supported; review new sources before adding pins.
+const INTERRUPT_PINS: [(&str, &str); 4] = [
+    (
+        "server.py",
+        "6e3614c753c95b037e57e25dfc2de979de70136baad2a3abb5d2d32aaf05281e",
+    ),
+    (
+        "execution.py",
+        "bf61eed32e9db0fe87ab8c108ea21adeb948e0596242c9cc55334de4a6e451a1",
+    ),
+    (
+        "main.py",
+        "226a90fdd2cb0942c587e60ae292cddcebd8f6173224e3b91a80ab0efafa93ef",
+    ),
+    (
+        "nodes.py",
+        "a6db3d4ea52220db85bf92a01e27a3e8b17545f7d1c6d2fc6c929f1eb27b111e",
+    ),
+];
+struct InterruptSource {
+    files: Vec<(PathBuf, [u8; 32])>,
+    token: String,
+}
+impl InterruptSource {
+    fn capture(root: &Path) -> Result<Self, String> {
+        let mut files = Vec::new();
+        for (name, pin) in INTERRUPT_PINS {
+            let path = root.join("ComfyUI").join(name);
+            let bytes = read_owned(&path, 1024 * 1024)?;
+            // Accept Windows checkout CRLF, but retain and revalidate the exact launched raw bytes.
+            let normalized = std::str::from_utf8(&bytes)
+                .map_err(|_| "Invalid backend source encoding")?
+                .replace("\r\n", "\n");
+            if format!("{:x}", Sha256::digest(&normalized)) != pin {
+                return Err("Scoped interruption requires inspected backend sources".into());
+            }
+            files.push((path, Sha256::digest(&bytes).into()));
+        }
+        Ok(Self {
+            files,
+            token: uuid::Uuid::new_v4().to_string(),
+        })
+    }
+    fn validate(&self) -> Result<(), String> {
+        for (path, digest) in &self.files {
+            let bytes = read_owned(path, 1024 * 1024)?;
+            if <[u8; 32]>::from(Sha256::digest(bytes)) != *digest {
+                return Err("Scoped interruption backend sources changed since launch".into());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct Inner {
     status: Status,
@@ -253,6 +312,7 @@ struct Inner {
     job: Option<crate::win::Job>,
     serial: u64,
     port: u16,
+    interrupt_source: Option<InterruptSource>,
 }
 #[derive(Default)]
 pub struct Lifecycle {
@@ -372,6 +432,7 @@ fn terminate(inner: &mut Inner) {
             Err(error) => log(&format!("Owned child reap failed: {error}")),
         }
     }
+    inner.interrupt_source = None;
     inner.environment_lock = None;
     inner.status.endpoint = None;
     inner.status.output_root = None;
@@ -499,6 +560,21 @@ impl Lifecycle {
         let root = Path::new(&approved.plan.request.storage_path);
         let environment_lock = lock_environment(root)?;
         install_output_naming(root)?;
+        // Optional capability: unsupported sources must not prevent normal backend startup.
+        let mut interrupt_source = InterruptSource::capture(root).ok().and_then(|mut proof| {
+            install_adapter(
+                root,
+                "deas_running_interrupt.py",
+                include_bytes!("running_interrupt.py"),
+            )
+            .ok()?;
+            proof.files.push((
+                root.join("ComfyUI/custom_nodes/deas_running_interrupt.py"),
+                Sha256::digest(include_bytes!("running_interrupt.py")).into(),
+            ));
+            proof.validate().ok()?;
+            Some(proof)
+        });
         let mut command = Command::new(root.join(VENV_PYTHON));
         command.args([
             "-u",
@@ -562,6 +638,9 @@ impl Lifecycle {
                 "/usr/bin:/bin".to_string()
             },
         );
+        if let Some(proof) = &interrupt_source {
+            command.env("DEAS_RUNNING_INTERRUPT_TOKEN", &proof.token);
+        }
         for (name, folder) in [
             ("HOME", "home"),
             ("USERPROFILE", "home"),
@@ -593,6 +672,13 @@ impl Lifecycle {
             use std::os::windows::process::CommandExt;
             command.creation_flags(crate::win::CREATE_NO_WINDOW);
         }
+        if interrupt_source
+            .as_ref()
+            .is_some_and(|proof| proof.validate().is_err())
+        {
+            interrupt_source = None;
+            command.env_remove("DEAS_RUNNING_INTERRUPT_TOKEN");
+        }
         // One reservation, one spawn. A bind race fails ownership/readiness; never retry/adopt.
         drop(listener);
         let mut child = command.spawn().map_err(|e| {
@@ -622,6 +708,7 @@ impl Lifecycle {
                 }
             }
         }
+        inner.interrupt_source = interrupt_source;
         inner.environment_lock = Some(environment_lock);
         inner.serial += 1;
         let serial = inner.serial;
@@ -665,6 +752,63 @@ impl Lifecycle {
         }
         inner.status.clone()
     }
+    /// Revalidate exact owned listener and lifecycle, without adopting an endpoint.
+    pub(crate) fn cancellation_owner(
+        &self,
+    ) -> impl Fn(&reqwest::Url) -> Result<u64, String> + Send + Sync + 'static {
+        let inner = self.inner.clone();
+        move |base| {
+            let inner = locked(&inner);
+            let valid = inner.status.state == "running"
+                && inner
+                    .child
+                    .as_ref()
+                    .is_some_and(|child| exited(child) == Ok(false))
+                && owns_listener(&inner, inner.port).unwrap_or(false)
+                && inner
+                    .status
+                    .endpoint
+                    .as_deref()
+                    .and_then(|s| reqwest::Url::parse(s).ok())
+                    .as_ref()
+                    == Some(base)
+                && base.scheme() == "http"
+                && base.host_str() == Some("127.0.0.1")
+                && base.path() == "/"
+                && base.username().is_empty()
+                && base.password().is_none()
+                && base.query().is_none()
+                && base.fragment().is_none();
+            if valid {
+                Ok(inner.serial)
+            } else {
+                Err("Pending cancellation requires the exact running owned loopback backend".into())
+            }
+        }
+    }
+
+    pub(crate) fn interruption_owner(
+        &self,
+    ) -> impl Fn(&reqwest::Url) -> Result<(u64, String), String> + Send + Sync + 'static {
+        let owner = self.cancellation_owner();
+        let inner = self.inner.clone();
+        move |base| {
+            let epoch = owner(base)?;
+            let inner = locked(&inner);
+            if inner.serial != epoch {
+                return Err("Owned backend lifecycle changed".into());
+            }
+            let proof = inner
+                .interrupt_source
+                .as_ref()
+                .ok_or("Scoped interruption is unsupported by this launched backend source")?;
+            proof
+                .validate()
+                .map_err(|_| "Scoped interruption source changed or unavailable")?;
+            Ok((epoch, proof.token.clone()))
+        }
+    }
+
     pub fn stop(&self) -> Status {
         let mut inner = locked(&self.inner);
         inner.serial += 1;

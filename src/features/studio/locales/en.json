@@ -166,6 +166,7 @@
   "studio.jobs.running": "Running",
   "studio.jobs.succeeded": "Succeeded",
   "studio.jobs.failed": "Failed",
+  "studio.jobs.cancelled": "Cancelled",
   "studio.jobs.unknown": "Unknown — refresh status; do not resubmit.",
   "studio.jobs.identity": "Job {id} · original endpoint: {url}",
   "studio.jobs.promptId": "Prompt ID",

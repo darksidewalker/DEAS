@@ -166,6 +166,7 @@
   "studio.jobs.running": "実行中",
   "studio.jobs.succeeded": "成功",
   "studio.jobs.failed": "失敗",
+  "studio.jobs.cancelled": "キャンセル済み",
   "studio.jobs.unknown": "不明 — 状態を更新し、再送信しないでください。",
   "studio.jobs.identity": "ジョブ {id} · 元のエンドポイント: {url}",
   "studio.jobs.promptId": "プロンプトID",

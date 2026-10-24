@@ -37,7 +37,7 @@ import { applyRefPrefill, nextShot, promptStructure, refPrefill } from '../../li
 import { dialectOf } from '../../lib/forge';
 import { PresetPanel } from '../presets/PresetPanel';
 import { WildcardPanel } from '../wildcards/WildcardPanel';
-import { defaultWildcard, isWildcardRules } from '../../lib/wildcard';
+import { defaultWildcard, isWildcardRules, wildcardNode } from '../../lib/wildcard';
 import { containedImageHit, flattenLayer, visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
 import { NativeVideo, nativeVideo } from './NativeVideo';
@@ -300,7 +300,7 @@ function WorkbenchContent({endpoint,roots={},root,incoming,planVisible=false,pro
   ...(split&&!split.vaes.includes(vae)?[vae||t('studio.run.vae')]:[]),
   ...(split&&isVideo&&family?.audioVaes&&!split.audioVaes.includes(audioVae)?[audioVae||t('studio.run.video.audioVae')]:[]),
   ...(split&&isVideo&&family?.textProjections&&!split.projections.includes(textProjection)?[textProjection||t('studio.run.video.textProjection')]:[]),
-  ...(choices?[...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
+  ...(choices?[...(!isVideo&&wildcardEnabled&&!choices.nodes.includes(wildcardNode)?[wildcardNode]:[]),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
    ...(post&&upscaleModelPref&&!choices.upscaleModels?.includes(upscaleModelPref)?[upscaleModelPref]:[]),
    ...(post&&postTiled&&!choices.nodes.includes('DaSiWaTiledDiffusion')?['DaSiWaTiledDiffusion']:[]),
    ...(optionsPref.attention&&!options?.attention&&!options?.sage?[optionsPref.attention]:[]),
@@ -822,7 +822,7 @@ const promptTools=forgeContext&&<>
    <section id="studio-queue" style={{flexBasis:queueSize}} className="wb-queue" aria-label={t('studio.run.queue')}>
     <h3>{t('studio.run.queue')}</h3>
     {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id}>{(j.state==='succeeded'&&j.outputs.length?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob} data-state={j.state} onClick={()=>pickJob(j)}>
-     {outputDir&&o&&!isVideoOut(o)?<img src={fileSrc(o)!} alt=""/>:o&&isVideoOut(o)?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
+     {outputDir&&o&&!isVideoOut(o)?<img src={fileSrc(o)!} alt=""/>:o&&isVideoOut(o)?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='cancelled'?'×':j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)} · {j.id.slice(0,8)}{duration(j)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{o?.filename??j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button>{o&&<StarMediaButton item={outputItem(o)}/>}</div>)}</li>)}</ul>}
      <div className="wb-run-actions">
      <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||busy||!!current||!!sizeError||(inpaint&&!masked)||!checkpoint||unavailable.length>0} title={!native?t('studio.backendHelp'):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):undefined} onClick={()=>void run()}>{t(current?'studio.run.running':busy?'studio.run.preparing':'studio.run.run')}</button><span id="project-actions-slot"/></div>

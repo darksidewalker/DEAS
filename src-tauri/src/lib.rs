@@ -24,7 +24,8 @@ pub use jobs::{
     native_h3_refmods, native_h3_session, native_h3_video_prepare, native_h3_video_upload,
     native_input_upload, native_job_current, native_job_export, native_job_output,
     native_job_prepare, native_job_status, native_job_submit, native_mask_upload,
-    native_workbench_current, native_workbench_run,
+    native_workbench_cancel_pending, native_workbench_current, native_workbench_interrupt_running,
+    native_workbench_poll, native_workbench_run,
 };
 pub mod model_families;
 pub mod recipe_prerequisites;
@@ -184,13 +185,17 @@ fn parse_snapshot(
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 // Shared probe diagnostics limiter: once per endpoint+code per minute.
-static BACKEND_PROBE_LAST: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>> =
-    std::sync::Mutex::new(std::collections::BTreeMap::new());
+static BACKEND_PROBE_LAST: std::sync::Mutex<
+    std::collections::BTreeMap<String, std::time::Instant>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// Test-only: probe log assertions run in one process sharing this limiter.
 #[cfg(test)]
 pub fn reset_backend_probe_diagnostics() {
-    BACKEND_PROBE_LAST.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    BACKEND_PROBE_LAST
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
