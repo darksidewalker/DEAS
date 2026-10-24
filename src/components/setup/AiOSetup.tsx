@@ -20,7 +20,7 @@ import { forgetPref, isBoolean, isString, readPref, usePref, writePref } from '.
 // Root of the last successful install; restored on start only while its deas-install.json still exists.
 const installedKey='install.root';
 /** Keeps the studio/backend alive while top-level views change. */
-export interface AiOSetupProps { /** `inspect` is true for the explicit Inspect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; footer?: ReactNode; studioTab?: 'generate'|'forge'|'chat'|'map'; onStudioTab?: (tab:'generate'|'forge'|'chat'|'map')=>void; onStudioActiveChange?: (active:boolean)=>void }
+export interface AiOSetupProps { /** `inspect` is true for the explicit Connect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; footer?: ReactNode; studioTab?: 'generate'|'forge'|'chat'|'map'; onStudioTab?: (tab:'generate'|'forge'|'chat'|'map')=>void; onStudioActiveChange?: (active:boolean)=>void }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
 export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio, footer, studioTab='generate', onStudioTab, onStudioActiveChange }: AiOSetupProps) {
  const {t}=useI18n();
@@ -89,6 +89,12 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const succeeded=status?.state==='succeeded';const [confirmReinstall,setConfirmReinstall]=useState(false);
  // A finished upgrade/reinstall remounts the backend panel so autostart applies to the new environment.
  const updating=useRef(false);const [updates,setUpdates]=useState(0);
+ const [available,setAvailable]=useState<{app:string|null;comfy:boolean;nodepack:boolean}|null>(null);
+ const [confirmUpgrade,setConfirmUpgrade]=useState(false);
+ const [appReplaced,setAppReplaced]=useState(false);
+ useEffect(()=>{if(!native)return;let alive=true;invoke<typeof available>('native_update_check').then(value=>{if(alive)setAvailable(value);},()=>{});return()=>{alive=false;};},[native]);
+ const pending=available?[available.app&&`DEAS ${available.app}`,available.comfy&&'ComfyUI',available.nodepack&&t('app.updateNodes')].filter(Boolean):[];
+ const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
  const inBackend=view==='backend';
  useEffect(()=>{if(!native)return;let alive=true;
   readAuthStatus().then(list=>{
@@ -204,14 +210,30 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   finally{operationLock.current=false;setBusy(false);}
  };
  const update=async(reinstall:boolean)=>{
-  setConfirmReinstall(false);
+  setConfirmReinstall(false);setConfirmUpgrade(false);
   if(!native||operationLock.current||busy||running)return;
   operationLock.current=true;setBusy(true);setTechnicalError('');
-  try{const next=await invoke<NativeInstallStatus>('native_install_update',{reinstall,confirmed:true});updating.current=true;setStatus(next);}
+  try{
+   if(!reinstall){const replaced=await invoke<boolean>('native_app_update',{confirmed:true});if(replaced){setAppReplaced(true);setAvailable(old=>old?{...old,app:null}:old);}}
+   if(reinstall||installed){const next=await invoke<NativeInstallStatus>('native_install_update',{reinstall,confirmed:true});updating.current=true;setStatus(next);}
+  }
   catch(e){setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
- useEffect(()=>{if(updating.current&&status&&status.state!=='running'){updating.current=false;if(status.state==='succeeded')setUpdates(n=>n+1);}},[status]);
+ useEffect(()=>{if(updating.current&&status&&status.state!=='running'){updating.current=false;if(status.state==='succeeded'&&!appReplaced)setUpdates(n=>n+1);}},[status,appReplaced]);
+ useEffect(()=>{
+  if(!appReplaced||busy||running||(installed&&status?.state!=='succeeded'))return;
+  let active=true,inflight=false,requested=false;
+  const restart=async()=>{
+   if(inflight||requested||!window.dispatchEvent(new Event('deas:before-update-restart',{cancelable:true})))return;
+   inflight=true;
+   try{requested=await invoke<boolean>('native_app_restart');}
+   catch(e){if(active){setTechnicalError(String(e));requested=true;}}
+   finally{inflight=false;}
+  };
+  void restart();const timer=window.setInterval(()=>void restart(),1000);
+  return()=>{active=false;window.clearInterval(timer);};
+ },[appReplaced,busy,running,installed,status?.state]);
  const cancel=async()=>{
   if(!native||!running||busy)return;setBusy(true);
   try{await invoke('native_install_cancel');setStatus(await invoke<NativeInstallStatus>('native_install_status'));}
@@ -244,6 +266,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {inBackend&&review&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {view==='logs'&&<LogsPanel/>}
   {inBackend&&<LanguageSetting/>}
+  {inBackend&&!installed&&<button type="button" disabled={!native||running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>}
+  {appReplaced&&<p role="status">{t('setup.updateRestart')}</p>}
   {inBackend&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}{installedRoot&&<FoldersPanel root={installedRoot} disabled={running||busy||folderPickerBusy} onChange={setFolders}/>}</>}
   <div hidden={!inBackend}><BackendPanels llmSetupRequest={llmSetupRequest} root={installedRoot} modelsDir={folders.models} onRestart={()=>setRestartSignal(n=>n+1)} onAuthChange={()=>{setConfigured([]);setVerified([]);setAuthRevision(n=>n+1);}}/></div>
   <DownloadWorkspace view={view==='downloads'?'downloads':null} authRevision={authRevision} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
@@ -287,17 +311,18 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
   </section>}
   {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} onStatusChange={setBackendStatus} locked={running} restartSignal={restartSignal} actions={<>
-   <button type="button" title={t('setup.upgradeHelp')} disabled={running||busy} onClick={()=>void update(false)}>{t('setup.upgrade')}</button>
+   <button type="button" title={t('setup.updateWarning')} disabled={running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
   </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}
   {confirmReinstall&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reinstall-title"><div className="download-dialog-card"><h3 id="reinstall-title">{t('setup.reinstallTitle')}</h3><p>{t('setup.reinstallWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmReinstall(false)}>{t('setup.reinstallCancel')}</button><button type="button" className="aio-danger" onClick={()=>void update(true)}>{t('setup.reinstallConfirm')}</button></div></div></div>}
   {confirmTakeover&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="takeover-title"><div className="download-dialog-card"><h3 id="takeover-title">{t('setup.takeover.title')}</h3><p>{t('setup.takeover.warning')}</p><p><code>{takeoverPath}</code></p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmTakeover(false)}>{t('setup.takeover.cancel')}</button><button type="button" className="aio-danger" onClick={()=>{setConfirmTakeover(false);void start();}}>{t('setup.takeover.confirm')}</button></div></div></div>}
   </aside>}
   </div>
+  {confirmUpgrade&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="upgrade-title" onKeyDown={e=>{if(e.key==='Escape')setConfirmUpgrade(false);}}><div className="download-dialog-card"><h3 id="upgrade-title">{t('setup.updateTitle')}</h3><p>{t(installed?'setup.updateWarning':'setup.updateAppWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmUpgrade(false)}>{t('setup.reinstallCancel')}</button><button type="button" disabled={!native||running||busy} onClick={()=>void update(false)}>{t('setup.updateConfirm')}</button></div></div></div>}
   <footer className="footer">
    {(backendStatus?.state==='starting'||(backendStartedNotice&&backendStatus?.state==='running'))&&<span data-backend-notice role="status" className={`footer-backend${backendStatus.state==='running'?' is-ready':''}`}>
     {backendStatus.state==='starting'?t('setup.footer.starting'):<><span aria-hidden="true">✓ </span><span>{t('setup.footer.started')}</span></>}
-   </span>}{footer}
+   </span>}{footer??<button type="button" className={`footer-version${updateHint?' is-update':''}`} title={updateHint||t('setup.updateTitle')} onClick={()=>{setView('backend');setConfirmUpgrade(true);}}>{`${t('app.brand')} v${__APP_VERSION__}`}{updateHint&&<span aria-hidden="true"> ↑</span>}</button>}
   </footer>
  </section>;
 }

@@ -2,6 +2,8 @@
 //! metadata looked up by SHA-256. Metadata is cached beside the file as `<file>.deas.json`;
 //! the model file itself is only ever read.
 use super::*;
+#[path = "downloads_models_scan.rs"]
+pub mod background;
 use serde_json::Value;
 use std::{
     fs::File,

@@ -53,6 +53,11 @@ export function ProjectBar({ draft, busy, onRestore }: ProjectBarProps) {
  useLayoutEffect(()=>{pendingClose.current=dirty||!!working||!!hydrating;},[dirty,working,hydrating]);
  useEffect(()=>{if(!dirty&&!working&&!hydrating)setCloseBlocked(false);},[dirty,working,hydrating]);
  useEffect(()=>{
+  const guard=(event:Event)=>{if(pendingClose.current||busy){event.preventDefault();setCloseBlocked(true);}};
+  window.addEventListener('deas:before-update-restart',guard);
+  return()=>window.removeEventListener('deas:before-update-restart',guard);
+ },[busy]);
+ useEffect(()=>{
   if(!closeScope||!isTauri())return;
   let active=true;let unlisten:(()=>void)|undefined;
   setCloseGuardFailed(false);

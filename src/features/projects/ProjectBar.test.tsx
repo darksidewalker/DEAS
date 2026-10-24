@@ -17,10 +17,12 @@ test('window close is prevented for unsaved and in-flight project writes, then a
  const event={preventDefault:vi.fn()};
  act(()=>closeEvents.handler?.(event));
  expect(event.preventDefault).toHaveBeenCalledOnce();
+ act(()=>expect(window.dispatchEvent(new Event('deas:before-update-restart',{cancelable:true}))).toBe(false));
  expect(screen.getByText('Save the project or explicitly close without saving before closing this window.')).toBeTruthy();
  await tick();const writing={preventDefault:vi.fn()};act(()=>closeEvents.handler?.(writing));expect(writing.preventDefault).toHaveBeenCalledOnce();
  await act(async()=>pending.resolve(snapshot(3,{...draft,positivePrompt:'not yet saved'})));
  const saved={preventDefault:vi.fn()};act(()=>closeEvents.handler?.(saved));expect(saved.preventDefault).not.toHaveBeenCalled();
+ expect(window.dispatchEvent(new Event('deas:before-update-restart',{cancelable:true}))).toBe(true);
 });
 
 test('close listener registration failure is visible and reaches a fixed native diagnostic',async()=>{

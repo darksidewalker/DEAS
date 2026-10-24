@@ -586,6 +586,10 @@
   "studio.run.video.ref.dropOf": "{name} から無視",
   "studio.editor.restoreFrame": "枠内に戻す",
   "studio.run.useInput": "入力として使用",
+  "studio.backend.unavailable": "バックエンドに接続できません。Backend で起動してください。起動済みなら準備が完了するまで待ち、アドレスとログを確認してください。",
+  "studio.backend.timeout": "バックエンドが時間内に応答しませんでした。起動中または処理中の可能性があります。少し待って再試行し、続く場合は Backend とログを確認してください。",
+  "studio.backend.requestFailed": "バックエンドへの接続に失敗したか、接続が中断されました。Backend で状態とアドレスを確認して再試行してください。詳細はログを参照してください。",
+  "studio.backend.httpError": "バックエンドが HTTP {status} を返しました。Backend、ログ、アドレスとアクセス設定を確認して再試行してください。",
   "studio.quick.scheme": "カラースキーム",
   "studio.tab.chat": "チャット"
 }

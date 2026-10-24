@@ -34,6 +34,9 @@
 .aio-detail pre { overflow: auto; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--field); padding: 1rem; border-radius: .75rem; color: var(--blue-light); font-size: .8rem; line-height: 1.6; }
 .aio-plan-status { color: var(--copper-hi); font-size: .8rem; font-weight: 600; }
 .aio-error { color: var(--danger); }
+.aio-checks { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .35rem; font-size: .85rem; }
+.aio-check-pass > span { color: var(--ok-bright); margin-right: .4rem; }
+.aio-check-fail > span { color: var(--danger-2); margin-right: .4rem; }
 .aio-notice { color: var(--blue-light); }
 @media (max-width: 640px) { .aio-setup-header { flex-direction: column; } .aio-motion { max-width: 100%; } }
 .aio-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
@@ -150,7 +153,7 @@
 .backend-auth .download-module { margin: 0; }
 .aio-setup > .footer { position: fixed; right: 8px; bottom: 6px; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; background: transparent; pointer-events: none; }
 .aio-setup .footer-version { margin: 0; padding: 0; background: transparent; font-size: 9px; color: var(--text-2); }
-.aio-setup button.footer-version { pointer-events: auto; }
+.aio-setup button.footer-version { appearance: none; -webkit-appearance: none; display: inline-flex; align-items: center; width: auto; min-width: 0; height: auto; min-height: 0; border: 0; border-radius: 0; box-shadow: none; line-height: 1; cursor: pointer; pointer-events: auto; }
 
 .footer-backend { font-size: 11px; color: var(--text-2); }
 .footer-backend.is-ready { color: var(--ok-bright); animation: backend-ready-glow 3s ease-out both; }

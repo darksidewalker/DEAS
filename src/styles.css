@@ -341,9 +341,28 @@ button.footer-version.is-update { background: none; border: 0; padding: 0; color
   color: var(--blue);
   line-height: 1.7;
 }
+[role="alert"] {
+  position: relative;
+  padding-right: 26px;
+}
 .error-message {
   color: var(--copper-hi);
 }
+.error-message-close {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.is-dismissed { display: none; }
 .draft-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

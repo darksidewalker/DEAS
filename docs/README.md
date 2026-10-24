@@ -10,6 +10,7 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 | --- | --- |
 | Installation, Windows/Linux build, launch and first setup | [Getting started](GETTING-STARTED.md) |
 | AiO installer, Backend lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
+| Confirmed application-binary updates, manual restart and platform limitations | [Application updates](APP-UPDATES.md) |
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |

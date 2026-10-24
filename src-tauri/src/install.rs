@@ -156,20 +156,20 @@ impl Default for Status {
 }
 #[derive(Default)]
 pub struct Engine {
-    inner: Arc<Mutex<Inner>>,
+    pub(crate) inner: Arc<Mutex<Inner>>,
     pub(crate) backend: crate::backend::Lifecycle,
 }
 #[derive(Default)]
-struct Inner {
+pub(crate) struct Inner {
     plans: HashMap<String, Plan>,
-    approved: Option<crate::backend::Approved>,
+    pub(crate) approved: Option<crate::backend::Approved>,
     reopen: Option<(String, crate::backend::Approved)>,
     // Environment of the last upgrade/reinstall, so a failed or cancelled run can be repaired.
     repair: Option<Plan>,
     status: Status,
     cancel: Arc<AtomicBool>,
 }
-fn lock(engine: &Arc<Mutex<Inner>>) -> std::sync::MutexGuard<'_, Inner> {
+pub(crate) fn lock(engine: &Arc<Mutex<Inner>>) -> std::sync::MutexGuard<'_, Inner> {
     engine.lock().unwrap_or_else(|e| e.into_inner())
 }
 fn log(engine: &Arc<Mutex<Inner>>, text: String) {
@@ -322,6 +322,33 @@ impl Engine {
             .clone()
             .ok_or("No successful native installation or verified existing environment is open")?;
         self.backend.start(approved)
+    }
+    /// Read-only dependency check for the owned backend; lists every check, launches nothing.
+    pub(crate) fn backend_test(&self) -> Vec<crate::backend::DependencyCheck> {
+        let g = lock(&self.inner);
+        let root = g
+            .approved
+            .as_ref()
+            .map(|a| Path::new(a.plan().request.storage_path.as_str()));
+        [
+            ("environment", root.is_some()),
+            (
+                "python",
+                root.is_some_and(|r| r.join(VENV_PYTHON).is_file()),
+            ),
+            (
+                "comfyui",
+                root.is_some_and(|r| r.join("ComfyUI/main.py").is_file()),
+            ),
+            (
+                "nodes",
+                root.is_some_and(|r| r.join("ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes").is_dir()),
+            ),
+            ("api", self.backend.status().state == "running"),
+        ]
+        .into_iter()
+        .map(|(id, ok)| crate::backend::DependencyCheck { id, ok })
+        .collect()
     }
     fn open_existing(&self, id: &str, confirmed: bool) -> Result<Status, String> {
         if !confirmed {

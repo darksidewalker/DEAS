@@ -11,5 +11,6 @@
   "app.noRun": "Rien ne s’exécute sans votre demande.",
   "app.instrument": "Un instrument créatif conçu pour fonctionner en local",
   "app.update": "Mise à jour disponible : {list}",
-  "app.updateNodes": "Nodes DaSiWa"
+  "app.updateNodes": "Nodes DaSiWa",
+  "app.dismiss": "Masquer"
 }

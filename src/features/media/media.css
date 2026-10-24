@@ -1,3 +1,8 @@
+.media-toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 0 0 4px; }
+.media-search, .wb-dock-sort, .wb-settings select, :is(.language-setting, .backend-panels, .aio-auto-review) select { box-sizing: border-box; height: 1.8rem; min-height: 0; line-height: normal; }
+.media-search { margin-left: auto; width: 11rem; padding: .3rem .6rem; font-size: .78rem; }
+.wb-dock-sort, .wb-settings select, .aio-setup :is(.language-setting, .backend-panels, .aio-auto-review) select { appearance: none; flex: 0 0 auto; width: auto; min-width: max-content; padding: 0 1.6rem 0 .55rem; font-size: .78rem; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2710%27%20height%3D%276%27%20viewBox%3D%270%200%2010%206%27%3E%3Cpath%20d%3D%27M1%201l4%204%204-4%27%20fill%3D%27none%27%20stroke%3D%27rgb%28210%2C220%2C224%29%27%20stroke-width%3D%271.5%27%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right .5rem center; background-size: .55rem; }
+.aio-setup :is(.language-setting, .backend-panels, .aio-auto-review) select { min-width: 0; max-width: 100%; justify-self: start; }
 .media-library { display: flex; flex-direction: column; gap: .4rem; min-width: 0; min-height: 0; flex: 1; overflow: hidden; padding: .4rem .8rem .5rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--panel); }
 .media-library.is-dragging { border-color: var(--ok); background: var(--ok-soft); }
 .media-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; min-width: 0; }

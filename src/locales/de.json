@@ -11,5 +11,6 @@
   "app.noRun": "Nichts läuft ohne deinen Auftrag.",
   "app.instrument": "Ein kreatives Werkzeug mit lokalem Fokus",
   "app.update": "Update verfügbar: {list}",
-  "app.updateNodes": "DaSiWa-Nodes"
+  "app.updateNodes": "DaSiWa-Nodes",
+  "app.dismiss": "Ausblenden"
 }

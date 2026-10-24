@@ -17,6 +17,14 @@ The Library sorts catalog cards and loaded file rows by version publication date
 
 Catalog offers source selection, provider browsing/search, category/base-model filters, sorting, file/version/quantization selection and Selected for download. Installed scans the configured models folder; opening a file shows path/size/hash and an explicit CivitAI metadata fetch/cache action. Listing a file is not compatibility proof.
 
+### Scan Files (Installed)
+
+Choose **All**, **Models** (all non-LoRA folders, including VAEs/encoders) or **LoRAs**, then **Scan Files**. This explicitly starts one native background task for the configured models root. A full scan can take a long time: model files are hashed and CivitAI is queried sequentially using the existing per-file metadata path. A configured CivitAI token is used; otherwise lookup is anonymous. Valid cached hashes are reused, and metadata is safely written beside each model as `<file>.deas.json`; model contents are never modified.
+
+Changing Library categories, switching to Catalog or another main tab, and unmounting/reopening Library **do not stop the scan**. Installed reconnects to the native task and shows its current filename, processed/total count, remaining count and failures. Only one batch scan can run app-wide; duplicate starts are rejected natively. Starting while downloads are running is blocked. Per-file errors are counted and logged, and remaining files continue; a batch with any errors ends as failed rather than claiming full success. Cached cards reload on return and at completion.
+
+Progress also goes to the central **Logs → DEAS** stream and the launching terminal (stderr), including `Library operation=scan`, job ID, file, `completed`, `total`, `remaining` and `failed`. Provider response bodies/tokens are not logged. See [Logs](LOGS.md). The task and status live for the current DEAS process, not across app exits; closing DEAS stops it. There is no cancel/resume control or automatic restart. Existing listing limits apply (5,000 files, eight subfolder levels); Linux native loopback fixtures and UI lifecycle tests verify the background behavior, not live CivitAI or Windows runtime execution.
+
 ## Authorization and failures
 
 Choose a provider, save with the selected persistence policy and inspect identity status. A saved token is not verified; Refresh retries unavailable checks. Public browsing can stay anonymous; gated resources may require provider-side licenses. Keep tokens out of screenshots/reports/catalogs. See [auth](AUTH-PLUGIN.md) and [download contract](DOWNLOAD-PLUGIN-CONTRACT.md).

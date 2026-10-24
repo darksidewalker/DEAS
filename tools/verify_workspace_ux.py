@@ -43,6 +43,9 @@ with sync_playwright() as p:
             assert page.locator('.footer').evaluate("e=>getComputedStyle(e).position") == 'fixed'
             assert page.locator('.footer').evaluate("e=>getComputedStyle(e).backgroundColor") == 'rgba(0, 0, 0, 0)'
             assert page.locator('.footer-version').evaluate("e=>getComputedStyle(e).backgroundColor") == 'rgba(0, 0, 0, 0)'
+            version_style = page.locator('.footer-version').evaluate("e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return {appearance:s.appearance,border:s.borderTopWidth,shadow:s.boxShadow,font:s.fontSize,width:r.width,height:r.height}}")
+            assert version_style['appearance'] == 'none' and version_style['border'] == '0px' and version_style['shadow'] == 'none', (width, locale, version_style)
+            assert version_style['font'] == '9px' and version_style['height'] <= 14 and version_style['width'] < 150, (width, locale, version_style)
             assert page.locator('.footer-version').inner_text().startswith('DEAS v')
             assert page.locator('.studio-shell').evaluate("e=>getComputedStyle(e).paddingLeft") == '3px'
             assert page.locator('.studio-shell').evaluate("e=>getComputedStyle(e).paddingRight") == '3px'
@@ -172,6 +175,21 @@ with sync_playwright() as p:
     blocked = ['native_startup_write', 'native_llm_write', 'native_llm_generate', 'native_auth_set', 'native_auth_remove', 'native_auth_restore', 'native_backend_start', 'native_backend_stop', 'native_backend_restart', 'native_install_start']
     assert not any(c['command'] in blocked for c in page.evaluate('__CALLS__')[calls_before:]), 'selection must not execute/save'
     page.close()
+    for pending in (False, True):
+        page = browser.new_page(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+        updates = json.dumps({'app': 'v999.0.0' if pending else None, 'comfy': False, 'nodepack': False})
+        page.add_init_script(fixture.replace('window.__calls.push({command,args});', 'window.__calls.push({command,args});' + "if(command==='native_update_check') return " + updates + ';'))
+        page.goto(URL, wait_until='networkidle')
+        page.locator('[data-node="studio"]').click()
+        version = page.locator('.footer-version')
+        assert version.evaluate("e=>e.classList.contains('is-update')") == pending
+        style = version.evaluate("e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return {appearance:s.appearance,border:s.borderTopWidth,background:s.backgroundColor,height:r.height,width:r.width}}")
+        assert style['appearance'] == 'none' and style['border'] == '0px' and style['background'] == 'rgba(0, 0, 0, 0)' and style['height'] <= 14 and style['width'] < 150, (pending, style)
+        version.click()
+        expect(page.locator('[data-node="settings"]')).to_have_attribute('aria-selected', 'true')
+        expect(page.get_by_role('alertdialog')).to_be_visible()
+        assert not any(c['command'] in ('native_app_update', 'native_app_restart', 'native_install_update') for c in page.evaluate('window.__calls'))
+        page.close()
     browser.close()
 (OUT/'results.json').write_text(json.dumps(results, indent=2))
 print(f'PASS: 30 locale/width layouts, 30 three-panel sidebar layouts, retained drafts, transparent footer/start notice, edge-fit backdrop/zoom and frame restore; evidence {OUT}')

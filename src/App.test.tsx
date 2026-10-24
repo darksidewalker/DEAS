@@ -61,6 +61,19 @@ test("language selection updates app, setup, studio metadata and aria without lo
   expect(screen.getByLabelText("Framing")).toHaveProperty("value", "wide");
 });
 
+test('footer version opens Backend and requests consent without starting an update',()=>{
+ localStorage.setItem(LOCALE_STORAGE_KEY,'en');
+ render(<I18nProvider><App/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Studio'}));
+ fireEvent.click(screen.getByRole('button',{name:/DEAS v/}));
+ expect(screen.getByRole('tab',{name:'Backend',selected:true})).toBeTruthy();
+ expect(screen.getByRole('alertdialog').textContent).toContain('Update DEAS?');
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_app_update'||c==='native_install_update')).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+ expect(screen.queryByRole('alertdialog')).toBeNull();
+ expect((screen.getByRole('button',{name:'Upgrade'}) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test('Generate preserves the same workbench across map and top-level tab navigation',()=>{
  localStorage.setItem(LOCALE_STORAGE_KEY,'en');
  const view=render(<I18nProvider><App/></I18nProvider>);
@@ -174,7 +187,7 @@ test("existing setup handoff reveals Engine and prefills its endpoint without in
   render(<I18nProvider><App /></I18nProvider>);
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(screen.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(screen.getByRole("button", { name: "Inspect existing backend" }));
+  fireEvent.click(screen.getByRole("button", { name: "Connect existing backend" }));
   expect(screen.getByRole("button", { name: /^Engine$/ }).getAttribute("aria-expanded")).toBe("true");
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
   expect(document.activeElement).toBe(screen.getByLabelText("Backend URL"));
@@ -190,7 +203,7 @@ test("a setup handoff discards an in-flight snapshot from the previous address",
   const setup = within(screen.getByRole("region", { name: "AiO setup planner" }));
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
   fireEvent.change(setup.getByLabelText("Existing backend address"), { target: { value: "http://127.0.0.1:8188" } });
-  fireEvent.click(setup.getByRole("button", { name: "Inspect existing backend" }));
+  fireEvent.click(setup.getByRole("button", { name: "Connect existing backend" }));
   await act(async () => complete({ baseUrl: "http://127.0.0.1:7801", nodeCount: 1, devices: ["Stale GPU"], missingRequiredNodes: [], capabilities: [] }));
   expect(screen.getByLabelText("Backend URL")).toHaveProperty("value", "http://127.0.0.1:8188");
   expect(screen.queryByText("Stale GPU")).toBeNull();
@@ -302,6 +315,23 @@ test("closing an inline panel returns keyboard focus to its node", () => {
   expect(engine.getAttribute("aria-expanded")).toBe("false");
 });
 
+test.each([
+ ['BACKEND_UNAVAILABLE', 'Backend not reachable'],
+ ['BACKEND_TIMEOUT', 'did not respond in time'],
+ ['BACKEND_REQUEST_FAILED', 'connection failed or was interrupted'],
+ ['BACKEND_HTTP_ERROR', 'HTTP 503'],
+])('inspection presents a human-readable %s without the raw transport URL', async (code, expected) => {
+ vi.mocked(inspectBackend).mockRejectedValue(new Error(code === 'BACKEND_HTTP_ERROR' ? `${code}: object_info returned HTTP 503 Service Unavailable` : `${code}: object_info request failed http://127.0.0.1:45519/object_info`));
+ renderStudio();
+ fireEvent.click(screen.getByRole('button', { name: /^Engine$/i }));
+ fireEvent.click(screen.getByRole('button', { name: /Inspect connection/ }));
+ const alert = await screen.findByRole('alert');
+ expect(alert.textContent).toContain(expected);
+ expect(alert.textContent).not.toContain('object_info');
+ expect(alert.textContent).not.toContain('45519');
+ expect(screen.queryByText(/Inspection complete/)).toBeNull();
+});
+
 test("failed inspection shows actionable error instead of a connected state", async () => {
   vi.mocked(inspectBackend).mockRejectedValue(
     new Error("Backend unavailable. Check your URL and CORS settings."),
@@ -350,4 +380,28 @@ test("invalid local draft data does not break the workspace", () => {
     screen.getByRole("button", { name: /^Director$/i }),
   );
   expect(screen.getByLabelText("Shot direction")).toHaveProperty("value", "");
+});
+
+test("red banners get a close button that dismisses them", async () => {
+  const { container } = renderStudio();
+  const banner = document.createElement("p");
+  banner.className = "error-message";
+  banner.setAttribute("role", "alert");
+  banner.textContent = "boom";
+  container.querySelector(".studio-shell")!.appendChild(banner);
+  const close = await within(banner).findByLabelText("Dismiss");
+  fireEvent.click(close);
+  expect(banner.classList.contains("is-dismissed")).toBe(true);
+});
+
+test("setup-style aio-error alerts are closeable too", async () => {
+  const { container } = renderStudio();
+  const banner = document.createElement("p");
+  banner.className = "aio-error";
+  banner.setAttribute("role", "alert");
+  banner.textContent = "setup boom";
+  container.querySelector(".studio-shell")!.appendChild(banner);
+  const close = await within(banner).findByLabelText("Dismiss");
+  fireEvent.click(close);
+  expect(banner.classList.contains("is-dismissed")).toBe(true);
 });

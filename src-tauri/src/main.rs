@@ -47,6 +47,7 @@ fn main() {
         .manage(deas::projects::Projects::default())
         .manage(deas::auth::AuthState::default().restore_saved())
         .manage(deas::downloads::DownloadEngine::default())
+        .manage(deas::ModelScanEngine::default())
         .invoke_handler(tauri::generate_handler![
             deas::video::native_video_open,
             deas::video::native_video_update,
@@ -64,6 +65,8 @@ fn main() {
             deas::native_download_cancel,
             deas::native_models_scan,
             deas::native_model_info,
+            deas::native_model_scan_start,
+            deas::native_model_scan_status,
             deas::inspect_backend,
             deas::native_negotiate_api,
             deas::native_recipe_prerequisites,
@@ -105,6 +108,8 @@ fn main() {
             deas::native_repo_star,
             deas::native_open_releases,
             deas::native_update_check,
+            deas::native_app_update,
+            deas::native_app_restart,
             deas::native_settings_read,
             deas::native_presets_read,
             deas::native_presets_write,
@@ -151,7 +156,8 @@ fn main() {
             deas::native_logs_people_image_error,
             deas::native_backend_start,
             deas::native_backend_status,
-            deas::native_backend_stop
+            deas::native_backend_stop,
+            deas::native_backend_test
         ])
         .build(tauri::generate_context!())
         .expect("failed to build DEAS")

@@ -11,5 +11,6 @@
   "app.noRun": "未经您的指示，不会运行任何内容。",
   "app.instrument": "以本地为优先的创作工具",
   "app.update": "有可用更新：{list}",
-  "app.updateNodes": "DaSiWa 节点"
+  "app.updateNodes": "DaSiWa 节点",
+  "app.dismiss": "关闭"
 }

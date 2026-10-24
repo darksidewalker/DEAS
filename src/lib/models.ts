@@ -8,3 +8,8 @@ export interface LocalModel { category:string; name:string; path:string; size:nu
 export const scanModels=(root:string,extraRoots:string[]=[])=>invoke<LocalModel[]>('native_models_scan',extraRoots.length?{root,extraRoots}:{root});
 /** Hashes the file once (cached), asks CivitAI by hash and writes `<file>.deas.json`. */
 export const fetchModelInfo=(path:string,authenticated:boolean)=>invoke<LocalModel>('native_model_info',{path,authenticated});
+export type ModelScanScope='all'|'models'|'loras';
+export interface ModelScanStatus { id:string; root:string; state:'idle'|'running'|'succeeded'|'failed'; file:string|null; completed:number; total:number; remaining:number; failed:number }
+/** Native task lifetime is independent of the Library view; one batch at a time app-wide. */
+export const startModelScan=(root:string,scope:ModelScanScope,authenticated:boolean)=>invoke<ModelScanStatus>('native_model_scan_start',{root,scope,authenticated});
+export const readModelScanStatus=()=>invoke<ModelScanStatus>('native_model_scan_status');

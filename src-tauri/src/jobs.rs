@@ -1275,7 +1275,7 @@ fn preview_frame(frame: &[u8]) -> Option<String> {
 /// Best-effort live view over `/ws?clientId=`; failures only mean no preview.
 // shortcut: plain ws only (no TLS feature), https endpoints get no live preview; add rustls if remote https backends matter.
 async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
-    use futures_util::StreamExt;
+    use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
     let Ok(mut url) = base.join("ws") else { return };
     if base.scheme() != "http" || url.set_scheme("ws").is_err() {
@@ -1289,6 +1289,8 @@ async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
         return;
     };
     tokio::spawn(async move {
+        // execution_start is directed to this unique client, unlike broadcast interruptions.
+        let mut prompt_id: Option<String> = None;
         // Ends with the job's own completion events, idle silence, or when the job is dropped.
         while Arc::strong_count(&live) > 1 {
             let Ok(Some(Ok(message))) =
@@ -1296,30 +1298,68 @@ async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
             else {
                 break;
             };
-            let Ok(mut live) = live.lock() else { break };
             match message {
                 Message::Binary(frame) => {
                     if let Some(preview) = preview_frame(&frame) {
+                        let Ok(mut live) = live.lock() else { break };
                         live.preview = Some(preview);
                     }
                 }
                 Message::Text(text) => {
                     let event: Value = serde_json::from_str(&text).unwrap_or_default();
                     match event["type"].as_str() {
-                        Some("progress") => {
+                        Some("execution_start") if prompt_id.is_none() => {
+                            prompt_id = event["data"]["prompt_id"]
+                                .as_str()
+                                .filter(|id| !id.is_empty())
+                                .map(str::to_owned);
+                        }
+                        Some("progress")
+                            if event["data"]["prompt_id"].is_null()
+                                || (prompt_id.is_some()
+                                    && event["data"]["prompt_id"].as_str()
+                                        == prompt_id.as_deref()) =>
+                        {
+                            let Ok(mut live) = live.lock() else { break };
                             live.value = event["data"]["value"].as_u64().unwrap_or(0);
                             live.max = event["data"]["max"].as_u64().unwrap_or(0);
                         }
-                        Some("execution_success" | "execution_error" | "execution_interrupted") => {
+                        Some("execution_success" | "execution_error" | "execution_interrupted")
+                            if prompt_id.is_some()
+                                && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
+                        {
                             break
                         }
                         _ => {}
                     }
                 }
-                Message::Close(_) => break,
+                Message::Close(_) => {
+                    let _ = tokio::time::timeout(Duration::from_secs(1), socket.flush()).await;
+                    return;
+                }
+                // Tungstenite queues the matching pong; flush it even on an otherwise idle socket.
+                Message::Ping(_)
+                    if !matches!(
+                        tokio::time::timeout(Duration::from_secs(1), socket.flush()).await,
+                        Ok(Ok(()))
+                    ) =>
+                {
+                    break;
+                }
                 _ => {}
             }
         }
+        // A TCP drop races ComfyUI's queued sends; finish the WebSocket close handshake instead.
+        let _ = tokio::time::timeout(Duration::from_secs(1), async {
+            socket.close(None).await?;
+            while let Some(message) = socket.next().await {
+                if matches!(message?, Message::Close(_)) {
+                    break;
+                }
+            }
+            Ok::<_, tokio_tungstenite::tungstenite::Error>(())
+        })
+        .await;
     });
 }
 

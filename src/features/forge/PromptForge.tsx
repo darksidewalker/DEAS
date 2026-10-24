@@ -7,7 +7,8 @@ import { NativeForge } from './NativeForge';
 const dialects = [...new Set([...familyDialects, 'MOSS'])];
 import { isString, oneOf, usePref } from '../../lib/preferences';
 import type { MediaItem } from '../../lib/media';
-import { MediaLibrary } from '../media/MediaLibrary';
+import { mediaTypes, mediaViews, type MediaSort, type MediaType, type MediaView } from '../media/MediaLibrary';
+import { MediaPanel } from '../media/MediaPanel';
 import { ModelSelect, useForgeModels } from './ForgeButton';
 
 const modes = ['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'REF2VA'] as const;
@@ -20,7 +21,7 @@ const maxPictures = (target: string, mode: string) => target !== H3 ? 8 : mode =
 interface Picture { path: string; src: string; role: string }
 
 /** Standalone Prompt Forge: every dialect the families name, H3 with labelled references; the result goes to Generate. */
-export function PromptForge({ endpoint, root, inputDir, onSend, active = true }: { active?: boolean; endpoint: string; root?: string; inputDir?: string; onSend: (positive: string, negative: string) => void }) {
+export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, active = true }: { active?: boolean; endpoint: string; root?: string; inputDir?: string; outputDir?: string; onSend: (positive: string, negative: string) => void }) {
   const { t } = useI18n();
   const forge = useForgeModels(endpoint, root, active);
   const [target, setTarget] = usePref('forge.target', dialects[0], oneOf(...dialects));
@@ -32,6 +33,10 @@ export function PromptForge({ endpoint, root, inputDir, onSend, active = true }:
   const [see, setSee] = useState(false);
   const [brief, setBrief] = usePref('forge.brief', '', isString);
   const [pictures, setPictures] = useState<Picture[]>([]);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = usePref<MediaSort>('forge.media.sort', 'date', oneOf('date', 'name', 'size'));
+  const [view, setView] = usePref<MediaView>('forge.media.view', 'tiles', oneOf(...mediaViews));
+  const [type, setType] = usePref<MediaType>('forge.media.type', 'all', oneOf(...mediaTypes));
   const [result, setResult] = useState('');
   const [negative, setNegative] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -98,7 +103,7 @@ export function PromptForge({ endpoint, root, inputDir, onSend, active = true }:
       {warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
       <label className="forge-field"><span>{t('forge.negative')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>
       <button type="button" className="action-button" data-forge-send disabled={!result.trim()} onClick={() => onSend(result, negative)}>{t('forge.send')}</button>
-      {forge.model && limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaLibrary selected={null} onSelect={add} roots={{ input: inputDir }}/></div>}
+      {forge.model && limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaPanel selected={null} onSelect={add} roots={{ input: inputDir, output: outputDir }} controls={{ query, onQuery: setQuery, sort, onSort: setSort, view, onView: setView, type, onType: setType }} marks={new Map(shown.map(p => [`${inputDir}/${p.path}`, t(`forge.role.${p.role.replace(/-\d$/, '')}`, { n: p.role.slice(-1) })]))}/></div>}
     </div>
   </section>;
 }

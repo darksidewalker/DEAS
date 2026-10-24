@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { backendErrorText } from './lib/backendErrors';
 import { useI18n } from './i18n/I18nProvider';
 import { inspectBackend, type BackendSnapshot } from './lib/comfy';
 import { builtinPlugins } from './lib/plugins';
@@ -13,7 +13,6 @@ import { Chat } from './features/chat/Chat';
 import type { Folders } from './lib/settings';
 import { oneOf, usePref } from './lib/preferences';
 const studioTabs=['generate','forge','chat','map'] as const;
-interface Updates {app:string|null;comfy:boolean;nodepack:boolean}
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
 const defaultDraft:DirectorDraft={direction:'',framing:'wide',mood:'natural'};
@@ -62,25 +61,34 @@ export default function App(){
  const [sent,setSent]=useState<{positive:string;negative:string;n:number}>();
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
  useEffect(()=>{if(pendingConnectionFocus&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,active]);
+ const shellRef=useRef<HTMLDivElement>(null);
+ // Every red banner closes in one place: attach × to each [role=alert] as it mounts.
+ useEffect(()=>{
+  const root=shellRef.current;if(!root)return;
+  const decorate=()=>root.querySelectorAll<HTMLElement>('[role="alert"]').forEach(el=>{
+   if(el.querySelector('.error-message-close'))return;
+   const button=document.createElement('button');
+   button.type='button';button.className='error-message-close';button.setAttribute('aria-label',t('app.dismiss'));button.textContent='×';
+   button.addEventListener('click',()=>el.classList.add('is-dismissed'));
+   el.appendChild(button);
+  });
+  decorate();
+  const observer=new MutationObserver(decorate);observer.observe(root,{childList:true,subtree:true});
+  return()=>observer.disconnect();
+ },[t]);
  // An explicit Inspect opens the Engine node; the owned backend's automatic handoff only binds the endpoint and leaves the user where they are.
  function connectExisting(baseUrl:string,inspect=false){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);setSnapshot(null);setInspectionError('');if(inspect){setTab('map');setActive('engine');setPendingConnectionFocus(true);}}
  const includedIds=new Set(builtinPlugins.flatMap(p=>p.includes??[]));
  const nodes:NeuralNode[]=builtinPlugins.filter(p=>!includedIds.has(p.id)&&p.kind!=='plugin').map((p,index)=>({id:p.id,label:t(p.nameKey!),description:t(`studio.hint.${p.id}`),included:(p.includes??[]).map(id=>({id,label:t(builtinPlugins.find(part=>part.id===id)!.nameKey!)})),parentId:p.parentId,...(presentation[p.id]??{column:2,order:index}),status:t(p.id==='engine'?inspecting?'studio.status.inspecting':snapshot?'studio.status.snapshot':inspectionError?'studio.status.error':'studio.status.notInspected':p.id==='director'?'studio.status.draft':p.id==='plugins'?'studio.status.registry':'studio.status.planned')}));
  const edges:NeuralEdge[]=builtinPlugins.flatMap(p=>active===p.id?(p.suggests??[]).map(id=>({id:`suggested:${p.id}:${id}`,fromId:p.id,toId:id,kind:'suggested' as const})):[]);
  const selected=builtinPlugins.find(p=>p.id===active);
- // Read-only once per launch; failures stay silent. The hint sends app updates to the release page, backend updates to the Backend view (Upgrade button).
- const [updates,setUpdates]=useState<Updates|null>(null);
- useEffect(()=>{if(!isTauri())return;let alive=true;invoke<Updates>('native_update_check').then(u=>{if(alive)setUpdates(u);},()=>{});return()=>{alive=false;};},[]);
- const pending=updates?[updates.app&&`DEAS ${updates.app}`,updates.comfy&&'ComfyUI',updates.nodepack&&t('app.updateNodes')].filter((x):x is string=>!!x):[];
- const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
- return <div className="studio-shell">
+ return <div className="studio-shell" ref={shellRef}>
   <main id="workspace">
-   <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} footer={<>{updateHint?<button type="button" className="footer-version is-update" title={updateHint} aria-label={updateHint} onClick={()=>{if(updates?.app)void invoke('native_open_releases').catch(()=>{});else document.querySelector<HTMLButtonElement>('[data-node="settings"]')?.click();}}>{`${t('app.brand')} v${__APP_VERSION__}`} <span aria-hidden="true">↑</span></button>
-   :<span className="footer-version">{`${t('app.brand')} v${__APP_VERSION__}`}</span>}</>} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
+   <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
     <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
-    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} onSend={sendToGenerate}/></div>}
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate}/></div>}
     {chatOpened.current&&<div className="studio-generate-host" hidden={tab!=='chat'}><Chat active={studioActive&&tab==='chat'} endpoint={endpoint} root={environment?.root} onSend={sendToGenerate}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>
@@ -94,7 +102,7 @@ export default function App(){
      :<div className="panel-content"><div><h3>{t(`studio.hint.${selected.id}`)}</h3><p>{t('studio.roadmap')}</p></div><div className="planned-note"><span className="eyebrow">{t('studio.notConnected')}</span><p>{t('studio.plannedNotice')}</p></div></div>}
      {active==='engine'&&<ApiNegotiationPanel endpoint={endpoint}/>}
      {active==='engine'&&<RecipePrerequisitesPanel endpoint={endpoint}/>}
-     {active==='engine'&&<div aria-live="polite" aria-busy={inspecting}>{inspecting&&<p className="status-message" role="status">{t('studio.reading')}</p>}{inspectionError&&<p className="status-message error-message" role="alert">{t('studio.technicalError')}: {inspectionError}</p>}
+     {active==='engine'&&<div aria-live="polite" aria-busy={inspecting}>{inspecting&&<p className="status-message" role="status">{t('studio.reading')}</p>}{inspectionError&&<p className="status-message error-message" role="alert">{t('studio.technicalError')}: {backendErrorText(inspectionError,t)}</p>}
       {snapshot&&<><p className="status-message" role="status">{t('studio.complete',{url:snapshot.baseUrl})}</p><div className="result-summary"><div><strong>{snapshot.nodeCount}</strong><span>{t('studio.availableNodes')}</span></div><div><strong>{snapshot.devices.length}</strong><span>{t('studio.reportedDevices')}</span></div><div><strong>{snapshot.missingRequiredNodes.length}</strong><span>{t('studio.missingDirector')}</span></div></div><div className="inspection-detail"><div><h3>{t('studio.devices')}</h3>{snapshot.devices.length?<ul>{snapshot.devices.map((d,i)=><li key={`${d}-${i}`}>{d}</li>)}</ul>:<p className="empty-note">{t('studio.noDevices')}</p>}</div><div><h3>{t('studio.missingNodes')}</h3>{snapshot.missingRequiredNodes.length?<ul>{snapshot.missingRequiredNodes.map(n=><li key={n}>{n}</li>)}</ul>:<p className="empty-note">{t('studio.allNodes')}</p>}</div><div><h3>{t('studio.capabilities')}</h3>{snapshot.capabilities.length?<ul>{snapshot.capabilities.map(c=><li key={c}>{c}</li>)}</ul>:<p className="empty-note">{t('studio.noCapabilities')}</p>}</div></div></>}
      </div>}
     </section>}
