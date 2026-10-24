@@ -3,7 +3,7 @@
 .wildcard-toolbar label { display: grid; gap: 3px; color: var(--muted); }
 .wildcard-toolbar input[type=number] { width: 7rem; }
 .wildcard-toolbar input[type=search] { width: 12rem; max-width: 100%; }
-.wildcard-toolbar button, .wildcard-toolbar input, .wildcard-toolbar select { padding: 4px 7px; font-size: 12px; }
+.wildcard-toolbar button, .wildcard-toolbar input { padding: 4px 7px; font-size: 12px; }
 .wildcard-toolbar button { border: 1px solid rgb(var(--blue-rgb) / 0.302); border-radius: 5px; background: var(--surface); color: var(--chalk); }
 .wildcards .wildcard-check { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wildcards input[type=checkbox] { width: auto; flex: none; }

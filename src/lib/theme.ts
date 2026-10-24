@@ -8,7 +8,8 @@ import { oneOf, readPref, usePref } from './preferences';
 export const SCHEMES = [
   { id: 'default', name: 'Default', swatch: ['#171b1e', '#7c9cac'] },
   { id: 'liiti-pink', name: 'Liiti Pink', swatch: ['#0f0c10', '#f29cc6'] },
-  { id: 'voud', name: 'Voud', swatch: ['#07070a', '#9d8cff'] },
+  { id: 'voud', name: 'VOID', swatch: ['#07070a', '#9d8cff'] }, // Keep the persisted ID for existing selections.
+  { id: 'alluring-abyss', name: 'Alluring Abyss', swatch: ['#14090c', '#df6678'] },
   { id: 'slimy-teal', name: 'Slimy Teal', swatch: ['#081414', '#2cc7c0'] },
   { id: 'clawy-grey', name: 'Clawy Grey', swatch: ['#1b1c1e', '#b9bcc2'] },
   { id: 'android-white', name: 'Android White', swatch: ['#eef1f5', '#0a84ff'] },

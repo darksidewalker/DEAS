@@ -8,7 +8,7 @@
 .forge-pop textarea { height: 6rem; }
 .forge-dialect { margin: 0; color: var(--muted); }
 .forge-field { display: grid; gap: 3px; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.forge-field textarea, .forge-field select, .forge-field input { text-transform: none; letter-spacing: 0; font-size: 13px; width: 100%; min-width: 0; }
+.forge-field textarea, .forge-field input { text-transform: none; letter-spacing: 0; font-size: 13px; width: 100%; min-width: 0; }
 .forge-field input[type="range"] { margin: 0; }
 .forge-field textarea { height: 7rem; resize: vertical; padding: 8px 10px; line-height: 1.4; }
 .forge-warning { margin: 0; color: var(--copper); font-size: 12px; text-transform: none; letter-spacing: 0; }
@@ -138,7 +138,6 @@
 .forge-random-result { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid rgb(var(--ink-rgb) / 0.071); }
 .forge-random-breakdown p { margin: 0 0 4px; font-size: 12px; color: var(--text-2); }
 .forge-random-breakdown strong { color: var(--blue); font-weight: 600; margin-right: 6px; }
-.forge-cast-pick select { padding: 7px 8px; }
 .forge-random-cast > .forge-group-label { align-self: center; }
 .forge-tagpicker { display: grid; gap: 10px; }
 .forge-tagsearch { position: relative; }
@@ -168,7 +167,7 @@
 .forge-refcard { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid rgb(var(--ink-rgb) / 0.086); border-radius: 8px; background: var(--field); }
 .forge-refcard > img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: var(--deep); }
 .forge-refcard-body { display: grid; gap: 8px; min-width: 0; align-content: start; }
-.forge-refcard-body select, .forge-refcard-body input[type="text"], .forge-refdrop select { padding: 7px 9px; }
+.forge-refcard-body input[type="text"] { padding: 7px 9px; }
 .forge-refdrop { display: grid; gap: 10px; padding: 12px; border: 1px dashed rgb(var(--ink-rgb) / 0.165); border-radius: 8px; transition: border-color .12s, background .12s; }
 .forge-refdrop.over { border-color: var(--blue); background: rgb(var(--blue-rgb) / 0.078); }
 .forge-refadd { display: flex; justify-content: center; padding: 10px; border: 1px solid rgb(var(--blue-rgb) / 0.4); border-radius: 6px; color: var(--blue); font-size: 12px; cursor: pointer; }
@@ -188,7 +187,7 @@
 .forge-layout .forge-card-head .forge-note { margin-right: auto; }
 .forge-layout-caption { height: 5.5rem !important; }
 .forge-layout-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.forge-layout-row select, .forge-layout-row input { padding: 7px 9px; }
+.forge-layout-row input { padding: 7px 9px; }
 .forge-layout-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .forge-layout-stage { position: relative; width: 100%; max-height: 62vh; margin: 0 auto; border-radius: 6px; overflow: hidden; border: 1px solid rgb(var(--ink-rgb) / 0.086); }
 .forge-layout.full .forge-layout-stage { max-height: none; }
@@ -210,7 +209,7 @@
 .forge-layout-list small { color: var(--muted); }
 .forge-layout-inspector { display: grid; gap: 8px; align-content: start; }
 .forge-layout-inspector textarea { height: 5rem; }
-.forge-layout-inspector input, .forge-layout-inspector select { padding: 7px 9px; }
+.forge-layout-inspector input { padding: 7px 9px; }
 .forge-layout-coords { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .forge-ghost.danger:hover:not(:disabled) { border-color: var(--copper); color: var(--copper); }
 .forge-readback pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 11px; }

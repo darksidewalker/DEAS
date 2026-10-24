@@ -210,8 +210,7 @@ h3 {
   gap: 9px;
 }
 input,
-textarea,
-select {
+textarea {
   width: 100%;
   border: 1px solid rgb(var(--ink-rgb) / 0.125);
   background: var(--field);
@@ -222,9 +221,42 @@ select {
   min-width: 0;
 }
 input:hover,
-textarea:hover,
-select:hover {
+textarea:hover {
   border-color: rgb(var(--blue-rgb) / 0.502);
+}
+/* All tabs share the Settings dropdown skin; feature CSS owns layout only. */
+select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgb(var(--ink-rgb) / 0.125);
+  border-radius: 4px;
+  background-color: var(--field);
+  color: var(--chalk);
+  font-size: .78rem;
+  text-transform: none;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+}
+select:not([multiple]):not([size]) {
+  appearance: none;
+  height: 1.8rem;
+  min-height: 0;
+  padding: 0 1.6rem 0 .55rem;
+  line-height: normal;
+  /* CSS arrow uses live theme tokens, unlike a fixed-colour SVG URL. */
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%), linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position: right .75rem center, right .5rem center;
+  background-size: .25rem .25rem;
+  background-repeat: no-repeat;
+}
+select:hover:not(:disabled) { border-color: var(--blue); }
+select:focus-visible { outline: 2px solid var(--blue-light); outline-offset: 3px; }
+select:disabled { opacity: .65; cursor: not-allowed; }
+select option, select optgroup { background: var(--field); color: var(--chalk); }
+select option:disabled { color: var(--muted); }
+@media (forced-colors: active) {
+  select:not([multiple]):not([size]) { appearance: auto; background-image: none; }
 }
 .action-button {
   background: var(--blue);

@@ -33,17 +33,22 @@ test('reset actions explain why they are unavailable before Studio mounts',()=>{
 });
 
 test('a colour scheme applies at once, is remembered and survives a reload; Default removes it',()=>{
- localStorage.setItem('deas.locale.v1','en');localStorage.removeItem('deas.pref.appearance.scheme');delete document.documentElement.dataset.theme;
+ localStorage.setItem('deas.locale.v1','en');localStorage.setItem('deas.pref.appearance.scheme',JSON.stringify('voud'));applySavedScheme();
  const view=render(<I18nProvider><QuickSettings/></I18nProvider>);
  fireEvent.click(screen.getByRole('button',{name:'Quick Settings'}));
  const schemes=screen.getByRole('group',{name:'Colour scheme'});
- expect([...schemes.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['Default','Liiti Pink','Voud','Slimy Teal','Clawy Grey','Android White',"Dragon's Hoard"]);
- expect(screen.getByRole('button',{name:'Default'}).getAttribute('aria-pressed')).toBe('true');
- fireEvent.click(screen.getByRole('button',{name:'Voud'}));
+ expect([...schemes.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['Default','Liiti Pink','VOID','Alluring Abyss','Slimy Teal','Clawy Grey','Android White',"Dragon's Hoard"]);
+ expect(screen.getByRole('button',{name:'VOID'}).getAttribute('aria-pressed')).toBe('true');
+ fireEvent.click(screen.getByRole('button',{name:'VOID'}));
  expect(document.documentElement.dataset.theme).toBe('voud');
  expect(JSON.parse(localStorage.getItem('deas.pref.appearance.scheme')!)).toBe('voud');
- expect(screen.getByRole('button',{name:'Voud'}).getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('button',{name:'VOID'}).getAttribute('aria-pressed')).toBe('true');
  delete document.documentElement.dataset.theme;applySavedScheme();expect(document.documentElement.dataset.theme).toBe('voud');
+ fireEvent.click(screen.getByRole('button',{name:'Alluring Abyss'}));
+ expect(document.documentElement.dataset.theme).toBe('alluring-abyss');
+ expect(JSON.parse(localStorage.getItem('deas.pref.appearance.scheme')!)).toBe('alluring-abyss');
+ expect(screen.getByRole('button',{name:'Alluring Abyss'}).getAttribute('aria-pressed')).toBe('true');
+ delete document.documentElement.dataset.theme;applySavedScheme();expect(document.documentElement.dataset.theme).toBe('alluring-abyss');
  fireEvent.click(screen.getByRole('button',{name:'Default'}));
  expect(document.documentElement.dataset.theme).toBeUndefined();
  view.unmount();

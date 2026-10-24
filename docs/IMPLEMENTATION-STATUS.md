@@ -1,5 +1,15 @@
 # DEAS consolidated implementation status and plan
 
+## Shared dropdown styling (0.1.44 follow-up, Unreleased)
+
+The global `select` rules in `src/styles.css` now own the compact Settings skin; feature styles retain layout only, including the aspect-ratio icon inset. The fixed-colour SVG arrow is replaced by theme-token CSS gradients; option colours, hover/focus, disabled and forced-colour behavior are shared. No dependency, component wrapper or preference migration was added.
+
+Verified: 94 core and 709 UI tests, frontend typecheck/production build, and `tools/verify_select_styles.py` with 544 Chromium context/theme/width/import-order cases plus keyboard, focus, hover, disabled and forced-colour checks. A live React UI with read-only IPC fixtures passed ten panel/theme cases across Forge, Options, Post-processing, Wildcards and Presets; inspected Forge screenshots in Alluring Abyss and Android White. The older `verify_media_panel.py` cannot complete against the current native Forge: its fixture lacks `native_llm_models` and expects the removed `.forge-media` layout; it was not changed for this CSS fix. Native Linux/Windows opened-menu rendering, controlled resource/performance acceptance and a native executable rebuild remain unverified.
+
+## Colour-scheme follow-up (0.1.44, Unreleased)
+
+Quick Settings now names the violet scheme **VOID**, retaining its persisted `voud` ID, and adds **Alluring Abyss** with dark-red/burgundy surfaces and crimson accents. Verified: 94 core tests, 709 UI tests, frontend typecheck/production build, complete matching theme tokens and HEX/RGB pairs; checked text/accent contrast pairs exceed 4.5:1. Native Linux/Windows visual interaction remains unverified; no native executable rebuild or release.
+
 ## Native Prompt Forge, Chat and colour schemes (0.1.44, Unreleased)
 
 Integrated the image-model writer, reference builder, MOSS Layout Studio, streamed Chat and colour schemes from the contributor PR, with bounded streamed allocation, real HTTP cancellation, live-project context and stale-result protections. Native model discovery does not require ComfyUI; video/people helpers keep their node-pack requirements, and the local GGUF tool limitation remains explicit. Required and optional Forge data are embedded from pinned PromptForge-Public sources with read-only overrides and provenance. GPL-3.0-or-later was adopted with maintainer approval; optional-data redistribution permission was separately confirmed. [Verification](VERIFICATION.md#native-prompt-forge-and-chat-integration-0143) records full test/build/crosscheck evidence and remaining real-LLM, native-webview, Windows-runtime and performance limits. This is not a tagged release or model-quality acceptance.
@@ -50,6 +60,18 @@ Single top navigation and footer utilities, Backend-owned installer/authenticati
 [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) records the owner-approved interview decisions Q2–Q26 as a binding **target contract, not implemented status**. DEAS prioritizes experienced local users and controllable, persistent media projects rather than integration breadth. The original persistent SDXL milestone below is now deferred by the [owner scope correction](#current-owner-correction-global-recent-job-history-not-full-project-persistence): the next proposal after unstar is a global last-10 job history, without managed-result/revision copies or full project recovery. Project/asset/revision persistence and project recovery remain historical targets, not current prerequisites. Linux and Windows evidence still need to be distinguished for whichever bounded behavior is actually changed.
 
 New training, enhancement, assembly and additional model-family integrations require a separate explicit priority; the deferred project milestone no longer automatically gates the lighter history proposal. Preserve existing image/video functionality and historical evidence; the native playback crash remains a separate recorded/deferred defect, not an image-acceptance prerequisite or an automatically authorized fix. The revised delivery order in §5 supersedes older video-first priorities and historical “next” slice notes below. Exact checkpoint/test configuration and performance limits remain to be established; no implementation, downloads, service changes or release are authorized by this documentation update.
+
+## Planned Prompt Forge aspect-ratio parity with main Settings
+
+**Status: planned, not implemented.** Owner request: Prompt Forge must offer all aspect ratios available in the main Settings, including portrait, landscape, ultrawide and custom ratios; do not maintain a smaller independent list per tab.
+
+Current source: `src/lib/resolution.ts::aspects` defines the Settings list and `canvasSize` resolves model-aligned dimensions. `src/features/forge/NativeForge.tsx` currently derives its choices solely from `spec.aspectRatios`, filters out `N/A`, and uses `spec.layoutCanvas` for MOSS Layout JSON. Unknown or stale selections are replaced by `N/A` in the request. That is not parity with Settings.
+
+Acceptance:
+- [ ] Reuse the canonical Settings ratio data instead of copying its strings. Preserve model-compatible alignment/limits and exact submitted dimensions; adding a ratio does not establish model-quality acceptance.
+- [ ] Define explicit `auto` and custom-ratio behavior using the current Settings/source dimensions, with bounded native validation. Preserve the existing `N/A` meaning where no aspect hint is requested; do not silently substitute a square canvas.
+- [ ] Carry the effective ratio through native prompt requests and MOSS Layout JSON canvas sizing, preview and Send-to-Generate, without crop, aspect distortion or stale-result remapping. Resizing layout objects must retain the existing layout-preservation contract.
+- [ ] Test every canonical ratio, custom values, invalid/stale selections, target switches and in-flight results. Verify UI/native parity and document unsupported capabilities rather than silently dropping a selected ratio. Six-language UI and native Linux/Windows acceptance remain separate gates.
 
 ## Planned user-defined model/recipe profiles for unknown architectures
 

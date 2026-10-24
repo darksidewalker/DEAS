@@ -15,7 +15,7 @@
 .download-identity { font-family: monospace; overflow-wrap: anywhere; }
 .download-identity dd { margin: 0 0 .45rem; }
 .download-identity dt { opacity: .7; font-family: inherit; }
-.download-controls :is(button, input, select, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.download-controls :is(button, input, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 @media (max-width: 400px) { .download-controls .aio-actions { flex-direction: column; align-items: stretch; } }
 @media (prefers-reduced-motion: reduce) { .download-module *, .download-module *::before, .download-module *::after { animation: none !important; transition: none !important; } }
 .download-categories { display: flex; flex-wrap: wrap; gap: .35rem; }
@@ -80,12 +80,11 @@
 .download-filters { display: grid; gap: .6rem; min-width: 0; }
 .download-basket { max-height: 14rem; overflow-y: auto; align-content: start; }
 @media (max-width: 700px) { .download-filter-row { grid-template-columns: minmax(0, 1fr); } }
-.download-controls select { padding: 4px 8px; }
 /* Catalog source and CivitAI search share one row; Enter or the inline ↵ submits. */
 .download-source-row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
 .download-search-go { position: absolute; right: 2px; bottom: 2px; width: 1.7rem; height: calc(100% - 4px); max-height: 1.6rem; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--copper); font-size: .9rem; line-height: 1; }
 .download-search-go:disabled { color: var(--muted); opacity: .5; cursor: default; }
 /* Source and search are twins: same width, height and label spacing. */
 .download-controls .download-source, .download-search { position: relative; flex: 0 1 16rem; min-width: 0; }
-.download-controls .download-source select, .download-controls .download-search input { width: 100%; height: 30px; box-sizing: border-box; padding: 0 8px; }
+.download-controls .download-search input { width: 100%; height: 1.8rem; box-sizing: border-box; padding: 0 8px; }
 .download-controls .download-search input { padding-right: 2rem; }

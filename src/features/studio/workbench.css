@@ -31,7 +31,7 @@
 .wb-active strong { color: var(--chalk); text-transform: none; letter-spacing: 0; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: start; } /* start: a slider under one field must not shift its neighbour */
 .wb-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.wb-field input, .wb-field select { width: 100%; min-width: 0; padding: 5px 7px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.wb-field input { width: 100%; min-width: 0; padding: 5px 7px; font-size: 12px; text-transform: none; letter-spacing: 0; }
 .wb-field input.wb-slider { height: 14px; padding: 0; border: 0; background: transparent; accent-color: var(--copper, #c8865a); cursor: pointer; }
 .wb-component { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .wb-component select.wb-dock-sort { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
@@ -41,7 +41,7 @@
 /* Label · field · slider rows are shared by both columns (subgrid), so a wrapped label never pushes its field below its neighbour's. */
 .wb-controls > .wb-field:not(.wb-seed) { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: 3px; align-content: start; }
 .wb-aspect-picker { position: relative; }
-.wb-aspect-picker select { width: 100%; padding-left: 30px; }
+.wb-aspect-picker select:not([multiple]):not([size]) { padding-left: 30px; }
 .wb-aspect-swatch { position: absolute; left: 7px; top: 0; bottom: 0; width: 18px; display: grid; place-items: center; pointer-events: none; }
 .wb-aspect-swatch > span { border: 1px solid var(--copper); border-radius: 1px; }
 .wb-resolution-hint { margin: 0; font-size: .65rem; color: var(--muted); line-height: 1.4; }
@@ -135,7 +135,6 @@
 .wb-dock-tabs [role="tab"] { padding: 5px 12px; border: 1px solid rgb(var(--ink-rgb) / 0.102); border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); font-size: 12px; }
 .wb-dock-tabs [role="tab"][aria-selected="true"] { background: var(--panel); color: var(--chalk); }
 .wb-settings select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-.wb-settings .wb-aspect-picker select { padding-left: 30px; }
 .wb-dock-action { padding: .3rem .7rem; border: 1px solid var(--line-strong); border-radius: .6rem; background: var(--raised); color: inherit; font-size: .78rem; }
 .wb-dock-panel { flex: 1; min-height: 0; overflow: auto; padding: .5rem .8rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--panel); }
 .media-browser > .wb-tiles { flex: 1; min-width: 0; overflow: auto; }
@@ -159,7 +158,7 @@
 .wb-option-grid > label { display: contents; }
 .wb-option-grid > label.wb-option-row { display: flex; align-items: center; grid-column: 1 / -1; }
 .wb-option .wb-option-grid select, .wb-option .wb-option-grid input[type="number"] { width: 100%; min-width: 0; }
-.wb-option select, .wb-option input[type="number"], .wb-option input[type="text"] { width: 100%; min-width: 0; padding: 3px 6px; font-size: .78rem; }
+.wb-option input[type="number"], .wb-option input[type="text"] { width: 100%; min-width: 0; padding: 3px 6px; font-size: .78rem; }
 .wb-option input[type="checkbox"] { appearance: auto; width: 1.1rem; height: 1.1rem; flex: none; border: 0; background: transparent; padding: 0; }
 .wb-option-row { display: flex; gap: 6px; min-width: 0; }
 .wb-option-row input[type="number"] { width: 5rem; flex: none; }
@@ -195,7 +194,7 @@
 .wb-ref .media-mark { position: static; }
 .wb-stage-notes > .wb-stage-mark { position: static; flex: none; }
 .wb-ref label { display: grid; gap: 2px; font-size: 11px; color: var(--muted); }
-.wb-ref select, .wb-ref input { width: 100%; min-width: 0; padding: 3px 6px; font-size: 12px; }
+.wb-ref input { width: 100%; min-width: 0; padding: 3px 6px; font-size: 12px; }
 .wb-ref select { grid-column: 1 / -1; }
 
 /* A semantic read-only stage chain; no canvas, motion or second draft state. */
