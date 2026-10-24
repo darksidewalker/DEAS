@@ -76,7 +76,7 @@ A changed source license or required notice stops `--update` with `review-requir
 
 ## Weekly pull-request workflow
 
-[Update Forge data](../.github/workflows/update-forge-data.yml) defines a Monday 06:23 UTC schedule and manual `workflow_dispatch`, restricted to `main`. **GitHub Actions is currently intentionally disabled for this repository.** Adding this file does not enable Actions or authorize a live run; weekly execution only begins if a maintainer explicitly enables it later.
+[Update Forge data](../.github/workflows/update-forge-data.yml) defines a Monday 06:23 UTC schedule and manual `workflow_dispatch`, restricted to `main`. Repository Actions are enabled (`gh api repos/OWNER/REPO/actions/permissions` reports `enabled: true`), and both workflows are `active`. Hosted jobs are currently **blocked before start** by account billing/spending limit (annotation: "recent account payments have failed or your spending limit needs to be increased"), which also blocks the existing Verify/Release workflows since 19 Oct. Fix billing or raise the spending limit before expecting green hosted runs; a blocked job has no steps and no logs.
 
 The two jobs run on separate hosted runners:
 
