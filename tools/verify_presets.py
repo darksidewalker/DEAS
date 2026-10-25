@@ -47,7 +47,7 @@ with sync_playwright() as p:
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (locale, width, 'page overflow')
             assert panel.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1'), (locale, width, 'panel overflow')
             assert page.locator('[data-dock-tab="wildcards"]').count() == 1
-            assert page.evaluate("__calls.filter(x=>['native_job_prepare','native_job_submit','native_job_upload_input'].includes(x.command)).length") == 0
+            assert page.evaluate("__calls.filter(x=>['native_job_prepare','native_job_submit','native_workbench_run','native_job_upload_input'].includes(x.command)).length") == 0
             assert not errors, errors
             if locale == 'en':
                 page.screenshot(path=str(output / f'deas-presets-fixture-{width}.png'))

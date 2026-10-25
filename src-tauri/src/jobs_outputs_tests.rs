@@ -42,6 +42,22 @@ fn completed(base: &str) -> Jobs {
     jobs
 }
 
+#[test]
+fn snapshot_output_root_requires_original_directory_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("output");
+    std::fs::create_dir(&root).unwrap();
+    let jobs = completed("http://original:7801/");
+    assert!(jobs.current().unwrap().get("outputRoot").is_none());
+    jobs.lock().unwrap().job.as_mut().unwrap().plan.media_root =
+        Some(MediaRoot::capture(root.clone()).unwrap());
+    assert_eq!(jobs.current().unwrap()["outputRoot"], json!(root));
+    std::fs::rename(&root, temp.path().join("displaced")).unwrap();
+    assert!(jobs.current().unwrap().get("outputRoot").is_none());
+    std::fs::create_dir(&root).unwrap();
+    assert!(jobs.current().unwrap().get("outputRoot").is_none());
+}
+
 fn register_completed(jobs: &Jobs, root: &std::path::Path) {
     let mut session = jobs.lock().unwrap();
     session.job.as_mut().unwrap().plan.media_root = Some(MediaRoot::capture(root.into()).unwrap());
@@ -214,6 +230,46 @@ async fn complete_via_status(jobs: &Jobs, root: &std::path::Path, id: &str, vide
     jobs.lock().unwrap().job = Some(job);
     assert_eq!(jobs.status(id.into()).await.unwrap()["state"], "succeeded");
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn whole_stop_retains_terminal_cache_completed_records_and_diagnostic_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dunce::canonicalize(dir.path()).unwrap();
+    let held = Arc::new(completed("http://127.0.0.1:9/"));
+    complete_via_status(&held, &root, "terminal", false).await;
+    let cached = Arc::new(CachedOutput {
+        job_id: "terminal".into(),
+        index: 0,
+        width: 1,
+        height: 1,
+        sha256: format!("{:x}", Sha256::digest([42])),
+        bytes: vec![42],
+    });
+    held.lock().unwrap().output = Some(cached.clone());
+    let before = held.current().unwrap();
+    let jobs = completed("http://127.0.0.1:9/");
+    let diagnostic = jobs.current().unwrap();
+    jobs.lock().unwrap().workbench.push(held.clone());
+    let result = jobs
+        .workbench_stop(
+            true,
+            Arc::new(|_| panic!("terminal ownership must not be probed")),
+            Arc::new(|_| panic!("terminal must not be interrupted")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["outcome"], "settled");
+    assert_eq!(result["jobs"][0], before);
+    assert_eq!(jobs.current().unwrap(), diagnostic);
+    let entry = held.lock().unwrap();
+    assert!(Arc::ptr_eq(entry.output.as_ref().unwrap(), &cached));
+    assert_eq!(entry.completed.len(), 1);
+    assert_eq!(entry.completed[0].job_id, "terminal");
+    assert_eq!(
+        entry.completed[0].outputs,
+        before["outputs"].as_array().unwrap().clone()
+    );
 }
 
 #[tokio::test]

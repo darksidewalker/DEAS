@@ -92,3 +92,13 @@ scope = "backend"
 locator = "http://127.0.0.1:11434"
 kind = "model"
 target = "ollama-tags"
+
+[[entries]]
+id = "hf-sdxl-revision-vision"
+label = "SDXL ReVision vision tower (CLIP-ViT-bigG fp16, comfyanonymous/clip_vision_g)"
+providerId = "huggingface"
+scope = "repo"
+locator = "models:comfyanonymous/clip_vision_g"
+kind = "repo"
+target = "huggingface-models"
+license = "MIT (LAION CLIP-ViT-bigG-14-laion2B-39B-b160k, fp16 repack)"

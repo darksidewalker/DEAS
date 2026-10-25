@@ -11,9 +11,12 @@ pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
 #[path = "jobs_cancel.rs"]
 mod cancel;
+#[path = "jobs_stop.rs"]
+mod stop;
 #[path = "jobs_workbench.rs"]
 mod workbench;
 pub use cancel::{native_workbench_cancel_pending, native_workbench_interrupt_running};
+pub use stop::native_workbench_stop;
 pub use workbench::{native_workbench_current, native_workbench_poll, native_workbench_run};
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
@@ -27,16 +30,19 @@ pub(crate) const H3_EDIT_NODES: [&str; 7] = [
     "LTXVSeparateAVLatent",
     "ImageFromBatch",
 ];
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Jobs(
-    Mutex<Session>,
-    tokio::sync::Mutex<()>,
+    Arc<Mutex<Session>>,
+    Arc<tokio::sync::Mutex<()>>,
     Arc<tokio::sync::Mutex<()>>,
 );
 
 #[derive(Default)]
 struct Session {
     workbench: Vec<Arc<Jobs>>,
+    admission_epoch: u64,
+    stop: Option<tokio::sync::watch::Receiver<Option<Result<Value, String>>>>,
+    stop_requested: bool,
     cancel_attempted: bool,
     interrupt_attempted: bool,
     preparing: Option<String>,
@@ -91,6 +97,14 @@ impl Job {
     }
     fn snapshot(&self) -> Value {
         let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false,"intent":self.plan.intent,"metadata":self.metadata,"appVersion":env!("CARGO_PKG_VERSION")});
+        if let Some(root) = self
+            .plan
+            .media_root
+            .as_ref()
+            .and_then(|root| root.current_path())
+        {
+            value["outputRoot"] = json!(root);
+        }
         if matches!(self.state, "queued" | "running") {
             if let Ok(live) = self.live.lock() {
                 if live.max > 0 {
@@ -321,6 +335,8 @@ fn compile(i: &Value) -> Result<Value, String> {
     }
     // `h3Edit` (MiniMax H3 sigma shifts) marks the H3 image edit; it belongs exactly to the `minimax` text encoder.
     let h3 = object.get("h3Edit");
+    // SDXL ReVision: a reference picture encoded by core CLIP-vision nodes and applied to the positive conditioning.
+    let reference = object.get("imageReference");
     let h3_family = diffusion.is_some_and(|d| d["clipType"] == "minimax");
     if h3_family != h3.is_some()
         || h3.is_some_and(|h| {
@@ -390,6 +406,7 @@ fn compile(i: &Value) -> Result<Value, String> {
             + 2 * usize::from(image.is_some())
             + usize::from(diffusion.is_some())
             + usize::from(h3.is_some())
+            + usize::from(reference.is_some())
             + usize::from(resize.is_some())
             + usize::from(sigmas.is_some())
             + usize::from(mask.is_some())
@@ -439,6 +456,27 @@ fn compile(i: &Value) -> Result<Value, String> {
         })
     {
         return Err("Invalid loras: at most 8 of {name, strength in [-10, 10]}".into());
+    }
+    if reference.is_some_and(|r| {
+        diffusion.is_some()
+            || r.as_object().is_none_or(|o| o.len() != 2)
+            || !r["visionModel"].as_str().is_some_and(model_name)
+            || !r["images"].as_array().is_some_and(|v| {
+                !v.is_empty()
+                    && v.len() <= 4
+                    && v.iter().all(|e| {
+                        e.as_object().is_some_and(|o| o.len() == 2)
+                            && e["image"].as_str().is_some_and(model_name)
+                            && e["strength"]
+                                .as_f64()
+                                .is_some_and(|n| n.is_finite() && (0.0..=1.0).contains(&n))
+                    })
+            })
+    }) {
+        return Err(
+            "Invalid imageReference: supply {visionModel, images: [{image, strength in [0, 1]}] x 1..4} on a checkpoint (SDXL) family; split-loader families use their native image paths (input image, video references)"
+                .into(),
+        );
     }
     for (field, min, max, integer, alignment) in [
         ("seed", 0.0, 9_007_199_254_740_991.0, true, 1.0),
@@ -647,6 +685,26 @@ fn compile(i: &Value) -> Result<Value, String> {
             graph["5"]["inputs"]["denoise"] = i["denoise"].clone();
         }
         graph.as_object_mut().unwrap().remove("4");
+    }
+    if let Some(r) = reference {
+        // Core ReVision chain: each reference picture's CLIP-vision feature blended into the positive
+        // conditioning at its `strength` (unCLIPConditioning, the core SDXL ReVision consumer); every
+        // positive link follows the last blend.
+        graph["CV"] =
+            json!({"class_type":"CLIPVisionLoader","inputs":{"clip_name":r["visionModel"]}});
+        let mut cond = json!(["2", 0]);
+        for (i, e) in r["images"].as_array().unwrap().iter().enumerate() {
+            let (ri, ce, uc) = (format!("RI{i}"), format!("CE{i}"), format!("UC{i}"));
+            graph[&ri] = json!({"class_type":"LoadImage","inputs":{"image":e["image"]}});
+            graph[&ce] = json!({"class_type":"CLIPVisionEncode","inputs":{"clip_vision":["CV",0],"image":[&ri,0]}});
+            graph[&uc] = json!({"class_type":"unCLIPConditioning","inputs":{"conditioning":cond,"clip_vision_output":[&ce,0],"strength":e["strength"],"noise_augmentation":0.0}});
+            cond = json!([&uc, 0]);
+        }
+        for node in graph.as_object_mut().unwrap().values_mut() {
+            if node["inputs"].get("positive") == Some(&json!(["2", 0])) {
+                node["inputs"]["positive"] = cond.clone();
+            }
+        }
     }
     if let Some(r) = refine {
         let mut image = graph["7"]["inputs"]["images"].clone();
@@ -1008,6 +1066,9 @@ impl Jobs {
             if session.job.as_ref().is_some_and(|j| !j.terminal()) {
                 return Err("An in-flight or unknown native job must not be replaced".into());
             }
+            if session.stop_requested {
+                return Err("Workbench preparation discarded by Stop".into());
+            }
             session.plan = None;
             session.preparing = Some(id.clone());
         }
@@ -1056,6 +1117,13 @@ impl Jobs {
                                     .flatten()
                                     .filter_map(|l| l["image"].as_str()),
                             )
+                            .chain(
+                                intent["imageReference"]["images"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|e| e["image"].as_str()),
+                            )
                             .filter(|s| !s.ends_with(" [output]") && !mask_name(s))
                             .collect(),
                     ),
@@ -1095,6 +1163,13 @@ impl Jobs {
                     intent["options"]["compile"].as_str().into_iter().collect(),
                 ),
                 ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
+                (
+                    "visionModels",
+                    intent["imageReference"]["visionModel"]
+                        .as_str()
+                        .into_iter()
+                        .collect(),
+                ),
                 (
                     "upscaleModels",
                     [&intent["upscaleModel"], &intent["refine"]["upscaleModel"]]
@@ -1155,6 +1230,9 @@ impl Jobs {
         // Consume before the first await: a lost response must never authorize a retry.
         let mut job = {
             let mut session = self.lock()?;
+            if session.stop_requested {
+                return Err("Workbench preparation discarded by Stop".into());
+            }
             if session.workbench_busy()? {
                 return Err("Workbench jobs are in flight or unknown".into());
             }
@@ -1235,8 +1313,15 @@ impl Jobs {
     }
 
     async fn status(&self, job_id: String) -> Result<Value, String> {
+        self.status_inner(job_id, false).await
+    }
+
+    async fn status_inner(&self, job_id: String, stopping: bool) -> Result<Value, String> {
         let mut job = {
             let mut session = self.lock()?;
+            if session.stop_requested && !stopping {
+                return Ok(session.snapshot());
+            }
             let job = session
                 .job
                 .as_mut()
@@ -1253,11 +1338,19 @@ impl Jobs {
             id: &job_id,
             armed: true,
         };
+        let previous_outputs = if stopping {
+            job.outputs.clone()
+        } else {
+            vec![]
+        };
         let result = tokio::time::timeout(Duration::from_secs(15), poll(&mut job)).await;
         match result {
             Ok(Ok(())) => {}
             Ok(Err(error)) => job.unknown(error),
             Err(_) => job.unknown("Native job status deadline exceeded".into()),
+        }
+        if stopping && job.outputs.is_empty() {
+            job.outputs = previous_outputs;
         }
         job.polling = false;
         let mut session = self.lock()?;

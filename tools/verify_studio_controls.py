@@ -117,7 +117,7 @@ def main():
                     page.locator('[data-project-close]').click()
                     expect(page.locator('[data-run-positive]')).to_have_value('global controls draft')
                 assert not errors, errors
-                assert not page.evaluate('__calls.some(c=>/native_job_prepare|native_job_submit|native_input_upload|native_mask_upload/.test(c.command))')
+                assert not page.evaluate('__calls.some(c=>/native_job_prepare|native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command))')
                 results.append({'locale': locale, 'width': width, 'run_inside_queue': True})
                 context.close()
         browser.close()

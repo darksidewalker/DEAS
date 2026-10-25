@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, readCurrentDiagnosticJob, loadDiagnosticJobOutput, exportDiagnosticJobOutput } from './jobs';
+import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, readCurrentDiagnosticJob, loadDiagnosticJobOutput, exportDiagnosticJobOutput } from './jobs';
 import { compileRecipe, type DiagnosticImageIntentV1 } from './execution';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
@@ -41,10 +41,74 @@ test('native-only commands preserve exact intent, explicit consent and job ident
   vi.mocked(invoke).mockResolvedValue(null);
   expect(await readCurrentDiagnosticJob()).toBeNull();
 });
+test('Studio uses independent native collection commands with consent and no diagnostic calls', async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  const snapshot = {jobs: [], preparing: 2, capacity: 20, stopAvailable: true, admissionEpoch:0, stopping:false};
+  vi.mocked(invoke).mockResolvedValue(snapshot);
+  expect(await readCurrentWorkbench()).toEqual({...snapshot,frontendAdmitting:false});
+  expect(invoke).toHaveBeenLastCalledWith('native_workbench_current', {});
+  expect(await pollWorkbench()).toEqual({...snapshot,frontendAdmitting:false});
+  expect(invoke).toHaveBeenLastCalledWith('native_workbench_poll', {});
+  await runWorkbenchJob('http://localhost:7801/prefix/', intent, 0);
+  expect(invoke).toHaveBeenLastCalledWith('native_workbench_run', {baseUrl:'http://localhost:7801/prefix/', intent, confirmed:true, admissionEpoch:0});
+  expect(invoke).toHaveBeenCalledTimes(3);
+});
+test.each([readCurrentWorkbench, pollWorkbench])('collection reads bracket pending Run IPC without changing native counts (%s)', async read => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  const snapshot = {jobs: [], preparing: 0, capacity: 20, stopAvailable: true, admissionEpoch:0, stopping:false};
+  let finish!: (value: never) => void;
+  let finishRead!: (value: typeof snapshot) => void;
+  vi.mocked(invoke).mockImplementation(command => command === 'native_workbench_run'
+    ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(snapshot));
+  const run = runWorkbenchJob('http://original/', intent, 0);
+  expect(await read()).toEqual({...snapshot,frontendAdmitting:true});
+  vi.mocked(invoke).mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+  const staleRead = read();
+  finish({id:'admitted'} as never); await run;
+  finishRead(snapshot);
+  expect(await staleRead).toEqual({...snapshot,frontendAdmitting:true});
+  vi.mocked(invoke).mockResolvedValue(snapshot);
+  expect(await read()).toEqual({...snapshot,frontendAdmitting:false});
+
+  vi.mocked(invoke).mockImplementation(command => command === 'native_workbench_run'
+    ? new Promise(resolve => { finish = resolve; }) : new Promise(resolve => { finishRead = resolve; }));
+  const earlierRead = read();
+  const laterRun = runWorkbenchJob('http://original/', intent, 0);
+  finishRead(snapshot);
+  expect(await earlierRead).toEqual({...snapshot,frontendAdmitting:true});
+  finish({id:'later'} as never); await laterRun;
+});
+test('Run registers before invoke and clears only settled calls, including a lost reply', async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  const snapshot = {jobs: [], preparing: 0, capacity: 20, stopAvailable: true, admissionEpoch:0, stopping:false};
+  let nestedRead!: ReturnType<typeof readCurrentWorkbench>;
+  let finishNested!: (value: typeof snapshot) => void;
+  const pending: {resolve:(value:never)=>void;reject:(reason:unknown)=>void}[] = [];
+  vi.mocked(invoke).mockImplementation(command => {
+    if(command !== 'native_workbench_run') return new Promise(resolve => { finishNested = resolve; });
+    nestedRead = readCurrentWorkbench();
+    return new Promise((resolve,reject) => { pending.push({resolve,reject}); });
+  });
+  const immediate = runWorkbenchJob('http://original/', intent, 0);
+  pending[0].resolve({id:'immediate'} as never); await immediate;
+  finishNested(snapshot);
+  expect((await nestedRead).frontendAdmitting).toBe(true);
+  vi.mocked(invoke).mockImplementation(command => command === 'native_workbench_run'
+    ? new Promise((resolve,reject) => { pending.push({resolve,reject}); }) : Promise.resolve(snapshot));
+  const first = runWorkbenchJob('http://original/', intent, 0);
+  const second = runWorkbenchJob('http://original/', intent, 0);
+  const rejected = expect(second).rejects.toThrow('IPC response lost');
+  pending[2].reject(new Error('IPC response lost')); await rejected;
+  expect((await readCurrentWorkbench()).frontendAdmitting).toBe(true);
+  pending[1].resolve({id:'first'} as never); await first;
+  expect(await readCurrentWorkbench()).toEqual({...snapshot,frontendAdmitting:false});
+  await expect(runWorkbenchJob(' ', intent, 0)).rejects.toThrow('explicit backend endpoint');
+  expect((await readCurrentWorkbench()).frontendAdmitting).toBe(false);
+});
 test('browser fails closed for all job commands without IPC or browser fetch', async () => {
   vi.mocked(isTauri).mockReturnValue(false);
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
-  for (const request of [prepareDiagnosticJob('http://127.0.0.1:7801', intent), submitDiagnosticJob('plan'), readDiagnosticJobStatus('job'), readCurrentDiagnosticJob(), loadDiagnosticJobOutput('job', 0), exportDiagnosticJobOutput('job', 0, 'Save')]) {
+  for (const request of [runWorkbenchJob('http://127.0.0.1:7801', intent, 0), readCurrentWorkbench(), pollWorkbench(), stopWorkbench(), prepareDiagnosticJob('http://127.0.0.1:7801', intent), submitDiagnosticJob('plan'), readDiagnosticJobStatus('job'), readCurrentDiagnosticJob(), loadDiagnosticJobOutput('job', 0), exportDiagnosticJobOutput('job', 0, 'Save')]) {
     await expect(request).rejects.toThrow('desktop app');
   }
   expect(invoke).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
@@ -79,8 +143,47 @@ test('4K PNG metadata passes the same dimension and pixel bounds as native outpu
 });
 test('empty endpoints are rejected before IPC, native errors retain code and message', async () => {
   vi.mocked(isTauri).mockReturnValue(true);
+  await expect(runWorkbenchJob('  ', intent, 0)).rejects.toThrow('explicit backend endpoint');
   await expect(prepareDiagnosticJob('  ', intent)).rejects.toThrow('explicit backend endpoint');
   expect(invoke).not.toHaveBeenCalled();
   vi.mocked(invoke).mockRejectedValue({ code: 'MODEL_ERROR', message: 'Checkpoint failed to load' });
   await expect(submitDiagnosticJob('plan')).rejects.toThrow('MODEL_ERROR: Checkpoint failed to load');
+});
+test('Stop coalesces confirmed native calls and closes cross-mount admission until settled', async () => {
+ vi.mocked(isTauri).mockReturnValue(true);
+ let finish!: (value: never)=>void;
+ const snapshot={jobs:[],preparing:0,capacity:20,stopAvailable:true,admissionEpoch:1,stopping:false};
+ vi.mocked(invoke).mockImplementation(command=>command==='native_workbench_stop'?new Promise(resolve=>{finish=resolve;}):Promise.resolve(snapshot));
+ const first=stopWorkbench();const second=stopWorkbench();
+ expect(invoke).toHaveBeenCalledTimes(1);
+ expect(invoke).toHaveBeenCalledWith('native_workbench_stop',{confirmed:true});
+ expect((await readCurrentWorkbench()).stopping).toBe(true);
+ finish({...snapshot,outcome:'empty',discarded:0,issues:[]} as never);
+ expect(await first).toEqual(await second);
+ expect((await readCurrentWorkbench()).stopping).toBe(false);
+});
+
+test('a completed Stop fence releases obsolete pending Run ownership without clearing newer calls',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ let finish!:(job:never)=>void;
+ const snapshot={jobs:[],preparing:0,capacity:20,stopAvailable:true,admissionEpoch:4,stopping:false};
+ vi.mocked(invoke).mockImplementation(command=>command==='native_workbench_run'?new Promise(resolve=>{finish=resolve;}):Promise.resolve({...snapshot,outcome:'settled',discarded:1,issues:[]}));
+ const old=runWorkbenchJob('http://original/',intent,3);
+ await stopWorkbench();
+ expect((await readCurrentWorkbench()).frontendAdmitting).toBe(false);
+ const finishOld=finish;const newer=runWorkbenchJob('http://original/',intent,4);
+ finishOld({id:'obsolete'} as never);await old;
+ expect((await readCurrentWorkbench()).frontendAdmitting).toBe(true);
+ finish({id:'new'} as never);await newer;
+ expect((await readCurrentWorkbench()).frontendAdmitting).toBe(false);
+});
+
+test('a failed Stop can be explicitly retried; a pending Stop refuses Run without IPC',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ vi.mocked(invoke).mockRejectedValueOnce(new Error('IPC unreachable'));
+ await expect(stopWorkbench()).rejects.toThrow('IPC unreachable');
+ let finish!:(value:never)=>void;vi.mocked(invoke).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ const stop=stopWorkbench();await expect(runWorkbenchJob('http://original/',intent,0)).rejects.toThrow('Stop is in progress');
+ expect(invoke).toHaveBeenCalledTimes(2);
+ finish({jobs:[],preparing:0,capacity:20,stopAvailable:true,admissionEpoch:1,stopping:false,outcome:'empty',discarded:0,issues:[]} as never);await stop;
 });

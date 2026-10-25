@@ -10,8 +10,7 @@ FAILURE=r"""
 const originalInvoke=window.__TAURI_INTERNALS__.invoke;
 let submittedIntent;
 window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
- if(command==='native_job_prepare'){window.__calls.push({command,args});submittedIntent=args.intent;return {id:'fixture-plan',baseUrl:args.baseUrl,intent:args.intent,graph:{},generationReady:false};}
- if(command==='native_job_submit'){window.__calls.push({command,args});return {id:'fixture-failure',baseUrl:'http://127.0.0.1:7801/',promptId:'fixture',state:'failed',outputs:[],error:'node 5 (KSampler): RuntimeError: Missing checkpoint Select a compatible dependency.',intent:submittedIntent,generationReady:false};}
+ if(command==='native_workbench_run'){submittedIntent=structuredClone(args.intent);window.__calls.push({command,args});return window.__job={id:'fixture-failure',baseUrl:'http://127.0.0.1:7801/',promptId:'fixture',state:'failed',outputs:[],error:'node 5 (KSampler): RuntimeError: Missing checkpoint Select a compatible dependency.',intent:submittedIntent,generationReady:false};}
  return originalInvoke(command,args);
 };
 """

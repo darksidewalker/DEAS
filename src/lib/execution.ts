@@ -38,6 +38,8 @@ export interface DiagnosticImageIntentV1 {
   readonly diffusion?: { readonly textEncoder: string; readonly clipType: string; readonly vae: string };
   /** MiniMax H3 image edit (native compiler only): sigma shifts; the native graph samples the source as the first frame of a 5-frame pass. */
   readonly h3Edit?: { readonly shiftVideo: number; readonly shiftAudio: number };
+  /** SDXL ReVision (checkpoint-loader families only): a reference picture from the backend input folder, encoded by a CLIP-vision model and blended into the positive conditioning at `strength`. */
+  readonly imageReference?: { readonly visionModel: string; readonly images: readonly { readonly image: string; readonly strength: number }[] };
   /** Workbench Options: model patches (one attention backend, step cache, torch.compile) and tiled VAE. */
   readonly options?: RunOptions;
   /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */
@@ -77,6 +79,7 @@ export interface RecipeAllowlist {
   readonly diffusionModels?: readonly string[];
   readonly textEncoders?: readonly string[];
   readonly clipTypes?: readonly string[];
+  readonly visionModels?: readonly string[];
   readonly vaes?: readonly string[];
   readonly attention?: readonly string[];
   readonly sage?: readonly string[];
@@ -125,7 +128,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression', 'imageReference'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -242,6 +245,17 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
       invalid('refine', 'Invalid refine pass.', 'Supply aligned width/height (at most 16,777,216 pixels), denoise in (0, 1], an optional listed upscale model, sigmas exactly when the first pass has them, and tiled {tileWidth, tileHeight, overlap} aligned to 8 with overlap below the tile.');
     }
   }
+  if (Object.hasOwn(input, 'imageReference')) {
+    const r = input.imageReference;
+    if (input.diffusion !== undefined
+      || !isRecord(r) || Object.keys(r).length !== 2
+      || !safeModel(r.visionModel)
+      || !Array.isArray(r.images) || r.images.length < 1 || r.images.length > 4
+      || r.images.some(e => !isRecord(e) || Object.keys(e).length !== 2 || !safeModel(e.image)
+        || !(typeof e.strength === 'number' && Number.isFinite(e.strength) && e.strength >= 0 && e.strength <= 1))) {
+      invalid('imageReference', 'Invalid image reference.', 'Supply {visionModel, images: [{image, strength in [0, 1]}] x 1..4} on a checkpoint (SDXL) family; split-loader families use their native image paths (input image, video references).');
+    }
+  }
   const prefix = input.outputPrefix;
   if (!safeOutputPrefix(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use a relative output path of at most 512 ASCII characters, with safe segments of at most 180 characters.');
   return input as unknown as DiagnosticImageIntentV1;
@@ -315,6 +329,22 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     graph.Q = { class_type: 'KSamplerSelect', inputs: { sampler_name: intent.sampler } };
     graph.Z = { class_type: 'ManualSigmas', inputs: { sigmas: intent.sigmas.join(', ') } };
     graph['5'] = { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['N', 0], guider: ['G', 0], sampler: ['Q', 0], sigmas: ['Z', 0], latent_image: ['4', 0] } };
+  }
+  if (intent.imageReference) {
+    // Core ReVision chain: each reference picture's CLIP-vision features blended into the positive conditioning.
+    const graph = result.graph as Record<string, ApiNode>;
+    graph.CV = { class_type: 'CLIPVisionLoader', inputs: { clip_name: intent.imageReference.visionModel } };
+    let cond: [string, number] = ['2', 0];
+    intent.imageReference.images.forEach((ref, i) => {
+      graph[`RI${i}`] = { class_type: 'LoadImage', inputs: { image: ref.image } };
+      graph[`CE${i}`] = { class_type: 'CLIPVisionEncode', inputs: { clip_vision: ['CV', 0], image: [`RI${i}`, 0] } };
+      graph[`UC${i}`] = { class_type: 'unCLIPConditioning', inputs: { conditioning: cond, clip_vision_output: [`CE${i}`, 0], strength: ref.strength, noise_augmentation: 0 } };
+      cond = [`UC${i}`, 0];
+    });
+    for (const [id, node] of Object.entries(graph)) {
+      const p = node.inputs.positive;
+      if (Array.isArray(p) && p[0] === '2' && p[1] === 0) graph[id] = { ...node, inputs: { ...node.inputs, positive: cond } };
+    }
   }
   if (intent.inputImage !== undefined) {
     const graph = result.graph as Record<string, ApiNode>;
@@ -421,7 +451,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
   if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-  for (const image of [intent.inputImage, ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  for (const image of [intent.inputImage, ...(intent.imageReference?.images.map(e => e.image) ?? []), ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  if (intent.imageReference && !allowlist.visionModels?.includes(intent.imageReference.visionModel)) throw new RecipeCompileError('MISSING_MODEL', 'visionModel', 'CLIP-vision model is not in the verified vision model list.', 'Install the model in the backend vision folder and reload prerequisites.');
   for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
   for (const lora of loras) {
     if (!allowlist.loras?.includes(lora.name)) throw new RecipeCompileError('MISSING_MODEL', 'loras', 'LoRA is not in the verified model list.', 'Select exact LoRA identifiers from the verified backend model list.');

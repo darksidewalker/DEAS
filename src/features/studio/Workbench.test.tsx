@@ -6,22 +6,253 @@ import { defaultOptions } from './OptionsPanel';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, type JobStatus } from '../../lib/jobs';
+import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobStatus } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
-vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),prepareDiagnosticJob:vi.fn(),submitDiagnosticJob:vi.fn(),readDiagnosticJobStatus:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler','euler_ancestral','euler_cfg_pp','er_sde'],schedulers:['normal','simple','linear_quadratic']}};
 beforeEach(()=>{
+ vi.mocked(stopWorkbench).mockResolvedValue({...collection(),admissionEpoch:1,outcome:'empty',discarded:0,issues:[]});
+ vi.mocked(readCurrentWorkbench).mockImplementation(async()=>{
+  const submitted=await Promise.all(vi.mocked(runWorkbenchJob).mock.results.filter(result=>result.type==='return').map(async result=>{try{return await result.value as JobStatus;}catch{return null;}}));
+  return collection([...new Map(submitted.filter((job):job is JobStatus=>!!job).map(job=>[job.id,job])).values()]);
+ });
+ vi.mocked(pollWorkbench).mockResolvedValue(collection());
  localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);
  Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.open=true;}});
  Object.defineProperty(HTMLDialogElement.prototype,'close',{configurable:true,value:function(this:HTMLDialogElement){this.open=false;}});
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({save:vi.fn(),restore:vi.fn(),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([0,0,0,0])}))} as unknown as CanvasRenderingContext2D);
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
+const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
+test.each(['http://old:7801/','http://new:7802/'])('recovered output uses native root, not endpoint or current environment (%s)',async baseUrl=>{
+ const job={...heldJob('old-environment','succeeded',baseUrl),outputRoot:'/old-env/output',outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{entries:[],truncated:false});
+ render(<I18nProvider><Workbench endpoint="http://new:7802/" roots={{output:'/new-env/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="old-environment"] img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png'));
+ expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png');
+ expect(document.querySelectorAll('[src*="/new-env/output/"]')).toHaveLength(0);
+ expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path:'/old-env/output/raw/result.png'});
+ clickMedia(document.querySelector<HTMLImageElement>('.wb-shown img')!);
+ expect(document.querySelector('.wb-viewer img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png');
+ fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent(window,new CustomEvent('deas-media-relocated',{detail:{oldPath:'/old-env/output/raw/result.png',path:'/old-env/output/starred/result.png'}}));
+ await waitFor(()=>expect(document.querySelector('[data-job-id="old-environment"] img')?.getAttribute('src')).toContain('/old-env/output/starred/result.png'));
+});
+test('unknown output root uses bound preview/export with no local-path actions',async()=>{
+ const job={...heldJob('remote-result','succeeded'),outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(loadDiagnosticJobOutput).mockResolvedValue({jobId:job.id,index:0,mimeType:'image/png',width:1,height:1,sha256:'a'.repeat(64),bytes:[137,80,78,71]});
+ vi.mocked(exportDiagnosticJobOutput).mockResolvedValue({path:'/chosen/result.png',sha256:'a'.repeat(64),size:4});
+ vi.stubGlobal('URL',Object.assign(class extends URL {},{createObjectURL:vi.fn(()=>'blob:bound-output'),revokeObjectURL:vi.fn()}));
+ render(<I18nProvider><Workbench endpoint="http://new:7802/" roots={{output:'/new-env/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-output-preview]')?.getAttribute('src')).toBe('blob:bound-output'));
+ expect(loadDiagnosticJobOutput).toHaveBeenCalledWith(job.id,0);
+ expect(document.querySelector('[data-job-id="remote-result"] img')).toBeNull();
+ expect(document.querySelector('[data-run-post]')).toBeNull();
+ expect(document.querySelector('[data-use-input]')).toBeNull();
+ expect(invoke).not.toHaveBeenCalledWith('native_media_star_status',expect.anything());
+ expect((screen.getByRole('button',{name:'Star result.png'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(document.querySelector('[data-job-output-export]')!);
+ await waitFor(()=>expect(exportDiagnosticJobOutput).toHaveBeenCalledWith(job.id,0,expect.any(String)));
+});
+test.each(['/new-env/output','/old-env/output'])('recovered image Post-process transfers its native-held file even when UI roots match (%s)',async output=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ localStorage.setItem('deas.pref.studio.run.pipeline','"i2i"');
+ const intent={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'old',negativePrompt:'',checkpoint:'a.safetensors',seed:42,cfg:6,sampler:'euler',scheduler:'normal',outputPrefix:'raw/old',width:1024,height:1024,steps:20} as const;
+ const job={...heldJob('old-image','succeeded'),outputRoot:'/old-env/output',intent,outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/original.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('post','failed'),baseUrl:evidence.baseUrl});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output}}/></I18nProvider>);
+ const post=await waitFor(()=>{const post=document.querySelector<HTMLButtonElement>('[data-run-post]');expect(post).not.toBeNull();expect(post!.disabled).toBe(false);return post!;});
+ fireEvent.click(post);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/old-env/output/raw/result.png');
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/original.png'});
+});
+test.each([true,false])('native video playback uses captured root when available (owned=%s)',async owned=>{
+ const agent=vi.spyOn(navigator,'userAgent','get').mockReturnValue('Linux');
+ try{
+  const job={...heldJob('old-video','succeeded'),...(owned?{outputRoot:'/old-env/output'}:{}),outputs:[{filename:'clip.mp4',subfolder:'raw',type:'output' as const}]};
+  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+  render(<I18nProvider><Workbench endpoint="http://new:7802/" roots={{output:'/new-env/output'}}/></I18nProvider>);
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_video_open',expect.objectContaining({source:owned?{path:'/old-env/output/raw/clip.mp4'}:{baseUrl:job.baseUrl,filename:'clip.mp4',subfolder:'raw',type:'output'}})));
+ }finally{cleanup();agent.mockRestore();}
+});
+test.each(['reply','lost reply','rejected'] as const)('real IPC admission survives remount before native reservation (%s)',async outcome=>{
+ const actual=await vi.importActual<typeof import('../../lib/jobs')>('../../lib/jobs');
+ const previous=[vi.mocked(runWorkbenchJob).getMockImplementation(),vi.mocked(readCurrentWorkbench).getMockImplementation(),vi.mocked(pollWorkbench).getMockImplementation()] as const;
+ const previousInvoke=vi.mocked(invoke).getMockImplementation();
+ let finish!:(job:JobStatus)=>void;let fail!:(error:Error)=>void;
+ let snapshot=collection();
+ const commands:string[]=[];
+ vi.mocked(runWorkbenchJob).mockImplementation(actual.runWorkbenchJob);
+ vi.mocked(readCurrentWorkbench).mockImplementation(actual.readCurrentWorkbench);
+ vi.mocked(pollWorkbench).mockImplementation(actual.pollWorkbench);
+ vi.mocked(invoke).mockImplementation((command,args)=>{
+  commands.push(command);
+  if(command==='native_workbench_run')return new Promise((resolve,reject)=>{finish=resolve;fail=reject;});
+  if(command==='native_workbench_current'||command==='native_workbench_poll')return Promise.resolve(snapshot);
+  return previousInvoke!(command,args);
+ });
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ const props={endpoint:'http://original:7801/',roots:{models:'/m'}};
+ try{
+  const first=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+  fireEvent.click(document.querySelector('[data-run]')!);
+  await waitFor(()=>expect(commands.filter(c=>c==='native_workbench_run')).toHaveLength(1));
+  vi.useFakeTimers();first.unmount();
+  render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await act(async()=>{});
+  const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+  expect(run.disabled).toBe(true);
+  fireEvent.click(run);
+  expect(commands.filter(c=>c==='native_workbench_run')).toHaveLength(1);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(commands.filter(c=>c==='native_workbench_current')).toHaveLength(3);
+  expect(commands).not.toContain('native_workbench_poll');
+  expect(run.disabled).toBe(true);
+  const job=heldJob('late-admitted','queued',props.endpoint);
+  await act(async()=>{
+   if(outcome!=='rejected')snapshot=collection([job]);
+   if(outcome==='reply')finish(job);else fail(new Error(outcome==='lost reply'?'IPC response lost':'Native rejected'));
+  });
+  // The old mount ignores its reply; only continued collection observation can restore this job.
+  expect(document.querySelector('[data-job-id="late-admitted"]')).toBeNull();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(commands.filter(c=>c==='native_workbench_current')).toHaveLength(4);
+  if(outcome!=='rejected'){
+   expect(document.querySelector('[data-job-id="late-admitted"]')).not.toBeNull();
+   expect(run.disabled).toBe(false);
+   snapshot=collection([{...job,state:'failed'}]);
+   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  }
+  expect(run.disabled).toBe(false);
+  const reads=commands.filter(c=>c.startsWith('native_workbench_')).length;
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+  expect(commands.filter(c=>c.startsWith('native_workbench_'))).toHaveLength(reads);
+ }finally{
+  cleanup();vi.useRealTimers();
+  vi.mocked(runWorkbenchJob).mockImplementation(previous[0]!);
+  vi.mocked(readCurrentWorkbench).mockImplementation(previous[1]!);
+  vi.mocked(pollWorkbench).mockImplementation(previous[2]!);
+  vi.mocked(invoke).mockImplementation(previousInvoke!);
+ }
+});
+test('terminal admission reconciles native eviction before reopening Run',async()=>{
+ const old=Array.from({length:20},(_,i)=>heldJob('old-'+i,'failed'));
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(old));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>{const job=heldJob('newest','failed');vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([...old.slice(1),job]));return job;});
+ render(<I18nProvider><Workbench endpoint="http://original:7801/" roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="newest"]')).not.toBeNull());
+ await waitFor(()=>expect(document.querySelectorAll('[data-job-id]')).toHaveLength(20));
+ expect(document.querySelector('[data-job-id="old-0"]')).toBeNull();expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+});
+test.each(['unknown','preparing'] as const)('ambiguous Run rejection recovers authoritative %s before another admission',async state=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ let recover!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>{vi.mocked(readCurrentWorkbench).mockReturnValueOnce(new Promise(yes=>{recover=yes;}));throw new Error('IPC response lost');});
+ render(<I18nProvider><Workbench endpoint="http://original:7801/" roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ await screen.findByText('IPC response lost');expect(run.disabled).toBe(true);
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(2));
+ const snapshot=state==='unknown'?collection([heldJob('lost-response','unknown')]):collection([],1);
+ vi.mocked(pollWorkbench).mockResolvedValue(snapshot);await act(async()=>recover(snapshot));
+ expect(run.disabled).toBe(false);expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ if(state==='unknown')expect(document.querySelector('[data-job-id="lost-response"]')).not.toBeNull();
+});
+test('unmount after native admission recovers held work without cancelling or resubmitting',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection());
+ let release!:(job:JobStatus)=>void;const held=heldJob('admitted','unknown');
+ vi.mocked(runWorkbenchJob).mockImplementation(()=>{vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([held]));return new Promise(yes=>{release=yes;});});
+ const props={endpoint:'http://original:7801/',roots:{models:'/m'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));view.unmount();
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="admitted"]')).not.toBeNull());
+ await act(async()=>release({...held,state:'failed'}));
+ expect(document.querySelector('[data-job-id="admitted"] [data-state]')?.getAttribute('data-state')).toBe('unknown');
+ expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+});
+test('collection recovery is read-only, preserves every held job and polls mixed endpoints including unknown',async()=>{
+ const held=[heldJob('old','running'),heldJob('uncertain','unknown','http://other:7802/'),heldJob('waiting','queued')];
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(held,1));
+ vi.mocked(pollWorkbench).mockResolvedValueOnce(collection([ {...held[0],state:'succeeded'},held[1],{...held[2],state:'failed'}]));
+ render(<I18nProvider><Workbench endpoint="http://changed:9999/"/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelectorAll('.wb-queue-output')).toHaveLength(3));
+ expect(readCurrentWorkbench).toHaveBeenCalledWith();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(true);
+ await waitFor(()=>expect(pollWorkbench).toHaveBeenCalledTimes(1),{timeout:2500});
+ await screen.findByRole('button',{name:/Succeeded/});
+ expect(document.querySelectorAll('.wb-queue-output')).toHaveLength(3);
+ expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(true);
+ expect(pollWorkbench).toHaveBeenCalledWith();expect(readH3Session).not.toHaveBeenCalled();
+});
+test('collection IPC failure never fabricates unknown states or removes unrelated peers',async()=>{
+ const held=[heldJob('one','running'),heldJob('two','queued')];
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(held));
+ vi.mocked(pollWorkbench).mockRejectedValueOnce(new Error('IPC unavailable')).mockResolvedValue(collection(held));
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await screen.findByText('IPC unavailable',{}, {timeout:2500});
+ expect(screen.getAllByRole('button',{name:/Running/}).length).toBeGreaterThan(0);
+ expect(screen.getByRole('button',{name:/Queued/})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/Unknown/})).toBeNull();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('late recovery after unmount cannot replace a new Workbench collection',async()=>{
+ let resolve!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(readCurrentWorkbench).mockReturnValueOnce(new Promise(yes=>{resolve=yes;}));
+ const view=render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(1));view.unmount();
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([heldJob('new','cancelled')]));
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await screen.findByRole('button',{name:/Cancelled/});
+ await act(async()=>resolve(collection([heldJob('stale','running')])));
+ expect(screen.queryByRole('button',{name:/Running/})).toBeNull();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('unresolved recovery blocks admission; recovered preparation keeps Run and Stop reachable',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ let resolve!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(readCurrentWorkbench).mockReturnValueOnce(new Promise(yes=>{resolve=yes;}));
+ vi.mocked(pollWorkbench).mockResolvedValue(collection());
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('option',{name:'a.safetensors'});
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ expect(run.disabled).toBe(true);fireEvent.click(run);expect(runWorkbenchJob).not.toHaveBeenCalled();
+ await act(async()=>resolve(collection([],1)));
+ expect(run.disabled).toBe(false);expect(screen.getByRole('button',{name:'Stop'})).toBeTruthy();
+ await waitFor(()=>expect(run.disabled).toBe(false),{timeout:2500});
+ expect(runWorkbenchJob).not.toHaveBeenCalled();await waitFor(()=>expect(pollWorkbench).toHaveBeenCalledTimes(1),{timeout:2500});
+});
+test('late collection poll after unmount cannot alter a remounted queue',async()=>{
+ vi.mocked(readCurrentWorkbench).mockResolvedValueOnce(collection([heldJob('old','running')]));
+ let resolve!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(pollWorkbench).mockReturnValueOnce(new Promise(yes=>{resolve=yes;}));
+ const view=render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await waitFor(()=>expect(pollWorkbench).toHaveBeenCalledTimes(1),{timeout:2500});view.unmount();
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([heldJob('new','cancelled')]));
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await screen.findByRole('button',{name:/Cancelled/});
+ await act(async()=>resolve(collection([heldJob('old','succeeded')])));
+ expect(screen.queryByRole('button',{name:/Succeeded/})).toBeNull();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
 const clickMedia=(image:HTMLImageElement,clientX=400,clientY=300)=>{
  if(!image.naturalWidth)Object.defineProperties(image,{naturalWidth:{configurable:true,value:1024},naturalHeight:{configurable:true,value:640}});
  const bounds=Object.getOwnPropertyDescriptor(image,'getBoundingClientRect');
@@ -42,7 +273,7 @@ test.each([
   await screen.findByText(new RegExp(expected));
   expect(document.body.textContent).not.toContain('object_info request failed');
   expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(true);
-  expect(submitDiagnosticJob).not.toHaveBeenCalled();
+  expect(runWorkbenchJob).not.toHaveBeenCalled();
  }finally{vi.mocked(checkRecipePrerequisites).mockImplementation(previous);}
 });
 
@@ -96,7 +327,7 @@ test('separate Presets saves live settings, reloads across remounts and updates 
  confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Update selected preset'}));
  await screen.findByText('Preset saved.');
  expect((stored[0] as {settings:Record<string,unknown>}).settings['studio.run.steps']).toBe(27);
- expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
  confirm.mockRestore();
 });
 
@@ -169,7 +400,7 @@ test('unexecuted settings survive layout reset and remount; confirmed defaults s
  expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1024');
  expect((screen.getByRole('textbox',{name:'Output naming'}) as HTMLInputElement).value).toBe(defaultOptions.outputNaming);
  expect(screen.getByRole('button',{name:'Random',pressed:true})).toBeTruthy();
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
  confirm.mockRestore();
 });
 test('column pointer cancellation, independent queue dragging, restored bounds and dock keyboard resize',()=>{
@@ -207,7 +438,7 @@ test('defaults reset confirms, uses family defaults and leaves jobs, libraries a
  for(const key of ['post','post.tiled','wildcardEnabled'])expect(localStorage.getItem('deas.pref.studio.run.'+key)).toBe('false');
  expect(localStorage.getItem('deas.pref.studio.run.loras')).toBe('[]');expect(localStorage.getItem('deas.pref.studio.run.upscale')).toBe('1');
  expect(localStorage.getItem('deas.pref.studio.dock.height')).toBe('250');expect(localStorage.getItem('library.sentinel')).toBe('keep');
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
  expect((screen.getByRole('spinbutton',{name:'Steps'}) as HTMLInputElement).value).toBe('28');
  confirm.mockRestore();
 });
@@ -244,7 +475,7 @@ test('starring an adopted preview repairs its location without remounting or los
  expect(screen.getByRole('toolbar',{name:'Edit image'})).toBe(toolbar);
  expect(screen.getByRole('button',{name:'a.png'}).getAttribute('aria-current')).toBe('true');
  expect(document.querySelector('[data-layer="base"]')).toBe(base);expect(base.style.left).toBe('-8px');
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('stars every queued result and repairs output locations without changing its submitted intent',async()=>{
@@ -256,9 +487,8 @@ test('stars every queued result and repairs output locations without changing it
   return {path:'/out',parent:'/',entries:[],truncated:false};
  });
  let intent:JobStatus['intent'];
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,value)=>{intent=value;return {id:'star-plan',baseUrl,intent:value,graph:{},generationReady:false};});
  const outputs:JobStatus['outputs']=[{filename:'one.png',subfolder:'',type:'output'},{filename:'two.png',subfolder:'',type:'output'}];
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'star-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs,intent,error:null,generationReady:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async(_baseUrl,value)=>{intent=value;return ({id:'star-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputRoot:'/out',outputs,intent,error:null,generationReady:false});});
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -295,15 +525,14 @@ test('stars every queued result and repairs output locations without changing it
  expect(Array.from(queue.querySelectorAll('.wb-queue-select')).map(button=>button.getAttribute('aria-current'))).toEqual(selectedBefore);
  expect(document.querySelector('.wb-shown')).toBe(result);
  expect(outputs[0].subfolder).toBe('');expect(JSON.stringify(intent)).toBe(snapshot);
- expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
 });
 
 test.each([['de','Abgebrochen'],['en','Cancelled'],['fr','Annulé'],['ja','キャンセル済み'],['tr','İptal edildi'],['zh','已取消']])('cancelled job is a terminal localized result without output actions (%s)',async(locale,label)=>{
  localStorage.setItem('deas.locale.v1',locale);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'cancel-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'cancelled-job',baseUrl:evidence.baseUrl,promptId:'p',state:'cancelled',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'cancelled-job',baseUrl:evidence.baseUrl,promptId:'p',state:'cancelled',outputs:[],error:null,generationReady:false});
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
  await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
@@ -311,8 +540,8 @@ test.each([['de','Abgebrochen'],['en','Cancelled'],['fr','Annulé'],['ja','キ�
  expect(tile.textContent).toContain(label);expect(tile.querySelector('.wb-thumb')?.textContent).toBe('×');
  expect(tile.querySelector('[data-generation-duration]')).toBeNull();
  expect(document.querySelector('.wb-queue-output')?.querySelectorAll('button')).toHaveLength(1);
- expect(run.disabled).toBe(false);expect(readDiagnosticJobStatus).not.toHaveBeenCalled();
- expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+ await waitFor(()=>expect(run.disabled).toBe(false));expect(pollWorkbench).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
 });
 
 test.each([
@@ -325,8 +554,7 @@ test.each([
  localStorage.setItem('deas.locale.v1',locale);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/out',parent:'/',entries:[],truncated:false});
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'timing-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'timing-job',baseUrl:evidence.baseUrl,promptId:'p',state,outputs:[{filename,subfolder:'',type:'output'}],error:null,generationReady:false,metadata:{startedAt:1700000000000,generationMs}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'timing-job',baseUrl:evidence.baseUrl,promptId:'p',state,outputRoot:'/out',outputs:[{filename,subfolder:'',type:'output'}],error:null,generationReady:false,metadata:{startedAt:1700000000000,generationMs}});
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
  await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
@@ -338,7 +566,7 @@ test.each([
  if(expected){expect(tile.textContent).toContain(expected);expect(header.textContent).toContain(expected);}
  else {expect(tile.querySelector('[data-generation-duration]')).toBeNull();expect(header.querySelector('[data-generation-duration]')).toBeNull();}
  fireEvent.click(tile);expect(tile.getAttribute('aria-current')).toBe('true');
- expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
 });
 
 test('missing remembered model and LoRAs are explicit blockers, never silently substituted',async()=>{
@@ -353,7 +581,7 @@ test('missing remembered model and LoRAs are explicit blockers, never silently s
  expect(screen.getByRole('alert').classList.contains('wb-stage-warning')).toBe(true);
  dock('Models');fireEvent.click(screen.getByRole('button',{name:'other.safetensors'}));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('dependency warnings follow corrected selections after a blocked post-process and reopen',async()=>{
  const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
@@ -372,7 +600,7 @@ test('dependency warnings follow corrected selections after a blocked post-proce
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:1024}});fireEvent.load(img);
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
  fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
  fireEvent.change(screen.getByRole('combobox',{name:'VAE'}),{target:{value:'qwen_image_vae.safetensors'}});
  expect(screen.queryByRole('alert')).toBeNull();
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
@@ -387,7 +615,7 @@ test('dependency warnings follow corrected selections after a blocked post-proce
  reopened.unmount();mount();
  await waitFor(()=>expect(screen.getByRole('combobox',{name:'VAE'})).toBeTruthy());
  expect(screen.queryByRole('alert')).toBeNull();
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('pending model refresh validates the latest selection, not the selection at scan start',async()=>{
@@ -403,12 +631,12 @@ test('pending model refresh validates the latest selection, not the selection at
  await act(async()=>finish(models));
  expect(screen.queryByRole('alert')).toBeNull();
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('selection changes do not erase an unrelated preparation error',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'base.safetensors',path:'/m/base',size:1,info:null}]);
- vi.mocked(prepareDiagnosticJob).mockRejectedValueOnce(new Error('Backend connection failed'));
+ vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('Backend connection failed'));
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -437,7 +665,7 @@ test('dock clicks preview only and preserve the adopted editor until explicit re
  fireEvent.keyDown(window,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();bounds.mockRestore();
  expect(document.querySelector('[data-browsed-preview]')).not.toBeNull();
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- expect(uploadInput).not.toHaveBeenCalled();expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
  adopt();const img=screen.getByRole('img',{name:'one.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
  const editor=document.querySelector('[data-editor-viewport]');expect(editor).not.toBeNull();
@@ -451,8 +679,7 @@ test('dock clicks preview only and preserve the adopted editor until explicit re
 test('an explicit Run replaces a browsed preview with the accepted job',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:[{name:'browse.png',path:'/out/browse.png',kind:'file',media:'image',symlink:false,size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'browse-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'browse-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'browse-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(await screen.findByRole('button',{name:'browse.png'}));
@@ -460,11 +687,11 @@ test('an explicit Run replaces a browsed preview with the accepted job',async()=
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'immutable submission'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(document.querySelector('.wb-shown')).not.toBeNull());
- const submitted=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ const submitted=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
  act(()=>window.dispatchEvent(new Event('deas:request-studio-defaults')));
  expect(submitted.positivePrompt).toBe('immutable submission');expect(document.querySelector('.wb-shown')).not.toBeNull();
- expect(submitDiagnosticJob).toHaveBeenCalledTimes(1);confirm.mockRestore();
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);confirm.mockRestore();
  expect(document.querySelector('[data-browsed-preview]')).toBeNull();
  expect(document.querySelector('.wb-current-preview')?.hasAttribute('hidden')).toBe(false);
 });
@@ -480,7 +707,7 @@ test('opening a project restores its draft without substituting a missing checkp
  await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved project prompt'));
  expect((screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement).value).toBe('42');
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
  expect(localStorage.getItem('deas.pref.studio.run.positive')).toBe(JSON.stringify('global prompt'));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Close project'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Close project'}));
@@ -525,35 +752,51 @@ test('project defaults reset stays project-local and closing restores global las
  expect(screen.getByRole('separator',{name:'Resize Settings'}).getAttribute('aria-valuenow')).toBe('304');
  expect(localStorage.getItem('deas.pref.backend.autostart')).toBe('false');
  for(const key of ['textEncoder','vae','componentOverrides'] as const)expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.'+key)!)).toEqual(global[key]);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
  confirm.mockRestore();
+});
+test('pending image upload is dropped on unmount before native admission',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a.safetensors',size:1,info:null}]);
+ const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'a.safetensors',pipeline:'i2i'},input:{id:'input-1',path:'/projects/one/assets/input.png',sha256:'a'.repeat(64),width:1024,height:1024}};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_project_open'?saved:{entries:[],truncated:false});
+ let release!:(name:string)=>void;vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/env/in'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved project prompt'));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ view.unmount();localStorage.setItem('deas.pref.studio.run.pipeline','"t2i"');
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(2));
+ await act(async()=>release('deas-inputs/late.png'));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(document.querySelectorAll('[data-job-id]')).toHaveLength(0);
 });
 test('a reopened managed PNG becomes an image source and uploads only on explicit Run',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a.safetensors',size:1,info:null}]);
  const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'a.safetensors',pipeline:'i2i'},input:{id:'input-1',path:'/projects/one/assets/input.png',sha256:'a'.repeat(64),width:1024,height:1024}};
  vi.mocked(invoke).mockImplementation(async c=>c==='native_project_open'?saved:{entries:[],truncated:false});
  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/project.png');
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'project-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'project-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'project-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/in'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Open project'}));
  await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved project prompt'));
- expect(uploadInput).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
  expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/projects/one/assets/input.png');
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/project.png',seed:42,denoise:0.5});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/project.png',seed:42,denoise:0.5});
 });
 test('wildcard dock and hammer keep base text, snapshot active rules per run and allow disabling without clearing',async()=>{
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['m.safetensors'],nodes:[...evidence.allowlist.nodes,'DaSiWa_WildcardPresetPromptBuilder']}});
  localStorage.setItem('deas.pref.studio.run.wildcard',JSON.stringify({style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:true,selection_state:{'Art/Light/wildcards':{enabled:true,weight:1.2}}}));
  vi.mocked(invoke).mockImplementation(async c=>c==='native_wildcard_library'?JSON.stringify({categories:{Art:[{subject:'Light',booru_wildcards:['{red|blue} light']}]}}):{entries:[],truncated:false});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'m.safetensors',path:'/m/checkpoints/m.safetensors',size:1,info:null}]);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'wild-plan',baseUrl,intent,graph:{},generationReady:false}));
  let submits=0;
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`wild-job-${++submits}`,baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.calls.at(-1)![1]}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`wild-job-${++submits}`,baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false,intent:vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1]}));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'manual base'}});
@@ -563,8 +806,8 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  await screen.findByText('Art');
  fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const first=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(first.positivePrompt).toBe('manual base');expect(first.wildcard?.auto_reroll).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'New picks'}));
  expect(first.wildcard?.reroll).toBe(3);
@@ -577,8 +820,8 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Disable wildcards'}));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1].wildcard).toBeUndefined();
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[1][1].wildcard).toBeUndefined();
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('manual base');
  fireEvent.click(screen.getByRole('checkbox',{name:'Active for generation'}));
  fireEvent.click(screen.getByRole('button',{name:'Use these settings'}));
@@ -586,8 +829,7 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
 });
 test('Options naming persists and resolves the submitted seed/model, rejecting unsafe templates before preparation',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'folder/My Model.safetensors',path:'/m/checkpoints/folder/My Model.safetensors',size:1,info:null}]);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'naming-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'naming-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'naming-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  dock('Options');
@@ -596,12 +838,12 @@ test('Options naming persists and resolves the submitted seed/model, rejecting u
  fireEvent.change(screen.getByRole('spinbutton',{name:'Seed'}),{target:{value:'42'}});
  fireEvent.change(field,{target:{value:'custom/%type%/%seed%-%model%'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].outputPrefix).toBe('raw/custom/image/42-My-Model');
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1].outputPrefix).toBe('raw/custom/image/42-My-Model');
  fireEvent.change(field,{target:{value:'../%seed%'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
  expect(field.getAttribute('aria-invalid')).toBe('true');
  view.unmount();
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -609,16 +851,15 @@ test('Options naming persists and resolves the submitted seed/model, rejecting u
 });
 test('seed controls restore submitted seeds, preserve mode on New and wrap exact integer steps',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'seed-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'seed-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(scanModels).toHaveBeenCalled());
  const input=()=>screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement;
  fireEvent.change(input(),{target:{value:'42'}});
  expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1].seed).toBe(42);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1].seed).toBe(42);
  expect(input().value).toBe('42');
  fireEvent.click(screen.getByRole('button',{name:'New random seed'}));
  expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
@@ -647,9 +888,9 @@ test('seed controls restore submitted seeds, preserve mode on New and wrap exact
  expect((screen.getByRole('button',{name:'Clear Prompt'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.change(promptBox,{target:{value:before}});
  fireEvent.click(screen.getByRole('button',{name:'Random'}));
- vi.mocked(submitDiagnosticJob).mockResolvedValueOnce({id:'seed-job-2',baseUrl:evidence.baseUrl,promptId:'p2',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValueOnce({id:'seed-job-2',baseUrl:evidence.baseUrl,promptId:'p2',state:'succeeded',outputs:[],error:null,generationReady:false});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  expect(input().value).not.toBe('42');
  view.unmount();
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl}/></I18nProvider>);
@@ -661,17 +902,19 @@ test('seed history caps at ten, deduplicates submitted values and ignores failed
  localStorage.setItem('deas.pref.studio.run.seed','12');
  localStorage.setItem('deas.pref.studio.run.seedMode',JSON.stringify('fixed'));
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
- vi.mocked(prepareDiagnosticJob).mockRejectedValueOnce(new Error('prepare failed')).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:String(Math.random()),baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('prepare failed'));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:String(Math.random()),baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByText('prepare failed');
  const history=()=>JSON.parse(localStorage.getItem('deas.pref.studio.run.recentSeeds')!);
  expect(history()).toEqual([1,2,3,4,5,6,7,8,9,10]);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(history()).toEqual([12,1,2,3,4,5,6,7,8,9]));
  fireEvent.change(screen.getByRole('spinbutton',{name:'Seed'}),{target:{value:'3'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(history()).toEqual([3,12,1,2,4,5,6,7,8,9]));
 });
@@ -679,9 +922,8 @@ test('seed history caps at ten, deduplicates submitted values and ignores failed
 test('IPC fixture: Load models → pick LoRA → Run prepares and submits one intent, polls to success and previews the output file',async()=>{
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  const queued:JobStatus={id:'job-1234',baseUrl:evidence.baseUrl,promptId:'p',state:'queued',outputs:[],error:null,generationReady:false};
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue(queued);
- vi.mocked(readDiagnosticJobStatus).mockResolvedValue({...queued,state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}]});
+ vi.mocked(runWorkbenchJob).mockResolvedValue(queued);
+ vi.mocked(pollWorkbench).mockResolvedValue(collection([{...queued,state:'succeeded',outputRoot:'/env/ComfyUI/output',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}]}]));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{output:'/env/ComfyUI/output'}}/></I18nProvider>);
  expect(screen.getByRole('complementary',{name:'Media'})).toBeTruthy(); // the media dock tab is the default
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // sampler/scheduler lists are read once per endpoint; models still need the explicit Load
@@ -693,8 +935,8 @@ test('IPC fixture: Load models → pick LoRA → Run prepares and submits one in
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'a quiet forest'}});
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'768'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledWith('plan'));
- const [baseUrl,intent]=vi.mocked(prepareDiagnosticJob).mock.calls[0];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ const [baseUrl,intent]=vi.mocked(runWorkbenchJob).mock.calls[0];
  expect(baseUrl).toBe('http://127.0.0.1:7801');
  expect(intent).toMatchObject({positivePrompt:'a quiet forest',checkpoint:'b.safetensors',width:768,height:1024,loras:[{name:'style.safetensors',strength:0.7}],outputPrefix:expect.stringMatching(new RegExp(`^raw/image/\\d{4}-\\d{2}-\\d{2}/\\d{2}-\\d{2}-\\d{2}-${intent.seed}-b$`))});
  expect(Object.isFrozen(intent)).toBe(true);
@@ -737,9 +979,8 @@ test('model and LoRA docks get a subfolder tree from the scanned names that filt
 test('IPC fixture: Image→Image is clickable without an image but greys Run and names the missing input; with an Input-folder image it submits inputImage+denoise; video pipelines stay disabled',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
- vi.mocked(readDiagnosticJobStatus).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ vi.mocked(pollWorkbench).mockResolvedValue(collection([{id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false}]));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'Text → Image',selected:true});
  expect(pipe('Image → Image').disabled).toBe(false);
@@ -758,8 +999,8 @@ test('IPC fixture: Image→Image is clickable without an image but greys Run and
  expect((screen.getByLabelText('Denoise') as HTMLInputElement).value).toBe('0.3');
  fireEvent.change(screen.getByLabelText('Denoise'),{target:{value:'0.4'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
  // ✕ on the preview drops the pick (and the shown job): the stage names the missing input again.
  fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
  expect(screen.queryByRole('img',{name:'ref.png'})).toBeNull();
@@ -771,9 +1012,8 @@ test('IPC fixture: Image→Image is clickable without an image but greys Run and
 test('IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  let made=0;
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`job-${++made}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`job-${++made}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputRoot:'/env/ComfyUI/output',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'Text → Image',selected:true});
  fireEvent.click(await screen.findByRole('button',{name:'out.png'}));adopt();
@@ -794,7 +1034,7 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  expect(screen.queryByRole('dialog')).toBeNull();
  // An edit job remembers its source: after ✕ a queue pick brings it back into the editor instead of asking for a pick.
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(submitDiagnosticJob).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
  expect(document.querySelector('.wb-editor-host')).toBeNull();
  fireEvent.click(screen.getAllByRole('button',{name:/Succeeded/})[0]); // newest first = the image-to-image job
@@ -814,9 +1054,8 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
 test('IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  let n=0;
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`job-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:`DEAS_000${n}.png`,subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`job-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputRoot:'/env/ComfyUI/output',outputs:[{filename:`DEAS_000${n}.png`,subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(await screen.findByRole('button',{name:'out.png'}));adopt();
  const img=screen.getByRole('img',{name:'out.png'});
@@ -830,8 +1069,8 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Post-process'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const first=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(first).toMatchObject({inputImage:'out.png [output]',denoise:0.25,width:1984,height:1216,inputResize:{width:1984,height:1216,crop:'disabled'}}); // 2000×1200 snapped per edge to the SDXL 64 grid
  expect(first.refine).toBeUndefined();expect(first.upscaleModel).toBeUndefined();
  // Default: side by side, the still-mounted editor on the source left, the render right.
@@ -844,17 +1083,18 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Slider',pressed:true}));
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
- // Instant again on the shown render: its submitted size is the source.
+ // Instant again on the shown render: transfer its actual file, never infer the backend root.
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/shown.png');
  fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Post-process'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({inputImage:'DEAS_0001.png [output]',width:3968,height:2432});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({inputImage:'deas-inputs/shown.png',width:3968,height:2432});
  // Opt-in: every Run gets the refine pass at the upscaled grid size.
  choosePipe('Text → Image');expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  expect(screen.getByRole('tab',{name:/Post-Processing/}).textContent).toContain('✓');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3));
- const third=vi.mocked(prepareDiagnosticJob).mock.calls[2][1];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3));
+ const third=vi.mocked(runWorkbenchJob).mock.calls[2][1];
  expect(third.refine).toEqual({width:2048,height:2048,denoise:0.25});
  expect(third.inputImage).toBeUndefined();
  // Tiled refine is offered only when the backend lists the DaSiWa node; tiles = SDXL native 1024², overlap 128 on the 64 grid.
@@ -869,18 +1109,20 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  fireEvent.click(box);
  expect(screen.getByText('Samples the refine pass in 1024×1024 tiles with 128 px overlap blended every step — the model’s native size, so large outputs stay sharp and seamless.')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(4));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[3][1].refine).toEqual({width:2048,height:2048,denoise:0.25,tiled:{tileWidth:1024,tileHeight:1024,overlap:128}});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(4));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[3][1].refine).toEqual({width:2048,height:2048,denoise:0.25,tiled:{tileWidth:1024,tileHeight:1024,overlap:128}});
 });
 
-test.each([{cropped:false,paintBase:false},{cropped:true,paintBase:false},{cropped:false,paintBase:true}])('IPC fixture: Inpaint preserves draft and submits edited base ($cropped, $paintBase)',async({cropped,paintBase})=>{
+test.each([{cropped:false,paintBase:false,delayed:false,paintLayer:false},{cropped:true,paintBase:false,delayed:false,paintLayer:false},{cropped:false,paintBase:true,delayed:false,paintLayer:false},{cropped:true,paintBase:false,delayed:true,paintLayer:true}])('IPC fixture: Inpaint preserves draft and submits edited base ($cropped, $paintBase)',async({cropped,paintBase,delayed,paintLayer})=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('out.png'),entry('cat.png')],truncated:false}));
- vi.stubGlobal('Image',class{naturalWidth=200;naturalHeight=100;onload=()=>{};onerror=()=>{};set src(_:string){setTimeout(()=>this.onload());}});
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-in',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
- vi.mocked(uploadMask).mockResolvedValue('deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png');
+ vi.stubGlobal('Image',class{naturalWidth=200;naturalHeight=100;onload=()=>{};onerror=()=>{};decode=async()=>{};set src(_:string){setTimeout(()=>this.onload());}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-in',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
+ const uploadedMask='deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png';
+ let releaseMask!:(name:string)=>void;
+ vi.mocked(uploadMask).mockResolvedValue(uploadedMask);
+ if(delayed)vi.mocked(uploadMask).mockReturnValueOnce(new Promise(yes=>{releaseMask=yes;}));
  const ctx={canvas:{width:1024,height:640},save:vi.fn(),restore:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([255,255,255,255])})),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),moveTo:vi.fn(),lineTo:vi.fn(),stroke:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn()};
  const restore=[vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D),
   vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(cb=>cb({arrayBuffer:async()=>new Uint8Array([137,80,78,71]).buffer} as Blob)), // jsdom Blob has no arrayBuffer
@@ -917,6 +1159,11 @@ test.each([{cropped:false,paintBase:false},{cropped:true,paintBase:false},{cropp
  expect(screen.getByRole('group',{name:'Inserted image cat.png [output]'})).toBe(layer);
  expect(screen.getByLabelText('Inpaint mask',{selector:'canvas'})).toBe(mask);
  expect(document.querySelector('[data-editor-viewport]')).toBe(viewport);
+ if(paintLayer){
+  fireEvent.click(screen.getByRole('button',{name:'Brush'}));
+  fireEvent(viewport,new MouseEvent('pointerdown',{clientX:256,clientY:160,buttons:1,bubbles:true}));
+  fireEvent(viewport,new MouseEvent('pointerup',{clientX:256,clientY:160,bubbles:true}));
+ }
  if(paintBase){
   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,blob:async()=>new Blob()})));
   vi.stubGlobal('createImageBitmap',vi.fn(async()=>({close:vi.fn()})));
@@ -925,15 +1172,23 @@ test.each([{cropped:false,paintBase:false},{cropped:true,paintBase:false},{cropp
   fireEvent(viewport,new MouseEvent('pointerup',{clientX:200,clientY:100,bubbles:true}));
  }
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ if(delayed){
+  await waitFor(()=>expect(uploadMask).toHaveBeenCalledTimes(1));
+  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'next draft'} });
+  fireEvent.change(screen.getByLabelText('Mask Blur (px)'),{target:{value:'12'}});
+  fireEvent.keyDown(layer,{key:'ArrowRight'});
+  expect(runWorkbenchJob).not.toHaveBeenCalled();
+  await act(async()=>releaseMask(uploadedMask));
+ }
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
  expect(uploadMask).toHaveBeenCalledWith('http://127.0.0.1:7801',new Uint8Array([137,80,78,71]));
- const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(intent).toMatchObject({inputImage:paintBase?'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png':'out.png [output]',inputMask:'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png',denoise:0.8,width:1024,height:640});
  expect(intent.inputResize).toBeUndefined();
  if(cropped){expect(intent.maskBlur).toBe(8);expect(intent.inpaintCrop).toEqual({x:0,y:0,width:41,height:41,targetWidth:1024,targetHeight:1024});}
  else{expect(intent.maskBlur).toBe(4);expect(intent.inpaintCrop).toBeUndefined();}
  if(paintBase){expect(intent.inputLayers).toBeUndefined();expect(uploadMask).toHaveBeenCalledTimes(2);}
- else expect(intent.inputLayers).toEqual([{image:'cat.png [output]',x:420,y:270,width:200,height:100}]); // original size, centred then moved
+ else expect(intent.inputLayers).toEqual([{image:paintLayer?uploadedMask:'cat.png [output]',x:420,y:270,width:200,height:100}]); // original size, centred then moved
  // The edit job opens side by side: the same editor stays live on the left, no return needed.
  expect(screen.queryByRole('button',{name:'Return to edit draft'})).toBeNull();
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
@@ -955,8 +1210,7 @@ test('IPC fixture: dropping a dock tile pastes the Output image as a movable lay
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('src.png'),entry('cat.png')],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-l',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-l',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
  // jsdom never loads images: report a 2:1 picture.
  vi.stubGlobal('Image',class{naturalWidth=200;naturalHeight=100;onload=()=>{};onerror=()=>{};set src(_:string){setTimeout(()=>this.onload());}});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
@@ -972,8 +1226,8 @@ test('IPC fixture: dropping a dock tile pastes the Output image as a movable lay
  expect(screen.getByRole('img',{name:'src.png'})).toBeTruthy(); // the source stays selected
  fireEvent.keyDown(layer,{key:'ArrowRight'});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({inputImage:'src.png [output]',inputLayers:[{image:'cat.png [output]',x:408,y:250,width:200,height:100}]}); // original size centred (400,250) then ArrowRight +8
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'src.png [output]',inputLayers:[{image:'cat.png [output]',x:408,y:250,width:200,height:100}]}); // original size centred (400,250) then ArrowRight +8
  vi.unstubAllGlobals();
 });
 
@@ -989,7 +1243,7 @@ test('checkpoint dropdown and Models tiles share selection/defaults and missing 
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('28');
  fireEvent.click(screen.getByRole('button',{name:'first.safetensors'}));expect((select as HTMLSelectElement).value).toBe('first.safetensors');
  expect(localStorage.getItem('deas.pref.studio.run.checkpoint')).toBe('"first.safetensors"');
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('companion files are collapsed below the other settings and preserve their choices while closed',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'anima.safetensors',family:'anima',path:'/m/a',size:1,info:null},{category:'text_encoders',name:'qwen_3_600m.safetensors',path:'/m/e',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/v',size:1,info:null}]);
@@ -1001,7 +1255,7 @@ test('companion files are collapsed below the other settings and preserve their 
  fireEvent.change(encoder,{target:{value:'qwen_3_600m.safetensors'}});
  fireEvent.click(summary);expect(details.hasAttribute('open')).toBe(false);
  fireEvent.click(summary);expect((screen.getByRole('combobox',{name:'Text encoder'}) as HTMLSelectElement).value).toBe('qwen_3_600m.safetensors');
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('Anima recommends renamed header-detected companions and ignores misleading known-incompatible names',async()=>{
@@ -1017,7 +1271,7 @@ test('Anima recommends renamed header-detected companions and ignores misleading
  }
  expect(within(screen.getByRole('combobox',{name:'Text encoder'})).queryByRole('option',{name:'qwen_3_600m-impostor.safetensors'})).toBeNull();
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('companion overrides are independently selectable without inferred matches, persist and gate Run when switched off',async()=>{
@@ -1025,8 +1279,7 @@ test('companion overrides are independently selectable without inferred matches,
  const renamed='dasiwaAnima_luminousLabyrinthV1_txt.safetensors';
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',renamed),m('vae','custom-vae.safetensors'),m('checkpoints','not-an-encoder.safetensors')]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'component-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'component-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'component-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
  const mount=()=>render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  const view=mount();await screen.findByRole('combobox',{name:'Text encoder'});
  const encoder=screen.getByRole('combobox',{name:'Text encoder'}),vae=screen.getByRole('combobox',{name:'VAE'});
@@ -1040,9 +1293,9 @@ test('companion overrides are independently selectable without inferred matches,
  fireEvent.change(encoder,{target:{value:renamed}});
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  fireEvent.click(vaeSwitch);fireEvent.change(vae,{target:{value:'custom-vae.safetensors'}});
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'anima.safetensors',diffusion:{textEncoder:renamed,clipType:'stable_diffusion',vae:'custom-vae.safetensors'}});
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'anima.safetensors',diffusion:{textEncoder:renamed,clipType:'stable_diffusion',vae:'custom-vae.safetensors'}});
  fireEvent.click(encoderSwitch);
  expect((encoder as HTMLSelectElement).value).toBe(renamed); // never silently replace the manual choice
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
@@ -1058,8 +1311,7 @@ test('audio VAE and text-projection overrides submit exact manual choices and ne
  let files=[m('diffusion_models','ltx.safetensors','ltx-2'),m('text_encoders','gemma.safetensors'),m('text_encoders','text_projection.safetensors'),m('text_encoders','custom-projection.safetensors'),m('vae','video_vae.safetensors'),m('vae','audio_vae.safetensors'),m('vae','custom-audio.safetensors')];
  vi.mocked(scanModels).mockImplementation(async()=>files);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'video-components',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'video-components-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'video-components-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  await screen.findByRole('combobox',{name:'Audio VAE'});
@@ -1068,8 +1320,8 @@ test('audio VAE and text-projection overrides submit exact manual choices and ne
   fireEvent.change(screen.getByRole('combobox',{name:label}),{target:{value:file}});
  }
  expect(screen.getByRole('switch',{name:'Text encoder: All files'}).getAttribute('aria-checked')).toBe('false');
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',ltx:{audioVae:'custom-audio.safetensors',textProjection:'custom-projection.safetensors'}});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',ltx:{audioVae:'custom-audio.safetensors',textProjection:'custom-projection.safetensors'}});
  fireEvent.click(screen.getByRole('switch',{name:'Audio VAE: All files'}));
  expect((screen.getByRole('combobox',{name:'Audio VAE'}) as HTMLSelectElement).value).toBe('custom-audio.safetensors');
  expect(screen.getByRole('alert').textContent).toContain('custom-audio.safetensors');
@@ -1079,7 +1331,7 @@ test('audio VAE and text-projection overrides submit exact manual choices and ne
  await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('custom-audio.safetensors'));
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  expect((screen.getByRole('combobox',{name:'Audio VAE'}) as HTMLSelectElement).value).toBe('custom-audio.safetensors');
- expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
 });
 
 test('IPC fixture: families gate models and LoRAs, picking applies the family defaults and a diffusion model submits its encoder and VAE',async()=>{
@@ -1087,8 +1339,7 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  vi.mocked(scanModels).mockResolvedValue([m('checkpoints','ill.safetensors','sdxl'),m('diffusion_models','k2.safetensors','krea-2'),m('diffusion_models','h3.safetensors','minimax-h3'),m('unet','odd.safetensors'),
   m('text_encoders','qwen3vl_4b.safetensors'),m('vae','Q/qwen_image_vae.safetensors'),m('loras','k-style.safetensors','krea-2'),m('loras','ill-style.safetensors','sdxl'),m('loras','mystery.safetensors')]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,samplers:['euler','er_sde','res_multistep'],schedulers:['normal','simple','beta']}});
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-3',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-3',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');
  expect((await screen.findByRole('button',{name:/h3\.safetensors/})).hasAttribute('disabled')).toBe(true); // video family: no image recipe
@@ -1105,16 +1356,15 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  fireEvent.focus(screen.getByLabelText('Sampler'));expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1);
  fireEvent.change(screen.getByLabelText('Sampler'),{target:{value:'res_multistep'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'k2.safetensors',sampler:'res_multistep',scheduler:'simple',loras:[{name:'k-style.safetensors',strength:1}],diffusion:{textEncoder:'qwen3vl_4b.safetensors',clipType:'krea2',vae:'Q/qwen_image_vae.safetensors'}});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'k2.safetensors',sampler:'res_multistep',scheduler:'simple',loras:[{name:'k-style.safetensors',strength:1}],diffusion:{textEncoder:'qwen3vl_4b.safetensors',clipType:'krea2',vae:'Q/qwen_image_vae.safetensors'}});
 });
 
 test('IPC fixture: a Turbo family locks steps and scheduler to its saved schedule, submits the sigmas and keeps the base family LoRAs',async()=>{
  const m=(category:string,name:string,family?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(family?{family}:{})});
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','turbo.safetensors','qwen-image-2.1-turbo'),m('text_encoders','qwen3vl_8b.safetensors'),m('vae','qwen_image_2.1_vae.safetensors'),m('loras','q-style.safetensors','qwen-image-2.1')]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'job-4',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-4',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');fireEvent.click(await screen.findByRole('button',{name:/turbo\.safetensors/}));
  const steps=screen.getByLabelText('Steps') as HTMLInputElement;expect(steps.value).toBe('8');expect(steps.disabled).toBe(true);
@@ -1122,14 +1372,14 @@ test('IPC fixture: a Turbo family locks steps and scheduler to its saved schedul
  expect((screen.getByLabelText('Sampler') as HTMLSelectElement).disabled).toBe(false);
  dock('LoRAs');expect(screen.getByRole('button',{name:/q-style/})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({checkpoint:'turbo.safetensors',steps:8,cfg:1,sampler:'euler',sigmas:[1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0]});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'turbo.safetensors',steps:8,cfg:1,sampler:'euler',sigmas:[1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0]});
  // A typed schedule in Options overrides the model's own; steps follow it.
  dock('Options');fireEvent.change(screen.getByRole('textbox',{name:'Custom sigmas'}),{target:{value:'1, 0.6, 0.3, 0'}});
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('3');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({steps:3,sigmas:[1,0.6,0.3,0]});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({steps:3,sigmas:[1,0.6,0.3,0]});
 });
 
 test('automatic aspect is confined to media pipelines and text pipelines ignore image and video previews',async()=>{
@@ -1241,8 +1491,7 @@ test('native resolution is one model-driven choice and migrates the removed 768p
 test('resolution picker follows reference metadata, forwards padded pixels to the model and remembers settings',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'wide.png',path:'/env/input/wide.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'resolution-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'fixture',generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'resolution-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'fixture',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'Text → Image',selected:true});
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
@@ -1258,8 +1507,8 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'1024p'}});
  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'pad'}});
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({width:1024,height:1024,inputImage:'wide.png',inputResize:{width:1024,height:576,crop:'disabled',pad:{left:0,right:0,top:224,bottom:224}}});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({width:1024,height:1024,inputImage:'wide.png',inputResize:{width:1024,height:576,crop:'disabled',pad:{left:0,right:0,top:224,bottom:224}}});
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.inputScaling')!)).toBe('pad');
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'fixed'}});
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'8192'}});
@@ -1275,8 +1524,7 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
   {category:'vae',name:'LTX2/LTX23_video_vae_bf16.safetensors',path:'/m/vae/v.safetensors',size:1,info:null},
   {category:'vae',name:'LTX2/LTX23_audio_vae_bf16.safetensors',path:'/m/vae/a.safetensors',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'x_00001.webm',subfolder:'video',type:'output',format:'video/webm'}],error:null,generationReady:false,intent:vi.mocked(prepareDiagnosticJob).mock.lastCall![1]} as JobStatus));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[{filename:'x_00001.webm',subfolder:'video',type:'output',format:'video/webm'}],error:null,generationReady:false,intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
  expect(pipe('Image → Video').disabled).toBe(false);
@@ -1290,9 +1538,9 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  fireEvent.change(screen.getByLabelText('Seconds'),{target:{value:'2'}});
  expect(screen.getByText('49 frames · 2.00 s')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({recipeId:'video-generation',family:'ltx-2',model:'LTX2/ltx.safetensors',textEncoder:'gemma_3_12B_it_fp8.safetensors',vae:'LTX2/LTX23_video_vae_bf16.safetensors',frames:49,frameRate:24,firstFrame:'ref.png',output:{codec:'Auto',container:'Auto',quality:20},ltx:{textProjection:'ltx-2.3_text_projection_bf16.safetensors',audioVae:'LTX2/LTX23_audio_vae_bf16.safetensors',passes:1}});
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).not.toHaveProperty('imageFormat');
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({recipeId:'video-generation',family:'ltx-2',model:'LTX2/ltx.safetensors',textEncoder:'gemma_3_12B_it_fp8.safetensors',vae:'LTX2/LTX23_video_vae_bf16.safetensors',frames:49,frameRate:24,firstFrame:'ref.png',output:{codec:'Auto',container:'Auto',quality:20},ltx:{textProjection:'ltx-2.3_text_projection_bf16.safetensors',audioVae:'LTX2/LTX23_audio_vae_bf16.safetensors',passes:1}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('imageFormat');
  await waitFor(()=>expect(document.querySelector('.wb-stage video')?.getAttribute('src')).toBe('http://127.0.0.1:7801/view?filename=x_00001.webm&subfolder=video&type=output'));
  expect(screen.queryByRole('tab',{name:'Continuity'})).toBeNull();
 });
@@ -1319,7 +1567,7 @@ test('H3 continuity opens outside the dock, preserves edits and restores focus w
  expect((within(screen.getByRole('dialog',{name:'Continuity'})).getByLabelText('Next action') as HTMLTextAreaElement).value).toBe('a new action');
  fireEvent(screen.getByRole('dialog',{name:'Continuity'}),new Event('cancel',{cancelable:true}));
  expect(screen.queryByRole('dialog',{name:'Continuity'})).toBeNull();expect(document.activeElement).toBe(open);
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('H3 frame people are opt-in, reach the Forge and reset on a new source picture',async()=>{
@@ -1369,10 +1617,14 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/u1.png');
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
  let n=0;
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:`h3-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false}));
- vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`h3-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false}));
+ let peerObserved=false;
+ vi.mocked(pollWorkbench).mockImplementation(async()=>{
+  const submitted=await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async result=>await result.value));
+  if(submitted.at(-1)?.id==='h3-2'&&!peerObserved){peerObserved=true;return collection([heldJob('unrelated-success','succeeded'),heldJob('unrelated-failure','failed'),...submitted]);}
+  return collection([heldJob('unrelated-success','succeeded'),heldJob('unrelated-failure','failed'),...submitted.map(job=>({...job,state:'succeeded' as const}))]);
+ });
  vi.mocked(readH3Session).mockImplementation(async()=>({latestId:null,clips:[{clipId:'chosen',parent:null,frames:124,completed:0,export:null},{clipId:'backend-import',parent:null,frames:192,completed:0,export:null,importedVideo:{sourceId:videoId,width:1024,height:768,modeFamily:'fl2va'}},{clipId:'root1',parent:video?'backend-import':selected?'chosen':null,frames:124,completed:1,export:null},{clipId:'kid1',parent:'root1',frames:200,completed:2,export:null}]}));
  const view=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
@@ -1382,12 +1634,13 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
  Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);
  expect((screen.getByLabelText('FPS') as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801','/env/ComfyUI/input/ref.png');
- const first=vi.mocked(prepareDiagnosticJob).mock.calls[0][1] as unknown as {frames:number;h3:object;firstFrame?:string};
+ const first=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {frames:number;h3:object;firstFrame?:string};
  expect(first).toMatchObject({family:'minimax-h3',frames:124,frameRate:24,h3:{mode:'I2VA',references:[{slot:0,image:'deas-inputs/u1.png'}]}});
  expect(first.firstFrame).toBeUndefined();
  expect((first.h3 as {continuity?:object}).continuity).toBeUndefined();
+ expect(readH3Session).not.toHaveBeenCalled();
  await waitFor(()=>expect(screen.getAllByText('Succeeded').length).toBeGreaterThan(0),{timeout:4000});
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
  fireEvent.change(screen.getByRole('textbox',{name:'Session name'}),{target:{value:'Named_session-1'}});
@@ -1397,12 +1650,12 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
   fireEvent.click(screen.getByRole('button',{name:'Prepare video'}));
   fireEvent.click(await screen.findByRole('button',{name:'Use video'}));
   expect(prepareH3Video).toHaveBeenCalledWith('http://127.0.0.1:7801','clips/source.mp4');
-  expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
  }else if(selected){
   fireEvent.click(screen.getByRole('button',{name:'Load checkpoints'}));
   await screen.findByRole('option',{name:'chosen'});
   fireEvent.change(screen.getByRole('combobox',{name:'Source checkpoint'}),{target:{value:'chosen'}});
-  expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1);
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
  }
  fireEvent.click(screen.getByRole('button',{name:'Add step'}));fireEvent.click(screen.getByRole('button',{name:'Add step'}));
  fireEvent.change(screen.getAllByLabelText('Next action')[0],{target:{value:'she turns around'}});
@@ -1411,9 +1664,9 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
  expect((screen.getByRole('combobox',{name:'Overlap (frames)'}) as HTMLSelectElement).disabled).toBe(true);
  fireEvent.click(within(screen.getByRole('dialog',{name:'Continuity'})).getByRole('button',{name:'Close'}));
  expect(screen.queryByRole('dialog',{name:'Continuity'})).toBeNull();
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3),{timeout:5000});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3),{timeout:5000});
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
- const steps=vi.mocked(prepareDiagnosticJob).mock.calls.slice(1).map(c=>(c[1] as unknown as {h3:{continuity:{sourceId:string;action:string;capture:boolean}}}).h3.continuity);
+ const steps=vi.mocked(runWorkbenchJob).mock.calls.slice(1).map(c=>(c[1] as unknown as {h3:{continuity:{sourceId:string;action:string;capture:boolean}}}).h3.continuity);
  expect(steps[0]).toMatchObject({sourceId:video?videoId:selected?'chosen':'',capture:true,action:selected?'she turns around':''});
  expect(Object.hasOwn(steps[0],'overlapFrames')).toBe(selected);
  expect(Object.hasOwn(steps[0],'sourceKind')).toBe(video);
@@ -1422,6 +1675,9 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
  expect((screen.getByRole('combobox',{name:'Overlap (frames)'}) as HTMLSelectElement).value).toBe('56');
  await waitFor(()=>expect(screen.getByText('kid1')).toBeTruthy(),{timeout:5000});
  expect(readH3Session).toHaveBeenCalledWith('http://127.0.0.1:7801/','Named_session-1');
+ expect(peerObserved).toBe(true);
+ const pinned=JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!);
+ expect(pinned.steps.filter((s:{jobId?:string})=>s.jobId).map((s:{jobId:string})=>s.jobId)).toEqual(['h3-2','h3-3']);
  expect((screen.getByRole('textbox',{name:'Session name'}) as HTMLInputElement).value).toBe('Named_session-1');
  if(selected){
   fireEvent.click(screen.getByRole('button',{name:'Add step'}));
@@ -1429,10 +1685,67 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
   view.rerender(<I18nProvider><Workbench endpoint="http://127.0.0.1:7802" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
   expect((screen.getByRole('button',{name:'Run next'}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByRole('alert').textContent).toContain('Backend changed');
-  expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3);
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(3);
  }
+},10000);
+
+test('pending video upload is dropped on unmount before native admission',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ let release!:(name:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async(baseUrl,intent)=>{
+  const job={...heldJob('late-upload-job','queued',baseUrl),intent};
+  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+  vi.mocked(pollWorkbench).mockResolvedValue(collection([job]));
+  return job;
+ });
+ const props={endpoint:'http://127.0.0.1:7801',roots:{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));choosePipe('Video → Video');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));adopt();loadVideo('clip.mp4');
+ await waitFor(()=>expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ view.unmount();localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false));
+ await act(async()=>release('deas-inputs/late.mp4'));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ expect(document.querySelectorAll('[data-job-id]')).toHaveLength(0);
 });
 
+test('delayed video upload submits the captured endpoint, settings, naming and source, never a rebuilt draft',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ let release!:(name:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async(baseUrl,intent)=>({...heldJob('captured','failed',baseUrl),intent}));
+ localStorage.setItem('deas.pref.studio.run.seed','42');localStorage.setItem('deas.pref.studio.run.seedMode','"fixed"');
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,outputNaming:'saved/%seed%'}));
+ const props={endpoint:'http://127.0.0.1:7801',roots:{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));choosePipe('Video → Video');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));adopt();loadVideo('clip.mp4');
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'/env/ComfyUI/input/clip.mp4'}});
+ fireEvent.change(screen.getByLabelText('Source strength'),{target:{value:'0.7'}});
+ await waitFor(()=>expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'new prompt'}});
+ fireEvent.change(screen.getByLabelText('Source strength'),{target:{value:'0.2'}});
+ fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'35'}});
+ view.rerender(<I18nProvider><Workbench {...props} endpoint="http://changed:9999/"/></I18nProvider>);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ await act(async()=>release('deas-inputs/captured.mp4'));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0]).toEqual(['http://127.0.0.1:7801',expect.objectContaining({positivePrompt:'/env/ComfyUI/input/clip.mp4',seed:42,steps:8,outputPrefix:'raw/saved/42',sourceVideo:'deas-inputs/captured.mp4',ltx:expect.objectContaining({sourceStrength:0.7})}),0]);
+});
 const ltxModels=[
  {category:'unet',name:'LTX2/ltx.safetensors',path:'/m/unet/LTX2/ltx.safetensors',size:1,info:null,family:'ltx-2'},
  {category:'text_encoders',name:'gemma_3_12B_it_fp8.safetensors',path:'/m/text_encoders/gemma.safetensors',size:1,info:null},
@@ -1454,9 +1767,8 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-u.mp4':'deas-inputs/u.png');
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
- vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-v',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ vi.mocked(pollWorkbench).mockImplementation(async()=>collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async result=>({...await result.value,state:'succeeded' as const})))));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
  expect(pipe('Multi-reference → Video').disabled).toBe(false);
@@ -1472,10 +1784,10 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  fireEvent.change(screen.getByLabelText('Source strength'),{target:{value:'0.7'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801','/env/ComfyUI/input/clip.mp4');
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',sourceVideo:'deas-input-u.mp4',width:1280,height:704,ltx:{sourceStrength:0.7}});
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).not.toHaveProperty('firstFrame');
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',sourceVideo:'deas-input-u.mp4',width:1280,height:704,ltx:{sourceStrength:0.7}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('firstFrame');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
  // Multi-reference: images only for LTX (no reference button on a video), placed at a second with a strength.
  choosePipe('Multi-reference → Video');
@@ -1508,8 +1820,8 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  expect(markOf('ref.png')).toBe('@ 1 s');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
- const second=vi.mocked(prepareDiagnosticJob).mock.calls[1][1];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ const second=vi.mocked(runWorkbenchJob).mock.calls[1][1];
  expect(second).toMatchObject({family:'ltx-2',ltx:{keyframes:[{image:'ref.png',frame:24,strength:0.5}]}});
  expect(second).not.toHaveProperty('sourceVideo');
  fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Remove reference ref.png'}));
@@ -1528,9 +1840,8 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>_c==='native_forge'?({models:[{id:'m',label:'M'}],errors:{},creativity:['x'],shot_counts:['Auto'],default_shots:'Auto'}):({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-v.mp4':path.endsWith('.wav')?'deas-inputs/s.wav':'deas-inputs/i.png');
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-h',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
- vi.mocked(readDiagnosticJobStatus).mockImplementation(async id=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-h',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ vi.mocked(pollWorkbench).mockImplementation(async()=>collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async result=>({...await result.value,state:'succeeded' as const})))));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
  choosePipe('Video → Video');
@@ -1541,8 +1852,8 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(screen.queryByText('MiniMax H3 runs these as REF2VA; pick a REF2VA checkpoint for best results.')).toBeNull();
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toMatchObject({family:'minimax-h3',h3:{mode:'REF2VA',references:[],media:[{type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'video_audio'}]}});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({family:'minimax-h3',h3:{mode:'REF2VA',references:[],media:[{type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'video_audio'}]}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
  // Multi-reference: the video (sound only), an image and an audio clip; slots count per lane.
  choosePipe('Multi-reference → Video');
@@ -1561,8 +1872,8 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(document.querySelector('.wb-stage-mark')?.textContent).toBe('<Picture 1>');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(2));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[1][1]).toMatchObject({h3:{mode:'REF2VA',media:[
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({h3:{mode:'REF2VA',media:[
   {type:'video',file:'deas-input-v.mp4',slot:0,mediaMode:'audio'},{type:'audio',file:'deas-inputs/s.wav',slot:1},{type:'image',file:'deas-inputs/i.png',slot:0}]}});
  // Badges are the Director's prompt labels; the third sound track fills the audio lane, so a fourth is refused with the reason.
  expect([markOf('clip.mp4'),markOf('voice.wav'),markOf('ref.png')]).toEqual(['<Audio 1>','<Audio 2>','<Picture 1>']);
@@ -1584,7 +1895,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'a singer'}});
  fireEvent.click(screen.getByRole('button',{name:'Insert <Audio 2> into the prompt'}));
  // Director input scaling: the default Fill and crop stays implicit; another mode is sent.
- expect((vi.mocked(prepareDiagnosticJob).mock.calls[1][1] as unknown as {h3:object}).h3).not.toHaveProperty('inputScaling');
+ expect((vi.mocked(runWorkbenchJob).mock.calls[1][1] as unknown as {h3:object}).h3).not.toHaveProperty('inputScaling');
  fireEvent.change(document.querySelector('[data-h3-scaling]')!,{target:{value:'Fit and pad'}});
  // RefMods: read the backend library on demand, add one; it travels as a Director RefMod row.
  vi.mocked(readRefMods).mockResolvedValue([{name:'chars/hero',kinds:['image'],description:'the hero'}]);
@@ -1596,10 +1907,10 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('a singer <Audio 2>');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(3));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[2][1]).toMatchObject({h3:{media:[
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[2][1]).toMatchObject({h3:{media:[
   {type:'video',slot:0,mediaMode:'audio'},{type:'image',slot:0},{type:'audio',slot:1,trimStart:1,trimEnd:4.5}],inputScaling:'Fit and pad',refmods:[{slot:1,name:'chars/hero',strength:0.6,description:'the hero'}]}});
- expect((vi.mocked(prepareDiagnosticJob).mock.calls[2][1] as unknown as {h3:{media:object[]}}).h3.media[0]).not.toHaveProperty('trimStart');
+ expect((vi.mocked(runWorkbenchJob).mock.calls[2][1] as unknown as {h3:{media:object[]}}).h3.media[0]).not.toHaveProperty('trimStart');
  // Director prompt helpers live in the hammer panel: open it, pick the LLM step. Prefill fills the REF2VA sections around the written text (RefMod after the timeline media); [Shot N] numbers on.
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
  fireEvent.click(screen.getByRole('button',{name:'LLM · Prompt Forge'}));
@@ -1618,8 +1929,7 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
   {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockImplementation(async()=>({id:'job-e',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-e',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
  localStorage.setItem('deas.pref.studio.run.post',JSON.stringify(true)); // refine after every run is on, but H3 skips it
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
@@ -1633,8 +1943,8 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- const intent=vi.mocked(prepareDiagnosticJob).mock.calls[0][1];
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3}});
  expect(intent).not.toHaveProperty('refine');
 });
@@ -1660,8 +1970,7 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
   localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name:'style.safetensors',strength:0.7}]));
   localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
  }
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'same-plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'same-job',baseUrl:evidence.baseUrl,promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'same-job',baseUrl:evidence.baseUrl,promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input',output:'/output'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
@@ -1681,12 +1990,12 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
  const preview=shown();
  if(family==='image')expect(preview).toMatchObject({refine:{width:2048,height:2048},loras:[{name:'style.safetensors',strength:0.7}],wildcard:expect.any(Object)});
  else {expect(preview.family).toBe(family);expect(preview.refine).toBeUndefined();expect(preview.wildcard).toBeUndefined();expect(screen.getByRole('region',{name:'Run Plan'}).querySelector('[data-plan-stage="refine"]')).toBeNull();}
- expect(prepareDiagnosticJob).not.toHaveBeenCalled();expect(submitDiagnosticJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
  view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
  expect(view.container.querySelector('[data-workbench]')).toBe(shell);
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
- await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(prepareDiagnosticJob).mock.calls[0][1]).toEqual(preview);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toEqual(preview);
 });
 
 test('prompt fields expand into a floating editor that edits the same text and closes with Escape',async()=>{
@@ -1722,8 +2031,7 @@ async function mountMoss(nodes=mossNodes,clipTypes=['moss_image']){
   {category:'loras',name:'unknown.safetensors',path:'/m/lora',size:1,info:null},
  ]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,missingNodes:['CheckpointLoaderSimple','EmptyLatentImage'],allowlist:{...evidence.allowlist,nodes,clipTypes}});
- vi.mocked(prepareDiagnosticJob).mockImplementation(async(baseUrl,intent)=>({id:'plan',baseUrl,intent,graph:{},generationReady:false}));
- vi.mocked(submitDiagnosticJob).mockResolvedValue({id:'moss-job',promptId:'p',baseUrl:evidence.baseUrl,state:'succeeded',outputs:[],error:null,generationReady:false} as JobStatus);
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'moss-job',promptId:'p',baseUrl:evidence.baseUrl,state:'succeeded',outputs:[],error:null,generationReady:false} as JobStatus);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'moss.safetensors'});
  fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:'moss.safetensors'}});
@@ -1734,30 +2042,30 @@ test.each(['moss.safetensors','a.safetensors'])('image Wildcards block %s until 
  fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:checkpoint}});
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('alert').textContent).toContain('DaSiWa_WildcardPresetPromptBuilder');
- fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(runWorkbenchJob).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Disable wildcards'}));
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('wildcard');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('wildcard');
 });
 test.each(['moss.safetensors','a.safetensors'])('image Wildcards preserve enabled intent for %s with its plugin available',async(checkpoint)=>{
  localStorage.setItem('deas.pref.studio.run.wildcardEnabled','true');
  await mountMoss([...mossNodes,...evidence.allowlist.nodes,'DaSiWa_WildcardPresetPromptBuilder']);
  fireEvent.change(screen.getByLabelText('Checkpoint'),{target:{value:checkpoint}});
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).toHaveProperty('wildcard');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toHaveProperty('wildcard');
 });
 test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
  await mountMoss(mossNodes.filter(n=>n!==missing),missing==='moss_image'?[]:['moss_image']);
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('alert').textContent).toContain(missing);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test.each([['SaveImage'],['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']])('MOSS uses the available saver %s without checkpoint diagnostic nodes',async(...saver)=>{
  await mountMoss([...mossNodes.filter(n=>n!=='SaveImage'),...saver]);
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
 });
 async function mossInput(width=520,height=768){
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
@@ -1774,15 +2082,15 @@ test.each(['off','auto'])('MOSS blocks an unaligned source in %s without hiding 
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  expect(document.body.textContent).toContain('Choose Target, Fit or Crop');
  expect(screen.getByTestId('editor-world').style.width).toBe('520px');
- fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(prepareDiagnosticJob).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test.each(['fit','crop','target'])('MOSS explicit %s resizes an unaligned source and i2i does not need an empty latent',async(mode)=>{
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
  await mountMoss(mossNodes.filter(n=>n!=='EmptyFlux2LatentImage'));await mossInput();
  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:mode}});
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).toMatchObject({inputImage:'source.png',inputResize:{crop:mode==='crop'?'center':'disabled'}});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({inputImage:'source.png',inputResize:{crop:mode==='crop'?'center':'disabled'}});
  expect(screen.getByTestId('editor-world').style.width).toBe('520px');
 });
 test.each([
@@ -1850,7 +2158,277 @@ test('MOSS retains incompatible options and post on a family switch until explic
  fireEvent.click(screen.getByRole('button',{name:'Restore Post-Processing defaults'}));
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.options')!).outputNaming).toBe('kept/%seed%');
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(prepareDiagnosticJob).toHaveBeenCalled());
- expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('options');
- expect(vi.mocked(prepareDiagnosticJob).mock.lastCall![1]).not.toHaveProperty('refine');
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('options');
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('refine');
+});
+
+test('three rapid Run presses capture prompts and distinct random seeds while IPC is pending',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ const replies:((job:JobStatus)=>void)[]=[];
+ vi.mocked(runWorkbenchJob).mockImplementation(()=>new Promise(resolve=>replies.push(resolve)));
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ for(const prompt of ['one','two','three']){fireEvent.change(document.querySelector('[data-run-positive]')!,{target:{value:prompt}});fireEvent.click(run);}
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3));
+ const calls=vi.mocked(runWorkbenchJob).mock.calls;
+ expect(calls.map(c=>c[1].positivePrompt)).toEqual(['one','two','three']);
+ expect(new Set(calls.map(c=>c[1].seed)).size).toBe(3);
+ expect(calls.map(c=>c[2])).toEqual([0,0,0]);expect(run.textContent).toContain('Run');
+ view.unmount();await act(async()=>replies.forEach((reply,i)=>reply(heldJob('rapid-'+i,'queued'))));
+});
+
+test('Stop discards every unsent image preparation without claiming upload cancellation',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a.safetensors',size:1,info:null}]);
+ const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'a.safetensors',pipeline:'i2i'},input:{id:'input-1',path:'/projects/one/assets/input.png',sha256:'a'.repeat(64),width:1024,height:1024}};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_project_open'?saved:{entries:[],truncated:false});
+ let release!:(name:string)=>void;const pending=new Promise<string>(yes=>{release=yes;});vi.mocked(uploadInput).mockReturnValue(pending);
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/env/in'}};
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved project prompt'));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(2));
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledTimes(1));
+ await act(async()=>release('deas-inputs/late.png'));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(document.querySelectorAll('[data-job-id]')).toHaveLength(0);
+ expect(document.querySelector('[data-run-stop]')).toBeNull();expect(pollWorkbench).not.toHaveBeenCalled();
+});
+
+test('Stop drops delayed video preparation and the next press uses the new native epoch',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ let release!:(name:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async(baseUrl,intent)=>{
+  const job={...heldJob('late-upload-job','queued',baseUrl),intent};
+  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+  vi.mocked(pollWorkbench).mockResolvedValue(collection([job]));
+  return job;
+ });
+ const props={endpoint:'http://127.0.0.1:7801',roots:{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}};
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));choosePipe('Video → Video');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));adopt();loadVideo('clip.mp4');
+ await waitFor(()=>expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await screen.findByText('No native work remained. Unsent preparations were discarded.');
+ await act(async()=>release('deas-inputs/late.mp4'));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ expect(document.querySelectorAll('[data-job-id]')).toHaveLength(0);
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/new.mp4');fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));expect(vi.mocked(runWorkbenchJob).mock.calls[0][2]).toBe(1);
+});
+
+
+const imageModels=[{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}];
+test.each(['empty','settled','partial'] as const)('Stop reports %s truthfully, preserves native products/unknowns and can repeat',async outcome=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ const product={...heldJob('product','succeeded'),outputs:[{filename:'keep.png',subfolder:'',type:'output' as const}],outputRoot:'/old/output'};
+ const unknown=heldJob('foreign','unknown');
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([product,unknown]));
+ vi.mocked(stopWorkbench).mockResolvedValue({...collection([product,unknown]),admissionEpoch:1,outcome,discarded:0,issues:outcome==='partial'?[{jobId:unknown.id,error:'Foreign backend: scoped interruption unsupported'}]:[]});
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="foreign"]')).not.toBeNull());
+ fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1'}});
+ expect(document.querySelector<HTMLButtonElement>('[data-run-stop]')!.disabled).toBe(false);
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await waitFor(()=>expect(document.querySelector('[data-run-stop-status]')).not.toBeNull());
+ expect(document.querySelector('[data-run-stop-status]')!.textContent).toContain(outcome==='empty'?'No native work':outcome==='settled'?'Stop finished':'Stop was partial');
+ if(outcome==='partial')expect(screen.getByRole('alert').textContent).toContain('Foreign backend: scoped interruption unsupported');
+ expect(document.querySelector('[data-job-id="foreign"] [data-state]')!.getAttribute('data-state')).toBe('unknown');
+ expect(document.querySelector('[data-job-id="product"] img')!.getAttribute('src')).toContain('/old/output/keep.png');
+ expect(screen.queryByRole('button',{name:/Running/})).toBeNull();
+ fireEvent.click(document.querySelector('[data-run-stop]')!);await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledTimes(2));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['unreachable','unsupported'])('Stop %s leaves held states intact and gives a localized standard alert',async failure=>{
+ const job=heldJob('retained','running');
+ vi.mocked(readCurrentWorkbench).mockResolvedValue({...collection([job]),stopAvailable:failure!=='unsupported'});
+ vi.mocked(stopWorkbench).mockRejectedValue(new Error('IPC unavailable'));
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-run-stop]')).not.toBeNull());
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain(failure==='unsupported'?'does not support Workbench Stop':'IPC unavailable'));
+ expect(document.querySelector('[data-job-id="retained"] [data-state]')!.getAttribute('data-state')).toBe('running');
+ expect(stopWorkbench).toHaveBeenCalledTimes(failure==='unsupported'?0:1);
+});
+test('Stop fences a sent Run reply, coalesces presses and passes the captured native epoch',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ vi.mocked(readCurrentWorkbench).mockResolvedValue({...collection(),admissionEpoch:7});
+ let finishRun!:(job:JobStatus)=>void;let finishStop!:(value:Awaited<ReturnType<typeof stopWorkbench>>)=>void;
+ vi.mocked(runWorkbenchJob).mockReturnValue(new Promise(resolve=>{finishRun=resolve;}));
+ vi.mocked(stopWorkbench).mockReturnValue(new Promise(resolve=>{finishStop=resolve;}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][2]).toBe(7);
+ const stop=document.querySelector<HTMLButtonElement>('[data-run-stop]')!;
+ fireEvent.click(stop);fireEvent.click(stop);fireEvent.click(document.querySelector('[data-run]')!);
+ expect(stopWorkbench).toHaveBeenCalledTimes(1);expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ await act(async()=>finishStop({...collection([heldJob('stopped','cancelled')]),admissionEpoch:8,outcome:'settled',discarded:0,issues:[]}));
+ await act(async()=>finishRun(heldJob('stale-run','running')));
+ expect(document.querySelector('[data-job-id="stale-run"]')).toBeNull();
+ expect(document.querySelector('[data-job-id="stopped"] [data-state]')!.getAttribute('data-state')).toBe('cancelled');
+});
+test('poll reply already in flight cannot overwrite Stop',async()=>{
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([heldJob('held','running')]));
+ let finish!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(pollWorkbench).mockReturnValue(new Promise(resolve=>{finish=resolve;}));
+ vi.mocked(stopWorkbench).mockResolvedValue({...collection([heldJob('held','cancelled')]),admissionEpoch:1,outcome:'settled',discarded:0,issues:[]});
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ await waitFor(()=>expect(pollWorkbench).toHaveBeenCalledTimes(1),{timeout:2500});
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await screen.findByText('Stop finished. Check the retained job states.');
+ await act(async()=>finish(collection([heldJob('held','running')])));
+ expect(document.querySelector('[data-job-id="held"] [data-state]')!.getAttribute('data-state')).toBe('cancelled');
+});
+test('native capacity rejection retains all active and unknown peers without frontend truncation',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ const jobs=Array.from({length:20},(_,i)=>heldJob('capacity-'+i,i%2?'queued':'unknown'));
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(jobs));
+ vi.mocked(runWorkbenchJob).mockRejectedValue(new Error('Workbench capacity reached'));
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await screen.findByText('Workbench capacity reached');
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(2));
+ expect(document.querySelectorAll('[data-job-id]')).toHaveLength(20);expect(stopWorkbench).not.toHaveBeenCalled();
+});
+
+test.each(['fixed','random'] as const)('rapid %s presses pin settings, naming and seed before uploads settle',async mode=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ localStorage.setItem('deas.pref.studio.run.seed','42');localStorage.setItem('deas.pref.studio.run.seedMode',JSON.stringify(mode));
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,outputNaming:'press/%seed%'}));
+ const pending:((job:JobStatus)=>void)[]=[];vi.mocked(runWorkbenchJob).mockImplementation(()=>new Promise(resolve=>pending.push(resolve)));
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;await waitFor(()=>expect(run.disabled).toBe(false));
+ act(()=>{fireEvent.click(run);fireEvent.click(run);fireEvent.click(run);});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3));
+ const intents=vi.mocked(runWorkbenchJob).mock.calls.map(call=>call[1]);
+ expect(intents[0].seed).toBe(42);
+ expect(new Set(intents.map(intent=>intent.seed)).size).toBe(mode==='fixed'?1:3);
+ expect(intents.map(intent=>intent.outputPrefix)).toEqual(intents.map(intent=>`raw/press/${intent.seed}`));
+ view.unmount();await act(async()=>pending.forEach((finish,i)=>finish(heldJob('fixed-'+i,'queued'))));
+});
+test('Stop disables serial Continuity before a pending clip read can continue Run all',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a',size:1,info:null}]);
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const job=heldJob('continuity-stop','queued');
+ vi.mocked(runWorkbenchJob).mockResolvedValue(job);
+ vi.mocked(pollWorkbench).mockResolvedValue(collection([{...job,state:'succeeded'}]));
+ let finish!:(value:Awaited<ReturnType<typeof readH3Session>>)=>void;
+ vi.mocked(readH3Session).mockReturnValue(new Promise(resolve=>{finish=resolve;}));
+ vi.mocked(stopWorkbench).mockResolvedValue({...collection([{...job,state:'succeeded'}]),admissionEpoch:1,outcome:'empty',discarded:0,issues:[]});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'Continuity'}));
+ fireEvent.click(screen.getByRole('button',{name:'Add step'}));fireEvent.click(screen.getByRole('button',{name:'Add step'}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run all'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run all'}));
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Continuity'})).getByRole('button',{name:'Close'}));
+ await waitFor(()=>expect(readH3Session).toHaveBeenCalledTimes(1),{timeout:3000});
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ fireEvent.click(document.querySelector('[data-run-stop]')!);
+ await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledTimes(1));
+ await act(async()=>finish({latestId:'root',clips:[{clipId:'root',parent:null,frames:124,completed:1,export:null}]}));
+ await act(async()=>{});
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ const plan=JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!);
+ expect(plan.steps.every((step:{clipId?:string})=>!step.clipId)).toBe(true);
+});
+
+test('real IPC Stop ownership survives remount, blocks Run and releases after current-state recovery',async()=>{
+ const actual=await vi.importActual<typeof import('../../lib/jobs')>('../../lib/jobs');
+ const previous={stop:vi.mocked(stopWorkbench).getMockImplementation(),read:vi.mocked(readCurrentWorkbench).getMockImplementation(),poll:vi.mocked(pollWorkbench).getMockImplementation(),invoke:vi.mocked(invoke).getMockImplementation()};
+ let finish!:(value:Awaited<ReturnType<typeof stopWorkbench>>)=>void;
+ let snapshot=collection([heldJob('owned-stop','running')]);
+ vi.mocked(stopWorkbench).mockImplementation(actual.stopWorkbench);
+ vi.mocked(readCurrentWorkbench).mockImplementation(actual.readCurrentWorkbench);vi.mocked(pollWorkbench).mockImplementation(actual.pollWorkbench);
+ vi.mocked(invoke).mockImplementation((command,args)=>{
+  if(command==='native_workbench_current'||command==='native_workbench_poll')return Promise.resolve(snapshot);
+  if(command==='native_workbench_stop')return new Promise(resolve=>{finish=resolve;});
+  return previous.invoke!(command,args);
+ });
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ try{
+  const first=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await waitFor(()=>expect(document.querySelector('[data-run-stop]')).not.toBeNull());
+  fireEvent.click(document.querySelector('[data-run-stop]')!);first.unmount();
+  render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run-stop]')?.disabled).toBe(true));
+  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+  fireEvent.click(document.querySelector('[data-run]')!);expect(runWorkbenchJob).not.toHaveBeenCalled();
+  snapshot={...collection([heldJob('owned-stop','cancelled')]),admissionEpoch:1};
+  await act(async()=>finish({...snapshot,outcome:'settled',discarded:0,issues:[]}));
+  await waitFor(()=>expect(document.querySelector('[data-job-id="owned-stop"] [data-state]')?.getAttribute('data-state')).toBe('cancelled'),{timeout:2500});
+  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+  expect(vi.mocked(invoke).mock.calls.filter(call=>call[0]==='native_workbench_stop')).toHaveLength(1);
+ }finally{
+  cleanup();vi.mocked(stopWorkbench).mockImplementation(previous.stop!);vi.mocked(readCurrentWorkbench).mockImplementation(previous.read!);vi.mocked(pollWorkbench).mockImplementation(previous.poll!);vi.mocked(invoke).mockImplementation(previous.invoke!);
+ }
+});
+
+test('held jobs continue polling while another local Run IPC is still pending',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ const peer=heldJob('poll-peer','queued');let finish!:(job:JobStatus)=>void;
+ vi.mocked(runWorkbenchJob).mockResolvedValueOnce(peer).mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
+ vi.mocked(pollWorkbench).mockResolvedValue(collection([{...peer,state:'succeeded'}]));
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;await waitFor(()=>expect(run.disabled).toBe(false));
+ fireEvent.click(run);fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(document.querySelector('[data-job-id="poll-peer"] [data-state]')?.getAttribute('data-state')).toBe('succeeded'),{timeout:2500});
+ view.unmount();await act(async()=>finish(heldJob('late-peer','queued')));
+});
+
+test('overlapping fixed-seed Runs restart an invalidated in-flight peer poll while both IPCs remain pending',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ localStorage.setItem('deas.pref.studio.run.seed','42');
+ localStorage.setItem('deas.pref.studio.run.seedMode','"fixed"');
+ const peer=heldJob('overlap-peer','queued');
+ const succeeded=collection([{...peer,state:'succeeded' as const}]);
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([peer]));
+ let finishPoll!:(value:ReturnType<typeof collection>)=>void;
+ vi.mocked(pollWorkbench).mockReturnValueOnce(new Promise(resolve=>{finishPoll=resolve;})).mockResolvedValue(succeeded);
+ const runs:((job:JobStatus)=>void)[]=[];
+ vi.mocked(runWorkbenchJob).mockImplementation(()=>new Promise(resolve=>runs.push(resolve)));
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ vi.useFakeTimers();
+ try{
+  await act(async()=>fireEvent.click(run));
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(pollWorkbench).toHaveBeenCalledTimes(1);
+  await act(async()=>fireEvent.click(run));
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(2);
+  await act(async()=>finishPoll(succeeded));
+  expect(document.querySelector('[data-job-id="overlap-peer"] [data-state]')?.getAttribute('data-state')).toBe('queued');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(pollWorkbench).toHaveBeenCalledTimes(2);
+  expect(document.querySelector('[data-job-id="overlap-peer"] [data-state]')?.getAttribute('data-state')).toBe('succeeded');
+  // Neither Run reply has settled; observing a terminal peer must not submit or poll idle work.
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(2);
+  expect(pollWorkbench).toHaveBeenCalledTimes(2);
+  expect(readCurrentWorkbench).toHaveBeenCalledTimes(1);
+ }finally{
+  view.unmount();await act(async()=>runs.forEach((finish,i)=>finish(heldJob('overlap-'+i,'queued'))));
+  vi.useRealTimers();
+ }
 });

@@ -96,7 +96,7 @@ def main():
         assert page.evaluate('window.__calls.find(c=>c.command==="native_media_unstar").args.path') == '/env/ComfyUI/output/starred/image/2026-10-19/fixture.png'
         page.screenshot(path=str(OUT/'unstarred-editor-viewer.png'))
         page.keyboard.press('Escape')
-        assert not page.evaluate('window.__calls.some(c=>/native_job_prepare|native_job_submit|native_input_upload|native_mask_upload/.test(c.command))')
+        assert not page.evaluate('window.__calls.some(c=>/native_job_prepare|native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command))')
         assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
         assert not errors, errors
         (OUT/'results.json').write_text(json.dumps({'editorPreserved': True, 'geometryPreserved': True, 'viewerPathUpdated': True, 'unstarPreservesNamedRawPath': True, 'fixtureOnly': True}, indent=2)+'\n')

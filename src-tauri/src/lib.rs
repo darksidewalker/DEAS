@@ -25,7 +25,7 @@ pub use jobs::{
     native_input_upload, native_job_current, native_job_export, native_job_output,
     native_job_prepare, native_job_status, native_job_submit, native_mask_upload,
     native_workbench_cancel_pending, native_workbench_current, native_workbench_interrupt_running,
-    native_workbench_poll, native_workbench_run,
+    native_workbench_poll, native_workbench_run, native_workbench_stop,
 };
 pub mod model_families;
 pub mod recipe_prerequisites;

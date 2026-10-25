@@ -1,4 +1,6 @@
 use super::*;
+#[path = "jobs_stop_tests.rs"]
+mod stop_tests;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PROMPT: &str = "11111111-1111-4111-8111-111111111111";
@@ -59,7 +61,7 @@ async fn cancel_fixture(
             }
             if f.mode=="auth" { return (f.code,"private-token-response".into()); }
             if f.mode=="foreign-history" {return (200,json!({"foreign":{}}).to_string());}
-            if f.interrupt && (f.mode=="interrupted-before" || (f.posts>0 && matches!(f.mode,"ok"|"foreign-interrupted"|"partial-interrupted"))) {
+            if f.interrupt && (matches!(f.mode,"race-running"|"race-before-delete") || f.mode=="interrupted-before" || (f.posts>0 && matches!(f.mode,"ok"|"foreign-interrupted"|"partial-interrupted"))) {
                 let id=if f.mode=="foreign-interrupted" {"foreign"} else {PROMPT};
                 let outputs=if f.mode=="partial-interrupted" {json!({"7":{"images":[{"filename":"partial.png","subfolder":"","type":"output"}]}})} else {json!({})};
                 return (200,json!({PROMPT:{"prompt":f.tuple,"outputs":outputs,"status":{"completed":false,"status_str":"error","messages":[["execution_start",{"prompt_id":PROMPT,"timestamp":1000}],["execution_interrupted",{"prompt_id":id,"timestamp":1500}]]}}}).to_string());
@@ -77,10 +79,11 @@ async fn cancel_fixture(
                 "id" => tuple[1]=json!("foreign"),
                 _=>{},
             }
-            let running=f.mode=="running" || (f.mode=="race-running" && f.posts>0) || (f.interrupt && f.mode!="pending" && f.mode!="absent" && (f.posts==0 || f.mode=="still-running"));
+            let running=f.mode=="running" || (f.mode=="race-before-delete" && f.reads>=2) || (f.mode=="race-running" && f.posts>0) || (f.interrupt && f.mode!="pending" && f.mode!="absent" && (f.posts==0 || f.mode=="still-running"));
             let absent=f.mode=="absent" || (f.posts>0 && f.mode!="still-pending" && !running);
             return (200,json!({"queue_running":if running{vec![tuple.clone()]}else{vec![]},"queue_pending":if !absent && !running {vec![tuple]}else{vec![]}}).to_string());
         }
+        if matches!(f.mode,"race-running"|"race-before-delete") && path == "POST /comfy/deas/jobs/interrupt HTTP/1.1" { f.interrupt = true; }
         if f.interrupt {
             assert!(headers.to_ascii_lowercase().contains("x-deas-interrupt-token: fixture-private-authority\r\n"));
             assert!(!headers.to_ascii_lowercase().contains("authorization:"));
@@ -95,7 +98,7 @@ async fn cancel_fixture(
     }).await;
     let jobs = Arc::new(Jobs::default());
     let job = jobs
-        .workbench_run(base, intent(), true, None)
+        .workbench_run(base, intent(), true, 0, None)
         .await
         .unwrap();
     assert_eq!(job["state"], "queued");
@@ -126,6 +129,54 @@ async fn standalone_status_abort_releases_polling_for_retry_and_pending_cancel()
     assert_eq!(
         jobs.cancel_pending(id, true, owner()).await.unwrap()["state"],
         "cancelled"
+    );
+    assert_eq!(f.lock().unwrap().posts, 1);
+    task.abort();
+}
+
+#[tokio::test]
+async fn whole_stop_confirmation_empty_pending_and_repeat() {
+    let empty = Jobs::default();
+    assert!(empty
+        .workbench_stop(false, owner(), interrupt_owner())
+        .await
+        .is_err());
+    assert_eq!(
+        empty
+            .workbench_stop(true, owner(), interrupt_owner())
+            .await
+            .unwrap()["outcome"],
+        "empty"
+    );
+    let (jobs, id, f, task) = cancel_fixture("ok", 200).await;
+    assert!(jobs
+        .workbench_stop(false, owner(), interrupt_owner())
+        .await
+        .is_err());
+    assert!(jobs.lock().unwrap().stop.is_none());
+    assert_eq!(f.lock().unwrap().posts, 0);
+    let stopped = jobs
+        .workbench_stop(true, owner(), interrupt_owner())
+        .await
+        .unwrap();
+    let logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("Workbench stop: job={id}")))
+        .collect();
+    assert!(!logs.is_empty());
+    assert!(logs
+        .iter()
+        .all(|entry| entry.source == crate::logs::Source::Deas
+            && !entry.text.contains("fixture-private-authority")
+            && !entry.text.contains("http://")));
+    assert_eq!(stopped["outcome"], "settled");
+    assert_eq!(stopped["jobs"][0]["state"], "cancelled");
+    assert_eq!(stopped["stopAvailable"], true);
+    assert_eq!(
+        jobs.workbench_stop(true, owner(), interrupt_owner())
+            .await
+            .unwrap()["outcome"],
+        "settled"
     );
     assert_eq!(f.lock().unwrap().posts, 1);
     task.abort();
@@ -204,7 +255,7 @@ async fn running_interrupt_exact_target_terminal_proof_and_readonly_states() {
             assert!(logs[0].text.contains("state=cancelled"));
             assert!(!logs[0].text.contains("fixture-private-authority"));
         }
-        assert_eq!(jobs.workbench_current().unwrap()["stopAvailable"], false);
+        assert_eq!(jobs.workbench_current().unwrap()["stopAvailable"], true);
         task.abort();
     }
 }
@@ -424,7 +475,7 @@ async fn pending_cancel_deletes_exact_prompt_and_is_terminal() {
     );
     assert_eq!(jobs.status_for(id).await.unwrap()["state"], "cancelled");
     let snapshot = jobs.workbench_poll().await.unwrap();
-    assert_eq!(snapshot["stopAvailable"], false);
+    assert_eq!(snapshot["stopAvailable"], true);
     assert_eq!(snapshot["jobs"][0]["state"], "cancelled");
     assert_eq!(f.lock().unwrap().posts, 1);
     assert_eq!(f.lock().unwrap().submissions, 1);

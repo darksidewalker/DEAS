@@ -14,7 +14,7 @@ out.mkdir(parents=True,exist_ok=True)
 module=ast.parse((root/'tools/verify_workbench.py').read_text())
 fixture=next(ast.literal_eval(n.value) for n in module.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='fixture' for t in n.targets))
 categories=json.loads((pack/'data/wildcards_and_presets_dual.json').read_text())['wildcard_library']['categories']
-fixture=fixture.replace("window.__calls.push({command,args});","window.__calls.push({command,args});\nif(command==='native_wildcard_library')return "+json.dumps(json.dumps({'categories':categories}))+";\nif(command==='native_job_submit')return {id:'wild-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,state:'succeeded',outputs:[],error:null,generationReady:false};")
+fixture=fixture.replace("window.__calls.push({command,args});","window.__calls.push({command,args});\nif(command==='native_wildcard_library')return "+json.dumps(json.dumps({'categories':categories}))+";\nif(command==='native_workbench_run'){window.__intent=structuredClone(args.intent);return window.__job={id:'wild-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,state:'succeeded',outputs:[],error:null,generationReady:false};}")
 with sync_playwright() as p:
  browser=p.chromium.launch()
  for width in (1440,1024,768,390,320):
@@ -43,7 +43,7 @@ with sync_playwright() as p:
    page.locator('[data-run-load]').click()
    page.locator('[data-run-checkpoint]').wait_for()
    page.locator('[data-run]').click()
-   page.wait_for_function("window.__calls.some(c=>c.command==='native_job_submit')")
+   page.wait_for_function("window.__calls.some(c=>c.command==='native_workbench_run')")
    intent=page.evaluate('window.__intent')
    assert intent['positivePrompt']=='manual base'
    assert intent['wildcard']['auto_reroll'] is True

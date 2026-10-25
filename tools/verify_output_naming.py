@@ -12,7 +12,7 @@ out=Path(sys.argv[2]) if len(sys.argv)>2 else Path.home()/'.hermes/cache/scratch
 out.mkdir(parents=True,exist_ok=True)
 module=ast.parse((root/'tools/verify_workbench.py').read_text())
 fixture=next(ast.literal_eval(n.value) for n in module.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='fixture' for t in n.targets))
-fixture=fixture.replace("window.__calls.push({command,args});","window.__calls.push({command,args});if(command==='native_job_submit')return {id:'name-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,state:'succeeded',outputs:[],error:null,generationReady:false};")
+fixture=fixture.replace("window.__calls.push({command,args});","window.__calls.push({command,args});if(command==='native_workbench_run'){window.__intent=structuredClone(args.intent);return window.__job={id:'name-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,state:'succeeded',outputs:[],error:null,generationReady:false};}")
 with sync_playwright() as p:
  browser=p.chromium.launch()
  for width in (1440,1024,768,390,320):
@@ -33,7 +33,7 @@ with sync_playwright() as p:
    expect(field).to_have_value('%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%')
    page.get_by_role('spinbutton',name=t['studio.run.seed'],exact=True).fill('42')
    page.locator('[data-run]').click()
-   page.wait_for_function("window.__calls.some(c=>c.command==='native_job_submit')")
+   page.wait_for_function("window.__calls.some(c=>c.command==='native_workbench_run')")
    intent=page.evaluate('window.__intent')
    assert re.fullmatch(r'image/\d{4}-\d{2}-\d{2}/\d{2}-\d{2}-\d{2}-42-anima-preview',intent['outputPrefix']),intent
    field.fill('custom/%type%/%seed%-%model%')
@@ -44,7 +44,7 @@ with sync_playwright() as p:
    field.fill('../%seed%')
    expect(field).to_have_attribute('aria-invalid','true')
    page.locator('[data-run]').click()
-   assert not page.evaluate("window.__calls.some(c=>c.command==='native_job_prepare')")
+   assert not page.evaluate("window.__calls.some(c=>c.command==='native_workbench_run')")
    field.fill('%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%')
    expect(field).to_have_attribute('aria-invalid','false')
    field.scroll_into_view_if_needed()

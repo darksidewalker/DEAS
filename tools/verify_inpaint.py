@@ -30,8 +30,8 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
    if(window.__holdUpload)await new Promise(resolve=>{window.__releaseUpload=resolve;});
    return maskName;
   }
-  if(command==='native_job_prepare'){window.__plans.push(structuredClone(args.intent));return {id:'plan-'+window.__plans.length,baseUrl:args.baseUrl,intent:args.intent,graph:{},generationReady:false};}
-  if(command==='native_job_submit')return {id:'job-'+window.__plans.length,baseUrl:'http://127.0.0.1:7801',promptId:'p',state:'failed',outputs:[],error:'fixture: no generation',generationReady:false,intent:window.__plans.at(-1)};
+  if(command==='native_workbench_current')return {jobs:window.__job?[window.__job]:[],preparing:0,capacity:20,stopAvailable:false};
+  if(command==='native_workbench_run'){window.__plans.push(structuredClone(args.intent));return window.__job={id:'job-'+window.__plans.length,baseUrl:'http://127.0.0.1:7801',promptId:'p',state:'failed',outputs:[],error:'fixture: no generation',generationReady:false,intent:window.__plans.at(-1)};}
   window.__unexpected.push(command);throw Error('Unexpected IPC '+command);
  }};
 """

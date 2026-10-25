@@ -21,6 +21,7 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
  if(command==='plugin:event|listen'){if(args.event==='tauri://close-requested')window.__closeHandler=args.handler;return ++callback;}
  if(command==='plugin:window|destroy'||command==='native_project_close_notice')return null;
  if(command==='plugin:event|unlisten')return null;
+ if(command==='native_workbench_current')return {jobs:[],preparing:0,capacity:20,stopAvailable:false};
  if(command==='native_media_list')return {path:args.path,parent:null,entries:[],truncated:false};
  if(command==='native_models_scan')return [{category:'checkpoints',name:'sdxl.safetensors',family:'sdxl',path:'/m/sdxl.safetensors',size:1,info:null}];
  if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:[],checkpoints:['sdxl.safetensors'],loras:[],samplers:['euler'],schedulers:['normal']}};
@@ -58,7 +59,7 @@ def main():
                 opener.click()
                 prompt = page.locator('#run-positive')
                 expect(prompt).to_have_value('saved project')
-                assert not page.evaluate('window.__calls.some(c=>/native_job_submit|native_input_upload|native_mask_upload/.test(c.command))')
+                assert not page.evaluate('window.__calls.some(c=>/native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command))')
                 prompt.fill('edited project')
                 page.wait_for_function('window.__closeHandler!==null')
                 page.evaluate("window.__callbacks[window.__closeHandler]({event:'tauri://close-requested',id:1,payload:null})")
@@ -90,7 +91,7 @@ def main():
                 assert not errors, errors
                 assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
                 calls = page.evaluate('window.__calls')
-                assert not any(c['command'] in ['native_job_submit', 'native_input_upload', 'native_mask_upload'] for c in calls)
+                assert not any(c['command'] in ['native_job_submit', 'native_workbench_run', 'native_input_upload', 'native_mask_upload'] for c in calls)
                 results.append({'locale': locale, 'width': width, 'autosaves': sum(c['command'] == 'native_project_save' for c in calls)})
                 context.close()
         browser.close()

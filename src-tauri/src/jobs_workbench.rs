@@ -2,6 +2,7 @@
 use super::*;
 
 const WORKBENCH_LIMIT: usize = 20;
+pub(super) const MAX_ADMISSION_EPOCH: u64 = (1_u64 << 53) - 1;
 
 // Shared Workbench failure log limiter: once per minute.
 static WORKBENCH_FAILURE_LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
@@ -16,6 +17,9 @@ pub(super) fn reset_workbench_failure_logging() {
 
 impl Session {
     pub(super) fn workbench_busy(&self) -> Result<bool, String> {
+        if self.stop.is_some() {
+            return Ok(true);
+        }
         for held in &self.workbench {
             if held.lock()?.job.as_ref().is_none_or(|job| !job.terminal()) {
                 return Ok(true);
@@ -48,7 +52,7 @@ impl Jobs {
             }
         }
         Ok(
-            json!({"jobs":jobs,"preparing":preparing,"capacity":WORKBENCH_LIMIT,"stopAvailable":false}),
+            json!({"jobs":jobs,"preparing":preparing,"capacity":WORKBENCH_LIMIT,"stopAvailable":true,"admissionEpoch":session.admission_epoch,"stopping":session.stop.is_some()}),
         )
     }
 
@@ -108,10 +112,11 @@ impl Jobs {
         base_url: String,
         intent: Value,
         confirmed: bool,
+        admission_epoch: u64,
         engine: Option<&crate::install::Engine>,
     ) -> Result<Value, String> {
         let result = self
-            .workbench_run_inner(base_url, intent, confirmed, engine)
+            .workbench_run_inner(base_url, intent, confirmed, admission_epoch, engine)
             .await;
         match &result {
             Ok(job) => report_job("run", job),
@@ -133,14 +138,30 @@ impl Jobs {
         base_url: String,
         intent: Value,
         confirmed: bool,
+        admission_epoch: u64,
         engine: Option<&crate::install::Engine>,
     ) -> Result<Value, String> {
         if !confirmed {
             return Err("Explicit Workbench submission confirmation is required".into());
         }
+        if admission_epoch > MAX_ADMISSION_EPOCH {
+            return Err(
+                "Invalid Workbench admission epoch; expected a nonnegative JavaScript safe integer"
+                    .into(),
+            );
+        }
         let held = Arc::new(Jobs::default());
         {
             let mut session = self.lock()?;
+            if session.stop.is_some() {
+                return Err("Workbench Stop is in progress; no admission".into());
+            }
+            // Stop advances this fence under the same lock, even when its IPC waiters disappear.
+            if admission_epoch != session.admission_epoch {
+                return Err(
+                    "Stale Workbench admission epoch; read current state before a new Run".into(),
+                );
+            }
             if session.preparing.is_some() || session.job.as_ref().is_some_and(|j| !j.terminal()) {
                 return Err("An exclusive diagnostic operation is in flight or unknown".into());
             }
@@ -159,6 +180,28 @@ impl Jobs {
             }
             session.workbench.push(held.clone());
         }
+        let jobs = self.clone();
+        let media_root = engine.and_then(|engine| {
+            crate::validate_base_url(&base_url)
+                .ok()
+                .and_then(|base| job_outputs::MediaRoot::owned(engine, base.as_str()))
+        });
+        // Admission owns preparation/submission even when its IPC waiter is cancelled.
+        tokio::spawn(async move {
+            jobs.workbench_execute(held, base_url, intent, media_root)
+                .await
+        })
+        .await
+        .map_err(|_| "Workbench Run task failed")?
+    }
+
+    async fn workbench_execute(
+        &self,
+        held: Arc<Jobs>,
+        base_url: String,
+        intent: Value,
+        media_root: Option<job_outputs::MediaRoot>,
+    ) -> Result<Value, String> {
         let plan = match held.prepare(base_url, intent).await {
             Ok(plan) => plan,
             Err(error) => {
@@ -168,10 +211,8 @@ impl Jobs {
                 return Err(error);
             }
         };
-        if let Some(engine) = engine {
-            let mut session = held.lock()?;
-            let plan = session.plan.as_mut().ok_or("Missing Workbench plan")?;
-            plan.media_root = job_outputs::MediaRoot::owned(engine, plan.base.as_str());
+        if let Some(plan) = held.lock()?.plan.as_mut() {
+            plan.media_root = media_root;
         }
         let result = held
             .submit(plan["id"].as_str().unwrap().to_owned(), true)
@@ -210,9 +251,10 @@ pub async fn native_workbench_run(
     base_url: String,
     intent: Value,
     confirmed: bool,
+    admission_epoch: u64,
 ) -> Result<Value, String> {
     state
-        .workbench_run(base_url, intent, confirmed, Some(&engine))
+        .workbench_run(base_url, intent, confirmed, admission_epoch, Some(&engine))
         .await
 }
 

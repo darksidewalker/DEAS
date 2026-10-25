@@ -13,9 +13,12 @@ const REQUIRED_NODES: [&str; 6] = [
 ];
 /// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
 /// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 22] = [
+const OPTIONAL_NODES: [&str; 25] = [
     "EmptyFlux2LatentImage",
     "LoraLoader",
+    "CLIPVisionLoader",
+    "CLIPVisionEncode",
+    "unCLIPConditioning",
     crate::wildcard::NODE,
     "ImageScale",
     "ImagePadForOutpaint",
@@ -158,6 +161,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "textEncoders":combo(nodes, "CLIPLoader", "clip_name")?,
             "clipTypes":combo(nodes, "CLIPLoader", "type")?,
             "vaes":combo(nodes, "VAELoader", "vae_name")?,
+            "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
             "attention":options(nodes, "ModelAttentionBackend", "attention", option),
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
             "compile":options(nodes, "TorchCompileModel", "backend", option),
@@ -197,7 +201,9 @@ mod tests {
             "CLIPTextEncode": {}, "EmptyLatentImage": {},
             "KSampler": {"input":{"required":{"sampler_name":[["euler", "dpmpp_2m"]],"scheduler":[["normal", "karras"]]}}},
             "VAEDecode": {}, "SaveImage": {}, "UnrelatedNode": {},
-            "LoraLoader": {"input":{"required":{"lora_name":[["style/detail.safetensors"], {}]}}}
+            "LoraLoader": {"input":{"required":{"lora_name":[["style/detail.safetensors"], {}]}}},
+            "CLIPVisionLoader": {"input":{"required":{"clip_name":[["clip-vit.safetensors"], {}]}}},
+            "CLIPVisionEncode": {}, "unCLIPConditioning": {}
         })
     }
 
@@ -249,8 +255,14 @@ mod tests {
                 result["allowlist"]["nodes"],
                 json!(REQUIRED_NODES
                     .iter()
+                    .copied()
                     .filter(|n| !absent.contains(n))
-                    .chain([&"LoraLoader"])
+                    .chain([
+                        "LoraLoader",
+                        "CLIPVisionLoader",
+                        "CLIPVisionEncode",
+                        "unCLIPConditioning"
+                    ])
                     .collect::<Vec<_>>())
             );
             if absent.contains(&"CheckpointLoaderSimple") {
@@ -567,9 +579,9 @@ mod tests {
             json!({
                 "baseUrl": format!("{base}/"), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
                 "allowlist":{
-                    "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader"],
+                    "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[]
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

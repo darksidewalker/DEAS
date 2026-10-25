@@ -735,7 +735,7 @@ async fn workbench_poll_isolates_errors_preserves_intents_and_never_resubmits() 
         let mut draft = intent();
         draft["seed"] = json!(seed);
         let result = jobs
-            .workbench_run(base.clone(), draft.clone(), true, None)
+            .workbench_run(base.clone(), draft.clone(), true, 0, None)
             .await
             .unwrap();
         let held = jobs
@@ -758,7 +758,7 @@ async fn workbench_poll_isolates_errors_preserves_intents_and_never_resubmits() 
     let refreshed = jobs.workbench_poll().await.unwrap();
     assert_eq!(refreshed["capacity"], 20);
     assert_eq!(refreshed["preparing"], 0);
-    assert_eq!(refreshed["stopAvailable"], false);
+    assert_eq!(refreshed["stopAvailable"], true);
     for (index, state) in ["unknown", "succeeded", "unknown", "unknown", "running"]
         .iter()
         .enumerate()
@@ -813,7 +813,7 @@ async fn workbench_poll_coalesces_concurrent_reads_and_survives_cancelled_waiter
     })
     .await;
     let seed = Jobs::default();
-    seed.workbench_run(base, intent(), true, None)
+    seed.workbench_run(base, intent(), true, 0, None)
         .await
         .unwrap();
     let template = seed.lock().unwrap().workbench[0]
@@ -894,7 +894,7 @@ async fn workbench_poll_coalesces_concurrent_reads_and_survives_cancelled_waiter
             .unwrap();
         assert_eq!(overlapping, snapshot);
         assert_eq!(overlapping["preparing"], 1);
-        assert_eq!(overlapping["stopAvailable"], false);
+        assert_eq!(overlapping["stopAvailable"], true);
         assert!(
             requests.try_recv().is_err(),
             "overlap must not queue another pass"
@@ -973,14 +973,14 @@ async fn workbench_failed_preparation_releases_reservation_and_diagnostic_exclus
     let jobs = Jobs::default();
     assert!(jobs.prepare(base.clone(), intent()).await.is_err());
     let job = jobs
-        .workbench_run(base, intent(), true, None)
+        .workbench_run(base, intent(), true, 0, None)
         .await
         .unwrap();
     assert_eq!(job["state"], "queued");
     task.abort();
     let jobs = Jobs::default();
     assert!(jobs
-        .workbench_run("http://127.0.0.1:9".into(), json!({}), true, None)
+        .workbench_run("http://127.0.0.1:9".into(), json!({}), true, 0, None)
         .await
         .is_err());
     assert_eq!(jobs.workbench_current().unwrap()["preparing"], 0);
@@ -1003,14 +1003,14 @@ async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
     }).await;
     let jobs = Jobs::default();
     assert!(jobs
-        .workbench_run(base.clone(), intent(), false, None)
+        .workbench_run(base.clone(), intent(), false, 0, None)
         .await
         .is_err());
     assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 0);
     let mut ids = vec![];
     for _ in 0..20 {
         ids.push(
-            jobs.workbench_run(base.clone(), intent(), true, None)
+            jobs.workbench_run(base.clone(), intent(), true, 0, None)
                 .await
                 .unwrap()["id"]
                 .as_str()
@@ -1023,7 +1023,7 @@ async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
     let plan_id = unknown.lock().unwrap().plan.as_ref().unwrap().id.clone();
     assert!(unknown.submit(plan_id, true).await.is_err());
     assert!(jobs
-        .workbench_run(base.clone(), intent(), true, None)
+        .workbench_run(base.clone(), intent(), true, 0, None)
         .await
         .unwrap_err()
         .contains("capacity"));
@@ -1041,7 +1041,7 @@ async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
         .as_mut()
         .unwrap()
         .state = "failed";
-    jobs.workbench_run(base, intent(), true, None)
+    jobs.workbench_run(base, intent(), true, 0, None)
         .await
         .unwrap();
     assert!(jobs.workbench_job(&ids[0]).unwrap().is_some());
@@ -1053,7 +1053,7 @@ async fn workbench_capacity_keeps_active_unknown_and_consumed_plans() {
             .len(),
         20
     );
-    assert_eq!(jobs.workbench_current().unwrap()["stopAvailable"], false);
+    assert_eq!(jobs.workbench_current().unwrap()["stopAvailable"], true);
     task.abort();
 }
 
@@ -1069,6 +1069,7 @@ async fn workbench_failures_reach_shared_logs_without_private_intent() {
             "http://127.0.0.1:9/private-endpoint".into(),
             draft.clone(),
             true,
+            0,
             None
         )
         .await
@@ -1078,6 +1079,7 @@ async fn workbench_failures_reach_shared_logs_without_private_intent() {
             "http://127.0.0.1:9/private-endpoint".into(),
             draft,
             true,
+            0,
             None
         )
         .await
@@ -1108,6 +1110,7 @@ fn workbench_commands_are_registered_exported_and_local_only() {
         "native_workbench_poll",
         "native_workbench_cancel_pending",
         "native_workbench_interrupt_running",
+        "native_workbench_stop",
     ] {
         assert!(main.contains(&format!("deas::{command},")));
         assert!(jobs["commands"]["allow"]
@@ -1129,6 +1132,7 @@ fn workbench_commands_are_registered_exported_and_local_only() {
     let _ = crate::native_workbench_poll;
     let _ = crate::native_workbench_cancel_pending;
     let _ = crate::native_workbench_interrupt_running;
+    let _ = crate::native_workbench_stop;
 }
 
 #[tokio::test]
@@ -1155,7 +1159,7 @@ async fn workbench_runs_keep_three_immutable_correlated_jobs() {
         let mut draft = intent();
         draft["seed"] = json!(seed);
         let job = jobs
-            .workbench_run(base.clone(), draft.clone(), true, None)
+            .workbench_run(base.clone(), draft.clone(), true, 0, None)
             .await
             .unwrap();
         draft["seed"] = json!(999);
@@ -3054,4 +3058,39 @@ fn h3_refmod_library_keeps_safe_names_known_kinds_and_bounded_descriptions() {
     assert_eq!(listed[0]["description"].as_str().unwrap().len(), 2000);
     assert!(listed[0].get("tokens").is_none());
     assert_eq!(refmod_entries(&json!({"error":"x"})), json!([]));
+}
+
+#[test]
+fn image_reference_compiles_core_revision_and_rejects_split_families() {
+    let mut i = intent();
+    i["imageReference"] = json!({"visionModel":"clip-vit.safetensors","images":[{"image":"deas-inputs/ref.png","strength":0.5},{"image":"deas-inputs/second.png","strength":0.2}]});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["CV"]["class_type"], "CLIPVisionLoader");
+    assert_eq!(g["CV"]["inputs"]["clip_name"], "clip-vit.safetensors");
+    assert_eq!(g["RI0"]["class_type"], "LoadImage");
+    assert_eq!(g["CE0"]["inputs"]["clip_vision"], json!(["CV", 0]));
+    assert_eq!(g["CE0"]["inputs"]["image"], json!(["RI0", 0]));
+    assert_eq!(g["UC0"]["inputs"]["conditioning"], json!(["2", 0]));
+    assert_eq!(g["UC1"]["inputs"]["conditioning"], json!(["UC0", 0]));
+    assert_eq!(g["UC1"]["inputs"]["strength"], 0.2);
+    assert_eq!(g["UC0"]["inputs"]["noise_augmentation"], 0.0);
+    assert_eq!(g["5"]["inputs"]["positive"], json!(["UC1", 0]));
+    let mut s = i.clone();
+    s["steps"] = json!(2);
+    s["sigmas"] = json!([1.0, 0.5, 0.0]);
+    let g2 = compile(&s).unwrap();
+    assert_eq!(g2["G"]["inputs"]["positive"], json!(["UC1", 0]));
+    let mut bad = i.clone();
+    bad["imageReference"]["images"][0]["strength"] = json!(1.5);
+    assert!(compile(&bad).unwrap_err().contains("imageReference"));
+    bad["imageReference"]["images"][0]["strength"] = json!(0.5);
+    bad["diffusion"] =
+        json!({"textEncoder":"te.safetensors","clipType":"sdxl","vae":"v.safetensors"});
+    assert!(compile(&bad).unwrap_err().contains("imageReference"));
+    bad.as_object_mut().unwrap().remove("diffusion");
+    bad["imageReference"]["images"][0]["image"] = json!("..");
+    assert!(compile(&bad).unwrap_err().contains("imageReference"));
+    bad["imageReference"]["images"][0]["image"] = json!("deas-inputs/ref.png");
+    bad["imageReference"]["images"] = json!([]);
+    assert!(compile(&bad).unwrap_err().contains("imageReference"));
 }

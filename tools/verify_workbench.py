@@ -16,9 +16,9 @@ if(command==='native_media_list') {const path=args.path||'/env/out';return {path
 if(command==='native_recipe_prerequisites') return {baseUrl:args.baseUrl.replace(/\/$/,'')+'/',recipeId:'checkpoint-text-to-image-diagnostic',version:1,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['sdxl/juggernaut.safetensors','anima/anima-preview.safetensors'],loras:['style/film-grain.safetensors','detail/add-detail-xl.safetensors'],samplers:['euler','dpmpp_2m'],schedulers:['normal','karras']},missingNodes:[],generationReady:false};
 if(command==='native_install_plan') return {id:'fixture-install-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
-if(command==='native_job_prepare') {window.__intent=args.intent; return {id:'fixture-plan',baseUrl:args.baseUrl,intent:args.intent,graph:{},generationReady:false};}
-if(command==='native_job_submit') return {id:'fixture-job-1',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,appVersion:'0.1.14',metadata:{startedAt:1700000000000,generationMs:13310},state:'queued',outputs:[],error:null,generationReady:false};
-if(command==='native_job_status') return {id:'fixture-job-1',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,appVersion:'0.1.14',metadata:{startedAt:1700000000000,generationMs:13310},state:++window.__polls<2?'running':'succeeded',outputs:window.__polls<2?[]:[{filename:'DEAS_00001_.png',subfolder:'',type:'output'}],error:null,generationReady:false};
+if(command==='native_workbench_current') return {jobs:window.__job?[window.__job]:[],preparing:0,capacity:20,stopAvailable:false};
+if(command==='native_workbench_run') {window.__intent=structuredClone(args.intent);return window.__job={outputRoot:'/env/ComfyUI/output',id:'fixture-job-1',baseUrl:args.baseUrl.replace(/\/$/,'')+'/',promptId:'p',intent:window.__intent,appVersion:'0.1.14',metadata:{startedAt:1700000000000,generationMs:13310},state:'queued',outputs:[],error:null,generationReady:false};}
+if(command==='native_workbench_poll') return {preparing:0,capacity:20,stopAvailable:false,jobs:[window.__job={...window.__job,state:++window.__polls<2?'running':'succeeded',outputs:window.__polls<2?[]:[{filename:'DEAS_00001_.png',subfolder:'',type:'output'}]}]};
 if(command==='native_job_output') return {jobId:args.jobId,index:args.index,mimeType:'image/png',width:1,height:1,sha256:'0'.repeat(64),bytes:Array.from(atob(png.split(',')[1]),c=>c.charCodeAt(0))};
 if(command==='native_auth_status'||command==='native_install_defaults'||command==='native_repo_stars') return command==='native_auth_status'?[]:command==='native_repo_stars'?{count:0,starred:null}:{storagePath:'/env',backend:'cpu',warnings:[]};
 throw Error('Unexpected command '+command);
@@ -36,7 +36,7 @@ with sync_playwright() as p:
         page.locator('[data-studio-tab="generate"]').click()
         wb = page.locator('[data-workbench]')
         wb.wait_for()
-        assert page.evaluate("__calls.filter(x=>x.command==='native_job_prepare'||x.command==='native_job_submit').length") == 0, 'no automatic generation'
+        assert page.evaluate("__calls.filter(x=>x.command==='native_workbench_run').length") == 0, 'no automatic generation'
         page.locator('[data-dock-tab="models"]').click()
         wb.locator('[data-run-load]').click()  # no environment in this fixture: backend fallback list
         page.locator('[data-run-checkpoint]').wait_for()
@@ -88,8 +88,8 @@ with sync_playwright() as p:
         wb.get_by_role('spinbutton', name='Seed', exact=True).fill('42')
         assert wb.get_by_role('button', name='Fixed', exact=True).get_attribute('aria-pressed') == 'true'
         page.locator('[data-run]').click()
-        page.wait_for_function("window.__calls.some(x=>x.command==='native_job_submit')")
-        intent = page.evaluate("__calls.find(x=>x.command==='native_job_prepare').args.intent")
+        page.wait_for_function("window.__calls.some(x=>x.command==='native_workbench_run')")
+        intent = page.evaluate("__calls.find(x=>x.command==='native_workbench_run').args.intent")
         assert intent['seed'] == 42
         wb.get_by_text('Last 10 seeds', exact=True).click()
         wb.get_by_role('button', name='Use seed 42', exact=True).click()

@@ -67,7 +67,7 @@ with sync_playwright() as p:
             page.locator('.media-list button[data-kind="file"]').first.click()
             expect(page.locator('[data-browsed-preview]')).to_be_visible()
             assert page.locator('[data-editor-viewport]').count() == 0
-            assert not page.evaluate("__calls.some(c=>c.command==='native_job_prepare'||c.command==='native_job_submit')")
+            assert not page.evaluate("__calls.some(c=>c.command==='native_job_prepare'||c.command==='native_job_submit'||c.command==='native_workbench_run')")
             page.screenshot(path=str(OUT/'preview.png'), full_page=True)
             page.locator('[data-browsed-preview] img').click()
             viewer = page.get_by_role('dialog', name='DEAS_0001.png', exact=True)

@@ -59,7 +59,7 @@ with sync_playwright() as p:
             if locale == 'en':
                 page.screenshot(path=str(OUT/f'forge-{width}.png'), full_page=True)
             results.append({'width': width, 'locale': locale, 'panel': forge.bounding_box()})
-        blocked = ('native_input_upload', 'native_job_prepare', 'native_job_submit', 'native_backend_start', 'native_forge_write')
+        blocked = ('native_input_upload', 'native_job_prepare', 'native_job_submit', 'native_workbench_run', 'native_backend_start', 'native_forge_write')
         calls = page.evaluate('window.__calls')
         assert not any(c['command'] in blocked or (c['command']=='native_forge' and c.get('args',{}).get('route')!='models') for c in calls)
         page.close()

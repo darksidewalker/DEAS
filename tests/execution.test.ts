@@ -343,3 +343,33 @@ test('refine pass and source upscale model mirror the native compiler', () => {
   assert.deepEqual(src.S.inputs.image, ['UM', 0]);
   rejects({ ...intent, inputImage: 'ref.png', denoise: 0.35, upscaleModel: '2x-Sharp.safetensors' }, lists, 'INVALID_INPUT', 'upscaleModel');
 });
+
+const revisionLists = { ...allowlist, nodes: [...allowlist.nodes, 'CLIPVisionLoader', 'LoadImage', 'CLIPVisionEncode', 'unCLIPConditioning'], images: ['deas-inputs/ref.png', 'deas-inputs/second.png'], visionModels: ['clip-vit.safetensors'] };
+const revisionRef = { visionModel: 'clip-vit.safetensors', images: [{ image: 'deas-inputs/ref.png', strength: 0.5 }] };
+
+test('imageReference compiles the core ReVision chain onto the positive conditioning', () => {
+  const result = compileRecipe({ ...intent, imageReference: revisionRef }, revisionLists);
+  const graph = result.graph as Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+  assert.deepEqual(graph.CV, { class_type: 'CLIPVisionLoader', inputs: { clip_name: revisionRef.visionModel } });
+  assert.deepEqual(graph.RI0, { class_type: 'LoadImage', inputs: { image: 'deas-inputs/ref.png' } });
+  assert.deepEqual(graph.CE0, { class_type: 'CLIPVisionEncode', inputs: { clip_vision: ['CV', 0], image: ['RI0', 0] } });
+  assert.deepEqual(graph.UC0, { class_type: 'unCLIPConditioning', inputs: { conditioning: ['2', 0], clip_vision_output: ['CE0', 0], strength: 0.5, noise_augmentation: 0 } });
+  assert.deepEqual(graph['5'].inputs.positive, ['UC0', 0]);
+  assert.ok(result.requiredNodes.includes('unCLIPConditioning'));
+  const chain = compileRecipe({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: [{ image: 'deas-inputs/ref.png', strength: 0.5 }, { image: 'deas-inputs/second.png', strength: 0.2 }] } }, revisionLists).graph as Record<string, { inputs: Record<string, unknown> }>;
+  assert.deepEqual(chain.UC1.inputs.conditioning, ['UC0', 0]);
+  assert.deepEqual(chain.UC1.inputs.strength, 0.2);
+  assert.deepEqual(chain['5'].inputs.positive, ['UC1', 0]);
+  const sigmas = compileRecipe({ ...intent, steps: 2, sigmas: [1, 0.5, 0], imageReference: revisionRef }, { ...revisionLists, nodes: [...revisionLists.nodes, 'ManualSigmas', 'SamplerCustomAdvanced', 'CFGGuider', 'KSamplerSelect', 'RandomNoise'] }).graph as Record<string, { inputs: Record<string, unknown> }>;
+  assert.deepEqual(sigmas.G.inputs.positive, ['UC0', 0]);
+});
+
+test('imageReference validates vision model, pictures, count and split loaders', () => {
+  compileRecipe({ ...intent, imageReference: revisionRef }, revisionLists);
+  rejects({ ...intent, imageReference: revisionRef }, { ...revisionLists, visionModels: [] }, 'MISSING_MODEL', 'visionModel');
+  rejects({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: [{ image: 'absent.png', strength: 0.5 }] } }, revisionLists, 'MISSING_MODEL', 'inputImage');
+  rejects({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: [] } }, revisionLists, 'INVALID_INPUT', 'imageReference');
+  rejects({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: Array.from({ length: 5 }, (_, i) => ({ image: `deas-inputs/ref${i}.png`, strength: 0.5 })) } }, revisionLists, 'INVALID_INPUT', 'imageReference');
+  rejects({ ...intent, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, imageReference: revisionRef }, { ...revisionLists, nodes: [...revisionLists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'] }, 'INVALID_INPUT', 'imageReference');
+  for (const strength of [1.5, -0.1, Number.NaN, '0.5']) rejects({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: [{ image: 'deas-inputs/ref.png', strength }] } }, revisionLists, 'INVALID_INPUT', 'imageReference');
+});

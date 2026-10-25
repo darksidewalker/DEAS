@@ -6,7 +6,7 @@ pub(super) type Owner = Arc<dyn Fn(&reqwest::Url) -> Result<u64, String> + Send 
 pub(super) type InterruptOwner =
     Arc<dyn Fn(&reqwest::Url) -> Result<(u64, String), String> + Send + Sync>;
 
-enum Cancellation {
+pub(super) enum Cancellation {
     Pending(Owner),
     Running(InterruptOwner),
 }
@@ -36,7 +36,7 @@ impl Jobs {
         confirmed: bool,
         owner: Owner,
     ) -> Result<Value, String> {
-        self.cancel_scoped(id, confirmed, Cancellation::Pending(owner))
+        self.cancel_scoped(id, confirmed, Cancellation::Pending(owner), false)
             .await
     }
 
@@ -46,22 +46,25 @@ impl Jobs {
         confirmed: bool,
         owner: InterruptOwner,
     ) -> Result<Value, String> {
-        self.cancel_scoped(id, confirmed, Cancellation::Running(owner))
+        self.cancel_scoped(id, confirmed, Cancellation::Running(owner), false)
             .await
     }
 
-    async fn cancel_scoped(
+    pub(super) async fn cancel_scoped(
         &self,
         id: String,
         confirmed: bool,
         cancellation: Cancellation,
+        stopping: bool,
     ) -> Result<Value, String> {
         let operation = cancellation.operation();
         let before = self
             .workbench_job(&id)?
             .map(|held| held.current())
             .transpose()?;
-        let result = self.cancel_scoped_inner(id, confirmed, cancellation).await;
+        let result = self
+            .cancel_scoped_inner(id, confirmed, cancellation, stopping)
+            .await;
         if result.is_err() {
             cancel_log(
                 before.as_ref(),
@@ -78,6 +81,7 @@ impl Jobs {
         id: String,
         confirmed: bool,
         cancellation: Cancellation,
+        stopping: bool,
     ) -> Result<Value, String> {
         if !confirmed {
             return Err("Explicit job cancellation confirmation is required".into());
@@ -86,6 +90,10 @@ impl Jobs {
             .workbench_job(&id)?
             .ok_or("Unknown native Workbench job")?;
         let mut job = {
+            let admission = self.lock()?;
+            if admission.stop.is_some() && !stopping {
+                return Err("Workbench Stop is in progress; no separate cancellation sent".into());
+            }
             let mut session = held.lock()?;
             let attempted = if cancellation.running() {
                 session.interrupt_attempted
@@ -284,7 +292,7 @@ async fn mutate_job(
     Ok(())
 }
 
-fn cancel_log(job: Option<&Value>, operation: &str, limited: bool, reason: &str) {
+pub(super) fn cancel_log(job: Option<&Value>, operation: &str, limited: bool, reason: &str) {
     static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
     if limited {
         let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());

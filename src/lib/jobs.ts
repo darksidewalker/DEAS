@@ -23,6 +23,8 @@ export interface JobStatus {
   generationReady: false;
   /** Immutable native-held intent, never the workbench's current controls. */
   intent?: JobIntent;
+  /** Native-captured output directory, omitted if its filesystem identity is no longer valid. */
+  outputRoot?: string;
   appVersion?: string;
   metadata?: { startedAt: number; generationMs: number | null } | null;
   /** Native-held delete attempt; even an unknown result must not authorize another delete. */
@@ -44,6 +46,33 @@ async function native<T>(command: string, args: Record<string, unknown>): Promis
     throw error;
   }
 }
+/** Native-held Studio session; oldest job first, independent of the diagnostic slot. */
+export interface WorkbenchSnapshot { jobs: JobStatus[]; preparing: number; capacity: number; stopAvailable: boolean; admissionEpoch: number; stopping: boolean; /** Frontend Run IPC still awaiting a reply; not a native reservation count. */ frontendAdmitting?: boolean }
+export interface WorkbenchStopResult extends WorkbenchSnapshot { outcome: 'empty'|'settled'|'partial'; discarded: number; issues: {jobId:string;error:string}[] }
+const pendingWorkbenchRuns = new Map<number, number>();
+let pendingWorkbenchStop: Promise<WorkbenchStopResult> | undefined;
+export function runWorkbenchJob(baseUrl: string, intent: VideoIntentV1, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: JobIntent, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: DiagnosticImageIntentV1, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: JobIntent, admissionEpoch: number): Promise<JobStatus> {
+  if (!baseUrl.trim()) return Promise.reject(new Error('An explicit backend endpoint is required.'));
+  if (pendingWorkbenchStop) return Promise.reject(new Error('Workbench Stop is in progress.'));
+  pendingWorkbenchRuns.set(admissionEpoch, (pendingWorkbenchRuns.get(admissionEpoch) ?? 0) + 1);
+  return native<JobStatus>('native_workbench_run', { baseUrl, intent, confirmed: true, admissionEpoch }).finally(() => { const left = (pendingWorkbenchRuns.get(admissionEpoch) ?? 1) - 1; if (left) pendingWorkbenchRuns.set(admissionEpoch, left); else pendingWorkbenchRuns.delete(admissionEpoch); });
+}
+export function stopWorkbench(): Promise<WorkbenchStopResult> {
+  if (!pendingWorkbenchStop) pendingWorkbenchStop = native<WorkbenchStopResult>('native_workbench_stop', {confirmed:true}).finally(() => { pendingWorkbenchStop = undefined; });
+  return pendingWorkbenchStop;
+}
+async function observeWorkbench(command: string): Promise<WorkbenchSnapshot> {
+  const admitting = [...pendingWorkbenchRuns.keys()];
+  const stopping = !!pendingWorkbenchStop;
+  const snapshot = await native<WorkbenchSnapshot>(command, {});
+  // A reply settling during this read cannot make its earlier idle snapshot authoritative.
+  return { ...snapshot, stopping: snapshot.stopping || stopping || !!pendingWorkbenchStop, frontendAdmitting: [...admitting, ...pendingWorkbenchRuns.keys()].some(epoch => epoch >= snapshot.admissionEpoch) };
+}
+export const readCurrentWorkbench = (): Promise<WorkbenchSnapshot> => observeWorkbench('native_workbench_current');
+export const pollWorkbench = (): Promise<WorkbenchSnapshot> => observeWorkbench('native_workbench_poll');
 // Overloads: the image signature stays last so `Parameters<>` in existing tests still resolve to the image intent.
 export function prepareDiagnosticJob(baseUrl: string, intent: VideoIntentV1): Promise<DiagnosticJobPlan>;
 export function prepareDiagnosticJob(baseUrl: string, intent: DiagnosticImageIntentV1): Promise<DiagnosticJobPlan>;

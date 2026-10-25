@@ -158,6 +158,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
     if(command==='native_install_defaults')return {storagePath:'/app/new',backend:'cpu',warnings:[]};
+    if(command==='native_workbench_current')return {jobs:[],preparing:0,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false};
     if(command==='native_models_scan')return [];
     if(command==='native_media_list')return {path:'/home/fixture',parent:null,entries:[],truncated:false};
     if(command==='native_install_plan')return {id:'installed-plan',request:(args as {request:NativeInstallRequest}).request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
@@ -179,7 +180,7 @@ test.each([false,true])("successful native install reveals studio without an ext
   expect(screen.getByLabelText('Shot direction')).toBeTruthy();
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:/generate/i})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>!['native_auth_status','native_repo_stars','native_update_check','native_models_scan','native_media_list'].includes(c))).toEqual(['native_install_defaults','native_install_plan','native_install_start']); // read-only media/model listings of the installed root are timing-dependent and asserted in their own suites
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>!['native_auth_status','native_repo_stars','native_update_check','native_models_scan','native_media_list'].includes(c))).toEqual(['native_install_defaults','native_install_plan','native_install_start','native_workbench_current']); // read-only session recovery is explicit; media/model listings of the installed root are timing-dependent and asserted in their own suites
 });
 
 test("existing setup handoff reveals Engine and prefills its endpoint without inspection", () => {

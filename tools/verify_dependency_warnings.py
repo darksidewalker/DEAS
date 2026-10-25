@@ -55,8 +55,8 @@ if(!localStorage.getItem('dependency-fixture-initialized')){
             expect(warning).to_have_count(0)
             expect(page.locator('[data-run]')).to_be_enabled()
             page.locator('[data-run]').click()
-            page.wait_for_function("__calls.some(c=>c.command==='native_job_submit')")
-            assert page.evaluate("__calls.find(c=>c.command==='native_job_prepare').args.intent.checkpoint") == 'sdxl/juggernaut.safetensors'
+            page.wait_for_function("__calls.some(c=>c.command==='native_workbench_run')")
+            assert page.evaluate("__calls.find(c=>c.command==='native_workbench_run').args.intent.checkpoint") == 'sdxl/juggernaut.safetensors'
             assert not errors, errors
             results.append({'locale': locale, 'warning_cleared': True, 'reload_retained': True, 'fixture_submit': True})
             context.close()

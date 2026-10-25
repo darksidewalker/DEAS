@@ -50,7 +50,7 @@ TEST = r"""window.__STAR_RESULT=null;(async()=>{
  check(document.querySelector('[data-editor-viewport]')===editor&&base.style.left==='-8px','Unstar discarded editor/geometry');
  const moves=window.__calls.filter(c=>c.command==='native_media_star'||c.command==='native_media_unstar');
  check(moves.length===2&&moves[1].args.path==='/env/ComfyUI/output/starred/image/2026-10-19/fixture.png','Unexpected move calls');
- check(!window.__calls.some(c=>/native_job_prepare|native_job_submit|native_input_upload|native_mask_upload/.test(c.command)),'Unexpected computation/upload');
+ check(!window.__calls.some(c=>/native_job_prepare|native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command)),'Unexpected computation/upload');
  const roots=document.querySelector('.media-roots');
  check(roots?.nextElementSibling.classList.contains('media-depth'),'Root buttons not before Depth');
  check([...roots.querySelectorAll('[data-media-root]')].map(e=>e.dataset.mediaRoot).join(',')==='output,starred,input','Wrong root button order');

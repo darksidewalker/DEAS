@@ -75,6 +75,7 @@ fn main() {
             deas::native_workbench_current,
             deas::native_workbench_poll,
             deas::native_workbench_run,
+            deas::native_workbench_stop,
             deas::native_job_current,
             deas::native_job_output,
             deas::native_job_export,

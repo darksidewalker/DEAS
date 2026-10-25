@@ -16,6 +16,13 @@ impl MediaRoot {
         let identity = crate::downloads::fs::Anchor::open(&path)?.identity()?;
         Ok(Self { path, identity })
     }
+    pub(super) fn current_path(&self) -> Option<&std::path::Path> {
+        let identity = crate::downloads::fs::Anchor::open(&self.path)
+            .ok()?
+            .identity()
+            .ok()?;
+        (identity == self.identity).then_some(self.path.as_path())
+    }
     pub(super) fn owned(engine: &crate::install::Engine, base: &str) -> Option<Self> {
         let status = engine.backend.status();
         if status.state != "running"
