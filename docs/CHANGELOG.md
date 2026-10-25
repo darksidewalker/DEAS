@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 0.1.46
 
 - Add Studio image-reference prompting (ReVision) for SDXL checkpoint image recipes: drop up to 4 images on the prompt field with per-reference strength, a shared CLIP-vision model picker and a visible "count of 4" indicator. Compile the core unCLIP conditioning chain (shared vision loader, per-image encode, chained conditioning) in the shared TS and native Rust paths with prerequisites and six-language controls; uploaded references stay immutable per Run press. Families with native image paths (image-to-image input slot, video References tab) keep their own paths and show a localized explanation instead of references. When no CLIP-vision model is installed, the Workbench asks at drop time whether to download clip_vision_g (CLIP-ViT-bigG fp16, 3.7 GB) from Hugging Face into models/clip_vision; the download catalog ships a matching HF entry.
 - Allow repeated Studio Run presses during queued/running work, with immutable per-press intents and captured random/fixed seeds. Add adjacent six-language Run/Stop controls, discard unsent preparations on Stop and preserve real partial/unknown results. A native admission-generation fence rejects delayed pre-Stop Run requests even after Stop completes; no global interrupt, queue clear or service stop.
