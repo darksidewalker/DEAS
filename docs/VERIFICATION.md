@@ -1,5 +1,11 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.1.46 (2026-10-25)
+
+- Version bumped in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`; `Cargo.lock` refreshed by a plain release build before `--locked` builds. Release staging `artifacts/releases/v0.1.46/`: `deas-linux-amd64` SHA-256 `44c367a06180be814a3b32ea5ecee7509e1826d1c164d1f0728c0bb07a6002f9`, `deas.exe` SHA-256 `2a09fff0407ef923c1d064b515c92b711a0fea8247271d71dfcad10fa2156d39`, `SHA256SUMS` and `BUILD-MANIFEST.json` (sourceCommit `49a23ee`, rustc 1.97.0, node 26, glibc minimum 2.39, `ldd` reports no missing libraries). Linux binary via `bash build-linux.sh`; Windows exe via `cargo xwin build --locked` cross-build — cross-compiled, not Windows-runtime-accepted; the first real Windows launch is the acceptance test. NSIS installer, portable zip, deb and AppImage bundles skipped (need native Windows runners / patchelf / makensis).
+- Release gates at the staged commit: 819 UI / 100 core tests, TypeScript typecheck and production build, native `cargo test --lib` 486 passed / 33 ignored, rustfmt and strict Clippy clean (pre-existing `install.rs:2156` note unchanged). Feature scope: image-reference ReVision (1–4 references, vision picker, HF vision-tower download popup, OS file drops) plus the Run/Stop split, native stop coordination and Workbench collection polling.
+
+
 ## Image-reference ReVision for SDXL (P2, Unreleased)
 
 - `imageReference = {visionModel, images:[{image,strength}]}` (1–4 images, per-image strength in `[0,1]`, safe names, no `diffusion` companion) validates and compiles identically in `src/lib/execution.ts` and `src-tauri/src/jobs.rs`. ReVision compiles only for checkpoint (SDXL-family) image recipes; split-loader families reject `imageReference` with an explanatory message pointing to their native paths, which stay untouched (`inputImage`, video References).
