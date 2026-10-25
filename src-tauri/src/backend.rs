@@ -560,6 +560,11 @@ impl Lifecycle {
         let root = Path::new(&approved.plan.request.storage_path);
         let environment_lock = lock_environment(root)?;
         install_output_naming(root)?;
+        install_adapter(
+            root,
+            "deas_image_prompting.py",
+            include_bytes!("image_prompting.py"),
+        )?;
         // Optional capability: unsupported sources must not prevent normal backend startup.
         let mut interrupt_source = InterruptSource::capture(root).ok().and_then(|mut proof| {
             install_adapter(

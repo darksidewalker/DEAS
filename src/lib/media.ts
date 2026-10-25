@@ -37,7 +37,15 @@ export function itemFromEntry(entry:MediaEntry):MediaItem|null {
 }
 /** In-app drag of a dock tile (HTML5 DnD); external file drops carry no such entry. */
 export const MEDIA_DRAG='application/x-deas-media';
-export const dragItem=(dt:DataTransfer,item:MediaItem)=>dt.setData(MEDIA_DRAG,JSON.stringify(item));
+export const MEDIA_IMAGE_DRAG='application/x-deas-image';
+export function dragItem(dt:DataTransfer,item:MediaItem){
+ // Default image URIs are intercepted as native file drops by WebKitGTK/Wry.
+ dt.clearData();
+ dt.setData(MEDIA_DRAG,JSON.stringify(item));
+ // Payloads are protected during dragover; the MIME marker keeps image eligibility readable.
+ if(item.media==='image'&&item.path)dt.setData(MEDIA_IMAGE_DRAG,'1');
+ dt.effectAllowed='copy';
+}
 export function draggedItem(dt:DataTransfer):MediaItem|null {
  try{const v=JSON.parse(dt.getData(MEDIA_DRAG)||'null');return v&&typeof v.src==='string'&&typeof v.name==='string'&&['image','video','audio'].includes(v.media)?v:null;}catch{return null;}
 }

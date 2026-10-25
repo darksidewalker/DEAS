@@ -8,10 +8,114 @@ const intent: DiagnosticImageIntentV1 = {
   seed: 42, width: 512, height: 768, steps: 20, cfg: 7,
   sampler: 'euler', scheduler: 'normal', outputPrefix: 'DEAS_diagnostic',
 };
+const qwenDiffusion = { textEncoder: 'qwen.safetensors', clipType: 'qwen_image', vae: 'qwen-vae.safetensors' };
+const nativeReference = { method: 'qwen-image-2.1', images: ['first.png', 'second.png', 'third.png', 'fourth.png'] };
 const allowlist: RecipeAllowlist = {
   nodes: ['CheckpointLoaderSimple', 'CLIPTextEncode', 'EmptyLatentImage', 'KSampler', 'VAEDecode', 'SaveImage'],
   checkpoints: ['baseline/model.safetensors'], samplers: ['euler'], schedulers: ['normal'],
 };
+
+const qwenAllowlist: RecipeAllowlist = {
+  ...allowlist,
+  nodes: ['UNETLoader', 'CLIPLoader', 'VAELoader', 'TextEncodeQwenImage21', 'LoadImage', 'ImageScale', 'KSampler', 'VAEDecode', 'SaveImage'],
+  diffusionModels: [intent.checkpoint], textEncoders: [qwenDiffusion.textEncoder], clipTypes: ['qwen_image'], vaes: [qwenDiffusion.vae], images: nativeReference.images,
+};
+
+test('Qwen native references encode both prompts in order and use the exact first-reference empty latent', () => {
+  const result = compileRecipe({ ...intent, diffusion: qwenDiffusion, nativeImageReference: nativeReference }, qwenAllowlist);
+  const g = result.graph;
+  assert.deepEqual(g.QI, { class_type: 'TextEncodeQwenImage21', inputs: {
+    clip: ['C', 0], vae: ['V', 0], prompt: intent.positivePrompt, negative_prompt: intent.negativePrompt, resolution: 0,
+    'images.image_1': ['QR', 0], 'images.image_2': ['RI1', 0], 'images.image_3': ['RI2', 0], 'images.image_4': ['RI3', 0],
+  } });
+  assert.deepEqual(g.QR, { class_type: 'ImageScale', inputs: { image: ['RI0', 0], upscale_method: 'lanczos', width: 512, height: 768, crop: 'center' } });
+  nativeReference.images.forEach((image, n) => assert.deepEqual(g[`RI${n}`], { class_type: 'LoadImage', inputs: { image } }));
+  assert.deepEqual(g['5'].inputs.positive, ['QI', 0]);
+  assert.deepEqual(g['5'].inputs.negative, ['QI', 1]);
+  assert.deepEqual(g['5'].inputs.latent_image, ['QI', 2]);
+  for (const id of ['2', '3', '4']) assert.equal(g[id], undefined);
+  assert.ok(!result.requiredNodes.includes('CLIPTextEncode'));
+  assert.ok(result.requiredNodes.includes('TextEncodeQwenImage21'));
+  assert.deepEqual(result.requiredModels, [
+    { kind: 'diffusionModel', identifier: intent.checkpoint }, { kind: 'textEncoder', identifier: qwenDiffusion.textEncoder }, { kind: 'vae', identifier: qwenDiffusion.vae },
+  ]);
+});
+
+test('Qwen native reference trust boundary rejects malformed, mixed, unsupported and unaligned requests', () => {
+  const qwen = { ...intent, diffusion: qwenDiffusion, nativeImageReference: nativeReference };
+  for (const r of [null, [], {}, { images: ['first.png'] }, { ...nativeReference, method: 'other' },
+    { ...nativeReference, images: [] }, { ...nativeReference, images: Array(5).fill('first.png') },
+    { ...nativeReference, images: [null] }, { ...nativeReference, images: [{ image: 'first.png', strength: 1 }] },
+    { ...nativeReference, images: new Array(1) }, { ...nativeReference, strength: 1 }, { ...nativeReference, visionModel: 'vision' },
+    ...['../x', '/x', 'x\\y', 'https://x', 'x%20', 'x\u0000', ' x'].map(image => ({ ...nativeReference, images: [image] })),
+  ]) rejects({ ...qwen, nativeImageReference: r }, qwenAllowlist, 'INVALID_INPUT', 'nativeImageReference');
+  for (const clipType of ['sdxl', 'qwen_image_edit', 'krea2', 'anima', 'moss_image']) {
+    rejects({ ...qwen, diffusion: { ...qwenDiffusion, clipType } }, qwenAllowlist, 'INVALID_INPUT', 'nativeImageReference');
+  }
+  rejects({ ...qwen, diffusion: undefined }, qwenAllowlist, 'INVALID_INPUT', 'nativeImageReference');
+  assert.throws(() => compileRecipe({ ...qwen, imageReference: { visionModel: 'v', images: [{ image: 'first.png', strength: 1 }] } }, qwenAllowlist), RecipeCompileError);
+  for (const field of ['width', 'height']) rejects({ ...qwen, [field]: 520 }, qwenAllowlist, 'INVALID_INPUT', 'nativeImageReference');
+  for (const node of ['TextEncodeQwenImage21', 'ImageScale', 'LoadImage']) rejects(qwen, { ...qwenAllowlist, nodes: qwenAllowlist.nodes.filter(n => n !== node) }, 'MISSING_CAPABILITY', node);
+  for (const image of nativeReference.images) rejects(qwen, { ...qwenAllowlist, images: nativeReference.images.filter(n => n !== image) }, 'MISSING_MODEL', 'inputImage');
+  for (const field of ['diffusionModels', 'textEncoders', 'clipTypes', 'vaes']) rejects(qwen, { ...qwenAllowlist, [field]: [] }, 'MISSING_MODEL', field === 'diffusionModels' ? 'checkpoint' : 'diffusion');
+  const single = compileRecipe({ ...qwen, nativeImageReference: { ...nativeReference, images: ['first.png'] } }, qwenAllowlist).graph;
+  assert.equal(single.QI.inputs['images.image_2'], undefined);
+});
+
+test('Qwen native references preserve i2i denoise and route wildcard conditioning through sigmas and both refiners', () => {
+  const nodes = [...qwenAllowlist.nodes, 'VAEEncode', 'RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced', 'DaSiWaTiledDiffusion', 'DaSiWa_WildcardPresetPromptBuilder', 'LoraLoader'];
+  for (const custom of [false, true]) {
+    const qwen = { ...intent, diffusion: qwenDiffusion, nativeImageReference: nativeReference, inputImage: 'first.png', denoise: 0.35,
+      loras: [{ name: 'style.safetensors', strength: 0.5 }],
+      wildcard: { style: 'Booru', seed: 7, reroll: 3, token_budget: 200, auto_reroll: true, selection_state: {} },
+      ...(custom ? { steps: 2, sigmas: [1, 0.5, 0] } : {}),
+      refine: { width: 1024, height: 1536, denoise: 0.4, ...(custom ? { sigmas: [0.5, 0] } : {}), tiled: { tileWidth: 512, tileHeight: 768, overlap: 64 } },
+    };
+    const g = compileRecipe(qwen, { ...qwenAllowlist, nodes, loras: ['style.safetensors'] }).graph;
+    assert.deepEqual(g.QI.inputs.prompt, ['WP', 0]);
+    assert.deepEqual(g.QI.inputs.negative_prompt, ['WP', 1]);
+    assert.deepEqual(g.QI.inputs.clip, ['L1', 1]);
+    assert.deepEqual(g['5'].inputs.latent_image, ['9', 0]);
+    assert.deepEqual(g['9'].inputs, { pixels: ['8', 0], vae: ['V', 0] });
+    assert.equal(g['5'].inputs.denoise, custom ? undefined : 0.35);
+    for (const id of custom ? ['G', 'RG'] : ['5', 'R5']) {
+      assert.deepEqual(g[id].inputs.positive, ['QI', 0]);
+      assert.deepEqual(g[id].inputs.negative, ['QI', 1]);
+    }
+    assert.deepEqual(g.R5.inputs.latent_image, ['RE', 0]);
+    assert.ok(!Object.values(g).some(n => ['CLIPTextEncode', 'EmptyLatentImage'].includes(n.class_type)));
+  }
+});
+
+test('Qwen native metadata has no dangling text encoders and keeps resolved prompt text', () => {
+  const g = compileRecipe({ ...intent, diffusion: qwenDiffusion, nativeImageReference: nativeReference }, { ...qwenAllowlist, nodes: [...qwenAllowlist.nodes, 'DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'] }).graph;
+  assert.deepEqual(g.M.inputs.node_positive, ['QI', 0]);
+  assert.deepEqual(g.M.inputs.node_negative, ['QI', 1]);
+  assert.equal(g.M.inputs.text_positive, intent.positivePrompt);
+  assert.equal(g.M.inputs.text_negative, intent.negativePrompt);
+});
+
+test('Krea and MOSS native references use the adapter without changing their latent or geometry', () => {
+  for (const [method, clipType, width, latent] of [['krea-2', 'krea2', 520, 'EmptyLatentImage'], ['moss-image', 'moss_image', 528, 'EmptyFlux2LatentImage']] as const) {
+    const d = { ...qwenDiffusion, clipType };
+    const a = { ...qwenAllowlist, clipTypes: [clipType], nodes: [...qwenAllowlist.nodes.filter(n => !['TextEncodeQwenImage21', 'ImageScale'].includes(n)), 'DEAS_ImagePromptEncode', latent, 'VAEEncode', 'CLIPTextEncode'] };
+    for (const i2i of [false, true]) {
+      const input = { ...intent, width, diffusion: d, ...(i2i ? { inputImage: 'first.png', denoise: 0.4 } : {}) };
+      const before = compileRecipe(input, a).graph;
+      const after = compileRecipe({ ...input, nativeImageReference: { method, images: nativeReference.images } }, a).graph;
+      assert.deepEqual(after.QI, { class_type: 'DEAS_ImagePromptEncode', inputs: {
+        clip: ['C', 0], prompt: intent.positivePrompt, negative_prompt: intent.negativePrompt,
+        image_1: ['RI0', 0], image_2: ['RI1', 0], image_3: ['RI2', 0], image_4: ['RI3', 0],
+      } });
+      assert.deepEqual(after['5'].inputs.latent_image, before['5'].inputs.latent_image);
+      assert.deepEqual(after['4'], before['4']); assert.deepEqual(after['9'], before['9']);
+      assert.equal(after.QR, undefined); assert.equal(after['2'], undefined); assert.equal(after['3'], undefined);
+      assert.deepEqual(after['5'].inputs.positive, ['QI', 0]); assert.deepEqual(after['5'].inputs.negative, ['QI', 1]);
+      rejects({ ...input, nativeImageReference: { method, images: ['first.png'] } }, { ...a, nodes: a.nodes.filter(n => n !== 'DEAS_ImagePromptEncode') }, 'MISSING_CAPABILITY', 'DEAS_ImagePromptEncode');
+      rejects({ ...input, nativeImageReference: { method: method === 'krea-2' ? 'moss-image' : 'krea-2', images: ['first.png'] } }, a, 'INVALID_INPUT', 'nativeImageReference');
+    }
+  }
+});
 
 test('baseline diagnostic compiles deterministic built-in graph, never Director readiness', () => {
   const result = compileRecipe(intent, allowlist);

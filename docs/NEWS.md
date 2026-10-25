@@ -1,5 +1,14 @@
 # News
 
+## 0.1.48
+
+This release includes the model-aware SDXL/Qwen/Krea/MOSS prompt-reference wiring developed under 0.1.47 below.
+Prompt references use compact numbered picture thumbnails rather than full-width filenames. Remove a picture with its red X, drag pictures into a new order. The numbering follows the order used by the next generation; each picture keeps its own ReVision strength. See [image references](STUDIO.md#image-references).
+
+## Unreleased — 0.1.47
+
+Studio’s prompt picture drop is now wired to the selected image family: SDXL ReVision, Qwen Image 2.1/Turbo native text/vision plus reference latents, and Swarm-style Krea 2/MOSS visual conditioning. Attached filenames and Run Plan show the inputs; model-specific prerequisites still apply. The small Krea/MOSS adapter is bundled for approved DEAS-owned backend starts, not silently installed into foreign backends. See [Studio usage/support](STUDIO.md#image-references) and [verification](VERIFICATION.md#unified-image-reference-wiring-0147). This is an untagged development update, not a universal quality/identity guarantee.
+
 ## Unreleased
 
 The native-only cancellation foundation can remove one correlated queued prompt or request a scoped interruption of one running prompt on the current owned backend, with explicit confirmation and readback. Running interruption uses an authenticated DEAS queue-locked route and is confined to inspected backend sources; no Studio cancellation button or whole-queue Stop is enabled. Confirmed cancellation has a six-language terminal label. Repeated Run/Stop still awaits whole-queue lifecycle integration. See [running-interrupt verification](VERIFICATION.md#scoped-running-interruption-and-status-abort-recovery-unreleased) and [pending-cancel verification](VERIFICATION.md#native-pending-cancellation-foundation-unreleased).

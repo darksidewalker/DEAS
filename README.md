@@ -39,6 +39,7 @@ In the app, review **AiO installer**, choose a **new writable environment folder
 | Task | Guide |
 | --- | --- |
 | Generate, choose models/LoRAs, edit images, configure output/video/continuity | [Studio](docs/STUDIO.md) |
+| Use prompt image references with SDXL, Qwen 2.1/Turbo, Krea 2 or MOSS | [Image references](docs/STUDIO.md#image-references) |
 | Write/enhance prompts, configure LLMs, use presets and wildcards | [Prompting](docs/PROMPTING.md) |
 | Discuss prompts with the configured LLM and optional web search | [Chat](docs/CHAT.md) |
 | Save/reopen image drafts and import/export draft ZIP packages | [Projects](docs/PROJECTS.md) |

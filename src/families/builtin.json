@@ -1,6 +1,6 @@
 [
   {
-    "id": "sdxl", "multiple": 64, "name": "SDXL · Illustrious · Pony", "forge": "Illustrious", "loader": "checkpoint", "pipelines": ["t2i", "i2i"],
+    "id": "sdxl", "imagePrompting": "revision", "multiple": 64, "name": "SDXL · Illustrious · Pony", "forge": "Illustrious", "loader": "checkpoint", "pipelines": ["t2i", "i2i"],
     "architectures": ["stable-diffusion-xl"], "bases": ["SDXL 1.0", "SDXL Turbo", "SDXL Lightning", "Illustrious", "Pony", "NoobAI"],
     "model": [["conditioner.embedders.1"]],
     "lora": [["lora.te2."], ["output.blocks.5.1.transformer.blocks.1"], ["down.blocks.2.attentions.1.transformer.blocks.9"]],
@@ -16,16 +16,16 @@
     "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 4, "sampler": "er_sde", "scheduler": "simple" }
   },
   {
-    "id": "moss-image", "multiple": 16, "name": "MOSS-Image", "forge": "MOSS", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "id": "moss-image", "imagePrompting": "moss-image", "multiple": 16, "name": "MOSS-Image", "forge": "MOSS", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
     "components": {"textEncoders": ["qwen3.5-9b"], "vaes": ["flux2-vae"]},
     "clipType": "moss_image", "textEncoders": ["qwen3.5_9b", "qwen3.5-9b", "qwen35_9b"], "vaes": ["flux2-vae", "flux2_vae"],
     "architectures": [], "bases": [],
     "model": [["shared.block.modulation.weight", "layers.0.proj.ffn.up.gate.weight"]], "lora": [],
     "defaults": { "width": 1024, "height": 1024, "steps": 25, "cfg": 2.5, "sampler": "er_sde", "scheduler": "simple" },
-    "defaultsNote": "Comfy-Org image_moss_image_t2i template sampling values; bounded adapter omits template SLG and prompt upsampling. Not inference-verified."
+    "defaultsNote": "Comfy-Org image_moss_image_t2i template sampling values; bounded adapter omits template SLG and prompt upsampling. Reference-image t2i verified at 512 pixels; other resolutions and variants remain unverified."
   },
   {
-    "id": "krea-2", "multiple": 16, "name": "Krea 2", "forge": "Krea2", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "id": "krea-2", "imagePrompting": "krea-2", "multiple": 16, "name": "Krea 2", "forge": "Krea2", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
     "components": {"textEncoders": ["qwen3-vl-4b"], "vaes": ["wan-2.1-vae"]},
     "clipType": "krea2", "textEncoders": ["qwen3vl_4b", "qwen3-vl-4b", "qwen_3_vl_4b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
     "architectures": ["krea-2", "krea2"], "bases": ["Krea 2"],
@@ -34,7 +34,7 @@
     "defaults": { "width": 1024, "height": 1024, "steps": 8, "cfg": 1, "sampler": "euler", "scheduler": "simple" }
   },
   {
-    "id": "qwen-image-2.1-turbo", "multiple": 16, "name": "Qwen Image 2.1 Turbo", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "id": "qwen-image-2.1-turbo", "imagePrompting": "qwen-image-2.1", "multiple": 16, "name": "Qwen Image 2.1 Turbo", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
     "components": {"textEncoders": ["qwen3-vl-8b"], "vaes": ["qwen-image-2.1-vae"]},
     "clipType": "qwen_image", "textEncoders": ["qwen3vl_8b", "qwen3-vl-8b", "qwen_3_vl_8b"], "vaes": ["qwen_image_2.1_vae"],
     "architectures": ["qwen-image-2.1"], "bases": [], "fileMatch": ["turbo"], "loraFamily": "qwen-image-2.1",
@@ -44,7 +44,7 @@
     "sigmas": [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0]
   },
   {
-    "id": "qwen-image-2.1", "multiple": 16, "name": "Qwen Image 2.1", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
+    "id": "qwen-image-2.1", "imagePrompting": "qwen-image-2.1", "multiple": 16, "name": "Qwen Image 2.1", "loader": "diffusion", "pipelines": ["t2i", "i2i"],
     "components": {"textEncoders": ["qwen3-vl-8b"], "vaes": ["qwen-image-2.1-vae"]},
     "clipType": "qwen_image", "textEncoders": ["qwen3vl_8b", "qwen3-vl-8b", "qwen_3_vl_8b"], "vaes": ["qwen_image_2.1_vae"],
     "architectures": ["qwen-image-2.1"], "bases": ["Qwen Image 2.1"],

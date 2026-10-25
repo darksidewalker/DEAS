@@ -24,7 +24,7 @@ DEAS — Dark Engine AI Studio is maintained under the [darksidewalker GitHub pr
 | uv, Python and PyTorch | Managed runtime/bootstrap and tensor/model computation | [uv](https://github.com/astral-sh/uv), [Python](https://www.python.org/), [PyTorch](https://pytorch.org/) |
 | GStreamer | Linux webview media support and bundled fallback plugins | [Bundled plugin provenance, LGPL-2.1-or-later and corresponding source](../src-tauri/gstreamer/README.md) |
 | DM Sans and Manrope via Fontsource | Bundled UI fonts | [DM Sans](https://fontsource.org/fonts/dm-sans), [Manrope](https://fontsource.org/fonts/manrope); preserve packaged font licenses |
-| SwarmUI | Behavioral references for controls, model-aware sizing and image editing | [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI); attribution is not a claim of identical implementation or output |
+| SwarmUI | Controls/sizing/editing references and the Krea/MOSS text-vision prompt adapter behavior (picture markers, placeholders and template); Qwen uses the public ComfyUI node instead of copying Swarm’s custom encoder | [Pinned reference d74f8ce](https://github.com/mcmonkeyprojects/SwarmUI/tree/d74f8ce40d1e49161da61ddb74f87e6ebf11f7ad), Alex "mcmonkey" Goodwin; [MIT notice](../licenses/SwarmUI-MIT.txt). No Swarm server/dependency is bundled; behavior/quality need not be identical. |
 
 Tests/builds also rely on Node/npm, Vitest/Testing Library, Playwright and their dependencies. Manifests/lockfiles identify packages and versions; this credits list is not an exhaustive legal notice inventory. Model weights, vendor SDKs and gated assets carry separate terms.
 

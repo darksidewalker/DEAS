@@ -346,8 +346,282 @@ const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
 const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipe(name).value}});
 // HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
-const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
+const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={clearData:()=>{for(const key of Object.keys(store))delete store[key];},setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
  fireEvent.dragStart(screen.getByRole('button',{name}),{dataTransfer:dt});fireEvent.drop(document.querySelector('[data-editor-viewport]')!,{dataTransfer:dt});};
+test.each(['/output','/external'])('media thumbnail drop retains the prompt and uploads ReVision input on explicit Run (root=%s)',async output=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],visionModels:['clip_vision_g.safetensors']}});
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/output',parent:null,entries:[{name:'ref.png',path:'/output/ref.png',kind:'file',media:'image',size:1,modified:1,symlink:false}],truncated:false});
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/ref.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('reference-job','failed'));
+ localStorage.setItem('deas.pref.studio.run.positive','"unchanged prompt"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output}}/></I18nProvider>);
+ const tile=await screen.findByRole('button',{name:'ref.png'});
+ const data=new Map([['text/uri-list','asset://localhost/thumbnail.png']]);
+ const transfer={clearData:()=>data.clear(),setData:(k:string,v:string)=>data.set(k,v),getData:(k:string)=>data.get(k)??'',get types(){return [...data.keys()];},effectAllowed:'uninitialized',dropEffect:'none'};
+ const image=await waitFor(()=>{const image=tile.querySelector('img');expect(image).not.toBeNull();return image!;});
+ fireEvent.dragStart(image,{dataTransfer:transfer});
+ expect(transfer.types).toEqual(['application/x-deas-media','application/x-deas-image']);
+ const prompt=screen.getByRole('textbox',{name:'Prompt'});
+ expect(fireEvent.dragOver(prompt,{dataTransfer:transfer})).toBe(false);
+ expect(transfer.dropEffect).toBe('copy');
+ fireEvent.drop(prompt,{dataTransfer:transfer});
+ expect(document.querySelector('[data-reference-controls] img')?.getAttribute('alt')).toBe('ref.png');
+ expect((prompt as HTMLTextAreaElement).value).toBe('unchanged prompt');
+ expect(uploadInput).not.toHaveBeenCalled();
+ fireEvent.change(document.querySelector('[data-reference-chip] select')!,{target:{value:'clip_vision_g.safetensors'}});
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/output/ref.png');
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'unchanged prompt',imageReference:{visionModel:'clip_vision_g.safetensors',images:[{image:'deas-inputs/ref.png',strength:0.6}]}});
+});
+const promptDrop=(media='image',path:string|undefined='/outside/ref.png')=>{const name=typeof path==='string'?path.split(/[\\/]/).at(-1)||'ref.png':'ref.png';const item={name,src:`asset://localhost/${name}`,media,path};const transfer={types:['application/x-deas-media'],getData:()=>JSON.stringify(item),dropEffect:'none'};const prompt=screen.getByRole('textbox',{name:'Prompt'});fireEvent.dragOver(prompt,{dataTransfer:transfer});fireEvent.drop(prompt,{dataTransfer:transfer});return transfer;};
+const referenceNodes=['TextEncodeQwenImage21','LoadImage','ImageScale'];
+const referenceModels=(family='qwen-image-2.1')=>[
+ {category:'diffusion_models',name:'qwen.safetensors',family,path:'/m/q',size:1,info:null},
+ {category:'text_encoders',name:family==='krea-2'?'qwen3vl_4b.safetensors':family==='moss-image'?'qwen3.5_9b.safetensors':'qwen3vl_8b.safetensors',path:'/m/e',size:1,info:null},
+ {category:'vae',name:family==='krea-2'?'qwen_image_vae.safetensors':family==='moss-image'?'flux2-vae.safetensors':'qwen_image_2.1_vae.safetensors',path:'/m/v',size:1,info:null},
+ {category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},
+ {category:'diffusion_models',name:'anima.safetensors',family:'anima',path:'/m/anima',size:1,info:null}
+];
+test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('native prompt references preview and submit an immutable upload snapshot (%s)',async family=>{
+ const method=family==='qwen-image-2.1-turbo'?'qwen-image-2.1':family;
+ const width=method==='qwen-image-2.1'?1024:1008;
+ vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image'],visionModels:['clip_vision_g.safetensors']}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('qwen-reference','failed'));
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ localStorage.setItem('deas.pref.studio.run.width','1008');localStorage.setItem('deas.pref.studio.run.height','1008');
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1008');
+ expect(promptDrop().dropEffect).toBe('copy');
+ expect(document.querySelector('[data-reference-controls] img')?.getAttribute('alt')).toBe('ref.png');
+ expect(document.querySelector('[data-reference-chip] select')).toBeNull();
+ expect(screen.queryByLabelText('Reference strength')).toBeNull();
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe(String(width));
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ const preview=JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!);
+ expect(preview.nativeImageReference).toEqual({method,images:['/outside/ref.png']});
+ expect(document.querySelector('.run-plan')!.textContent).toContain('ref.png');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ let release!:(name:string)=>void;vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/outside/ref.png'));
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1008');
+ fireEvent.change(screen.getByRole('combobox',{name:'Checkpoint'}),{target:{value:'a.safetensors'}});
+ await act(async()=>release('deas-inputs/captured.png'));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'qwen.safetensors',width,height:width,nativeImageReference:{method,images:['deas-inputs/captured.png']}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('imageReference');
+});
+function reorderReferences(from:number,to:number){
+ const cards=document.querySelectorAll('[data-reference-controls]'),data=new Map<string,string>();
+ const transfer={clearData:()=>data.clear(),setData:(key:string,value:string)=>data.set(key,value),getData:(key:string)=>data.get(key)??'',get types(){return [...data.keys()];},effectAllowed:'uninitialized',dropEffect:'none'};
+ fireEvent.dragStart(cards[from],{dataTransfer:transfer});fireEvent.dragOver(cards[to],{dataTransfer:transfer});fireEvent.drop(cards[to],{dataTransfer:transfer});fireEvent.dragEnd(cards[from],{dataTransfer:transfer});
+}
+test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('reference thumbnails reorder, renumber and submit captured positions (%s)',async family=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image']}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('reordered-reference','failed'));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ const cards=()=>Array.from(document.querySelectorAll<HTMLElement>('[data-reference-controls]'));
+ const names=()=>cards().map(card=>card.querySelector('img')!.alt);
+ promptDrop('image','/outside/one.png');promptDrop('image','/outside/two.png');
+ const data=new Map([['text/uri-list','asset://localhost/one.png'],['application/x-deas-media','stale']]);
+ const transfer={clearData:()=>data.clear(),setData:(key:string,value:string)=>data.set(key,value),getData:(key:string)=>data.get(key)??'',get types(){return [...data.keys()];},effectAllowed:'uninitialized',dropEffect:'none'};
+ fireEvent.dragStart(cards()[0],{dataTransfer:transfer});
+ expect(transfer.types).toEqual(['application/x-deas-reference-order']);expect(transfer.effectAllowed).toBe('move');
+ const prompt=screen.getByRole('textbox',{name:'Prompt'});
+ expect(fireEvent.dragOver(prompt,{dataTransfer:transfer})).toBe(true);fireEvent.drop(prompt,{dataTransfer:transfer});
+ expect(names()).toEqual(['one.png','two.png']);
+ expect(fireEvent.dragOver(cards()[1],{dataTransfer:transfer})).toBe(false);expect(transfer.dropEffect).toBe('move');
+ fireEvent.drop(cards()[1],{dataTransfer:transfer});fireEvent.dragEnd(cards()[0],{dataTransfer:transfer});
+ expect(names()).toEqual(['two.png','one.png']);
+ promptDrop('image','/outside/three.png');promptDrop('image','/outside/four.png');
+ expect(promptDrop('image','/outside/five.png').dropEffect).toBe('none');expect(cards()).toHaveLength(4);
+ expect(cards().map(card=>card.dataset.referencePosition)).toEqual(['1','2','3','4']);
+ expect(cards().map(card=>card.querySelector('.wb-reference-position')!.textContent)).toEqual(['1','2','3','4']);
+ for(const card of cards()){
+  const img=card.querySelector('img')!;expect(img.draggable).toBe(false);expect(img.title).toBe(img.alt);
+  expect(card.textContent).not.toContain('.png');
+  for(const button of card.querySelectorAll('button'))expect(button.type).toBe('button');
+ }
+ expect(document.querySelector('[data-reference-move]')).toBeNull();
+ reorderReferences(1,2);
+ expect(names()).toEqual(['two.png','three.png','one.png','four.png']);
+ let release!:(name:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;})).mockImplementation(async(_endpoint,path)=>`uploaded/${path.split('/').at(-1)}`);
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(4));
+ reorderReferences(3,2);
+ fireEvent.click(screen.getByRole('button',{name:'Remove reference · 2'}));
+ expect(names()).toEqual(['two.png','four.png','one.png']);
+ expect(cards().map(card=>card.dataset.referencePosition)).toEqual(['1','2','3']);
+ await act(async()=>release('uploaded/two.png'));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(uploadInput).mock.calls.map(call=>call[1])).toEqual(['/outside/two.png','/outside/three.png','/outside/one.png','/outside/four.png']);
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({nativeImageReference:{method:family==='qwen-image-2.1-turbo'?'qwen-image-2.1':family,images:['uploaded/two.png','uploaded/three.png','uploaded/one.png','uploaded/four.png']}});
+});
+test.each([
+ ['en','Reference 1'],['de','Referenz 1'],['fr','Référence 1'],
+ ['ja','参照 1'],['tr','Referans 1'],['zh','参考图 1'],
+])('reference controls are localized and duplicate attachments remain independent (%s)',async(locale,position)=>{
+ localStorage.setItem('deas.locale.v1',locale);localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ const item={name:'same.png',src:'asset://localhost/same.png',path:'/outside/same.png',media:'image'};
+ const transfer={types:['application/x-deas-media'],getData:()=>JSON.stringify(item)};
+ for(let i=0;i<2;i++)fireEvent.drop(document.querySelector('[data-run-positive]')!,{dataTransfer:transfer});
+ expect(screen.getByRole('group',{name:position})).toBeTruthy();
+ reorderReferences(0,1);
+ expect(document.querySelectorAll('[data-reference-controls]')).toHaveLength(2);
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ expect(document.querySelectorAll('[data-reference-controls]')).toHaveLength(1);
+ expect(document.querySelector('[data-reference-controls]')?.getAttribute('data-reference-position')).toBe('1');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('ReVision uploads ordered external references with captured vision model and strengths despite authoring edits',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],visionModels:['first.safetensors','second.safetensors']}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"a.safetensors"');
+ localStorage.setItem('deas.pref.studio.run.imageRef.vision','"first.safetensors"');
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('revision-snapshot','failed'));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ promptDrop();promptDrop('image','C:\\Pictures\\second.png');
+ fireEvent.change(screen.getAllByLabelText('Reference strength')[1],{target:{value:'0.2'}});
+ reorderReferences(1,0);
+ expect(screen.getAllByLabelText('Reference strength').map(input=>(input as HTMLInputElement).value)).toEqual(['0.2','0.6']);
+ let release!:(name:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;})).mockResolvedValueOnce('deas-inputs/second.png');
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(2));
+ reorderReferences(0,1);
+ fireEvent.change(screen.getByLabelText('CLIP-vision model'),{target:{value:'second.safetensors'}});
+ fireEvent.change(screen.getAllByLabelText('Reference strength')[0],{target:{value:'0.9'}});
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ fireEvent.change(screen.getByRole('combobox',{name:'Checkpoint'}),{target:{value:'qwen.safetensors'}});
+ await act(async()=>release('deas-inputs/first.png'));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(uploadInput).mock.calls.map(call=>call[1])).toEqual(['C:\\Pictures\\second.png','/outside/ref.png']);
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'a.safetensors',imageReference:{visionModel:'first.safetensors',images:[{image:'deas-inputs/first.png',strength:0.2},{image:'deas-inputs/second.png',strength:0.6}]}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('nativeImageReference');
+});
+test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('native references coexist with the image-to-image source (%s)',async family=>{
+ const method=family==='qwen-image-2.1-turbo'?'qwen-image-2.1':family,width=method==='qwen-image-2.1'?992:1008;
+ vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','VAEEncode'],clipTypes:['moss_image']}});
+ vi.mocked(invoke).mockImplementation(async()=>({path:'/env/input',parent:'/env',entries:[{name:'source.png',path:'/env/input/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/ref.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('qwen-i2i','failed'));
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'source.png'}));adopt();choosePipe('Image → Image');
+ const source=screen.getByRole('img',{name:'source.png'});Object.defineProperties(source,{naturalWidth:{value:1008},naturalHeight:{value:1008}});fireEvent.load(source);
+ expect(promptDrop().dropEffect).toBe('copy');
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'source.png',width,height:width,nativeImageReference:{method,images:['deas-inputs/ref.png']}});
+});
+test('native reference upload failure never submits an unresolved local filename',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ vi.mocked(uploadInput).mockRejectedValueOnce(new Error('Reference upload failed'));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));promptDrop();
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await screen.findByText('Reference upload failed');expect(runWorkbenchJob).not.toHaveBeenCalled();
+ expect(document.querySelector('[data-reference-controls] img')?.getAttribute('alt')).toBe('ref.png');
+});
+test.each(['krea-2','moss-image'])('native adapter references require the installed image-prompt node (%s)',async family=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','LoadImage'],clipTypes:['moss_image']}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ expect(promptDrop().dropEffect).toBe('copy');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain('DEAS_ImagePromptEncode');
+ expect(document.querySelector('[data-reference-chip] select')).toBeNull();expect(screen.queryByLabelText('Reference strength')).toBeNull();
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(referenceNodes)('native prompt reference blocks Run when %s is missing',async missing=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes.filter(n=>n!==missing)]}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));promptDrop();
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain(missing);
+ expect(uploadInput).not.toHaveBeenCalled();
+});
+test('retains inactive reference chips across unsupported family changes and never submits without them',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));promptDrop();
+ fireEvent.change(screen.getByRole('combobox',{name:'Checkpoint'}),{target:{value:'anima.safetensors'}});
+ expect(document.querySelector('[data-reference-controls] img')?.getAttribute('alt')).toBe('ref.png');
+ expect(document.querySelector('[data-reference-chip]')?.textContent).toContain('inactive');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(promptDrop().dropEffect).toBe('none');
+ fireEvent.change(screen.getByRole('combobox',{name:'Checkpoint'}),{target:{value:'qwen.safetensors'}});
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);expect(document.querySelector('[data-reference-controls]')).toBeNull();
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each([['audio','/outside/a.wav'],['video','/outside/a.mp4'],['image',''],['image','relative.png'],['image',123]])('prompt rejects invalid reference media/path (%s %s)',async(media,path)=>{
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ expect(promptDrop(String(media),path as string).dropEffect).toBe('none');
+ expect(document.querySelector('[data-reference-chip]')).toBeNull();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('unsupported model refuses prompt image drops without adding a notice below the prompt',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'anima.safetensors',family:'anima',path:'/m/anima',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('combobox',{name:'Checkpoint'}).getAttribute('title')).toBe('anima.safetensors'));
+ const prompt=screen.getByRole('textbox',{name:'Prompt'});
+ const item={name:'ref.png',path:'/ref.png',src:'asset://localhost/ref.png',media:'image'};
+ const transfer={types:['application/x-deas-media'],getData:()=>JSON.stringify(item),dropEffect:'copy'};
+ fireEvent.dragOver(prompt,{dataTransfer:transfer});
+ expect(transfer.dropEffect).toBe('none');
+ expect(fireEvent.drop(prompt,{dataTransfer:transfer})).toBe(false);
+ expect(document.querySelector('[data-reference-chip]')).toBeNull();
+ expect(document.querySelector('[data-reference-reject]')).toBeNull();
+ expect(uploadInput).not.toHaveBeenCalled();
+});
+test.each(['image','video','audio'] as const)('protected drag payload advertises only attachable images (%s)',async kind=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,visionModels:['clip_vision_g.safetensors']}});
+ const name=`protected-${kind}.${kind==='image'?'png':kind==='video'?'mp4':'wav'}`,path=`/protected-${kind}/${name}`;
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:`/protected-${kind}`,parent:null,entries:[{name,path,kind:'file',media:kind,size:1,modified:1,symlink:false}],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:`/protected-${kind}`}}/></I18nProvider>);
+ const source=await screen.findByRole('button',{name});
+ const data=new Map<string,string>();let readable=false;
+ const transfer={clearData:()=>data.clear(),setData:(key:string,value:string)=>data.set(key,value),getData:(key:string)=>readable?(data.get(key)??''):'',get types(){return [...data.keys()];},effectAllowed:'uninitialized',dropEffect:'none'};
+ fireEvent.dragStart(source,{dataTransfer:transfer});
+ const prompt=screen.getByRole('textbox',{name:'Prompt'});
+ fireEvent.dragOver(prompt,{dataTransfer:transfer});
+ expect(transfer.dropEffect).toBe(kind==='image'?'copy':'none');
+ readable=true;fireEvent.drop(prompt,{dataTransfer:transfer});
+ expect(document.querySelectorAll('[data-reference-controls]')).toHaveLength(kind==='image'?1:0);
+});
 test('column keyboard resizing persists independently and layout reset leaves authoring intact',async()=>{
  vi.mocked(isTauri).mockReturnValue(false);
  render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
@@ -428,6 +702,7 @@ test('defaults reset confirms, uses family defaults and leaves jobs, libraries a
  localStorage.setItem('library.sentinel','keep');localStorage.setItem('deas.pref.studio.dock.height','250');
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('option',{name:'base.safetensors'});
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  act(()=>window.dispatchEvent(new Event('deas:request-studio-defaults')));
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('edited');

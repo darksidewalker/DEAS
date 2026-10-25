@@ -13,7 +13,9 @@ const REQUIRED_NODES: [&str; 6] = [
 ];
 /// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
 /// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 25] = [
+const OPTIONAL_NODES: [&str; 27] = [
+    "TextEncodeQwenImage21",
+    "DEAS_ImagePromptEncode",
     "EmptyFlux2LatentImage",
     "LoraLoader",
     "CLIPVisionLoader",
@@ -205,6 +207,29 @@ mod tests {
             "CLIPVisionLoader": {"input":{"required":{"clip_name":[["clip-vit.safetensors"], {}]}}},
             "CLIPVisionEncode": {}, "unCLIPConditioning": {}
         })
+    }
+
+    #[test]
+    fn qwen_native_encoder_is_optional_and_discovered_only_when_present() {
+        let base = reqwest::Url::parse("http://127.0.0.1:8188/").unwrap();
+        let mut info = nodes();
+        let without = parse(&base, &info).unwrap();
+        assert!(!without["allowlist"]["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("TextEncodeQwenImage21")));
+        info["TextEncodeQwenImage21"] = json!({});
+        info["DEAS_ImagePromptEncode"] = json!({});
+        let with = parse(&base, &info).unwrap();
+        assert!(with["allowlist"]["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("TextEncodeQwenImage21")));
+        assert!(with["allowlist"]["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("DEAS_ImagePromptEncode")));
+        assert_eq!(with["missingNodes"], without["missingNodes"]);
     }
 
     async fn fixture(body: String) -> (String, tokio::task::JoinHandle<String>) {

@@ -3060,6 +3060,340 @@ fn h3_refmod_library_keeps_safe_names_known_kinds_and_bounded_descriptions() {
     assert_eq!(refmod_entries(&json!({"error":"x"})), json!([]));
 }
 
+fn qwen_intent() -> Value {
+    let mut i = intent();
+    i["diffusion"] = json!({"textEncoder":"qwen.safetensors","clipType":"qwen_image","vae":"qwen-vae.safetensors"});
+    i["nativeImageReference"] = json!({"method":"qwen-image-2.1","images":["first.png","second.png","third.png","fourth.png"]});
+    i
+}
+
+#[test]
+fn qwen_native_references_encode_both_prompts_and_exact_first_reference_latent() {
+    let i = qwen_intent();
+    let g = compile(&i).unwrap();
+    assert_eq!(
+        g["QI"],
+        json!({"class_type":"TextEncodeQwenImage21","inputs":{
+            "clip":["C",0],"vae":["V",0],"prompt":"a cat","negative_prompt":"","resolution":0,
+            "images.image_1":["QR",0],"images.image_2":["RI1",0],"images.image_3":["RI2",0],"images.image_4":["RI3",0]
+        }})
+    );
+    assert_eq!(
+        g["QR"],
+        json!({"class_type":"ImageScale","inputs":{"image":["RI0",0],"upscale_method":"lanczos","width":512,"height":768,"crop":"center"}})
+    );
+    for (n, image) in i["nativeImageReference"]["images"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            g[format!("RI{n}")],
+            json!({"class_type":"LoadImage","inputs":{"image":image}})
+        );
+    }
+    assert_eq!(g["5"]["inputs"]["positive"], json!(["QI", 0]));
+    assert_eq!(g["5"]["inputs"]["negative"], json!(["QI", 1]));
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["QI", 2]));
+    for id in ["2", "3", "4"] {
+        assert!(g.get(id).is_none());
+    }
+}
+
+#[test]
+fn qwen_native_references_validate_schema_and_family_fail_closed() {
+    let i = qwen_intent();
+    for r in [
+        json!(null),
+        json!([]),
+        json!({}),
+        json!({"images":["first.png"]}),
+        json!({"method":"other","images":["first.png"]}),
+        json!({"method":"qwen-image-2.1","images":[]}),
+        json!({"method":"qwen-image-2.1","images":["a","b","c","d","e"]}),
+        json!({"method":"qwen-image-2.1","images":[null]}),
+        json!({"method":"qwen-image-2.1","images":[{"image":"a","strength":1}]}),
+        json!({"method":"qwen-image-2.1","images":["a"],"strength":1}),
+        json!({"method":"qwen-image-2.1","images":["a"],"visionModel":"v"}),
+    ] {
+        let mut bad = i.clone();
+        bad["nativeImageReference"] = r;
+        assert!(compile(&bad).unwrap_err().contains("nativeImageReference"));
+    }
+    for image in ["../x", "/x", "x\\y", "https://x", "x%20", "x\0", " x"] {
+        let mut bad = i.clone();
+        bad["nativeImageReference"]["images"] = json!([image]);
+        assert!(compile(&bad).is_err());
+    }
+    for clip in ["sdxl", "qwen_image_edit", "krea2", "anima", "moss_image"] {
+        let mut bad = i.clone();
+        bad["diffusion"]["clipType"] = json!(clip);
+        assert!(compile(&bad).is_err());
+    }
+    let mut bad = i.clone();
+    bad.as_object_mut().unwrap().remove("diffusion");
+    assert!(compile(&bad).is_err());
+    bad = i.clone();
+    bad["imageReference"] = json!({"visionModel":"v","images":[{"image":"a","strength":1}]});
+    assert!(compile(&bad).is_err());
+    for field in ["width", "height"] {
+        let mut bad = i.clone();
+        bad[field] = json!(520);
+        assert!(compile(&bad).unwrap_err().contains("nativeImageReference"));
+    }
+}
+
+#[test]
+fn qwen_native_references_preserve_i2i_and_wildcard_sigmas_refiner_conditioning() {
+    for custom in [false, true] {
+        let mut i = qwen_intent();
+        i["inputImage"] = json!("first.png");
+        i["denoise"] = json!(0.35);
+        i["loras"] = json!([{"name":"style.safetensors","strength":0.5}]);
+        i["wildcard"] = json!({"style":"Booru","seed":7,"reroll":3,"token_budget":200,"auto_reroll":true,"selection_state":{}});
+        i["refine"] = json!({"width":1024,"height":1536,"denoise":0.4,"tiled":{"tileWidth":512,"tileHeight":768,"overlap":64}});
+        if custom {
+            i["steps"] = json!(2);
+            i["sigmas"] = json!([1, 0.5, 0]);
+            i["refine"]["sigmas"] = json!([0.5, 0]);
+        }
+        let g = compile(&i).unwrap();
+        assert_eq!(g["QI"]["inputs"]["prompt"], json!(["WP", 0]));
+        assert_eq!(g["QI"]["inputs"]["negative_prompt"], json!(["WP", 1]));
+        assert_eq!(g["QI"]["inputs"]["clip"], json!(["L1", 1]));
+        assert_eq!(g["5"]["inputs"]["latent_image"], json!(["9", 0]));
+        assert_eq!(g["9"]["inputs"], json!({"pixels":["8",0],"vae":["V",0]}));
+        assert_eq!(
+            g["5"]["inputs"].get("denoise").cloned(),
+            if custom { None } else { Some(json!(0.35)) }
+        );
+        for id in if custom { ["G", "RG"] } else { ["5", "R5"] } {
+            assert_eq!(g[id]["inputs"]["positive"], json!(["QI", 0]));
+            assert_eq!(g[id]["inputs"]["negative"], json!(["QI", 1]));
+        }
+        assert_eq!(g["R5"]["inputs"]["latent_image"], json!(["RE", 0]));
+        for id in ["2", "3", "4"] {
+            assert!(g.get(id).is_none());
+        }
+    }
+}
+
+#[test]
+fn qwen_native_metadata_keeps_resolved_prompts_without_dangling_encoders() {
+    let i = qwen_intent();
+    let mut g = compile(&i).unwrap();
+    civitai_saver(
+        &mut g,
+        &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+        &i,
+    );
+    assert_eq!(g["M"]["inputs"]["node_positive"], json!(["QI", 0]));
+    assert_eq!(g["M"]["inputs"]["node_negative"], json!(["QI", 1]));
+    assert_eq!(g["M"]["inputs"]["text_positive"], i["positivePrompt"]);
+    assert_eq!(g["M"]["inputs"]["text_negative"], i["negativePrompt"]);
+}
+
+#[tokio::test]
+async fn qwen_native_prepare_checks_all_images_models_and_required_nodes_without_submitting() {
+    for (method, clip, encoder) in [
+        ("qwen-image-2.1", "qwen_image", "TextEncodeQwenImage21"),
+        ("krea-2", "krea2", "DEAS_ImagePromptEncode"),
+        ("moss-image", "moss_image", "DEAS_ImagePromptEncode"),
+    ] {
+        for missing in [
+            None,
+            Some(encoder),
+            Some("ImageScale"),
+            Some("LoadImage"),
+            Some("first.png"),
+            Some("second.png"),
+            Some("third.png"),
+            Some("fourth.png"),
+            Some("textEncoder"),
+            Some("clipType"),
+            Some("vae"),
+            Some("model"),
+        ] {
+            let mut info = nodes();
+            info["UNETLoader"] =
+                json!({"input":{"required":{"unet_name":[["sd/model.safetensors"]]}}});
+            info["CLIPLoader"] =
+                json!({"input":{"required":{"clip_name":[["qwen.safetensors"]],"type":[[clip]]}}});
+            info["VAELoader"] =
+                json!({"input":{"required":{"vae_name":[["qwen-vae.safetensors"]]}}});
+            info["LoadImage"] = json!({"input":{"required":{"image":[["first.png","second.png","third.png","fourth.png"]]}}});
+            info["ImageScale"] = json!({});
+            info[encoder] = json!({});
+            info["EmptyFlux2LatentImage"] = json!({});
+            match missing {
+                Some("first.png" | "second.png" | "third.png" | "fourth.png") => {
+                    info["LoadImage"]["input"]["required"]["image"][0]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|v| v != missing.unwrap());
+                }
+                Some("textEncoder") => {
+                    info["CLIPLoader"]["input"]["required"]["clip_name"][0] = json!([])
+                }
+                Some("clipType") => info["CLIPLoader"]["input"]["required"]["type"][0] = json!([]),
+                Some("vae") => info["VAELoader"]["input"]["required"]["vae_name"][0] = json!([]),
+                Some("model") => {
+                    info["UNETLoader"]["input"]["required"]["unet_name"][0] = json!([])
+                }
+                Some(node) => {
+                    info.as_object_mut().unwrap().remove(node);
+                }
+                None => {}
+            }
+            let (base, task) = server(move |path, _| {
+                assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+                (200, info.to_string())
+            })
+            .await;
+            let mut i = qwen_intent();
+            i["diffusion"]["clipType"] = json!(clip);
+            i["nativeImageReference"]["method"] = json!(method);
+            let result = Jobs::default().prepare(base, i).await;
+            assert_eq!(
+                result.is_ok(),
+                missing.is_none() || (missing == Some("ImageScale") && method != "qwen-image-2.1"),
+                "{method} missing {missing:?}: {result:?}"
+            );
+            task.abort();
+        }
+    }
+}
+
+#[test]
+fn native_adapter_references_preserve_krea_moss_latents_and_dimensions() {
+    for (method, clip, width) in [("krea-2", "krea2", 520), ("moss-image", "moss_image", 528)] {
+        for i2i in [false, true] {
+            let mut i = qwen_intent();
+            i["diffusion"]["clipType"] = json!(clip);
+            i["width"] = json!(width);
+            i["nativeImageReference"]["method"] = json!(method);
+            if i2i {
+                i["inputImage"] = json!("first.png");
+                i["denoise"] = json!(0.4);
+            }
+            let g = compile(&i).unwrap();
+            let mut plain = i.clone();
+            plain
+                .as_object_mut()
+                .unwrap()
+                .remove("nativeImageReference");
+            let before = compile(&plain).unwrap();
+            assert_eq!(
+                g["QI"],
+                json!({"class_type":"DEAS_ImagePromptEncode","inputs":{
+                    "clip":["C",0],"prompt":"a cat","negative_prompt":"",
+                    "image_1":["RI0",0],"image_2":["RI1",0],"image_3":["RI2",0],"image_4":["RI3",0]
+                }})
+            );
+            assert_eq!(
+                g["5"]["inputs"]["latent_image"],
+                before["5"]["inputs"]["latent_image"]
+            );
+            assert_eq!(g.get("4"), before.get("4"));
+            assert_eq!(g.get("9"), before.get("9"));
+            assert!(g.get("QR").is_none());
+            assert!(g.get("2").is_none());
+            assert!(g.get("3").is_none());
+            assert_eq!(g["5"]["inputs"]["positive"], json!(["QI", 0]));
+            assert_eq!(g["5"]["inputs"]["negative"], json!(["QI", 1]));
+            i["nativeImageReference"]["method"] = json!(if method == "krea-2" {
+                "moss-image"
+            } else {
+                "krea-2"
+            });
+            assert!(compile(&i).is_err());
+        }
+    }
+}
+
+#[test]
+fn native_reference_graphs_match_typescript_compiler_end_to_end() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut cases = Vec::new();
+    let mut expected = Vec::new();
+    let saver = json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]);
+    for (method, clip) in [
+        ("qwen-image-2.1", "qwen_image"),
+        ("krea-2", "krea2"),
+        ("moss-image", "moss_image"),
+    ] {
+        for variant in 0..4 {
+            let mut i = qwen_intent();
+            i["diffusion"]["clipType"] = json!(clip);
+            i["nativeImageReference"]["method"] = json!(method);
+            if variant > 0 {
+                i["inputImage"] = json!("first.png");
+                i["denoise"] = json!(0.4);
+                i["wildcard"] = json!({"style":"Booru","seed":7,"reroll":3,"token_budget":200,"auto_reroll":true,"selection_state":{}});
+            }
+            if clip != "moss_image" && variant > 1 {
+                i["refine"] = json!({"width":1024,"height":1536,"denoise":0.4,"tiled":{"tileWidth":512,"tileHeight":768,"overlap":64}});
+                if variant == 3 {
+                    i["steps"] = json!(2);
+                    i["sigmas"] = json!([1, 0.5, 0]);
+                    i["refine"]["sigmas"] = json!([0.5, 0]);
+                }
+            }
+            let mut g = compile(&i).unwrap();
+            civitai_saver(&mut g, &saver, &i);
+            cases.push(i);
+            expected.push(g);
+        }
+    }
+    let script = r#"
+        import fs from 'node:fs';
+        import { compileRecipe } from './src/lib/execution.ts';
+        const { cases, expected } = JSON.parse(fs.readFileSync(0, 'utf8'));
+        const nodes = [...new Set(expected.flatMap(g => Object.values(g).map(n => n.class_type)))];
+        const allow = { nodes, checkpoints: [], diffusionModels: ['sd/model.safetensors'],
+            textEncoders: ['qwen.safetensors'], vaes: ['qwen-vae.safetensors'], clipTypes: ['qwen_image','krea2','moss_image'],
+            images: ['first.png','second.png','third.png','fourth.png'], samplers: ['euler'], schedulers: ['normal'] };
+        process.stdout.write(JSON.stringify(cases.map(i => compileRecipe(i, allow).graph)));
+    "#;
+    let mut child = Command::new("node")
+        .args([
+            "--experimental-strip-types",
+            "--input-type=module",
+            "-e",
+            script,
+        ])
+        .current_dir(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap(),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Node is required for compiler parity tests");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            serde_json::to_string(&json!({"cases":cases,"expected":expected}))
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn image_reference_compiles_core_revision_and_rejects_split_families() {
     let mut i = intent();

@@ -1,6 +1,24 @@
 # Changelog
 
+## Unreleased
+
+## 0.1.48
+
+Includes the model-aware reference wiring developed under 0.1.47 below, plus compact drag-only reference thumbnails. Local unsigned release; platform/model acceptance limits are recorded in [verification](VERIFICATION.md).
+
+- Replace full-width prompt-reference filename rows with compact numbered thumbnails, red overlay removal controls, and drag-only reordering. Keep filenames available as accessible image descriptions/tooltips, preserve each picture's ReVision strength, and submit the displayed reference order without changing already captured jobs.
+
+## Unreleased — 0.1.47
+
+- Keep Krea/MOSS numbered reference placeholders bound to the intended images on both prompt branches, including out-of-order markers. Carry image eligibility in the internal drag MIME types so protected drag payloads do not advertise video/audio as attachable pictures. Add real-core tokenizer and protected-drag regressions; verify GPU reference effects for Qwen Turbo, MOSS and Krea at fixed prompt/seed.
+
+- Wire one prompt-picture draft through model-specific image execution: retain SDXL ReVision, add Qwen Image 2.1/Turbo core text/vision plus ordered reference latents, and Krea 2/MOSS text/vision conditioning through the bundled `DEAS_ImagePromptEncode` adapter. Route both conditioning branches where required, preserve sampler/custom-sigma/refine consumers and upload references outside configured media roots. Native picture paths do not expose ineffective ReVision strengths/vision pickers. Missing capabilities block Run; no automatic backend restart, external node installation or model download. Run Plan shows attached pictures. Experimental edit-LoRA/reference-latent modes and generic Anima references are not added.
+
 ## Unreleased — 0.1.46
+
+- Remove the unsupported-reference paragraph below the prompt and refuse unsupported model-family drops with `dropEffect:none` instead of a misleading green copy/plus cursor. Existing ReVision compatibility and model-native input paths are unchanged.
+
+- Fix internal media-image drags losing their prompt-field drop to Linux native file handling: replace default image URI/HTML drag data with the existing DEAS media payload and copy semantics in the shared helper (Media dock, preview and queue). Keep native OS-drop handling enabled. Hide and restore the Linux native-video overlay during internal drags: its full-window GTK surface blocked drop destinations even with no video open.
 
 - Add Studio image-reference prompting (ReVision) for SDXL checkpoint image recipes: drop up to 4 images on the prompt field with per-reference strength, a shared CLIP-vision model picker and a visible "count of 4" indicator. Compile the core unCLIP conditioning chain (shared vision loader, per-image encode, chained conditioning) in the shared TS and native Rust paths with prerequisites and six-language controls; uploaded references stay immutable per Run press. Families with native image paths (image-to-image input slot, video References tab) keep their own paths and show a localized explanation instead of references. When no CLIP-vision model is installed, the Workbench asks at drop time whether to download clip_vision_g (CLIP-ViT-bigG fp16, 3.7 GB) from Hugging Face into models/clip_vision; the download catalog ships a matching HF entry.
 - Allow repeated Studio Run presses during queued/running work, with immutable per-press intents and captured random/fixed seeds. Add adjacent six-language Run/Stop controls, discard unsent preparations on Stop and preserve real partial/unknown results. A native admission-generation fence rejects delayed pre-Stop Run requests even after Stop completes; no global interrupt, queue clear or service stop.

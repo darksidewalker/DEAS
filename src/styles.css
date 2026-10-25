@@ -1,3 +1,12 @@
+.wb-reference-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; }
+.wb-reference-card { flex: 0 0 96px; width: 96px; min-width: 0; display: grid; gap: 4px; }
+.wb-reference-thumb { position: relative; height: 72px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--deep); cursor: grab; }
+.wb-reference-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.wb-reference-position { position: absolute; left: 3px; bottom: 3px; padding: 1px 5px; border-radius: 3px; background: var(--deep); color: var(--chalk); font-size: 11px; }
+.wb-reference-thumb .wb-reference-remove { position: absolute; right: 2px; top: 2px; width: 24px; height: 24px; min-height: 0; padding: 0; background: var(--danger-bg); color: var(--danger-hi); border: 1px solid var(--danger-2); border-radius: 4px; }
+.wb-reference-card .wb-field > span { font-size: 9px; letter-spacing: 0; }
+.wb-reference-card input { width: 100%; min-width: 0; box-sizing: border-box; }
+
 :root {
   font-family: "DM Sans", sans-serif;
   color: var(--chalk);

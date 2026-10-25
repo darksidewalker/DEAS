@@ -219,6 +219,80 @@ fn output_naming_adapter_is_installed_and_refuses_symlinks() {
 }
 
 #[test]
+fn image_prompting_python_contract_fixture() {
+    let result = Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            include_str!("image_prompting_tests.py"),
+            include_str!("image_prompting.py"),
+        ])
+        .env_remove("PYTHONPATH")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn image_prompting_installed_before_owned_child_start() {
+    let script = SERVER.replace(
+        "args=sys.argv[1:]",
+        "assert os.path.isfile('custom_nodes/deas_image_prompting.py')\nargs=sys.argv[1:]",
+    );
+    let (tmp, approved) = fixture(&script);
+    let lifecycle = Lifecycle::default();
+    lifecycle
+        .launch(approved.clone(), Duration::from_secs(5))
+        .unwrap();
+    await_state(&lifecycle, "running");
+    let directory = tmp.path().join("ComfyUI/custom_nodes");
+    assert_eq!(
+        fs::read(directory.join("deas_image_prompting.py")).unwrap(),
+        include_bytes!("image_prompting.py")
+    );
+    let mut entries: Vec<_> = fs::read_dir(&directory)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        ["deas_image_prompting.py", "deas_output_naming.py"]
+    );
+    lifecycle.stop();
+}
+
+#[test]
+fn image_prompting_install_rejects_linked_files_and_directories() {
+    let (tmp, approved) = fixture(SERVER);
+    let directory = tmp.path().join("ComfyUI/custom_nodes");
+    fs::create_dir(&directory).unwrap();
+    let foreign = tmp.path().join("foreign.py");
+    fs::write(&foreign, "untouched").unwrap();
+    let plugin = directory.join("deas_image_prompting.py");
+    std::os::unix::fs::symlink(&foreign, &plugin).unwrap();
+    let lifecycle = Lifecycle::default();
+    assert!(lifecycle
+        .launch(approved.clone(), Duration::from_secs(1))
+        .is_err());
+    assert!(locked(&lifecycle.inner).child.is_none());
+    assert_eq!(fs::read_to_string(&foreign).unwrap(), "untouched");
+    fs::remove_file(plugin).unwrap();
+    fs::remove_file(directory.join("deas_output_naming.py")).unwrap();
+    fs::remove_dir(&directory).unwrap();
+    let foreign_directory = tmp.path().join("foreign_nodes");
+    fs::create_dir(&foreign_directory).unwrap();
+    std::os::unix::fs::symlink(&foreign_directory, &directory).unwrap();
+    assert!(lifecycle.launch(approved, Duration::from_secs(1)).is_err());
+    assert!(locked(&lifecycle.inner).child.is_none());
+    assert_eq!(fs::read_dir(foreign_directory).unwrap().count(), 0);
+}
+
+#[test]
 fn a_second_lifecycle_cannot_start_the_same_environment_until_the_first_stops() {
     let (_tmp, approved) = fixture(SERVER);
     let first = Lifecycle::default();

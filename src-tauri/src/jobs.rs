@@ -337,6 +337,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     let h3 = object.get("h3Edit");
     // SDXL ReVision: a reference picture encoded by core CLIP-vision nodes and applied to the positive conditioning.
     let reference = object.get("imageReference");
+    let native_reference = object.get("nativeImageReference");
     let h3_family = diffusion.is_some_and(|d| d["clipType"] == "minimax");
     if h3_family != h3.is_some()
         || h3.is_some_and(|h| {
@@ -407,6 +408,7 @@ fn compile(i: &Value) -> Result<Value, String> {
             + usize::from(diffusion.is_some())
             + usize::from(h3.is_some())
             + usize::from(reference.is_some())
+            + usize::from(native_reference.is_some())
             + usize::from(resize.is_some())
             + usize::from(sigmas.is_some())
             + usize::from(mask.is_some())
@@ -477,6 +479,30 @@ fn compile(i: &Value) -> Result<Value, String> {
             "Invalid imageReference: supply {visionModel, images: [{image, strength in [0, 1]}] x 1..4} on a checkpoint (SDXL) family; split-loader families use their native image paths (input image, video references)"
                 .into(),
         );
+    }
+    if native_reference.is_some_and(|r| {
+        reference.is_some()
+            || !matches!(
+                (
+                    r["method"].as_str(),
+                    diffusion.and_then(|d| d["clipType"].as_str())
+                ),
+                (Some("qwen-image-2.1"), Some("qwen_image"))
+                    | (Some("krea-2"), Some("krea2"))
+                    | (Some("moss-image"), Some("moss_image"))
+            )
+            || r.as_object().is_none_or(|o| o.len() != 2)
+            || !r["images"].as_array().is_some_and(|v| {
+                !v.is_empty()
+                    && v.len() <= 4
+                    && v.iter().all(|e| e.as_str().is_some_and(model_name))
+            })
+            || (r["method"] == "qwen-image-2.1"
+                && ["width", "height"]
+                    .iter()
+                    .any(|k| i[*k].as_u64().is_none_or(|n| n % 32 != 0)))
+    }) {
+        return Err("Invalid nativeImageReference: ordered 1..4 safe image names, method matching qwen-image-2.1/qwen_image, krea-2/krea2 or moss-image/moss_image; Qwen dimensions aligned to 32".into());
     }
     for (field, min, max, integer, alignment) in [
         ("seed", 0.0, 9_007_199_254_740_991.0, true, 1.0),
@@ -777,6 +803,42 @@ fn compile(i: &Value) -> Result<Value, String> {
             }
         }
     }
+    if let Some(r) = native_reference {
+        let qwen = r["method"] == "qwen-image-2.1";
+        let mut inputs = json!({"clip":graph["2"]["inputs"]["clip"],
+            "prompt":graph["2"]["inputs"]["text"],"negative_prompt":graph["3"]["inputs"]["text"]});
+        if qwen {
+            inputs["vae"] = vae.clone();
+            inputs["resolution"] = json!(0);
+        }
+        for (n, image) in r["images"].as_array().unwrap().iter().enumerate() {
+            let id = format!("RI{n}");
+            graph[&id] = json!({"class_type":"LoadImage","inputs":{"image":image}});
+            inputs[format!("{}image_{}", if qwen { "images." } else { "" }, n + 1)] =
+                json!([if qwen && n == 0 { "QR" } else { &id }, 0]);
+        }
+        // The first Qwen reference fixes output geometry; remaining references use the node's native /32 rounding.
+        if qwen {
+            graph["QR"] = json!({"class_type":"ImageScale","inputs":{"image":["RI0",0],"upscale_method":"lanczos","width":i["width"],"height":i["height"],"crop":"center"}});
+        }
+        graph["QI"] = json!({"class_type":if qwen {"TextEncodeQwenImage21"} else {"DEAS_ImagePromptEncode"},"inputs":inputs});
+        let g = graph.as_object_mut().unwrap();
+        for id in ["2", "3"] {
+            g.remove(id);
+        }
+        if qwen {
+            g.remove("4");
+        }
+        for node in g.values_mut() {
+            for value in node["inputs"].as_object_mut().unwrap().values_mut() {
+                for (old, output) in [("2", 0), ("3", 1), ("4", 2)] {
+                    if (old != "4" || qwen) && *value == json!([old, 0]) {
+                        *value = json!(["QI", output]);
+                    }
+                }
+            }
+        }
+    }
     Ok(graph)
 }
 
@@ -948,6 +1010,16 @@ fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
         return;
     }
     graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
+    if let Some(qwen) = graph.get("QI") {
+        let (positive, negative) = (
+            qwen["inputs"]["prompt"].clone(),
+            qwen["inputs"]["negative_prompt"].clone(),
+        );
+        graph["M"]["inputs"]["node_positive"] = json!(["QI", 0]);
+        graph["M"]["inputs"]["node_negative"] = json!(["QI", 1]);
+        graph["M"]["inputs"]["text_positive"] = positive;
+        graph["M"]["inputs"]["text_negative"] = negative;
+    }
     if graph.get("WP").is_some() {
         // Graph tracing cannot resolve random text; use this execution's actual strings.
         graph["M"]["inputs"]["text_positive"] = json!(["WP", 0]);
@@ -1123,6 +1195,13 @@ impl Jobs {
                                     .into_iter()
                                     .flatten()
                                     .filter_map(|e| e["image"].as_str()),
+                            )
+                            .chain(
+                                intent["nativeImageReference"]["images"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(Value::as_str),
                             )
                             .filter(|s| !s.ends_with(" [output]") && !mask_name(s))
                             .collect(),

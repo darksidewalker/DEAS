@@ -220,6 +220,20 @@ pub fn install(app: &tauri::AppHandle) -> Result<(), String> {
             overlay.add(&web);
             overlay.add_overlay(&fixed);
             overlay.set_overlay_pass_through(&fixed, true);
+            // GTK pass-through forwards clicks, but this full-window layer still blocks drag targets.
+            let restore = Rc::new(Cell::new(false));
+            let layer = fixed.clone();
+            let visible = restore.clone();
+            web.connect_drag_begin(move |_, _| {
+                visible.set(layer.is_visible());
+                layer.hide();
+            });
+            let layer = fixed.clone();
+            web.connect_drag_end(move |_, _| {
+                if restore.replace(false) {
+                    layer.show();
+                }
+            });
             overlay.set_hexpand(true);
             overlay.set_vexpand(true);
             parent.pack_start(&overlay, true, true, 0);

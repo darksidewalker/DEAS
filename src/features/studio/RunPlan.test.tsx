@@ -23,6 +23,18 @@ test('video family passes, audio and exact output choices are visible without im
  expect(plan.querySelector('[data-plan-stage="audio"]')).toBeTruthy();
 });
 
+test('image prompt references appear as ordered inputs without an image-to-image source',()=>{
+ localStorage.setItem('deas.locale.v1','en');
+ const {inputImage,denoise,inputResize,...base}=intent;void inputImage;void denoise;void inputResize;
+ const native={...base,nativeImageReference:{method:'qwen-image-2.1' as const,images:['first.png','second.png']}};
+ const view=render(<I18nProvider><RunPlan intent={native} pipeline="t2i" notices={[]}/></I18nProvider>);
+ const input=view.container.querySelector('[data-plan-stage="input"]');
+ expect(input?.textContent).toContain('first.png');
+ expect(input?.textContent).toContain('second.png');
+ view.rerender(<I18nProvider><RunPlan intent={{...base,imageReference:{visionModel:'bigG.safetensors',images:[{image:'style.png',strength:0.6}]}}} pipeline="t2i" notices={[]}/></I18nProvider>);
+ expect(view.container.querySelector('[data-plan-stage="input"]')?.textContent).toContain('style.png');
+ expect(view.container.textContent).toContain('bigG.safetensors');
+});
 test('removing refinement removes its stage and unresolved outputs are not readiness claims',()=>{
  localStorage.setItem('deas.locale.v1','en');
  const {refine,...plain}=intent;void refine;

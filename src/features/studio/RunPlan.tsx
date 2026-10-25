@@ -25,8 +25,10 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
   <p>{t('studio.plan.notice')}</p>
   <ul className="run-plan-notices">{notices.map((s,i)=><li key={i}>{s}</li>)}</ul>
   {!intent?<p role="status">{unknown}</p>:<ol className="run-plan-stages">
-   {(image?.inputImage||video?.firstFrame||video?.lastFrame||video?.sourceVideo||video?.family==='minimax-h3'&&(video.h3.references.length||video.h3.media?.length)||video?.family==='ltx-2'&&video.ltx.keyframes?.length||inputNotes.length>0)?stage('input',<>
+   {(image?.inputImage||image?.imageReference||image?.nativeImageReference||video?.firstFrame||video?.lastFrame||video?.sourceVideo||video?.family==='minimax-h3'&&(video.h3.references.length||video.h3.media?.length)||video?.family==='ltx-2'&&video.ltx.keyframes?.length||inputNotes.length>0)?stage('input',<>
     {image?.inputImage&&row('studio.run.pipe.input',image.inputImage)}
+    {image?.imageReference&&row('studio.run.dock.references',<ul>{image.imageReference.images.map((r,i)=><li key={i}>{r.image} · {r.strength}</li>)}</ul>)}
+    {image?.nativeImageReference&&row('studio.run.dock.references',<ul>{image.nativeImageReference.images.map((name,i)=><li key={i}>{name}</li>)}</ul>)}
     {image?.inputResize&&row('studio.run.resolution.scaling',<>{size(image.inputResize)} · {image.inputResize.crop}{data(image.inputResize)}</>)}
     {image?.inputLayers&&row('studio.editor.layers',<ul>{image.inputLayers.map((l,i)=><li key={i}>{l.image} · {l.width} × {l.height} · ({l.x}, {l.y})</li>)}</ul>)}
     {video?.firstFrame&&row('studio.plan.firstFrame',video.firstFrame)}
@@ -39,6 +41,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
    {stage('model',<>
     {row('studio.run.checkpoint',image?.checkpoint??video?.model)}
     {image&&!image.diffusion&&<>{row('studio.run.textEncoder',t('studio.plan.checkpointParts'))}{row('studio.run.vae',t('studio.plan.checkpointParts'))}</>}
+    {image?.imageReference&&row('studio.run.reference.vision',image.imageReference.visionModel)}
     {image?.diffusion&&<>{row('studio.run.textEncoder',image.diffusion.textEncoder)}{row('studio.run.vae',image.diffusion.vae)}</>}
     {video&&<>{row('studio.run.textEncoder',video.textEncoder)}{row('studio.run.vae',video.vae)}</>}
     {!!intent.loras?.length&&row('studio.run.loras',<ul>{intent.loras.map((l,i)=><li key={i}>{l.name} · {l.strength}</li>)}</ul>)}

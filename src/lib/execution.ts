@@ -40,6 +40,8 @@ export interface DiagnosticImageIntentV1 {
   readonly h3Edit?: { readonly shiftVideo: number; readonly shiftAudio: number };
   /** SDXL ReVision (checkpoint-loader families only): a reference picture from the backend input folder, encoded by a CLIP-vision model and blended into the positive conditioning at `strength`. */
   readonly imageReference?: { readonly visionModel: string; readonly images: readonly { readonly image: string; readonly strength: number }[] };
+  /** Family-native conditioning; ordered references, no CLIP-vision model or strength. */
+  readonly nativeImageReference?: { readonly method: 'qwen-image-2.1' | 'krea-2' | 'moss-image'; readonly images: readonly string[] };
   /** Workbench Options: model patches (one attention backend, step cache, torch.compile) and tiled VAE. */
   readonly options?: RunOptions;
   /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */
@@ -128,7 +130,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
   for (const key of Object.keys(input)) {
-    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression', 'imageReference'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
+    if (!fields.includes(key) && !['loras', 'inputImage', 'denoise', 'diffusion', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression', 'imageReference', 'nativeImageReference'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
   for (const field of fields) {
     if (!Object.hasOwn(input, field)) invalid(field, 'Missing required intent field.', 'Supply this explicit DEAS-owned intent field; no defaults are inferred.');
@@ -254,6 +256,17 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
       || r.images.some(e => !isRecord(e) || Object.keys(e).length !== 2 || !safeModel(e.image)
         || !(typeof e.strength === 'number' && Number.isFinite(e.strength) && e.strength >= 0 && e.strength <= 1))) {
       invalid('imageReference', 'Invalid image reference.', 'Supply {visionModel, images: [{image, strength in [0, 1]}] x 1..4} on a checkpoint (SDXL) family; split-loader families use their native image paths (input image, video references).');
+    }
+  }
+  if (Object.hasOwn(input, 'nativeImageReference')) {
+    const r = input.nativeImageReference;
+    if (Object.hasOwn(input, 'imageReference') || !isRecord(d)
+      || !isRecord(r) || Object.keys(r).length !== 2
+      || !((r.method === 'qwen-image-2.1' && d.clipType === 'qwen_image')
+        || (r.method === 'krea-2' && d.clipType === 'krea2') || (r.method === 'moss-image' && d.clipType === 'moss_image'))
+      || !Array.isArray(r.images) || r.images.length < 1 || r.images.length > 4 || !Array.from(r.images).every(safeModel)
+      || (r.method === 'qwen-image-2.1' && ((input.width as number) % 32 !== 0 || (input.height as number) % 32 !== 0))) {
+      invalid('nativeImageReference', 'Invalid native image reference.', 'Use 1..4 safe image names and a method matching the diffusion encoder: qwen-image-2.1/qwen_image, krea-2/krea2 or moss-image/moss_image. Qwen dimensions must be aligned to 32.');
     }
   }
   const prefix = input.outputPrefix;
@@ -444,6 +457,34 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     graph['3']={...graph['3'],inputs:{...graph['3'].inputs,text:['WP',1]}};
     if (graph.M) graph.M={...graph.M,inputs:{...graph.M.inputs,text_positive:['WP',0],text_negative:['WP',1]}};
   }
+  if (intent.nativeImageReference) {
+    const graph = result.graph as Record<string, ApiNode>;
+    const qwen = intent.nativeImageReference.method === 'qwen-image-2.1';
+    const inputs: Record<string, string | number | boolean | ApiLink> = {
+      clip, prompt: graph['2'].inputs.text, negative_prompt: graph['3'].inputs.text,
+      ...(qwen ? { vae, resolution: 0 } : {}),
+    };
+    intent.nativeImageReference.images.forEach((image, n) => {
+      graph[`RI${n}`] = { class_type: 'LoadImage', inputs: { image } };
+      inputs[`${qwen ? 'images.' : ''}image_${n + 1}`] = [qwen && n === 0 ? 'QR' : `RI${n}`, 0];
+    });
+    // The first Qwen reference fixes output geometry; remaining references use the node's native /32 rounding.
+    if (qwen) graph.QR = { class_type: 'ImageScale', inputs: { image: ['RI0', 0], upscale_method: 'lanczos', width: intent.width, height: intent.height, crop: 'center' } };
+    graph.QI = { class_type: qwen ? 'TextEncodeQwenImage21' : 'DEAS_ImagePromptEncode', inputs };
+    if (graph.M) graph.M = { ...graph.M, inputs: { ...graph.M.inputs, text_positive: inputs.prompt, text_negative: inputs.negative_prompt } };
+    delete graph['2']; delete graph['3']; if (qwen) delete graph['4'];
+    for (const [id, node] of Object.entries(graph)) {
+      const rewired = { ...node.inputs };
+      for (const [key, value] of Object.entries(rewired)) {
+        if (Array.isArray(value) && value[1] === 0) {
+          if (value[0] === '2') rewired[key] = ['QI', 0];
+          if (value[0] === '3') rewired[key] = ['QI', 1];
+          if (qwen && value[0] === '4') rewired[key] = ['QI', 2];
+        }
+      }
+      graph[id] = { ...node, inputs: rewired };
+    }
+  }
   const emitted = Object.freeze([...new Set(Object.values(result.graph).map(node => node.class_type))]);
   for (const node of emitted) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
@@ -451,7 +492,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
   if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
-  for (const image of [intent.inputImage, ...(intent.imageReference?.images.map(e => e.image) ?? []), ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
+  for (const image of [intent.inputImage, ...(intent.imageReference?.images.map(e => e.image) ?? []), ...(intent.nativeImageReference?.images ?? []), ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
   if (intent.imageReference && !allowlist.visionModels?.includes(intent.imageReference.visionModel)) throw new RecipeCompileError('MISSING_MODEL', 'visionModel', 'CLIP-vision model is not in the verified vision model list.', 'Install the model in the backend vision folder and reload prerequisites.');
   for (const name of [intent.upscaleModel, intent.refine?.upscaleModel]) if (name !== undefined && !allowlist.upscaleModels?.includes(name)) throw new RecipeCompileError('MISSING_MODEL', 'upscaleModel', 'Upscale model is not in the verified model list.', 'Pick an upscale model the backend lists.');
   for (const lora of loras) {
