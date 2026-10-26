@@ -1,5 +1,9 @@
 # News
 
+## 0.1.50
+
+Prerequisite diagnostics now accept Windows subfolder model paths (`Folder\model.safetensors`) against the backend's slash-separated model lists, fixing "diffusionModels are not available on this backend" for models inside subfolders (the `+` in model names was never the problem). Krea2 keeps full torch.compile support. See [verification](VERIFICATION.md).
+
 ## 0.1.49
 
 Windows/Linux path fixes preserve exact backend model identifiers and output subfolders, repair media-reference/Starred matching and remove developer-specific script assumptions. MOSS reference readiness now checks its active encoder. Ordinary native Prompt Forge modes offer all fixed aspect presets from the main Settings while keeping legacy saved choices; Auto/Custom and MOSS layout/Generate geometry remain deferred. See [path compatibility](PATH-COMPATIBILITY.md), [Prompt Forge](PROMPTING.md) and [verification](VERIFICATION.md). Local unsigned binaries; native Windows runtime acceptance remains open.

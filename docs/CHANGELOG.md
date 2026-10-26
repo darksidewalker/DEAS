@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.50
+
 - Match prerequisite model names with separator-insensitive comparison so Windows subfolder paths (`Anima\model+Int8.safetensors`) validate against the backend's slash-separated combos; `+` in names was already allowed.
 
 ## 0.1.49
