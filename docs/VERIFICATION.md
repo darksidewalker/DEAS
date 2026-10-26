@@ -1,5 +1,15 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.1.50 — published
+
+Single user-reported fix: prerequisite model-name matching is separator-insensitive, so Windows subfolder models (`Anima\model+Int8.safetensors`) validate against the backend's slash-separated combos and no longer report "diffusionModels are not available on this backend"; the `+` in names was already grammar-legal. The earlier Krea2 `torch.compile` skip-gate was reverted after the owner reinstalled the backend and Krea2 ran with compile: the fp16/fp32 inductor crash was environment-specific.
+
+Fresh pre-publication gates on source commit `0e398f23f16cbe261d195693b1d1348aadcba3e0` (tree `37e4ad7c77d917f6b93768d40fbfbdcba1a014fe`): **106 core JS tests**, full UI suite (npm test exit 0), **502 native library tests serially, 33 ignored** (run twice — pre-fmt and on the final commit), TypeScript typecheck via production build, rustfmt clean, strict production Clippy clean; the Windows cross-build keeps the known single CRT debug-PDB warning. Version 0.1.50 matches package.json, package-lock, tauri.conf.json, Cargo.toml and Cargo.lock.
+
+Hosted Verify/Release runners are gated (GitHub billing/spending limit confirmed via `gh run view`); publish used the local-build fallback. Both binaries were rebuilt twice: once after the rustfmt commit, then again with the working tree verified clean at `0e398f2` (four owner WIP files — workbench stop-button/menu CSS, two docs, verify tool — were stashed before the clean rebuild and restored after publication). Annotated tag `v0.1.50` points at `0e398f2` on both remotes.
+
+Local release folder: `artifacts/releases/v0.1.50/`. Linux SHA-256 `7c97778d6f441a6f6679feb4a859902dfa1cfa94addfedfb0a729ec2d0c58b2b`; Windows SHA-256 `77f382328f38ddb58731cfe921bcb73aef16193501e42b8e1d57903ff817ecbf`. Both embed frontend `index-2nPdCOFD.js`. Linux floor **GLIBC 2.39+**, build-host `ldd` resolves every dependency. Unsigned; WebView2 required on Windows. Not tested: native Windows runtime (first real launch is the acceptance test), Windows model inference, installer/deb/AppImage packaging, Ubuntu 22.04 portability.
+
 ## Release 0.1.49 — checkpoint
 
 Owner requested stopping further feature work at F1, then committing, pushing, building and publishing. F2 (Auto/Custom, MOSS Layout/Generate geometry) stays deferred. The release includes the reviewed Windows/Linux path corrections, shared active-reference encoder readiness and fixed Settings aspect presets in ordinary Prompt Forge modes; no further feature expansion is part of this checkpoint.
