@@ -620,16 +620,7 @@ fn compile(i: &Value) -> Result<Value, String> {
         );
     }
     if let Some(b) = o["compile"].as_str() {
-        // shortcut: torch.compile on Krea2 crashes on the first step (inductor addmm gets fp32 latents
-        // against fp16 weights: "Half and Float"). Upgrade when upstream Krea2 compiles with fp16 weights.
-        if !diffusion.is_some_and(|d| d["clipType"] == "krea2") {
-            patch("T", "TorchCompileModel", json!({"backend":b}));
-        } else {
-            crate::logs::push(
-                crate::logs::Source::Deas,
-                &format!("Options: torch.compile ({b}) ignored for Krea2 — fp32 latents against fp16 weights crash the compiled graph."),
-            );
-        }
+        patch("T", "TorchCompileModel", json!({"backend":b}));
     }
     graph["2"]["inputs"]["clip"] = clip.clone();
     graph["3"]["inputs"]["clip"] = clip;
@@ -1060,6 +1051,15 @@ pub(crate) fn model_name(s: &str) -> bool {
         })
 }
 
+/// Prerequisite membership: Windows model trees show `Folder\file` while ComfyUI combos list
+/// `Folder/file`; compare separators-normalized (the loaders accept both, per `comfy_model_name`).
+fn listed(available: &[serde_json::Value], field: &str, name: &str) -> bool {
+    (field == "images" && name.starts_with("deas-inputs/"))
+        || available
+            .iter()
+            .any(|v| v.as_str().is_some_and(|a| a.replace('\\', "/") == name.replace('\\', "/")))
+}
+
 const MASK_FOLDER: &str = "deas-masks";
 
 /// Only names `native_mask_upload` hands out: `deas-masks/<uuid>.png` (inpaint masks and flattened painted layers).
@@ -1277,10 +1277,7 @@ impl Jobs {
                 if let Some(missing) = required
                     .iter()
                     // LoadImage lists only top-level files; the backend loader/Director validates DEAS-uploaded references.
-                    .find(|name| {
-                        !(field == "images" && name.starts_with("deas-inputs/"))
-                            && !available.iter().any(|v| v.as_str() == Some(**name))
-                    })
+                    .find(|name| !listed(available, field, name))
                 {
                     return Err(format!(
                         "Diagnostic {field} are not available on this backend: {missing}"

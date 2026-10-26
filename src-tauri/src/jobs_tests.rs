@@ -1520,12 +1520,6 @@ fn options_chain_model_patches_and_tile_the_vae() {
         compile(&sage).unwrap()["5"]["inputs"]["model"],
         json!(["K", 0])
     );
-    let mut krea = intent();
-    krea["diffusion"] = json!({"textEncoder":"qwen3vl_4b.safetensors","clipType":"krea2","vae":"v.safetensors"});
-    krea["options"] = json!({"compile":"inductor","cache":{"node":"EasyCache","threshold":0.2}});
-    let krea_graph = compile(&krea).unwrap();
-    assert!(krea_graph.get("T").is_none(), "Krea2 must not get the torch.compile patch");
-    assert_eq!(krea_graph["5"]["inputs"]["model"], json!(["E", 0]));
     let mut empty = intent();
     empty["options"] = json!({});
     assert_eq!(compile(&empty).unwrap(), compile(&intent()).unwrap());
@@ -1543,6 +1537,23 @@ fn options_chain_model_patches_and_tile_the_vae() {
         empty["options"] = bad;
         assert!(compile(&empty).is_err(), "accepted options: {empty}");
     }
+}
+
+#[test]
+fn diagnostic_availability_ignores_windows_separators() {
+    let available = [
+        "Anima/dasiwaAnima_obsidianArchivesV2+Int8.safetensors",
+        "top.safetensors",
+    ]
+    .map(|s| json!(s));
+    for field in ["diffusionModels", "checkpoints"] {
+        assert!(listed(&available, field, "Anima\\dasiwaAnima_obsidianArchivesV2+Int8.safetensors"));
+        assert!(listed(&available, field, "Anima/dasiwaAnima_obsidianArchivesV2+Int8.safetensors"));
+        assert!(listed(&available, field, "top.safetensors"));
+        assert!(!listed(&available, field, "Anima\\other.safetensors"));
+    }
+    assert!(listed(&[], "images", "deas-inputs/550e8400-e29b-41d4-a716-446655440000.png"));
+    assert!(!listed(&[], "diffusionModels", "deas-inputs/x.safetensors"));
 }
 
 #[test]

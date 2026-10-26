@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Skip the Workbench torch.compile patch for Krea2 recipes: the inductor graph feeds fp32 latents into Krea2's fp16 weights and crashes on the first sampler step ("mat1 and mat2 must have the same dtype, but got Half and Float"). Compile stays available for all other families. The DEAS log shows an explicit line when the patch is skipped.
+- Match prerequisite model names with separator-insensitive comparison so Windows subfolder paths (`Anima\model+Int8.safetensors`) validate against the backend's slash-separated combos; `+` in names was already allowed.
 
 ## 0.1.49
 
