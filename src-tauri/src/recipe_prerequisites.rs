@@ -98,7 +98,11 @@ fn combo(nodes: &Value, node: &str, field: &str) -> Result<Vec<String>, String> 
             // Files use the compiler's model-name grammar; enum choices stay short safe ASCII.
             let file = FILE_FIELDS.contains(&field);
             let safe = if file {
-                crate::jobs::model_name(identifier)
+                if field == "image" {
+                    crate::jobs::model_name(identifier)
+                } else {
+                    crate::jobs::comfy_model_name(identifier)
+                }
             } else {
                 !identifier.is_empty()
                     && identifier.len() <= 255
@@ -168,8 +172,8 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
             "compile":options(nodes, "TorchCompileModel", "backend", option),
             // Core v3 node: its file combo uses the v3 form.
-            "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::model_name),
-            "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::model_name)
+            "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::comfy_model_name),
+            "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::comfy_model_name)
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -330,7 +334,7 @@ mod tests {
         for name in [
             "../model.safetensors",
             "/model.safetensors",
-            "dir\\model.safetensors",
+            "dir\\..\\model.safetensors",
             "https://host/model",
             " model.safetensors",
             "dir//model",
@@ -361,7 +365,8 @@ mod tests {
         let mut info = nodes();
         info["LoraLoader"]["input"]["required"]["lora_name"][0] = json!([
             "MiniMaxH3/MM-H3 - Ahegao Face.safetensors",
-            "Größe/模型 v2.safetensors"
+            "Größe/模型 v2.safetensors",
+            r"Größe\模型 v2.safetensors"
         ]);
         let (base, request) = fixture(info.to_string()).await;
         let result = native_recipe_prerequisites(base).await.unwrap();
@@ -369,7 +374,8 @@ mod tests {
             result["allowlist"]["loras"],
             json!([
                 "MiniMaxH3/MM-H3 - Ahegao Face.safetensors",
-                "Größe/模型 v2.safetensors"
+                "Größe/模型 v2.safetensors",
+                r"Größe\模型 v2.safetensors"
             ])
         );
         request.await.unwrap();

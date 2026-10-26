@@ -20,11 +20,14 @@ import threading
 import time
 import zlib
 
+if sys.platform != 'linux':
+    sys.exit('Linux-only X11 native drag diagnostic; not Windows acceptance.')
+
 binary, destination, *videos = sys.argv[1:]
 out = Path(destination).resolve()
 out.mkdir(parents=True, exist_ok=False)
 family_id = os.environ.get('DEAS_DRAG_FAMILY', 'sdxl')
-family = next(f for f in json.loads((Path(__file__).resolve().parents[1] / 'src/families/builtin.json').read_text()) if f['id'] == family_id)
+family = next(f for f in json.loads((Path(__file__).resolve().parents[1] / 'src/families/builtin.json').read_text(encoding='utf-8')) if f['id'] == family_id)
 model_dir = out / 'ComfyUI/models' / ('checkpoints' if family_id == 'sdxl' else 'diffusion_models')
 model_dir.mkdir(parents=True)
 keys = family['model'][0]
@@ -108,7 +111,7 @@ document.addEventListener('DOMContentLoaded',()=>{(async()=>{
  await invoke('plugin:window|destroy',{label:'main'});
 })();},{once:true});
 '''.replace('ROOT', json.dumps(str(out))).replace('VIDEO', json.dumps(str(Path(videos[0]).resolve()) if videos else None)).replace('FAMILY', json.dumps(family_id))
-(out / 'probe.js').write_text(script)
+(out / 'probe.js').write_text(script, encoding='utf-8')
 env = dict(os.environ, GDK_BACKEND='x11', DEAS_VIDEO_TEST_SCRIPT=str(out / 'probe.js'), DEAS_VIDEO_PROBE='1', XDG_CONFIG_HOME=str(out / 'config'), XDG_DATA_HOME=str(out / 'data'), XDG_CACHE_HOME=str(out / 'cache'))
 x = ctypes.CDLL('libX11.so.6')
 t = ctypes.CDLL('libXtst.so.6')
@@ -170,8 +173,8 @@ finally:
     timer.cancel()
     if p.poll() is None:
         os.killpg(p.pid, signal.SIGTERM)
-    (out / 'native.log').write_text(''.join(lines))
-    (out / 'results.json').write_text(json.dumps(reports, indent=2))
+    (out / 'native.log').write_text(''.join(lines), encoding='utf-8')
+    (out / 'results.json').write_text(json.dumps(reports, indent=2), encoding='utf-8')
 assert code == 0 and any(r['phase'] == 'passed' for r in reports), ''.join(lines)[-5000:]
 if videos:
     frames = re.findall(r'DEAS_VIDEO_FRAME .* hash=(\d+) range=(\d+) gl_error=(\d+)', ''.join(lines))

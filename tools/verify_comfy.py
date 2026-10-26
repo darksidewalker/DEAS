@@ -14,7 +14,7 @@ parser.add_argument('--workflow', action='store_true', help='Test metadata impor
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 endpoint = args.comfy_url or 'http://127.0.0.1:49312'
-csp = json.loads((root / 'src-tauri/tauri.conf.json').read_text())['app']['security']['csp']
+csp = json.loads((root / 'src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['app']['security']['csp']
 fixture = r"""
 (() => {
 if(window.top!==window.self)return;
@@ -59,7 +59,7 @@ with sync_playwright() as p:
         page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: errors.append(str(e)))
         if args.workflow:
-            page.add_init_script('const DEAS_DEV_ORIGIN = '+json.dumps(args.url)+';\n'+(root/'src-tauri/src/comfy_bridge.js').read_text())
+            page.add_init_script('const DEAS_DEV_ORIGIN = '+json.dumps(args.url)+';\n'+(root/'src-tauri/src/comfy_bridge.js').read_text(encoding='utf-8'))
         page.add_init_script(fixture.replace('LOCALE', json.dumps(locale)).replace('ENDPOINT', json.dumps(endpoint)))
         def serve_app(route):
             response = route.fetch()
@@ -72,7 +72,7 @@ with sync_playwright() as p:
             page.route(endpoint + '/**', lambda route: route.continue_() if route.request.method in ('GET', 'HEAD', 'OPTIONS') else route.abort())
         page.goto(args.url, wait_until='domcontentloaded')
         page.wait_for_function("()=>__CALLS__.includes('native_backend_status')")
-        labels = json.loads((root / 'src/components/setup/locales' / f'{locale}.json').read_text())
+        labels = json.loads((root / 'src/components/setup/locales' / f'{locale}.json').read_text(encoding='utf-8'))
         page.locator('[data-node="settings"]').click()
         page.locator('[data-backend-state]').filter(has_text=labels['setup.backendStarting']).wait_for()
         page.locator('[data-node="comfy"]').click()
@@ -98,7 +98,7 @@ with sync_playwright() as p:
             page.locator('[data-node="studio"]').click()
             page.locator('[data-dock-tab="media"]').click()
             page.locator('.media-list button[title="workflow.png"]').click()
-            meta = json.loads((root/'src/features/studio/locales'/f'{locale}.json').read_text())
+            meta = json.loads((root/'src/features/studio/locales'/f'{locale}.json').read_text(encoding='utf-8'))
             page.get_by_role('button',name=meta['studio.run.metadata.workflow'],exact=True).click()
             page.wait_for_function("()=>document.querySelector('[data-node=comfy]').getAttribute('aria-selected')==='true'")
             frame_obj.wait_for_function("async()=>{const {app}=await import('/scripts/app.js');return app.graph._nodes.some(n=>n.widgets?.some(w=>w.value==='DEAS workflow handoff verified'))}",timeout=30000)

@@ -102,7 +102,10 @@ test('Krea and MOSS native references use the adapter without changing their lat
     for (const i2i of [false, true]) {
       const input = { ...intent, width, diffusion: d, ...(i2i ? { inputImage: 'first.png', denoise: 0.4 } : {}) };
       const before = compileRecipe(input, a).graph;
-      const after = compileRecipe({ ...input, nativeImageReference: { method, images: nativeReference.images } }, a).graph;
+      const compiled = compileRecipe({ ...input, nativeImageReference: { method, images: nativeReference.images } }, { ...a, nodes: a.nodes.filter(n => n !== 'CLIPTextEncode') });
+      const after = compiled.graph;
+      assert.ok(compiled.requiredNodes.includes('DEAS_ImagePromptEncode'));
+      assert.ok(!compiled.requiredNodes.includes('CLIPTextEncode'));
       assert.deepEqual(after.QI, { class_type: 'DEAS_ImagePromptEncode', inputs: {
         clip: ['C', 0], prompt: intent.positivePrompt, negative_prompt: intent.negativePrompt,
         image_1: ['RI0', 0], image_2: ['RI1', 0], image_3: ['RI2', 0], image_4: ['RI3', 0],

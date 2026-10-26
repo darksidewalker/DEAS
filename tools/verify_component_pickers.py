@@ -6,6 +6,8 @@ import ast
 import json
 from pathlib import Path
 import sys
+if sys.platform != 'linux':
+    sys.exit('Linux-only GTK/WebKit diagnostic; use portable Chromium fixtures on Windows.')
 import gi
 
 gi.require_version('Gtk', '3.0')
@@ -18,7 +20,7 @@ OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scr
 
 
 def fixture():
-    tree = ast.parse((ROOT/'tools/verify_workbench.py').read_text())
+    tree = ast.parse((ROOT/'tools/verify_workbench.py').read_text(encoding='utf-8'))
     base = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
     base = base.replace("id:'fixture-install-plan',request:args.request", "id:'fixture-install-plan',reopenId:'fixture-install-plan',request:args.request")
@@ -136,7 +138,7 @@ window.__RESULT={passed:true,viewport:innerWidth,controls,mainControls,checkpoin
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    anima = next(f for f in json.loads((ROOT/'src/families/builtin.json').read_text()) if f['id'] == 'anima')
+    anima = next(f for f in json.loads((ROOT/'src/families/builtin.json').read_text(encoding='utf-8')) if f['id'] == 'anima')
     header_mapping = 'qwen3-0.6b' in anima.get('components', {}).get('textEncoders', [])
     assert header_mapping, 'Anima Qwen header mapping is required for this verification'
     results = []
@@ -193,7 +195,7 @@ localStorage.setItem('deas.pref.studio.run.checkpoint',JSON.stringify('anima/ani
             timeout = GLib.timeout_add_seconds(35, lambda: fail('Component picker timeout'))
             window.show_all(); view.load_uri(URL); Gtk.main()
             GLib.source_remove(timeout); window.destroy()
-            (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+            (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
             assert not failures, (width, locale, failures)
             print(f'PASS GTK/WebKit {width} {locale}', flush=True)
     assert len(results) == 19

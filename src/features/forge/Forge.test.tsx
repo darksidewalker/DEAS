@@ -6,6 +6,7 @@ import { ForgeButton, type H3Context } from './ForgeButton';
 import { PromptForge } from './PromptForge';
 import * as references from './ReferenceImages';
 import { dialectOf } from '../../lib/forge';
+import { aspects as settingsAspects } from '../../lib/resolution';
 
 it('routes the MOSS generation family to the existing MOSS prompt writer', () => {
   expect(dialectOf('moss-image')).toBe('MOSS');
@@ -398,12 +399,20 @@ it('Forge uses the shared media controls and roots without changing reference or
   expect(localStorage.getItem('deas.pref.studio.dock.view')).toBeNull();
 });
 
-it('forge tab writes H3 REF2VA from labelled input pictures and sends the result to Generate', async () => {
+it.each([
+ ['/env/input', '/env/input/a.png'],
+ ['/env/input/', '/env/input/a.png'],
+ ['C:\\env\\input\\', 'C:\\env\\input\\a.png'],
+ ['C:/env/input/', 'C:\\env\\input\\a.png'],
+])('forge tab writes H3 REF2VA from labelled input pictures and sends the result to Generate (%s)', async (inputDir, path) => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_media_list' ? Promise.resolve({path:inputDir,parent:null,truncated:false,entries:[{name:'a.png',path,kind:'file',symlink:false,media:'image',size:1,modified:1}]}) : base(command, args));
   const send = vi.fn();
-  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" inputDir="/env/input" onSend={send}/></I18nProvider>);
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" inputDir={inputDir} onSend={send}/></I18nProvider>);
   fireEvent.change(screen.getByRole('combobox', { name: 'Write for' }), { target: { value: 'MiniMax H3' } });
   fireEvent.change(screen.getByRole('combobox', { name: 'Mode' }), { target: { value: 'REF2VA' } });
   fireEvent.click(await screen.findByText('a.png'));
+  expect(document.querySelector('.media-list li[data-mark]')?.getAttribute('data-mark')).toBe('Character 1');
   fireEvent.change(screen.getByRole('combobox', { name: 'a.png' }), { target: { value: 'place' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'Idea or prompt to enhance' }), { target: { value: 'Character 1 walks in' } });
   await waitFor(() => expect(screen.getByRole('option', { name: 'qwen' })).toBeTruthy());
@@ -720,6 +729,47 @@ it('H3 cast cards: one per labelled Character / place, Read fills a card, filled
   expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.textContent)).toEqual(['Read again', 'Read', 'Read again']); // filled cards are read again (`redo`)
 });
 
+it.each(['Illustrious','Anima','Krea2','MOSS'])('uses every fixed Settings aspect in ordinary Prompt Forge modes (%s)', async target => {
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify(target));
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('heading', { name: `Build · ${target.toLowerCase()}` });
+  await screen.findByRole('button', { name: 'Open all' });
+  const ratios = ['N/A', ...settingsAspects.filter(a => a !== 'auto' && a !== 'custom')];
+  expect([...document.querySelectorAll('[data-forge-tile^="aspect:"]')].map(e => e.getAttribute('data-forge-tile')!.slice(7))).toEqual(ratios);
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'a quiet forest' } });
+  for (const [index, ratio] of ratios.entries()) {
+    fireEvent.click(document.querySelector(`[data-forge-tile="aspect:${ratio}"]`)!);
+    expect(document.querySelector(`[data-forge-tile="aspect:${ratio}"]`)!.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(document.querySelector('[data-forge-write]')!);
+    await waitFor(() => expect(nativeCalls()).toHaveLength(index + 1));
+    expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ aspectRatio: ratio });
+    await waitFor(() => expect((document.querySelector('[data-forge-write]') as HTMLButtonElement).disabled).toBe(false));
+  }
+});
+
+it.each([
+  ['2:3 Portrait','2:3'], ['9:32','9:32'], ['3:2 forged','N/A'], ['auto','N/A'], ['custom','N/A'], ['N/A','N/A'],
+])('keeps saved aspect %s intact while Write and Revise use %s', async (saved, effective) => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((c,a) => c === 'native_forge_targets'
+    ? Promise.resolve({...nativeTargets,targets:nativeTargets.targets.map(t=>({...t,aspectRatios:['N/A','2:3 Portrait']}))})
+    : c === 'native_forge_revise' ? base('native_forge_write',a) : base(c,a));
+  localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
+  localStorage.setItem('deas.pref.forge.native.illustrious.aspect', JSON.stringify(saved));
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('button', { name: 'Open all' });
+  expect(document.querySelector(`[data-forge-tile="aspect:${effective}"]`)!.getAttribute('aria-pressed')).toBe('true');
+  fireEvent.change(document.querySelector('[data-forge-brief]')!, {target:{value:'a quiet forest'}});
+  fireEvent.click(document.querySelector('[data-forge-write]')!);
+  await screen.findByDisplayValue('1girl, rain');
+  expect(nativeCalls().at(-1)!.request.controls).toMatchObject({aspectRatio:effective});
+  fireEvent.change(document.querySelector('[data-forge-refine]')!, {target:{value:'make it brighter'}});
+  fireEvent.click(document.querySelector('[data-forge-refine-run]')!);
+  await waitFor(()=>expect(vi.mocked(invoke).mock.calls.find(([c])=>c==='native_forge_revise')).toBeTruthy());
+  expect((vi.mocked(invoke).mock.calls.find(([c])=>c==='native_forge_revise')![1] as {request:{controls:unknown}}).request.controls).toMatchObject({aspectRatio:effective});
+  expect(localStorage.getItem('deas.pref.forge.native.illustrious.aspect')).toBe(JSON.stringify(saved));
+});
+
 it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-written', async () => {
   const rich = { ...nativeTargets, targets: nativeTargets.targets.map(t => t.key !== 'illustrious' ? t : { ...t, label: 'Illustrious XL', qualityPresets: ['masterpiece', 'high_quality', 'none'], styles: ['Anime', 'None'], aspectRatios: ['N/A', '2:3 Portrait'],
     detailLevels: [[1, 'Bare'], [5, 'Standard'], [10, 'Exhaustive']], lightingLevels: [[0, 'Off'], [3, 'Dark'], [10, 'Radiant']],
@@ -736,7 +786,7 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
   fireEvent.click(document.querySelector('[data-forge-chip="quality:masterpiece"]')!);
   fireEvent.click(document.querySelector('[data-forge-chip="style:Anime"]')!);
-  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3 Portrait"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="angle:birds_eye"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="shot:medium"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="light:left"]')!);
@@ -744,12 +794,12 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.change(document.querySelector('[data-forge-keep-positive]')!, { target: { value: 'lora_trigger' } });
   fireEvent.click(screen.getByRole('button', { name: 'Close all' }));
   const summary = (name: string) => document.querySelector(`[data-forge-fold="${name}"] .forge-fold-summary`)!.textContent;
-  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3 Portrait', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
+  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
   fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
   await screen.findByDisplayValue('1girl, campfire');
   expect(nativeCalls().at(-1)!.request).toMatchObject({ target: 'illustrious', brief: 'frieren by a campfire', segmentsOn: ['Negative prompt'],
-    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3 Portrait', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
+    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
   expect((screen.getByRole('textbox', { name: 'Negative prompt' }) as HTMLTextAreaElement).value).toBe('lowres');
   expect(screen.getByText('Character canon from the local table: frieren')).toBeTruthy();
   // Picks belong to the model: Anima starts clean.

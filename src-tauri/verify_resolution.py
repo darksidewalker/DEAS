@@ -12,7 +12,9 @@ import tempfile
 import urllib.request
 
 if __name__ == '__main__':
-    with tempfile.TemporaryDirectory(prefix='deas-resolver-', dir=os.environ['TMPDIR']) as directory:
+    if sys.platform != 'linux' or os.uname().machine != 'x86_64':
+        sys.exit('This pinned uv/Linux wheel resolution diagnostic requires Linux x86_64; not Windows acceptance.')
+    with tempfile.TemporaryDirectory(prefix='deas-resolver-') as directory:
         root = pathlib.Path(directory)
         url = 'https://github.com/astral-sh/uv/releases/download/0.8.22/uv-x86_64-unknown-linux-gnu.tar.gz'
         data = urllib.request.urlopen(url, timeout=60).read()
@@ -31,7 +33,7 @@ if __name__ == '__main__':
             target.write_bytes(content)
             print(source, hashlib.sha256(content).hexdigest(), flush=True)
         constraints = root / 'constraints.txt'
-        constraints.write_text('torch==2.14.1+cu130\ntorchvision==0.29.1+cu130\ntorchaudio==2.11.0+cu130\n')
+        constraints.write_text('torch==2.14.1+cu130\ntorchvision==0.29.1+cu130\ntorchaudio==2.11.0+cu130\n', encoding='utf-8')
         env = {'PATH': os.environ['PATH'], 'HOME': str(root), 'UV_CACHE_DIR': str(root / 'cache'), 'UV_NO_CONFIG': '1', 'UV_PYTHON_INSTALL_DIR': str(root / 'runtime/python'), 'UV_PYTHON_BIN_DIR': str(root / 'runtime/bin'), 'TMPDIR': str(root)}
         subprocess.run([str(uv), 'python', 'install', '--managed-python', '--no-bin', '3.12'], env=env, cwd=root, check=True, timeout=120)
         subprocess.run([str(uv), 'venv', '--managed-python', '--python', '3.12', str(root / 'venv')], env=env, cwd=root, check=True, timeout=60)

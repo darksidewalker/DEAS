@@ -31,7 +31,7 @@ results = []
 with sync_playwright() as p:
  browser = p.chromium.launch(headless=True)
  for width, locale in product((1440, 1024, 768, 390, 320), ('de', 'en', 'fr', 'ja', 'tr', 'zh')):
-  labels = json.loads((Path(__file__).resolve().parents[1] / 'src/components/setup/locales' / f'{locale}.json').read_text())
+  labels = json.loads((Path(__file__).resolve().parents[1] / 'src/components/setup/locales' / f'{locale}.json').read_text(encoding='utf-8'))
   page = browser.new_page(viewport={'width': width, 'height': 960}, reduced_motion='reduce')
   errors = []
   page.on('pageerror', lambda e: errors.append(str(e)))

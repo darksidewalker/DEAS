@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reviewable, pinned PromptForge data updates. No application/runtime updates."""
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import pathlib
@@ -123,7 +124,7 @@ def validate_data(directory):
         ]:
             staged = pathlib.Path(temp) / name
             staged.write_bytes(decompress(read_file(directory / name, 128 * 1024 * 1024)))
-            with database(staged) as db:
+            with closing(database(staged)) as db:
                 if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise ValueError(f"SQLite integrity failure: {name}")
                 if any(kind in ("view", "trigger") or (sql and "CREATE VIRTUAL" in sql.upper()) for kind, sql in db.execute("SELECT type,sql FROM sqlite_master")):
@@ -300,7 +301,7 @@ def update_data(repo, revision, destination, original, summary, report):
             raw_digest = sha256(raw)
             out = candidate / name
             if name.endswith(".sqlite") and raw_digest != original["files"][name]["upstreamSha256"]:
-                with database(source / upstream) as before, sqlite3.connect(out) as after:
+                with closing(database(source / upstream)) as before, closing(sqlite3.connect(out)) as after, after:
                     before.backup(after)
                     after.execute("PRAGMA journal_mode=DELETE")
                 raw = out.read_bytes()
@@ -312,7 +313,7 @@ def update_data(repo, revision, destination, original, summary, report):
         for name in FILES:
             raw = (candidate / name).read_bytes()
             manifest["files"].setdefault(name, {}).update(sha256=sha256(raw), bytes=len(raw))
-        (candidate / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        (candidate / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding='utf-8')
         _, new_summary = validate_data(candidate)
         old_pack = json.loads((destination / "forge-pack.json").read_bytes())
         new_pack = json.loads((candidate / "forge-pack.json").read_bytes())

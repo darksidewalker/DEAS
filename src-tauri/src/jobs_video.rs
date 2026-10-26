@@ -1,7 +1,7 @@
 //! Video recipes wired the way the owner's DaSiWa workflows do it (LTX OmniForge, Wan 2.2
 //! FastFidelity, MiniMax H3 MythicAlchemy), not the ComfyUI templates. One intent,
 //! `recipeId: "video-generation"`, discriminated by `family`.
-use crate::jobs::{model_name, safe_choice, safe_output_prefix, valid_options};
+use crate::jobs::{comfy_model_name, model_name, safe_choice, safe_output_prefix, valid_options};
 use serde_json::{json, Value};
 
 pub(crate) const FAMILIES: [&str; 3] = ["ltx-2", "wan", "minimax-h3"];
@@ -208,11 +208,11 @@ fn validate_ltx(l: &Value, frames: u64, source: bool) -> Result<(), String> {
         ],
     ) && ["textProjection", "audioVae"]
         .iter()
-        .all(|k| l[*k].as_str().is_some_and(model_name))
+        .all(|k| l[*k].as_str().is_some_and(comfy_model_name))
         && (1..=3).contains(&passes)
         && (passes == 1) == l.get("spatialUpscaler").is_none()
         && l.get("spatialUpscaler")
-            .is_none_or(|s| s.as_str().is_some_and(model_name))
+            .is_none_or(|s| s.as_str().is_some_and(comfy_model_name))
     {
         Ok(())
     } else {
@@ -222,7 +222,7 @@ fn validate_ltx(l: &Value, frames: u64, source: bool) -> Result<(), String> {
 
 fn validate_wan(w: &Value, steps: u64) -> Result<(), String> {
     if keys_in(w, &["lowModel", "shiftHigh", "shiftLow", "refinerStep"])
-        && w["lowModel"].as_str().is_some_and(model_name)
+        && w["lowModel"].as_str().is_some_and(comfy_model_name)
         && finite(&w["shiftHigh"], 0.0, 100.0)
         && finite(&w["shiftLow"], 0.0, 100.0)
         && w["refinerStep"]
@@ -322,7 +322,7 @@ fn validate_h3(h: &Value) -> Result<(), String> {
             "inputScaling",
             "refmods",
         ],
-    ) && h["audioVae"].as_str().is_some_and(model_name)
+    ) && h["audioVae"].as_str().is_some_and(comfy_model_name)
         && (h.get("inputScaling").is_none() || pick(h, "inputScaling", &H3_INPUT_SCALING))
         && finite(&h["shiftVideo"], 0.01, 100.0)
         && finite(&h["shiftAudio"], 0.01, 100.0)
@@ -485,7 +485,12 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
     }
     for f in ["model", "textEncoder", "vae", "firstFrame", "lastFrame"] {
         if let Some(v) = i.get(f) {
-            if !v.as_str().is_some_and(model_name) {
+            let valid = if ["model", "textEncoder", "vae"].contains(&f) {
+                comfy_model_name
+            } else {
+                model_name
+            };
+            if !v.as_str().is_some_and(valid) {
                 return Err(format!("Unsafe {f}"));
             }
         }
@@ -528,7 +533,7 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
             a.len() <= 8
                 && a.iter().all(|x| {
                     x.as_object().is_some_and(|o| o.len() == 2)
-                        && x["name"].as_str().is_some_and(model_name)
+                        && x["name"].as_str().is_some_and(comfy_model_name)
                         && finite(&x["strength"], -10.0, 10.0)
                 })
         })

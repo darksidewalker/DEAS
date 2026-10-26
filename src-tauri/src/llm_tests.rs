@@ -528,6 +528,12 @@ fn gguf(path: &Path, arch: &str, kind: Option<&str>) {
 fn local_fixture(root: &Path) -> std::path::PathBuf {
     let base = root.join("ComfyUI/models/llm");
     gguf(&base.join("nested/模型 file.gguf"), "llama", Some("model"));
+    #[cfg(unix)]
+    gguf(
+        &base.join(r"literal\backslash.gguf"),
+        "llama",
+        Some("model"),
+    );
     gguf(&base.join("mmproj-llama.gguf"), "llama", Some("model"));
     gguf(&base.join("projector.gguf"), "llama", Some("projector"));
     gguf(&base.join("vision.gguf"), "clip", None);

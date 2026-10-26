@@ -1231,6 +1231,20 @@ test('IPC fixture: with an environment the models folder is scanned on mount ins
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(1); // only the sampler/scheduler lists, never the model list
 });
 
+test('Windows model tree filtering and short names preserve the exact selected identifier',async()=>{
+ const name='sdxl\\anime\\My Model.safetensors';
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name,path:'C:\\models\\'+name,size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'C:\\models'}}/></I18nProvider>);
+ dock('Models');
+ const tree=await screen.findByRole('navigation',{name:'Folders'});
+ fireEvent.click(within(tree).getByRole('button',{name:'anime'}));
+ const tile=screen.getByRole('button',{name});
+ expect(tile.querySelector('.wb-tile-name')!.textContent).toBe('My Model');
+ fireEvent.click(tile);
+ expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe(name);
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.checkpoint')!)).toBe(name);
+});
+
 test('model and LoRA docks get a subfolder tree from the scanned names that filters the tiles per tab',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'sdxl/base.safetensors',path:'/m/checkpoints/sdxl/base.safetensors',size:1,info:null},{category:'checkpoints',name:'sd15/old.safetensors',path:'/m/checkpoints/sd15/old.safetensors',size:1,info:null},{category:'checkpoints',name:'sdxl/anime/pony.safetensors',path:'/m/checkpoints/sdxl/anime/pony.safetensors',size:1,info:null},{category:'loras',name:'grain.safetensors',path:'/m/loras/grain.safetensors',size:1,info:null}]);
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
@@ -1251,12 +1265,17 @@ test('model and LoRA docks get a subfolder tree from the scanned names that filt
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.dock.view')!)).toBe('list');
 });
 
-test('IPC fixture: Image→Image is clickable without an image but greys Run and names the missing input; with an Input-folder image it submits inputImage+denoise; video pipelines stay disabled',async()=>{
+test.each([
+ ['/env/ComfyUI/input','/env/ComfyUI/input/ref.png'],
+ ['/env/ComfyUI/input/','/env/ComfyUI/input/ref.png'],
+ ['C:\\env\\ComfyUI\\input\\','C:\\env\\ComfyUI\\input\\ref.png'],
+ ['C:/env/ComfyUI/input/','C:\\env\\ComfyUI\\input\\ref.png'],
+])('IPC fixture: Image→Image keeps native input-folder names and denoise (%s)',async(input,path)=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
- vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path,kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
  vi.mocked(pollWorkbench).mockResolvedValue(collection([{id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false}]));
- render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input,output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'Text → Image',selected:true});
  expect(pipe('Image → Image').disabled).toBe(false);
  for(const name of ['Text → Video','Image → Video','Video → Video','Multi-reference → Video'])expect(pipe(name).disabled).toBe(true);
@@ -2330,6 +2349,25 @@ test.each(['moss.safetensors','a.safetensors'])('image Wildcards preserve enable
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toHaveProperty('wildcard');
+});
+test.each([false,true])('MOSS reference readiness follows the active encoder without CLIPTextEncode (i2i=%s)',async imageToImage=>{
+ if(imageToImage)vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss([...mossNodes.filter(n=>n!=='CLIPTextEncode'),'DEAS_ImagePromptEncode']);
+ if(imageToImage)await mossInput(512,768);
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ expect(run.disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain('CLIPTextEncode');
+ expect(promptDrop().dropEffect).toBe('copy');
+ expect(run.disabled).toBe(false);
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/ref.png');
+ fireEvent.click(run);await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({
+  checkpoint:'moss.safetensors',nativeImageReference:{method:'moss-image',images:['deas-inputs/ref.png']},
+  ...(imageToImage?{inputImage:'source.png'}:{}),
+ });
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ expect(run.disabled).toBe(true);
+ expect(screen.getByRole('alert').textContent).toContain('CLIPTextEncode');
 });
 test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
  await mountMoss(mossNodes.filter(n=>n!==missing),missing==='moss_image'?[]:['moss_image']);

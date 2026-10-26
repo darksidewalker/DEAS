@@ -17,8 +17,26 @@ const mockMediaInvoke=(implementation:(command:string,args?:unknown)=>Promise<un
 const rootButton=(name:string)=>within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name});
 const rootListing=(path:string)=>({path,parent:path.replace(/[\\/][^\\/]+$/,''),entries:['raw','starred'].map(name=>({...entry(name,'directory'),path:path+'/'+name})),truncated:false});
 const lists=()=>vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_media_list').map(([,a])=>a);
+it.each(['/','C:\\','C:/'])('keeps the filesystem root as an absolute media tree anchor (%s)',async input=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ mockMediaInvoke(async()=>({path:input,parent:null,entries:[],truncated:false}));
+ render(<I18nProvider><MediaLibrary selected={null} onSelect={vi.fn()} roots={{input}}/></I18nProvider>);
+ await screen.findByRole('navigation',{name:'Folders'});
+ expect(screen.getByRole('button',{name:'Parent folder'}).hasAttribute('disabled')).toBe(true);
+ expect(screen.getByRole('button',{name:'Input',current:'location'}).getAttribute('title')).toBe(input);
+ expect(lists().every(args=>(args as {path:string}).path===input)).toBe(true);
+});
+it('matches media badges across Windows separator spellings without changing native entry paths',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ const path='C:\\media\\a.png',onSelect=vi.fn();
+ mockMediaInvoke(async()=>({path:'C:\\media',parent:'C:\\',entries:[{...entry('a.png','file','image'),path}],truncated:false}));
+ render(<I18nProvider><MediaLibrary selected={null} onSelect={onSelect} marks={new Map([['C:/media/a.png','Reference']])}/></I18nProvider>);
+ const tile=await screen.findByRole('button',{name:'a.png'});
+ expect(tile.closest('li')!.getAttribute('data-mark')).toBe('Reference');
+ fireEvent.click(tile);expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({path}));
+});
 describe('media library plugin — IPC fixtures, not real filesystem access',()=>{
- it.each(['/data/work/Output','C:\data\work\Output'])('anchors raw at Output with relative children and bounded Up (%s)',async output=>{
+ it.each(['/data/work/Output','C:\\data\\work\\Output'])('anchors raw at Output with relative children and bounded Up (%s)',async output=>{
   vi.mocked(isTauri).mockReturnValue(true);
   const raw=output+'/raw',starred=output+'/starred';
   mockMediaInvoke(async(_c,args)=>{

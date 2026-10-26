@@ -1,19 +1,33 @@
 """Offline validation of the DEAS video graphs against the real ComfyUI checkout (no server, no GPU, custom nodes loaded).
 Model/file names are swapped for ones the extra-model-paths config lists so combo checks pass; the point is node names, input names and link types."""
+import argparse
 import asyncio, json, sys, os
-GRAPHS = sys.argv[1] if len(sys.argv) > 1 else '/home/darksidewalker/.hermes/cache/scratch/deas_video_graphs.json'  # read before argv is replaced for ComfyUI
-sys.argv = ['probe', '--cpu', '--extra-model-paths-config', '/data/Downloads/deas-environment/deas-models.yaml']
-os.chdir('/data/GitHub/ComfyUI'); sys.path.insert(0, '/data/GitHub/ComfyUI')
+from pathlib import Path
+import tempfile
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('graphs', type=Path)
+parser.add_argument('--comfy-root', type=Path, required=True, help='Existing ComfyUI checkout')
+parser.add_argument('--extra-model-paths-config', type=Path, required=True)
+args = parser.parse_args()
+# Resolve caller paths before ComfyUI changes the working directory/argv.
+GRAPHS = args.graphs.resolve()
+comfy_root = args.comfy_root.resolve()
+model_config = args.extra_model_paths_config.resolve()
+if not GRAPHS.is_file() or not (comfy_root / 'nodes.py').is_file() or not model_config.is_file():
+    parser.error('graphs, ComfyUI nodes.py and model paths config must exist')
+sys.argv = ['probe', '--cpu', '--extra-model-paths-config', str(model_config)]
+os.chdir(comfy_root); sys.path.insert(0, str(comfy_root))
 import comfy.options; comfy.options.enable_args_parsing()
 import folder_paths, utils.extra_config
-utils.extra_config.load_extra_path_config('/data/Downloads/deas-environment/deas-models.yaml')
+utils.extra_config.load_extra_path_config(str(model_config))
 import server
 loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
 from app.assets.manager import default_asset_manager
 server.PromptServer(loop, default_asset_manager())  # custom nodes register routes on PromptServer.instance at import time
 import nodes, execution
 loop.run_until_complete(nodes.init_extra_nodes(init_custom_nodes=True))
-graphs = json.load(open(GRAPHS))
+graphs = json.loads(GRAPHS.read_text(encoding='utf-8'))
 first = lambda kind: (folder_paths.get_filename_list(kind) or ['MISSING'])[0]
 pick = {'unet': [n for n in folder_paths.get_filename_list('diffusion_models')], 'te': folder_paths.get_filename_list('text_encoders'), 'vae': folder_paths.get_filename_list('vae'), 'img': folder_paths.get_filename_list('input') if 'input' in folder_paths.folder_names_and_paths else [], 'lup': folder_paths.get_filename_list('latent_upscale_models')}
 def sub(name, wants):
@@ -29,8 +43,8 @@ images = sorted(os.listdir(folder_paths.get_input_directory()))
 image = next((f for f in images if f.lower().endswith(('.png', '.jpg', '.webp'))), 'MISSING')
 # Video-to-video needs a top-level input video (core LoadVideo lists only those): a scratch input folder with a
 # 1 s ffmpeg test clip, so the real input folder stays untouched.
-scratch = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'deas-validate-input')
-os.makedirs(scratch, exist_ok=True)
+scratch_directory = tempfile.TemporaryDirectory(prefix='deas-validate-input-')
+scratch = scratch_directory.name
 import shutil, subprocess
 shutil.copy(os.path.join(folder_paths.get_input_directory(), image), os.path.join(scratch, image))
 if not os.path.exists(os.path.join(scratch, 'source.mp4')):
@@ -52,3 +66,5 @@ for family, g in graphs.items():
         for nid, e in node_errors.items():
             print('NODE', nid, g[nid]['class_type'], json.dumps(e.get('errors'), ensure_ascii=False)[:600])
 print('ALL VALID' if ok else 'INVALID')
+scratch_directory.cleanup()
+sys.exit(0 if ok else 1)

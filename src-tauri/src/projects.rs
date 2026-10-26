@@ -40,7 +40,7 @@ impl ImageDraft {
         if [&self.positive_prompt, &self.negative_prompt]
             .iter()
             .any(|s| s.encode_utf16().count() > 16384 || s.contains('\0'))
-            || (!self.checkpoint.is_empty() && !crate::jobs::model_name(&self.checkpoint))
+            || (!self.checkpoint.is_empty() && !crate::jobs::comfy_model_name(&self.checkpoint))
             || ![self.width, self.height]
                 .iter()
                 .all(|n| (64..=8192).contains(n) && n % 8 == 0)

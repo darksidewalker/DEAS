@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 URL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:4199'
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scratch/deas-dependency-warnings'
-module = ast.parse((ROOT/'tools/verify_workbench.py').read_text())
+module = ast.parse((ROOT/'tools/verify_workbench.py').read_text(encoding='utf-8'))
 FIXTURE = next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
 FIXTURE = FIXTURE.replace("throw Error('Unexpected command '+command);", "if(command==='native_media_star_status')return {starred:false,unavailable:'fixture'};throw Error('Unexpected command '+command);")
 
@@ -19,7 +19,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         for locale in ['en', 'de', 'fr', 'ja', 'tr', 'zh']:
-            labels = json.loads((ROOT/f'src/features/studio/locales/{locale}.json').read_text())
+            labels = json.loads((ROOT/f'src/features/studio/locales/{locale}.json').read_text(encoding='utf-8'))
             context = browser.new_context(viewport={'width': 1440, 'height': 960})
             page = context.new_page()
             errors = []
@@ -61,7 +61,7 @@ if(!localStorage.getItem('dependency-fixture-initialized')){
             results.append({'locale': locale, 'warning_cleared': True, 'reload_retained': True, 'fixture_submit': True})
             context.close()
         browser.close()
-    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
     print(json.dumps(results, indent=2))
 
 

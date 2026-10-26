@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:4287'
-module = ast.parse((root / 'tools/verify_reopen.py').read_text())
+module = ast.parse((root / 'tools/verify_reopen.py').read_text(encoding='utf-8'))
 fixture = next(ast.literal_eval(node.value) for node in module.body
                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in node.targets))
 fixture += r"""
@@ -34,7 +34,7 @@ results = []
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     for width, locale in product((1440, 1024, 768, 390, 320), ('de', 'en', 'fr', 'ja', 'tr', 'zh')):
-        labels = json.loads((root / 'src/features/llm/locales' / f'{locale}.json').read_text())
+        labels = json.loads((root / 'src/features/llm/locales' / f'{locale}.json').read_text(encoding='utf-8'))
         page = browser.new_page(viewport={'width': width, 'height': 1100}, reduced_motion='reduce')
         errors = []
         page.on('pageerror', lambda e: errors.append(str(e)))

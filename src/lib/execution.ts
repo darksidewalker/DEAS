@@ -58,6 +58,13 @@ export interface DiagnosticImageIntentV1 {
   readonly imageFormat?: 'png' | 'webp';
   readonly imageCompression?: number;
 }
+/** Native conditioning node shared by recipe emission and Studio prerequisite checks. */
+export const nativeImageReferenceEncoders = Object.freeze({
+  'qwen-image-2.1': 'TextEncodeQwenImage21',
+  'krea-2': 'DEAS_ImagePromptEncode',
+  'moss-image': 'DEAS_ImagePromptEncode',
+} as const);
+
 export interface RunOptions {
   /** `ModelAttentionBackend` choice; exclusive with `sage`. */
   readonly attention?: string;
@@ -142,7 +149,9 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   // Same grammar as native `model_name`: spaces and non-ASCII letters allowed; no traversal, host paths, URLs or control characters.
   const safeModel = (id: unknown): id is string => typeof id === 'string' && new TextEncoder().encode(id).length <= 255 && id.split('/').every(segment =>
     segment.length > 0 && segment !== '.' && segment !== '..' && segment.trim() === segment && !/[\p{Cc}\\:%]/u.test(segment));
-  if (!safeModel(input.checkpoint)) invalid('checkpoint', 'Unsafe model identifier.', 'Use the exact verified relative identifier, never a host path or URL.');
+  // ComfyUI model IDs use native separators; validate both without rewriting submitted IDs.
+  const safeComfyModel = (id: unknown): id is string => typeof id === 'string' && safeModel(id.replace(/\\/g, '/'));
+  if (!safeComfyModel(input.checkpoint)) invalid('checkpoint', 'Unsafe model identifier.', 'Use the exact verified relative identifier, never a host path or URL.');
   if (Object.hasOwn(input, 'inputImage') !== Object.hasOwn(input, 'denoise')) invalid('inputImage', 'inputImage and denoise must be given together.', 'Supply both for image-to-image or neither for text-to-image.');
   if (Object.hasOwn(input, 'inputImage') && !safeModel(input.inputImage)) invalid('inputImage', 'Unsafe input image identifier.', 'Use a file name from the backend input folder.');
   if (Object.hasOwn(input, 'denoise') && !(typeof input.denoise === 'number' && Number.isFinite(input.denoise) && input.denoise >= 0 && input.denoise <= 1)) invalid('denoise', 'Denoise must be a finite number in [0, 1].', 'Supply a denoise strength between 0 and 1.');
@@ -161,7 +170,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
       Number.isSafeInteger(l[k]) && (l[k] as number) <= 8192 && ((l[k] as number) > 0 || ((k === 'x' || k === 'y') && l[k] === 0)))))) invalid('inputLayers', 'Invalid image layers.', 'Supply 1-4 {image, x, y, width, height} in source pixels on an inputImage.');
   if (Object.hasOwn(input,'wildcard')&&!isWildcardRules(input.wildcard)) invalid('wildcard','Invalid wildcard rules.','Use the original node inputs with bounded selections, weights, seed and token budget.');
   const loras = input.loras ?? [];
-  if (!Array.isArray(loras) || loras.length > 8 || !loras.every(l => isRecord(l) && Object.keys(l).length === 2 && safeModel(l.name)
+  if (!Array.isArray(loras) || loras.length > 8 || !loras.every(l => isRecord(l) && Object.keys(l).length === 2 && safeComfyModel(l.name)
     && typeof l.strength === 'number' && Number.isFinite(l.strength) && Math.abs(l.strength) <= 10)) {
     invalid('loras', 'Invalid LoRA list.', 'Supply at most 8 verified {name, strength in [-10, 10]} entries.');
   }
@@ -201,7 +210,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     if (!safeChoice(input[field])) invalid(field, 'Unsafe recipe enum.', `Choose a ${field} the backend lists.`);
   }
   const d = input.diffusion;
-  if (d !== undefined && !(isRecord(d) && Object.keys(d).length === 3 && safeModel(d.textEncoder) && safeModel(d.vae) && safeChoice(d.clipType))) {
+  if (d !== undefined && !(isRecord(d) && Object.keys(d).length === 3 && safeComfyModel(d.textEncoder) && safeComfyModel(d.vae) && safeChoice(d.clipType))) {
     invalid('diffusion', 'Invalid diffusion loader.', 'Supply {textEncoder, clipType, vae} from the verified backend lists.');
   }
   if (isRecord(d) && d.clipType === 'moss_image') {
@@ -236,14 +245,14 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   }
   if (Object.hasOwn(input, 'imageFormat') && !['png', 'webp'].includes(input.imageFormat as string)) invalid('imageFormat', 'Invalid image format.', 'Use png or webp.');
   if (Object.hasOwn(input, 'imageCompression') && !(Number.isInteger(input.imageCompression) && (input.imageCompression as number) >= 0 && (input.imageCompression as number) <= 100)) invalid('imageCompression', 'Invalid image compression.', 'Use an integer from 0 to 100.');
-  if (Object.hasOwn(input, 'upscaleModel') && (!Object.hasOwn(input, 'inputResize') || !safeModel(input.upscaleModel))) invalid('upscaleModel', 'Invalid upscale model.', 'Use a listed upscale model together with inputResize.');
+  if (Object.hasOwn(input, 'upscaleModel') && (!Object.hasOwn(input, 'inputResize') || !safeComfyModel(input.upscaleModel))) invalid('upscaleModel', 'Invalid upscale model.', 'Use a listed upscale model together with inputResize.');
   if (Object.hasOwn(input, 'refine')) {
     const r = input.refine;
     const edge = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 64 && (v as number) <= 8192 && (v as number) % 8 === 0;
     const tiledOK = (v: unknown) => isRecord(v) && Object.keys(v).length === 3 && edge(v.tileWidth) && edge(v.tileHeight) && Number.isSafeInteger(v.overlap) && (v.overlap as number) >= 0 && (v.overlap as number) % 8 === 0 && (v.overlap as number) < Math.min(v.tileWidth as number, v.tileHeight as number);
     if (!isRecord(r) || Object.keys(r).some(k => !['width', 'height', 'denoise', 'upscaleModel', 'sigmas', 'tiled'].includes(k)) || !edge(r.width) || !edge(r.height) || (Object.hasOwn(r, 'tiled') && !tiledOK(r.tiled))
       || (r.width as number) * (r.height as number) > 16_777_216 || !(typeof r.denoise === 'number' && r.denoise > 0 && r.denoise <= 1)
-      || (Object.hasOwn(r, 'upscaleModel') && !safeModel(r.upscaleModel)) || Object.hasOwn(r, 'sigmas') !== (s !== undefined) || (Object.hasOwn(r, 'sigmas') && !schedule(r.sigmas))) {
+      || (Object.hasOwn(r, 'upscaleModel') && !safeComfyModel(r.upscaleModel)) || Object.hasOwn(r, 'sigmas') !== (s !== undefined) || (Object.hasOwn(r, 'sigmas') && !schedule(r.sigmas))) {
       invalid('refine', 'Invalid refine pass.', 'Supply aligned width/height (at most 16,777,216 pixels), denoise in (0, 1], an optional listed upscale model, sigmas exactly when the first pass has them, and tiled {tileWidth, tileHeight, overlap} aligned to 8 with overlap below the tile.');
     }
   }
@@ -251,7 +260,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     const r = input.imageReference;
     if (input.diffusion !== undefined
       || !isRecord(r) || Object.keys(r).length !== 2
-      || !safeModel(r.visionModel)
+      || !safeComfyModel(r.visionModel)
       || !Array.isArray(r.images) || r.images.length < 1 || r.images.length > 4
       || r.images.some(e => !isRecord(e) || Object.keys(e).length !== 2 || !safeModel(e.image)
         || !(typeof e.strength === 'number' && Number.isFinite(e.strength) && e.strength >= 0 && e.strength <= 1))) {
@@ -470,7 +479,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     });
     // The first Qwen reference fixes output geometry; remaining references use the node's native /32 rounding.
     if (qwen) graph.QR = { class_type: 'ImageScale', inputs: { image: ['RI0', 0], upscale_method: 'lanczos', width: intent.width, height: intent.height, crop: 'center' } };
-    graph.QI = { class_type: qwen ? 'TextEncodeQwenImage21' : 'DEAS_ImagePromptEncode', inputs };
+    graph.QI = { class_type: nativeImageReferenceEncoders[intent.nativeImageReference.method], inputs };
     if (graph.M) graph.M = { ...graph.M, inputs: { ...graph.M.inputs, text_positive: inputs.prompt, text_negative: inputs.negative_prompt } };
     delete graph['2']; delete graph['3']; if (qwen) delete graph['4'];
     for (const [id, node] of Object.entries(graph)) {

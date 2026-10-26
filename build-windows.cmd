@@ -4,19 +4,22 @@ REM --release stages a fresh Windows-only versioned release folder; Linux writes
 REM Needs: Node.js, Rust (MSVC toolchain), Visual Studio Build Tools, WebView2 runtime.
 setlocal
 set S=
-cd /d "%~dp0"
+pushd "%~dp0" || (endlocal & exit /b 1)
 if "%~1"=="--release" (call :preflight || goto build_error)
+if not defined CARGO_TARGET_DIR set "CARGO_TARGET_DIR=%CD%\src-tauri\target"
+for %%I in ("%CARGO_TARGET_DIR%") do set "CARGO_TARGET_DIR=%%~fI"
 if not exist node_modules (call npm ci || goto build_error)
 call npm run build || goto build_error
 cargo build --manifest-path src-tauri\Cargo.toml --locked --release || goto build_error
 if not exist artifacts mkdir artifacts
-copy /y src-tauri\target\release\deas.exe artifacts\deas-windows-x86_64.exe >nul || goto build_error
+copy /y "%CARGO_TARGET_DIR%\release\deas.exe" artifacts\deas-windows-x86_64.exe >nul || goto build_error
 if "%~1"=="--bundle" (call :bundle || goto build_error)
 if "%~1"=="--release" (
   call :bundle || goto build_error
   call :release || goto build_error
 )
 echo built: artifacts\deas-windows-x86_64.exe
+popd
 endlocal
 exit /b 0
 
@@ -50,12 +53,12 @@ if defined S (
   if not defined BUILD_START exit /b 1
 )
 call npx tauri build --bundles nsis || exit /b 1
-copy /y src-tauri\target\release\bundle\nsis\*.exe artifacts\ >nul || exit /b 1
+copy /y "%CARGO_TARGET_DIR%\release\bundle\nsis\*.exe" artifacts\ >nul || exit /b 1
 exit /b 0
 
 :release
-copy /y src-tauri\target\release\deas.exe "%S%\deas.exe" >nul || exit /b 1
-powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $files=@(Get-ChildItem 'src-tauri\target\release\bundle\nsis\*_x64-setup.exe' -File | Where-Object { $_.LastWriteTimeUtc.ToFileTimeUtc() -ge %BUILD_START% }); if ($files.Count -ne 1) { throw 'release requires exactly one new Windows installer' }; Copy-Item -LiteralPath $files[0].FullName -Destination '%S%\DEAS_%V%_x64-setup.exe'" || exit /b 1
+copy /y "%CARGO_TARGET_DIR%\release\deas.exe" "%S%\deas.exe" >nul || exit /b 1
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $files=@(Get-ChildItem -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release\bundle\nsis') -Filter '*_x64-setup.exe' -File | Where-Object { $_.LastWriteTimeUtc.ToFileTimeUtc() -ge %BUILD_START% }); if ($files.Count -ne 1) { throw 'release requires exactly one new Windows installer' }; Copy-Item -LiteralPath $files[0].FullName -Destination '%S%\DEAS_%V%_x64-setup.exe'" || exit /b 1
 powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Compress-Archive -Path '%S%\deas.exe' -DestinationPath '%S%\DEAS_%V%_windows_x64-portable.zip'" || exit /b 1
 powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $d='%S%\'; [IO.File]::WriteAllText($d+'SHA256SUMS', ((Get-ChildItem -File $d | %% { (Get-FileHash $_.FullName).Hash.ToLower()+'  '+$_.Name }) -join \"`n\")+\"`n\")" || exit /b 1
 if exist "%D%" exit /b 1
@@ -67,5 +70,6 @@ exit /b 0
 
 :build_error
 if defined S rmdir /s /q "%S%"
+popd
 endlocal
 exit /b 1

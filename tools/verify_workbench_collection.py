@@ -292,6 +292,7 @@ def main():
     if not scratch.is_relative_to(hermes_scratch):
         scratch = hermes_scratch
     import tempfile
+    scratch.mkdir(parents=True, exist_ok=True)
     screenshots = Path(tempfile.mkdtemp(prefix='deas-collection-', dir=scratch))
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()

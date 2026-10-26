@@ -62,7 +62,7 @@ def main():
                 results.append({'locale': locale, 'width': width, 'searchHeight': search['height'], 'dropdownHeights': heights, 'depthHeight': depth.bounding_box()['height']})
                 page.close()
         browser.close()
-    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
     print(f'PASS: {len(results)} Chromium toolbar cases; inline transparent help, compact Depth and search-aligned sort/filter/view controls.')
 
 

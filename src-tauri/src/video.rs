@@ -88,9 +88,9 @@ fn output_url(
         || filename.contains(['/', '\\', '\0'])
         || filename.len() > 255
         || subfolder.len() > 4096
-        || subfolder.contains(['\\', '\0'])
-        || subfolder.split('/').any(|p| p == ".." || p == ".")
-        || subfolder.starts_with('/')
+        || subfolder.contains([':', '\0'])
+        || subfolder.split(['/', '\\']).any(|p| p == ".." || p == ".")
+        || subfolder.starts_with(['/', '\\'])
         || !["output", "temp", "input"].contains(&kind)
     {
         return Err("Invalid backend video output".into());
@@ -440,6 +440,21 @@ mod tests {
         assert!(output_url("file:///etc/", "x.mp4", "", "output").is_err());
         assert!(output_url("http://127.0.0.1:8188/", "x.mp4", "../secret", "output").is_err());
         assert!(output_url("http://127.0.0.1:8188/", "x.m3u", "", "output").is_err());
+        let folder = r"raw\video\2026-10-26";
+        let url = output_url("http://127.0.0.1:8188/", "a.webm", folder, "output").unwrap();
+        assert_eq!(
+            url.query_pairs().find(|(k, _)| k == "subfolder").unwrap().1,
+            folder
+        );
+        for bad in [
+            r"..\secret",
+            r"raw/..\secret",
+            r"\root",
+            r"C:\root",
+            r"\\host\share",
+        ] {
+            assert!(output_url("http://127.0.0.1:8188/", "a.webm", bad, "output").is_err());
+        }
         let url = output_url("http://127.0.0.1:8188/", "a & ü.webm", "sub", "output").unwrap();
         assert_eq!(url.path(), "/view");
         assert_eq!(url.query_pairs().next().unwrap().1, "a & ü.webm");

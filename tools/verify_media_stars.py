@@ -99,7 +99,7 @@ def main():
         assert not page.evaluate('window.__calls.some(c=>/native_job_prepare|native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command))')
         assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
         assert not errors, errors
-        (OUT/'results.json').write_text(json.dumps({'editorPreserved': True, 'geometryPreserved': True, 'viewerPathUpdated': True, 'unstarPreservesNamedRawPath': True, 'fixtureOnly': True}, indent=2)+'\n')
+        (OUT/'results.json').write_text(json.dumps({'editorPreserved': True, 'geometryPreserved': True, 'viewerPathUpdated': True, 'unstarPreservesNamedRawPath': True, 'fixtureOnly': True}, indent=2)+'\n', encoding='utf-8')
         browser.close()
     print('PASS: real Chromium preview/editor/viewer star/unstar roundtrip, relocated source, retained editor geometry and no execution/upload (IPC fixture).')
 

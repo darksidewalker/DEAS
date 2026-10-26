@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1432'
 output = Path(sys.argv[2]) if len(sys.argv) > 2 else root / 'assets'
 output.mkdir(parents=True, exist_ok=True)
-fixture = next(ast.literal_eval(n.value) for n in ast.parse((root / 'tools/verify_workbench.py').read_text()).body
+fixture = next(ast.literal_eval(n.value) for n in ast.parse((root / 'tools/verify_workbench.py').read_text(encoding='utf-8')).body
                if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
 fixture = fixture.replace("window.__calls.push({command,args});", """window.__calls.push({command,args});
 if(command==='native_presets_read')return JSON.parse(localStorage.getItem('fixture.presets')||'[]');

@@ -17,6 +17,9 @@ import sys
 import time
 
 
+if sys.platform != 'linux':
+    sys.exit('Linux-only WebKitGTK playback diagnostic; not Windows acceptance.')
+
 FORMATS = [
     ("h264", "mp4", "libx264", "aac"),
     ("h264", "mkv", "libx264", "aac"),
@@ -225,7 +228,7 @@ def main():
                                         "-of", "json", str(path)], capture_output=True, text=True,
                                        timeout=10, check=True)
                 item["metadata"] = json.loads(probe.stdout)
-            command = ["/usr/bin/python", str(Path(__file__).resolve()), str(media), str(output), "--worker", str(path)]
+            command = [sys.executable, str(Path(__file__).resolve()), str(media), str(output), "--worker", str(path)]
             proc = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, start_new_session=True)
             try:
@@ -240,7 +243,7 @@ def main():
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            (output / (name + ".stderr.log")).write_text(stderr)
+            (output / (name + ".stderr.log")).write_text(stderr, encoding='utf-8')
             messages = [line.removeprefix("DEAS_RESULT=") for line in stdout.splitlines()
                         if line.startswith("DEAS_RESULT=")]
             if messages:
@@ -254,7 +257,7 @@ def main():
             item["error"] = str(exc)
         item["seconds"] = round(time.monotonic() - start, 3)
         report["results"].append(item)
-        (output / "report.json").write_text(json.dumps(report, indent=2))
+        (output / "report.json").write_text(json.dumps(report, indent=2), encoding='utf-8')
         print(f"{name}: {item['status']} {item.get('error', '')}", flush=True)
     assert len(report["results"]) == 15 and len({r["file"] for r in report["results"]}) == 15
     print("Report:", output / "report.json")

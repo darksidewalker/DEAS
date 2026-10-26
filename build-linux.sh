@@ -14,30 +14,33 @@ if [ "${1:-}" = "--release" ]; then
   trap 'rm -rf -- "$S"' EXIT
   TARGETS='x86_64-unknown-linux-gnu'
 fi
+# Keep Cargo and Tauri outputs aligned, including a caller-selected target directory.
+CARGO_TARGET_DIR="$(node -e 'console.log(require("path").resolve(process.env.CARGO_TARGET_DIR || "src-tauri/target"))')"
+export CARGO_TARGET_DIR
 [ -d node_modules ] || npm ci
 npm run build
 cargo build --manifest-path src-tauri/Cargo.toml --locked --release
 mkdir -p artifacts
-cp src-tauri/target/release/deas artifacts/.deas-linux-amd64.new
+cp "$CARGO_TARGET_DIR/release/deas" artifacts/.deas-linux-amd64.new
 mv -f artifacts/.deas-linux-amd64.new artifacts/deas-linux-amd64   # atomic swap; a running app keeps its old inode
 if [ "${1:-}" = "--bundle" ] || [ "${1:-}" = "--release" ]; then
   if [ "${1:-}" = "--release" ]; then touch "$S/.bundle-start"; fi
   npx tauri build --bundles deb,appimage
-  cp -f src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+  cp -f "$CARGO_TARGET_DIR"/release/bundle/deb/*.deb "$CARGO_TARGET_DIR"/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
 fi
 if [ "${1:-}" = "--release" ]; then
   cp artifacts/deas-linux-amd64 "$S/deas-linux-amd64"
   # Only files written by this bundle invocation belong to this release.
   for spec in 'deb/*.deb' 'appimage/*.AppImage'; do
     found=false
-    while IFS= read -r -d '' file; do cp "$file" "$S/"; found=true; done < <(find src-tauri/target/release/bundle -path "*/$spec" -type f -newer "$S/.bundle-start" -print0)
+    while IFS= read -r -d '' file; do cp "$file" "$S/"; found=true; done < <(find "$CARGO_TARGET_DIR/release/bundle" -path "*/$spec" -type f -newer "$S/.bundle-start" -print0)
     $found || { echo "release bundle missing: $spec" >&2; exit 1; }
   done
   if cargo xwin --version >/dev/null 2>&1; then
     cargo xwin build --manifest-path src-tauri/Cargo.toml --locked --release --target x86_64-pc-windows-msvc
     touch "$S/.bundle-start"
     npx tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --no-sign
-    T="src-tauri/target/x86_64-pc-windows-msvc/release"
+    T="$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release"
     cp "$T/deas.exe" "$S/deas.exe"
     mapfile -d '' installers < <(find "$T/bundle/nsis" -maxdepth 1 -name '*_x64-setup.exe' -type f -newer "$S/.bundle-start" -print0)
     [ "${#installers[@]}" = 1 ] || { echo "release requires exactly one new Windows installer" >&2; exit 1; }

@@ -2,6 +2,36 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn windows_video_models_preserve_ids_but_inputs_stay_portable() {
+    for mut i in [ltx(), wan(), h3()] {
+        for key in ["model", "textEncoder", "vae"] {
+            i[key] = json!(format!(
+                "models\\{}",
+                i[key].as_str().unwrap().replace('/', "\\")
+            ));
+        }
+        let block = block(i["family"].as_str().unwrap());
+        for key in ["textProjection", "audioVae", "lowModel"] {
+            if let Some(name) = i[block][key].as_str() {
+                i[block][key] = json!(name.replace('/', "\\"));
+            }
+        }
+        i["loras"] = json!([{"name":r"styles\detail.safetensors","strength":0.55}]);
+        let graph = compile(&i).unwrap();
+        assert!(graph
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|node| { node["inputs"]["lora_name"] == r"styles\detail.safetensors" }));
+        assert!(serde_json::to_string(&graph)
+            .unwrap()
+            .contains(&serde_json::to_string(&i["model"]).unwrap()));
+        i["firstFrame"] = json!(r"deas-inputs\image.png");
+        assert!(compile(&i).is_err());
+    }
+}
+
+#[test]
 fn omitted_video_output_prefix_defaults_to_raw() {
     let mut intent = ltx();
     intent.as_object_mut().unwrap().remove("outputPrefix");

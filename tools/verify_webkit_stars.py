@@ -6,6 +6,8 @@ from pathlib import Path
 import struct
 import sys
 import zlib
+if sys.platform != 'linux':
+    sys.exit('Linux-only GTK/WebKit diagnostic; use portable Chromium fixtures on Windows.')
 import gi
 
 gi.require_version('Gtk', '3.0')
@@ -18,7 +20,7 @@ OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scr
 
 
 def constant(filename, name):
-    module = ast.parse((ROOT/'tools'/filename).read_text())
+    module = ast.parse((ROOT/'tools'/filename).read_text(encoding='utf-8'))
     return next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == name for t in n.targets))
 
@@ -102,7 +104,7 @@ def main():
             report = json.loads(web.evaluate_javascript_finish(result).to_string())
             if report is None: GLib.timeout_add(100, poll); return
             assert report.get('passed'), report
-            (OUT/'results.json').write_text(json.dumps(report, indent=2)+'\n')
+            (OUT/'results.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
             web.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, snapshot, None)
         except Exception as error: fail(error)
 

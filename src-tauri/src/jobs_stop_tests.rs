@@ -375,7 +375,11 @@ async fn whole_stop_coalesces_survives_waiter_loss_blocks_admission_and_finishes
     let clone = jobs.clone();
     let second = clone.workbench_stop(true, owner(), interrupt_owner());
     tokio::pin!(second);
-    assert!(futures_util::poll!(second.as_mut()).is_pending());
+    assert!(std::future::Future::poll(
+        second.as_mut(),
+        &mut std::task::Context::from_waker(std::task::Waker::noop()),
+    )
+    .is_pending());
     let ongoing = jobs.workbench_current().unwrap();
     assert_eq!(ongoing["admissionEpoch"], 1);
     assert_eq!(ongoing["stopping"], true);

@@ -1,5 +1,9 @@
 # News
 
+## 0.1.49
+
+Windows/Linux path fixes preserve exact backend model identifiers and output subfolders, repair media-reference/Starred matching and remove developer-specific script assumptions. MOSS reference readiness now checks its active encoder. Ordinary native Prompt Forge modes offer all fixed aspect presets from the main Settings while keeping legacy saved choices; Auto/Custom and MOSS layout/Generate geometry remain deferred. See [path compatibility](PATH-COMPATIBILITY.md), [Prompt Forge](PROMPTING.md) and [verification](VERIFICATION.md). Local unsigned binaries; native Windows runtime acceptance remains open.
+
 ## 0.1.48
 
 This release includes the model-aware SDXL/Qwen/Krea/MOSS prompt-reference wiring developed under 0.1.47 below.

@@ -5,7 +5,10 @@ import subprocess
 import sys
 import tempfile
 
-source = Path(sys.argv[1]).read_text()
+if sys.platform != 'linux':
+    sys.exit('Linux-only vendored GStreamer C diagnostic; requires pkg-config and cc.')
+
+source = Path(sys.argv[1]).read_text(encoding='utf-8')
 start = source.index('static GstFlowReturn\ngst_matroska_demux_search_cluster (')
 end = source.index('/* Three states', start)
 scanner = source[start:end]
@@ -72,7 +75,7 @@ flags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', '--libs',
 # The caller controls TMPDIR; the repository never receives generated source/binaries.
 with tempfile.TemporaryDirectory(prefix='deas-matroska-') as temp:
     path = Path(temp)
-    (path/'scanner.c').write_text(fixture + scanner + main)
+    (path/'scanner.c').write_text(fixture + scanner + main, encoding='utf-8')
     subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-Wno-sign-compare', '-o', str(path/'scanner'), str(path/'scanner.c'), *flags], check=True)
     subprocess.run([str(path/'scanner')], check=True, timeout=10)
 print('PASS: invalid cluster IDs and failed reads rescan with progress; valid clusters remain usable (both directions).')

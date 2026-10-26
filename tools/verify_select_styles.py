@@ -30,9 +30,9 @@ PROPS = ['height', 'fontSize', 'paddingTop', 'paddingBottom', 'paddingLeft', 'pa
          'borderRadius', 'borderTopColor', 'backgroundColor', 'backgroundImage', 'color',
          'appearance', 'lineHeight', 'textTransform', 'letterSpacing']
 read_style = '(el, props) => Object.fromEntries(props.map(k => [k, getComputedStyle(el)[k]]))'
-base = (ROOT/'src/styles.css').read_text()
-themes = (ROOT/'src/themes.css').read_text()
-features = '\n'.join(p.read_text() for p in sorted((ROOT/'src').rglob('*.css')) if p.name not in ('styles.css', 'themes.css'))
+base = (ROOT/'src/styles.css').read_text(encoding='utf-8')
+themes = (ROOT/'src/themes.css').read_text(encoding='utf-8')
+features = '\n'.join(p.read_text(encoding='utf-8') for p in sorted((ROOT/'src').rglob('*.css')) if p.name not in ('styles.css', 'themes.css'))
 ids = ['default'] + re.findall(r':root\[data-theme="([^"]+)"\]', themes)
 html = ''.join('<section style="min-width:0;max-width:280px"><h3>'+name+'</h3>'+wrapper.format(
     '<select aria-label="'+name+'"><option>Model / preset</option><option disabled>Unavailable</option><option>Other</option></select>')+'</section>' for name, wrapper in CONTEXTS.items())

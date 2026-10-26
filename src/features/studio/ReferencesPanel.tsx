@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
-import { describeMedia, draggedItem, itemFromEntry, MEDIA_DRAG, type MediaItem } from '../../lib/media';
+import { describeMedia, draggedItem, itemFromEntry, MEDIA_DRAG, normalizedMediaPath, relativeMediaPath, type MediaItem } from '../../lib/media';
 import type { RefModEntry } from '../../lib/jobs';
 import { labelCharacters, readPeopleBoxes, type PeopleBox, type H3Reference } from '../../lib/forge';
 import type { H3Context } from '../forge/ForgeButton';
@@ -43,8 +43,7 @@ export const directorTags=(refs:VideoRef[])=>{
  * `path` only for files in the input folder (the node reads pictures from there), clip length only when both trims are set. */
 export function forgeReferences(refs:VideoRef[],mode:string,inputRoot?:string):H3Reference[]{
  const slots=slotsOf(refs);const rank={image:0,video:1,audio:2} as Record<string,number>;
- const root=inputRoot?inputRoot.replace(/\\/g,'/').replace(/\/+$/,'')+'/':'';
- const rel=(r:VideoRef)=>{const p=(r.item.path??'').replace(/\\/g,'/');return root&&p.startsWith(root)?{path:p.slice(root.length)}:{};};
+ const rel=(r:VideoRef)=>{const path=inputRoot?relativeMediaPath(r.item.path??'',inputRoot):'';return path?{path}:{};};
  const length=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined?{duration_seconds:r.trimEnd-r.trimStart}:{};
  const labels=forgeLabels(refs);
  return refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).map(({r}):H3Reference=>
@@ -85,14 +84,14 @@ export interface RefMod { name:string; strength:number; description:string; /** 
 export type RefAdd={item:MediaItem}&Partial<Pick<VideoRef,'mediaMode'|'trimStart'|'trimEnd'|'label'|'instructions'|'keep'|'drop'|'who'|'whoAxis'|'boxes'>>;
 const PACK='dasiwa_minimax_h3_reference_pack';
 const rank={image:0,video:1,audio:2} as Record<string,number>;
-const slash=(p:string)=>p.replace(/\\/g,'/');
+
 /** A Director reference pack (its `saveReferencePack` "files" format): items hold input-folder-relative names, so references outside the input folder are skipped and named. */
 export function toPack(refs:VideoRef[],inputRoot:string,refmods:RefMod[]=[]){
- const root=slash(inputRoot).replace(/\/+$/,'')+'/';const slots=slotsOf(refs);const ranks:Record<string,number>={};const skipped:string[]=[];
+ const slots=slotsOf(refs);const ranks:Record<string,number>={};const skipped:string[]=[];
  const items=refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).flatMap(({r})=>{
-  const path=slash(r.item.path??'');if(!path.startsWith(root)){skipped.push(r.item.name);return [];}
+  const path=relativeMediaPath(r.item.path??'',inputRoot);if(!path){skipped.push(r.item.name);return [];}
   const type=r.item.media as Lane;
-  return [{type,value:path.slice(root.length),...(type==='video'?{media_mode:r.mediaMode}:{}),...(type==='image'&&r.label?{forge_label:r.label}:{}),...(type==='image'&&r.boxes?.length?{forge_boxes:JSON.stringify(r.boxes)}:{}),...(type==='image'&&r.who?.length?{forge_kinds:'character',forge_who:r.who.join(','),...(r.whoAxis?{forge_who_axis:r.whoAxis}:{})}:{}),...(r.instructions?.trim()?{forge_instructions:r.instructions.trim()}:{}),...(r.keep?.trim()?{forge_keep:r.keep.trim()}:{}),...(r.drop?.trim()?{forge_drop:r.drop.trim()}:{}),...(r.trimStart!==undefined?{trim_start:r.trimStart}:{}),...(r.trimEnd!==undefined?{trim_end:r.trimEnd}:{}),_rank:ranks[type]=(ranks[type]??-1)+1}];
+  return [{type,value:path,...(type==='video'?{media_mode:r.mediaMode}:{}),...(type==='image'&&r.label?{forge_label:r.label}:{}),...(type==='image'&&r.boxes?.length?{forge_boxes:JSON.stringify(r.boxes)}:{}),...(type==='image'&&r.who?.length?{forge_kinds:'character',forge_who:r.who.join(','),...(r.whoAxis?{forge_who_axis:r.whoAxis}:{})}:{}),...(r.instructions?.trim()?{forge_instructions:r.instructions.trim()}:{}),...(r.keep?.trim()?{forge_keep:r.keep.trim()}:{}),...(r.drop?.trim()?{forge_drop:r.drop.trim()}:{}),...(r.trimStart!==undefined?{trim_start:r.trimStart}:{}),...(r.trimEnd!==undefined?{trim_end:r.trimEnd}:{}),_rank:ranks[type]=(ranks[type]??-1)+1}];
  });
   const rows=refmods.map((r,i)=>({slot:i+1,name:r.name,enabled:true,strength:r.strength,description:r.description}));
  return {pack:{[PACK]:true,schema_version:1,saved_at:new Date().toISOString(),model_mode:'REF2VA',items,...(rows.length?{refmods:rows}:{})},skipped};
@@ -103,7 +102,7 @@ const seconds=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>0&&v<=3600
 export function fromPack(json:unknown,inputRoot:string):{adds:{path:string;mediaMode?:VideoRef['mediaMode'];trimStart?:number;trimEnd?:number;label?:string;instructions?:string;keep?:string;drop?:string;who?:number[];whoAxis?:VideoRef['whoAxis'];boxes?:PeopleBox[]}[];refmods:RefMod[];invalid:number}|null{
  const p=json as {[PACK]?:unknown;items?:unknown;refmods?:unknown};
  if(!p||typeof p!=='object'||p[PACK]!==true||!Array.isArray(p.items))return null;
- const root=slash(inputRoot).replace(/\/+$/,'');let invalid=0;
+ const root=normalizedMediaPath(inputRoot);let invalid=0;
  const items=(p.items as Record<string,unknown>[]).filter(x=>{const ok=!!x&&typeof x==='object'&&typeof x.type==='string'&&x.type in rank&&safeValue(x.value);if(!ok)invalid++;return ok;})
   .sort((a,b)=>rank[a.type as string]-rank[b.type as string]||(Number(a._rank)||0)-(Number(b._rank)||0));
  // Enabled RefMod rows in slot order; the slot itself is re-derived from the position (DEAS keeps them packed).

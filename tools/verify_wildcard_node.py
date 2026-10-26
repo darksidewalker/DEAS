@@ -32,7 +32,7 @@ rules={'style':'Booru','seed':7,'reroll':3,'token_budget':200,'auto_reroll':Fals
 intent={'recipeId':'checkpoint-text-to-image-diagnostic','version':1,'positivePrompt':'manual base','negativePrompt':'blur','checkpoint':'fixture.safetensors','seed':42,'width':512,'height':512,'steps':1,'cfg':1,'sampler':'euler','scheduler':'normal','outputPrefix':'DEAS_wildcard_probe','wildcard':rules}
 allow={'nodes':['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage','DaSiWa_WildcardPresetPromptBuilder','DaSiWa_MetadataConfig','DaSiWa_MetadataImageSaver'],'checkpoints':['fixture.safetensors'],'samplers':['euler'],'schedulers':['normal']}
 js="import {compileRecipe} from './src/lib/execution.ts';process.stdout.write(JSON.stringify(compileRecipe("+json.dumps(intent)+","+json.dumps(allow)+").graph));"
-graph=json.loads(subprocess.check_output(['node','--experimental-strip-types','--input-type=module','-e',js],cwd=root,text=True))
+graph=json.loads(subprocess.check_output(['node','--experimental-strip-types','--input-type=module','-e',js],cwd=root,text=True,encoding='utf-8'))
 node=wild.DaSiWa_WildcardPresetPromptBuilder()
 positive,negative=node.build(**graph['WP']['inputs'])
 assert positive=='manual base, (1girl:1.2)',positive

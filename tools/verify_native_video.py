@@ -10,6 +10,9 @@ import re
 import subprocess
 import sys
 
+if sys.platform != 'linux':
+    sys.exit('Linux-only native video/framebuffer diagnostic; not Windows acceptance.')
+
 binary, output, *files = sys.argv[1:]
 output = Path(output).resolve()
 output.mkdir(parents=True, exist_ok=False)
@@ -58,11 +61,11 @@ script = r'''
  await call('plugin:window|destroy',{label:'main'});
 })();
 '''.replace('FILES', json.dumps([str(Path(p).resolve()) for p in files]))
-(output / 'probe.js').write_text(script)
+(output / 'probe.js').write_text(script, encoding='utf-8')
 env = dict(os.environ, DEAS_VIDEO_TEST_SCRIPT=str(output / 'probe.js'), DEAS_VIDEO_PROBE='1', XDG_CONFIG_HOME=str(output / 'config'), XDG_DATA_HOME=str(output / 'data'), XDG_CACHE_HOME=str(output / 'cache'))
 with (output / 'native.log').open('w') as log:
     result = subprocess.run([str(Path(binary).resolve())], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=90)
-text = (output / 'native.log').read_text()
+text = (output / 'native.log').read_text(encoding='utf-8')
 reports = [json.loads(line.split('DEAS_VIDEO_PROBE ', 1)[1]) for line in text.splitlines() if 'DEAS_VIDEO_PROBE ' in line]
 frames = re.findall(r'DEAS_VIDEO_FRAME id=([^ ]+) hash=(\d+) range=(\d+) gl_error=(\d+) position=([^\n]+)', text)
 assert result.returncode == 0, text[-6000:]
@@ -70,5 +73,5 @@ assert any(r.get('phase') == 'passed' for r in reports), text[-6000:]
 for clip in [r for r in reports if r.get('phase') == 'clip']:
     assert clip['b']['position'] > clip['a']['position']
 assert len({f[1] for f in frames}) >= 2 and all(f[3] == '0' for f in frames), frames
-(output / 'results.json').write_text(json.dumps({'reports':reports,'framebuffer_samples':frames}, indent=2))
+(output / 'results.json').write_text(json.dumps({'reports':reports,'framebuffer_samples':frames}, indent=2), encoding='utf-8')
 print(json.dumps({'passed':True,'clips':len(files),'framebuffer_samples':len(frames),'output':str(output)}))

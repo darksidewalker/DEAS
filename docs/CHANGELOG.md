@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.49
+
+- Add every fixed main-Settings aspect preset to ordinary native Prompt Forge modes. Preserve no-hint behavior, per-target saved choices and legacy labels; MOSS Layout JSON retains its existing pack canvases. Auto/custom and full layout/Generate geometry remain deferred.
+
+- Share the native image-reference encoder mapping between the recipe compiler and Studio readiness checks. MOSS reference recipes no longer require the unused `CLIPTextEncode` node; plain generation still does, and missing active encoders continue to block Run. Existing graph identities, family constraints and upload snapshots are unchanged.
+
+- Fix Windows/Linux path compatibility across exact ComfyUI model identifiers, media references, output subfolders/Starred moves, model-tree display, Git discovery and Explorer paths. Remove developer-specific graph-validation paths, use UTF-8 tool I/O and close SQLite handles before replacement; align build staging with `CARGO_TARGET_DIR` and preserve Windows UNC/caller directories. Keep protocol traversal/no-clobber guards and external ComfyUI files unchanged. See [path contracts and limits](PATH-COMPATIBILITY.md).
+
 ## 0.1.48
 
 Includes the model-aware reference wiring developed under 0.1.47 below, plus compact drag-only reference thumbnails. Local unsigned release; platform/model acceptance limits are recorded in [verification](VERIFICATION.md).

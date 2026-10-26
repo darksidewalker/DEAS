@@ -13,7 +13,7 @@ URL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:4187'
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scratch/deas-workspace-ux'
 OUT.mkdir(parents=True, exist_ok=True)
 # Reuse the existing read-only browser IPC fixture, without executing its suite.
-module = ast.parse((ROOT/'tools/verify_workbench.py').read_text())
+module = ast.parse((ROOT/'tools/verify_workbench.py').read_text(encoding='utf-8'))
 fixture = next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
 def chunk(kind, data):
     return struct.pack('>I', len(data))+kind+data+struct.pack('>I', zlib.crc32(kind+data))
@@ -106,7 +106,7 @@ with sync_playwright() as p:
             page.screenshot(path=str(OUT/'backend-inline.png'), full_page=True)
         assert not errors, errors
         page.close()
-    reopen_module = ast.parse((ROOT/'tools/verify_reopen.py').read_text())
+    reopen_module = ast.parse((ROOT/'tools/verify_reopen.py').read_text(encoding='utf-8'))
     reopen = next(ast.literal_eval(n.value) for n in reopen_module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
     reopen = reopen.replace("throw Error('Unexpected IPC '+c);", "if(c==='native_auth_status')return ['huggingface','civitai','github'].map(providerId=>({providerId,configured:true,persisted:true}));if(c==='native_auth_verify')return {providerId:a.providerId,status:'unavailable'};if(c==='native_repo_stars')return {count:0,starred:null};throw Error('Unexpected IPC '+c);")
     reopen = reopen.replace("if(c==='native_backend_start')window.__RUNNING__=true;", "if(c==='native_backend_start'){window.__RUNNING__=true;window.__FOOTER_STATE__='starting';}")
@@ -191,5 +191,5 @@ with sync_playwright() as p:
         assert not any(c['command'] in ('native_app_update', 'native_app_restart', 'native_install_update') for c in page.evaluate('window.__calls'))
         page.close()
     browser.close()
-(OUT/'results.json').write_text(json.dumps(results, indent=2))
+(OUT/'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
 print(f'PASS: 30 locale/width layouts, 30 three-panel sidebar layouts, retained drafts, transparent footer/start notice, edge-fit backdrop/zoom and frame restore; evidence {OUT}')

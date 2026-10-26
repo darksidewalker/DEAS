@@ -537,6 +537,52 @@ pub(super) fn intent() -> Value {
 }
 
 #[test]
+fn windows_model_identifiers_survive_compilation_without_relaxing_input_paths() {
+    let mut i = intent();
+    i["checkpoint"] = json!(r"SDXL\日本語 model.safetensors");
+    i["loras"] = json!([{"name":r"styles\detail.safetensors","strength":0.5}]);
+    let graph = compile(&i).unwrap();
+    assert_eq!(graph["1"]["inputs"]["ckpt_name"], i["checkpoint"]);
+    assert!(graph
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|n| n["inputs"]["lora_name"] == i["loras"][0]["name"]));
+    for bad in [
+        r"..\model.safetensors",
+        r"a\..\model.safetensors",
+        r"a/..\model.safetensors",
+        r"\model.safetensors",
+        r"C:\model.safetensors",
+        r"a\\model.safetensors",
+    ] {
+        i["checkpoint"] = json!(bad);
+        assert!(compile(&i).is_err(), "{bad}");
+    }
+    i["checkpoint"] = json!(r"SDXL\model.safetensors");
+    i["inputImage"] = json!(r"deas-inputs\image.png");
+    i["denoise"] = json!(0.5);
+    assert!(compile(&i).is_err());
+}
+
+#[test]
+fn windows_output_subfolders_are_preserved_and_cannot_escape() {
+    let entry = |folder: &str| json!({"outputs":{"7":{"images":[{"filename":"image.png","subfolder":folder,"type":"output"}]}}});
+    let folder = r"raw\image\2026-10-26";
+    assert_eq!(outputs(&entry(folder)).unwrap()[0]["subfolder"], folder);
+    for bad in [
+        r"..\secret",
+        r"raw/..\secret",
+        r"\root",
+        r"C:\root",
+        r"\\host\share",
+        r"raw\\image",
+    ] {
+        assert!(outputs(&entry(bad)).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn output_naming_paths_are_bounded_relative_and_safe_on_windows() {
     let mut i = intent();
     i["outputPrefix"] = json!("image/2026_10_18/12-34-56-123-My_Model");
@@ -1390,7 +1436,7 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("positivePrompt", json!(false)),
         ("checkpoint", json!("../model")),
         ("checkpoint", json!("/model")),
-        ("checkpoint", json!("dir\\model")),
+        ("checkpoint", json!("dir\\..\\model")),
         ("checkpoint", json!(" model")),
         ("checkpoint", json!("dir//model")),
         ("checkpoint", json!("https://host/model")),
@@ -2486,7 +2532,8 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
         ("filename_url", "unknown"),
         ("subfolder_traversal", "unknown"),
         ("subfolder_absolute", "unknown"),
-        ("backslash", "unknown"),
+        ("backslash", "succeeded"),
+        ("backslash_traversal", "unknown"),
         ("encoded_path", "unknown"),
         ("temp_output", "unknown"),
         ("too_many", "unknown"),
@@ -2528,6 +2575,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
                     "subfolder_traversal" => entry["outputs"]["7"]["images"][0]["subfolder"] = json!("../private"),
                     "subfolder_absolute" => entry["outputs"]["7"]["images"][0]["subfolder"] = json!("/private"),
                     "backslash" => entry["outputs"]["7"]["images"][0]["subfolder"] = json!("dir\\private"),
+                    "backslash_traversal" => entry["outputs"]["7"]["images"][0]["subfolder"] = json!(r"dir/..\private"),
                     "encoded_path" => entry["outputs"]["7"]["images"][0]["filename"] = json!("%2e%2e%2fimage.png"),
                     "temp_output" => entry["outputs"]["7"]["images"][0]["type"] = json!("temp"),
                     "too_many" => entry["outputs"]["7"]["images"] = json!(vec![json!({"filename":"image.png","subfolder":"","type":"output"});65]),

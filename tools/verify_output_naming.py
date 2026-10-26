@@ -10,14 +10,14 @@ root=Path(__file__).resolve().parents[1]
 url=sys.argv[1]
 out=Path(sys.argv[2]) if len(sys.argv)>2 else Path.home()/'.hermes/cache/scratch/deas-output-naming'
 out.mkdir(parents=True,exist_ok=True)
-module=ast.parse((root/'tools/verify_workbench.py').read_text())
+module=ast.parse((root/'tools/verify_workbench.py').read_text(encoding='utf-8'))
 fixture=next(ast.literal_eval(n.value) for n in module.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='fixture' for t in n.targets))
 fixture=fixture.replace("window.__calls.push({command,args});","window.__calls.push({command,args});if(command==='native_workbench_run'){window.__intent=structuredClone(args.intent);return window.__job={id:'name-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',intent:window.__intent,state:'succeeded',outputs:[],error:null,generationReady:false};}")
 with sync_playwright() as p:
  browser=p.chromium.launch()
  for width in (1440,1024,768,390,320):
   for locale in ('de','en','fr','ja','tr','zh'):
-   t=json.loads((root/f'src/features/studio/locales/{locale}.json').read_text())
+   t=json.loads((root/f'src/features/studio/locales/{locale}.json').read_text(encoding='utf-8'))
    page=browser.new_page(viewport={'width':width,'height':960},reduced_motion='reduce')
    errors=[]
    page.on('pageerror',lambda e:errors.append(str(e)))

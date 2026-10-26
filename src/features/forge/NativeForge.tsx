@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
+import { aspects as settingsAspects } from '../../lib/resolution';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
 import { LayoutStudio, applyGenerated, forPrompt, resizeProject, useLayoutProject } from './LayoutStudio';
 import { Randomizer } from './Randomizer';
@@ -17,6 +18,8 @@ const pretty = (v: string) => { const s = v.replace(/_/g, ' '); return s.charAt(
 const FOLDS = ['presets', 'output', 'verbatim', 'camera', 'lighting', 'tags', 'refs'] as const;
 /** PromptForge's bounds for the manual length. */
 const LENGTH_MIN = 10, LENGTH_MAX = 4000;
+const fixedAspects: readonly string[] = settingsAspects.filter(a => a !== 'auto' && a !== 'custom');
+const ratioOf = (value: string) => /^(\d+:\d+)(?:\s|$)/.exec(value)?.[1] ?? '';
 interface Draft { result: NativeResult; prompt: string; negative: string }
 
 /**
@@ -88,11 +91,17 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const pick = { angle: offered(spec?.camera?.angle, angle), shot: offered(spec?.camera?.shot, shot), light: offered(spec?.camera?.light, light) };
   const qualities = spec?.qualityPresets.filter(p => p !== 'none') ?? [];
   const styles = spec?.styles.filter(s => s !== 'None') ?? [];
-  const aspects = spec?.aspectRatios?.filter(a => a !== 'N/A') ?? [];
+  const packAspects = spec?.aspectRatios?.filter(a => a !== 'N/A') ?? [];
+  const aspects = layoutMode ? packAspects : fixedAspects;
+  let activeAspect = aspects.includes(aspect) ? aspect : 'N/A';
+  // Read old labelled preferences without rewriting their per-target saved values.
+  if (!layoutMode && packAspects.includes(aspect) && fixedAspects.includes(ratioOf(aspect))) activeAspect = ratioOf(aspect);
+  // An equivalent pack preset keeps its existing Layout JSON canvas when switching modes.
+  if (layoutMode && fixedAspects.includes(aspect)) activeAspect = packAspects.find(a => ratioOf(a) === aspect) ?? 'N/A';
   const lightingNotches = spec?.lightingLevels ?? [];
   const lightingOn = lightingNotches.some(([n]) => n === lighting) ? lighting : 0;
 
-  const canvas = layoutMode ? spec!.layoutCanvas![aspects.includes(aspect) ? aspect : 'N/A'] ?? spec!.layoutCanvas!['N/A'] : null;
+  const canvas = layoutMode ? spec!.layoutCanvas![activeAspect] ?? spec!.layoutCanvas!['N/A'] : null;
   useEffect(() => {
     if (canvas && (studio.project.w !== canvas[0] || studio.project.h !== canvas[1])) studio.set(resizeProject(studio.project, canvas[0], canvas[1]));
   }, [canvas?.[0], canvas?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,7 +110,7 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
     target, brief, model: nativeModelId(forge.model), mode: activeMode || undefined, segmentsOn,
     controls: {
       detail, creativity, lighting: lightingOn || undefined,
-      qualityPreset: qualities.includes(quality) ? quality : 'none', style: styles.includes(style) ? style : 'None', aspectRatio: aspects.includes(aspect) ? aspect : 'N/A',
+      qualityPreset: qualities.includes(quality) ? quality : 'none', style: styles.includes(style) ? style : 'None', aspectRatio: activeAspect,
       cameraAngle: pick.angle || undefined, cameraShot: pick.shot || undefined, cameraLight: pick.light || undefined,
       positive: keepPositive.trim() || undefined, negative: keepNegative.trim() || undefined,
       maxLength: lengthUnit && lengthOk ? { unit: lengthUnit, value: lengthValue } : undefined,
@@ -179,7 +188,7 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const label = (list: NativeCameraOption[] | undefined, key: string) => list?.find(o => o.key === key)?.label ?? '';
 
   const summary = {
-    presets: [qualities.includes(quality) && pretty(quality), styles.includes(style) && style, aspects.includes(aspect) && aspect].filter(Boolean).join(' · ') || t('forge.nothingSet'),
+    presets: [qualities.includes(quality) && pretty(quality), styles.includes(style) && style, activeAspect !== 'N/A' && activeAspect].filter(Boolean).join(' · ') || t('forge.nothingSet'),
     output: [lengthUnit && lengthOk ? `${lengthValue} ${t(`forge.length.${lengthUnit}`)}` : t('forge.length.default'), [negativeLabel && withNegative && t('forge.segment.negative'), notesLabels.length && withNotes && t('forge.segment.notes')].filter(Boolean).join(', ') || t('forge.promptOnly')].join(' · '),
     verbatim: [keepPositive.trim() && t('forge.customPositive'), keepNegative.trim() && spec?.hasNegative && t('forge.customNegative')].filter(Boolean).join(' + ') || t('forge.empty'),
     camera: [label(spec?.camera?.angle, pick.angle), label(spec?.camera?.shot, pick.shot)].filter(Boolean).join(' · ') || t('forge.any'),
@@ -214,7 +223,7 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
         {fold('presets', <>
           {qualities.length > 0 && <Chips name="quality" label={t('forge.quality')} value={qualities.includes(quality) ? quality : 'none'} onChange={setQuality} options={[{ key: 'none', label: t('forge.none') }, ...qualities.map(q => ({ key: q, label: pretty(q) }))]}/>}
           {styles.length > 0 && <Chips name="style" label={t('forge.style')} value={styles.includes(style) ? style : 'None'} onChange={setStyle} options={[{ key: 'None', label: t('forge.none') }, ...styles.map(s => ({ key: s, label: s }))]}/>}
-          {aspects.length > 0 && <Tiles name="aspect" label={t('forge.aspect')} value={aspects.includes(aspect) ? aspect : 'N/A'} onChange={setAspect} options={[
+          {aspects.length > 0 && <Tiles name="aspect" label={t('forge.aspect')} value={activeAspect} onChange={setAspect} options={[
             { key: 'N/A', label: t('forge.any'), icon: icon('any'), sub: t('forge.aspectNone') },
             ...aspects.map(a => { const ratio = /\d+\s*:\s*\d+/.exec(a)?.[0] ?? ''; return { key: a, label: a.replace(ratio, '').trim() || ratio, sub: ratio, icon: aspectIcon(a) }; }),
           ]}/>}

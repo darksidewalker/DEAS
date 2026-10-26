@@ -299,7 +299,7 @@ fn compile(i: &Value) -> Result<Value, String> {
         d.as_object().is_none_or(|o| o.len() != 3)
             || !["textEncoder", "vae"]
                 .iter()
-                .all(|k| d[*k].as_str().is_some_and(model_name))
+                .all(|k| d[*k].as_str().is_some_and(comfy_model_name))
             || !d["clipType"].as_str().is_some_and(safe_choice)
     }) {
         return Err("Invalid diffusion: expected {textEncoder, clipType, vae}".into());
@@ -379,7 +379,7 @@ fn compile(i: &Value) -> Result<Value, String> {
         );
     }
     let upscale = object.get("upscaleModel");
-    if upscale.is_some_and(|u| resize.is_none() || !u.as_str().is_some_and(model_name)) {
+    if upscale.is_some_and(|u| resize.is_none() || !u.as_str().is_some_and(comfy_model_name)) {
         return Err("Invalid upscaleModel: a listed upscale model with inputResize".into());
     }
     // `refine` is a second pass after the first decode (SwarmUI refiner/upscale).
@@ -433,7 +433,7 @@ fn compile(i: &Value) -> Result<Value, String> {
             ));
         }
     }
-    if !i["checkpoint"].as_str().is_some_and(model_name) {
+    if !i["checkpoint"].as_str().is_some_and(comfy_model_name) {
         return Err("Unsafe checkpoint identifier".into());
     }
     if let Some(image) = image {
@@ -451,7 +451,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     if loras.len() > 8
         || loras.iter().any(|l| {
             l.as_object().is_none_or(|o| o.len() != 2)
-                || !l["name"].as_str().is_some_and(model_name)
+                || !l["name"].as_str().is_some_and(comfy_model_name)
                 || !l["strength"]
                     .as_f64()
                     .is_some_and(|n| n.is_finite() && (-10.0..=10.0).contains(&n))
@@ -462,7 +462,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     if reference.is_some_and(|r| {
         diffusion.is_some()
             || r.as_object().is_none_or(|o| o.len() != 2)
-            || !r["visionModel"].as_str().is_some_and(model_name)
+            || !r["visionModel"].as_str().is_some_and(comfy_model_name)
             || !r["images"].as_array().is_some_and(|v| {
                 !v.is_empty()
                     && v.len() <= 4
@@ -934,7 +934,7 @@ fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
         && r["width"].as_u64().unwrap() * r["height"].as_u64().unwrap() <= 16_777_216
         && r["denoise"].as_f64().is_some_and(|d| d > 0.0 && d <= 1.0)
         && r.get("upscaleModel")
-            .is_none_or(|u| u.as_str().is_some_and(model_name))
+            .is_none_or(|u| u.as_str().is_some_and(comfy_model_name))
         && r.get("sigmas").is_none_or(|s| valid_sigmas(s, None))
 }
 
@@ -1031,9 +1031,13 @@ fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
     graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":format,"compression":compression,"save_output":true,"metadata_config":["M",0]}});
 }
 
-/// Model/input file identifier as ComfyUI lists it (relative to its folder): spaces and
-/// non-ASCII letters are fine; traversal, absolute/host paths, URLs, `\` `:` `%`, control
-/// characters and padded segments are not.
+/// Model ID as listed by either a Linux or Windows ComfyUI backend.
+pub(crate) fn comfy_model_name(s: &str) -> bool {
+    // ComfyUI folder_paths lists native separators; validate both but forward the exact ID.
+    model_name(&s.replace('\\', "/"))
+}
+
+/// Portable input identifier: traversal, backslashes, host paths and URLs are forbidden.
 pub(crate) fn model_name(s: &str) -> bool {
     s.len() <= 255
         && s.split('/').all(|segment| {
@@ -1620,7 +1624,7 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
                 || filename.contains('/')
                 || !safe_path(filename, false)
                 || subfolder.len() > 255
-                || !safe_path(subfolder, true)
+                || !safe_path(&subfolder.replace('\\', "/"), true)
                 || image["type"] != "output"
             {
                 return Err("Unsafe diagnostic output reference".into());

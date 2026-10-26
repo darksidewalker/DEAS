@@ -6,7 +6,7 @@ import { NativeForge } from './NativeForge';
 /** MOSS has a native writer but no generation family yet. */
 const dialects = [...new Set([...familyDialects, 'MOSS'])];
 import { isString, oneOf, usePref } from '../../lib/preferences';
-import type { MediaItem } from '../../lib/media';
+import { relativeMediaPath, type MediaItem } from '../../lib/media';
 import { mediaTypes, mediaViews, type MediaSort, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel } from '../media/MediaPanel';
 import { ModelSelect, useForgeModels } from './ForgeButton';
@@ -18,7 +18,7 @@ const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.is
 const roles = ['character-1', 'character-2', 'character-3', 'character-4', 'place', 'style', 'first-frame', 'last-frame'];
 /** The Prompt Writer takes at most 8 pictures, REF2VA 9. */
 const maxPictures = (target: string, mode: string) => target !== H3 ? 8 : mode === 'REF2VA' ? 9 : frames[mode];
-interface Picture { path: string; src: string; role: string }
+interface Picture { path: string; nativePath: string; src: string; role: string }
 
 /** Standalone Prompt Forge: every dialect the families name, H3 with labelled references; the result goes to Generate. */
 export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, active = true }: { active?: boolean; endpoint: string; root?: string; inputDir?: string; outputDir?: string; onSend: (positive: string, negative: string) => void }) {
@@ -50,8 +50,8 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, activ
   const shown = pictures.slice(0, limit);
   // ComfyUI and the node pack read pictures from the input folder only.
   const add = (item: MediaItem) => {
-    const path = item.media === 'image' && inputDir && item.path?.startsWith(inputDir + '/') ? item.path.slice(inputDir.length + 1) : '';
-    if (path && shown.length < limit && !shown.some(p => p.path === path)) setPictures([...shown, { path, src: item.src, role: roles[Math.min(shown.length, 3)] }]);
+    const path = item.media === 'image' && inputDir && item.path ? relativeMediaPath(item.path, inputDir) : '';
+    if (path && shown.length < limit && !shown.some(p => p.path === path)) setPictures([...shown, { path, nativePath: item.path!, src: item.src, role: roles[Math.min(shown.length, 3)] }]);
   };
   const missing = h3 && mode !== 'REF2VA' && shown.length !== limit;
   const run = async () => {
@@ -103,7 +103,7 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, onSend, activ
       {warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
       <label className="forge-field"><span>{t('forge.negative')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>
       <button type="button" className="action-button" data-forge-send disabled={!result.trim()} onClick={() => onSend(result, negative)}>{t('forge.send')}</button>
-      {forge.model && limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaPanel selected={null} onSelect={add} roots={{ input: inputDir, output: outputDir }} controls={{ query, onQuery: setQuery, sort, onSort: setSort, view, onView: setView, type, onType: setType }} marks={new Map(shown.map(p => [`${inputDir}/${p.path}`, t(`forge.role.${p.role.replace(/-\d$/, '')}`, { n: p.role.slice(-1) })]))}/></div>}
+      {forge.model && limit > 0 && <div className="forge-media"><p className="field-help">{t('forge.pick')}</p><MediaPanel selected={null} onSelect={add} roots={{ input: inputDir, output: outputDir }} controls={{ query, onQuery: setQuery, sort, onSort: setSort, view, onView: setView, type, onType: setType }} marks={new Map(shown.map(p => [p.nativePath, t(`forge.role.${p.role.replace(/-\d$/, '')}`, { n: p.role.slice(-1) })]))}/></div>}
     </div>
   </section>;
 }

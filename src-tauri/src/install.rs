@@ -290,13 +290,24 @@ fn validate_ref(reference: &str) -> Result<(), String> {
     Ok(())
 }
 pub(crate) fn git_path() -> Option<PathBuf> {
-    std::env::var_os("PATH")
-        .and_then(|paths| {
-            std::env::split_paths(&paths)
-                .map(|p| p.join(if cfg!(windows) { "git.exe" } else { "git" }))
-                .find(|p| p.is_file())
-        })
-        .and_then(|p| dunce::canonicalize(p).ok())
+    git_in_path(&std::env::var_os("PATH")?)
+}
+fn git_in_path(paths: &std::ffi::OsStr) -> Option<PathBuf> {
+    std::env::split_paths(paths).find_map(|dir| {
+        let path = dir.join(if cfg!(windows) { "git.exe" } else { "git" });
+        let meta = path.metadata().ok()?;
+        if !meta.is_file() {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o111 == 0 {
+                return None;
+            }
+        }
+        dunce::canonicalize(path).ok()
+    })
 }
 impl Engine {
     /// The plan of the currently approved (installed or reopened) environment, if any.
@@ -1563,6 +1574,35 @@ async fn packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_lookup_skips_unusable_candidates_and_preserves_native_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("first");
+        let usable = root.path().join("日本語 git tools");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&usable).unwrap();
+        let name = if cfg!(windows) { "git.exe" } else { "git" };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(first.join(name), "not executable").unwrap();
+            std::fs::set_permissions(first.join(name), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
+        #[cfg(windows)]
+        std::fs::create_dir(first.join(name)).unwrap();
+        let git = usable.join(name);
+        std::fs::write(&git, "fixture executable").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let paths = std::env::join_paths([first, usable]).unwrap();
+        assert_eq!(git_in_path(&paths), Some(dunce::canonicalize(git).unwrap()));
+    }
+
     fn scratch() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }

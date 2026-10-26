@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 URL = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:4198'
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scratch/deas-media-panel'
 OUT.mkdir(parents=True, exist_ok=True)
-module = ast.parse((ROOT/'tools/verify_workbench.py').read_text())
+module = ast.parse((ROOT/'tools/verify_workbench.py').read_text(encoding='utf-8'))
 fixture = next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
 fixture = "localStorage.setItem('deas.pref.install.root','\"/env\"');localStorage.setItem('deas.pref.backend.autostart','false');" + fixture
 fixture = fixture.replace('window.__calls.push({command,args});', '''window.__calls.push({command,args});
@@ -64,5 +64,5 @@ with sync_playwright() as p:
         assert not any(c['command'] in blocked or (c['command']=='native_forge' and c.get('args',{}).get('route')!='models') for c in calls)
         page.close()
     browser.close()
-(OUT/'results.json').write_text(json.dumps(results, indent=2))
+(OUT/'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
 print(f'PASS: {len(results)} shared media panel locale/width cases; no execution; evidence {OUT}')

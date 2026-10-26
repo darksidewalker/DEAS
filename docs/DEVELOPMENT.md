@@ -50,6 +50,10 @@ python tools/verify_languages.py http://127.0.0.1:1420
 ```
 
 
+## Cross-platform paths
+
+See [Windows/Linux path compatibility](PATH-COMPATIBILITY.md) for native paths versus exact ComfyUI identifiers, `CARGO_TARGET_DIR`, portable script arguments and Linux-only diagnostic exceptions.
+
 ## Architecture
 
 - **React/TypeScript:** neural studio, local authoring state and feature manifests.

@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 from deas_locale import set_locale
 root = Path(__file__).resolve().parents[1]
 url = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1420'
-strings = {locale: json.loads((root / f'src/components/setup/locales/{locale}.json').read_text()) for locale in ('de','en','fr','ja','tr','zh')}
+strings = {locale: json.loads((root / f'src/components/setup/locales/{locale}.json').read_text(encoding='utf-8')) for locale in ('de','en','fr','ja','tr','zh')}
 fixture = r"""window.isTauri=true; window.__calls=[]; window.__installState='running';window.__started=false;
 localStorage.setItem('deas.pref.backend.autostart','false');
 window.__TAURI_INTERNALS__={invoke:async(command,args)=>{

@@ -10,7 +10,7 @@ names={'de':'Deutsch','en':'English','fr':'Français','ja':'日本語','tr':'Tü
 strings={}
 for locale in names:
  strings[locale]={}
- for f in (root/'src').rglob(f'locales/{locale}.json'):strings[locale].update(json.loads(f.read_text()))
+ for f in (root/'src').rglob(f'locales/{locale}.json'):strings[locale].update(json.loads(f.read_text(encoding='utf-8')))
 results=[]
 with sync_playwright() as p:
  browser=p.chromium.launch(headless=True)

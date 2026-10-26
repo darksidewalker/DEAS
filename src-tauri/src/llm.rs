@@ -325,7 +325,7 @@ fn local_models(root: &Path) -> Result<Vec<Model>, String> {
                 let Some(relative) = path.strip_prefix(base).ok().and_then(Path::to_str) else {
                     continue;
                 };
-                let id = relative.replace('\\', "/");
+                let id = relative.replace(std::path::MAIN_SEPARATOR, "/");
                 if model_id(&id, Provider::Local).is_ok() && language_gguf(&path) {
                     models.push(Model {
                         name: id.clone(),

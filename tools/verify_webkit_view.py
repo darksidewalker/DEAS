@@ -3,6 +3,8 @@ import ast
 import json
 from pathlib import Path
 import sys
+if sys.platform != 'linux':
+    sys.exit('Linux-only GTK/WebKit diagnostic; use portable Chromium fixtures on Windows.')
 import gi
 gi.require_version('Gtk','3.0')
 gi.require_version('WebKit2','4.1')
@@ -10,7 +12,7 @@ from gi.repository import Gtk, WebKit2, GLib
 
 URL=(sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:4197').rstrip('/')
 OUT=Path(sys.argv[2]) if len(sys.argv)>2 else Path.home()/'.hermes/cache/scratch/deas-webkit-view'
-module=ast.parse((Path(__file__).parent/'verify_projects.py').read_text())
+module=ast.parse((Path(__file__).parent/'verify_projects.py').read_text(encoding='utf-8'))
 INIT=next(ast.literal_eval(n.value) for n in module.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='INIT' for t in n.targets))
 CHECK=r"""JSON.stringify((()=>{
  const controls=Array.from(document.querySelectorAll('.wb-dock-sort')).map(e=>{
@@ -70,7 +72,7 @@ def main():
   window.destroy()
   assert not failures,failures
  assert all(abs(results[0]['stage'][key]-results[1]['stage'][key])<=1 for key in ['x','y','width','height']),results
- (OUT/'results.json').write_text(json.dumps(results,indent=2)+'\n')
+ (OUT/'results.json').write_text(json.dumps(results,indent=2)+'\n', encoding='utf-8')
  print('PASS: actual GTK/WebKit readable compact selectors, attached Run dropdown and no View shift on warning (IPC fixtures).')
 
 if __name__=='__main__':main()

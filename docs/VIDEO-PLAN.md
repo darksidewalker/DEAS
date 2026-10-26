@@ -242,5 +242,5 @@ Acceptance:
 ## How to verify
 - Frontend: `npx tsc --noEmit -p .`, `npx vitest run`, `node --experimental-strip-types --test tests/*.test.ts`.
 - Native: `cd src-tauri && cargo test --locked`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`.
-- Graphs: `cargo test --lib dump_video_graphs -- --ignored --nocapture` (and `dump_h3_edit_graph`), save the JSON line, then run `tools/validate_video_graphs.py <json>` with a ComfyUI checkout's venv; it uses a scratch input folder with an ffmpeg test clip. This proves node names, inputs and link types only.
+- Graphs: `cargo test --lib dump_video_graphs -- --ignored --nocapture` (and `dump_h3_edit_graph`), save the JSON line, then run `tools/validate_video_graphs.py <json> --comfy-root "<ComfyUI checkout>" --extra-model-paths-config "<model paths YAML>"` with a ComfyUI checkout's venv; it uses a scratch input folder with an ffmpeg test clip. This proves node names, inputs and link types only.
 - Browser fixtures: `tools/inpaint-fixture.html` via Vite (`tools/verify_inpaint.py` shows the harness).

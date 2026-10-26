@@ -1,34 +1,37 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,readFileSync,writeFileSync,mkdirSync,chmodSync,cpSync,existsSync,rmSync,readdirSync} from 'node:fs';
-import {join} from 'node:path';
+import {delimiter,join} from 'node:path';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 
 test('release staging rejects dirty/existing destinations and excludes stale bundles/targets',{skip:process.platform!=='linux'},()=>{
- const root=mkdtempSync(join(tmpdir(),'deas-release-'));
+ const root=mkdtempSync(join(tmpdir(),"deas release 猫 '-"));
  try{
   cpSync(new URL('../build-linux.sh',import.meta.url),join(root,'build-linux.sh'));
   writeFileSync(join(root,'package.json'),JSON.stringify({version:'1.2.3'}));
   mkdirSync(join(root,'node_modules'));mkdirSync(join(root,'bin'));
   for(const [name,body] of Object.entries({
    npm:'exit 0',rustc:'echo rustc-mock',
-   cargo:`if [ "$1" = xwin ]; then\n [ -f enable-xwin ] || exit 1\n [ "$2" != build ] || { mkdir -p src-tauri/target/x86_64-pc-windows-msvc/release; printf windows > src-tauri/target/x86_64-pc-windows-msvc/release/deas.exe; }\n exit 0\nfi\nmkdir -p src-tauri/target/release\nprintf binary > src-tauri/target/release/deas`,
-   npx:`[ ! -f fail-bundle ] || exit 1\nif [ "$2" = bundle ]; then\n [ "$*" = 'tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --no-sign' ]\n mkdir -p src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis\n printf installer > src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/fresh_x64-setup.exe\nelse\n mkdir -p src-tauri/target/release/bundle/{deb,appimage}\n printf deb > src-tauri/target/release/bundle/deb/fresh.deb\n printf image > src-tauri/target/release/bundle/appimage/fresh.AppImage\nfi`,
+   cargo:`if [ "$1" = xwin ]; then\n [ -f enable-xwin ] || exit 1\n [ "$2" != build ] || { mkdir -p "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release; printf windows > "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/deas.exe; }\n exit 0\nfi\nmkdir -p "$CARGO_TARGET_DIR"/release\nprintf binary > "$CARGO_TARGET_DIR"/release/deas`,
+   npx:`[ ! -f fail-bundle ] || exit 1\nif [ "$2" = bundle ]; then\n [ "$*" = 'tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --no-sign' ]\n mkdir -p "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/bundle/nsis\n printf installer > "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/bundle/nsis/fresh_x64-setup.exe\nelse\n mkdir -p "$CARGO_TARGET_DIR"/release/bundle/{deb,appimage}\n printf deb > "$CARGO_TARGET_DIR"/release/bundle/deb/fresh.deb\n printf image > "$CARGO_TARGET_DIR"/release/bundle/appimage/fresh.AppImage\nfi`,
   })){const path=join(root,'bin',name);writeFileSync(path,'#!/usr/bin/env bash\nset -e\n'+body+'\n');chmodSync(path,0o755);}
   const git=(...args:string[])=>execFileSync('git',args,{cwd:root});
   git('init','-q');git('add','build-linux.sh','package.json');git('-c','user.name=Test','-c','user.email=test@example.test','commit','-qm','fixture');
-  writeFileSync(join(root,'.git','info','exclude'),'bin/\nnode_modules/\nartifacts/\nsrc-tauri/\nfail-bundle\n');
-  const run=(...args:string[])=>spawnSync('bash',['build-linux.sh',...args],{cwd:root,env:{...process.env,PATH:join(root,'bin')+':'+process.env.PATH},encoding:'utf8'});
+  writeFileSync(join(root,'.git','info','exclude'),'bin/\nnode_modules/\nartifacts/\nsrc-tauri/\ncustom target 猫/\nfail-bundle\n');
+  const run=(...args:string[])=>spawnSync('bash',[join(root,'build-linux.sh'),...args],{cwd:tmpdir(),env:{...process.env,CARGO_TARGET_DIR:join(root,'custom target 猫'),PATH:join(root,'bin')+delimiter+process.env.PATH},encoding:'utf8'});
   writeFileSync(join(root,'untracked'),'dirty');
   assert.notEqual(run('--release').status,0,'untracked sources must reject release');
   assert.equal(existsSync(join(root,'artifacts')),false,'guard runs before build');
   assert.equal(run().status,0,'plain builds permit dirty sources');
+  const defaultTarget=spawnSync('bash',[join(root,'build-linux.sh')],{cwd:tmpdir(),env:{...process.env,CARGO_TARGET_DIR:'',PATH:join(root,'bin')+delimiter+process.env.PATH},encoding:'utf8'});
+  assert.equal(defaultTarget.status,0,defaultTarget.stderr);
+  assert.equal(existsSync(join(root,'src-tauri/target/release/deas')),true,'unset target directory keeps the default output layout');
   rmSync(join(root,'untracked'));
   writeFileSync(join(root,'package.json'),JSON.stringify({version:'1.2.4'}));
   assert.notEqual(run('--release').status,0,'tracked changes must reject release');
   git('checkout','--','package.json');
-  const deb=join(root,'src-tauri/target/release/bundle/deb');mkdirSync(deb,{recursive:true});
+  const deb=join(root,'custom target 猫/release/bundle/deb');mkdirSync(deb,{recursive:true});
   writeFileSync(join(deb,'stale.deb'),'stale');
   execFileSync('touch',['-t','200001010000',join(deb,'stale.deb')]);
   writeFileSync(join(root,'fail-bundle'),'fail');

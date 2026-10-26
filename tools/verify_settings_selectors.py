@@ -3,6 +3,8 @@ import ast
 import json
 from pathlib import Path
 import sys
+if sys.platform != 'linux':
+    sys.exit('Linux-only GTK/WebKit diagnostic; use portable Chromium fixtures on Windows.')
 import gi
 
 gi.require_version('Gtk', '3.0')
@@ -15,7 +17,7 @@ OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scr
 
 
 def fixture(name, variable):
-    tree = ast.parse((ROOT/'tools'/name).read_text())
+    tree = ast.parse((ROOT/'tools'/name).read_text(encoding='utf-8'))
     return next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == variable for t in n.targets))
 
@@ -105,7 +107,7 @@ def main():
                 window.show_all(); view.load_uri(URL); Gtk.main()
                 GLib.source_remove(timeout); window.destroy()
                 assert not failures, (installed, width, locale, failures)
-    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
     print(f'PASS: {len(results)} settings panel renders in actual GTK/WebKit; six locales, three widths, no writes/start/submit/upload. {OUT}')
 
 

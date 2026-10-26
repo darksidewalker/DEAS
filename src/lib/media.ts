@@ -16,12 +16,20 @@ export async function starMedia(path:string,unstar=false):Promise<MediaRelocatio
 export function relocatedMediaItem(item:MediaItem,move:MediaRelocation):MediaItem {
  return item.path===move.oldPath?{...item,path:move.path,name:move.path.split(/[\\/]/).at(-1)??item.name,src:isTauri()?convertFileSrc(move.path):move.path}:item;
 }
+/** Lexical display/matching only; native code owns canonical identity and containment. */
+export const normalizedMediaPath=(path:string)=>(/^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/.test(path)?path.replace(/\\/g,'/'):path).replace(/\/+$/,'');
+/** Convert a native location to a ComfyUI-relative name, never a sibling or traversal. */
+export function relativeMediaPath(path:string,root:string):string {
+ const prefix=normalizedMediaPath(root)+'/';const value=normalizedMediaPath(path);
+ const relative=root&&value.startsWith(prefix)?value.slice(prefix.length):'';
+ return relative&&!/[\\\x00-\x1f]/.test(relative)&&relative.split('/').every(p=>p&&p!=='.'&&p!=='..')?relative:'';
+}
 /** Repair location handles only; submitted intent/provenance stays immutable. */
 export function relocatedJob(job:JobStatus,root:string,move:MediaRelocation):JobStatus {
- const normalized=(path:string)=>path.replace(/\\/g,'/').replace(/\/+$/,'');
- const relative=normalized(move.path).slice(normalized(root).length+1);
- if(!normalized(move.path).startsWith(normalized(root)+'/'))return job;
- const outputs=job.outputs.map(output=>normalized([root,output.subfolder,output.filename].filter(Boolean).join('/'))===normalized(move.oldPath)?{...output,filename:relative.split('/').at(-1)!,subfolder:relative.split('/').slice(0,-1).join('/')}:output);
+ const relative=relativeMediaPath(move.path,root);
+ if(!relative)return job;
+ const oldRelative=relativeMediaPath(move.oldPath,root);
+ const outputs=job.outputs.map(output=>oldRelative&&relativeMediaPath(normalizedMediaPath(root)+'/'+[output.subfolder,output.filename].filter(Boolean).join('/'),root)===oldRelative?{...output,filename:relative.split('/').at(-1)!,subfolder:relative.split('/').slice(0,-1).join('/')}:output);
  return outputs.some((output,index)=>output!==job.outputs[index])?{...job,outputs}:job;
 }
 /** `depth` 1 = this folder only; deeper levels add files from subfolders with relative names. */

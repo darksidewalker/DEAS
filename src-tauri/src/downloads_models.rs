@@ -485,7 +485,7 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
             .strip_prefix(base)
             .map_err(|_| "Model outside its category folder")?
             .to_string_lossy()
-            .replace('\\', "/"),
+            .into_owned(),
         size: meta.len(),
         info,
         component,
@@ -803,7 +803,10 @@ mod tests {
         let models = scan(root.path()).unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].category, "loras");
-        assert_eq!(models[0].name, "Anima/a.safetensors");
+        assert_eq!(
+            models[0].name,
+            Path::new("Anima").join("a.safetensors").to_str().unwrap()
+        );
         assert_eq!(models[0].info.as_ref().unwrap(), &cached);
         assert_eq!(models[1].category, "vae");
         assert!(models[1].info.is_none());

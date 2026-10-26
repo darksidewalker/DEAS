@@ -17,6 +17,8 @@ If an LLM entry point (including Prompt Forge, inline writers and Director/Conti
 
 ## Prompt Forge
 
+Ordinary native image-prompt modes offer every fixed aspect preset from the main Settings, including portrait and ultrawide. **Any** (`N/A`) adds no aspect hint. Known older labelled choices are read without rewriting saved per-target preferences. The selected fixed ratio is sent as prompt-writing context through Write and Refine; Send-to-Generate still transfers prompt text only, not image dimensions. Auto/Custom and full MOSS Layout JSON ratio parity are deferred; Layout JSON keeps its existing pack choices/canvas sizes.
+
 Studio and the Prompt Forge tab use one shared Media panel: Search, Newest/Name/Size sorting, media-type filtering, Tiles/Large thumbnails/List views, folder tree, Depth, folder chooser, Output/Starred/Input shortcuts and the same native star/reveal behavior. Each host retains its own search, sorting and view state. Forge still adds only pictures from the backend Input folder as prompt references, keeps its mode-specific limits/labels, and never copies or uploads Output files merely by browsing. Choose Input before selecting reference pictures; Write and Send to Generate remain explicit.
 
 Prompt Forge writes or enhances prompts in the dialect of the selected model. It has two engines:

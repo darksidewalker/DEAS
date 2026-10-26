@@ -6,8 +6,8 @@ import email
 import hashlib
 import html.parser
 import json
-import os
 import pathlib
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -61,8 +61,8 @@ if __name__ == '__main__':
     matrix = [('cu130', 'torch', '2.14.1'), ('cu130', 'torchvision', '0.29.1'), ('cu130', 'torchaudio', '2.11.0'), ('cu121', 'torch', '2.4.1'), ('cu121', 'torchvision', '0.19.1'), ('cu121', 'torchaudio', '2.4.1'), ('cpu', 'torch', '2.8.0'), ('cpu', 'torchvision', '0.23.0'), ('cpu', 'torchaudio', '2.8.0')]
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(check, matrix))
-    report = pathlib.Path(os.environ['TMPDIR']) / 'deas-wheel-metadata.json'
-    report.write_text(json.dumps(results, indent=2))
+    report = pathlib.Path(tempfile.gettempdir()) / 'deas-wheel-metadata.json'
+    report.write_text(json.dumps(results, indent=2), encoding='utf-8')
     for result in results:
         print(result['index'], result['package'], result['version'], 'HEAD', result['headStatus'])
     print('Metadata report:', report)

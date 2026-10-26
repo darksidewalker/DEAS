@@ -95,7 +95,7 @@ def main():
                 results.append({'locale': locale, 'width': width, 'autosaves': sum(c['command'] == 'native_project_save' for c in calls)})
                 context.close()
         browser.close()
-    (OUT / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+    (OUT / 'results.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
     print(f'PASS: {len(results)} Chromium locale/viewport cases; close blocked before save, allowed after save, draft reopen, global preservation and no execution/upload.')
 
 

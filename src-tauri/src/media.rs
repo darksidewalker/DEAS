@@ -302,9 +302,7 @@ pub fn native_media_describe(paths: Vec<String>) -> Result<Vec<MediaEntry>, Stri
 /// the file). The path is passed as one argument, never through a shell, and must exist.
 #[tauri::command]
 pub fn native_media_reveal(path: String) -> Result<(), String> {
-    let file = absolute(&path)?
-        .canonicalize()
-        .map_err(|e| format!("{path}: {e}"))?;
+    let file = dunce::canonicalize(absolute(&path)?).map_err(|e| format!("{path}: {e}"))?;
     #[cfg(target_os = "linux")]
     let mut cmd = {
         let dir = if file.is_dir() {

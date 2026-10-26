@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 URL = (sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:4197').rstrip('/')
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home()/'.hermes/cache/scratch'/('deas-studio-controls-'+datetime.now().strftime('%Y%m%d-%H%M%S'))
-module = ast.parse((ROOT/'tools/verify_workbench.py').read_text())
+module = ast.parse((ROOT/'tools/verify_workbench.py').read_text(encoding='utf-8'))
 FIXTURE = next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'fixture' for t in n.targets))
 EXTRA = r"""
 if(command==='plugin:event|listen'||command==='plugin:event|unlisten'||command==='native_project_close_notice')return 1;
@@ -121,7 +121,7 @@ def main():
                 results.append({'locale': locale, 'width': width, 'run_inside_queue': True})
                 context.close()
         browser.close()
-    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+    (OUT/'results.json').write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
     print(f'PASS: {len(results)} locale/viewport cases; pointer drag/cancel, persistence, independent header resets, project/global isolation, active-project Run bounds. Evidence: {OUT}')
 
 

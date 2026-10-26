@@ -3,7 +3,7 @@ import { backendErrorText } from '../../lib/backendErrors';
 import { browseDownloads, planDownloads, startDownloads } from '../../lib/downloads';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { DiagnosticImageIntentV1, RecipeAllowlist } from '../../lib/execution';
+import { nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { RunPlan } from './RunPlan';
@@ -16,7 +16,7 @@ import { ComponentPicker } from './ComponentPicker';
 import { ReferencePeople, type FramePeople, ReferencesPanel, directorTags, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
-import { dragItem, draggedItem, MEDIA_DRAG, MEDIA_IMAGE_DRAG, relocatedJob, relocatedMediaItem, type MediaItem, type MediaRelocation } from '../../lib/media';
+import { dragItem, draggedItem, MEDIA_DRAG, MEDIA_IMAGE_DRAG, relativeMediaPath, relocatedJob, relocatedMediaItem, type MediaItem, type MediaRelocation } from '../../lib/media';
 import { isBoolean, isString, oneOf, readPref, usePref, PreferencePersistenceContext, resetStudioPreferences } from '../../lib/preferences';
 import { ProjectBar } from '../projects/ProjectBar';
 import type { ImageDraft, ProjectSnapshot } from '../../lib/projects';
@@ -220,7 +220,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  // Remembered picks are only valid while the folder still holds them.
  const byName=(a:LocalModel,b:LocalModel)=>a.name.localeCompare(b.name);
  // Tiles show the file name without folder (the tree shows it) and model extension; the full name stays the accessible name.
- const shortName=(n:string)=>(n.split('/').pop()??n).replace(/\.(safetensors|sft|ckpt|pt|pth|gguf)$/i,'');
+ const shortName=(n:string)=>(n.split(/[\\/]/).pop()??n).replace(/\.(safetensors|sft|ckpt|pt|pth|gguf)$/i,'');
  const familyOf=(m?:LocalModel)=>m?.family?families.get(m.family):undefined;
  // Content-detected components take precedence; unknown formats retain the family filename hints.
  const parts=(f?:Family)=>f?.loader==='diffusion'?{encoders:componentFiles(models??[],f,'textEncoders',componentOverrides.textEncoders),vaes:componentFiles(models??[],f,'vaes',componentOverrides.vaes),audioVaes:componentFiles(models??[],f,'audioVaes',componentOverrides.audioVaes),projections:componentFiles(models??[],f,'textProjections',componentOverrides.textProjections)}:null;
@@ -241,17 +241,17 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const sorts=dockTab==='media'?['date','name','size'] as const:['name','size'] as const;
  const sort=(sorts as readonly string[]).includes(sortPref)?sortPref:sorts[0];
  const [folders,setFolders]=useState<Record<string,string>>({});const folder=folders[dockTab]??'';
- const match=(m:LocalModel)=>(!folder||m.name.startsWith(folder+'/'))&&m.name.toLowerCase().includes(query.trim().toLowerCase());
+ const match=(m:LocalModel)=>(!folder||m.name.replace(/\\/g,'/').startsWith(folder+'/'))&&m.name.toLowerCase().includes(query.trim().toLowerCase());
  // Model names carry their subfolders (`sdxl/base.safetensors`); the tree is those prefixes, always open, filtering the tiles beside it.
  const folderTree=(list:LocalModel[])=>{
-  const dirs=new Set(list.flatMap(m=>m.name.split('/').slice(0,-1).map((_,i,p)=>p.slice(0,i+1).join('/'))));
+  const dirs=new Set(list.flatMap(m=>m.name.split(/[\\/]/).slice(0,-1).map((_,i,p)=>p.slice(0,i+1).join('/'))));
   const node=(path:string,label:string):React.ReactNode=><li key={path}><div className="media-folder-row"><button type="button" className="media-folder-name" aria-current={folder===path?'location':undefined} onClick={()=>setFolders({...folders,[dockTab]:path})}>{label}</button></div>
    <ul>{[...dirs].filter(d=>d.slice(0,Math.max(d.lastIndexOf('/'),0))===path).sort().map(d=>node(d,d.slice(d.lastIndexOf('/')+1)))}</ul></li>;
   return dirs.size>0&&<nav className="media-folders" aria-label={t('media.folders')}><ul>{node('',t(`studio.run.dock.${dockTab}`))}</ul></nav>;
  };
  const bySort=(a:LocalModel,b:LocalModel)=>sort==='size'?b.size-a.size:byName(a,b);
  // ComfyUI's LoadImage reads its input folder, and its output folder through the `name [output]` annotation (resolved and contained by ComfyUI).
- const under=(item:MediaItem|null,root?:string)=>item?.media==='image'&&item.path&&root&&item.path.startsWith(root+'/')?item.path.slice(root.length+1):'';
+ const under=(item:MediaItem|null,root?:string)=>item?.media==='image'&&item.path&&root?relativeMediaPath(item.path,root):'';
  // The overview names the picture only; the full ComfyUI name (folders, `[output]`) stays in the tooltip.
  const fileName=(name:string)=>(name.replace(/ \[output\]$/,'').split('/').pop()??name);
  const comfyName=(item:MediaItem|null)=>under(item,roots.input)||(under(item,outputDir)&&`${under(item,outputDir)} [output]`);
@@ -279,6 +279,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const referenceMethod=(pipeline==='t2i'||pipeline==='i2i')?family?.imagePrompting:undefined;
  const revisionOk=referenceMethod==='revision';
  const qwenRefs=referenceMethod==='qwen-image-2.1'&&imageRefs.length>0;
+ const promptEncoder=imageRefs.length&&referenceMethod&&referenceMethod!=='revision'?nativeImageReferenceEncoders[referenceMethod]:'CLIPTextEncode';
  const validReference=(item:MediaItem|null):item is MediaItem&{path:string}=>!!item&&item.media==='image'&&typeof item.path==='string'&&!item.path.includes('\0')&&/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(item.path);
  const promptImage=(dt:DataTransfer)=>draggedItem(dt)??droppedImage(dt);
  const recommended=family?{textEncoders:componentFiles(models??[],family,'textEncoders'),vaes:componentFiles(models??[],family,'vaes'),audioVaes:componentFiles(models??[],family,'audioVaes'),textProjections:componentFiles(models??[],family,'textProjections')}:null;
@@ -319,7 +320,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const unavailable=[
   ...mossIssues.map(i=>t('studio.run.moss.plain',{name:i.name})),
   ...(imageRefs.length&&!referenceMethod?[t('studio.run.reference.inactive')]:[]),
-  ...(imageRefs.length&&referenceMethod?(!choices?[t('studio.run.opt.unread')]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:referenceMethod==='qwen-image-2.1'?['TextEncodeQwenImage21','LoadImage','ImageScale']:['DEAS_ImagePromptEncode','LoadImage']).filter(n=>!choices.nodes.includes(n))):[]),
+  ...(imageRefs.length&&referenceMethod?(!choices?[t('studio.run.opt.unread')]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:[promptEncoder,'LoadImage',...(qwenRefs?['ImageScale']:[])]).filter(n=>!choices.nodes.includes(n))):[]),
   ...(models?loras.filter(l=>!loraNames.includes(l.name)).map(l=>`LoRA: ${l.name}`):[]),
   ...(split&&!split.encoders.includes(textEncoder)?[textEncoder||t('studio.run.textEncoder')]:[]),
   ...(split&&!split.vaes.includes(vae)?[vae||t('studio.run.vae')]:[]),
@@ -351,7 +352,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  if(moss){
   // Check this variant's emitted nodes, not the checkpoint diagnostic's missingNodes.
   const saver=['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig'].every(n=>choices?.nodes.includes(n))?['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']:['SaveImage'];
-  const required=['UNETLoader','CLIPLoader','VAELoader','CLIPTextEncode','KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
+  const required=['UNETLoader','CLIPLoader','VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
   unavailable.push(...(!choices?[t('studio.run.opt.unread')]:[...required.filter(n=>!choices.nodes.includes(n)),...(!choices.clipTypes?.includes('moss_image')?['CLIPLoader: moss_image']:[])]));
  }
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.

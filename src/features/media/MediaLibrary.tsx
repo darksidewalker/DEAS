@@ -2,14 +2,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
-import { describeMedia, dragItem, itemFromEntry, itemFromFile, listMedia, type MediaEntry, type MediaItem, type MediaListing } from '../../lib/media';
+import { describeMedia, dragItem, itemFromEntry, itemFromFile, listMedia, normalizedMediaPath as normalizedPath, type MediaEntry, type MediaItem, type MediaListing } from '../../lib/media';
 import { usePref } from '../../lib/preferences';
 import { StarMediaButton } from './StarMediaButton';
 import { relocatedMediaItem, type MediaRelocation } from '../../lib/media';
 import './media.css';
 const depths=[1,2,3,4,5];
 const isDepth=(v:unknown):v is number=>typeof v==='number'&&depths.includes(v);
-const normalizedPath=(path:string)=>path.replace(/\\/g,'/').replace(/\/+$/,'');
+
+const treeAnchor=(path:string)=>/^(?:\/|[A-Za-z]:[\\/])$/.test(path)?path:path.replace(/[\\/]+$/,'');
 const underRoot=(path:string,root?:string)=>!!root&&(normalizedPath(path)===normalizedPath(root)||normalizedPath(path).startsWith(normalizedPath(root)+'/'));
 // Session caches: same-folder refreshes paint instantly; thumbnails skip the IPC round trip.
 const listings=new Map<string,MediaListing>();
@@ -87,7 +88,7 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
   const v=++version.current;
   // Cached refreshes may paint immediately, but navigation commits only after a successful listing.
   const key=`${path}\0${levels}`;const cached=listing?.path===path?listings.get(key):undefined;if(cached){setListing(cached);setError('');}
-  try{const next=await listMedia(path,levels);listings.set(key,next);if(v===version.current){setListing(next);setError('');setDirectories(d=>({...d,[next.path]:next}));setFolderErrors(errors=>({...errors,[next.path]:''}));setTreeRoot(root=>underRoot(next.path,roots.output)?roots.output!.replace(/[\\/]+$/,''):underRoot(next.path,roots.input)?roots.input!.replace(/[\\/]+$/,''):!picked&&underRoot(next.path,root)?root:next.path);setExpanded(paths=>new Set([...paths,next.path]));}}
+  try{const next=await listMedia(path,levels);listings.set(key,next);if(v===version.current){setListing(next);setError('');setDirectories(d=>({...d,[next.path]:next}));setFolderErrors(errors=>({...errors,[next.path]:''}));setTreeRoot(root=>underRoot(next.path,roots.output)?treeAnchor(roots.output!):underRoot(next.path,roots.input)?treeAnchor(roots.input!):!picked&&underRoot(next.path,root)?root:next.path);setExpanded(paths=>new Set([...paths,next.path]));}}
   catch(e){listings.delete(key);if(v===version.current){setError(String(e));if(cached)setListing(l=>l===cached?null:l);}} // a stale cached view must not outlive a folder that failed to list
  };
  // The output folder is the natural start once an environment is known; before that, home.
@@ -160,7 +161,8 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
   </li>;
  };
  // Only images get real thumbnails: video elements would open one GStreamer pipeline per tile in WebKitGTK.
- const mark=(path?:string)=>path?marks?.get(path):undefined;
+ const pathMarks=useMemo(()=>new Map([...(marks??[])].map(([path,label])=>[normalizedPath(path),label])),[marks]);
+ const mark=(path?:string)=>path?pathMarks.get(normalizedPath(path)):undefined;
  // Beside the button, so the tile's accessible name stays the file name.
  const badge=(path?:string)=>mark(path)&&<span className="media-mark">{mark(path)}</span>;
  const thumb=(media:string|null,src:string|null)=>media==='image'&&src?<img src={src} alt="" loading="lazy"/>:<span className="media-glyph" aria-hidden="true">{media==='video'?'▶':media==='audio'?'♪':'▸'}</span>;

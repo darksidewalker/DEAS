@@ -27,6 +27,11 @@ test('MOSS maps only matching companion identities and leaves renamed packed enc
  expect(componentFiles(files,moss,'vaes',true)).not.toContain('mossImage_sft_txt_int4.safetensors');
 });
 
+test('Windows model subfolders do not satisfy filename hints and exact model identifiers survive selection',()=>{
+ const files=[model('text_encoders','qwen_3_600m\\unrelated.gguf'),model('text_encoders','folder\\qwen_3_600m.gguf')];
+ expect(componentFiles(files,family,'textEncoders')).toEqual(['folder\\qwen_3_600m.gguf']);
+});
+
 test('component overrides default off and restored values require every boolean flag',()=>{
  expect(Object.values(defaultComponentOverrides).every(value=>value===false)).toBe(true);
  expect(isComponentOverrides({...defaultComponentOverrides,textEncoders:true})).toBe(true);

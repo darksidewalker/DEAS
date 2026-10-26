@@ -13,6 +13,25 @@ afterEach(()=>{cleanup();vi.mocked(isTauri).mockReturnValue(false);os.drop=null;
 const item=(name:string,media:MediaItem['media']):MediaItem=>({name,media,src:`asset://${name}`,path:`/in/${name}`});
 const ref=(name:string,media:MediaItem['media'],x:Partial<VideoRef>={}):VideoRef=>({item:item(name,media),second:0,strength:1,mediaMode:'video',...x});
 
+test.each([
+ ['C:\\env\\in\\','C:\\env\\in\\sub\\a.png'],
+ ['C:/env/in/','C:\\env\\in\\sub\\a.png'],
+ ['/env/in/','/env/in/sub/a.png'],
+])('reference packs and Forge share protocol-relative names (%s)',(inputRoot,path)=>{
+ const refs=[ref('a.png','image',{item:{...item('a.png','image'),path}})];
+ const {pack,skipped}=toPack(refs,inputRoot);
+ expect(pack.items[0].value).toBe('sub/a.png');expect(skipped).toEqual([]);
+ const context=h3ForgeContext({pipeline:'i2v',media:refs[0].item,lastFrame:null,refs:[],sourceAudio:false,seconds:5,canvas:{width:512,height:512},inputRoot});
+ expect(context.references[0].path).toBe('sub/a.png');
+ expect(fromPack(pack,inputRoot)!.adds[0].path).toBe(inputRoot.replace(/\\/g,'/').replace(/\/+$/,'')+'/sub/a.png');
+});
+test('reference packs never rewrite Linux backslash filenames into different files',()=>{
+ const refs=[ref('a\\b.png','image')];
+ expect(toPack(refs,'/in').skipped).toEqual(['a\\b.png']);
+ const context=h3ForgeContext({pipeline:'i2v',media:refs[0].item,lastFrame:null,refs:[],sourceAudio:false,seconds:5,canvas:{width:512,height:512},inputRoot:'/in'});
+ expect(context.references[0].path).toBeUndefined();
+});
+
 test('Director labels follow the node load order: images, then video items (picture and/or sound), then audio files, each by slot',()=>{
  // An audio file picked before a sound-only video still comes after it, as in the Director's prefill and the node.
  const refs=[ref('song.wav','audio'),ref('talk.mp4','video',{mediaMode:'audio'}),ref('walk.mp4','video',{mediaMode:'video_audio'}),ref('a.png','image'),ref('b.png','image')];

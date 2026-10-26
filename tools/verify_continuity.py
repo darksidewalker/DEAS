@@ -165,7 +165,7 @@ def main():
                 results.append({'locale': locale, 'width': width, 'sourceKind':source_kind, 'modal': True, 'focus': True, 'draftRetained': True, 'nextActionApplied': True, 'nestedEscape': True})
                 context.close()
         browser.close()
-    (OUT / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+    (OUT / 'results.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
     print(f'PASS: {len(results)} Chromium locale/viewport cases; explicit checkpoint/backend-video/local-upload flows, no generation IPC. Evidence: {OUT}')
 
 

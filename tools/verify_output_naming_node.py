@@ -11,7 +11,7 @@ out=Path(sys.argv[2]).resolve()
 out.mkdir(parents=True,exist_ok=True)
 js="""import {outputPrefix,defaultOutputNaming} from './src/lib/outputNaming.ts';
 console.log(outputPrefix(defaultOutputNaming,{type:'image',seed:42,model:'folder/My Model.safetensors'},new Date(2026,0,2,3,4,5)));"""
-prefix=subprocess.check_output(['node','--experimental-strip-types','--input-type=module','-e',js],cwd=root,text=True).strip()
+prefix=subprocess.check_output(['node','--experimental-strip-types','--input-type=module','-e',js],cwd=root,text=True,encoding='utf-8').strip()
 assert prefix=='image/2026-01-02/03-04-05-42-My-Model',prefix
 sys.argv=['output-naming-probe','--cpu']
 sys.path.insert(0,str(comfy))

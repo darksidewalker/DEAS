@@ -14,6 +14,6 @@ export function componentFiles(models:readonly LocalModel[],family:ComponentFami
  const categories=slot==='vaes'||slot==='audioVaes'?['vae']:['text_encoders','clip'];
  return [...new Set(models.filter(model=>categories.includes(model.category)&&(all||(model.component
   ?family.components?.[slot]?.includes(model.component)
-  :(family[slot]??[]).some(pattern=>(model.name.split('/').pop()??'').toLowerCase().includes(pattern)))))
+  :(family[slot]??[]).some(pattern=>(model.name.split(/[\\/]/).pop()??'').toLowerCase().includes(pattern)))))
   .map(model=>model.name))].sort((a,b)=>a.localeCompare(b));
 }

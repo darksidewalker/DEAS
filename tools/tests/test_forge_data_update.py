@@ -6,6 +6,7 @@ import sys
 import unittest
 import tempfile
 import shutil
+import sqlite3
 import hashlib
 import importlib.util
 from unittest import mock
@@ -47,7 +48,7 @@ class ForgeDataUpdateTests(unittest.TestCase):
         pack["source"]["commit"] = sha
         raw = (json.dumps(pack, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
         (data / "forge-pack.json").write_bytes(raw)
-        manifest = json.loads((data / "MANIFEST.json").read_text())
+        manifest = json.loads((data / "MANIFEST.json").read_text(encoding='utf-8'))
         manifest["commit"] = sha
         manifest["files"]["forge-pack.json"].update(sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
         (data / "MANIFEST.json").write_text(json.dumps(manifest))
@@ -61,7 +62,7 @@ class ForgeDataUpdateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["status"], "current")
         self.assertEqual(git("status", "--porcelain"), before)
-        self.assertEqual((repo / "README.md").read_text(), "uncommitted private edit")
+        self.assertEqual((repo / "README.md").read_text(encoding='utf-8'), "uncommitted private edit")
 
     def test_update_refuses_changed_license_before_execution(self):
         repo, data, git = self.fixture()
@@ -102,16 +103,47 @@ class ForgeDataUpdateTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("forge_updater", TOOL)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        pack = json.loads((data / "forge-pack.json").read_text())
+        pack = json.loads((data / "forge-pack.json").read_text(encoding='utf-8'))
         pack["models"].pop("moss")
         raw = (json.dumps(pack, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
         (data / "forge-pack.json").write_bytes(raw)
-        manifest = json.loads((data / "MANIFEST.json").read_text())
+        manifest = json.loads((data / "MANIFEST.json").read_text(encoding='utf-8'))
         manifest["files"]["forge-pack.json"].update(sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
         (data / "MANIFEST.json").write_text(json.dumps(manifest))
         with self.assertRaises(ValueError) as error:
             module.validate_data(data)
         self.assertIn("moss", str(error.exception))
+
+    def test_readonly_database_uri_preserves_spaces_unicode_and_fragments(self):
+        module = self.module()
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "tags 猫 # 100%.sqlite"
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TABLE sample (value TEXT)")
+                db.execute("INSERT INTO sample VALUES ('held')")
+            db.close()
+            connection = module.database(path)
+            try:
+                self.assertEqual(connection.execute("SELECT value FROM sample").fetchone(), ("held",))
+                with self.assertRaises(sqlite3.OperationalError):
+                    connection.execute("DELETE FROM sample")
+            finally:
+                connection.close()
+
+    def test_validation_closes_databases_before_scratch_cleanup(self):
+        module = self.module()
+        connections = []
+        connect = module.database
+        def track(path):
+            connection = connect(path)
+            connections.append(connection)
+            return connection
+        with mock.patch.object(module, "database", side_effect=track):
+            module.validate_data(ROOT / "src-tauri/forge-data")
+        self.assertEqual(len(connections), 2)
+        for connection in connections:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
 
     def test_verify_current_bundled_data(self):
         result = subprocess.run([sys.executable, str(TOOL), "--verify"], capture_output=True, text=True)
