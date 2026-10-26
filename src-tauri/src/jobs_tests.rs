@@ -1520,6 +1520,12 @@ fn options_chain_model_patches_and_tile_the_vae() {
         compile(&sage).unwrap()["5"]["inputs"]["model"],
         json!(["K", 0])
     );
+    let mut krea = intent();
+    krea["diffusion"] = json!({"textEncoder":"qwen3vl_4b.safetensors","clipType":"krea2","vae":"v.safetensors"});
+    krea["options"] = json!({"compile":"inductor","cache":{"node":"EasyCache","threshold":0.2}});
+    let krea_graph = compile(&krea).unwrap();
+    assert!(krea_graph.get("T").is_none(), "Krea2 must not get the torch.compile patch");
+    assert_eq!(krea_graph["5"]["inputs"]["model"], json!(["E", 0]));
     let mut empty = intent();
     empty["options"] = json!({});
     assert_eq!(compile(&empty).unwrap(), compile(&intent()).unwrap());

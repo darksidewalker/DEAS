@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Skip the Workbench torch.compile patch for Krea2 recipes: the inductor graph feeds fp32 latents into Krea2's fp16 weights and crashes on the first sampler step ("mat1 and mat2 must have the same dtype, but got Half and Float"). Compile stays available for all other families. The DEAS log shows an explicit line when the patch is skipped.
+
 ## 0.1.49
 
 - Add every fixed main-Settings aspect preset to ordinary native Prompt Forge modes. Preserve no-hint behavior, per-target saved choices and legacy labels; MOSS Layout JSON retains its existing pack canvases. Auto/custom and full layout/Generate geometry remain deferred.

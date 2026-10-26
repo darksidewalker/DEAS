@@ -620,7 +620,16 @@ fn compile(i: &Value) -> Result<Value, String> {
         );
     }
     if let Some(b) = o["compile"].as_str() {
-        patch("T", "TorchCompileModel", json!({"backend":b}));
+        // shortcut: torch.compile on Krea2 crashes on the first step (inductor addmm gets fp32 latents
+        // against fp16 weights: "Half and Float"). Upgrade when upstream Krea2 compiles with fp16 weights.
+        if !diffusion.is_some_and(|d| d["clipType"] == "krea2") {
+            patch("T", "TorchCompileModel", json!({"backend":b}));
+        } else {
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("Options: torch.compile ({b}) ignored for Krea2 — fp32 latents against fp16 weights crash the compiled graph."),
+            );
+        }
     }
     graph["2"]["inputs"]["clip"] = clip.clone();
     graph["3"]["inputs"]["clip"] = clip;
