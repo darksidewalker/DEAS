@@ -1055,9 +1055,10 @@ pub(crate) fn model_name(s: &str) -> bool {
 /// `Folder/file`; compare separators-normalized (the loaders accept both, per `comfy_model_name`).
 fn listed(available: &[serde_json::Value], field: &str, name: &str) -> bool {
     (field == "images" && name.starts_with("deas-inputs/"))
-        || available
-            .iter()
-            .any(|v| v.as_str().is_some_and(|a| a.replace('\\', "/") == name.replace('\\', "/")))
+        || available.iter().any(|v| {
+            v.as_str()
+                .is_some_and(|a| a.replace('\\', "/") == name.replace('\\', "/"))
+        })
 }
 
 const MASK_FOLDER: &str = "deas-masks";

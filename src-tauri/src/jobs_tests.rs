@@ -1547,12 +1547,24 @@ fn diagnostic_availability_ignores_windows_separators() {
     ]
     .map(|s| json!(s));
     for field in ["diffusionModels", "checkpoints"] {
-        assert!(listed(&available, field, "Anima\\dasiwaAnima_obsidianArchivesV2+Int8.safetensors"));
-        assert!(listed(&available, field, "Anima/dasiwaAnima_obsidianArchivesV2+Int8.safetensors"));
+        assert!(listed(
+            &available,
+            field,
+            "Anima\\dasiwaAnima_obsidianArchivesV2+Int8.safetensors"
+        ));
+        assert!(listed(
+            &available,
+            field,
+            "Anima/dasiwaAnima_obsidianArchivesV2+Int8.safetensors"
+        ));
         assert!(listed(&available, field, "top.safetensors"));
         assert!(!listed(&available, field, "Anima\\other.safetensors"));
     }
-    assert!(listed(&[], "images", "deas-inputs/550e8400-e29b-41d4-a716-446655440000.png"));
+    assert!(listed(
+        &[],
+        "images",
+        "deas-inputs/550e8400-e29b-41d4-a716-446655440000.png"
+    ));
     assert!(!listed(&[], "diffusionModels", "deas-inputs/x.safetensors"));
 }
 
