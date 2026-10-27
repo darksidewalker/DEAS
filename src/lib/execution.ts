@@ -279,7 +279,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     }
   }
   const prefix = input.outputPrefix;
-  if (!safeOutputPrefix(prefix)) invalid('outputPrefix', 'Unsafe output prefix.', 'Use a relative output path of at most 512 ASCII characters, with safe segments of at most 180 characters.');
+  if (!safeOutputPrefix(prefix) || (input.refine !== undefined && !safeOutputPrefix(`${prefix}_original`))) invalid('outputPrefix', 'Unsafe output prefix.', 'Use a relative output path of at most 512 ASCII characters, with safe segments of at most 180 characters, including the _original suffix when refining.');
   return input as unknown as DiagnosticImageIntentV1;
 }
 
@@ -428,6 +428,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     const graph = result.graph as Record<string, ApiNode>;
     const r = intent.refine;
     let image = graph['7'].inputs.images as ApiLink;
+    // shortcut: sibling savers cannot guarantee pre-failure retention; add a supported save dependency when that guarantee is required.
+    graph.B7 = { ...graph['7'], inputs: { ...graph['7'].inputs, filename_prefix: `${intent.outputPrefix}_original` } };
     if (r.upscaleModel) {
       graph.RL = { class_type: 'UpscaleModelLoader', inputs: { model_name: r.upscaleModel } };
       graph.RU = { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['RL', 0], image } };
@@ -457,7 +459,9 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig'].every(node => allowlist.nodes.includes(node))) {
     const graph = result.graph as Record<string, ApiNode>;
     graph.M = { class_type: 'DaSiWa_MetadataConfig', inputs: { save_workflow: true, model_hash: '', node_positive: ['2', 0], node_negative: ['3', 0], node_model: ['1', 0], node_latent: ['5', 0] } };
-    graph['7'] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph['7'].inputs.images, filename_prefix: intent.outputPrefix, file_format: intent.imageFormat ?? 'png', compression: intent.imageCompression ?? 44, save_output: true, metadata_config: ['M', 0] } };
+    for (const id of intent.refine ? ['7', 'B7'] : ['7']) {
+      graph[id] = { class_type: 'DaSiWa_MetadataImageSaver', inputs: { images: graph[id].inputs.images, filename_prefix: graph[id].inputs.filename_prefix, file_format: intent.imageFormat ?? 'png', compression: intent.imageCompression ?? 44, save_output: true, metadata_config: ['M', 0] } };
+    }
   }
   if (intent.wildcard) {
     const graph=result.graph as Record<string,ApiNode>;

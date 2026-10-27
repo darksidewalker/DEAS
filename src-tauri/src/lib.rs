@@ -1,5 +1,9 @@
 pub mod auth;
 pub mod video;
+pub mod video_post;
+#[cfg(feature = "video-upscale")]
+pub mod video_upscale;
+pub use video_post::native_video_post_inspect;
 #[cfg(windows)]
 pub(crate) mod win;
 pub use auth::{

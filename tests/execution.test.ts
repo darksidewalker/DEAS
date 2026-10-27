@@ -422,6 +422,43 @@ test('options chain model patches after LoRAs, tile the VAE and must be listed b
   }
 });
 
+test('paired baseline saves the complete first pass without extra sampling for every refine path', () => {
+  const nodes = [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'LoadImageMask', 'SetLatentNoiseMask', 'ImageCompositeMasked', 'ImageCrop', 'ImageScale', 'CropMask', 'MaskToImage', 'ImageToMask', 'UpscaleModelLoader', 'ImageUpscaleWithModel', 'VAEDecodeTiled', 'VAEEncodeTiled', 'DaSiWaTiledDiffusion', 'RandomNoise', 'CFGGuider', 'KSamplerSelect', 'ManualSigmas', 'SamplerCustomAdvanced'];
+  const mask = 'deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png';
+  const variants = [
+    {},
+    { refine: { width: 1024, height: 1536, denoise: 0.3, upscaleModel: '2x-Sharp.safetensors' } },
+    { inputImage: 'ref.png', denoise: 0.4, inputMask: mask, inpaintCrop: { x: 16, y: 16, width: 128, height: 128, targetWidth: 256, targetHeight: 256 } },
+    { options: { vaeTile: 512 }, refine: { width: 1024, height: 1536, denoise: 0.3, tiled: { tileWidth: 512, tileHeight: 512, overlap: 64 } } },
+    { steps: 2, sigmas: [1, 0.5, 0], refine: { width: 512, height: 768, denoise: 0.3, sigmas: [0.5, 0] } },
+  ];
+  for (const metadata of [[], ['DaSiWa_MetadataImageSaver'], ['DaSiWa_MetadataConfig'], ['DaSiWa_MetadataImageSaver', 'DaSiWa_MetadataConfig']]) {
+    const lists = { ...allowlist, nodes: [...nodes, ...metadata], images: ['ref.png'], upscaleModels: ['2x-Sharp.safetensors'] };
+    for (const variant of variants) {
+      const input = { ...intent, refine: { width: 512, height: 768, denoise: 0.3 }, ...variant, imageFormat: 'webp', imageCompression: 73 };
+      const graph = compileRecipe(input, lists).graph;
+      const { refine: _, ...first } = input;
+      const before = compileRecipe(first, lists).graph;
+      assert.deepEqual(graph.B7, { ...before['7'], inputs: { ...before['7'].inputs, filename_prefix: `${intent.outputPrefix}_original` } });
+      assert.deepEqual(graph['7'].inputs.images, ['R6', 0]);
+      assert.equal(graph['7'].inputs.filename_prefix, intent.outputPrefix);
+      for (const [id, node] of Object.entries(before)) if (id !== '7') assert.deepEqual(graph[id], node, id);
+      assert.equal(Object.values(graph).filter(n => ['KSampler', 'SamplerCustomAdvanced'].includes(n.class_type)).length, 2);
+      for (const id of ['7', 'B7']) {
+        assert.equal(graph[id].class_type, metadata.length === 2 ? 'DaSiWa_MetadataImageSaver' : 'SaveImage');
+        if (metadata.length === 2) { assert.equal(graph[id].inputs.file_format, 'webp'); assert.equal(graph[id].inputs.compression, 73); }
+      }
+      assert.equal(before.B7, undefined);
+    }
+    rejects({ ...intent, refine: { width: 512, height: 768, denoise: 0.3 } }, { ...lists, nodes: [] }, 'MISSING_CAPABILITY', 'CheckpointLoaderSimple');
+  }
+  const refine = { width: 512, height: 768, denoise: 0.3 };
+  compileRecipe({ ...intent, outputPrefix: 'x'.repeat(171), refine }, { ...allowlist, nodes: [...nodes] });
+  compileRecipe({ ...intent, outputPrefix: 'x'.repeat(180) }, allowlist);
+  rejects({ ...intent, outputPrefix: 'x'.repeat(172), refine }, { ...allowlist, nodes }, 'INVALID_INPUT', 'outputPrefix');
+  rejects({ ...intent, refine }, { ...allowlist, nodes: nodes.filter(n => n !== 'SaveImage') }, 'MISSING_CAPABILITY', 'SaveImage');
+});
+
 test('refine pass and source upscale model mirror the native compiler', () => {
   const lists = { ...allowlist, nodes: [...allowlist.nodes, 'LoadImage', 'VAEEncode', 'ImageScale', 'UpscaleModelLoader', 'ImageUpscaleWithModel'], images: ['ref.png'], upscaleModels: ['2x-Sharp.safetensors'] };
   const g = compileRecipe({ ...intent, refine: { width: 1024, height: 1536, denoise: 0.3, upscaleModel: '2x-Sharp.safetensors' } }, lists).graph;

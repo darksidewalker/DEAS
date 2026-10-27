@@ -12,6 +12,7 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 | AiO installer, Backend lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
 | Confirmed application-binary updates, manual restart and platform limitations | [Application updates](APP-UPDATES.md) |
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
+| Native Rust spatial-inference developer example (optional, not Studio video rendering) | [Native upscaling prototype](NATIVE-UPSCALING.md) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
 | Studio → Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |

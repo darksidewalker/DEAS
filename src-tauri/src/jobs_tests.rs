@@ -2543,6 +2543,110 @@ async fn concurrent_submit_reserves_job_before_any_network_await() {
     task.abort();
 }
 
+#[test]
+fn paired_output_roles_are_graph_owned_final_first_and_bounded() {
+    let image =
+        json!({"filename":"not-a-role.png","subfolder":"DEAS","type":"output","role":"spoofed"});
+    let entry = json!({"outputs":{"7":{"images":[image]},"B7":{"images":[image]},"foreign":{"images":[image]}}});
+    let plain = compile(&intent()).unwrap();
+    assert_eq!(
+        job_outputs(&entry, &plain).unwrap(),
+        vec![json!({"filename":"not-a-role.png","subfolder":"DEAS","type":"output"})]
+    );
+    let mut i = intent();
+    i["refine"] = json!({"width":512,"height":768,"denoise":0.3});
+    let graph = compile(&i).unwrap();
+    for listed in [
+        json!([]),
+        json!(["DaSiWa_MetadataImageSaver"]),
+        json!(["DaSiWa_MetadataConfig"]),
+    ] {
+        let mut fallback = graph.clone();
+        civitai_saver(&mut fallback, &listed, &i);
+        assert_eq!(fallback["7"]["class_type"], "SaveImage");
+        assert_eq!(fallback["B7"]["class_type"], "SaveImage");
+        assert!(fallback.get("M").is_none());
+    }
+    let parsed = job_outputs(&entry, &graph).unwrap();
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed[0]["role"], "processed");
+    assert_eq!(parsed[1]["role"], "original");
+    for node in ["7", "B7"] {
+        let mut bad = entry.clone();
+        bad["outputs"][node]["images"][0]["filename"] = json!("../unsafe.png");
+        assert!(job_outputs(&bad, &graph).is_err());
+        bad["outputs"][node]["images"] = json!(false);
+        assert!(job_outputs(&bad, &graph).is_err());
+    }
+    let oversized =
+        json!({"outputs":{"7":{"images":vec![image.clone();33]},"B7":{"images":vec![image;32]}}});
+    assert!(job_outputs(&oversized, &graph).is_err());
+    i["outputPrefix"] = json!("x".repeat(172));
+    assert!(compile(&i).unwrap_err().contains("prefix"));
+    i["outputPrefix"] = json!("x".repeat(171));
+    assert!(compile(&i).is_ok());
+}
+
+#[tokio::test]
+async fn paired_history_preserves_terminal_partial_outputs_but_never_partial_success() {
+    for (status, present, expected) in [
+        ("success", "both", "succeeded"),
+        ("success", "7", "failed"),
+        ("success", "B7", "failed"),
+        ("error", "B7", "failed"),
+        ("interrupted", "B7", "cancelled"),
+        ("error", "7", "failed"),
+    ] {
+        let mut tuple = Value::Null;
+        let (base, task) = server(move |path, body| {
+            if path == "GET /comfy/object_info HTTP/1.1" { return (200, nodes().to_string()); }
+            if path == "POST /comfy/prompt HTTP/1.1" {
+                tuple = json!([0,PROMPT_ID,body["prompt"],{"client_id":body["client_id"]},["7","B7"]]);
+                return (200,json!({"prompt_id":PROMPT_ID,"number":0,"node_errors":{}}).to_string());
+            }
+            assert_eq!(path, format!("GET /comfy/history/{PROMPT_ID} HTTP/1.1"));
+            let mut out = json!({});
+            for node in ["7", "B7"] {
+                if present == "both" || present == node {
+                    out[node] = json!({"images":[{"filename":format!("{node}.png"),"subfolder":"DEAS","type":"output","role":"spoofed"}]});
+                }
+            }
+            let messages = match status {
+                "error" => json!([["execution_error",{"prompt_id":PROMPT_ID,"node_id":"R5","exception_message":"refine failed"}]]),
+                "interrupted" => json!([["execution_interrupted",{"prompt_id":PROMPT_ID}]]),
+                _ => json!([]),
+            };
+            (200,json!({PROMPT_ID:{"prompt":tuple,"outputs":out,"status":{"completed":status=="success","status_str":if status=="success" {"success"} else {"error"},"messages":messages}}}).to_string())
+        }).await;
+        let jobs = Jobs::default();
+        let mut i = intent();
+        i["refine"] = json!({"width":512,"height":768,"denoise":0.3});
+        let plan = jobs.prepare(base, i).await.unwrap();
+        let queued = jobs
+            .submit(plan["id"].as_str().unwrap().into(), true)
+            .await
+            .unwrap();
+        let job = jobs
+            .status(queued["id"].as_str().unwrap().into())
+            .await
+            .unwrap();
+        assert_eq!(job["state"], expected, "{status}/{present}: {job}");
+        assert_eq!(
+            job["outputs"].as_array().unwrap().len(),
+            if present == "both" { 2 } else { 1 }
+        );
+        assert_eq!(
+            job["outputs"][0]["role"],
+            if present == "B7" {
+                "original"
+            } else {
+                "processed"
+            }
+        );
+        task.abort();
+    }
+}
+
 #[tokio::test]
 async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
     for (case, expected) in [
@@ -2637,7 +2741,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
             .unwrap();
         assert_eq!(job["state"], expected, "case {case}: {job}");
         assert_eq!(job["generationReady"], false);
-        if expected != "succeeded" {
+        if expected != "succeeded" && !["error", "error_newline"].contains(&case) {
             assert_eq!(job["outputs"], json!([]));
         }
         if let Some(error) = job["error"].as_str() {
@@ -3424,15 +3528,74 @@ fn native_reference_graphs_match_typescript_compiler_end_to_end() {
             expected.push(g);
         }
     }
+    // Include the bounded paired-baseline slice in actual TS/native graph parity, not parallel hand-written expectations.
+    for variant in 0..6 {
+        for metadata in [false, true] {
+            let mut i = intent();
+            if variant > 0 {
+                i["refine"] = json!({"width":512,"height":768,"denoise":0.3});
+            }
+            if variant == 2 {
+                i["refine"] = json!({"width":1024,"height":1536,"denoise":0.3,"upscaleModel":"2x-Sharp.safetensors"});
+            }
+            if variant == 3 {
+                i["inputImage"] = json!("first.png");
+                i["denoise"] = json!(0.4);
+                i["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+                i["inpaintCrop"] = json!({"x":16,"y":16,"width":128,"height":128,"targetWidth":256,"targetHeight":256});
+            }
+            if variant == 4 {
+                i["options"] = json!({"vaeTile":512});
+                i["refine"]["tiled"] = json!({"tileWidth":512,"tileHeight":512,"overlap":64});
+            }
+            if variant == 5 {
+                i["steps"] = json!(2);
+                i["sigmas"] = json!([1, 0.5, 0]);
+                i["refine"]["sigmas"] = json!([0.5, 0]);
+            }
+            i["imageFormat"] = json!("webp");
+            i["imageCompression"] = json!(73);
+            let mut g = compile(&i).unwrap();
+            if metadata {
+                civitai_saver(&mut g, &saver, &i);
+            }
+            if variant > 0 {
+                let mut first = i.clone();
+                first.as_object_mut().unwrap().remove("refine");
+                let mut before = compile(&first).unwrap();
+                if metadata {
+                    civitai_saver(&mut before, &saver, &first);
+                }
+                before["7"]["inputs"]["filename_prefix"] = json!("DEAS_test_original");
+                assert_eq!(g["B7"], before["7"]);
+                assert_eq!(g["7"]["inputs"]["images"], json!(["R6", 0]));
+                assert_eq!(
+                    g.as_object()
+                        .unwrap()
+                        .values()
+                        .filter(|n| matches!(
+                            n["class_type"].as_str(),
+                            Some("KSampler" | "SamplerCustomAdvanced")
+                        ))
+                        .count(),
+                    2
+                );
+            } else {
+                assert!(g.get("B7").is_none());
+            }
+            cases.push(i);
+            expected.push(g);
+        }
+    }
     let script = r#"
         import fs from 'node:fs';
         import { compileRecipe } from './src/lib/execution.ts';
         const { cases, expected } = JSON.parse(fs.readFileSync(0, 'utf8'));
-        const nodes = [...new Set(expected.flatMap(g => Object.values(g).map(n => n.class_type)))];
-        const allow = { nodes, checkpoints: [], diffusionModels: ['sd/model.safetensors'],
+        const allow = { checkpoints: ['sd/model.safetensors'], diffusionModels: ['sd/model.safetensors'],
             textEncoders: ['qwen.safetensors'], vaes: ['qwen-vae.safetensors'], clipTypes: ['qwen_image','krea2','moss_image'],
+            upscaleModels: ['2x-Sharp.safetensors'],
             images: ['first.png','second.png','third.png','fourth.png'], samplers: ['euler'], schedulers: ['normal'] };
-        process.stdout.write(JSON.stringify(cases.map(i => compileRecipe(i, allow).graph)));
+        process.stdout.write(JSON.stringify(cases.map((i,n) => compileRecipe(i, { ...allow, nodes: [...new Set(Object.values(expected[n]).map(n => n.class_type))] }).graph)));
     "#;
     let mut child = Command::new("node")
         .args([

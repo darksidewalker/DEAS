@@ -73,6 +73,47 @@ test('browser cannot load or export; native failures and invalid PNG responses n
   expect(fetch).not.toHaveBeenCalled();
 });
 
+test.each(['succeeded', 'failed', 'cancelled'] as const)('paired %s output loads and exports its exact native index', async state => {
+  const value:JobStatus={...job,state,outputs:[{...job.outputs[0],role:'processed'},{...job.outputs[1],role:'original'}]};
+  vi.mocked(invoke).mockResolvedValueOnce({...output,index:1});
+  render(view(value));
+  expect(screen.getByText(/Original \(before processing\)/)).toBeTruthy();
+  await act(async()=>load(1));
+  expect(invoke).toHaveBeenCalledWith('native_job_output',{jobId:'job',index:1});
+  vi.mocked(invoke).mockResolvedValueOnce(null);
+  await act(async()=>save());
+  expect(invoke).toHaveBeenLastCalledWith('native_job_export',{jobId:'job',index:1,title:expect.any(String)});
+});
+
+test.each(['queued','running','unknown'] as const)('%s never authorizes retained output transfer',async state=>{
+  render(view({...job,state}));
+  await act(async()=>load(1));
+  expect(invoke).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-job-output-preview]')).toBeNull();
+});
+
+test.each(['resolve','reject'] as const)('auto selection waits for a native-exclusive old fetch to %s and exports only the latest index',async outcome=>{
+  const pending=deferred<typeof output>();
+  let fetching=true;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==='native_job_export')return null;
+    if((args as {index:number}).index===0)return pending.promise;
+    if(fetching)throw new Error('Another output fetch is in progress');
+    return {...output,index:1};
+  });
+  const rendered=render(<I18nProvider><JobOutputPreview job={job} auto/></I18nProvider>);
+  rendered.rerender(<I18nProvider><JobOutputPreview job={job} auto outputIndex={1}/></I18nProvider>);
+  await act(async()=>{});
+  expect(invoke).toHaveBeenCalledTimes(1);
+  fetching=false;
+  await act(async()=>outcome==='resolve'?pending.resolve(output):pending.reject(new Error('obsolete failure')));
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(document.querySelector('[data-job-output-preview]')).not.toBeNull();
+  await act(async()=>save());
+  expect(invoke).toHaveBeenLastCalledWith('native_job_export',{jobId:'job',index:1,title:expect.any(String)});
+});
+
 function LanguageChange() { const { setLocale } = useI18n(); return <button onClick={() => setLocale('de')}>DE</button>; }
 test('locale changes preserve preview and do not reload or export; Save As title uses current language', async () => {
   vi.mocked(invoke).mockResolvedValueOnce(output);

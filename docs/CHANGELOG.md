@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.52
+
+- Add explicit local video source inspection to Post-Processing: a Rust-owned, bounded native FFprobe process reports dimensions, exact rational cadence, stream metadata and conservative timing/color/interlace/rotation/alpha/pixel-aspect blockers. Preserve the previous result on chooser cancellation, prevent duplicate inspection and route sanitized operation diagnostics to central Logs. No file upload, model/GPU initialization, output write or video Run action.
+- Record the owner’s complete-Rust requirement for the standalone video enhancement/inference pipeline; no Go server or Python worker. Source inspection does not establish full CFR verification, inference compatibility or executable enhancement. Existing ComfyUI image behavior remains separate.
+
+## Unreleased — 0.1.51
+
+- Save separate Original and Processed image products for the existing optional refine/upscale chain, with a composed pre-refine baseline, native/TypeScript compiler parity and graph-derived roles. Keep final filenames and no-refine graphs unchanged; selected saver format/compression applies to both products.
+- Select paired outputs individually, compare the actual baseline/result, and retain reported completed products on failed/cancelled jobs with indexed PNG preview/export. A backend success missing either paired product is not reported as complete. Baseline saving is still an independent ComfyUI branch: failures before it executes can leave no baseline; strict pre-refinement publication and the streamed video worker remain planned.
+
 ## Unreleased — 0.1.50
 
 - Match prerequisite model names with separator-insensitive comparison so Windows subfolder paths (`Anima\model+Int8.safetensors`) validate against the backend's slash-separated combos; `+` in names was already allowed.

@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.50"
+version = "0.1.52"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
@@ -17,6 +17,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "process", "sync"] }
 sha2 = "0.10"
 png = "=0.17.16"
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["std", "load-dynamic", "half", "cuda", "api-29"] }
+half = { version = "=2.7.1", optional = true, default-features = false, features = ["std"] }
 toml = "0.8"
 flate2 = "1"
 tar = "0.4"
@@ -48,6 +50,11 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+video-upscale = ["dep:ort", "dep:half"]
+
+[[example]]
+name = "upscale_png"
+required-features = ["video-upscale"]
 
 [profile.release]
 strip = true

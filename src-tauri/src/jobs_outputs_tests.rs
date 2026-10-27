@@ -724,6 +724,43 @@ async fn binary_server(
 }
 
 #[tokio::test]
+async fn paired_png_reads_use_role_dimensions_and_allow_terminal_partial_exports() {
+    for (state, role, width, height) in [
+        ("succeeded", "processed", 1024, 1536),
+        ("failed", "original", 512, 768),
+        ("cancelled", "original", 512, 768),
+    ] {
+        let bytes = png_bytes(width, height);
+        let (base, server) = binary_server(bytes.clone(), 200, "Content-Type: image/png").await;
+        let jobs = completed(&base);
+        {
+            let mut session = jobs.lock().unwrap();
+            let job = session.job.as_mut().unwrap();
+            job.state = state;
+            job.plan.intent["refine"] = json!({"width":1024,"height":1536,"denoise":0.3});
+            job.plan.graph = compile(&job.plan.intent).unwrap();
+            job.outputs[0]["role"] = json!(role);
+        }
+        assert!(jobs.output("other".into(), 0).await.is_err());
+        assert!(jobs.output("job-a".into(), 1).await.is_err());
+        let result = jobs.output("job-a".into(), 0).await.unwrap();
+        assert_eq!((result.width, result.height), (width, height));
+        assert_eq!(result.bytes, bytes);
+        server.await.unwrap();
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            let dir = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
+            let path = dir.path().join("partial.png");
+            jobs.export_to("job-a", 0, Some(&path)).unwrap().unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+        jobs.lock().unwrap().job.as_mut().unwrap().outputs.clear();
+        assert!(jobs.output("job-a".into(), 0).await.is_err());
+        assert!(jobs.export_to("job-a", 0, None).is_err());
+    }
+}
+
+#[tokio::test]
 async fn refuses_non_png_transport_and_invalid_complete_images_without_caching() {
     let good = png_bytes(512, 768);
     let mut crc = good.clone();
@@ -817,10 +854,10 @@ async fn refuses_non_png_transport_and_invalid_complete_images_without_caching()
 #[tokio::test]
 async fn rejects_wrong_job_state_index_and_metadata_before_network() {
     let jobs = completed("http://127.0.0.1:9/");
-    for state in ["queued", "running", "unknown", "failed"] {
+    for state in ["queued", "running", "unknown"] {
         jobs.lock().unwrap().job.as_mut().unwrap().state = state;
         let error = jobs.output("job-a".into(), 0).await.err().unwrap();
-        assert!(error.contains("succeeded"), "{error}");
+        assert!(error.contains("completed"), "{error}");
     }
     jobs.lock().unwrap().job.as_mut().unwrap().state = "succeeded";
     assert!(jobs

@@ -1,5 +1,13 @@
 # News
 
+## Development — 0.1.52
+
+Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#video-source-inspection-0152-development) and [video plan](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.
+
+## Development — 0.1.51
+
+Optional image refinement now produces labelled Original and Processed products for individual selection and comparison. Already-reported completed products remain available when later work fails or is cancelled. This is the first bounded post-processing slice, not a full video-enhancement port or a guarantee that a baseline saver runs before every failure. See [usage and limits](STUDIO.md#original-and-processed-image-products-0151-development) and [remaining work](IMPLEMENTATION-STATUS.md#38-hybrid-post-processing-and-paired-originalprocessed-outputs). Not a published release.
+
 ## 0.1.50
 
 Prerequisite diagnostics now accept Windows subfolder model paths (`Folder\model.safetensors`) against the backend's slash-separated model lists, fixing "diffusionModels are not available on this backend" for models inside subfolders (the `+` in model names was never the problem). Krea2 keeps full torch.compile support. See [verification](VERIFICATION.md).

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-video-post-inspect"
+description = "Explicit native video chooser and bounded read-only source metadata inspection; no paths or execution. "
+commands.allow = ["native_video_post_inspect"]

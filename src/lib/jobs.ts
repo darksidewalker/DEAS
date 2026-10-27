@@ -18,7 +18,7 @@ export interface JobStatus {
   promptId: string | null;
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
   /** `format` is the MIME type the video combine reports (`video/webm`); image savers omit it. */
-  outputs: { filename: string; subfolder: string; type: 'output'; format?: string }[];
+  outputs: { filename: string; subfolder: string; type: 'output'; format?: string; role?: 'original' | 'processed' }[];
   error: string | null;
   generationReady: false;
   /** Immutable native-held intent, never the workbench's current controls. */

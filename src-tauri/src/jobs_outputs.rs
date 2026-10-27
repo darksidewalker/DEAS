@@ -42,7 +42,11 @@ pub(super) struct CompletedOutputs {
 }
 impl Session {
     pub(super) fn retain_completed(&mut self) {
-        let Some(job) = self.job.as_ref().filter(|j| j.state == "succeeded") else {
+        let Some(job) = self
+            .job
+            .as_ref()
+            .filter(|j| j.terminal() && !j.outputs.is_empty())
+        else {
             return;
         };
         let Some(root) = job.plan.media_root.as_ref() else {
@@ -215,7 +219,7 @@ impl Jobs {
         if !session
             .job
             .as_ref()
-            .is_some_and(|j| j.id == job_id && j.state == "succeeded")
+            .is_some_and(|j| j.id == job_id && j.terminal() && j.outputs.get(index).is_some())
             || !session
                 .output
                 .as_ref()
@@ -236,8 +240,8 @@ impl Jobs {
             .as_ref()
             .filter(|job| job.id == job_id)
             .ok_or("Unknown native job")?;
-        if job.state != "succeeded" {
-            return Err("Output requires a succeeded native job".into());
+        if !job.terminal() {
+            return Err("Output requires a completed native job".into());
         }
         let image = job.outputs.get(index).ok_or("Unknown output index")?;
         outputs(&json!({"outputs":{"7":{"images":[image]}}}))?;
@@ -323,13 +327,18 @@ impl Jobs {
         });
         let mut reader = decoder.read_info().map_err(|_| "Invalid PNG header")?;
         let (width, height) = (reader.info().width, reader.info().height);
+        let dimensions = if job.plan.graph.get("B7").is_some() && image["role"] == "processed" {
+            &job.plan.intent["refine"]
+        } else {
+            &job.plan.intent
+        };
         if width == 0
             || height == 0
             || width > 8192
             || height > 8192
             || u64::from(width) * u64::from(height) > 16_777_216
-            || job.plan.intent["width"].as_u64() != Some(width as u64)
-            || job.plan.intent["height"].as_u64() != Some(height as u64)
+            || dimensions["width"].as_u64() != Some(width as u64)
+            || dimensions["height"].as_u64() != Some(height as u64)
             || reader.info().animation_control.is_some()
             || reader.output_buffer_size() > DECODE_LIMIT
         {
@@ -351,7 +360,7 @@ impl Jobs {
         let mut session = self.lock()?;
         if !session.job.as_ref().is_some_and(|current| {
             current.id == job_id
-                && current.state == "succeeded"
+                && current.terminal()
                 && current.outputs == job.outputs
                 && current.plan.id == job.plan.id
         }) {

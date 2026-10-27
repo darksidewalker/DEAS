@@ -564,7 +564,10 @@ fn compile(i: &Value) -> Result<Value, String> {
     {
         return Err("Unsafe sampler or scheduler".into());
     }
-    if !i["outputPrefix"].as_str().is_some_and(safe_output_prefix) {
+    if !i["outputPrefix"].as_str().is_some_and(|prefix| {
+        safe_output_prefix(prefix)
+            && (refine.is_none() || safe_output_prefix(&format!("{prefix}_original")))
+    }) {
         return Err("Unsafe output prefix".into());
     }
     let mut graph = json!({
@@ -734,6 +737,10 @@ fn compile(i: &Value) -> Result<Value, String> {
     }
     if let Some(r) = refine {
         let mut image = graph["7"]["inputs"]["images"].clone();
+        // shortcut: sibling savers cannot guarantee pre-failure retention; add a supported save dependency when that guarantee is required.
+        graph["B7"] = graph["7"].clone();
+        graph["B7"]["inputs"]["filename_prefix"] =
+            json!(format!("{}_original", i["outputPrefix"].as_str().unwrap()));
         if let Some(u) = r.get("upscaleModel") {
             graph["RL"] = json!({"class_type":"UpscaleModelLoader","inputs":{"model_name":u}});
             graph["RU"] = json!({"class_type":"ImageUpscaleWithModel","inputs":{"upscale_model":["RL",0],"image":image}});
@@ -1028,7 +1035,11 @@ fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
     // compression 44 = PNG level 4 (the saver maps 0–100 onto PNG levels / WebP quality).
     let format = intent.get("imageFormat").cloned().unwrap_or(json!("png"));
     let compression = intent.get("imageCompression").cloned().unwrap_or(json!(44));
-    graph["7"] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph["7"]["inputs"]["images"],"filename_prefix":graph["7"]["inputs"]["filename_prefix"],"file_format":format,"compression":compression,"save_output":true,"metadata_config":["M",0]}});
+    for id in ["7", "B7"] {
+        if graph.get(id).is_some() {
+            graph[id] = json!({"class_type":"DaSiWa_MetadataImageSaver","inputs":{"images":graph[id]["inputs"]["images"],"filename_prefix":graph[id]["inputs"]["filename_prefix"],"file_format":format,"compression":compression,"save_output":true,"metadata_config":["M",0]}});
+        }
+    }
 }
 
 /// Model ID as listed by either a Linux or Windows ComfyUI backend.
@@ -1650,6 +1661,30 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
         .collect()
 }
 
+// Roles come only from the held compiler graph, never filenames or backend-supplied labels.
+fn job_outputs(entry: &Value, graph: &Value) -> Result<Vec<Value>, String> {
+    let mut final_outputs = outputs(entry)?;
+    if graph.get("B7").is_none() {
+        return Ok(final_outputs);
+    }
+    let all = entry["outputs"]
+        .as_object()
+        .ok_or("Malformed history outputs")?;
+    let baseline = all.get("B7").cloned().unwrap_or(json!({"images":[]}));
+    let mut originals = outputs(&json!({"outputs":{"7":baseline}}))?;
+    if final_outputs.len() + originals.len() > 64 {
+        return Err("Too many diagnostic image outputs".into());
+    }
+    for output in &mut final_outputs {
+        output["role"] = json!("processed");
+    }
+    for output in &mut originals {
+        output["role"] = json!("original");
+    }
+    final_outputs.extend(originals);
+    Ok(final_outputs)
+}
+
 #[cfg(test)]
 #[test]
 fn metadata_uses_only_matching_monotonic_execution_events() {
@@ -1730,11 +1765,12 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
                     {
                         return Err("Uncorrelated or conflicting interruption history".into());
                     }
-                    job.outputs = outputs(entry)?;
+                    job.outputs = job_outputs(entry, &job.plan.graph)?;
                     job.state = "cancelled";
                     job.error = None;
                     return Ok(true);
                 }
+                job.outputs = job_outputs(entry, &job.plan.graph)?;
                 job.state = "failed";
                 let diagnostic = messages
                     .iter()
@@ -1756,13 +1792,22 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
                         .trim()
                         .to_owned(),
                 );
-                job.outputs.clear();
                 return Ok(true);
             }
             Some("success") if completed => {
-                let images = outputs(entry)?;
+                let images = job_outputs(entry, &job.plan.graph)?;
                 if images.is_empty() {
                     return Err("Completed history has no diagnostic image output".into());
+                }
+                if job.plan.graph.get("B7").is_some()
+                    && !["original", "processed"]
+                        .iter()
+                        .all(|role| images.iter().any(|o| o["role"] == *role))
+                {
+                    job.outputs = images;
+                    job.state = "failed";
+                    job.error = Some("Completed history is missing a paired image output".into());
+                    return Ok(true);
                 }
                 job.outputs = images;
                 job.state = "succeeded";

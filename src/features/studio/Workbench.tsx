@@ -21,6 +21,7 @@ import { isBoolean, isString, oneOf, readPref, usePref, PreferencePersistenceCon
 import { ProjectBar } from '../projects/ProjectBar';
 import type { ImageDraft, ProjectSnapshot } from '../../lib/projects';
 import { JobOutputPreview } from './JobOutputPreview';
+import { VideoPostProcessing } from './VideoPostProcessing';
 import { GenerationMetadata } from './GenerationMetadata';
 import { generationDuration } from './generationDuration';
 import type { GenerationSettings } from '../../lib/imageMetadata';
@@ -191,7 +192,7 @@ function WorkbenchContent({endpoint,roots={},root,incoming,planVisible=false,pro
  const [strength,setStrength]=edit==='inpaint'?[inpaintDenoise,setInpaintDenoise]:[denoise,setDenoise];
  // Source image of each edit job, for the original/edited split view.
  const [sources,setSources]=useState<Record<string,MediaItem>>({});const [slider,setSlider]=useState(false);
- const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');
+ const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');const [selectedOutput,setSelectedOutput]=useState(0);
  const live=useRef(false);const lock=useRef(false);const epoch=useRef(0);
  const preparationGeneration=useRef(0);const localPreparations=useRef(0);const stopLock=useRef(false);const admissionEpoch=useRef(0);
  const [stopping,setStopping]=useState(false);const [stopAvailable,setStopAvailable]=useState(false);const [stopStatus,setStopStatus]=useState('');
@@ -444,7 +445,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
    if(!activeRun(ticket))return;
    admitted=true;
    const job=await runWorkbenchJob(endpoint,Object.freeze(inputMask?{...withLayers,inputMask,...(maskBlur?{maskBlur}:{}),...(inpaintCrop?{inpaintCrop}:{})}:withLayers),ticket.admissionEpoch);
-   if(activeRun(ticket)){setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedJob(job.id);if(from)setSources(s=>({...s,[job.id]:from}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));}
+   if(activeRun(ticket)){setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSelectedJob(job.id);if(from)setSources(s=>({...s,[job.id]:from}));setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));}
   }catch(e){if(activeRun(ticket))setError(e instanceof Error?e.message:String(e));}
   finally{finishRun(ticket,admitted);}
  }
@@ -636,12 +637,17 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  };
  const columnHandle=(side:'settings'|'queue')=>{const left=side==='settings',size=left?sideSize:queueSize,min=left?220:128,max=left?sideMax:queueMax,set=left?setSettingsWidth:setQueueWidth;return <div className="wb-column-handle" role="separator" tabIndex={0} aria-orientation="vertical" aria-label={t(`studio.layout.${side}`)} title={t(`studio.layout.${side}`)} aria-controls={`studio-${side}`} aria-valuemin={min} aria-valuemax={max} aria-valuenow={size} onKeyDown={e=>resizeKey(e,size,min,max,set,false,!left)} onPointerDown={e=>dragPane(e,size,min,max,set,false,!left)}/>;};
  const shown=jobs.find(j=>j.id===selectedJob)??null;
+ const paired=!!shown?.outputs.some(o=>o.role);
+ const outputIndex=paired&&shown?.outputs[selectedOutput]?selectedOutput:0;
+ const visibleOutputs=shown?(paired?[shown.outputs[outputIndex]]:shown.outputs):[];
+ const terminalOutput=(job:JobStatus)=>(job.state==='succeeded'||job.state==='failed'||job.state==='cancelled')&&job.outputs.length>0;
  const duration=(job:JobStatus)=>{const value=generationDuration(job,locale);return value!==null?<span data-generation-duration> · {value}</span>:null;};
  // Metadata is an overlay on the preview, opened on demand, so the stage keeps the column's width.
  const [metaOpen,setMetaOpen]=usePref('studio.run.metadataOpen',false,isBoolean);
  // A queue pick of an edit job brings its source back into the editor (with the job's mode) when no other draft is open,
  // e.g. after ✕ or browsing elsewhere; an open draft with masks or inserted layers is never replaced.
- const pickJob=(j:JobStatus)=>{
+ const pickJob=(j:JobStatus,index=0)=>{
+  setSelectedOutput(index);setSlider(false);
   setBrowsed(null);
   setSelectedJob(j.id);const from=sources[j.id];
   if(!from||media?.src===from.src||(media&&(masked||layers.length>0||editorRef.current?.imageEdited())))return;
@@ -649,10 +655,12 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   if(j.intent&&!isVideoIntent(j.intent)&&j.intent.inputImage){setPipeline('i2i');setEdit(j.intent.inputMask?'inpaint':'resample');}
  };
  const closePreview=()=>{if(browsed){setBrowsed(null);return;}setSelectedJob('');sourceEpoch.current++;setMedia(null);setLayers([]);setMasked(false);};
- const original=shown?sources[shown.id]?.src:undefined;
+ const pairedOriginal=shown?.outputs.find(o=>o.role==='original');
+ const pairedProcessed=shown?.outputs.find(o=>o.role==='processed');
+ const original=paired?(shown?.outputRoot&&pairedOriginal&&pairedProcessed?convertFileSrc([shown.outputRoot,pairedOriginal.subfolder,pairedOriginal.filename].filter(Boolean).join('/')):undefined):shown?sources[shown.id]?.src:undefined;
  // Edit jobs open side by side: the live editor (masks/layers kept until a new image is sent to edit) left, the render right.
  // While an edit draft is open, any queue pick opens beside it, so its controls never vanish behind a result.
- const sideBySide=!!shown&&(!!original||(pipeline==='i2i'&&!!editableSource))&&!(slider&&original);
+ const sideBySide=!paired&&!!shown&&(!!original||(pipeline==='i2i'&&!!editableSource))&&!(slider&&original);
  const editorLeft=sideBySide&&!!editableSource&&(!original||original===media?.src);
  // What still blocks Run is shown on the preview, where the missing pick or mask belongs (the mask only while the editor is visible).
  const hint=sizeError||(inpaint&&!masked&&(!shown||editorLeft)?'studio.run.edit.needsMask':'');
@@ -690,8 +698,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  },[native,outputDir]);
  // Post-process takes the shown render (its submitted size), else the current edit source.
  const isVideoOut=(o:JobStatus['outputs'][number])=>!!o.format?.startsWith('video/')||/\.(webm|mkv|mp4|avif)$/i.test(o.filename);
- const shownOutput=shown?.state==='succeeded'&&shown.outputRoot&&shown.outputs[0]&&shown.intent&&!isVideoIntent(shown.intent)?outputItem(shown,shown.outputs[0]):null;
- const postFor=(item:MediaItem)=>shownOutput?.src===item.src&&shown?.intent&&!isVideoIntent(shown.intent)?{image:'',size:shown.intent.refine??shown.intent,src:shownOutput.src,item:shownOutput}
+ const shownOutput=shown&&terminalOutput(shown)&&shown.outputRoot&&shown.outputs[outputIndex]&&shown.intent&&!isVideoIntent(shown.intent)?outputItem(shown,shown.outputs[outputIndex]):null;
+ const postFor=(item:MediaItem)=>shownOutput?.src===item.src&&shown?.intent&&!isVideoIntent(shown.intent)?{image:'',size:shown.outputs[outputIndex]?.role==='original'?shown.intent:shown.intent.refine??shown.intent,src:shownOutput.src,item:shownOutput}
   :media?.src===item.src&&inputImage&&source?{image:inputImage,size:source,src:media.src,item:media}:null;
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
@@ -744,7 +752,7 @@ const promptTools=forgeContext&&<>
   {frameVideo&&item.media==='image'&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {/* LTX keyframes are images; H3 REF2VA also takes videos and audio. */}
   {pipeline==='ref2v'&&item.path&&(item.media==='image'||videoFamily==='minimax-h3')&&<button type="button" data-edit-ref aria-pressed={isRef(item)} disabled={!isRef(item)&&!!refBlock(item)} title={!isRef(item)&&refBlock(item)?t(refBlock(item)):undefined} onClick={()=>toggleRef(item)}>{t('studio.run.video.addRef')}</button>}
-  {original&&media?.src!==item.src&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
+  {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
  </div>;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
  // Picking a model applies its family's starting settings (SwarmUI: per-class defaults).
@@ -896,8 +904,9 @@ const promptTools=forgeContext&&<>
      {sideBySide&&!editorLeft&&<figure className="media-preview"><img src={original} alt={t('studio.run.edit.original')}/></figure>}
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{duration(shown)}</p>
-      {shown.state==='succeeded'&&shown.outputs.length>0&&(shown.outputRoot?<figure className="media-preview">{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t('studio.run.edit.original')} edited={fileSrc(shown,shown.outputs[0])!} editedAlt={shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
-        :shown.outputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}{!isVideoOut(shown.outputs[0])&&tools(outputItem(shown,shown.outputs[0]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t('studio.run.edit.original')} | </>}{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview">{shown.outputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} auto/>)}
+      {paired&&terminalOutput(shown)&&<div className="wb-output-choices" role="group" aria-label={t('studio.jobs.outputs')}>{shown.outputs.map((o,index)=><button type="button" key={index} data-output-role={o.role} aria-pressed={index===outputIndex} onClick={()=>{setSelectedOutput(index);setSlider(false);}}>{o.role?t(`studio.jobs.role.${o.role}`):o.filename}</button>)}</div>}
+      {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview">{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
+        :visibleOutputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview">{shown.outputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
      :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}{(inputImage||(pipeline==='ref2v'&&media.path))?tools(media):<StarMediaButton item={media}/>}<figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
@@ -922,9 +931,9 @@ const promptTools=forgeContext&&<>
    {columnHandle('queue')}
    <section id="studio-queue" style={{flexBasis:queueSize}} className="wb-queue" aria-label={t('studio.run.queue')}>
     <h3>{t('studio.run.queue')}</h3>
-    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(j.state==='succeeded'&&j.outputs.length?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob} data-state={j.state} onClick={()=>pickJob(j)}>
+    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(terminalOutput(j)?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob&&(!j.outputs.some(o=>o.role)||index===outputIndex)} data-state={j.state} onClick={()=>pickJob(j,index)}>
      {j.outputRoot&&o&&!isVideoOut(o)?<img src={fileSrc(j,o)!} alt="" draggable onDragStart={e=>dragItem(e.dataTransfer,outputItem(j,o))}/>:o&&isVideoOut(o)?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='cancelled'?'×':j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
-     <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)} · {j.id.slice(0,8)}{duration(j)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{o?.filename??j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button>{o&&j.outputRoot&&<StarMediaButton item={outputItem(j,o)}/>}</div>)}</li>)}</ul>}
+     <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)} · {j.id.slice(0,8)}{duration(j)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{o?.role&&<strong>{t(`studio.jobs.role.${o.role}`)} · </strong>}{o?.filename??j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button>{o&&j.outputRoot&&<StarMediaButton item={outputItem(j,o)}/>}</div>)}</li>)}</ul>}
      <div className="wb-run-actions">
      <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||unavailable.length>0} title={!native?t('studio.backendHelp'):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" className="wb-run-stop" data-run-stop disabled={stopping} aria-label={t('studio.run.stop.label')} title={t('studio.run.stop.hint')} onClick={()=>void stop()}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}<span id="project-actions-slot"/></div>
      <div id="project-status-slot"/>{stopStatus&&<p role="status" data-run-stop-status>{stopStatus}</p>}
@@ -938,6 +947,7 @@ const promptTools=forgeContext&&<>
    {dockTab==='presets'&&<div className="wb-dock-panel"><PresetPanel disabled={busy||!!current||autoPlan||resolving}/></div>}
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
    {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
+     <VideoPostProcessing/>
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>

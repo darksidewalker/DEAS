@@ -49,6 +49,7 @@ fn main() {
         .manage(deas::downloads::DownloadEngine::default())
         .manage(deas::ModelScanEngine::default())
         .invoke_handler(tauri::generate_handler![
+            deas::native_video_post_inspect,
             deas::video::native_video_open,
             deas::video::native_video_update,
             deas::native_auth_status,

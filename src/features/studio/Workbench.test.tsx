@@ -30,6 +30,67 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
 const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
+test('paired products select their own actions and compare the encoded baseline, not the editor input',async()=>{
+ const intent={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'held',negativePrompt:'',checkpoint:'a.safetensors',seed:42,cfg:6,sampler:'euler',scheduler:'normal',outputPrefix:'raw/old',width:1024,height:1024,steps:20,inputImage:'unrelated.png',refine:{width:2048,height:2048,denoise:0.25}} as const;
+ const job:JobStatus={...heldJob('pair','succeeded'),outputRoot:'/old/output',intent,outputs:[{filename:'one.png',subfolder:'raw',type:'output',role:'processed'},{filename:'two.png',subfolder:'raw',type:'output',role:'original'}]};
+ const captured=JSON.stringify(intent);
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ render(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelectorAll('[data-job-id="pair"] .wb-queue-select')).toHaveLength(2));
+ const queue=document.querySelector('[data-job-id="pair"]')!;
+ expect(queue.textContent).toContain('Original (before processing)');expect(queue.textContent).toContain('Processed');
+ expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old/output/raw/one.png');
+ fireEvent.click(document.querySelector('[data-output-role="original"]')!);
+ expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old/output/raw/two.png');
+ clickMedia(document.querySelector<HTMLImageElement>('.wb-shown img')!);
+ expect(document.querySelector('.wb-viewer img')?.getAttribute('src')).toContain('/old/output/raw/two.png');
+ fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(document.querySelector('[data-edit-compare]')!);
+ expect(document.querySelector('.wb-compare > img')?.getAttribute('src')).toContain('/old/output/raw/two.png');
+ expect(document.querySelector('.wb-compare-top img')?.getAttribute('src')).toContain('/old/output/raw/one.png');
+ expect(document.querySelector('.wb-compare')?.textContent).not.toContain('unrelated.png');
+ fireEvent.click(queue.querySelectorAll('.wb-queue-select')[0]);
+ expect(document.querySelector('.wb-compare')).toBeNull();
+ expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old/output/raw/one.png');
+ expect(document.querySelector('.wb-shown [data-use-input]')).toBeTruthy();
+ expect(JSON.stringify(intent)).toBe(captured);expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['failed','cancelled'] as const)('%s keeps a retained baseline accessible without inventing a processed result',async state=>{
+ const job:JobStatus={...heldJob('partial',state),outputRoot:'/old/output',outputs:[{filename:'baseline.png',subfolder:'raw',type:'output',role:'original'}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ render(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old/output/raw/baseline.png'));
+ expect(document.querySelector('[data-job-id="partial"]')?.textContent).toContain('Original (before processing)');
+ expect(document.querySelector('[data-output-role="processed"]')).toBeNull();
+ expect(document.querySelector('[data-edit-compare]')).toBeNull();
+ expect(document.querySelector('.wb-shown [data-use-input]')).toBeTruthy();
+ expect(document.querySelector('.wb-shown .media-star')).toBeTruthy();
+});
+test.each(['succeeded','failed','cancelled'] as const)('rootless %s baseline uses its native index for preview and export',async state=>{
+ const job:JobStatus={...heldJob('bound-pair',state),outputs:[...(state==='succeeded'?[{filename:'final.png',subfolder:'',type:'output' as const,role:'processed' as const}]:[]),{filename:'baseline.png',subfolder:'',type:'output',role:'original'}]};
+ const index=job.outputs.length-1;
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(loadDiagnosticJobOutput).mockImplementation(async(jobId,index)=>({jobId,index,mimeType:'image/png',width:1,height:1,sha256:'a'.repeat(64),bytes:[137,80,78,71]}));
+ vi.mocked(exportDiagnosticJobOutput).mockResolvedValue(null);
+ vi.stubGlobal('URL',Object.assign(class extends URL {},{createObjectURL:vi.fn(()=>'blob:paired'),revokeObjectURL:vi.fn()}));
+ render(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-output-role="original"]')).toBeTruthy());
+ fireEvent.click(document.querySelectorAll('[data-job-id="bound-pair"] .wb-queue-select')[index]);
+ await waitFor(()=>expect(loadDiagnosticJobOutput).toHaveBeenLastCalledWith(job.id,index));
+ await waitFor(()=>expect(document.querySelector('[data-job-output-preview]')).toBeTruthy());
+ fireEvent.click(document.querySelector('[data-job-output-export]')!);
+ await waitFor(()=>expect(exportDiagnosticJobOutput).toHaveBeenCalledWith(job.id,index,expect.any(String)));
+ expect(document.querySelector('[data-edit-compare]')).toBeNull();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('ordinary results keep their existing multi-output presentation without paired labels',async()=>{
+ const job:JobStatus={...heldJob('ordinary','succeeded'),outputRoot:'/old/output',outputs:[{filename:'a.png',subfolder:'',type:'output'},{filename:'b.png',subfolder:'',type:'output'}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ render(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelectorAll('.wb-shown img')).toHaveLength(2));
+ expect(document.querySelector('[data-output-role]')).toBeNull();expect(document.querySelector('[data-edit-compare]')).toBeNull();
+});
+
 test.each(['http://old:7801/','http://new:7802/'])('recovered output uses native root, not endpoint or current environment (%s)',async baseUrl=>{
  const job={...heldJob('old-environment','succeeded',baseUrl),outputRoot:'/old-env/output',outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
