@@ -33,6 +33,7 @@ fn completed(base: &str) -> Jobs {
         prompt_id: None,
         state: "succeeded",
         outputs: vec![json!({"filename":"image.png","subfolder":"DEAS/run-1","type":"output"})],
+        history_outputs: vec![],
         error: None,
         submitting: false,
         polling: false,
@@ -67,6 +68,61 @@ fn register_completed(jobs: &Jobs, root: &std::path::Path) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, png_bytes(1, 1)).unwrap();
     }
+}
+
+#[test]
+fn history_physical_move_succeeds_when_optional_metadata_publication_fails() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("output");
+    std::fs::create_dir(&root).unwrap();
+    let jobs = completed("http://127.0.0.1:8188/");
+    {
+        let mut session = jobs.lock().unwrap();
+        let job = session.job.as_mut().unwrap();
+        job.id = uuid::Uuid::new_v4().to_string();
+        job.client_id = uuid::Uuid::new_v4().to_string();
+    }
+    register_completed(&jobs, &root);
+    let history = temp.path().join("history");
+    jobs.initialize_history(&history);
+    {
+        let session = jobs.lock().unwrap();
+        jobs.3.admit(session.job.as_ref().unwrap(), "studio");
+    }
+    jobs.flush_history();
+    let saved = std::fs::read(history.join("recent-generation-history.json")).unwrap();
+    // Replace only our scratch lock to force a publication refusal while keeping good JSON intact.
+    std::fs::rename(
+        history.join(".recent-generation-history.lock"),
+        history.join("held-lock"),
+    )
+    .unwrap();
+    std::fs::write(history.join(".recent-generation-history.lock"), b"").unwrap();
+    let source = root.join("DEAS/run-1/image.png");
+    let original = std::fs::read(&source).unwrap();
+    let target = root.join("starred/image.png");
+    std::fs::create_dir(target.parent().unwrap()).unwrap();
+    let moves = std::sync::atomic::AtomicUsize::new(0);
+    let moved = jobs
+        .relocate_media(&root, &source, || {
+            moves.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::fs::rename(&source, &target).unwrap();
+            Ok(target.clone())
+        })
+        .unwrap();
+    jobs.flush_history();
+    assert_eq!(moved, target);
+    assert_eq!(moves.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(!source.exists());
+    assert_eq!(std::fs::read(&target).unwrap(), original);
+    assert_eq!(
+        std::fs::read(history.join("recent-generation-history.json")).unwrap(),
+        saved
+    );
+    let view = serde_json::to_value(jobs.3.view()).unwrap();
+    assert!(view["readOnly"].as_bool().unwrap());
+    assert!(view["error"].is_string());
+    assert_eq!(view["records"][0]["outputs"][0]["subfolder"], "starred");
 }
 
 #[cfg(target_os = "linux")]

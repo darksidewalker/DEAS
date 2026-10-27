@@ -5,10 +5,16 @@ use serde_json::json;
 fn omitted_video_output_prefix_defaults_to_raw() {
     let mut intent = ltx();
     intent.as_object_mut().unwrap().remove("outputPrefix");
+    intent.as_object_mut().unwrap().remove("output");
+    let graph = compile(&intent).unwrap();
     assert_eq!(
-        compile(&intent).unwrap()["7"]["inputs"]["filename_prefix"],
+        graph["7"]["inputs"]["filename_prefix"],
         "raw/video/DEAS"
     );
+    let mut explicit = intent.clone();
+    explicit["outputPrefix"] = effective_output_prefix(&intent);
+    explicit["output"] = effective_output(&intent);
+    assert_eq!(compile(&explicit).unwrap(), graph);
 }
 
 pub(crate) fn ltx() -> Value {

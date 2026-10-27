@@ -630,17 +630,36 @@ fn decode(g: &mut Value, id: &str, samples: Value, vae: Value, i: &Value) {
     };
 }
 
+/// Effective native combine settings, shared by execution and immutable history projection.
+pub(crate) fn effective_output(i: &Value) -> Value {
+    let mut output = json!({
+        "codec":"Auto","container":"Auto","bitDepth":"Auto","quality":20,
+        "audioCodec":"Auto","audioBitrate":"192k","saveFirstFrame":false,"saveLastFrame":false
+    });
+    if let Some(selected) = i["output"].as_object() {
+        for (key, value) in selected {
+            output[key] = value.clone();
+        }
+    }
+    output
+}
+
+pub(crate) fn effective_output_prefix(i: &Value) -> Value {
+    i.get("outputPrefix")
+        .cloned()
+        .unwrap_or_else(|| json!("raw/video/DEAS"))
+}
+
 /// DaSiWa Enhanced Video Combine as node "7": the history reader looks there.
 fn combine(g: &mut Value, images: Value, audio: Option<Value>, frame_rate: Value, i: &Value) {
-    let o = &i["output"];
-    let or = |key: &str, default: Value| o.get(key).cloned().unwrap_or(default);
+    let o = effective_output(i);
     let mut inputs = json!({
         "images":images,"frame_rate":frame_rate,
-        "codec":or("codec",json!("Auto")),"container":or("container",json!("Auto")),"bit_depth":or("bitDepth",json!("Auto")),
-        "quality":or("quality",json!(20)),"log_level":"Standard","pingpong":false,"save_metadata":true,
-        "filename_prefix":i.get("outputPrefix").cloned().unwrap_or(json!("raw/video/DEAS")),"save_output":true,"pass_frames":false,"crop_to_audio":false,
-        "audio_codec":or("audioCodec",json!("Auto")),"audio_bitrate":or("audioBitrate",json!("192k")),
-        "save_first_frame":or("saveFirstFrame",json!(false)),"save_last_frame":or("saveLastFrame",json!(false)),
+        "codec":o["codec"],"container":o["container"],"bit_depth":o["bitDepth"],
+        "quality":o["quality"],"log_level":"Standard","pingpong":false,"save_metadata":true,
+        "filename_prefix":effective_output_prefix(i),"save_output":true,"pass_frames":false,"crop_to_audio":false,
+        "audio_codec":o["audioCodec"],"audio_bitrate":o["audioBitrate"],
+        "save_first_frame":o["saveFirstFrame"],"save_last_frame":o["saveLastFrame"],
         "seed":i["seed"]
     });
     if let Some(a) = audio {

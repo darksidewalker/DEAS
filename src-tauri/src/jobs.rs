@@ -15,7 +15,10 @@ mod cancel;
 mod stop;
 #[path = "jobs_workbench.rs"]
 mod workbench;
+#[path = "jobs_history.rs"]
+mod history;
 pub use cancel::{native_workbench_cancel_pending, native_workbench_interrupt_running};
+pub use history::{native_jobs_history, native_jobs_history_outputs, native_logs_history_error};
 pub use stop::native_workbench_stop;
 pub use workbench::{native_workbench_current, native_workbench_poll, native_workbench_run};
 
@@ -35,10 +38,12 @@ pub struct Jobs(
     Arc<Mutex<Session>>,
     Arc<tokio::sync::Mutex<()>>,
     Arc<tokio::sync::Mutex<()>>,
+    history::History,
 );
 
 #[derive(Default)]
 struct Session {
+    studio: bool,
     workbench: Vec<Arc<Jobs>>,
     admission_epoch: u64,
     stop: Option<tokio::sync::watch::Receiver<Option<Result<Value, String>>>>,
@@ -76,6 +81,8 @@ struct Job {
     prompt_id: Option<String>,
     state: &'static str,
     outputs: Vec<Value>,
+    // Historical partial products are display metadata, never output-fetch/export authority.
+    history_outputs: Vec<Value>,
     error: Option<String>,
     submitting: bool,
     polling: bool,
@@ -1116,6 +1123,17 @@ impl Drop for StatusPolling<'_> {
 }
 
 impl Jobs {
+    /// Bind optional persistence once to the app's own data directory (never an environment/project).
+    pub fn initialize_history(&self, path: &std::path::Path) {
+        self.3.initialize(path);
+    }
+    pub fn initialize_history_unavailable(&self) {
+        self.3.unavailable();
+    }
+    pub fn flush_history(&self) {
+        self.3.flush();
+    }
+
     fn current(&self) -> Result<Value, String> {
         Ok(self.lock()?.snapshot())
     }
@@ -1302,6 +1320,14 @@ impl Jobs {
     }
 
     async fn submit(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
+        let jobs = self.clone();
+        // Native submission and its history commits outlive any diagnostic/Studio IPC waiter.
+        tokio::spawn(async move { jobs.submit_inner(plan_id, confirmed).await })
+            .await
+            .map_err(|_| "Native submission task failed")?
+    }
+
+    async fn submit_inner(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
         if !confirmed {
             return Err("Explicit diagnostic submission confirmation is required".into());
         }
@@ -1334,6 +1360,7 @@ impl Jobs {
                 prompt_id: None,
                 state: "unknown",
                 outputs: vec![],
+                history_outputs: vec![],
                 error: Some("Submission in progress; do not retry".into()),
                 submitting: true,
                 polling: false,
@@ -1342,6 +1369,7 @@ impl Jobs {
             };
             session.output = None;
             session.job = Some(job.clone());
+            self.3.admit(&job, if session.studio { "studio" } else { "diagnostic" });
             job
         };
         // Connect before POST so this client's progress/preview frames are not missed.
@@ -1387,7 +1415,9 @@ impl Jobs {
         }
         job.submitting = false;
         let result = job.snapshot();
-        self.lock()?.job = Some(job);
+        let mut session = self.lock()?;
+        self.3.observe(&job);
+        session.job = Some(job);
         Ok(result)
     }
 
@@ -1438,6 +1468,7 @@ impl Jobs {
             .as_mut()
             .filter(|j| j.id == job_id)
             .ok_or("Native job changed during status request")?;
+        self.3.observe(&job);
         *current = job;
         // Disarm under the same lock: Drop must never clear a subsequent operation's flag.
         polling.armed = false;
@@ -1706,6 +1737,11 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
             .as_array()
             .ok_or("Malformed history status messages")?;
         job.metadata = execution_metadata(messages, prompt_id);
+        if let Ok(partial) = outputs(entry) {
+            if !partial.is_empty() {
+                job.history_outputs = partial;
+            }
+        }
         match status["status_str"].as_str() {
             Some("error") => {
                 let interrupted: Vec<_> = messages

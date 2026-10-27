@@ -1,5 +1,93 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Batch B: recent generation history (Unreleased)
+
+### Source-review correction batch (2026-10-26)
+
+The correction continues on `feat/deas-recent-history` at unchanged full HEAD/base `4258e2f01552f586c3f6a7843fdc51fcbc2b74c5`. The cumulative scope remains 39 files: 31 tracked modifications and eight untracked additions. Actual Git status has 40 entries because the owner's unrelated `.gitignore` edit is also present; it is excluded from the scoped diff. Nothing is staged. Local plans and prior failure evidence are preserved.
+
+R1 removes origin/allowlist-name inference entirely for schema-1 historical inputs: the schema cannot prove original input context. Sources, both ordered image-reference schemas and supported video frames remain visibly unresolved before partial apply and block required Run paths until explicit Media reselection. Per-card replacement preserves order and ReVision strength. Explicit selections are invalidated on backend namespace/input-root changes, without retaining URL userinfo/query/hash. No input authority is inferred from output provenance, and immutable history intents remain unchanged. R2 binds availability/pending state to selected endpoint/input/output context, record ID/revision and open/refresh lifecycle. Old display is hidden immediately; invalidated/closed/unmounted request replies cannot replace results or clear a newer pending check. Checks remain explicit, ID-only and native-authorized.
+
+The successful native worker route now has an additional scratch-only regression: initialize, admit/observe a coalesced update burst, flush, bounded writer-lock release and reopen with exact final records/immutable intent. Sixteen native history tests are now authored. Cargo/rustfmt remain unavailable; this test has **not run**, and native acceptance remains pending.
+
+Combined batch-end checks:
+
+| Executed command | Result |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/history.test.tsx src/features/studio/RecentHistory.test.tsx` | 32 passed across two files; collision/root/prefix cases, both reference schemas, legacy frames, secret-free selection scope and completed/deferred availability invalidation |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx -t 'history'` | 8 passed / 187 filtered (195 total); explicit source/frame/card reselection, ordered ReVision/native references, root/prefix invalidation, protected nonimage refusal, immutable submitted settings and project guards |
+| `node --experimental-strip-types --test tests/i18n.test.ts` | 5 passed; strict key/placeholder parity across all six locales included |
+| `node node_modules/typescript/bin/tsc --noEmit` | Passed |
+| `node node_modules/vite/bin/vite.js build` | Passed; existing mixed-import and >500 kB chunk warnings retained |
+| `python tools/verify_jobs_history.py http://127.0.0.1:1420 --screenshots .tools/history-correction-ui` | 2 passed (1440 / 390 px); partial disclosure, unresolved references and disabled Run, explicit per-card replacement/order/strengths, then enabled Run; no upload/submission/probe delta. Four review/apply screenshots visually inspected |
+| `git diff --check` and complete scoped trailing-whitespace/JSON scans | Passed; 29 protected `.gitignore`/planning files retain their initial SHA-256 hashes, and the prior review ZIP/full failure log remain byte-identical. Manifests/lockfiles/version configuration are unchanged |
+
+`npm run typecheck` first failed before compilation with sandbox `EPERM` inspecting `C:\Users\arasb`; its stdout is retained in `.tools/batch-b-correction-2026-10-26-typecheck.log`. The direct local TypeScript and Vite commands above execute the existing script steps without npm startup or installation. Initial successful check logs use `.tools/batch-b-correction-2026-10-26-{history,workbench,i18n,typecheck-direct,build,browser}.log`. Final source inspection found one required-frame edge: for LTX/Wan, an external last-frame selection could clear the history blocker while the existing builder omitted that frame. The history gate now requires an actually representable frame; its regression includes refusal of that choice followed by usable explicit selection. Only the affected Workbench selector/typecheck/build were repeated after that fix; all passed, with final logs suffixed `-final`. The agent-owned fixture server was stopped after verification. No dependency/toolchain installation, native command execution or live backend/model/provider/dialog/ignored tests occurred in this correction batch.
+
+The historical full default gate below remains **105 core passed / one skipped; 872 UI passed / nine timeouts**, with no full-suite rerun in this correction batch. The exact nine failures from `.tools/batch-b-npm-test.log` are retained here; durations are observed time / original timeout:
+
+| Test | Observed / limit | Baseline evidence |
+| --- | --- | --- |
+| `App`: language selection updates app, setup, studio metadata and aria without losing local state | 5587 / 5000 ms | Unresolved |
+| `Workbench`: IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run | 5250 / 5000 ms | Unresolved |
+| `Workbench`: IPC fixture: Inpaint preserves draft and submits edited base (false, false), tuple `(cropped,paintBase,delayed,paintLayer)=(false,false,false,false)` | 6850 / 5000 ms | Unresolved |
+| Same Inpaint name (true, false), tuple `(true,false,false,false)` | 5937 / 5000 ms | Unresolved |
+| Same Inpaint name (false, true), tuple `(false,true,false,false)` | 5640 / 5000 ms | Unresolved |
+| Same Inpaint name (true, false), tuple `(true,false,true,true)` | 5297 / 5000 ms | Unresolved |
+| `Workbench`: IPC fixture: MiniMax H3 uploads dock references and pins continuity clips (source=new) | 10030 / 10000 ms | Unresolved |
+| Same H3 name (source=video) | 10562 / 10000 ms | Unresolved |
+| `Workbench`: IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video as REF2VA timeline media | 5697 / 5000 ms | Exact unchanged-HEAD case reproduced at 5811 / 5000 ms |
+
+Only **one of those nine** has documented exact baseline reproduction; the other eight remain unresolved. The additional baseline H3 `source=checkpoint` timeout (11214 / 10000 ms) is a different parameter case, not a second full-run failure. That comparison overlapped the full run, so it does not establish a performance cause. Raw baseline stdout was not retained; its aggregate Vitest cache cannot establish individual cases. The sole core skip is `release staging rejects dirty/existing destinations and excludes stale bundles/targets` (`tests/release-staging.test.ts:8`), conditional on non-Linux hosts. No timeouts, skips, worker configuration or full-gate result were altered.
+
+### Original implementation checkpoint (historical evidence)
+
+2026-10-26, Windows local checkout. Actual base: `main`, full HEAD `4258e2f01552f586c3f6a7843fdc51fcbc2b74c5` (documentation publication after the 0.1.48 implementation). Work continues uncommitted on `feat/deas-recent-history`. Initial status contained only the owner's `.gitignore` addition (`plan/`); it is preserved. Revision-6 task/backlog, current job/reference schemas and later queue/reference verification were inspected; no old Batch A/P2 patch was replayed.
+
+Implemented scope: `src-tauri/src/jobs_history.rs` and `jobs_history_tests.rs`; native consumed-submission/status/cancel/relocation hooks, app-data initialization/bounded Exit flush, shared anchored JSON publication, shared video effective defaults and three local-main-only history commands. Studio adds `history.ts`, `RecentHistory.tsx`, their selected `.test.tsx` regressions and `recentHistory.css`, narrow Workbench/Options/timing wiring, six locale dictionaries and `tools/verify_jobs_history.py`. User/IPC/status/media/changelog documentation is maintained. The only installer change removes the recorded test-only needless borrow; no installer runtime/T01 or version change.
+
+The file holds ten attempts by native admission order, independently of the twenty-entry session collection. Native commits keep exact effective image/video settings, ordered reference meaning, identity, known timing, uncertainty and partial output references. Projection excludes graphs, live/PNG/preview arrays, credentials, tokens and admission/interrupt authority. Competing writers/corrupt/unknown-schema files degrade optional persistence without changing a generation or authorizing retry. Metadata-only pruning preserves media. Explicit availability requires current native-approved output-root path and identity; no caller paths/roots are accepted. Restore reviews complete/partial settings before authoring changes, keeps missing dependencies blocked, uses Fixed exact seed/dimensions where representable and preserves normal project autosave/unsaved guards. It performs no endpoint probe/upload/submission/backend switch. Unsupported editor/Continuity data stays disclosed and blocked.
+
+Storage bounds: 16 MiB per strict record and `10 * 16 MiB + 4096` bytes per document. The authored corpus covers rich image/ReVision/native-reference and LTX/H3 intents plus all 4096 currently valid wildcard selection keys of 512 UTF-16 units, using worst-case JSON escapes (over 12 MiB). No effective fields are truncated. The ordinary interaction corpus is small; maximal-history memory/latency and before/after controlled resource measurements are not accepted.
+
+Checkpoint environment: existing Node **22.13.1**, npm **11.5.2**, locked dependencies restored once with `npm ci --no-audit --no-fund`; no manifest/lock upgrade. Existing Vite/HMR served `127.0.0.1:1420`. Existing Python 3.10/Playwright Chromium ran strict simulated IPC; no backend/model/service was started or contacted. Rust/Cargo/rustfmt/Clippy are absent; no toolchain or Windows prerequisites were installed.
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | Passed after correcting an invalid test query option |
+| Final affected history mapper/component selectors | 20 passed; both files matched the configured `.test.tsx` include; rerun after final lazy JSON/project-warning changes |
+| Final affected Workbench `-t history` selector | 5 passed / 187 filtered: four new restore/project regressions plus existing seed-history coverage |
+| Earlier Workbench selector (`history` plus prior video timeout cases) | 8 passed / 2 existing H3 timeouts / 182 filtered; investigation below |
+| `python tools/verify_jobs_history.py http://127.0.0.1:1420 --screenshots .tools/history-ui` | 2 passed: 1440px and 390px, ten rows, current-queue deduplication, available/missing outputs, explicit rich restore and missing-input/mask partial gate, no network/generation/probe delta |
+| `npm test` | Failed default UI gate: core 105 passed / 1 existing Windows release-staging skip; UI 872 passed / 9 timed out, 51 files (49 passed / 2 failed), no worker-cap override |
+| `npm run build` | Passed against the final frontend; existing mixed-import and >500kB chunk warnings remain |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Blocked: `cargo` command not found |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings` | Blocked: `cargo` command not found |
+| `cargo test --manifest-path src-tauri/Cargo.toml --locked -- --nocapture` | Blocked: `cargo` command not found |
+| `cargo build --manifest-path src-tauri/Cargo.toml --locked --release` | Blocked: `cargo` command not found |
+| Whitespace/local-link/preservation checks | Passed: `git diff --check`; changed/new file trailing-whitespace scan; seven changed JSON dictionaries/capabilities parsed; 16 added local links/anchors resolved; package/Cargo manifests, lockfiles and version config unchanged |
+
+Initial checkpoint evidence is retained: typecheck rejected `exact` in `getByRole`; the first affected three-file pass had 202 passes / 7 failures (four new test-fixture/assertion issues and three existing video/Continuity timeouts). Corrections scoped ambiguous text assertions and Promise/fake-timer fixtures, supplied the required CLIP-vision nodes in the new explicit-Run fixture and fixed queue/history CSS specificity. The browser first caught a visible duplicate queue, then caught narrow list/detail overlap; both were fixed and the final desktop/narrow screenshots inspected without overlap. No production validation, timeout or test was weakened to make a check pass.
+
+The two persisting H3 timeouts also reproduced against unchanged HEAD source extracted into ignored `.tools/baseline-history`: `node node_modules/vitest/vitest.mjs run --root .tools/baseline-history --config vite.config.ts src/features/studio/Workbench.test.tsx -t 'source=checkpoint|MiniMax H3 runs Video'` selected exactly two tests (186 filtered), both failed at their original limits. Checkpoint mode took 11,214ms against 10,000ms; REF2VA took 5,811ms against 5,000ms. An initial config-path startup error was corrected before that test execution. The baseline comparison overlapped the full npm gate, so it establishes reproduction on base in this environment, not an isolated performance diagnosis or passing acceptance.
+
+The full default UI run's nine failures were timeouts in the existing App language-selection test; Workbench Post-process; four Inpaint parameter cases; H3 Continuity new/video-source cases; and H3 REF2VA. All selected tests ran; no timeout/suite/configuration was changed. Only the separate two H3 selectors above were compared with base, so the other full-run timeouts remain undiagnosed acceptance limits. The full UI gate is **not green**. No full-suite rerun or serial/worker-limited pass is substituted for that result. The final affected rerun after lazy settings JSON/project-warning changes passed all 25 tests (20 mapper/component; five Workbench), and both browser cases passed again. Full effective JSON is constructed only after explicit disclosure expansion; unchanged history revisions reuse the restore assessment. These changes reduce avoidable work but are not controlled performance acceptance.
+
+Fifteen new native history tests are authored, plus physical-move-success/history-publish-failure coverage and history assertions in the existing owned Stop waiter-loss regression. They cover ten/eleven attempts and late pruning, immutable rich references/video/defaults, unknown/lost waiter, unchanged progress, local restart, byte/schema/corruption, writer conflict/no-clobber publication, provenance/secret exclusion, output availability/root replacement, move/media preservation and shared redacted rate-limited errors. These are **unexecuted native tests**, not passing evidence. New Rust was manually formatted; exact rustfmt acceptance remains blocked. An equipped environment must run actual history selectors with nonzero counts, the normal parallel suite, strict all-target lint and Linux/Windows builds/runtime checks (using a private Linux TMPDIR where required).
+
+Scoped inventory: **39 files, including eight new files**, excluding the preserved owner `.gitignore` edit. Paths below are relative to the repository root; no local plan/history input was edited.
+
+| Group | Files |
+| --- | --- |
+| New native service/tests | `src-tauri/src/jobs_history.rs`, `src-tauri/src/jobs_history_tests.rs` |
+| Native wiring/reuse/tests | Under `src-tauri/src/`: `jobs.rs`, `jobs_cancel.rs`, `jobs_outputs.rs`, `jobs_outputs_tests.rs`, `jobs_stop_tests.rs`, `jobs_video.rs`, `jobs_video_tests.rs`, `jobs_workbench.rs`, `lib.rs`, `main.rs`, `media_star.rs`, `projects.rs`, `install.rs`; plus `src-tauri/capabilities/main.json`, `src-tauri/permissions/api.toml` |
+| New Studio feature/tests | Under `src/features/studio/`: `history.ts`, `history.test.tsx`, `RecentHistory.tsx`, `RecentHistory.test.tsx`, `recentHistory.css` |
+| Studio integration/locales | Under `src/features/studio/`: `Workbench.tsx`, `Workbench.test.tsx`, `OptionsPanel.tsx`, `generationDuration.ts`, `locales/de.json`, `locales/en.json`, `locales/fr.json`, `locales/ja.json`, `locales/tr.json`, `locales/zh.json` |
+| New interaction fixture | `tools/verify_jobs_history.py` |
+| Documentation | `docs/STUDIO.md`, `docs/MEDIA.md`, `docs/IMPLEMENTATION-STATUS.md`, `docs/VERIFICATION.md`, `docs/CHANGELOG.md`, `src-tauri/README.md` |
+
+No ignored/live/model/provider/dialog tests, costly inference/training, toolchain install, user-service restart, media/model/project mutation, commit, push, merge, workflow/billing/auth change or release was performed. Hosted Verify/Release remain reported disabled/billing-blocked in prior evidence; no current hosted pass is claimed. Suggested review boundaries: native persistence/hooks/IPC/tests (including the small lint correction), then Studio browse/restore/locales/tests/docs. **Implemented, native acceptance pending**; the full frontend gate also retains the nine disclosed timeout failures. No release-readiness claim.
+
 ## Release 0.1.48 (2026-10-25)
 
 - Canonical P2 plan updated to the delivered model-aware references and drag-only thumbnail UX; unrelated open roadmap items remain open. Independent bounded source review passed with no release blockers. The adapter, regression files and MIT notice are tracked in the release source.

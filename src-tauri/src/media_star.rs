@@ -14,7 +14,7 @@ pub struct StarMove {
     pub old_path: String,
     pub path: String,
 }
-pub(super) fn output_root(engine: &crate::install::Engine) -> Result<PathBuf, String> {
+pub(crate) fn output_root(engine: &crate::install::Engine) -> Result<PathBuf, String> {
     let plan = engine
         .approved_plan()
         .ok_or("Select an owned installed environment; external media cannot be starred")?;

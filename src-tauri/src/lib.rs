@@ -23,7 +23,8 @@ pub mod jobs_video;
 pub use jobs::{
     native_h3_refmods, native_h3_session, native_h3_video_prepare, native_h3_video_upload,
     native_input_upload, native_job_current, native_job_export, native_job_output,
-    native_job_prepare, native_job_status, native_job_submit, native_mask_upload,
+    native_job_prepare, native_job_status, native_job_submit, native_jobs_history,
+    native_jobs_history_outputs, native_logs_history_error, native_mask_upload,
     native_workbench_cancel_pending, native_workbench_current, native_workbench_interrupt_running,
     native_workbench_poll, native_workbench_run, native_workbench_stop,
 };

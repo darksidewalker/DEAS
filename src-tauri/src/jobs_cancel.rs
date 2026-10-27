@@ -138,6 +138,7 @@ impl Jobs {
             if job.outputs.is_empty() { job.outputs = previous_outputs; }
             job.polling = false;
             let mut session = held.lock()?;
+            held.3.observe(&job);
             session.job = Some(job);
             session.retain_completed();
             let snapshot = session.snapshot();

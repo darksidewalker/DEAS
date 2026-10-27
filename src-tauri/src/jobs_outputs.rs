@@ -16,6 +16,12 @@ impl MediaRoot {
         let identity = crate::downloads::fs::Anchor::open(&path)?.identity()?;
         Ok(Self { path, identity })
     }
+    pub(super) fn recorded_identity(&self) -> (u64, u64) {
+        self.identity
+    }
+    pub(super) fn recorded_path(&self) -> &std::path::Path {
+        &self.path
+    }
     pub(super) fn current_path(&self) -> Option<&std::path::Path> {
         let identity = crate::downloads::fs::Anchor::open(&self.path)
             .ok()?
@@ -172,6 +178,7 @@ impl Jobs {
                     .is_some_and(|owned| owned.path == root && owned.identity == identity)
             }) {
                 repair(&mut job.outputs);
+                repair(&mut job.history_outputs);
             }
             for record in &mut session.completed {
                 if record.root.path == root && record.root.identity == identity {
@@ -183,6 +190,9 @@ impl Jobs {
         for held in &session.workbench {
             repair_session(&mut *held.lock()?);
         }
+        // Persistence is optional after the physical move. Failure cannot undo or repeat that move.
+        // Also repairs restart-loaded metadata, which carries no move authority itself.
+        self.3.relocate(root, identity, source, &target);
         // Cached PNG bytes retain job/index identity; only the on-disk location changed.
         Ok(target)
     }

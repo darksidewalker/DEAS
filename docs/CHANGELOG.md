@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add optional global recent-generation metadata for ten native attempts and a Studio history view with explicit compatible-settings restore, unresolved dependency gates and output-location repair after Star/Unstar. Media and the separate live queue are preserved. Source candidate; [batch verification and native acceptance limits](VERIFICATION.md#batch-b-recent-generation-history-unreleased) apply. No version bump or release.
+- Keep historical inputs unresolved until explicit Media reselection and invalidate output-availability labels on selected-context changes, record updates and close. Preserve reference order/strengths and ignore obsolete availability replies.
+
 ## 0.1.48
 
 Includes the model-aware reference wiring developed under 0.1.47 below, plus compact drag-only reference thumbnails. Local unsigned release; platform/model acceptance limits are recorded in [verification](VERIFICATION.md).

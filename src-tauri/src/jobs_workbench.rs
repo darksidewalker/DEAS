@@ -150,7 +150,15 @@ impl Jobs {
                     .into(),
             );
         }
-        let held = Arc::new(Jobs::default());
+        let held = Arc::new(Jobs(
+            Arc::new(Mutex::new(Session {
+                studio: true,
+                ..Session::default()
+            })),
+            Arc::default(),
+            Arc::default(),
+            self.3.clone(),
+        ));
         {
             let mut session = self.lock()?;
             if session.stop.is_some() {

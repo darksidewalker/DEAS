@@ -99,12 +99,12 @@ struct Manifest {
     #[serde(deserialize_with = "Option::deserialize")]
     input: Option<ProjectInput>,
 }
-struct Root {
+pub(crate) struct Root {
     anchor: Anchor,
     path: PathBuf,
 }
 impl Root {
-    fn open(path: &Path) -> Result<Self, String> {
+    pub(crate) fn open(path: &Path) -> Result<Self, String> {
         let anchor =
             Anchor::open(path).map_err(|_| "Project path must contain only real directories")?;
         anchor
@@ -114,14 +114,14 @@ impl Root {
         path.to_str().ok_or("Project path must be Unicode")?;
         Ok(Self { anchor, path })
     }
-    fn verify(&self) -> Result<(), String> {
+    pub(crate) fn verify(&self) -> Result<(), String> {
         let again = Anchor::open(&self.path).map_err(|_| "Project directory was replaced")?;
         if again.identity()? != self.anchor.identity()? {
             return Err("Project directory was replaced".into());
         }
         Ok(())
     }
-    fn file(&self, name: &str, lock: bool) -> Result<File, String> {
+    pub(crate) fn file(&self, name: &str, lock: bool) -> Result<File, String> {
         self.verify()?;
         #[cfg(target_os = "linux")]
         let file = {
@@ -195,7 +195,11 @@ impl Root {
             Ok(file)
         }
     }
-    fn read(&self, name: &str, limit: u64) -> Result<Vec<u8>, String> {
+    pub(crate) fn absent(&self, name: &str) -> Result<(), String> {
+        self.verify()?;
+        self.anchor.absent(name)
+    }
+    pub(crate) fn read(&self, name: &str, limit: u64) -> Result<Vec<u8>, String> {
         let file = self.file(name, false)?;
         if file
             .metadata()
@@ -224,17 +228,28 @@ impl Root {
         Ok(())
     }
     fn write(&self, data: &Manifest, new: bool) -> Result<(), String> {
-        self.verify()?;
-        self.anchor.writable()?;
-        self.sync()?;
         let bytes = serde_json::to_vec(data).map_err(|_| "Cannot encode project manifest")?;
         if bytes.len() as u64 > MAX_MANIFEST {
             return Err("Project manifest exceeds size limit".into());
         }
+        self.write_json_bytes(MANIFEST, &bytes, new)
+    }
+    /// Shared anchored atomic JSON publication. The caller owns schema/byte bounds and writer lock.
+    pub(crate) fn write_json_bytes(&self, target: &str, bytes: &[u8], new: bool) -> Result<(), String> {
+        if !target
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b".-_".contains(&c))
+            || target.is_empty()
+        {
+            return Err("Unsafe JSON filename".into());
+        }
+        self.verify()?;
+        self.anchor.writable()?;
+        self.sync()?;
         let name = format!(".manifest-{}.tmp", uuid::Uuid::new_v4());
         let mut file = self.anchor.partial(&name)?;
         let result = (|| {
-            file.write_all(&bytes)
+            file.write_all(bytes)
                 .map_err(|_| "Cannot write project manifest")?;
             file.sync_all()
                 .map_err(|_| "Cannot sync project manifest")?;
@@ -244,17 +259,17 @@ impl Root {
             }
             #[cfg(not(windows))]
             if new {
-                return self.anchor.publish(&name, MANIFEST);
+                return self.anchor.publish(&name, target);
             }
             // Never adopt a symlink or directory as the previous manifest.
             if !new {
-                self.file(MANIFEST, false)?;
+                self.file(target, false)?;
             }
             #[cfg(target_os = "linux")]
             {
                 use std::{ffi::CString, os::fd::AsRawFd};
                 let from = CString::new(name.as_str()).unwrap();
-                let to = CString::new(MANIFEST).unwrap();
+                let to = CString::new(target).unwrap();
                 if unsafe {
                     libc::renameat(
                         self.anchor.0.as_raw_fd(),
@@ -277,7 +292,7 @@ impl Root {
                 if unsafe {
                     MoveFileExW(
                         wide(self.path.join(&name)).as_ptr(),
-                        wide(self.path.join(MANIFEST)).as_ptr(),
+                        wide(self.path.join(target)).as_ptr(),
                         MOVEFILE_WRITE_THROUGH | if new { 0 } else { MOVEFILE_REPLACE_EXISTING },
                     )
                 } == 0
