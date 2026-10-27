@@ -8,11 +8,12 @@ import { AiOSetup } from './components/setup/AiOSetup';
 import { ApiNegotiationPanel } from './features/studio/ApiNegotiationPanel';
 import { RecipePrerequisitesPanel } from './features/studio/RecipePrerequisitesPanel';
 import { Workbench } from './features/studio/Workbench';
+import { TrueVideoEnhancer } from './features/studio/TrueVideoEnhancer';
 import { PromptForge } from './features/forge/PromptForge';
 import { Chat } from './features/chat/Chat';
 import type { Folders } from './lib/settings';
 import { oneOf, usePref } from './lib/preferences';
-const studioTabs=['generate','forge','chat','map'] as const;
+const studioTabs=['generate','forge','chat','tve','map'] as const;
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
 interface DirectorDraft {direction:string;framing:string;mood:string}
 const defaultDraft:DirectorDraft={direction:'',framing:'wide',mood:'natural'};
@@ -57,6 +58,7 @@ export default function App(){
  // Prompt Forge mounts on first visit (it reads the backend's model list) and then keeps its draft.
  const forgeOpened=useRef(false);if(tab==='forge')forgeOpened.current=true;
  const chatOpened=useRef(false);if(tab==='chat')chatOpened.current=true;
+ const tveOpened=useRef(false);if(tab==='tve')tveOpened.current=true;
  const sendToGenerate=(positive:string,negative:string)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');};
  const [sent,setSent]=useState<{positive:string;negative:string;n:number}>();
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
@@ -87,7 +89,8 @@ export default function App(){
    <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
-    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent}/></div>
+    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onOpenVideoPost={()=>setTab('tve')}/></div>
+    {tveOpened.current&&<div className="studio-generate-host" hidden={tab!=='tve'}><TrueVideoEnhancer/></div>}
     {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate}/></div>}
     {chatOpened.current&&<div className="studio-generate-host" hidden={tab!=='chat'}><Chat active={studioActive&&tab==='chat'} endpoint={endpoint} root={environment?.root} onSend={sendToGenerate}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>

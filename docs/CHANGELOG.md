@@ -7,6 +7,12 @@
 - More (Refine/Upscale) now appears on every image preview, including dock-browsed files: the file is uploaded and the Post-Processing settings run directly on it (target = current canvas size × upscale factor).
 - Fix video source inspection rejecting every file chosen through a symlinked directory (bookmarks like ~/Downloads): parent-directory links are ordinary navigation and only the selected file itself must not be a link. Admission failures now name the reason (VIDEO_SYMLINK / VIDEO_SIZE / VIDEO_TYPE) instead of one generic VIDEO_SOURCE message.
 
+## Unreleased — 0.1.53
+
+- Add a dedicated TVE main tab for standalone video post-processing authoring, separate from Generate's image Post-Processing dock. Lazy mounting retains source inspection/output choices/checked drafts across app navigation; opening or restoring the tab does not probe, load models or submit work. Keep the Generate workbench and existing image actions mounted and unchanged.
+- Add an optional Linux-only Rust short-clip streaming core and actual-session `upscale_video` developer example: bounded raw RGB pipes, complete rational frame timing checks, AAC audio mapping, cooperative cancellation/owned-child cleanup, completed-file verification and no-clobber MP4 publication. Source/output limits and unsupported platforms fail explicitly; real-codec CPU tests are not AI-video acceptance. No TVE Render action is enabled.
+- Add explicit Rust metadata output-draft validation for 1×/2×/4× and MP4/H.264, MKV/H.264 or WebM/VP9 profiles, with exact rational cadence, audio omission/mapping, source warnings, target-size limits and explicit subtitle blockers. Edits invalidate obsolete drafts; all readiness flags remain false. No executable video plan, encoder discovery, model selection, preview, Run/queue, JSON import/export or video output is advertised.
+
 ## Unreleased — 0.1.52
 
 - Add explicit local video source inspection to Post-Processing: a Rust-owned, bounded native FFprobe process reports dimensions, exact rational cadence, stream metadata and conservative timing/color/interlace/rotation/alpha/pixel-aspect blockers. Preserve the previous result on chooser cancellation, prevent duplicate inspection and route sanitized operation diagnostics to central Logs. No file upload, model/GPU initialization, output write or video Run action.

@@ -17,6 +17,14 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('inspection callback emits only successful metadata, never cancellation or failed reads', async () => {
+  const onInspected = vi.fn();
+  vi.mocked(invoke).mockResolvedValueOnce(source).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('failed'));
+  render(<I18nProvider><VideoPostProcessing onInspected={onInspected}/></I18nProvider>);
+  await act(async () => choose()); await act(async () => choose()); await act(async () => choose());
+  expect(onInspected).toHaveBeenCalledExactlyOnceWith(source);
+});
+
 test('cancel preserves a previous successful source, including on the first choice', async () => {
   vi.mocked(invoke).mockResolvedValueOnce(null).mockResolvedValueOnce(source).mockResolvedValueOnce(null);
   render(view());

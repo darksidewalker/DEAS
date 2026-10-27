@@ -1,6 +1,10 @@
 pub mod auth;
 pub mod video;
 pub mod video_post;
+pub mod video_post_draft;
+pub use video_post_draft::native_video_post_draft;
+#[cfg(feature = "video-upscale")]
+pub mod video_stream;
 #[cfg(feature = "video-upscale")]
 pub mod video_upscale;
 pub use video_post::native_video_post_inspect;

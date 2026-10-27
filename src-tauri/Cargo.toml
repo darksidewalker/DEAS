@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.52"
+version = "0.1.53"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
@@ -54,6 +54,10 @@ video-upscale = ["dep:ort", "dep:half"]
 
 [[example]]
 name = "upscale_png"
+required-features = ["video-upscale"]
+
+[[example]]
+name = "upscale_video"
 required-features = ["video-upscale"]
 
 [profile.release]

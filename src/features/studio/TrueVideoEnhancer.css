@@ -1,0 +1,16 @@
+.tve { padding: 16px; min-width: 0; color: var(--chalk); }
+.tve-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.tve-heading h2, .tve-panel h3 { margin: 0 0 12px; }
+.tve-heading .eyebrow { margin: 0 0 4px; }
+.tve-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.tve-panel { min-width: 0; padding: 16px; border: 1px solid rgb(var(--blue-rgb) / .3); border-radius: 12px; background: var(--panel); overflow-wrap: anywhere; }
+.tve-panel [data-video-post] { display: grid; gap: 12px; }
+.tve-options { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.tve-options label { display: grid; flex: 1 1 140px; min-width: 0; gap: 6px; color: var(--muted); font-size: 12px; }
+.tve-options select { width: 100%; }
+.tve-draft { margin-top: 16px; padding: 12px; border: 1px dashed var(--muted); border-radius: 8px; background: var(--surface); }
+.tve-draft dl { display: grid; gap: 10px; margin-bottom: 0; }
+.tve-draft dt { color: var(--muted); font-size: 12px; }
+.tve-draft dd { margin: 3px 0 0; }
+.tve-limit { margin-bottom: 0; line-height: 1.6; }
+@media (max-width: 760px) { .tve { padding: 8px; } .tve-columns { grid-template-columns: minmax(0, 1fr); } .tve-panel { padding: 12px; } }

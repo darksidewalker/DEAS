@@ -50,6 +50,7 @@ fn main() {
         .manage(deas::ModelScanEngine::default())
         .invoke_handler(tauri::generate_handler![
             deas::native_video_post_inspect,
+            deas::native_video_post_draft,
             deas::video::native_video_open,
             deas::video::native_video_update,
             deas::native_auth_status,

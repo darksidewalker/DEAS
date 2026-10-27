@@ -1,5 +1,9 @@
 # News
 
+## Development — 0.1.53
+
+TVE now has its own main tab. Inspect a video source, choose a scale/export-profile draft and explicitly check its exact output metadata in Rust; source/draft state survives navigation without computation. Image refinement stays in Studio. The draft is not a runnable enhancement job and does not verify an encoder, GPU or source cadence. See [TVE workspace](STUDIO.md#tve-workspace) and [remaining execution work](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.
+
 ## Development — 0.1.52
 
 Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#video-source-inspection-0152-development) and [video plan](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.

@@ -30,6 +30,25 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
 const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
+test.each([false,true])('video workspace navigation seam is optional (%s) and leaves image Post settings intact',async connected=>{
+ const onOpen=vi.fn();
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" onOpenVideoPost={connected?onOpen:undefined}/></I18nProvider>);
+ await act(async()=>{});
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ expect(document.querySelector('[data-video-post]')).toBeNull();
+ const upscale=screen.getByLabelText('Upscale factor');
+ fireEvent.change(upscale,{target:{value:'3'}});
+ const navigate=document.querySelector('[data-open-video-post]');
+ expect(!!navigate).toBe(connected);
+ const calls=vi.mocked(invoke).mock.calls.length;
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ if(navigate)fireEvent.click(navigate);
+ expect(onOpen).toHaveBeenCalledTimes(connected?1:0);
+ expect(upscale).toHaveProperty('value','3');
+ expect(invoke).toHaveBeenCalledTimes(calls);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);
+});
+
 test('paired products select their own actions and compare the encoded baseline, not the editor input',async()=>{
  const intent={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'held',negativePrompt:'',checkpoint:'a.safetensors',seed:42,cfg:6,sampler:'euler',scheduler:'normal',outputPrefix:'raw/old',width:1024,height:1024,steps:20,inputImage:'unrelated.png',refine:{width:2048,height:2048,denoise:0.25}} as const;
  const job:JobStatus={...heldJob('pair','succeeded'),outputRoot:'/old/output',intent,outputs:[{filename:'one.png',subfolder:'raw',type:'output',role:'processed'},{filename:'two.png',subfolder:'raw',type:'output',role:'original'}]};

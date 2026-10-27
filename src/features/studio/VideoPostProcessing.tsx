@@ -5,8 +5,8 @@ import { inspectVideoPost, type VideoPostInspection } from '../../lib/videoPost'
 
 const blockerCodes = ['cadenceUnknown', 'cadenceMismatch', 'interlaced', 'rotation', 'alpha', 'hdr', 'colorUnknown', 'unsupportedPixelFormat', 'multipleVideoStreams', 'unsupportedDimensions', 'fieldOrderUnknown', 'nonSquarePixels', 'pixelAspectUnknown'];
 
-/** Session-only inspection; leaving the Post tab discards the snapshot. */
-export function VideoPostProcessing() {
+/** Only a successful inspection replaces the workspace source; cancellation retains it. */
+export function VideoPostProcessing({ onInspected }: { onInspected?: (source: VideoPostInspection) => void }) {
   const { t } = useI18n();
   const [source, setSource] = useState<VideoPostInspection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +23,7 @@ export function VideoPostProcessing() {
     setBusy(true);
     try {
       const selected = await inspectVideoPost(t('studio.videoPost.dialog'));
-      if (epoch.current === current && selected) setSource(selected);
+      if (epoch.current === current && selected) { setSource(selected); onInspected?.(selected); }
     } catch (failure) {
       if (epoch.current === current) {
         const detail = failure && typeof failure === 'object' && 'message' in failure ? String(failure.message) : String(failure);
