@@ -1,5 +1,12 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.1.52 (published)
+
+- Source commit `bbd82e6c5f899b32778af32f382667331cd3c820` (tree 62e2741d). Fresh pre-release gates: 107 core / 944 UI tests, 517 native library tests + 3 binary tests serially, cargo fmt, strict production Clippy, offline Windows-MSVC crosscheck — all passed.
+- Linux `bash build-linux.sh` → `deas-linux-amd64` SHA-256 `33778840d6ee719beba68b30b7b95cc633dd87a695f43e63caf0e60200b0692d`; derived glibc floor 2.39; `ldd` shows zero missing libraries.
+- Windows `cargo xwin build --locked` → `deas.exe` SHA-256 `a0472294481e69be648bee8bfeace0244d71fbceb56361576f3756be7aaa98da`; benign LNK4099 debug-info linker warning; cross-compiled, not Windows runtime-accepted.
+- Published as GitHub release `v0.1.52` with four assets (binary, exe, SHA256SUMS, BUILD-MANIFEST.json); tag pushed to github and gitea. NSIS/portable/deb/AppImage bundles not produced (Linux fallback).
+
 ## Rust video source inspection (0.1.52, development)
 
 PP2a/W8a1 is implemented as a bounded source-inspection feature, not video inference/rendering or full W8a preparation. The owner’s standalone-video requirement is now explicit in the project rules and plans: Rust processing/inference integration, no Go or Python worker. Existing ComfyUI image recipes remain separate.
