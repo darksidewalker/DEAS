@@ -700,7 +700,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const isVideoOut=(o:JobStatus['outputs'][number])=>!!o.format?.startsWith('video/')||/\.(webm|mkv|mp4|avif)$/i.test(o.filename);
  const shownOutput=shown&&terminalOutput(shown)&&shown.outputRoot&&shown.outputs[outputIndex]&&shown.intent&&!isVideoIntent(shown.intent)?outputItem(shown,shown.outputs[outputIndex]):null;
  const postFor=(item:MediaItem)=>shownOutput?.src===item.src&&shown?.intent&&!isVideoIntent(shown.intent)?{image:'',size:shown.outputs[outputIndex]?.role==='original'?shown.intent:shown.intent.refine??shown.intent,src:shownOutput.src,item:shownOutput}
-  :media?.src===item.src&&inputImage&&source?{image:inputImage,size:source,src:media.src,item:media}:null;
+  :media?.src===item.src&&inputImage&&source?{image:inputImage,size:source,src:media.src,item:media}
+  :item.media==='image'&&item.src&&item.path?{image:'',size:outputSize,src:item.src,item}:null; // any other image (browsed dock file): upload by path, canvas-size target
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
  // References: LTX keyframes are images; H3 REF2VA also takes videos and audio within the Director limits. Returns why an item cannot be added.
