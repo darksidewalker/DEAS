@@ -95,6 +95,8 @@
 .wb-edit-tools [aria-pressed="true"] { border-color: var(--accent, #c8762c); color: var(--accent, #c8762c); }
 .wb-edit-tools button:disabled, .wb-edit-tools .media-star:disabled { opacity: .45; cursor: default; }
 .wb-edit-tools .media-star-control { display: inline-flex; }
+/* Toolbar star = the same 22px pill as the other controls (3-class selector beats media.css's .media-star-control .media-star box). */
+.wb-edit-tools .media-star-control .media-star { width: auto; min-height: 0; height: 22px; padding: 0 9px; border: 1px solid rgb(var(--ink-rgb) / 0.165); border-radius: 11px; background: rgb(var(--shadow-rgb) / 0.627); font-size: 11px; line-height: 20px; color: var(--gold); }
 /* More dropdown: pill summary (styled by the shared rule) opening a compact menu under it. */
 .wb-more summary { list-style: none; }
 .wb-more[open] > .wb-more-menu { position: absolute; top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
