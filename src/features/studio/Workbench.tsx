@@ -375,21 +375,21 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const activeRun=(ticket:{generation:number})=>live.current&&ticket.generation===preparationGeneration.current;
  // Press revisions must not delay reconciliation after the last Run reply settles.
  const finishRun=(ticket:{generation:number},admitted:boolean)=>{if(!activeRun(ticket))return;localPreparations.current--;lock.current=localPreparations.current>0;setBusy(lock.current);if(admitted&&!lock.current){setObservationRetry(0);setRecovered(false);}};
- function buildImageIntent(naming:string,out:VideoOutput,only?:{image:string;size:Size}):DiagnosticImageIntentV1{
+ function buildImageIntent(naming:string,out:VideoOutput,only?:{image:string;size:Size;upscaleOnly?:boolean}):DiagnosticImageIntentV1{
   const target=up(only?only.size:outputSize);
   const refinePass=post&&!h3Image;
   const inputLayers=visibleImages(layers);
-  const refineSigmas=tail(refineDenoise);
+  const refineSigmas=only?.upscaleOnly?[]:tail(refineDenoise); // Upscale alone: no diffusion tail, the pass is resize + model upscale.
   const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:structuredClone(wildcard)}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,clipType:family.clipType,vae}}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio}}:{}),...(imageRefs.length&&referenceMethod?(referenceMethod==='revision'?{imageReference:{visionModel:refVision,images:imageRefs.map(r=>({image:comfyName(r.item)||r.item.path!,strength:r.strength}))}}:{nativeImageReference:{method:referenceMethod,images:imageRefs.map(r=>comfyName(r.item)||r.item.path!)}}):{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
   const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
   return Object.freeze(only
-   ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
+   ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:only.upscaleOnly?0:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
    :{...common,width:outputSize.width,height:outputSize.height,steps:sigmas?sigmas.length-1:steps,...(sigmas?{sigmas}:{}),...(pipeline==='i2i'?{inputImage,denoise:strength,...(scaled?.resize?{inputResize:scaled.resize}:{}),...(inputLayers.length?{inputLayers}:{})}:{}),
     ...(refinePass?{refine:{...target,denoise:refineDenoise,...(upscaleModel?{upscaleModel}:{}),...(refineSigmas?{sigmas:refineSigmas}:{}),...(tiled?{tiled}:{})}}:{})});
  }
  /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
  /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
- async function run(only?:{image:string;size:Size;src:string;item:MediaItem},step?:{index:number;all:boolean}){
+ async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean}){
   if(!native||stopLock.current||admissionBlocked||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   if(unavailable.length)return; // The overlay derives dependency warnings from the current selections.
@@ -746,8 +746,10 @@ const promptTools=forgeContext&&<>
   {showStar&&<StarMediaButton item={item}/>}
   <button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
-  {/* Post-process (refine/upscale alone) only in the image edit modes: the active checkpoint is then an image model. */}
-  {pipeline==='i2i'&&!h3Image&&!moss&&(()=>{const only=postFor(item);return only&&<button type="button" data-run-post disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current} title={t('studio.run.post.runHint')} onClick={()=>void run(only)}>{t('studio.run.post.run')}</button>;})()}
+  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. */}
+  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current;return only&&<details className="wb-more"><summary data-more>{t('studio.run.more')}</summary><div className="wb-more-menu">
+   <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>void run(only)}>{t('studio.run.post.refine')}</button>
+   <button type="button" data-run-upscale disabled={off} title={t('studio.run.post.upscaleHint')} onClick={()=>void run({...only,upscaleOnly:true})}>{t('studio.run.post.upscale')}</button></div></details>;})()}
   {item.media==='image'&&<button type="button" data-view-full onClick={()=>setViewer({src:item.src,alt:item.name,item})}>{t('studio.run.viewer.open')}</button>}
   {frameVideo&&item.media==='image'&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {/* LTX keyframes are images; H3 REF2VA also takes videos and audio. */}

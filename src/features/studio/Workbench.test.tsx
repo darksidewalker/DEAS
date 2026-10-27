@@ -139,6 +139,27 @@ test.each(['/new-env/output','/old-env/output'])('recovered image Post-process t
  expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/old-env/output/raw/result.png');
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/original.png'});
 });
+test('More offers Refine and Upscale; Upscale runs the pass alone (denoise 0, no sigmas)',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ localStorage.setItem('deas.pref.studio.run.pipeline','"i2i"');
+ localStorage.setItem('deas.pref.studio.run.upscale','2');
+ const intent={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'old',negativePrompt:'',checkpoint:'a.safetensors',seed:42,cfg:6,sampler:'euler',scheduler:'normal',outputPrefix:'raw/old',width:1024,height:1024,steps:20} as const;
+ const job={...heldJob('more-image','succeeded'),outputRoot:'/old-env/output',intent,outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/result.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('upscaled','failed'),baseUrl:evidence.baseUrl});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/old-env/output'}}/></I18nProvider>);
+ expect(await screen.findByText('More')).toBeTruthy();
+ const refine=document.querySelector<HTMLButtonElement>('[data-run-post]')!,up=document.querySelector<HTMLButtonElement>('[data-run-upscale]')!;
+ expect(refine.disabled).toBe(false);expect(up.disabled).toBe(false);
+ expect(refine.title).toContain('Refine AND Upscale');expect(up.title).toContain('Upscale pass');
+ fireEvent.click(up);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
+ expect(sent).toMatchObject({denoise:0,inputImage:'deas-inputs/result.png',width:2048,height:2048});
+ expect(sent.sigmas).toEqual([]); // upscale-only: explicit empty sigma list = no diffusion tail
+});
 test.each([true,false])('native video playback uses captured root when available (owned=%s)',async owned=>{
  const agent=vi.spyOn(navigator,'userAgent','get').mockReturnValue('Linux');
  try{
@@ -935,7 +956,7 @@ test('dependency warnings follow corrected selections after a blocked post-proce
  const img=screen.getByRole('img',{name:'source.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:1024}});fireEvent.load(img);
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
- fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ fireEvent.click(screen.getByRole('button',{name:'Refine'}));
  expect(runWorkbenchJob).not.toHaveBeenCalled();
  fireEvent.change(screen.getByRole('combobox',{name:'VAE'}),{target:{value:'qwen_image_vae.safetensors'}});
  expect(screen.queryByRole('alert')).toBeNull();
@@ -1415,15 +1436,15 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  fireEvent.click(await screen.findByRole('button',{name:'out.png'}));adopt();
  const img=screen.getByRole('img',{name:'out.png'});
  Object.defineProperties(img,{naturalWidth:{value:1000},naturalHeight:{value:600}});fireEvent.load(img);
- expect(screen.queryByRole('button',{name:'Refine'})).toBeNull();
- expect(screen.queryByRole('button',{name:'Upscale'})).toBeNull();
+ // Refine/Upscale live in the preview toolbar on every image (a video model would get an image job — videos are excluded).
+ expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Upscale'})).toBeTruthy();
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
  fireEvent.change(screen.getByLabelText('Upscale factor'),{target:{value:'2'}});
- // Post-process lives in the preview toolbar and only in the image edit modes (a video model would get an image job).
- expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
+ expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
- await waitFor(()=>expect(screen.getByRole('button',{name:'Post-process'}).hasAttribute('disabled')).toBe(false));
- fireEvent.click(screen.getByRole('button',{name:'Post-process'}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Refine'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Refine'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  const first=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(first).toMatchObject({inputImage:'out.png [output]',denoise:0.25,width:1984,height:1216,inputResize:{width:1984,height:1216,crop:'disabled'}}); // 2000×1200 snapped per edge to the SDXL 64 grid
@@ -1440,11 +1461,11 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
  // Instant again on the shown render: transfer its actual file, never infer the backend root.
  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/shown.png');
- fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Post-process'}));
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Refine'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({inputImage:'deas-inputs/shown.png',width:3968,height:2432});
  // Opt-in: every Run gets the refine pass at the upscaled grid size.
- choosePipe('Text → Image');expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
+ choosePipe('Text → Image');expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy(); // t2i checkpoints are image models too
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  expect(screen.getByRole('tab',{name:/Post-Processing/}).textContent).toContain('✓');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -2294,7 +2315,7 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  const img=await screen.findByRole('img',{name:'ref.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
  expect(screen.queryByLabelText('Denoise')).toBeNull();
- expect(screen.queryByRole('button',{name:'Post-process'})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Refine'})).toBeNull();
  fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));

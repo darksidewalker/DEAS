@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Studio preview: the Post-process button is now a **More** dropdown under *Use as input*, offering **Refine** (the refine+upscale pass alone, with the hint) and **Upscale** (the upscale pass alone, no diffusion, no sigmas) — both run immediately with the Post-Processing settings on the shown image.
+- Studio preview controls unified: the control row (Use as input, edit modes, inpaint, last frame, star, More, …) sits right-aligned in the stage header ending before the Metadata pill, and every control — buttons, the More summary, the stars — shares the Metadata pill's round-pill shape, height and font.
 - Fix video source inspection rejecting every file chosen through a symlinked directory (bookmarks like ~/Downloads): parent-directory links are ordinary navigation and only the selected file itself must not be a link. Admission failures now name the reason (VIDEO_SYMLINK / VIDEO_SIZE / VIDEO_TYPE) instead of one generic VIDEO_SOURCE message.
 
 ## Unreleased — 0.1.52
