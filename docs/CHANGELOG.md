@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix video source inspection rejecting every file chosen through a symlinked directory (bookmarks like ~/Downloads): parent-directory links are ordinary navigation and only the selected file itself must not be a link. Admission failures now name the reason (VIDEO_SYMLINK / VIDEO_SIZE / VIDEO_TYPE) instead of one generic VIDEO_SOURCE message.
+
 ## Unreleased — 0.1.52
 
 - Add explicit local video source inspection to Post-Processing: a Rust-owned, bounded native FFprobe process reports dimensions, exact rational cadence, stream metadata and conservative timing/color/interlace/rotation/alpha/pixel-aspect blockers. Preserve the previous result on chooser cancellation, prevent duplicate inspection and route sanitized operation diagnostics to central Logs. No file upload, model/GPU initialization, output write or video Run action.

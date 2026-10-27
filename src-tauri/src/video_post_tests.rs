@@ -211,7 +211,7 @@ fn source_rejects_paths_signatures_and_replacements() {
     let before = identity(&original).unwrap();
     assert!(inspect_source(&path)
         .unwrap_err()
-        .starts_with("VIDEO_SOURCE:"));
+        .starts_with("VIDEO_TYPE:"));
     fs::remove_file(&path).unwrap();
     fs::write(&path, b"different file bytes").unwrap();
     assert_ne!(identity(&open_source(&path).unwrap()).unwrap(), before);
@@ -223,7 +223,8 @@ fn source_rejects_paths_signatures_and_replacements() {
         assert!(open_source(&link).is_err());
         let linked_dir = dir.path().join("linked-dir");
         symlink(dir.path(), &linked_dir).unwrap();
-        assert!(open_source(&linked_dir.join("private ü source.mp4")).is_err());
+        // Parent-directory symlinks are allowed (bookmarks); only leaf links are rejected.
+        assert!(open_source(&linked_dir.join("private ü source.mp4")).is_ok());
         use std::os::unix::ffi::OsStrExt;
         let fifo = dir.path().join("fifo.mp4");
         let c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();

@@ -4,14 +4,18 @@ use serde_json::Value;
 use std::{
     fs::{self, File},
     io::Read,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
 const INVALID: &str = "VIDEO_METADATA: Invalid or incomplete video metadata; choose a supported MP4 or Matroska video.";
-const SOURCE: &str = "VIDEO_SOURCE: Choose an unchanged, regular local MP4 or Matroska file (up to 64 GiB), without symbolic links.";
+const SOURCE: &str =
+    "VIDEO_SOURCE: Choose an unchanged, regular local MP4 or Matroska file (up to 64 GiB).";
+const SYMLINK: &str = "VIDEO_SYMLINK: The selected file is a symbolic link; choose the real file.";
+const SIZE: &str = "VIDEO_SIZE: Video sources must be between 12 bytes and 64 GiB.";
+const TYPE: &str = "VIDEO_TYPE: The selected file is not an MP4/MOV/MKV/WebM video (container signature mismatch).";
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const STDERR_LIMIT: usize = 16 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -103,8 +107,11 @@ struct Identity {
 }
 fn identity(file: &File) -> Result<Identity, String> {
     let m = file.metadata().map_err(|_| SOURCE)?;
-    if !m.is_file() || !(12..=64 * 1024 * 1024 * 1024).contains(&m.len()) {
+    if !m.is_file() {
         return Err(SOURCE.into());
+    }
+    if !(12..=64 * 1024 * 1024 * 1024).contains(&m.len()) {
+        return Err(SIZE.into());
     }
     #[cfg(unix)]
     let id = {
@@ -142,19 +149,17 @@ fn open_source(path: &Path) -> Result<File, String> {
             return Err(SOURCE.into());
         }
     }
-    let mut current = PathBuf::new();
-    for part in path.components() {
-        current.push(part);
-        let m = fs::symlink_metadata(&current).map_err(|_| SOURCE)?;
-        if m.file_type().is_symlink() {
-            return Err(SOURCE.into());
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            if m.file_attributes() & 0x400 != 0 {
-                return Err(SOURCE.into());
-            }
+    // Parent-directory symlinks are ordinary navigation (bookmarks like ~/Downloads);
+    // only the leaf is rejected — O_NOFOLLOW/open-no-follow enforce it at open time.
+    let leaf = fs::symlink_metadata(path).map_err(|_| SOURCE)?;
+    if leaf.file_type().is_symlink() {
+        return Err(SYMLINK.into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if leaf.file_attributes() & 0x400 != 0 {
+            return Err(SYMLINK.into());
         }
     }
     #[cfg(unix)]
@@ -191,7 +196,7 @@ pub fn inspect_source(path: &Path) -> Result<VideoSourceInspection, String> {
     } else if header[..4] == [0x1a, 0x45, 0xdf, 0xa3] {
         "matroska"
     } else {
-        return Err(SOURCE.into());
+        return Err(TYPE.into());
     };
     let mut command = Command::new("ffprobe");
     command.args([
