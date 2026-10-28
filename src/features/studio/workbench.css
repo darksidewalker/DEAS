@@ -93,7 +93,7 @@
    overlay toolbar is a direct stage child. Labels stay on one line; the empty strip area is
    click-through so the media keeps its zoom. */
 .wb-stage-meta { anchor-name: --wb-meta; }
-.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: anchor(--wb-meta top); left: 8px; right: 104px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
+.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: anchor(--wb-meta top); left: 8px; right: 112px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
 .wb-stage > .wb-media-tools > *, .wb-stage > .wb-edit-tools > * { pointer-events: auto; min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }

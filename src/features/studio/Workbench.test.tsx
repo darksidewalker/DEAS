@@ -443,7 +443,7 @@ test('Linux native input never creates a WebKit video decoder',async()=>{
  expect(view.container.querySelector('[data-native-video]')).not.toBeNull();
  vi.restoreAllMocks();
 });
-const adopt=()=>{const preview=document.querySelector('[data-browsed-preview]');if(!preview)return;const action=preview.querySelector<HTMLButtonElement>('[data-use-input], [data-edit="resample"]');if(action)fireEvent.click(action);};
+const adopt=()=>{const action=document.querySelector('[data-use-input], [data-edit="resample"]');if(action)fireEvent.click(action);};
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
 const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
@@ -831,9 +831,10 @@ test('starring an adopted preview repairs its location without remounting or los
  });
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  fireEvent.click(await screen.findByRole('button',{name:'a.png'}));
- const preview=document.querySelector('[data-browsed-preview]')!;
+ const preview=document.querySelector('.wb-stage > [data-media-tools]')!;
+ const previewFigure=document.querySelector('[data-browsed-preview]')!;
  await waitFor(()=>expect(within(preview as HTMLElement).getByRole('button',{name:'Star a.png'}).hasAttribute('disabled')).toBe(false));
- clickMedia(preview.querySelector('img')!);
+ clickMedia(previewFigure.querySelector('img')!);
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path:'/out/a.png'}));
  fireEvent.keyDown(window,{key:'Escape'});adopt();
  const sourceImage=screen.getByRole('img',{name:'a.png'});
@@ -3116,7 +3117,7 @@ test('history video first and last frames remain unresolved until each explicit 
  fireEvent.click(document.querySelector('[data-job-id="old-frame-result"] .wb-queue-select')!);
  fireEvent.click(document.querySelector('.wb-shown [data-edit-last]')!);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // This LTX builder cannot resolve an old environment's frame handle.
- fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(document.querySelector('[data-browsed-preview] [data-edit-last]')!);
+ fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit-last]')!);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(original)).toBe(before);
 });
