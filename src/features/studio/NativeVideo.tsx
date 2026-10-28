@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type CSSProperties } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import './nativeVideo.css';
@@ -7,6 +7,7 @@ export const nativeVideo = () => isTauri() && /Linux/.test(navigator.userAgent);
 export type VideoSource = {path:string} | {baseUrl:string;filename:string;subfolder:string;type:string};
 export type NativeVideoStatus = {position:number;duration:number;width:number;height:number;paused:boolean;muted:boolean;volume:number;error?:string};
 export type NativeVideoControl = {seek:(seconds:number)=>void;pause:()=>void;play:()=>void;playCrop:(start:number,end:number)=>void};
+const clock=(seconds:number)=>{const whole=Math.max(0,Math.floor(seconds));return `${Math.floor(whole/60)}:${String(whole%60).padStart(2,'0')}`;};
 const initial:NativeVideoStatus={position:0,duration:0,width:0,height:0,paused:true,muted:false,volume:100};
 export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,onSize,onStatus,controlRef,muted,audioOnly=false}:{source:VideoSource;label:string;active?:boolean;autoPlay?:boolean;loop?:boolean;onSize?:(w:number,h:number)=>void;onStatus?:(status:NativeVideoStatus)=>void;controlRef?:RefObject<NativeVideoControl|null>;muted?:boolean;audioOnly?:boolean}) {
  const {t}=useI18n();
@@ -58,14 +59,20 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  useEffect(()=>{if(muted!==undefined)control({kind:'mute',muted});},[id,active,muted]);
  useEffect(()=>{report.current?.({...status,muted:muted===true||status.muted,...(error?{error}:{})});},[status,error,muted]);
  const enabled=!!id&&active&&!error;
+ const position=Math.max(0,Math.min(status.position,status.duration)),volume=Math.max(0,Math.min(status.volume,100));
+ const time=`${clock(position)} / ${clock(status.duration)}`;
+ const fill=(percent:number)=>({'--progress':`${percent}%`} as CSSProperties);
+ const silent=muted===true||status.muted;
  return <div className="native-video" data-native-video role="group" aria-label={label}>
   <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}}/>
   {error&&<p role="alert" className="error-message">{t('studio.video.error')} {error}</p>}
   <div className="native-video-controls">
-   <button type="button" disabled={!enabled} aria-label={t(status.paused?'studio.video.play':'studio.video.pause')} onClick={()=>control({kind:'pause',paused:!status.paused})}>{status.paused?'▶':'Ⅱ'}</button>
-   <input className="native-video-seek" type="range" aria-label={t('studio.video.seek')} min={0} max={status.duration||0} step={0.05} value={Math.max(0,Math.min(status.position,status.duration))} disabled={!enabled||!status.duration} onChange={e=>control({kind:'seek',seconds:Number(e.target.value)})}/>
-   <button type="button" disabled={!enabled||muted===true} aria-label={t(muted===true||status.muted?'studio.video.unmute':'studio.video.mute')} aria-pressed={muted===true||status.muted} onClick={()=>{if(muted!==true)control({kind:'mute',muted:!status.muted});}}>{muted===true||status.muted?'🔇':'♪'}</button>
-   <input className="native-video-volume" type="range" aria-label={t('studio.video.volume')} min={0} max={100} value={status.volume} disabled={!enabled} onChange={e=>control({kind:'volume',volume:Number(e.target.value)})}/>
+   <button type="button" disabled={!enabled} title={t(status.paused?'studio.video.play':'studio.video.pause')} aria-label={t(status.paused?'studio.video.play':'studio.video.pause')} onClick={()=>control({kind:'pause',paused:!status.paused})}><svg viewBox="0 0 24 24" aria-hidden="true">{status.paused?<path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/>:<path d="M8 5v14M16 5v14" strokeWidth="4"/>}</svg></button>
+   <input className="native-video-seek" type="range" aria-label={t('studio.video.seek')} aria-valuetext={time} min={0} max={status.duration||0} step="any" value={position} style={fill(status.duration?position/status.duration*100:0)} disabled={!enabled||!status.duration} onChange={e=>control({kind:'seek',seconds:Number(e.target.value)})}/>
+   <span className="native-video-time">{time}</span>
+   <button type="button" disabled={!enabled||muted===true} title={t(silent?'studio.video.unmute':'studio.video.mute')} aria-label={t(silent?'studio.video.unmute':'studio.video.mute')} aria-pressed={silent} onClick={()=>{if(muted!==true)control({kind:'mute',muted:!status.muted});}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/>{silent?<path d="m16 9 5 6m0-6-5 6"/>:<path d="M15 8c3 2 3 6 0 8m3-11c5 4 5 10 0 14"/>}</svg></button>
+   <input className="native-video-volume" type="range" aria-label={t('studio.video.volume')} aria-valuetext={`${Math.round(volume)}%`} min={0} max={100} value={volume} style={fill(volume)} disabled={!enabled} onChange={e=>control({kind:'volume',volume:Number(e.target.value)})}/>
+   <span className="native-video-percent">{Math.round(volume)}%</span>
   </div>
  </div>;
 }

@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "使用这些设置",
   "studio.run.metadata.skipped": "未能套用：{items}",
   "studio.run.metadata.applied": "已套用所有设置。",
+  "studio.run.metadata.reuse": "复用提示词",
+  "studio.run.metadata.applyHint": "读取所选文件内嵌的设置并回填工作室字段。",
+  "studio.run.metadata.reuseHint": "读取所选文件内嵌的提示词并回填提示词字段。",
+  "studio.run.metadata.reuseEmpty": "所选文件没有可复用的提示词。",
   "studio.editor.title": "图像编辑器",
   "studio.editor.select": "选择",
   "studio.editor.brush": "画笔",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "也在当前队列中",
   "studio.history.inputReselect": "历史无法证明原始输入文件的身份。请从媒体中选择源文件和末帧，并替换未解决的参考。每次选择都是新的创作输入。",
   "studio.history.referenceReselect": "将媒体图片拖到此处，或先预览媒体图片，再使用下方按钮。参考顺序和强度将保持不变。",
-  "studio.history.referenceUseSelected": "将所选图片用于参考 {position}"
+  "studio.history.referenceUseSelected": "将所选图片用于参考 {position}",
+  "studio.run.video.edit": "编辑",
+  "studio.run.video.editReference": "编辑 {name}"
 }

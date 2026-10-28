@@ -9,6 +9,8 @@ import type { H3Context } from '../forge/ForgeButton';
 import {PeopleBoxes} from './PeopleBoxes';
 import {PeopleDetector} from './PeopleDetector';
 import {ReferenceMedia} from './ReferenceMedia';
+import {ReferenceEditorDialog} from './ReferenceEditorDialog';
+import {ReferenceThumbnail} from './ReferenceThumbnail';
 
 /** A Multi-reference → Video pick: LTX uses images at a second with a guide strength; H3 (REF2VA) also takes videos/audio, optionally trimmed (seconds). */
 export interface VideoRef { item:MediaItem; second:number; strength:number; mediaMode:'video'|'audio'|'video_audio'; trimStart?:number; trimEnd?:number; sourceDuration?:number;
@@ -160,12 +162,13 @@ export interface ReferencesPanelProps { endpoint?:string; root?:string; refs:Vid
 export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,label,onAdd,onInsert,inputRoot,refmods=[],onRefmods,library}:ReferencesPanelProps){
  const {t}=useI18n();
  const box=useRef<HTMLDivElement>(null);const [error,setError]=useState('');const [hovering,setHovering]=useState(false);
+ const [editing,setEditing]=useState<string|null>(null);
  const add=useRef(onAdd);add.current=onAdd;
  // Native webviews deliver OS file drops as paths for the whole window; only drops over this tab add references.
  useEffect(()=>{
   if(!isTauri())return;
   let alive=true,unlisten:(()=>void)|undefined;
-  const inside=(p:{x:number;y:number})=>{const r=box.current?.getBoundingClientRect(),x=p.x/devicePixelRatio,y=p.y/devicePixelRatio;return !!r&&x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;};
+  const inside=(p:{x:number;y:number})=>{const r=box.current?.getBoundingClientRect(),x=p.x/devicePixelRatio,y=p.y/devicePixelRatio;return !!r&&Array.from(document.querySelectorAll('dialog[open]')).every(modal=>modal.contains(box.current))&&x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;};
   void getCurrentWebview().onDragDropEvent(e=>{
    if(e.payload.type==='leave'){setHovering(false);return;}
    setHovering(e.payload.type!=='drop'&&inside(e.payload.position));
@@ -209,6 +212,17 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
  const move=(n:number,d:-1|1)=>{const m=neighbour(n,d);if(m<0)return;const next=[...refs];[next[n],next[m]]=[next[m],next[n]];onChange(next);};
 
  const tags=directorTags(refs);const labels=forgeLabels(refs);
+ const editIndex=refs.findIndex(r=>r.item.src===editing);
+ const editor=(r:VideoRef,n:number)=><>
+    {/* Director Forge: which picture label (REF2VA) and what to take from this reference. */}
+    {h3&&r.item.media==='image'&&<select data-ref-label aria-label={t('studio.run.video.labelOf',{name:r.item.name})} value={labels[n]} onChange={e=>set(n,{label:e.target.value,who:undefined,whoAxis:undefined,boxes:undefined})}>{pictureLabels.map(l=><option key={l} value={l}>{l.startsWith('group-')?t('forge.role.group',{n:labelCharacters(l).join(' + ')}):t(`forge.role.${l.replace(/-\d+$/,'')}`,{n:l.slice(10)})}</option>)}</select>}
+    {h3&&r.item.media==='image'&&labelCharacters(labels[n]).length>0&&<ReferencePeople r={r} label={labels[n]} onChange={x=>set(n,x)} endpoint={endpoint} root={root} inputRoot={inputRoot}/>}
+    {h3&&<input type="text" data-ref-instructions aria-label={t('studio.run.video.instructionsOf',{name:r.item.name})} placeholder={t(labels[n]==='custom'?'studio.run.video.instructionsNeeded':'studio.run.video.instructions')} maxLength={4000} value={r.instructions??''} onChange={e=>set(n,{instructions:e.target.value})}/>}
+    {h3&&<details className="wb-ref-more"><summary>{t('studio.run.video.refDetails')}</summary>
+     {(['description','keep','drop'] as const).map(key=><label key={key}><span>{t(`studio.run.video.ref.${key}`)}</span><input type="text" aria-label={t(`studio.run.video.ref.${key}Of`,{name:r.item.name})} maxLength={2000} value={r[key]??''} onChange={e=>set(n,{[key]:e.target.value})}/></label>)}
+    </details>}
+    <ReferenceMedia key={`${r.item.src}:${h3}`} reference={r} onChange={x=>set(n,x)}/>
+ </>;
  // Dropping a card on another card of its lane moves it there; a dock tile dropped anywhere on the tab is added.
  const dropOn=(e:React.DragEvent,target:number)=>{const from=dragged.current;dragged.current=-1;if(from<0||from===target||laneOf(refs[from])!==laneOf(refs[target]))return;e.preventDefault();e.stopPropagation();const next=refs.filter((_,m)=>m!==from);next.splice(next.indexOf(refs[target])+(from<target?1:0),0,refs[from]);onChange(next);};
  return <div ref={box} className={`wb-refs-panel${hovering?' is-dragging':''}`} data-references
@@ -229,8 +243,9 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
    {h3&&<h4>{t(`studio.run.dock.type.${lane}`)}</h4>}
    <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
     {/* The name row is the drag handle, so text selection in the fields below keeps working. */}
-    <strong title={r.item.path} draggable onDragStart={e=>{dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}}>{r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
+    <strong title={r.item.path} draggable onDragStart={e=>{dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}}>{!h3&&r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
     <span className="wb-ref-actions">
+     {h3&&<button type="button" data-edit-reference={r.item.src} aria-label={t('studio.run.video.editReference',{name:r.item.name})} onClick={()=>setEditing(r.item.src)}>{t('studio.run.video.edit')}</button>}
      <button type="button" aria-label={t('studio.run.video.moveEarlier',{name:r.item.name})} disabled={neighbour(n,-1)<0} onClick={()=>move(n,-1)}>←</button>
      <button type="button" aria-label={t('studio.run.video.moveLater',{name:r.item.name})} disabled={neighbour(n,1)<0} onClick={()=>move(n,1)}>→</button>
      {h3&&<button type="button" aria-label={t('studio.run.video.insertLabel',{label:tags[n]})} title={t('studio.run.video.insertLabel',{label:tags[n]})} onClick={()=>onInsert(tags[n])}>{t('studio.run.video.insert')}</button>}
@@ -238,14 +253,10 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
     </span>
     {!h3&&<><label><span>{t('studio.run.video.refSecond')}</span><input type="number" aria-label={t('studio.run.video.refSecondOf',{name:r.item.name})} min={0} max={seconds} step={0.1} value={r.second} onChange={e=>set(n,{second:Math.min(seconds,Math.max(0,Number(e.target.value)||0))})}/></label>
      <label><span>{t('studio.run.video.refStrength')}</span><input type="number" aria-label={t('studio.run.video.refStrengthOf',{name:r.item.name})} min={0} max={1} step={0.05} value={r.strength} onChange={e=>set(n,{strength:Math.min(1,Math.max(0,Number(e.target.value)||0))})}/></label></>}
-    {/* Director Forge: which picture label (REF2VA) and what to take from this reference. */}
-    {h3&&r.item.media==='image'&&<select data-ref-label aria-label={t('studio.run.video.labelOf',{name:r.item.name})} value={labels[n]} onChange={e=>set(n,{label:e.target.value,who:undefined,whoAxis:undefined,boxes:undefined})}>{pictureLabels.map(l=><option key={l} value={l}>{l.startsWith('group-')?t('forge.role.group',{n:labelCharacters(l).join(' + ')}):t(`forge.role.${l.replace(/-\d+$/,'')}`,{n:l.slice(10)})}</option>)}</select>}
-    {h3&&r.item.media==='image'&&labelCharacters(labels[n]).length>0&&<ReferencePeople r={r} label={labels[n]} onChange={x=>set(n,x)} endpoint={endpoint} root={root} inputRoot={inputRoot}/>}
-    {h3&&<input type="text" data-ref-instructions aria-label={t('studio.run.video.instructionsOf',{name:r.item.name})} placeholder={t(labels[n]==='custom'?'studio.run.video.instructionsNeeded':'studio.run.video.instructions')} maxLength={4000} value={r.instructions??''} onChange={e=>set(n,{instructions:e.target.value})}/>}
-    {h3&&<details className="wb-ref-more"><summary>{t('studio.run.video.refDetails')}</summary>
-     {(['description','keep','drop'] as const).map(key=><label key={key}><span>{t(`studio.run.video.ref.${key}`)}</span><input type="text" aria-label={t(`studio.run.video.ref.${key}Of`,{name:r.item.name})} maxLength={2000} value={r[key]??''} onChange={e=>set(n,{[key]:e.target.value})}/></label>)}
-    </details>}
-    <ReferenceMedia key={`${r.item.src}:${h3}`} reference={r} onChange={x=>set(n,x)}/>
+    {h3?<><div className="reference-thumb"><ReferenceThumbnail reference={r}/></div>
+     <p className="reference-thumb-summary">{r.item.media==='image'?labels[n].startsWith('group-')?t('forge.role.group',{n:labelCharacters(labels[n]).join(' + ')}):t(`forge.role.${labels[n].replace(/-\d+$/,'')}`,{n:labels[n].slice(10)}):<>{r.item.media==='video'&&t(`studio.run.video.mode.${r.mediaMode}`)} · {t('studio.run.video.preview.selection',{start:(r.trimStart??0).toFixed(2),end:(r.trimEnd??r.sourceDuration)?.toFixed(2)??t('studio.run.video.preview.unknown'),seconds:referenceSeconds(r)?.toFixed(2)??t('studio.run.video.preview.unknown')})}</>}</p>
+     {r.instructions&&<p className="reference-thumb-summary" title={r.instructions}>{r.instructions}</p>}
+    </>:<ReferenceMedia reference={r} onChange={x=>set(n,x)}/>}
    </li>)}</ul>
   </section>)}
   {h3&&onRefmods&&<section className="wb-lane" aria-label={t('studio.run.video.refmods')} data-refmods>
@@ -263,5 +274,6 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
    </li>)}</ul>
   </section>}
   </div>
+  {h3&&editIndex>=0&&<ReferenceEditorDialog name={refs[editIndex].item.name} restoreFocus={()=>Array.from(box.current?.querySelectorAll<HTMLButtonElement>('[data-edit-reference]')??[]).find(b=>b.dataset.editReference===editing)??null} onClose={()=>setEditing(null)}>{editor(refs[editIndex],editIndex)}</ReferenceEditorDialog>}
  </div>;
 }

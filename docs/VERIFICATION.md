@@ -1,5 +1,19 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Reference editors, video controls and preview More menu (0.1.62)
+
+Local implementation; not committed or published. H3 selected references use static thumbnails plus current stream/crop summaries. Existing per-reference fields and ReferenceMedia are hosted in a second native dialog; source identity keeps that editor mounted across video-to-audio lane changes. Close/Escape stops the player, retains edits and restores the card's Edit focus. LTX reference editing and backend intent/pack formats are unchanged. Native video thumbnails are bounded cached FFmpeg frames at trim start, with a named/glyph fallback when extraction is unavailable; no WebKit video decoder is used for native thumbnails. Cache has no eviction policy.
+
+Verified on Linux:
+- `npm test`: 118 core and 1,217 UI tests passed, including persistence/reopen, nested cancel isolation, lane identity/focus and stale thumbnail completion tests. Workbench submission tests enter the new editor explicitly and retain exact intent assertions.
+- `npm run build` / TypeScript clean. Shared layout gate: 381 checks passed (polling enabled for the owned Vite because the first earlier run hit the host inotify watcher limit).
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`: 606 passed, 40 ignored. Strict all-target Clippy and formatting passed. The real FFmpeg thumbnail regression verifies different selected frames, invalid paths/times, source preservation and cache invalidation.
+- `tools/verify_references.py`: all 18 locale/width combinations passed against real range-served synthetic MP4/WAV, with mocked native IPC. Nested focus trapping, real Escape, reopen persistence, mode/lane change, zero overview players and bounded crop playback passed. Final screenshots at 320/700/1440px inspected. Browser chrome can retain body focus after Tab; the background-focus rejection check first focuses the editor, then proves the outer opener cannot steal it.
+- `tools/verify_native_references.py`: real owned GTK/Tauri dev instance on Wayland with libmpv; nested editor/crop/audio-mode/drop preservation passed, three framebuffer samples with changed hashes and no GL errors. Synthetic discovery headers only; no model load/inference or foreign service changes. The first native attempts correctly failed framebuffer acceptance: WebKitGTK overlay scrollbar hit-testing covered the video's right corners. Reserving additional end padding in the editor scroll body fixed visibility; the final probe explicitly checks all four corners plus framebuffer changes. Final evidence: scratch `deas-reference-native-editor-final/results.json`; Chromium evidence: scratch `deas-reference-editor-final-browser/results.json`.
+- `./build-linux.sh` rebuilt and atomically staged `artifacts/deas-linux-amd64` (0.1.61), SHA-256 `d1a60855a4a498dcc569f67ca35799062ea68f307397672d539435fc6119d6cf`. Relaunch that artifact to use the changes.
+
+Not verified: Windows WebView2 runtime, audible audio/A/V sync, real H3 inference, general hostile-file sandboxing or resource/performance benchmarks. Originals and unrelated working-tree probes were preserved. No commit/push, release or user-service restart.
+
 ## Release 0.1.59 (published)
 
 Published 2026-10-28 as the rollup of 0.1.57–0.1.59 (last published release was v0.1.56). Source commit `2bfc16c2a08f120d871b86b913a983bb8b22d9a7` (tree `1c53ddc34033c627b44f0a7962552160a4112fa7`); tag `v0.1.59` at that commit, pushed to gitea; GitHub release `v0.1.59` created with `--target` pinned to the source commit (Actions runners gated — local fallback build, release.yml fired nothing). Fresh gates on the source commit: tsc clean; core 118/118; UI 1213/1213 (a single LayoutStudio findByRole timeout under concurrent cargo load passed in a serial rerun); cargo fmt/clippy clean; Rust suite 607 passed with `--test-threads=1`; `cargo xwin check` clean.

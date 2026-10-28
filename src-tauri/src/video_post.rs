@@ -120,14 +120,14 @@ pub async fn native_video_post_inspect(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Identity {
+pub(crate) struct Identity {
     id: (u64, u64),
     size: u64,
     modified: std::time::SystemTime,
     #[cfg(unix)]
     changed: (i64, i64),
 }
-fn identity(file: &File) -> Result<Identity, String> {
+pub(crate) fn identity(file: &File) -> Result<Identity, String> {
     let m = file.metadata().map_err(|_| SOURCE)?;
     if !m.is_file() {
         return Err(SOURCE.into());
@@ -155,7 +155,7 @@ fn identity(file: &File) -> Result<Identity, String> {
         },
     })
 }
-fn open_source(path: &Path) -> Result<File, String> {
+pub(crate) fn open_source(path: &Path) -> Result<File, String> {
     if !path.is_absolute()
         || path
             .components()
@@ -390,7 +390,7 @@ fn capture(reader: impl Read, limit: usize, overflow: &AtomicBool) -> Result<Vec
     }
     Ok(bytes)
 }
-fn run_probe(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+pub(crate) fn run_probe(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
     let mut owned = OwnedProbe::spawn(command)?;
     let stdout = owned
         .child

@@ -24,6 +24,30 @@ test('localized accessible typed controls and cleanup',async()=>{
  expect(actions).toContainEqual({kind:'mute',muted:true});expect(actions).toContainEqual({kind:'volume',volume:25});
  ui.unmount();expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'close'}}));
 });
+test('timeline and volume fill follow native status, including both endpoints',async()=>{
+ let current={...state,position:65,duration:125,volume:25};
+ vi.mocked(invoke).mockImplementation(async(cmd,args)=>cmd==='native_video_update'&&(args as {action:{kind:string}}).action.kind==='status'?current:undefined);
+ const ui=render(view());
+ const seek=screen.getByRole('slider',{name:'Seek video'}),volume=screen.getByRole('slider',{name:'Video volume'});
+ await waitFor(()=>expect(screen.getByText('1:05 / 2:05')).toBeTruthy());
+ expect((seek as HTMLElement).style.getPropertyValue('--progress')).toBe(`${65/125*100}%`);
+ expect((volume as HTMLElement).style.getPropertyValue('--progress')).toBe('25%');
+ expect(screen.getByText('25%')).toBeTruthy();
+ expect(seek.getAttribute('aria-valuetext')).toBe('1:05 / 2:05');
+ for(const end of [0,100]){
+  current={...current,position:125*end/100,volume:end};
+  await act(async()=>{window.dispatchEvent(new Event('resize'));});
+  await waitFor(()=>expect((seek as HTMLElement).style.getPropertyValue('--progress')).toBe(`${end}%`));
+  expect((volume as HTMLElement).style.getPropertyValue('--progress')).toBe(`${end}%`);
+  expect(screen.getByText(`${end}%`)).toBeTruthy();
+ }
+ current={...current,position:0,duration:0};
+ await act(async()=>{window.dispatchEvent(new Event('resize'));});
+ await waitFor(()=>expect(screen.getByText('0:00 / 0:00')).toBeTruthy());
+ expect((seek as HTMLInputElement).disabled).toBe(true);
+ expect((seek as HTMLElement).style.getPropertyValue('--progress')).toBe('0%');
+ ui.unmount();
+});
 test('late open completion closes only its old UUID after replacement',async()=>{
  let finish!:()=>void;
  vi.mocked(invoke).mockImplementation(async(cmd,args)=>{

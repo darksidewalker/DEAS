@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "Diese Einstellungen übernehmen",
   "studio.run.metadata.skipped": "Nicht übernommen: {items}",
   "studio.run.metadata.applied": "Alle Einstellungen übernommen.",
+  "studio.run.metadata.reuse": "Prompt wiederverwenden",
+  "studio.run.metadata.applyHint": "Die eingebetteten Einstellungen der gezeigten Datei lesen und die Studiofelder damit befüllen.",
+  "studio.run.metadata.reuseHint": "Den eingebetteten Prompt der gezeigten Datei lesen und die Promptfelder damit befüllen.",
+  "studio.run.metadata.reuseEmpty": "Die gezeigte Datei enthält keinen verwertbaren Prompt.",
   "studio.editor.title": "Bildeditor",
   "studio.editor.select": "Auswählen",
   "studio.editor.brush": "Pinsel",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "Auch in aktueller Warteschlange",
   "studio.history.inputReselect": "Der Verlauf kann die ursprünglichen Eingabedateien nicht nachweisen. Quelle und Endbild in Medien wählen und ungeklärte Referenzen ersetzen. Jede Auswahl ist eine neue Entwurfsentscheidung.",
   "studio.history.referenceReselect": "Ein Medienbild hier ablegen oder ein Medienbild in der Vorschau öffnen und unten verwenden. Reihenfolge und Stärke bleiben erhalten.",
-  "studio.history.referenceUseSelected": "Ausgewähltes Bild für Referenz {position} verwenden"
+  "studio.history.referenceUseSelected": "Ausgewähltes Bild für Referenz {position} verwenden",
+  "studio.run.video.edit": "Bearbeiten",
+  "studio.run.video.editReference": "{name} bearbeiten"
 }

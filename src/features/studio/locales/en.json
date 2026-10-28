@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "Use these settings",
   "studio.run.metadata.skipped": "Not carried over: {items}",
   "studio.run.metadata.applied": "All settings applied.",
+  "studio.run.metadata.reuse": "Reuse prompt",
+  "studio.run.metadata.applyHint": "Read the shown file's embedded settings and refill the studio fields.",
+  "studio.run.metadata.reuseHint": "Read the shown file's embedded prompt and refill the prompt fields.",
+  "studio.run.metadata.reuseEmpty": "The shown file carries no reusable prompt.",
   "studio.editor.title": "Image editor",
   "studio.editor.select": "Select",
   "studio.editor.brush": "Brush",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "Also in current queue",
   "studio.history.inputReselect": "History cannot prove the original input files. Choose source and last frame from Media, and replace unresolved references. Each selection is a new authoring choice.",
   "studio.history.referenceReselect": "Drop a Media image here, or preview a Media image and use it below. The reference keeps its order and strength.",
-  "studio.history.referenceUseSelected": "Use selected image for reference {position}"
+  "studio.history.referenceUseSelected": "Use selected image for reference {position}",
+  "studio.run.video.edit": "Edit",
+  "studio.run.video.editReference": "Edit {name}"
 }

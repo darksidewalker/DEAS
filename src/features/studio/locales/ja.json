@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "この設定を使う",
   "studio.run.metadata.skipped": "引き継げませんでした: {items}",
   "studio.run.metadata.applied": "すべての設定を適用しました。",
+  "studio.run.metadata.reuse": "プロンプトを再利用",
+  "studio.run.metadata.applyHint": "表示中のファイルに埋め込まれた設定を読み、スタジオの欄に反映します。",
+  "studio.run.metadata.reuseHint": "表示中のファイルに埋め込まれたプロンプトを読み、プロンプト欄に反映します。",
+  "studio.run.metadata.reuseEmpty": "表示中のファイルに再利用できるプロンプトがありません。",
   "studio.editor.title": "画像エディター",
   "studio.editor.select": "選択",
   "studio.editor.brush": "ブラシ",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "現在のキューにも存在",
   "studio.history.inputReselect": "履歴から元の入力ファイルの同一性は確認できません。メディアからソースと最終フレームを選び、未解決の参照を置き換えてください。各選択は新しい編集上の指定です。",
   "studio.history.referenceReselect": "メディア画像をここにドロップするか、メディア画像をプレビューして下のボタンで指定します。参照の順序と強度は保持されます。",
-  "studio.history.referenceUseSelected": "選択中の画像を参照 {position} に使用"
+  "studio.history.referenceUseSelected": "選択中の画像を参照 {position} に使用",
+  "studio.run.video.edit": "編集",
+  "studio.run.video.editReference": "{name} を編集"
 }

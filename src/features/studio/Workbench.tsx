@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { backendErrorText } from '../../lib/backendErrors';
 import { browseDownloads, planDownloads, startDownloads } from '../../lib/downloads';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
@@ -27,7 +27,7 @@ import { RecentHistory } from './RecentHistory';
 import { historyInputSelectionContext, type HistoryRestore } from './history';
 import type { ForgeCanvasContext, ForgeSendCanvas } from '../../lib/forgeCanvas';
 import { generationDuration } from './generationDuration';
-import type { GenerationSettings } from '../../lib/imageMetadata';
+import { generationSettings, readImageMetadata, type GenerationSettings } from '../../lib/imageMetadata';
 import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
@@ -814,10 +814,13 @@ const promptTools=forgeContext&&<>
  const tools=(item:MediaItem,showStar=true)=><div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
   <button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
-  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. */}
-  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;return only&&<details className="wb-more"><summary data-more aria-haspopup="menu">{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
-   <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>void run(only)}>{t('studio.run.post.refine')}</button>
-   <button type="button" data-run-upscale disabled={off} title={t('studio.run.post.upscaleHint')} onClick={()=>void run({...only,upscaleOnly:true})}>{t('studio.run.post.upscale')}</button></div></details>;})()}
+ {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
+  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;const metaOff=off||!item.path;return only&&<details ref={moreRef} className="wb-more" open={moreOpen} onToggle={e=>{if(e.currentTarget.open!==moreOpen)setMoreOpen(e.currentTarget.open);}}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreOpen(!moreOpen);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
+   <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>selectMoreAction(true,()=>void run(only))}>{t('studio.run.post.refine')}</button>
+   <button type="button" data-run-upscale disabled={off} title={t('studio.run.post.upscaleHint')} onClick={()=>selectMoreAction(true,()=>void run({...only,upscaleOnly:true}))}>{t('studio.run.post.upscale')}</button>
+   <button type="button" data-more-apply disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.applyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
+   <button type="button" data-more-reuse disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.reuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button></div></details>;})()}
+  {moreResult&&<p className="wb-more-feedback" role="status">{moreResult}</p>}
   {frameVideo&&item.media==='image'&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
   {/* LTX keyframes are images; H3 REF2VA also takes videos and audio. */}
   {pipeline==='ref2v'&&item.path&&(item.media==='image'||videoFamily==='minimax-h3')&&<button type="button" data-edit-ref aria-pressed={isRef(item)} disabled={!isRef(item)&&!!refBlock(item)} title={!isRef(item)&&refBlock(item)?t(refBlock(item)):undefined} onClick={()=>toggleRef(item)}>{t('studio.run.video.addRef')}</button>}
@@ -833,6 +836,10 @@ const promptTools=forgeContext&&<>
   window.addEventListener('deas:reset-studio-layout',layout);window.addEventListener('deas:request-studio-defaults',defaults);
   return()=>{window.removeEventListener('deas:reset-studio-layout',layout);window.removeEventListener('deas:request-studio-defaults',defaults);};
  });
+ // More is a controlled menu: a native <details> toggle ignores document clicks, so a second summary click must close it explicitly.
+ const [moreOpen,setMoreOpen]=useState(false);const [moreResult,setMoreResult]=useState<ReactNode>(null);const moreRef=useRef<HTMLDetailsElement>(null);
+ const selectMoreAction=(_selected:true,action:()=>void)=>{setMoreOpen(false);action();};
+ useEffect(()=>{if(!moreOpen)return;const onDown=(e:Event)=>{if(!moreRef.current?.contains(e.target as Node))setMoreOpen(false);};document.addEventListener('mousedown',onDown);return()=>document.removeEventListener('mousedown',onDown);},[moreOpen]);
  // Explicit "use these settings": only values the metadata carries; a model/LoRA is picked only if this folder holds it (by full name, else by basename). Returns what was skipped.
  const base=(n:string)=>shortName(n).toLowerCase();
  const applySettings=(s:GenerationSettings):string[]=>{
@@ -849,6 +856,17 @@ const promptTools=forgeContext&&<>
   if(s.checkpoint){const found=allModels.find(m=>m.name===s.checkpoint)??allModels.find(m=>base(m.name)===base(s.checkpoint!));if(found)setCheckpoint(found.name);else skipped.push(`${t('studio.run.checkpoint')}: ${s.checkpoint}`);}
   if(s.loras)setLoras(s.loras.flatMap(l=>{const m=loraModels.find(x=>x.name===l.name)??loraModels.find(x=>base(x.name)===base(l.name));if(!m)skipped.push(`LoRA: ${l.name}`);return m?[{name:m.name,strength:l.strength}]:[];}));
   return skipped;
+ };
+ // More-menu metadata actions read the shown file on demand: "use these settings" mirrors the metadata dock, "reuse prompt" only refills the prompt fields.
+ const applyFileSettings=async(item:MediaItem,mode:'all'|'prompt')=>{
+  setMoreResult(null);
+  if(!native||!item.path)return;
+  let entries;try{entries=await readImageMetadata(item.path);}catch{return setMoreResult(t('studio.run.metadata.failed'));}
+  const settings=generationSettings(entries);
+  const picked=mode==='all'?settings:(settings&&settings.positive!==undefined?{positive:settings.positive,...(settings.negative!==undefined?{negative:settings.negative}:{})}:null);
+  if(!picked||mode==='prompt'&&picked.positive===undefined)return setMoreResult(t('studio.run.metadata.reuseEmpty'));
+  const skipped=picked?applySettings(picked):[];
+  setMoreResult(skipped.length?t('studio.run.metadata.skipped',{items:skipped.join(' · ')}):t('studio.run.metadata.applied'));
  };
  const restoreHistory=(value:HistoryRestore)=>{
   const intent=value.intent;

@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "Reprendre ces réglages",
   "studio.run.metadata.skipped": "Non repris : {items}",
   "studio.run.metadata.applied": "Tous les réglages ont été repris.",
+  "studio.run.metadata.reuse": "Réutiliser le prompt",
+  "studio.run.metadata.applyHint": "Lire les réglages intégrés du fichier affiché et remplir les champs du studio.",
+  "studio.run.metadata.reuseHint": "Lire le prompt intégré du fichier affiché et remplir les champs de prompt.",
+  "studio.run.metadata.reuseEmpty": "Le fichier affiché ne contient aucun prompt réutilisable.",
   "studio.editor.title": "Éditeur d’image",
   "studio.editor.select": "Sélectionner",
   "studio.editor.brush": "Pinceau",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "Également dans la file actuelle",
   "studio.history.inputReselect": "L’historique ne peut pas prouver l’identité des fichiers d’entrée. Choisissez source et dernière image dans Médias, puis remplacez les références non résolues. Chaque sélection est un nouveau choix de création.",
   "studio.history.referenceReselect": "Déposez une image de Médias ici, ou prévisualisez-la puis utilisez-la ci-dessous. L’ordre et l’intensité sont conservés.",
-  "studio.history.referenceUseSelected": "Utiliser l’image sélectionnée pour la référence {position}"
+  "studio.history.referenceUseSelected": "Utiliser l’image sélectionnée pour la référence {position}",
+  "studio.run.video.edit": "Modifier",
+  "studio.run.video.editReference": "Modifier {name}"
 }

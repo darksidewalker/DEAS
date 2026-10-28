@@ -5,7 +5,7 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import type { JobStatus } from '../../lib/jobs';
 import type { DiagnosticImageIntentV1 } from '../../lib/execution';
 import { OpenComfyWorkflow } from '../../lib/comfyWorkflow';
-import { readImageMetadata } from '../../lib/imageMetadata';
+import { generationSettings, readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:()=>true}));
 vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn()}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
@@ -42,7 +42,7 @@ test.each([
  if(generationMs===0)expect(time?.nextElementSibling?.textContent).toBe('0 sec');else expect(time).toBeUndefined();
 });
 
-test('an explicit apply button hands reusable settings back and reports what was skipped; absent for metadata without generation data',async()=>{
+test('an explicit apply button hands job settings back and reports what was skipped; file rows are display-only in the dock',async()=>{
  localStorage.setItem('deas.locale.v1','en');
  const onApply=vi.fn((s:{checkpoint?:string})=>s.checkpoint==='m'?['Model: m']:[]);
  render(<I18nProvider><GenerationMetadata job={job} onApply={onApply}/></I18nProvider>);
@@ -53,14 +53,16 @@ test('an explicit apply button hands reusable settings back and reports what was
  const media=(name:string,kind:'image'|'video'='image')=>({name,path:`/images/${name}`,src:`asset:///${name}`,media:kind});
  vi.mocked(readImageMetadata).mockResolvedValueOnce([['parameters','cat\nSteps: 4, Sampler: Euler a, CFG scale: 2, Seed: 9, Size: 64x64, Model: m']]);
  const {rerender}=render(<I18nProvider><GenerationMetadata job={null} media={media('a.png')} onApply={onApply}/></I18nProvider>);
- (await screen.findByRole('button',{name:'Use these settings'})).click();
- expect(onApply).toHaveBeenLastCalledWith({positive:'cat',checkpoint:'m',seed:9,steps:4,cfg:2,sampler:'euler_ancestral',width:64,height:64});
- expect(await screen.findByText('Not carried over: Model: m')).toBeTruthy();
+ expect(await screen.findByText('cat Steps: 4, Sampler: Euler a, CFG scale: 2, Seed: 9, Size: 64x64, Model: m')).toBeTruthy();
+ // The dock no longer carries the file's apply button — the preview's More menu owns that action (see Workbench.test).
+ expect(screen.queryByRole('button',{name:'Use these settings'})).toBeNull();
+ expect(generationSettings([['parameters','cat\nSteps: 4, Sampler: Euler a, CFG scale: 2, Seed: 9, Size: 64x64, Model: m']])).toMatchObject({positive:'cat',checkpoint:'m',seed:9,steps:4,cfg:2,sampler:'euler_ancestral',width:64,height:64});
  // Videos carry only the ComfyUI prompt/workflow container tags.
  vi.mocked(readImageMetadata).mockResolvedValueOnce([['prompt',JSON.stringify({'5':{class_type:'KSampler',inputs:{seed:5,steps:3,cfg:1,sampler_name:'euler',scheduler:'simple'}}})],['workflow','{}']]);
  rerender(<I18nProvider><GenerationMetadata job={null} media={media('clip.mp4','video')} onApply={onApply}/></I18nProvider>);
- (await screen.findByRole('button',{name:'Use these settings'})).click();
- expect(onApply).toHaveBeenLastCalledWith({seed:5,steps:3,cfg:1,sampler:'euler',scheduler:'simple'});
+ expect(await screen.findByText((t:string)=>t.includes('KSampler #5 · seed'))).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Use these settings'})).toBeNull();
+ {const g=generationSettings([['prompt',JSON.stringify({'5':{class_type:'KSampler',inputs:{seed:5,steps:3,cfg:1,sampler_name:'euler',scheduler:'simple'}}})]]); expect(g).toBeTruthy(); expect(g).toMatchObject({seed:5,steps:3,cfg:1,sampler:'euler',scheduler:'simple'});}
  vi.mocked(readImageMetadata).mockResolvedValueOnce([['Description','plain']]);
  rerender(<I18nProvider><GenerationMetadata job={null} media={media('b.png')} onApply={onApply}/></I18nProvider>);
  expect(await screen.findByText('plain')).toBeTruthy();expect(screen.queryByRole('button',{name:'Use these settings'})).toBeNull();

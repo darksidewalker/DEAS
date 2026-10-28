@@ -1,5 +1,13 @@
 # DEAS consolidated implementation status and plan
 
+## Compact references, individual editors and preview More menu (0.1.62, local)
+
+H3 reference cards now show static thumbnails/current trim and stream summaries; Edit opens a separate modal with the existing media/Forge/people controls. Closing stops its player and preserves authoring values; lane changes retain the editor and focus returns to the moved card. Native thumbnails extract the crop-start frame through bounded cached FFmpeg. No source rewrites or inference. Frontend/native suites, 381 shared layout checks, all 18 Chromium media cases and the real GTK/libmpv nested-editor crop/drop/framebuffer probe passed; the Linux artifact was rebuilt. Windows runtime, audible A/V sync and real H3 inference remain separate. [Evidence](VERIFICATION.md#h3-reference-editors-0161).
+
+## Native video control accuracy (Unreleased bug fix)
+
+Shared Linux video controls now use unpadded, thumb-aligned filled tracks, current/total time, volume percentage and themed SVG transport/mute buttons. Native IPC, playback ownership, forced mute and Windows/browser controls are unchanged. Verified: 118 core and 1,214 UI tests, typecheck/frontend build, 381 shared layout checks, and eight Chromium endpoint/geometry cases at 900/320 px plus keyboard/transport checks. `./build-linux.sh` rebuilt and atomically staged `artifacts/deas-linux-amd64`; relaunch is required. Chromium uses mock native status, not actual libmpv playback; GTK/WebKit and Windows runtime checks remain open.
+
 ## Planned RefMod creation (H3)
 
 Planned, not implemented. Owner request: DEAS must offer the Director's **Create RefMod** — encoding selected references into the backend's `models/refmods` via the node pack's `DaSiWaH3RefModExport` so they appear in `/dasiwa/refmods` and are usable as W2e2 rows. Reading/consumption (library read, strength, `<RefMod N>`, packs) exists; creating a RefMod does not — DEAS can only use RefMods someone else made in the Director UI.

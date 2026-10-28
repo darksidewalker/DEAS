@@ -1,5 +1,9 @@
 # News
 
+## Development — 0.1.62
+
+H3 References separates selection from editing: compact thumbnails show the current crop and stream choice, and the copper-glowing Edit button opens one larger media dialog. Close/Escape retains changes and returns to the card; the underlying reference picker stays open. Existing crop/playback, people and Forge controls are retained. Linux keeps native libmpv playback and uses cached FFmpeg thumbnails. [Usage](STUDIO.md#multi-reference-overlay). The preview **More** menu closes on its own click and outside clicks; **Use these settings** moved there from the metadata dock, next to the new **Reuse prompt** which refills prompt and sampler settings from a file's embedded metadata. Version 0.1.62 is the published release (see [CHANGELOG](CHANGELOG.md)).
+
 ## References overlay (0.1.59)
 
 Multi-reference authoring now has a Continuity-style References popup with its own media picker and inline previews. Choose picture, sound or both from a video, set crop endpoints with fields/sliders or the playhead, and audition only that segment. Existing Director labels, people controls, packs and RefMods stay available; edits do not rewrite source files. See [Studio](STUDIO.md#multi-reference-overlay) for supported paths and remaining parity limits.

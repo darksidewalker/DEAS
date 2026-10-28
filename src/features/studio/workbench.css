@@ -114,6 +114,7 @@
    and its items are not interactive until opened. */
 .wb-more:not([open]) > .wb-more-menu { position: absolute; visibility: hidden; }
 .wb-more-caret { margin-left: 6px; font-size: 10px; opacity: .75; }
+.wb-more-feedback { position: absolute; top: 26px; right: 0; margin: 0; max-width: 100%; text-align: right; font-size: 11px; }
 .wb-more[open] > .wb-more-menu { display: flex; flex-direction: column; gap: 4px; position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; box-sizing: border-box; width: max-content; max-width: 100%; max-height: min(16rem, 40vh); overflow: auto; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
 .wb-editor-host .wb-more[open] > .wb-more-menu, .media-preview .wb-more[open] > .wb-more-menu { top: auto; bottom: calc(100% + 4px); }
 /* Keep labels intact; oversized options scroll inside the bounded menu. */

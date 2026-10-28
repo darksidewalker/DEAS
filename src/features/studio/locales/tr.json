@@ -427,6 +427,10 @@
   "studio.run.metadata.apply": "Bu ayarları kullan",
   "studio.run.metadata.skipped": "Aktarılamadı: {items}",
   "studio.run.metadata.applied": "Tüm ayarlar uygulandı.",
+  "studio.run.metadata.reuse": "İstemcuyu yeniden kullan",
+  "studio.run.metadata.applyHint": "Gösterilen dosyaya gömülü ayarları okuyun ve stüdyo alanlarını bunlarla doldurun.",
+  "studio.run.metadata.reuseHint": "Gösterilen dosyaya gömülü istemci okuyun ve istemci alanlarını bunlarla doldurun.",
+  "studio.run.metadata.reuseEmpty": "Gösterilen dosyada yeniden kullanılabilir bir istemci yok.",
   "studio.editor.title": "Görsel düzenleyici",
   "studio.editor.select": "Seç",
   "studio.editor.brush": "Fırça",
@@ -753,5 +757,7 @@
   "studio.history.currentQueue": "Geçerli kuyrukta da bulunuyor",
   "studio.history.inputReselect": "Geçmiş, özgün girdi dosyalarının kimliğini kanıtlayamaz. Medya’dan kaynak ve son kareyi seçin, çözülemeyen referansları değiştirin. Her seçim yeni bir düzenleme tercihidir.",
   "studio.history.referenceReselect": "Buraya bir Medya resmi bırakın veya Medya resmini önizleyip aşağıdan kullanın. Referansın sırası ve gücü korunur.",
-  "studio.history.referenceUseSelected": "Seçili resmi {position}. referans için kullan"
+  "studio.history.referenceUseSelected": "Seçili resmi {position}. referans için kullan",
+  "studio.run.video.edit": "Düzenle",
+  "studio.run.video.editReference": "{name} düzenle"
 }

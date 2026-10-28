@@ -5,6 +5,7 @@ from pathlib import Path
 import importlib.util
 import json
 import sys
+import subprocess
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,11 +20,14 @@ INIT = fixture.INIT.replace("JSON.stringify('t2v')", "JSON.stringify('ref2v')").
 INIT = INIT.replace("if(command==='native_media_list')return {path:args.path,parent:null,entries:[],truncated:false};", """
   if(command==='native_media_list')return {path:args.path,parent:null,entries:['clip.mp4','voice.wav'].map(name=>({name,path:'/env/input/'+name,kind:'file',symlink:false,media:name.endsWith('.wav')?'audio':'video',size:100,modified:1})),truncated:false};
   if(command==='native_logs_reference_media_error')return null;
+  if(command==='native_media_reference_thumbnail')return '/env/input/clip.png';
 """)
 INIT += "\nwindow.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener(){}};\nObject.defineProperty(navigator,'userAgent',{value:'DEAS Windows browser fixture'});"
 
 with sync_playwright() as p:
     OUT.mkdir(parents=True, exist_ok=True)
+    # Mock the native thumbnail transport with an actual decoded fixture frame.
+    subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(MEDIA / 'clip.mp4'), '-frames:v', '1', str(OUT / 'clip.png')], check=True)
     browser = p.chromium.launch(headless=True)
     reports = []
     for locale in ['en', 'de', 'fr', 'tr', 'ja', 'zh']:
@@ -33,9 +37,10 @@ with sync_playwright() as p:
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             def serve_media(route):
-                path = MEDIA / route.request.url.split('/')[-1]
+                name = route.request.url.split('/')[-1]
+                path = (OUT if name == 'clip.png' else MEDIA) / name
                 data = path.read_bytes()
-                mime = 'audio/wav' if path.suffix == '.wav' else 'video/mp4'
+                mime = {'.wav': 'audio/wav', '.mp4': 'video/mp4', '.png': 'image/png'}[path.suffix]
                 import re
                 match = re.fullmatch(r'bytes=(\d+)-(\d*)', route.request.headers.get('range', ''))
                 if match:
@@ -57,42 +62,91 @@ with sync_playwright() as p:
             picker.get_by_role('button', name='clip.mp4', exact=True).click()
             card = dialog.locator('[data-ref="clip.mp4"]')
             expect(card).to_be_visible()
-            video = card.locator('video')
+            # Overview thumbnails may be inert videos, but never live players.
+            expect(dialog.locator('[data-ref] video[controls], [data-ref] audio, [data-ref] [data-native-video]')).to_have_count(0)
+            assert card.locator('.reference-thumb').count() == 1
+            assert dialog.locator('[data-ref] video').evaluate_all('(vs)=>vs.every(v=>v.paused&&!v.autoplay)')
+            edit = card.locator('[data-edit-reference]')
+            edit.click()
+            editor = page.locator('.reference-editor-dialog')
+            expect(editor).to_be_visible()
+            assert editor.evaluate('(d)=>d.matches(":modal")')
+            # Chromium can report body while focus traverses browser chrome; no background control may receive focus.
+            for key in ['Tab', 'Shift+Tab']:
+                focused = 0
+                for _ in range(24):
+                    page.keyboard.press(key)
+                    state = page.evaluate('({inside:!!document.activeElement.closest(".reference-editor-dialog"),chrome:document.activeElement===document.body})')
+                    assert state['inside'] or state['chrome'], state
+                    focused += state['inside']
+                assert focused > 0
+            editor.locator('header button').focus()
+            opener.evaluate('(e)=>e.focus()')
+            assert page.evaluate('!!document.activeElement.closest(".reference-editor-dialog")')
+            expect(editor.locator('[data-ref-instructions]')).to_be_visible()
+            video = editor.locator('video[controls]')
             expect(video).to_have_count(1)
-            page.wait_for_function('document.querySelector("[data-ref] video").duration > 0')
+            page.wait_for_function('document.querySelector(".reference-editor-dialog video[controls]").duration > 0')
             assert video.evaluate('(v)=>v.muted')
-            inputs = card.locator('input[type="number"]')
+            inputs = editor.locator('input[type="number"]')
             inputs.nth(0).fill('1')
             inputs.nth(1).fill('3')
-            play = card.locator('.reference-media-actions button').nth(0)
+            play = editor.locator('.reference-media-actions button').nth(0)
             expect(play).to_be_enabled()
             play.click()
             try:
-                page.wait_for_function('(()=>{const v=document.querySelector("[data-ref] video");return v&&!v.paused&&v.currentTime>1.1})()', timeout=5000)
+                page.wait_for_function('(()=>{const v=document.querySelector(".reference-editor-dialog video[controls]");return v&&!v.paused&&v.currentTime>1.1})()', timeout=5000)
             except Exception:
-                print(card.inner_text())
+                print(editor.inner_text())
                 print(video.evaluate('(v)=>({time:v.currentTime,paused:v.paused,ready:v.readyState,error:v.error?.message,network:v.networkState,duration:v.duration})'))
                 page.screenshot(path=str(OUT / 'failure.png'))
                 raise
-            page.wait_for_function('(()=>{const v=document.querySelector("[data-ref] video");return v&&v.paused&&v.currentTime>=2.95&&v.currentTime<=3.1})()')
-            # Both streams keep sound; sound-only moves to Audio without losing crop.
-            card.locator('select[aria-label]').last.select_option('video_audio')
-            assert not card.locator('video').evaluate('(v)=>v.muted')
-            card.locator('select[aria-label]').last.select_option('audio')
-            expect(card.locator('video')).to_have_count(0)
-            expect(card.locator('audio')).to_have_count(1)
+            page.wait_for_function('(()=>{const v=document.querySelector(".reference-editor-dialog video[controls]");return v&&v.paused&&v.currentTime>=2.95&&v.currentTime<=3.1})()')
+            # Reopen from the same card; trims survive unmounting the player.
+            page.keyboard.press('Escape')
+            expect(editor).to_have_count(0)
+            expect(dialog).to_be_visible()
+            expect(edit).to_be_focused()
+            edit.click()
+            expect(inputs.nth(0)).to_have_value('1')
+            expect(inputs.nth(1)).to_have_value('3')
+            editor.evaluate('(e)=>window.__referenceEditor=e')
+            # Both streams keep sound; changing lane must not remount the dialog.
+            editor.locator('.reference-media select').select_option('video_audio')
+            assert not editor.locator('video[controls]').evaluate('(v)=>v.muted')
+            editor.locator('.reference-media select').select_option('audio')
+            assert editor.evaluate('(e)=>e===window.__referenceEditor&&e.matches(":modal")')
+            expect(editor.locator('video[controls]')).to_have_count(0)
+            expect(editor.locator('audio')).to_have_count(1)
             expect(inputs.nth(0)).to_have_value('1')
             expect(inputs.nth(1)).to_have_value('3')
             assert card.locator('xpath=ancestor::section[1]').get_attribute('aria-label') == dialog.locator('.wb-lane').nth(2).get_attribute('aria-label')
+            if locale == 'en':
+                page.screenshot(path=str(OUT / f'reference-editor-{width}.png'))
+            overflow = editor.evaluate('d=>[d,...d.querySelectorAll(".reference-editor-body,.reference-media")].map(e=>({class:e.className,overflow:e.scrollWidth-e.clientWidth})).filter(x=>x.overflow>2)')
+            assert not overflow, overflow
+            page.keyboard.press('Escape')
+            expect(editor).to_have_count(0)
+            expect(dialog).to_be_visible()
+            expect(edit).to_be_focused()
             picker.get_by_role('button', name='voice.wav', exact=True).click()
-            audio = dialog.locator('[data-ref="voice.wav"] audio')
-            expect(audio).to_have_count(1)
-            page.wait_for_function('s=>document.querySelector(s).duration > 0', arg='[data-ref="voice.wav"] audio')
             sound_card = dialog.locator('[data-ref="voice.wav"]')
-            sound_card.locator('input[type="number"]').nth(0).fill('2')
-            sound_card.locator('input[type="number"]').nth(1).fill('4')
-            sound_card.locator('.reference-media-actions button').nth(0).click()
-            page.wait_for_function('s=>{const a=document.querySelector(s);return a&&a.paused&&a.currentTime>=3.95&&a.currentTime<=4.1}', arg='[data-ref="voice.wav"] audio')
+            sound_edit = sound_card.locator('[data-edit-reference]')
+            sound_edit.click()
+            audio = editor.locator('audio')
+            expect(audio).to_have_count(1)
+            page.wait_for_function('document.querySelector(".reference-editor-dialog audio").duration > 0')
+            editor.locator('input[type="number"]').nth(0).fill('2')
+            editor.locator('input[type="number"]').nth(1).fill('4')
+            editor.locator('.reference-media-actions button').nth(0).click()
+            page.wait_for_function('()=>{const a=document.querySelector(".reference-editor-dialog audio");return a&&!a.paused&&a.currentTime>2.1}', timeout=5000)
+            page.wait_for_function('()=>{const a=document.querySelector(".reference-editor-dialog audio");return a&&a.paused&&a.currentTime>=3.95&&a.currentTime<=4.1}')
+            page.keyboard.press('Escape')
+            expect(editor).to_have_count(0)
+            expect(dialog).to_be_visible()
+            expect(sound_edit).to_be_focused()
+            expect(dialog.locator('[data-ref] video[controls], [data-ref] audio, [data-ref] [data-native-video]')).to_have_count(0)
+            assert dialog.locator('[data-ref] video').evaluate_all('(vs)=>vs.every(v=>v.paused&&!v.autoplay)')
             # Real modal focus containment and nested width, not only outer dimensions.
             for _ in range(6):
                 page.keyboard.press('Tab')
@@ -108,7 +162,7 @@ with sync_playwright() as p:
             assert not errors, errors
             assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
             assert not page.evaluate('window.__calls.some(x=>/submit|upload|prepare/.test(x.command)&&x.command!=="native_recipe_prerequisites")')
-            reports.append({'locale': locale, 'width': width, 'modal': True, 'videoCrop': [1, 3], 'audioCrop': [2, 4]})
+            reports.append({'locale': locale, 'width': width, 'modal': True, 'nestedModal': True, 'focusTrap': True, 'editorSurvivesLaneChange': True, 'overviewPlayers': 0, 'videoCrop': [1, 3], 'audioCrop': [2, 4]})
             context.close()
     browser.close()
     (OUT / 'results.json').write_text(json.dumps(reports, indent=2))

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.62
+
+- H3 References now shows compact selected-media thumbnails with current stream/trim summaries. The Edit button carries a copper glow so the opened media editor is easy to spot. Each Edit button opens a separate modal for that reference’s existing playback, crop, Forge labels/details and people controls. Closing it retains changes, stops its player and returns to the selected card; Escape does not close the underlying References overlay. Native video thumbnails use a cached frame at the selected crop start without a WebKit video decoder. Originals and execution settings remain unchanged.
+
+- The preview **More** menu now closes on its second click and on any click outside it. **Use these settings** moved from the metadata dock into the More menu, joined by **Reuse prompt**, which fills prompt, negative prompt, seed, steps, CFG, sampler, scheduler and size from the selected file's embedded generation metadata. The metadata dock stays display-only.
+
+- Correct the shared Linux video-player seek and volume tracks: theme-colored fill ends at the playhead, the full 0–100% range is usable without input-field padding, and current/total time plus volume percentage stay visible. Replace platform-dependent play/mute glyphs with themed SVG controls; preserve native playback and forced mute.
+
 ## Unreleased — 0.1.60
 
 - Media dock: on Text → Image / Image → Image with a model that supports image prompting, right-click an image → **Use as prompt reference** (the same reference as dropping the tile on the prompt; disabled with the 4-reference count when full, badged in the dock, and the entry becomes **Remove reference** on referenced tiles).

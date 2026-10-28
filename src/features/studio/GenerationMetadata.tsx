@@ -17,7 +17,7 @@ function Apply({settings,onApply}:{settings:GenerationSettings;onApply:(s:Genera
  </>;
 }
 
-function FileMetadata({media,onApply}:{media:MediaItem;onApply?:(s:GenerationSettings)=>string[]}) {
+function FileMetadata({media}:{media:MediaItem}) {
  const {t}=useI18n();const path=media.path;
  const openWorkflow=useContext(OpenComfyWorkflow);
  const [sending,setSending]=useState(false);const [sendError,setSendError]=useState(false);
@@ -33,7 +33,7 @@ function FileMetadata({media,onApply}:{media:MediaItem;onApply?:(s:GenerationSet
  if(file.error)return <p className="media-help" role="status">{t('studio.run.metadata.failed')}</p>;
  if(!file.rows.length&&!file.workflow)return <p className="media-help">{t('studio.run.metadata.none')}</p>;
  const labels:Record<string,string>={prompt:'studio.run.positive',negativeprompt:'studio.run.negative',negative_prompt:'studio.run.negative',model:'studio.run.checkpoint',seed:'studio.run.seed',steps:'studio.run.steps',cfgscale:'studio.run.cfg',width:'studio.run.width',height:'studio.run.height',sampler:'studio.recipe.sampler',scheduler:'studio.recipe.scheduler',vae:'studio.run.vae',loras:'studio.run.loras',date:'studio.run.metadata.date',generation_time:'studio.run.metadata.time'};
- return <>{file.workflow&&<><button type="button" className="wb-dock-action" disabled={!openWorkflow||sending} title={t('studio.run.metadata.workflowHelp')} onClick={async()=>{if(!openWorkflow||!file.workflow)return;setSending(true);setSendError(false);try{await openWorkflow(file.workflow,media.name);}catch{setSendError(true);}finally{setSending(false);}}}>{t(sending?'studio.run.metadata.workflowLoading':'studio.run.metadata.workflow')}</button>{!openWorkflow&&<p className="media-help">{t('studio.run.metadata.workflowBackend')}</p>}{sendError&&<p className="media-help" role="alert">{t('studio.run.metadata.workflowFailed')}</p>}</>}{file.settings&&onApply&&<Apply key={path} settings={file.settings} onApply={onApply}/>}
+ return <>{file.workflow&&<><button type="button" className="wb-dock-action" disabled={!openWorkflow||sending} title={t('studio.run.metadata.workflowHelp')} onClick={async()=>{if(!openWorkflow||!file.workflow)return;setSending(true);setSendError(false);try{await openWorkflow(file.workflow,media.name);}catch{setSendError(true);}finally{setSending(false);}}}>{t(sending?'studio.run.metadata.workflowLoading':'studio.run.metadata.workflow')}</button>{!openWorkflow&&<p className="media-help">{t('studio.run.metadata.workflowBackend')}</p>}{sendError&&<p className="media-help" role="alert">{t('studio.run.metadata.workflowFailed')}</p>}</>}{/* "Use these settings" lives in the preview's More menu now; the dock only displays the file's metadata. */}
   <dl>{file.rows.map(([name,value],index)=><div key={index}><dt>{Object.hasOwn(labels,name.toLowerCase())?t(labels[name.toLowerCase()]):name.replaceAll('_',' ')}</dt><dd>{value}</dd></div>)}</dl></>;
 }
 
@@ -72,6 +72,6 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
    {i.inpaintCrop&&row('studio.run.inpaintOnlyMasked',`${i.inpaintCrop.x}, ${i.inpaintCrop.y} · ${i.inpaintCrop.width} × ${i.inpaintCrop.height} → ${i.inpaintCrop.targetWidth} × ${i.inpaintCrop.targetHeight}`)}
    {i.options&&row('studio.run.dock.options',Object.entries(i.options).map(([k,v])=>typeof v==='object'?`${v.node} ${v.threshold}`:v===true?k:`${k}: ${v}`).join(' · '))}
    {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
-  </dl></>:!job&&media&&media.media!=='audio'?<FileMetadata key={media.src} media={media} onApply={onApply}/>:<p className="media-help">{t('studio.run.metadata.empty')}</p>}
+  </dl></>:!job&&media&&media.media!=='audio'?<FileMetadata key={media.src} media={media}/>:<p className="media-help">{t('studio.run.metadata.empty')}</p>}
  </section>;
 }

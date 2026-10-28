@@ -9,11 +9,13 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobStatus } from '../../lib/jobs';
+import { readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
+vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn(async()=>[] as [string,string][])}));
 vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
@@ -180,6 +182,37 @@ test('More offers Refine and Upscale; Upscale runs the pass alone (denoise 0, no
  const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(sent).toMatchObject({denoise:0,inputImage:'deas-inputs/result.png',width:2048,height:2048});
  expect(sent.sigmas).toEqual([]); // upscale-only: explicit empty sigma list = no diffusion tail
+});
+test('More closes on its own summary and outside clicks; metadata actions apply settings and reuse only the prompt',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ localStorage.setItem('deas.pref.studio.run.pipeline','"i2i"');
+ const intent={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'old',negativePrompt:'',checkpoint:'a.safetensors',seed:42,cfg:6,sampler:'euler',scheduler:'normal',outputPrefix:'raw/old',width:1024,height:1024,steps:20} as const;
+ const job={...heldJob('more-menu','succeeded'),outputRoot:'/old-env/output',intent,outputs:[{filename:'result.png',subfolder:'raw',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(readImageMetadata).mockResolvedValue([['parameters','imported prompt\nSteps: 7, Sampler: Euler, CFG scale: 3, Seed: 11, Size: 512x512, Model: a.safetensors']]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/old-env/output'}}/></I18nProvider>);
+ const more=await waitFor(()=>{const el=document.querySelector<HTMLButtonElement>('[data-run-post]');expect(el).not.toBeNull();return el;});
+ const summary=document.querySelector('summary[data-more]')!;
+ expect(more!.disabled).toBe(false);
+ fireEvent.click(summary);
+ expect(summary.closest('details')!.open).toBe(true);
+ fireEvent.click(summary);
+ expect(summary.closest('details')!.open).toBe(false);
+ fireEvent.click(summary);
+ fireEvent.mouseDown(document.body);
+ expect(summary.closest('details')!.open).toBe(false);
+ fireEvent.click(summary);
+ fireEvent.click(document.querySelector('[data-more-apply]')!);
+ await waitFor(()=>expect(screen.getByText('All settings applied.')).toBeTruthy());
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('imported prompt');
+ expect((screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement).value).toBe('11');
+ expect(summary.closest('details')!.open).toBe(false);
+ fireEvent.click(summary);
+ fireEvent.click(document.querySelector('[data-more-reuse]')!);
+ await waitFor(()=>expect(screen.getByText('All settings applied.')).toBeTruthy());
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('imported prompt');
+ expect((screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement).value).toBe('11');
 });
 test.each([true,false])('native video playback uses captured root when available (owned=%s)',async owned=>{
  const agent=vi.spyOn(navigator,'userAgent','get').mockReturnValue('Linux');
@@ -2102,8 +2135,10 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
   fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Add as reference'}));
   fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Add as reference'}));
   dock('References');
+  fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
   fireEvent.change(screen.getByLabelText('Start of clip.mp4'),{target:{value:'1'}});
   fireEvent.change(screen.getByLabelText('End of clip.mp4'),{target:{value:'4.5'}});
+  fireEvent.click(within(screen.getByRole('dialog',{name:'Edit clip.mp4'})).getByRole('button',{name:'Close'}));
   vi.mocked(readRefMods).mockResolvedValue([{name:'chars/hero',kinds:['image'],description:'the hero'}]);
   fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));
   fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));
@@ -2409,7 +2444,9 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));adopt();
  fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
  fireEvent.click(document.querySelector('[data-open-references]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
  fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Edit clip.mp4'})).getByRole('button',{name:'Close'}));
  dock('Media');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  await screen.findByRole('button',{name:'voice.wav'});
@@ -2436,11 +2473,13 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
  dock('References');
  expect(screen.getByText('Images 1/9 · Videos 0/3 · Sound 2/3 · Files 3/12')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Edit a2.wav'}));
  fireEvent.change(screen.getByLabelText('Start of a2.wav'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'2'}});
  expect(screen.getByRole('alert').textContent).toBe('A trimmed clip must last 2–15 s (end after start).');
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
  fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'4.5'}});
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Edit a2.wav'})).getByRole('button',{name:'Close'}));
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'a singer'}});
  fireEvent.click(screen.getByRole('button',{name:'Insert <Audio 2> into the prompt'}));
  // Director input scaling: the default Fill and crop stays implicit; another mode is sent.

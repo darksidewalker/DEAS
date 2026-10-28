@@ -131,6 +131,7 @@ fn main() {
             deas::native_media_star_notice,
             deas::native_media_describe,
             deas::native_media_thumbnail,
+            deas::native_media_reference_thumbnail,
             deas::native_media_reveal,
             deas::native_media_metadata,
             deas::native_open_token_page,
