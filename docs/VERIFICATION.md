@@ -1,5 +1,15 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.1.59 (published)
+
+Published 2026-10-28 as the rollup of 0.1.57–0.1.59 (last published release was v0.1.56). Source commit `2bfc16c2a08f120d871b86b913a983bb8b22d9a7` (tree `1c53ddc34033c627b44f0a7962552160a4112fa7`); tag `v0.1.59` at that commit, pushed to gitea; GitHub release `v0.1.59` created with `--target` pinned to the source commit (Actions runners gated — local fallback build, release.yml fired nothing). Fresh gates on the source commit: tsc clean; core 118/118; UI 1213/1213 (a single LayoutStudio findByRole timeout under concurrent cargo load passed in a serial rerun); cargo fmt/clippy clean; Rust suite 607 passed with `--test-threads=1`; `cargo xwin check` clean.
+Linux binary built by `build-linux.sh` (release, `--locked`), glibc floor derived from the binary: 2.39; `ldd` reports zero "not found". Windows exe via `cargo xwin build --release --locked` (benign LNK4099 missing-debug-info warning; cross-compiled — first real Windows launch is the runtime acceptance test). Assets (SHA-256):
+- `deas-linux-amd64` 9c66ddde0165572acbbb3ad61323844992801f8e962c0a067eb538c9385b4129
+- `deas.exe` 7123b56a319a2916684cd36936983b60596f8894bd9884c05af1193bd7841d4b
+- `SHA256SUMS` staged in `artifacts/releases/v0.1.59/` (manifest hashed first, sorted)
+- `BUILD-MANIFEST.json` 8e7a92168ddaa135e9543f5e44e1ce47e15a54a1f43a213c65b9efdfb3da3270
+No NSIS installer/portable zip (needs a native Windows runner). Release notes list all 0.1.57/0.1.58/0.1.59 features.
+
 ## Reference overlay and media crops (0.1.59)
 
 Scope: References moved from the dock to a native modal with the shared Media picker; Director lanes/labels/people/Forge details, packs and RefMods are retained. New inline previews and source-aware numeric/range crops, playhead endpoints/reset and Play crop use the same stream/trim values as H3 submission. Linux video reuses libmpv; standalone audio and Windows/browser retain media elements. No new dependencies, model downloads, source rewrites, commits, publication or live-service restarts.

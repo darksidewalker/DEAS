@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## Unreleased — 0.1.59
 
 - Preserve current reference additions and crop edits during native file drops; ignore drops belonging to a different modal/background browser and discard file descriptions that finish after the picker closes.
