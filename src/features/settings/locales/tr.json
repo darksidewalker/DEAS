@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "İstem yazım denetimi",
+  "settings.prompt.language": "Yazım denetimi dili",
+  "settings.prompt.autocomplete": "Etiket otomatik tamamlama",
+  "settings.prompt.spellcheckHelp": "Arayüz dilinden bağımsızdır. Yerel sistem sözlüklerini kullanır; seçilen sözlük kurulu olmalıdır.",
+  "settings.prompt.autocompleteHelp": "Varsayılan olarak kapalıdır. Yapılandırılmış ortamın Prompt Forge yerel etiket verilerini kullanır. En az iki karakter yazın; oklar ve Enter/Tab ile seçin, Escape ile kapatın.",
+  "settings.prompt.dictionaryMissing": "Seçilen dilin sözlüğü kurulu değil. Sistem yazım sözlüğünü kurun, ardından denetimi kapatıp açın.",
+  "settings.prompt.unsupported": "Bu WebView bağımsız sözlük seçemiyor. Yazım ipuçları işletim sistemine ve WebView sürümüne bağlıdır.",
+  "settings.prompt.failed": "Yazım denetimi yapılandırılamadı. Günlüklere bakın."
+}

@@ -76,6 +76,7 @@ window.__TAURI_INTERNALS__={convertFileSrc:path=>{f.paths.push(path);return png;
  if(command==='native_media_star_status')return {starred:false,unavailable:null};
  if(command==='native_media_list')return {path:args.path||'/fixture-unused',parent:null,entries:[],truncated:false};
  if(command==='native_install_plan')return {id:'fixture-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
+ if(command==='native_prompt_spellcheck')return null;
  if(command==='native_auth_status')return [];
  if(command==='native_update_check')return {app:null,comfy:false,nodepack:false};
  if(command==='native_repo_stars')return {count:0,starred:null};

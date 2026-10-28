@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "プロンプトのスペルチェック",
+  "settings.prompt.language": "スペルチェックの言語",
+  "settings.prompt.autocomplete": "タグの自動補完",
+  "settings.prompt.spellcheckHelp": "表示言語とは独立しています。システムのローカル辞書を使用するため、選択した辞書のインストールが必要です。",
+  "settings.prompt.autocompleteHelp": "初期設定はオフです。設定済み環境の Prompt Forge ローカルタグデータを使用します。2文字以上で候補を表示し、矢印と Enter/Tab で選択、Escape で閉じます。",
+  "settings.prompt.dictionaryMissing": "選択した言語の辞書がありません。システム辞書をインストールしてから、スペルチェックをオフにして再度オンにしてください。",
+  "settings.prompt.unsupported": "この WebView では独立した辞書を設定できません。スペルチェックは OS と WebView に依存します。",
+  "settings.prompt.failed": "スペルチェックを設定できませんでした。ログを確認してください。"
+}

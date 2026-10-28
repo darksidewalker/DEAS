@@ -20,6 +20,8 @@
 .wb-prompt { position: relative; display: flex; flex-direction: column; gap: 3px; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-prompt textarea { height: calc(5.2rem + 4.2em); /* +3 lines at line-height 1.4 */ resize: none; padding: 8px 10px; font-size: 13px; line-height: 1.4; text-transform: none; letter-spacing: 0; }
 .wb-negative textarea { color: var(--text-2); }
+.wb-prompt-label { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.wb-prompt-label small { flex: none; font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
 .wb-field.wb-pipeline { margin-bottom: .6rem; }
 .wb-field.wb-pipeline select { font-weight: 600; }
 .wb-checkpoint { margin-bottom: .6rem; min-width: 0; }

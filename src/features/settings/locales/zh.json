@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "提示词拼写检查",
+  "settings.prompt.language": "拼写检查语言",
+  "settings.prompt.autocomplete": "标签自动补全",
+  "settings.prompt.spellcheckHelp": "独立于界面语言。使用系统本地词典；必须安装所选语言的词典。",
+  "settings.prompt.autocompleteHelp": "默认关闭。使用已配置环境中的 Prompt Forge 本地标签数据库。输入至少两个字符，用方向键和 Enter/Tab 选择，Escape 关闭。",
+  "settings.prompt.dictionaryMissing": "未安装所选语言的词典。请安装系统拼写词典，然后关闭并重新开启拼写检查。",
+  "settings.prompt.unsupported": "此 WebView 无法配置独立词典。拼写提示取决于操作系统和 WebView。",
+  "settings.prompt.failed": "无法配置拼写检查。请查看日志。"
+}

@@ -62,6 +62,7 @@ fn main() {
         .manage(deas::downloads::DownloadEngine::default())
         .manage(deas::ModelScanEngine::default())
         .invoke_handler(tauri::generate_handler![
+            deas::spellcheck::native_prompt_spellcheck,
             deas::native_video_post_inspect,
             deas::native_video_post_draft,
             deas::native_video_post_prepare,

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-prompt-spellcheck"
+description = "Configure local WebView spellchecking with a validated language; no prompt text or network access."
+commands.allow = ["native_prompt_spellcheck"]

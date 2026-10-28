@@ -1589,6 +1589,108 @@ fn diagnostic_availability_ignores_windows_separators() {
     assert!(!listed(&[], "diffusionModels", "deas-inputs/x.safetensors"));
 }
 
+#[tokio::test]
+async fn prepare_wrong_loader_folder_blocks_submission_and_preserves_missing_errors() {
+    for split in [false, true] {
+        let (field, expected, wrong) = if split {
+            (
+                "diffusionModels",
+                "models/diffusion_models",
+                "models/checkpoints",
+            )
+        } else {
+            (
+                "checkpoints",
+                "models/checkpoints",
+                "models/diffusion_models",
+            )
+        };
+        for (selected, listed_name) in [
+            (
+                r"Anima\model+Int8.safetensors",
+                "Anima/model+Int8.safetensors",
+            ),
+            (
+                "Anima/model+Int8.safetensors",
+                r"Anima\model+Int8.safetensors",
+            ),
+        ] {
+            for placement in ["wrong", "neither", "different", "both", "expected"] {
+                let mut value = intent();
+                value["checkpoint"] = json!(selected);
+                if split {
+                    value["diffusion"] = json!({"textEncoder":"encoder.safetensors","clipType":"anima","vae":"vae.safetensors"});
+                }
+                let mut info = nodes();
+                info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0] = json!([]);
+                info["UNETLoader"] = json!({"input":{"required":{"unet_name":[[]]}}});
+                info["CLIPLoader"] = json!({"input":{"required":{"clip_name":[["encoder.safetensors"]],"type":[["anima"]]}}});
+                info["VAELoader"] =
+                    json!({"input":{"required":{"vae_name":[["vae.safetensors"]]}}});
+                for (node, input, is_expected) in [
+                    ("UNETLoader", "unet_name", split),
+                    ("CheckpointLoaderSimple", "ckpt_name", !split),
+                ] {
+                    info[node]["input"]["required"][input][0] = if placement == "both"
+                        || (is_expected && placement == "expected")
+                        || (!is_expected && placement == "wrong")
+                    {
+                        json!([listed_name])
+                    } else if !is_expected && placement == "different" {
+                        json!(["Other/model+Int8.safetensors"])
+                    } else {
+                        json!([])
+                    };
+                }
+                let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let observed = reads.clone();
+                let (base, task) = server(move |path, _| {
+                    assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    (200, info.to_string())
+                })
+                .await;
+                let jobs = Jobs::default();
+                let result = jobs.prepare(base, value).await;
+                if matches!(placement, "both" | "expected") {
+                    let graph = &result.unwrap()["graph"];
+                    assert_eq!(
+                        graph["1"]["class_type"],
+                        if split {
+                            "UNETLoader"
+                        } else {
+                            "CheckpointLoaderSimple"
+                        }
+                    );
+                } else {
+                    let error = result.unwrap_err();
+                    if placement == "wrong" {
+                        assert!(error.starts_with("MODEL_WRONG_FOLDER:"), "{error}");
+                        assert!(error.contains(selected), "{error}");
+                        assert!(error.contains(&format!("expected {expected}")), "{error}");
+                        assert!(error.contains(&format!("listed in {wrong}")), "{error}");
+                        assert!(error.contains("Move"), "{error}");
+                    } else {
+                        assert_eq!(
+                            error,
+                            format!(
+                                "Diagnostic {field} are not available on this backend: {selected}"
+                            )
+                        );
+                    }
+                    assert!(jobs.lock().unwrap().plan.is_none());
+                    assert!(jobs.lock().unwrap().preparing.is_none());
+                    assert!(jobs.submit("unprepared".into(), true).await.is_err());
+                    assert!(jobs.lock().unwrap().job.is_none());
+                }
+                assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert!(!task.is_finished());
+                task.abort();
+            }
+        }
+    }
+}
+
 #[test]
 fn dasiwa_saver_replaces_save_image_only_when_both_nodes_exist() {
     let mut graph = compile(&intent()).unwrap();

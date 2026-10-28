@@ -14,6 +14,8 @@ const MAX_HEADER: u64 = 64 << 20;
 #[derive(Deserialize)]
 struct Family {
     id: String,
+    #[serde(default)]
+    forge: Option<String>,
     #[serde(default, rename = "clipType")]
     clip_type: Option<String>,
     #[serde(default)]
@@ -34,6 +36,21 @@ fn families() -> &'static [Family] {
         serde_json::from_str(include_str!("../../src/families/builtin.json"))
             .expect("bundled family plugin is valid")
     })
+}
+
+pub(crate) fn prompt_forge_target(name: &str) -> Option<&'static str> {
+    let name = name.trim();
+    families()
+        .iter()
+        .find(|f| {
+            f.id.eq_ignore_ascii_case(name)
+                || f.forge
+                    .as_deref()
+                    .is_some_and(|v| v.eq_ignore_ascii_case(name))
+                || f.bases.iter().any(|v| v.eq_ignore_ascii_case(name))
+        })?
+        .forge
+        .as_deref()
 }
 
 pub(crate) fn image_multiple(clip_type: &str) -> Option<u64> {

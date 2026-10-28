@@ -1,5 +1,17 @@
 # News
 
+## Development — 0.1.63
+
+Studio adds inline character counts and shared writing aids for normal/enlarged prompts. Configure the independent spellcheck language below Backend’s language selector; toggle spellcheck and optional local Forge-tag completion there or in Quick Settings. Completion starts off. See [usage and dictionary requirements](STUDIO.md#prompt-writing-aids-0163-development). Not a published release.
+
+## Unreleased bug fix — Chat prompt routing
+
+Chat now keeps the requested generation model: it refers to that model’s Prompt Forge mode first, falls back only to a compatible registered simple writer, and otherwise says no compatible writer exists. H3 requests no longer end by offering four unrelated image models. Referrals name the exact Write for mode without switching tabs or modifying drafts automatically. [Usage and limits](CHAT.md).
+
+## Unreleased bug fix — model folders
+
+Studio now explains known models in the wrong loader folder instead of offering them as runnable. Anima belongs in `diffusion_models` (or `unet`) for its split recipe, not `checkpoints`. Files remain visible; move them yourself and refresh the list. Native preparation also distinguishes an opposite-loader listing from a missing model. No model moves or automatic loader changes. See [Studio model controls](STUDIO.md).
+
 ## Development — 0.1.62
 
 H3 References separates selection from editing: compact thumbnails show the current crop and stream choice, and the copper-glowing Edit button opens one larger media dialog. Close/Escape retains changes and returns to the card; the underlying reference picker stays open. Existing crop/playback, people and Forge controls are retained. Linux keeps native libmpv playback and uses cached FFmpeg thumbnails. [Usage](STUDIO.md#multi-reference-overlay). The preview **More** menu closes on its own click and outside clicks; **Use these settings** moved there from the metadata dock, next to the new **Reuse prompt** which refills prompt and sampler settings from a file's embedded metadata. Version 0.1.62 is the published release (see [CHANGELOG](CHANGELOG.md)).

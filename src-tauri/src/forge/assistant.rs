@@ -1,10 +1,9 @@
 //! Chat: PromptForge's chat (server.mjs handleChat) run natively. A conversation
 //! with the configured LLM, streamed as it is written, that knows this project:
 //!
-//! - `write_prompt` runs the real prompt writer for one of the four image models
-//!   (the same engine as the Prompt Forge tab, with PromptForge's defaults) and
-//!   puts its prompt into the reply word for word — the chat model never gets a
-//!   second turn to "tidy" it (PromptForge's server/chat-prompt-tool.mjs).
+//! - `write_prompt` routes to the requested model's Prompt Forge mode first,
+//!   otherwise runs its compatible simple writer, or refuses if neither exists.
+//!   Simple-writer output is shown verbatim, never retouched by the chat model.
 //! - `read_guide` reads how a model wants to be prompted (the image models' own
 //!   prompt files and guidance documents, the H3/Wan/LTX prompts) and DEAS's own
 //!   user guides.
@@ -33,7 +32,6 @@ const MAX_PICTURES: usize = 4;
 const MAX_ROUNDS: usize = 4;
 /// A guide is cut here: small local models often run 32k contexts.
 const GUIDE_LIMIT: usize = 16_000;
-const IMAGE_MODELS: &[&str] = &["illustrious", "anima", "krea2", "moss"];
 
 /// DEAS's own user guides, readable by `read_guide`.
 const DOCS: &[(&str, &str, &str)] = &[
@@ -287,11 +285,56 @@ fn label_of(data: &Data, key: &str) -> String {
         .to_string()
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum PromptRoute<'a> {
+    Forge(&'static str),
+    Simple(&'a str),
+    Missing,
+}
+
+fn prompt_route<'a>(data: &'a Data, name: &str) -> PromptRoute<'a> {
+    let name = name.trim();
+    let model = data.pack.models.iter().find(|(key, m)| {
+        key.eq_ignore_ascii_case(name)
+            || m.str("label")
+                .is_some_and(|label| label.eq_ignore_ascii_case(name))
+    });
+    let guide = data
+        .pack
+        .shared
+        .video_guides
+        .iter()
+        .find(|(key, g)| key.eq_ignore_ascii_case(name) || g.label.eq_ignore_ascii_case(name));
+    let forge = crate::model_families::prompt_forge_target(name)
+        .or_else(|| {
+            model.and_then(|(_, m)| crate::model_families::prompt_forge_target(m.str("label")?))
+        })
+        .or_else(|| guide.and_then(|(_, g)| crate::model_families::prompt_forge_target(&g.label)));
+    if let Some(target) = forge {
+        return PromptRoute::Forge(target);
+    }
+    match model {
+        Some((key, m)) => {
+            let mode = m
+                .str("default_mode")
+                .filter(|mode| m.modes().iter().any(|v| v == mode));
+            if !m.system_for(mode).trim().is_empty() && !m.expected(mode).is_empty() {
+                PromptRoute::Simple(key)
+            } else {
+                PromptRoute::Missing
+            }
+        }
+        _ => PromptRoute::Missing,
+    }
+}
+
 /// Every guide by name, with what it is.
 fn guides(data: &Data) -> Vec<(String, String)> {
     let mut out = vec![];
-    for key in IMAGE_MODELS {
-        if let Some(m) = data.pack.models.get(*key) {
+    let mut keys: Vec<_> = data.pack.models.keys().collect();
+    keys.sort();
+    for key in keys {
+        if let Some(m) = data.pack.models.get(key) {
             out.push((
                 key.to_string(),
                 format!(
@@ -351,28 +394,16 @@ fn read_guide(data: &Data, name: &str) -> Option<String> {
 }
 
 fn tool_definitions(data: &Data) -> Vec<Value> {
-    let models: Vec<&str> = IMAGE_MODELS
-        .iter()
-        .copied()
-        .filter(|k| data.pack.models.contains_key(*k))
-        .collect();
-    let list = models
-        .iter()
-        .map(|k| format!("{k} = {}", label_of(data, k)))
-        .collect::<Vec<_>>()
-        .join("; ");
     let names: Vec<String> = guides(data).into_iter().map(|(k, _)| k).collect();
     let mut out = vec![];
-    if !models.is_empty() {
-        out.push(json!({ "type": "function", "function": {
+    out.push(json!({ "type": "function", "function": {
             "name": "write_prompt",
-            "description": format!("Write a finished prompt for one of DEAS's image models, using that model's own prompt writer, which knows its exact format. Call it whenever the person asks for a prompt for one of these models, or asks to change one it wrote, instead of writing or editing the prompt yourself. If they have not said which model, ask them first rather than choosing. Models: {list}."),
+            "description": "Route every request to write or revise a model prompt. Keep the requested model exactly: this tool refers to its Prompt Forge mode first, otherwise uses its compatible simple writer, otherwise refuses. Never choose a different model. If no model was specified, ask which model first.",
             "parameters": { "type": "object", "properties": {
-                "model": { "type": "string", "enum": models, "description": "Which model the prompt is for." },
+                "model": { "type": "string", "description": "The requested generation model or family, unchanged; not the LLM. Unknown models are allowed here so the tool can refuse them accurately." },
                 "brief": { "type": "string", "description": "What the picture should show, in the person's own words, with everything they asked for (subject, style, mood, characters, setting). Do not write the prompt here." }
             }, "required": ["model", "brief"] }
         }}));
-    }
     out.push(json!({ "type": "function", "function": {
         "name": "read_guide",
         "description": "Read a guide before explaining how a model wants to be prompted or how a part of DEAS works, instead of answering from memory. The image and video model guides are those models' own prompt-writing instructions.",
@@ -402,7 +433,9 @@ fn arguments(raw: &Value) -> Value {
 // ── the conversation ────────────────────────────────────────────────────────
 
 fn system_prompt(data: &Data, req: &SendRequest, searched: bool, search_on: bool) -> String {
-    let base = data.pack.shared.chat.clone().unwrap_or_else(|| "You are the assistant inside DEAS, a local desktop studio for AI images and video. Answer directly and accurately.".into());
+    // The upstream fallback invents writers for unsupported models; DEAS routes all writes.
+    let base = data.pack.shared.chat.clone().unwrap_or_else(|| "You are the assistant inside DEAS, a local desktop studio for AI images and video. Answer directly and accurately.".into())
+        .replace("A prompt for\nanything else, write yourself.", "For any other model, use write_prompt too.");
     let mut lines = vec![
         format!("Today is {} (UTC).", today()),
         "You are running inside DEAS (Dark Engine AI Studio), a local desktop app that installs and runs ComfyUI, with Studio for generating, Prompt Forge for writing prompts, a Library of models and LoRAs, and this Chat. Where your base instructions mention PromptForge's own tabs, the same tools exist here: Prompt Forge is the tab for prompts, Studio's Generate is where pictures are made.".to_string(),
@@ -411,6 +444,7 @@ fn system_prompt(data: &Data, req: &SendRequest, searched: bool, search_on: bool
             guides(data).iter().map(|(k, what)| format!("{k} ({what})")).collect::<Vec<_>>().join("; ")
         ),
         "When the person asks how a model is prompted or how part of DEAS works, read the guide first and answer from it.".into(),
+        "For EVERY request to write or revise a generation prompt, call write_prompt with the requested model, including models not in the guide list. Routing priority: Prompt Forge mode -> compatible simple writer -> refusal because no compatible writer exists. Never substitute another model, offer the four image models as replacements, or invent a writer from memory. A reference-only guide is not a simple writer. If the model is unspecified, ask which model. These DEAS routing rules override the base prompt's generic prompt-writing fallback.".into(),
     ];
     lines.push(if !search_on {
         "Web search is not switched on in this DEAS. You cannot look anything up; when an answer needs current information, say so.".into()
@@ -464,7 +498,7 @@ fn prompt_reply(label: &str, prompt: &str, negative: Option<&str>) -> String {
     if let Some(n) = negative.map(str::trim).filter(|n| !n.is_empty()) {
         body = format!("Positive prompt:\n{body}\n\nNegative prompt:\n{n}");
     }
-    format!("{label} prompt, written by the {label} prompt writer:\n\n{body}\n\nTo change its settings or write it again, open it in the Prompt Forge tab.")
+    format!("{label} prompt, written by the {label} prompt writer:\n\n{body}")
 }
 
 fn stop_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
@@ -624,19 +658,34 @@ async fn answer(
         // write_prompt ends the turn: its prompt is the answer, as written.
         if let Some(call) = out.calls.iter().find(|c| c.name == "write_prompt") {
             let args = arguments(&call.arguments);
-            let target = args["model"].as_str().unwrap_or("").trim().to_lowercase();
+            let target = args["model"].as_str().unwrap_or("").trim().to_string();
             let brief = args["brief"].as_str().unwrap_or("").trim().to_string();
-            let rest = if !IMAGE_MODELS.contains(&target.as_str())
-                || !data.pack.models.contains_key(&target)
-            {
-                format!(
-                    "Which model should this prompt be for? I can write one for {}.",
-                    IMAGE_MODELS
-                        .iter()
-                        .map(|k| label_of(data, k))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
+            let route = prompt_route(data, &target);
+            let route_name = match route {
+                PromptRoute::Forge(_) => "prompt-forge",
+                PromptRoute::Simple(_) => "simple-writer",
+                PromptRoute::Missing => "no-compatible-writer",
+            };
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!(
+                    "INFO: Chat: write_prompt chat={} route={route_name}",
+                    chat.id
+                ),
+            );
+            let target = match route {
+                PromptRoute::Simple(key) => key.to_string(),
+                _ => target,
+            };
+            used.push(format!("write_prompt: {target}"));
+            let rest = if let PromptRoute::Forge(mode) = route {
+                format!("Use Studio → Prompt Forge → Write for → {mode}. This model has a dedicated Prompt Forge mode; configure and write its prompt there. No other model has been selected.")
+            } else if route == PromptRoute::Missing {
+                if target.is_empty() {
+                    "Which generation model should this prompt be for?".into()
+                } else {
+                    format!("No compatible prompt writer exists for '{target}': no Prompt Forge mode or compatible simple writer with a system prompt is available. I cannot write this prompt or substitute another model.")
+                }
             } else if brief.is_empty() {
                 format!(
                     "No description was given for the {} prompt.",
@@ -648,7 +697,6 @@ async fn answer(
                     state: "writing_prompt".into(),
                     detail: Some(label.clone()),
                 });
-                used.push(format!("write_prompt: {target}"));
                 let write = WriteRequest {
                     target: target.clone(),
                     brief,
@@ -856,6 +904,206 @@ mod tests {
         d
     }
 
+    fn routing_data() -> Data {
+        Data {
+            pack: serde_json::from_value(json!({
+                "source": {}, "config": {}, "defaults": {},
+                "shared": {"video_guides": {
+                    "h3": {"label": "MiniMax H3", "system": "H3 instructions"},
+                    "ltx": {"label": "LTX 2.3", "system": "LTX instructions"},
+                    "guide-only": {"label": "Guide only", "system": "Explanation only"}
+                }},
+                "models": {
+                    "anima": {"entry": {"label": "Anima", "segments": ["Positive prompt"]}, "system": "Anima instructions"},
+                    "basic": {"entry": {"label": "Basic Model", "segments": ["Positive prompt"]}, "system": "Basic instructions"},
+                    "empty": {"entry": {"label": "Empty"}, "system": " "}
+                }
+            })).unwrap(),
+            tags: None,
+            canon: None,
+        }
+    }
+
+    #[test]
+    fn prompt_routing_prefers_forge_then_compatible_basic_else_refuses() {
+        let data = routing_data();
+        for (name, expected) in [
+            ("h3", "MiniMax H3"),
+            ("MiniMax H3", "MiniMax H3"),
+            ("minimax-h3", "MiniMax H3"),
+            ("ltx", "LTX 2.3"),
+            ("wan", "Wan 2.2"),
+            ("Anima", "Anima"),
+            ("MOSS-Image", "MOSS"),
+            ("Pony", "Illustrious"),
+        ] {
+            assert_eq!(prompt_route(&data, name), PromptRoute::Forge(expected));
+        }
+        assert_eq!(prompt_route(&data, "basic"), PromptRoute::Simple("basic"));
+        assert_eq!(
+            prompt_route(&data, "Basic Model"),
+            PromptRoute::Simple("basic")
+        );
+        for name in [
+            "unknown",
+            "qwen-image-2.1",
+            "guide-only",
+            "deas-chat",
+            "empty",
+            "",
+        ] {
+            assert_eq!(prompt_route(&data, name), PromptRoute::Missing, "{name}");
+        }
+        let defs = tool_definitions(&data);
+        assert!(defs[0]["function"]["parameters"]["properties"]["model"]
+            .get("enum")
+            .is_none());
+        let request = SendRequest {
+            id: None,
+            message: "test".into(),
+            model: "fixture".into(),
+            pictures: vec![],
+            context: None,
+            search: false,
+        };
+        let system = system_prompt(&data, &request, false, false);
+        assert!(!system.contains("A prompt for anything else, write yourself."));
+        assert!(system.contains("Never substitute another model"));
+    }
+
+    #[test]
+    fn simple_writer_compatibility_uses_the_engines_effective_default_mode() {
+        let mut data = routing_data();
+        let writer = serde_json::from_value(json!({
+            "entry": {"modes": ["Simple"], "default_mode": "Simple", "segments_by_mode": {"Simple": ["Positive prompt"]}},
+            "system": "", "system_by_mode": {"Simple": "Mode-specific instructions"}
+        })).unwrap();
+        data.pack.models.insert("mode-only".into(), writer);
+        assert_eq!(
+            prompt_route(&data, "mode-only"),
+            PromptRoute::Simple("mode-only")
+        );
+        data.pack
+            .models
+            .get_mut("mode-only")
+            .unwrap()
+            .system_by_mode
+            .insert("Simple".into(), " ".into());
+        data.pack.models.get_mut("mode-only").unwrap().system = "Base is overridden".into();
+        assert_eq!(prompt_route(&data, "mode-only"), PromptRoute::Missing);
+    }
+
+    #[tokio::test]
+    async fn prompt_routing_executes_forge_refusal_and_simple_paths() {
+        use chat::tests::{complete, fixture};
+        use std::time::Duration;
+        let tool_reply = |name: &str, args: Value| {
+            complete(&format!(
+                "data: {}\n\n",
+                json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":name,"arguments":args.to_string()}}]},"finish_reason":"tool_calls"}]})
+            ))
+        };
+        for (target, expected, simple) in [
+            ("h3", "Write for → MiniMax H3", false),
+            ("Wan 2.2", "Write for → Wan 2.2", false),
+            ("anima", "Write for → Anima", false),
+            (
+                "NotSupported",
+                "No compatible prompt writer exists for 'NotSupported'",
+                false,
+            ),
+            ("guide-only", "No compatible prompt writer exists", false),
+            ("Basic Model", "a tree in rain", true),
+        ] {
+            let mut responses = vec![];
+            if target == "h3" {
+                responses.push(tool_reply("read_guide", json!({"name":"h3"})));
+            }
+            responses.push(tool_reply(
+                "write_prompt",
+                json!({"model":target,"brief":"a tree"}),
+            ));
+            if simple {
+                responses.push(complete(&json!({"choices":[{"message":{"content":"===SEGMENT: Positive prompt===\na tree in rain"},"finish_reason":"stop"}]}).to_string()));
+            }
+            let count = responses.len();
+            let (url, mut received, server) = fixture(responses).await;
+            let root = temp_root();
+            let mut events = vec![];
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                send(
+                    &root,
+                    &routing_data(),
+                    &LlmConfig {
+                        provider: Provider::Openai,
+                        base_url: url,
+                    },
+                    SendRequest {
+                        id: None,
+                        message: format!("Write a {target} prompt"),
+                        model: "fixture".into(),
+                        pictures: vec![],
+                        context: None,
+                        search: false,
+                    },
+                    &mut |e| events.push(e),
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                result.content.contains(expected),
+                "{target}: {}",
+                result.content
+            );
+            assert!(!result
+                .content
+                .contains("Which model should this prompt be for?"));
+            assert_eq!(result.prompts.len(), usize::from(simple));
+            if simple {
+                assert_eq!(result.prompts[0].target, "basic");
+            }
+            assert_eq!(
+                result
+                    .tools
+                    .iter()
+                    .filter(|t| t.starts_with("write_prompt:"))
+                    .count(),
+                1
+            );
+            let id = events
+                .iter()
+                .find_map(|e| match e {
+                    ChatEvent::Chat { id, .. } => Some(id),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(load(&root, id).unwrap().messages.last(), Some(&result));
+            let expected_route = if simple {
+                "simple-writer"
+            } else if expected.starts_with("Write for") {
+                "prompt-forge"
+            } else {
+                "no-compatible-writer"
+            };
+            assert!(crate::logs::native_logs(0).iter().any(|entry| {
+                entry.source == crate::logs::Source::Deas
+                    && entry.text
+                        == format!("INFO: Chat: write_prompt chat={id} route={expected_route}")
+            }));
+            for i in 0..count {
+                assert_eq!(received.recv().await, Some(i));
+            }
+            tokio::time::timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn stop_cancels_blocked_web_search_without_starting_llm() {
         use chat::tests::fixture;
@@ -925,7 +1173,7 @@ mod tests {
         use chat::tests::{complete, fixture};
         use std::time::Duration;
         for stalled in ["", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"] {
-            let tool = "data: {\"choices\":[{\"delta\":{\"content\":\"Before\",\"tool_calls\":[{\"index\":0,\"id\":\"write\",\"function\":{\"name\":\"write_prompt\",\"arguments\":\"{\\\"model\\\":\\\"anima\\\",\\\"brief\\\":\\\"a tree\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n";
+            let tool = "data: {\"choices\":[{\"delta\":{\"content\":\"Before\",\"tool_calls\":[{\"index\":0,\"id\":\"write\",\"function\":{\"name\":\"write_prompt\",\"arguments\":\"{\\\"model\\\":\\\"basic\\\",\\\"brief\\\":\\\"a tree\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n";
             let (url, mut received, server) = fixture(vec![complete(tool), stalled.into()]).await;
             let config = LlmConfig {
                 provider: Provider::Openai,
@@ -934,7 +1182,7 @@ mod tests {
             let data = Data {
                 pack: serde_json::from_value(json!({
                     "source": {}, "config": {}, "defaults": {}, "shared": {},
-                    "models": {"anima": {"entry": {"label": "Anima"}, "system": "Write a prompt"}}
+                    "models": {"basic": {"entry": {"label": "Basic Model", "segments": ["Positive prompt"]}, "system": "Write a prompt"}}
                 }))
                 .unwrap(),
                 tags: None,
@@ -1098,9 +1346,26 @@ mod tests {
             defs.iter()
                 .map(|d| d["function"]["name"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["write_prompt", "read_guide", "search_tags"]
+            if data.tags.is_some() {
+                vec!["write_prompt", "read_guide", "search_tags"]
+            } else {
+                vec!["write_prompt", "read_guide"]
+            }
         );
         assert!(data.pack.shared.chat.as_deref().unwrap_or("").len() > 1000);
+        for (key, mode) in [("h3", "MiniMax H3"), ("wan", "Wan 2.2"), ("ltx", "LTX 2.3")] {
+            assert_eq!(prompt_route(&data, key), PromptRoute::Forge(mode));
+        }
+        let req = SendRequest {
+            id: None,
+            message: "test".into(),
+            model: "fixture".into(),
+            pictures: vec![],
+            context: None,
+            search: false,
+        };
+        assert!(!system_prompt(&data, &req, false, false)
+            .contains("A prompt for\nanything else, write yourself."));
     }
 
     /// A real conversation against a live server, printed in full:

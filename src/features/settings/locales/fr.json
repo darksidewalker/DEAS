@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "Correction orthographique des prompts",
+  "settings.prompt.language": "Langue de correction",
+  "settings.prompt.autocomplete": "Complétion des tags",
+  "settings.prompt.spellcheckHelp": "Indépendante de la langue de l’interface. Utilise les dictionnaires locaux du système ; le dictionnaire choisi doit être installé.",
+  "settings.prompt.autocompleteHelp": "Désactivée par défaut. Utilise la base locale de tags de Prompt Forge dans un environnement configuré. Saisissez au moins deux caractères ; flèches et Entrée/Tab pour choisir, Échap pour fermer.",
+  "settings.prompt.dictionaryMissing": "Aucun dictionnaire installé pour cette langue. Installez le dictionnaire système, puis désactivez et réactivez la correction.",
+  "settings.prompt.unsupported": "Cette WebView ne peut pas choisir un dictionnaire indépendant. La correction dépend du système et du moteur WebView.",
+  "settings.prompt.failed": "Impossible de configurer la correction. Consultez les journaux."
+}

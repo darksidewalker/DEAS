@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "Prompt-Rechtschreibprüfung",
+  "settings.prompt.language": "Sprache der Rechtschreibprüfung",
+  "settings.prompt.autocomplete": "Tag-Autovervollständigung",
+  "settings.prompt.spellcheckHelp": "Unabhängig von der Oberflächensprache. Nutzt lokale Systemwörterbücher; das gewählte Wörterbuch muss installiert sein.",
+  "settings.prompt.autocompleteHelp": "Standardmäßig aus. Nutzt die lokale Tag-Datenbank von Prompt Forge; benötigt eine eingerichtete Umgebung mit Tag-Daten. Ab zwei Zeichen: Pfeiltasten und Enter/Tab zum Übernehmen, Escape zum Schließen.",
+  "settings.prompt.dictionaryMissing": "Für die gewählte Sprache ist kein Wörterbuch installiert. Installiere das Systemwörterbuch und schalte die Rechtschreibprüfung danach aus/ein.",
+  "settings.prompt.unsupported": "Diese WebView kann kein separates Wörterbuch einstellen. Rechtschreibhinweise hängen vom Betriebssystem und der WebView ab.",
+  "settings.prompt.failed": "Rechtschreibprüfung konnte nicht eingerichtet werden. Details stehen unter Logs."
+}

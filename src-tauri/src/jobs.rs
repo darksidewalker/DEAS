@@ -1332,6 +1332,29 @@ impl Jobs {
                     // LoadImage lists only top-level files; the backend loader/Director validates DEAS-uploaded references.
                     .find(|name| !listed(available, field, name))
                 {
+                    let folders = match field {
+                        "checkpoints" => Some((
+                            "diffusionModels",
+                            "models/checkpoints",
+                            "models/diffusion_models",
+                        )),
+                        "diffusionModels" => Some((
+                            "checkpoints",
+                            "models/diffusion_models",
+                            "models/checkpoints",
+                        )),
+                        _ => None,
+                    };
+                    if let Some((other, expected, wrong)) = folders {
+                        if allow[other]
+                            .as_array()
+                            .is_some_and(|available| listed(available, other, missing))
+                        {
+                            return Err(format!(
+                                "MODEL_WRONG_FOLDER: {missing}: expected {expected}, but listed in {wrong}. Move the model to {expected} and refresh backend models before running."
+                            ));
+                        }
+                    }
                     return Err(format!(
                         "Diagnostic {field} are not available on this backend: {missing}"
                     ));

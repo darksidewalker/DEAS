@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.62"
+version = "0.1.63"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
@@ -38,6 +38,7 @@ ruzstd = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+webkit2gtk = "=2.0.2"
 libloading = "0.8"
 
 [target.'cfg(unix)'.dependencies]

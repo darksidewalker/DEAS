@@ -1,6 +1,6 @@
 # Chat
 
-**Studio → Chat** is a conversation with the LLM set under **Backend → LLM backend**, ported from PromptForge's chat. It knows this project: it can write prompts with the image models' own prompt writers, read how any model (or DEAS itself) wants to be used, look tags up, and search the web when you switch that on.
+**Studio → Chat** is a conversation with the LLM set under **Backend → LLM backend**, ported from PromptForge's chat. It knows this project: it routes prompt requests to the requested model’s compatible writer, reads how a model (or DEAS itself) wants to be used, looks tags up, and searches the web when you switch that on.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ The model decides when to use these; what it used is listed under its answer.
 
 | Tool | What it does |
 | --- | --- |
-| `write_prompt` | Writes a prompt for **Illustrious, Anima, Krea2 or MOSS** with that model's real prompt writer (the same engine as the Prompt Forge tab, with PromptForge's default settings, including tag lookups and character canon). The prompt is shown as a card exactly as written, with **Copy** and **Send to Generate**; the chat model never retouches it. For the full set of controls use the Prompt Forge tab. |
+| `write_prompt` | Routes every prompt-writing or revision request for the specified generation model: **Prompt Forge mode first → compatible simple writer → refusal**. A Forge route gives the exact **Studio → Prompt Forge → Write for** selection; it does not change tabs, replace drafts, run a writer or select another model automatically. Only a model without a Forge mode can use its registered simple writer with a nonempty system prompt and supported output contract in its effective default mode; its result appears verbatim as a card with **Copy** and **Send to Generate**. If neither exists, Chat says no compatible prompt writer is available. |
 | `read_guide` | Reads a guide before answering how something works: each image model's own prompt-writing instructions and guidance documents, the **MiniMax H3, Wan 2.2 and LTX 2.3** prompt guides, and DEAS's user guides (Getting started, Studio, Prompting, Library, Media, Backend, Logs, Projects, Comfy). "How does LTX prompting work?" reads the LTX guide first. |
 | `search_tags` | Looks tags up in the local Danbooru tag database: whether a tag exists, its spelling and how common it is. |
 
@@ -42,7 +42,9 @@ With a search mode chosen, the **Search** button appears beside the message box.
 ## Limits
 
 - No rendering or picture editing from chat; make pictures in Studio's Generate (send a prompt there with **Send to Generate**).
-- `write_prompt` covers the four image models; for H3, Wan and LTX, Chat explains their prompting from the guides but does not write those prompts.
+- The family plugin currently provides Prompt Forge modes for **Illustrious/SDXL/Pony, Anima, Krea2, MOSS, MiniMax H3, Wan and LTX**. Chat directs writing requests to those modes, including image models; it no longer asks you to choose one of the four image writers instead of the requested video model.
+- A guide alone does not establish a compatible simple writer. Explanation-only guides and DEAS user guides never become prompt writers. Unsupported models are refused rather than written from the chat model’s memory or mapped to an unrelated model. The bundled writers currently all have Forge modes; the simple fallback is exercised with a registered-writer fixture, not advertised as extra bundled model support.
+- The LLM must call `write_prompt` for native routing to enforce this policy. A model that ignores tool instructions can still answer in prose; the system prompt explicitly forbids inventing a writer or substituting another model.
 - Small models may skip a tool and answer from memory; ask again ("read the LTX guide first") if an answer looks invented.
 
 ## Troubleshooting

@@ -1,6 +1,14 @@
 # Changelog
 
+## Unreleased — 0.1.63
+
+- Add right-aligned Studio prompt character counts, shared inline/enlarged spelling aids with an independent remembered system-default language, and default-off autocomplete using Prompt Forge’s local tag search. Backend language settings and Quick Settings control both aids without changing generation settings or submitting prompts.
+
 ## Unreleased
+
+- Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
+
+- Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
 
 ## Unreleased — 0.1.62
 

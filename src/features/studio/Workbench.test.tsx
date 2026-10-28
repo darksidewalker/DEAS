@@ -1717,6 +1717,39 @@ test('checkpoint dropdown and Models tiles share selection/defaults and missing 
  expect(localStorage.getItem('deas.pref.studio.run.checkpoint')).toBe('"first.safetensors"');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
+test('known models in the wrong loader folder remain visible but disabled, including duplicate names',async()=>{
+ const m=(category:string,name:string,family?:string)=>({category,name,family,path:`/m/${category}/${name}`,size:1,info:null});
+ const anima='dasiwaAnima_obsidianArchivesV2+Int8.safetensors';
+ vi.mocked(scanModels).mockResolvedValue([m('checkpoints',anima,'anima'),m('diffusion_models',anima,'anima'),m('diffusion_models','misplaced-sdxl.safetensors','sdxl'),m('unet','legacy-anima.safetensors','anima'),m('checkpoints','unknown.safetensors')]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ const select=await screen.findByRole('combobox',{name:'Checkpoint'});
+ await waitFor(()=>expect(within(select).getAllByRole('option',{name:anima})).toHaveLength(2));
+ const options=within(select).getAllByRole('option',{name:anima}) as HTMLOptionElement[];
+ expect(options.filter(o=>o.disabled)).toHaveLength(1);
+ expect(options.find(o=>o.disabled)?.title).toContain('diffusion_models');
+ expect((select as HTMLSelectElement).selectedOptions[0].disabled).toBe(false);
+ expect((within(select).getByRole('option',{name:'misplaced-sdxl.safetensors'}) as HTMLOptionElement).disabled).toBe(true);
+ expect((within(select).getByRole('option',{name:'legacy-anima.safetensors'}) as HTMLOptionElement).disabled).toBe(false);
+ expect((within(select).getByRole('option',{name:'unknown.safetensors'}) as HTMLOptionElement).disabled).toBe(false);
+ dock('Models');
+ const tiles=screen.getAllByRole('button',{name:anima}) as HTMLButtonElement[];
+ expect(tiles.filter(b=>b.disabled)).toHaveLength(1);
+ expect(tiles.find(b=>!b.disabled)?.getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('button',{name:'misplaced-sdxl.safetensors'}).hasAttribute('disabled')).toBe(true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('a remembered misplaced Anima stays blocked with an actionable warning rather than selecting another model',async()=>{
+ const name='misplaced-anima.safetensors';
+ localStorage.setItem('deas.pref.studio.run.checkpoint',JSON.stringify(name));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name,family:'anima',path:'/m/'+name,size:1,info:null},{category:'checkpoints',name:'other.safetensors',path:'/m/other',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('diffusion_models'));
+ expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe(name);
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('companion files are collapsed below the other settings and preserve their choices while closed',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'anima.safetensors',family:'anima',path:'/m/a',size:1,info:null},{category:'text_encoders',name:'qwen_3_600m.safetensors',path:'/m/e',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/v',size:1,info:null}]);
  render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
@@ -2592,6 +2625,9 @@ test('prompt fields expand into a floating editor that edits the same text and c
  fireEvent.click(screen.getByRole('button',{name:'Expand Prompt into a floating editor'}));
  const big=within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('textbox',{name:'Prompt'}) as HTMLTextAreaElement;
  expect(big.value).toBe('a castle');
+ expect(document.querySelector('[data-prompt-count="positive"]')?.textContent).toBe('8 / 16384');
+ expect(document.querySelector('[data-prompt-count="negative"]')?.textContent).toBe('0 / 16384');
+ expect(big.getAttribute('spellcheck')).toBe('true');
  fireEvent.change(big,{target:{value:'a castle at dawn'}});
  expect(within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('button',{name:'Prompt Forge'})).toBeTruthy();
  expect((document.querySelector('[data-run-positive]') as HTMLTextAreaElement).value).toBe('a castle at dawn');

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod spellcheck;
 pub mod video;
 pub mod video_post;
 pub mod video_post_draft;

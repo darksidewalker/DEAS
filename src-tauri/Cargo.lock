@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "deas"
-version = "0.1.62"
+version = "0.1.63"
 dependencies = [
  "base64 0.22.1",
  "dunce",
@@ -803,6 +803,7 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.2",
  "uuid",
+ "webkit2gtk",
  "windows-sys 0.59.0",
  "zip",
 ]

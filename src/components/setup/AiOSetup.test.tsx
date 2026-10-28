@@ -235,7 +235,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_prompt_spellcheck'&&c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
  });
  it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
   nativeFixture();const installed=vi.fn();
@@ -286,10 +286,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(screen.queryByRole('button',{name:'Confirm & continue'})).toBeNull();expect(invoke).not.toHaveBeenCalled();expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('reads defaults on the initial Backend view; automatic planning never starts installation; final click confirms once',async()=>{
-  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual([['native_install_defaults',{}]]);open();await screen.findByText('CPU fallback fixture');
+  nativeFixture();mount();expect(vi.mocked(invoke).mock.calls.filter(([c])=>c!=='native_prompt_spellcheck'&&c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual([['native_install_defaults',{}]]);open();await screen.findByText('CPU fallback fixture');
   expect(invoke).toHaveBeenCalledWith('native_install_defaults',{});
   await screen.findByRole('button',{name:'Start install'});
-  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
+  expect(vi.mocked(invoke).mock.calls.map(([c])=>c).filter(c=>c!=='native_prompt_spellcheck'&&c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan']);expect(invoke).toHaveBeenCalledWith('native_install_plan',{request});expect(invoke).not.toHaveBeenCalledWith('native_install_start',expect.anything());
   const button=screen.getByRole('button',{name:'Start install'});fireEvent.click(button);fireEvent.click(button);
   await screen.findByText('native fixture log');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_start')).toEqual([['native_install_start',{planId:'fixture-plan',confirmed:true}]]);
   expect(screen.getByLabelText('Storage directory').matches(':disabled')).toBe(true);
@@ -317,7 +317,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   await act(async()=>late.resolve({...defaults,storagePath:'/late',backend:'nvidia'}));expect(screen.getByLabelText('Storage directory')).toHaveProperty('value','/manual');expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('cpu');
  });
  it('failed defaults leave manual editing available without guessing',async()=>{
-  nativeFixture();vi.mocked(invoke).mockRejectedValue('probe unavailable');mount();open();await screen.findByRole('alert');expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('');expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');change('Storage directory','/manual');change('Backend','cpu');await waitFor(()=>expect(screen.getAllByRole('alert')).toHaveLength(2));expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
+  nativeFixture();vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_prompt_spellcheck')return null;throw 'probe unavailable';});mount();open();await screen.findByRole('alert');expect((screen.getByLabelText('Backend') as HTMLSelectElement).value).toBe('');expect((screen.getByLabelText('Storage directory') as HTMLInputElement).value).toBe('');change('Storage directory','/manual');change('Backend','cpu');await waitFor(()=>expect(screen.getAllByRole('alert')).toHaveLength(2));expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
  });
  it('shows blockers and original native errors without permitting start',async()=>{
   nativeFixture();vi.mocked(invoke).mockImplementation(async command=>command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_install_defaults'?defaults:{...plan(),canExecute:false,unsupportedOptions:['sage unsupported'],warnings:['target collision']});await ready();expect(screen.getByText('target collision')).toBeTruthy();expect(screen.getByText('sage unsupported')).toBeTruthy();expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(true);

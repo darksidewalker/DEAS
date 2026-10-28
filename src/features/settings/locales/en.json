@@ -1,0 +1,10 @@
+{
+  "settings.prompt.spellcheck": "Prompt spellcheck",
+  "settings.prompt.language": "Spellcheck language",
+  "settings.prompt.autocomplete": "Tag autocomplete",
+  "settings.prompt.spellcheckHelp": "Independent of interface language. Uses local system dictionaries; the selected dictionary must be installed.",
+  "settings.prompt.autocompleteHelp": "Off by default. Uses Prompt Forge’s local tag database; requires a configured environment and its tag data. Type at least two characters, use arrows and Enter/Tab to choose; Escape dismisses.",
+  "settings.prompt.dictionaryMissing": "No dictionary for the selected language is installed. Install its system spelling dictionary, then toggle spellcheck off/on.",
+  "settings.prompt.unsupported": "This WebView cannot configure an independent spelling dictionary. Spelling hints depend on the operating system and WebView runtime.",
+  "settings.prompt.failed": "Could not configure spellcheck. See Logs for details."
+}
