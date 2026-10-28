@@ -31,6 +31,9 @@ impl Jobs {
                     // The submit install and this invalidation share the held session lock.
                     entry.stop_requested = true;
                     if let Some(job) = &entry.job {
+                        // Display observation ends at confirmed invalidation, even if backend
+                        // reconciliation is partial or leaves the execution outcome unknown.
+                        job.stop_observer();
                         let epoch = if job.terminal() {
                             Ok(0)
                         } else {

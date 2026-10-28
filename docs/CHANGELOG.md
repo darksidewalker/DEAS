@@ -48,6 +48,12 @@
 
 - Fix Windows/Linux path compatibility across exact ComfyUI model identifiers, media references, output subfolders/Starred moves, model-tree display, Git discovery and Explorer paths. Remove developer-specific graph-validation paths, use UTF-8 tool I/O and close SQLite handles before replacement; align build staging with `CARGO_TARGET_DIR` and preserve Windows UNC/caller directories. Keep protocol traversal/no-clobber guards and external ComfyUI files unchanged. See [path contracts and limits](PATH-COMPATIBILITY.md).
 
+- Tie optional native preview observers to job ownership, terminal commits and confirmed Workbench Stop, with wakeable cancellation and bounded graceful socket cleanup. Submission, unknown-state reconciliation, history and outputs retain their existing contracts; native acceptance is pending.
+- Add shared Settings ratios to native image Prompt Forge and standalone H3, explicit N/A/Auto/Custom dimensions, request-bound MOSS layouts and guarded Send-to-Generate canvas transfer. Native geometry is checked before inference; legacy LTX/Wan remain explicitly prompt-only. Native/platform acceptance is pending.
+- Keep applicable Studio media actions in a contained, wrapping bottom row across browsed previews, adopted editors and selected results, preserving media eligibility, retained drafts and per-output Star/Unstar actions.
+- Add optional global recent-generation metadata for ten native attempts and a Studio history view with explicit compatible-settings restore, unresolved dependency gates and output-location repair after Star/Unstar. Media and the separate live queue are preserved. Source candidate; [batch verification and native acceptance limits](VERIFICATION.md#batch-b-recent-generation-history-unreleased) apply. No version bump or release.
+- Keep historical inputs unresolved until explicit Media reselection and invalidate output-availability labels on selected-context changes, record updates and close. Preserve reference order/strengths and ignore obsolete availability replies.
+
 ## 0.1.48
 
 Includes the model-aware reference wiring developed under 0.1.47 below, plus compact drag-only reference thumbnails. Local unsigned release; platform/model acceptance limits are recorded in [verification](VERIFICATION.md).

@@ -24,7 +24,7 @@ export function parseSigmas(text:string):number[]|null{
 const kitchen=(p:OptionsPref)=>p.attention==='a:comfy kitchen attention';
 export const isOptionsPref=(v:unknown):v is OptionsPref=>{
  const o=v as OptionsPref;
- return !!o&&typeof o==='object'&&typeof o.attention==='string'&&(o.vae==='full'||o.vae==='tiled')&&tiles.includes(o.tile)
+ return !!o&&typeof o==='object'&&typeof o.attention==='string'&&(o.vae==='full'||o.vae==='tiled')&&Number.isInteger(o.tile)&&o.tile>=256&&o.tile<=4096&&o.tile%64===0
   &&['','EasyCache','LazyCache'].includes(o.cache)&&typeof o.threshold==='number'&&o.threshold>=0&&o.threshold<=3&&typeof o.compile==='string'&&(o.sigmas===undefined||typeof o.sigmas==='string')&&(o.outputNaming===undefined||typeof o.outputNaming==='string')&&(o.chunkHeadroom===undefined||headrooms.includes(o.chunkHeadroom))&&(o.output===undefined||isVideoOutput(o.output));
 };
 type Allow=Pick<RecipeAllowlist,'nodes'|'attention'|'sage'|'compile'>;
@@ -78,7 +78,7 @@ export function OptionsPanel({value:p,onChange,allow,family,imageInput,onRead,ca
    {keep(attentions,p.attention).map(v=><option key={v} value={v} disabled={!attentions.includes(v)}>{v.startsWith('s:')?`Sage · ${v.slice(2)}`:v.slice(2)}</option>)}
   </select>,t(p.attention.startsWith('s:')?'studio.run.opt.attention.sage':allow&&!allow.sage?.length?'studio.run.opt.attention.noSage':'studio.run.opt.attention.hint'))}
   {card('vae',<span className="wb-option-row"><select aria-label={t('studio.run.opt.vae')} value={p.vae} disabled={off('VAEDecodeTiled')} onChange={e=>set({vae:e.target.value as OptionsPref['vae']})}><option value="full">{t('studio.run.opt.vae.full')}</option><option value="tiled">{t('studio.run.opt.vae.tiled')}</option></select>
-   {p.vae==='tiled'&&<select aria-label={t('studio.run.opt.vae.tile')} value={p.tile} onChange={e=>set({tile:Number(e.target.value)})}>{tiles.map(n=><option key={n} value={n}>{`${n} px`}</option>)}</select>}</span>,
+   {p.vae==='tiled'&&<select aria-label={t('studio.run.opt.vae.tile')} value={p.tile} onChange={e=>set({tile:Number(e.target.value)})}>{(tiles.includes(p.tile)?tiles:[p.tile,...tiles]).map(n=><option key={n} value={n}>{`${n} px`}</option>)}</select>}</span>,
    missing('VAEDecodeTiled')||t(p.vae==='tiled'&&imageInput?'studio.run.opt.vae.both':'studio.run.opt.vae.hint'))}
   {card('cache',<span className="wb-option-row"><select aria-label={t('studio.run.opt.cache')} value={p.cache} onChange={e=>set({cache:e.target.value as OptionsPref['cache']})}>
    <option value="">{t('studio.run.opt.off')}</option>

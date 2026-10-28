@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, layoutRewrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
@@ -97,21 +97,25 @@ export function useLayoutProject() {
   const [project, setProject] = usePref<LayoutProject>('forge.layout.project', blankProject(), isProject);
   const [past, setPast] = useState<LayoutProject[]>([]);
   const [future, setFuture] = useState<LayoutProject[]>([]);
+  // Includes undo/redo: returning to old geometry does not revive an old request.
+  const revision = useRef(0);
   const typing = useRef<number | null>(null);
   const set = useCallback((next: LayoutProject, group = false) => {
     if (next === project) return;
+    revision.current++;
+    if (!group && typing.current !== null) { clearTimeout(typing.current); typing.current = null; }
     if (!group || typing.current === null) setPast(p => [...p.slice(-39), project]);
     if (group) { if (typing.current !== null) clearTimeout(typing.current); typing.current = window.setTimeout(() => { typing.current = null; }, 600); }
     setFuture([]); setProject(next);
   }, [project, setProject]);
-  const undo = () => { const last = past.at(-1); if (!last) return; setPast(past.slice(0, -1)); setFuture([project, ...future]); setProject(last); };
-  const redo = () => { const next = future[0]; if (!next) return; setFuture(future.slice(1)); setPast([...past, project]); setProject(next); };
-  return { project, set, undo, redo, canUndo: past.length > 0, canRedo: future.length > 0 };
+  const undo = () => { const last = past.at(-1); if (!last) return; if (typing.current !== null) { clearTimeout(typing.current); typing.current = null; } revision.current++; setPast(past.slice(0, -1)); setFuture([project, ...future]); setProject(last); };
+  const redo = () => { const next = future[0]; if (!next) return; if (typing.current !== null) { clearTimeout(typing.current); typing.current = null; } revision.current++; setFuture(future.slice(1)); setPast([...past, project]); setProject(next); };
+  return { project, set, undo, redo, revision: revision.current, isCurrent: (value: number) => revision.current === value, canUndo: past.length > 0, canRedo: future.length > 0 };
 }
 
 type Gesture = { kind: 'move' | 'resize' | 'draw'; ax: number; ay: number; before: LayoutProject; original?: LayoutItem; edge?: string; id?: string; bx?: number; by?: number };
 
-export function LayoutStudio({ root, model, studio, busy }: { root?: string; model: string; studio: ReturnType<typeof useLayoutProject>; busy: boolean }) {
+export function LayoutStudio({ root, model, studio, busy, requestScope = '', geometryValid = true }: { root?: string; model: string; studio: ReturnType<typeof useLayoutProject>; busy: boolean; requestScope?: object | string; geometryValid?: boolean }) {
   const { t } = useI18n();
   const { project: p, set } = studio;
   const [selected, setSelected] = useState<string | null>(null);
@@ -123,6 +127,10 @@ export function LayoutStudio({ root, model, studio, busy }: { root?: string; mod
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [metaOther, setMetaOther] = usePref('forge.layout.metaOther', '', isString);
+  const scope = useMemo(() => ({}), [root, model, requestScope, geometryValid]);
+  const latestScope = useRef<object | null>(scope);
+  latestScope.current = scope;
+  useEffect(() => { latestScope.current = scope; return () => { latestScope.current = null; }; }, [scope]);
   const svg = useRef<SVGSVGElement>(null);
   const shown = live ?? p;
   const item = shown.items.find(i => i.id === selected);
@@ -198,7 +206,8 @@ export function LayoutStudio({ root, model, studio, busy }: { root?: string; mod
   });
 
   const rewrite = async (task: 'scene' | 'item') => {
-    if (!root) return;
+    if (!root || !geometryValid || busy || rewriting) return;
+    const consumedScope = scope, consumedRevision = studio.revision;
     const description = task === 'item' ? (item?.caption || item?.name || '') : p.caption;
     if (!description.trim()) return setError(t('forge.layout.rewriteEmpty'));
     setRewriting(task); setError('');
@@ -207,9 +216,10 @@ export function LayoutStudio({ root, model, studio, busy }: { root?: string; mod
     try {
       const text = await layoutRewrite(root, model, { task, width: p.w, height: p.h, layout, description,
         element: task === 'item' && item ? { name: item.name, label: item.label, caption: item.caption, text: item.text, bbox: layout.items[index].bbox } : null });
+      if (latestScope.current !== consumedScope || !studio.isCurrent(consumedRevision)) { if (latestScope.current) setError('forge.canvas.replyStale'); return; }
       if (task === 'scene') set({ ...p, caption: text });
       else if (item) change(item.id, { caption: text });
-    } catch (e) { setError(forgeError(e)); }
+    } catch (e) { if (latestScope.current === consumedScope && studio.isCurrent(consumedRevision)) setError(forgeError(e)); }
     finally { setRewriting(''); }
   };
   const copy = async () => { try { await navigator.clipboard.writeText(json); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { setError('forge.copyFailed'); } };
@@ -238,7 +248,7 @@ export function LayoutStudio({ root, model, studio, busy }: { root?: string; mod
           <option value="other">{t('forge.layout.media.other')}</option>
         </select></label>
       {!metaListed && <label className="forge-field"><span>{t('forge.layout.mediumOther')}</span><input type="text" data-layout-meta-other value={p.meta} placeholder="comic, 3d render" onChange={e => { setMetaOther(e.target.value); set({ ...p, meta: e.target.value }, true); }}/></label>}
-      <button type="button" className="forge-ghost" data-layout-rewrite-scene disabled={!!rewriting || busy || !root} onClick={() => void rewrite('scene')}>{t(rewriting === 'scene' ? 'forge.layout.rewriting' : 'forge.layout.rewriteScene')}</button>
+      <button type="button" className="forge-ghost" data-layout-rewrite-scene disabled={!!rewriting || busy || !root || !geometryValid} onClick={() => void rewrite('scene')}>{t(rewriting === 'scene' ? 'forge.layout.rewriting' : 'forge.layout.rewriteScene')}</button>
     </div>
     <div className="forge-layout-tools">
       <div className="forge-seg">
@@ -283,7 +293,7 @@ export function LayoutStudio({ root, model, studio, busy }: { root?: string; mod
         <div className="forge-layout-coords">{(['x', 'y', 'w', 'h'] as const).map(k => <label key={k} className="forge-field"><span>{k.toUpperCase()}</span>
           <input type="number" data-layout-coord={k} value={item[k]} onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(item.id, fit({ ...item, [k]: v }, p.w, p.h), true); }}/></label>)}</div>
         <div className="forge-actions">
-          <button type="button" className="forge-ghost" data-layout-rewrite-item disabled={!!rewriting || busy || !root} onClick={() => void rewrite('item')}>{t(rewriting === 'item' ? 'forge.layout.rewriting' : 'forge.layout.rewriteItem')}</button>
+          <button type="button" className="forge-ghost" data-layout-rewrite-item disabled={!!rewriting || busy || !root || !geometryValid} onClick={() => void rewrite('item')}>{t(rewriting === 'item' ? 'forge.layout.rewriting' : 'forge.layout.rewriteItem')}</button>
           <button type="button" className="forge-ghost" data-layout-duplicate onClick={() => { if (p.items.length >= MAX_ITEMS) return; const c = { ...item, id: uid(), name: `${item.name} · 2`, x: Math.min(item.x + 20, p.w - item.w), y: Math.min(item.y + 20, p.h - item.h) }; set({ ...p, items: [...p.items, c] }); setSelected(c.id); }}>{t('forge.layout.duplicate')}</button>
           <button type="button" className="forge-ghost danger" data-layout-delete onClick={remove}>{t('forge.layout.delete')}</button>
         </div>

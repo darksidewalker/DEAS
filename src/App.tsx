@@ -12,6 +12,7 @@ import { TrueVideoEnhancer } from './features/studio/TrueVideoEnhancer';
 import { PromptForge } from './features/forge/PromptForge';
 import { Chat } from './features/chat/Chat';
 import type { Folders } from './lib/settings';
+import type { ForgeCanvasContext, ForgeSendCanvas } from './lib/forgeCanvas';
 import { oneOf, usePref } from './lib/preferences';
 const studioTabs=['generate','forge','chat','tve','map'] as const;
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
@@ -59,8 +60,13 @@ export default function App(){
  const forgeOpened=useRef(false);if(tab==='forge')forgeOpened.current=true;
  const chatOpened=useRef(false);if(tab==='chat')chatOpened.current=true;
  const tveOpened=useRef(false);if(tab==='tve')tveOpened.current=true;
- const sendToGenerate=(positive:string,negative:string)=>{setSent(s=>({positive,negative,n:(s?.n??0)+1}));setTab('generate');};
- const [sent,setSent]=useState<{positive:string;negative:string;n:number}>();
+ const [forgeCanvasContext,setForgeCanvasContext]=useState<ForgeCanvasContext>();
+ const [canvasSendError,setCanvasSendError]=useState('');
+ const sendToGenerate=(positive:string,negative:string,canvas?:ForgeSendCanvas)=>{
+  if(canvas&&(!forgeCanvasContext||canvas.contextKey!==forgeCanvasContext.key||!forgeCanvasContext.acceptsCanvas?.(canvas.canvas))){setCanvasSendError('forge.canvas.handoffBlocked');return false;}
+  setCanvasSendError('');setSent(s=>({positive,negative,n:(s?.n??0)+1,...(canvas?{canvas}: {})}));setTab('generate');return true;
+ };
+ const [sent,setSent]=useState<{positive:string;negative:string;n:number;canvas?:ForgeSendCanvas}>();
  const [pendingConnectionFocus,setPendingConnectionFocus]=useState(false);
  useEffect(()=>{if(pendingConnectionFocus&&active==='engine'){document.getElementById('endpoint')?.focus();setPendingConnectionFocus(false);}},[pendingConnectionFocus,active]);
  const shellRef=useRef<HTMLDivElement>(null);
@@ -89,9 +95,9 @@ export default function App(){
    <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
-    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onOpenVideoPost={()=>setTab('tve')}/></div>
+    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onCanvasContext={setForgeCanvasContext} onOpenVideoPost={()=>setTab('tve')}/></div>
     {tveOpened.current&&<div className="studio-generate-host" hidden={tab!=='tve'}><TrueVideoEnhancer/></div>}
-    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}><PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate}/></div>}
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}>{canvasSendError&&<p className="error-message" role="alert">{t(canvasSendError)}</p>}<PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate} canvasContext={forgeCanvasContext}/></div>}
     {chatOpened.current&&<div className="studio-generate-host" hidden={tab!=='chat'}><Chat active={studioActive&&tab==='chat'} endpoint={endpoint} root={environment?.root} onSend={sendToGenerate}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>

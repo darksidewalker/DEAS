@@ -18,6 +18,13 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
+            use tauri::Manager;
+            match app.path().app_data_dir() {
+                Ok(path) => app.state::<deas::jobs::Jobs>().initialize_history(&path),
+                Err(_) => app
+                    .state::<deas::jobs::Jobs>()
+                    .initialize_history_unavailable(),
+            }
             let config = app.config().app.windows[0].clone();
             let mut bridge = String::new();
             #[cfg(debug_assertions)]
@@ -91,6 +98,9 @@ fn main() {
             deas::native_workbench_poll,
             deas::native_workbench_run,
             deas::native_workbench_stop,
+            deas::native_jobs_history,
+            deas::native_jobs_history_outputs,
+            deas::native_logs_history_error,
             deas::native_job_current,
             deas::native_job_output,
             deas::native_job_export,
@@ -183,18 +193,19 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to build DEAS")
         .run(|app, event| {
+            use tauri::Manager;
             if matches!(event, tauri::RunEvent::Ready) {
                 deas::video::install(app);
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 deas::video_post_job::shutdown();
                 deas::video::shutdown();
+                app.state::<deas::jobs::Jobs>().flush_history();
             }
             if matches!(
                 event,
                 tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
             ) {
-                use tauri::Manager;
                 app.state::<deas::install::Engine>().shutdown_backend();
                 let _ = app.state::<deas::downloads::DownloadEngine>().cancel();
             }

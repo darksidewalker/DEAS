@@ -1,4 +1,6 @@
 use super::*;
+#[path = "jobs_observer_stop_tests.rs"]
+mod observer_tests;
 #[path = "jobs_stop_tests.rs"]
 mod stop_tests;
 use std::sync::atomic::{AtomicUsize, Ordering};

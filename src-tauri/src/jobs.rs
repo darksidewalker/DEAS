@@ -11,11 +11,17 @@ pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
 #[path = "jobs_cancel.rs"]
 mod cancel;
+#[path = "jobs_history.rs"]
+mod history;
+#[path = "jobs_observer.rs"]
+mod observer;
 #[path = "jobs_stop.rs"]
 mod stop;
 #[path = "jobs_workbench.rs"]
 mod workbench;
 pub use cancel::{native_workbench_cancel_pending, native_workbench_interrupt_running};
+pub use history::{native_jobs_history, native_jobs_history_outputs, native_logs_history_error};
+use observer::watch;
 pub use stop::native_workbench_stop;
 pub use workbench::{native_workbench_current, native_workbench_poll, native_workbench_run};
 
@@ -35,10 +41,12 @@ pub struct Jobs(
     Arc<Mutex<Session>>,
     Arc<tokio::sync::Mutex<()>>,
     Arc<tokio::sync::Mutex<()>>,
+    history::History,
 );
 
 #[derive(Default)]
 struct Session {
+    studio: bool,
     workbench: Vec<Arc<Jobs>>,
     admission_epoch: u64,
     stop: Option<tokio::sync::watch::Receiver<Option<Result<Value, String>>>>,
@@ -76,6 +84,8 @@ struct Job {
     prompt_id: Option<String>,
     state: &'static str,
     outputs: Vec<Value>,
+    // Historical partial products are display metadata, never output-fetch/export authority.
+    history_outputs: Vec<Value>,
     error: Option<String>,
     submitting: bool,
     polling: bool,
@@ -89,11 +99,23 @@ struct Live {
     value: u64,
     max: u64,
     preview: Option<String>,
+    // All Job clones share this owner; the observer task holds only a weak Live reference.
+    observer: observer::Observer,
 }
 
 impl Job {
     fn terminal(&self) -> bool {
         matches!(self.state, "succeeded" | "failed" | "cancelled")
+    }
+    fn stop_observer(&self) {
+        // Cleanup does not consume display data, including after an optional view failure.
+        let live = self.live.lock().unwrap_or_else(|error| error.into_inner());
+        live.observer.cancel();
+    }
+    fn stop_observer_if_terminal(&self) {
+        if self.terminal() {
+            self.stop_observer();
+        }
     }
     fn snapshot(&self) -> Value {
         let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false,"intent":self.plan.intent,"metadata":self.metadata,"appVersion":env!("CARGO_PKG_VERSION")});
@@ -1149,6 +1171,17 @@ impl Jobs {
         }
         Ok(())
     }
+    /// Bind optional persistence once to the app's own data directory (never an environment/project).
+    pub fn initialize_history(&self, path: &std::path::Path) {
+        self.3.initialize(path);
+    }
+    pub fn initialize_history_unavailable(&self) {
+        self.3.unavailable();
+    }
+    pub fn flush_history(&self) {
+        self.3.flush();
+    }
+
     fn current(&self) -> Result<Value, String> {
         Ok(self.lock()?.snapshot())
     }
@@ -1332,6 +1365,14 @@ impl Jobs {
     }
 
     async fn submit(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
+        let jobs = self.clone();
+        // Native submission and its history commits outlive any diagnostic/Studio IPC waiter.
+        tokio::spawn(async move { jobs.submit_inner(plan_id, confirmed).await })
+            .await
+            .map_err(|_| "Native submission task failed")?
+    }
+
+    async fn submit_inner(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
         if !confirmed {
             return Err("Explicit diagnostic submission confirmation is required".into());
         }
@@ -1370,6 +1411,7 @@ impl Jobs {
                 prompt_id: None,
                 state: "unknown",
                 outputs: vec![],
+                history_outputs: vec![],
                 error: Some("Submission in progress; do not retry".into()),
                 submitting: true,
                 polling: false,
@@ -1378,6 +1420,14 @@ impl Jobs {
             };
             session.output = None;
             session.job = Some(job.clone());
+            self.3.admit(
+                &job,
+                if session.studio {
+                    "studio"
+                } else {
+                    "diagnostic"
+                },
+            );
             job
         };
         // Connect before POST so this client's progress/preview frames are not missed.
@@ -1423,7 +1473,10 @@ impl Jobs {
         }
         job.submitting = false;
         let result = job.snapshot();
-        self.lock()?.job = Some(job);
+        let mut session = self.lock()?;
+        job.stop_observer_if_terminal();
+        self.3.observe(&job);
+        session.job = Some(job);
         Ok(result)
     }
 
@@ -1474,6 +1527,8 @@ impl Jobs {
             .as_mut()
             .filter(|j| j.id == job_id)
             .ok_or("Native job changed during status request")?;
+        job.stop_observer_if_terminal();
+        self.3.observe(&job);
         *current = job;
         // Disarm under the same lock: Drop must never clear a subsequent operation's flag.
         polling.armed = false;
@@ -1513,97 +1568,6 @@ fn preview_frame(frame: &[u8]) -> Option<String> {
         "data:image/{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(image)
     ))
-}
-
-/// Best-effort live view over `/ws?clientId=`; failures only mean no preview.
-// shortcut: plain ws only (no TLS feature), https endpoints get no live preview; add rustls if remote https backends matter.
-async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
-    let Ok(mut url) = base.join("ws") else { return };
-    if base.scheme() != "http" || url.set_scheme("ws").is_err() {
-        return;
-    }
-    url.query_pairs_mut().append_pair("clientId", client_id);
-    let config = WebSocketConfig::default().max_message_size(Some(RESPONSE_LIMIT * 16));
-    let connect = tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false);
-    let Ok(Ok((mut socket, _))) = tokio::time::timeout(Duration::from_secs(3), connect).await
-    else {
-        return;
-    };
-    tokio::spawn(async move {
-        // execution_start is directed to this unique client, unlike broadcast interruptions.
-        let mut prompt_id: Option<String> = None;
-        // Ends with the job's own completion events, idle silence, or when the job is dropped.
-        while Arc::strong_count(&live) > 1 {
-            let Ok(Some(Ok(message))) =
-                tokio::time::timeout(Duration::from_secs(600), socket.next()).await
-            else {
-                break;
-            };
-            match message {
-                Message::Binary(frame) => {
-                    if let Some(preview) = preview_frame(&frame) {
-                        let Ok(mut live) = live.lock() else { break };
-                        live.preview = Some(preview);
-                    }
-                }
-                Message::Text(text) => {
-                    let event: Value = serde_json::from_str(&text).unwrap_or_default();
-                    match event["type"].as_str() {
-                        Some("execution_start") if prompt_id.is_none() => {
-                            prompt_id = event["data"]["prompt_id"]
-                                .as_str()
-                                .filter(|id| !id.is_empty())
-                                .map(str::to_owned);
-                        }
-                        Some("progress")
-                            if event["data"]["prompt_id"].is_null()
-                                || (prompt_id.is_some()
-                                    && event["data"]["prompt_id"].as_str()
-                                        == prompt_id.as_deref()) =>
-                        {
-                            let Ok(mut live) = live.lock() else { break };
-                            live.value = event["data"]["value"].as_u64().unwrap_or(0);
-                            live.max = event["data"]["max"].as_u64().unwrap_or(0);
-                        }
-                        Some("execution_success" | "execution_error" | "execution_interrupted")
-                            if prompt_id.is_some()
-                                && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
-                        {
-                            break
-                        }
-                        _ => {}
-                    }
-                }
-                Message::Close(_) => {
-                    let _ = tokio::time::timeout(Duration::from_secs(1), socket.flush()).await;
-                    return;
-                }
-                // Tungstenite queues the matching pong; flush it even on an otherwise idle socket.
-                Message::Ping(_)
-                    if !matches!(
-                        tokio::time::timeout(Duration::from_secs(1), socket.flush()).await,
-                        Ok(Ok(()))
-                    ) =>
-                {
-                    break;
-                }
-                _ => {}
-            }
-        }
-        // A TCP drop races ComfyUI's queued sends; finish the WebSocket close handshake instead.
-        let _ = tokio::time::timeout(Duration::from_secs(1), async {
-            socket.close(None).await?;
-            while let Some(message) = socket.next().await {
-                if matches!(message?, Message::Close(_)) {
-                    break;
-                }
-            }
-            Ok::<_, tokio_tungstenite::tungstenite::Error>(())
-        })
-        .await;
-    });
 }
 
 fn correlate(tuple: &Value, job: &Job) -> Result<(), String> {
@@ -1766,6 +1730,11 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
             .as_array()
             .ok_or("Malformed history status messages")?;
         job.metadata = execution_metadata(messages, prompt_id);
+        if let Ok(partial) = outputs(entry) {
+            if !partial.is_empty() {
+                job.history_outputs = partial;
+            }
+        }
         match status["status_str"].as_str() {
             Some("error") => {
                 let interrupted: Vec<_> = messages

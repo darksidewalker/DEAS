@@ -22,6 +22,8 @@ pub struct Controls {
     /// The Layout Studio's canvas and the boxes drawn on it (MOSS Layout JSON).
     pub layout: Option<StudioLayout>,
     pub aspect_ratio: Option<String>,
+    /// The consumed effective canvas. N/A leaves this absent; Auto/Custom are resolved by the UI.
+    pub canvas: Option<Canvas>,
     /// A registry preset name, or "none" for no quality tags.
     pub quality_preset: Option<String>,
     pub style: Option<String>,
@@ -34,6 +36,70 @@ pub struct Controls {
     pub camera_angle: Option<String>,
     pub camera_shot: Option<String>,
     pub camera_light: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Canvas {
+    pub width: f64,
+    pub height: f64,
+}
+
+pub(crate) const CANVAS_ERROR: &str = "Invalid Prompt Forge canvas";
+
+impl Canvas {
+    pub(crate) fn validate(self, layout: bool) -> Result<(), String> {
+        let (minimum, multiple) = if layout { (128.0, 16.0) } else { (64.0, 8.0) };
+        if [self.width, self.height].iter().any(|edge| {
+            !edge.is_finite()
+                || edge.fract() != 0.0
+                || !(minimum..=8192.0).contains(edge)
+                || *edge % multiple != 0.0
+        }) || self.width * self.height > 16_777_216.0
+        {
+            return Err(format!(
+                "{CANVAS_ERROR}: dimensions must be {minimum}–8192, aligned to {multiple}, within 16777216 pixels"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Numeric ratio syntax, independent of a preset table or canvas-sizing algorithm.
+pub(crate) fn numeric_aspect(value: &str) -> Option<(u32, u32)> {
+    let (width, height) = value.split_once(':')?;
+    let number = |part: &str| {
+        if part.is_empty() || part.len() > 4 || !part.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        part.parse::<u32>().ok().filter(|n| (1..=8192).contains(n))
+    };
+    Some((number(width)?, number(height)?))
+}
+
+/// Fixed, bounded validation diagnostics; never forward aspect text, pictures or request bodies.
+pub(crate) fn report_canvas_failure(operation: &str) {
+    use std::{
+        sync::Mutex,
+        time::{Duration, Instant},
+    };
+    static LAST: Mutex<[Option<Instant>; 4]> = Mutex::new([None; 4]);
+    let index = match operation {
+        "write" => 0,
+        "revise" => 1,
+        "layout" => 2,
+        "h3" => 3,
+        _ => return,
+    };
+    let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
+    if last[index].is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+        return;
+    }
+    last[index] = Some(Instant::now());
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!("ERROR: origin=prompt-forge operation={operation} canvas validation failed before inference; inspect the operation result (repeats limited to once per minute)"),
+    );
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]

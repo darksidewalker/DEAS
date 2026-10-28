@@ -78,12 +78,18 @@
 .wb-output-choices { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .wb-output-choices button { padding: 3px 8px; font-size: .75rem; }
 .wb-output-choices button[aria-pressed="true"] { border-color: var(--copper); }
-.wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; margin: 0; }
+.wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, auto) minmax(0, auto); flex: 1; min-height: 0; min-width: 0; margin: 0; }
 .wb-stage .media-preview img, .wb-stage .media-preview video { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; }
 .wb-stage .media-preview { position: relative; }
-/* Controls ride the stage header row (stage pads 30px for it; the figure starts below, hence -25px): right-aligned, ending before the Metadata pill (close + metadata reserve 150px covers the longest locale label). */
-.wb-edit-tools { position: absolute; top: -25px; left: 8px; right: 150px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; pointer-events: none; }
-.wb-edit-tools > * { pointer-events: auto; }
+/* One bounded content row, including jobs with more than one product. The
+   existing per-output Star controls remain associated with their filenames. */
+.wb-stage .wb-media-content { display: grid; grid-auto-rows: minmax(5rem, 1fr); min-height: 0; min-width: 0; overflow: auto; }
+.wb-stage .media-preview > .native-video { min-width: 0; overflow: auto; }
+.wb-stage .media-preview > figcaption { min-height: 0; min-width: 0; overflow: auto; }
+/* Reserve space below the media/editor instead of covering pixels or player
+   controls. Long translated actions wrap inside the available view. */
+.wb-stage .wb-media-tools { position: static; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; min-height: 0; max-width: 100%; padding: 4px 0; overflow: auto; }
+.wb-stage .wb-media-tools > * { min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }
 .wb-queue-output > .media-star-control { position: absolute; top: 5px; right: 5px; }
@@ -100,8 +106,8 @@
 .wb-edit-tools .media-star-control .media-star { width: auto; min-height: 0; height: 22px; padding: 0 9px; border: 1px solid rgb(var(--ink-rgb) / 0.165); border-radius: 11px; background: rgb(var(--shadow-rgb) / 0.627); font-size: 11px; line-height: 20px; color: var(--gold); }
 /* More dropdown: pill summary (styled by the shared rule) opening a compact menu under it. */
 .wb-more summary { list-style: none; }
-.wb-more[open] > .wb-more-menu { position: absolute; top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
-.wb-more[open] { position: relative; }
+.wb-more[open] > .wb-more-menu { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
+.wb-edit-tools button { max-width: 100%; min-width: 0; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
 /* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
 .wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .wb-compare > img, .wb-compare-top { grid-area: 1 / 1; }
@@ -112,9 +118,8 @@
 .wb-compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .wb-compare input[type="range"]:focus-visible { opacity: .4; }
 /* Keep one source editor mounted while the queue result is shown. */
-.wb-editor-host { display:grid; grid-template-rows:minmax(0,1fr) auto auto; flex:1; min-height:0; min-width:0; }
+.wb-editor-host { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,auto) minmax(0,auto); flex:1; min-height:0; min-width:0; }
 .wb-editor-host > .sie { min-height:0; }
-.wb-editor-host > .wb-edit-tools { position:static; justify-content:flex-end; flex-wrap:wrap; padding:4px 0; }
 .wb-editor-caption { font-size:.7rem; color:var(--muted); overflow-wrap:anywhere; }
 .wb-editor-host[hidden] { display:none; }
 /* An explicit row: an implicit auto row grows to a large render's intrinsic height and the halves overflow each other. */

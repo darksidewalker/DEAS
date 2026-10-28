@@ -2193,7 +2193,7 @@ mod tests {
         let tmp = scratch();
         let engine = Engine::default();
         // Legacy manifests predate `takeover`: plain plans must serialize without the key so reopening stays byte-compatible.
-        assert!(serde_json::to_value(&request(tmp.path()))
+        assert!(serde_json::to_value(request(tmp.path()))
             .unwrap()
             .get("takeover")
             .is_none());
