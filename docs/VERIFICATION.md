@@ -1,5 +1,23 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Windows runtime: Chat and Prompt Forge (0.1.53 release build)
+
+Contributor-run native Windows pass of the published `deas.exe` (SHA-256 `cbfa1c7c04aca488874064eb573069d130dd8c45267bdff4dfa8d91797bf54f9`, matching `SHA256SUMS`) on Windows 10 / WebView2 with an RTX 5080, existing environment, shared models folder. LLM: a remote OpenAI-compatible llama-swap server (Qwen3.8 27B Q4_K_P) reached through an SSH tunnel. Driven through the WebView2 DevTools port; screenshots inspected.
+
+Accepted on Windows:
+- Launch and owned-backend autostart (`Owned backend · Installed · Started`); ComfyUI 0.42.0 on cuda:0. Startup `object_info` BACKEND_UNAVAILABLE/BACKEND_TIMEOUT warnings while ComfyUI loads reach central Logs, rate-limited.
+- Chat: server model list with a default selection; a send runs the `write_prompt` tool and renders the Illustrious card with Copy and Send to Generate; `search_tags` rounds reach Logs. Streaming shows partial text; **Stop** mid-reply returned Send, kept the partial reply, and the server GPU fell from 97 % to 0 % within 2 s (cancellation reaches the server).
+- Prompt Forge tab, Illustrious: one Write in about 20 s with local canon (`frieren via unique name`), three tag-lookup rounds and negative clean-up; positive and negative filled; builder controls visible once models loaded. **Send prompt + negative to Generate** filled Studio's Prompt and Negative fields.
+- Studio hammer: follows the selected checkpoint (`Write for: Anima`), pre-fills the current prompt, shows Writing…, then Current/New with Use/Keep; Use replaced the prompt with Anima-style output (`safe, 1girl, solo, frieren, …`).
+
+Findings:
+- Fixed (Unreleased): the server-required warning showed in Chat, the Forge tab and the hammer while a working server was connected, because `ForgeButton.tsx` added it whenever any local GGUF was discovered. It now appears only when local GGUFs are the only models; `ForgeModels.test.tsx` covers both cases.
+- Open: an Illustrious result from the Forge tab can be sent to Generate while an Anima checkpoint is selected, with no warning. The stale/incompatible Send guard on the unmerged `feat/deas-recent-history` branch may cover it; not changed here to avoid overlapping that branch.
+- Open: Chat answered "write an Illustrious prompt, then explain the tag order in one sentence" with the prompt card only; the explanation was dropped after the tool call.
+- Not reproduced: the first Chat message after launch was sent with a stray leading `t`; later sends were clean.
+
+Not covered: the builder with no reachable LLM, image generation, vision/i2i hammer, MOSS Layout write.
+
 ## TVE workspace and native spatial core (0.1.53, local build)
 
 - Main TVE navigation, retained source/draft and separate image Post-Processing integration are implemented. Independent read-only review reported no must-fix findings in this metadata-authoring slice; this is not approval of video execution.
