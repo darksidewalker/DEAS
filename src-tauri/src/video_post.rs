@@ -352,6 +352,18 @@ fn run_probe(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
                 Ok(false) => std::thread::sleep(Duration::from_millis(10)),
             }
         };
+        // `exited` reads the exit code, which Windows sets before the process object is
+        // signalled; the job kill below can still overwrite it with 1 until then.
+        #[cfg(windows)]
+        let status = match outcome {
+            Ok(()) => Some(
+                owned
+                    .child
+                    .wait()
+                    .map_err(|_| "VIDEO_PROBE: Cannot read probe status.")?,
+            ),
+            Err(_) => None,
+        };
         owned.terminate();
         // Join while the unreaped leader still protects the owned process-group ID.
         let output = output
@@ -381,11 +393,7 @@ fn run_probe(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
             ok && info.si_code == libc::CLD_EXITED && unsafe { info.si_status() } == 0
         };
         #[cfg(windows)]
-        let success = owned
-            .child
-            .try_wait()
-            .map_err(|_| "VIDEO_PROBE: Cannot read probe status.")?
-            .is_some_and(|s| s.success());
+        let success = status.is_some_and(|s| s.success());
         #[cfg(not(any(unix, windows)))]
         let success = false;
         if !success || !errors.is_empty() {

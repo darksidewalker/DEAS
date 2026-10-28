@@ -276,6 +276,10 @@ fn real_ffmpeg_clip_inspected_by_production_native_helper() {
         .is_some_and(|d| d > 0.09 && d < 0.2));
     assert!(inspected.blockers.is_empty(), "{:?}", inspected.blockers);
     assert!(!inspected.processing_ready && !inspected.timing_verified);
+    // The Windows exit-status race failed about two in three inspections; one pass proves little.
+    for _ in 0..20 {
+        inspect_source(&path).unwrap();
+    }
     assert_eq!(before, fs::read(&path).unwrap());
     println!(
         "Real ffmpeg/ffprobe inspection: {}",

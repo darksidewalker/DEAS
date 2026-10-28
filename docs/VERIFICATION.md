@@ -1,5 +1,20 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Windows runtime: TVE source inspection and output draft (0.1.53 release build)
+
+Contributor-run native Windows pass of the published `deas.exe` (SHA-256 `cbfa1c7c04aca488874064eb573069d130dd8c45267bdff4dfa8d91797bf54f9`) on Windows 10 / WebView2, ffprobe 8.1 (gyan.dev full build) on PATH through a WinGet link. The native chooser was answered through UI Automation/window messages; results were read through the WebView2 DevTools port. Sources were synthetic ffmpeg clips only.
+
+Accepted on Windows:
+- MP4/H.264/AAC at 30000/1001 (exact rational rate, one audio stream), WebM/VP9 without audio, 1920×1080 at 60 fps, plain MKV/H.264/AAC, and a file in a folder named with spaces and `ü` all inspected correctly.
+- Blockers: `yuv444p` reports *Pixel format is unsupported*; a 90° display matrix reports *Source rotation is unsupported*; every clip reports unknown color metadata. A text file named `.mp4` is refused with `VIDEO_TYPE` (container signature mismatch). Chooser cancel and failed inspections keep the previous result; each inspection writes one `video-post` line to central Logs.
+- TVE output draft at 1×/2×/4× gives the expected dimensions (512×288 → 512×288 / 1024×576 / 2048×1152; 1920×1080 at 4× → 7680×4320, within the 8192 limit), keeps the source rate exactly and maps AAC audio or *No audio*.
+
+Fixed (Unreleased): about two in three inspections of valid files failed with `VIDEO_PROBE_FAILED` on Windows. `win::exited` reads the exit code, which Windows sets before the process object is signalled; `terminate()` then ran `TerminateJobObject(job, 1)` inside that window and the probe's 0 became 1. `run_probe` now waits for the already-exited probe before the job kill and uses that status. A repeated-inspection loop through the production helper failed 33/50, 32/50 and 36/50 on three clips before the change and 0/50 on each of five clips after it. The ignored `real_ffmpeg_clip_inspected_by_production_native_helper` smoke test now repeats the inspection 20 times; on Windows it failed at its first inspection before the change and passes after it.
+
+Windows native suite (`cargo test --locked -- --test-threads=1`): 440 passed, 29 ignored, 4 failed, identical before and after the fix. The four are long-standing Windows-only failures, not caused by this change: `llm::tests::python_worker_mocked_import_fixtures`, `media::star::tests::recognized_media_moves_nested_arbitrary_bytes_without_parsing`, `projects::tests::create_cancel_save_close_reopen_and_single_writer`, `settings::tests::extra_model_roots_register_beside_the_primary_root`. `cargo fmt --check` and `cargo clippy --locked --lib -- -D warnings` pass.
+
+Not covered: real user media, HDR/interlaced/alpha/non-square sources, ffprobe missing from PATH, a fix-build GUI pass of the inspection (the fix was verified through the production helper in a loop, not by clicking).
+
 ## TVE workspace and native spatial core (0.1.53, local build)
 
 - Main TVE navigation, retained source/draft and separate image Post-Processing integration are implemented. Independent read-only review reported no must-fix findings in this metadata-authoring slice; this is not approval of video execution.
