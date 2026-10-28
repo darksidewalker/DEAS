@@ -61,13 +61,14 @@ def bottom_bounds(page, phase, width, minimum_actions=2):
     tools.scroll_into_view_if_needed()
     metrics = tools.evaluate('''e=>{
       const box=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
-      const host=e.parentElement,children=Array.from(host.children),before=children.slice(0,children.indexOf(e));
+      const host=e.parentElement,stage=e.closest('.wb-stage');
+      const content=Array.from(stage.querySelectorAll('.media-preview img,.media-preview video,.media-preview audio,[data-native-video],[data-editor-viewport]')).filter(n=>n.getClientRects().length&&n.getBoundingClientRect().height>0);
       return {toolbar:box(e),host:box(host),stage:box(e.closest('.wb-stage')),
         pill:e.closest('.wb-stage').querySelector('.wb-stage-meta')?box(e.closest('.wb-stage').querySelector('.wb-stage-meta')):null,
         close:e.closest('.wb-stage').querySelector('.wb-stage-close')?box(e.closest('.wb-stage').querySelector('.wb-stage-close')):null,
         position:getComputedStyle(e).position,
-        content:before.filter(n=>n.getBoundingClientRect().height>0).map(box),
-        media:host.matches('figure')?Array.from(host.querySelectorAll('img,video,[data-native-video],.native-video-controls')).map(box):[],
+        content:content.map(box),
+        media:content.map(box),
         buttons:Array.from(e.querySelectorAll('button')).map(n=>({...box(n),label:n.textContent,clipped:n.scrollWidth>n.clientWidth+1,visible:getComputedStyle(n).visibility!=='hidden'&&n.offsetWidth>0})),
         rows:(()=>{const rows=[];for(const button of e.querySelectorAll('button')){
           if(getComputedStyle(button).visibility==='hidden'||!button.offsetWidth)continue;
@@ -86,9 +87,9 @@ def bottom_bounds(page, phase, width, minimum_actions=2):
             if peer:
                 assert abs(toolbar['y'] - peer['y']) <= 1, (phase, width, 'toolbar not on the pill line', metrics)
                 assert toolbar['right'] <= peer['x']+1, (phase, width, 'toolbar overlaps pill/close', metrics)
-    else:
-        assert all(r['bottom'] <= toolbar['y']+1 for r in metrics['content']), (phase, width, 'toolbar covers content/player/editor', metrics)
-        assert all(r['bottom'] <= toolbar['y']+1 for r in metrics['media']), (phase, width, 'media/player overflows reserved row', metrics)
+    assert all(r['bottom'] <= toolbar['y']+1 or r['y'] >= toolbar['bottom']-1 for r in metrics['content']), (phase, width, 'toolbar overlaps actual media/editor', metrics)
+    if width <= 900 and tools.evaluate("e=>e.parentElement.matches('.wb-stage')"):
+        assert metrics['position'] != 'absolute', (phase, width, 'narrow stage tools must reserve their own row', metrics)
     assert metrics['content'], (phase, width, 'missing media/editor content', metrics)
     assert all(r['width'] > 0 and r['height'] > 0 for r in metrics['content']), (phase, width, 'collapsed content', metrics)
     assert all(r['x'] >= metrics['host']['x']-1 and r['right'] <= metrics['host']['right']+1 for r in metrics['media']), (phase, width, 'media/player overflows host', metrics)
@@ -117,6 +118,35 @@ def bottom_bounds(page, phase, width, minimum_actions=2):
     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth+1'), (phase, width, 'horizontal page overflow')
     page.screenshot(path=str(OUT/f'{phase}-{width}.png'))
     return {'phase': phase, 'width': width, **metrics}
+
+
+def menu_bounds(page, width, phase):
+    """Open real menus in every locale and retain access to an oversized label."""
+    for locale in ('de', 'en', 'fr', 'ja', 'tr', 'zh'):
+        page.get_by_label('Fixture language', exact=True).select_option(locale)
+        more = page.locator('.wb-stage [data-media-tools]:visible .wb-more')
+        expect(more).to_have_count(1)
+        more.locator('summary').click()
+        menu = more.locator('.wb-more-menu')
+        expect(menu).to_be_visible()
+        def bounds():
+            return menu.evaluate("""e=>{const r=e.getBoundingClientRect(),s=e.closest('.wb-stage').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,stageLeft:s.left,stageRight:s.right,stageTop:s.top,stageBottom:s.bottom,scroll:e.scrollWidth,client:e.clientWidth};}""")
+        for oversized in (False, True):
+            first = menu.locator('button').first
+            saved = first.text_content()
+            if oversized:
+                first.evaluate("e=>e.textContent='Long translated menu option '.repeat(12)")
+            metrics = bounds()
+            assert metrics['left'] >= metrics['stageLeft'] and metrics['right'] <= metrics['stageRight'], (phase, width, locale, metrics)
+            assert metrics['top'] >= metrics['stageTop'] and metrics['bottom'] <= metrics['stageBottom'], (phase, width, locale, metrics)
+            if oversized:
+                assert metrics['scroll'] > metrics['client'], (phase, width, locale, 'long option must scroll', metrics)
+                first.focus()
+                expect(first).to_be_focused()
+                first.evaluate('(e,text)=>e.textContent=text', saved)
+        page.screenshot(path=str(OUT/f'{phase}-menu-{width}-{locale}.png'))
+        more.locator('summary').click()
+    page.get_by_label('Fixture language', exact=True).select_option('en')
 
 
 def authoring_state(page):
@@ -163,6 +193,7 @@ def run_case(browser, width):
     expect(image).to_be_visible()
     page.wait_for_function('()=>document.querySelector("[data-browsed-preview] img").naturalWidth>0')
     results = [bottom_bounds(page, 'browsed-image', width)]
+    menu_bounds(page, width, 'browsed')
     page.get_by_label('Fixture language', exact=True).select_option('de')
     expect(preview_tools.locator('[data-use-input]')).to_have_text('Als Eingabe verwenden')
     translated = bottom_bounds(page, 'browsed-image-German', width)
@@ -183,6 +214,7 @@ def run_case(browser, width):
     editor = page.locator('[data-editor-viewport]')
     expect(editor).to_be_visible()
     results.append(bottom_bounds(page, 'adopted-image', width))
+    menu_bounds(page, width, 'editor')
     page.get_by_role('button', name='Select', exact=True).click()
     base = page.locator('[data-layer="base"]')
     base.focus()

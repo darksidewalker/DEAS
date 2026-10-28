@@ -87,13 +87,10 @@
 .wb-stage .wb-media-content { display: grid; grid-auto-rows: minmax(5rem, 1fr); min-height: 0; min-width: 0; overflow: auto; }
 .wb-stage .media-preview > .native-video { min-width: 0; overflow: auto; }
 .wb-stage .media-preview > figcaption { min-height: 0; min-width: 0; overflow: auto; }
-/* Controls ride the Metadata pill line: the pill is a position anchor, so the row lands on
-   the pill's line for every media phase. A toolbar inside the scrolling figure would have a
-   scroll-chain circular dependency with the anchor and fall back to static position, so the
-   overlay toolbar is a direct stage child. Labels stay on one line; the empty strip area is
-   click-through so the media keeps its zoom. */
-.wb-stage-meta { anchor-name: --wb-meta; }
-.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: anchor(--wb-meta top); left: 8px; right: 112px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
+/* Stage tools share the Metadata top offset without requiring CSS anchor support. */
+.wb-stage .media-preview:has(> .wb-media-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
+.wb-stage .media-preview > .wb-media-tools { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 0; min-width: 0; }
+.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: 5px; left: 8px; right: 112px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
 .wb-stage > .wb-media-tools > *, .wb-stage > .wb-edit-tools > * { pointer-events: auto; min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }
@@ -110,17 +107,17 @@
 /* Toolbar star = the same 22px pill as the other controls (3-class selector beats media.css's .media-star-control .media-star box). */
 .wb-edit-tools .media-star-control .media-star { width: auto; min-height: 0; height: 22px; padding: 0 9px; border: 1px solid rgb(var(--ink-rgb) / 0.165); border-radius: 11px; background: rgb(var(--shadow-rgb) / 0.627); font-size: 11px; line-height: 20px; color: var(--gold); }
 /* More dropdown: pill summary (styled by the shared rule) opening a compact menu under it. */
-.wb-more { position: relative; display: flex; }
+.wb-more { position: static; display: flex; }
 .wb-more summary, .wb-more > button { white-space: nowrap; overflow-wrap: normal; }
 .wb-more summary { list-style: none; white-space: nowrap; }
 /* Closed dropdown: the menu box must not participate in layout (no phantom strip height),
    and its items are not interactive until opened. */
 .wb-more:not([open]) > .wb-more-menu { position: absolute; visibility: hidden; }
 .wb-more-caret { margin-left: 6px; font-size: 10px; opacity: .75; }
-.wb-more[open] > .wb-more-menu { display: flex; flex-direction: column; gap: 4px; position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: max-content; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
-/* No line breaks inside menu rows: the panel is as wide as its widest option.
-   Specificity must beat the .wb-edit-tools button wrap rule. */
-.wb-edit-tools .wb-more[open] > .wb-more-menu > button { display: block; width: 100%; text-align: left; white-space: nowrap; overflow-wrap: normal; }
+.wb-more[open] > .wb-more-menu { display: flex; flex-direction: column; gap: 4px; position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; box-sizing: border-box; width: max-content; max-width: 100%; max-height: min(16rem, 40vh); overflow: auto; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
+.wb-editor-host .wb-more[open] > .wb-more-menu, .media-preview .wb-more[open] > .wb-more-menu { top: auto; bottom: calc(100% + 4px); }
+/* Keep labels intact; oversized options scroll inside the bounded menu. */
+.wb-edit-tools .wb-more[open] > .wb-more-menu > button { display: block; width: max-content; min-width: 100%; max-width: none; text-align: left; white-space: nowrap; overflow-wrap: normal; }
 .wb-edit-tools button { max-width: 100%; min-width: 0; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
 /* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
 .wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; overflow: hidden; }
@@ -135,7 +132,7 @@
 .wb-editor-host { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,auto) minmax(0,auto); flex:1; min-height:0; min-width:0; }
 .wb-editor-host > .sie { min-height:0; }
 /* The editor keeps its tools as a static row below the canvas (never over the canvas). */
-.wb-editor-host > .wb-edit-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 0; min-width: 0; }
+.wb-editor-host > .wb-edit-tools { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 0; min-width: 0; }
 .wb-editor-caption { font-size:.7rem; color:var(--muted); overflow-wrap:anywhere; background:none; border:0; padding:0; text-align:left; cursor:pointer; }
 .wb-editor-host[hidden] { display:none; }
 /* An explicit row: an implicit auto row grows to a large render's intrinsic height and the halves overflow each other. */
@@ -206,9 +203,10 @@
 @media (max-width: 900px) { .wb-dock { min-height: 26rem; } .workbench { flex: 0 0 auto; min-height: 100%; } .wb-body { flex: none; flex-direction: column; } .wb-center { flex: none; } .wb-side, .wb-queue, .wb-metadata { flex: none; flex-basis: auto !important; } .wb-column-handle, .wb-dock-handle { display: none; } .wb-body { gap: 10px; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
 /* Narrow panes scroll as content. Wrapped tools stay in flow, never over the role selector. */
 @media (max-width: 900px) {
- .wb-stage { padding-top: 10px; }
+ .wb-stage-warning { position: relative; inset: auto; flex: none; max-height: 12rem; }
+ .wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: relative; inset: auto; flex: none; justify-content: flex-start; padding: 4px 0; }
  .wb-stage .media-preview:has(> .wb-edit-tools), .wb-stage .media-preview:has(> .wb-media-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
- .wb-stage .media-preview > .wb-edit-tools, .wb-stage .media-preview > .wb-media-tools { position: static; inset: auto; justify-content: flex-start; padding: 4px 0; overflow: auto; }
+ .wb-stage .media-preview > .wb-edit-tools, .wb-stage .media-preview > .wb-media-tools { position: relative; inset: auto; justify-content: flex-start; padding: 4px 0; overflow: visible; }
  .wb-stage .media-preview > .wb-media-tools > *, .wb-stage .media-preview > .wb-edit-tools > * { pointer-events: auto; }
 }
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }

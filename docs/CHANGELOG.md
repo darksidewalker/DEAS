@@ -2,7 +2,7 @@
 
 ## Unreleased — 0.1.57
 
-- Preview toolbar: the **More** button shows a dropdown caret and opens Refine/Upscale as an overlay menu stacked top-down (the open menu no longer pushes the controls and caption below). The separate **Full view** button is gone — clicking the media in the view already opens it. For every media (image, video, audio, source, output), the control row rides the top strip of the preview right-aligned next to the **Metadata** pill, like in 0.1.53 (the source editor keeps its row below the canvas; narrow panes keep the tools in flow). The **More** menu and its Refine/Upscale options stay on one line in every locale — nothing inside the dropdown wraps.
+- Preview toolbar: the **More** button shows a dropdown caret and opens Refine/Upscale as an overlay menu stacked top-down (the open menu no longer pushes the controls and caption below). The separate **Full view** button is gone — clicking the media in the view already opens it. Browsed and noneditable source-media controls share the top strip with **Metadata** on desktop; editor/result controls keep their own rows, and narrow previews reserve space for wrapped controls and warnings. **More** labels remain on one line inside a bounded, scrollable menu; bottom-row menus open upward. Original-image mouse and keyboard actions retain the selected job’s source/Star identity, independently of the current edit draft.
 
 ## Unreleased — 0.1.56
 

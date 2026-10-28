@@ -6,6 +6,10 @@ The outer shell owns one dynamic viewport; top navigation consumes its natural h
 
 Developers must run `npm run test:layout` for new tabs/layout changes. The CI gate discovers navigation tabs rather than maintaining a hand-written allowlist, checks all six locales and seven desktop/narrow/short sizes, retains drafts on return, and exercises an unknown future pane, long-content reachability, hidden-style overrides and a deliberately broken negative control. Paired-output pointer tests additionally protect against controls overlapping after responsive changes. This guards the reproduced footer-only gap; it is not a guarantee against every possible future stylesheet or target-WebView defect.
 
+## Local branch consolidation and preview regression repair (0.1.57 follow-up)
+
+The published main and video-post-worker branches already shared the TVE/worker integration. The local follow-up preserves Run/Stop styling while fixing narrow toolbar/warning overlap, duplicate noneditable-source actions, original-versus-draft viewer/Star identity and keyboard activation. Stage tools no longer require CSS anchors; result/editor tools stay in flow and More menus are bounded. Native execution, worker/TVE, persistence and dependency code are unchanged. Fresh frontend/browser gates and the rebuilt Linux artifact are recorded in [verification](VERIFICATION.md#preview-branch-consolidation-0157-follow-up); target-WebView and real-model acceptance remain separate.
+
 ## Run/Stop segmented control (Unreleased)
 
 Corrected Queue button-style specificity so Stop has square internal edges, matching typography and theme-aware reddish danger colours, including hover. The project dropdown stretches with the row for wrapped labels. No execution logic changed. Verified frontend typecheck, 106 core / 910 UI tests and 18 Chromium Run/Stop IPC-fixture cases, including six locales at 320/1440px with exact segment adjacency, equal heights and danger-token assertions. Native Linux/Windows visual interaction remains unverified.

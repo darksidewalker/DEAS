@@ -120,7 +120,7 @@ test.each(['http://old:7801/','http://new:7802/'])('recovered output uses native
  await waitFor(()=>expect(document.querySelector('[data-job-id="old-environment"] img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png'));
  expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png');
  expect(document.querySelectorAll('[src*="/new-env/output/"]')).toHaveLength(0);
- expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path:'/old-env/output/raw/result.png'});
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star_status',{path:'/old-env/output/raw/result.png'}));
  clickMedia(document.querySelector<HTMLImageElement>('.wb-shown img')!);
  expect(document.querySelector('.wb-viewer img')?.getAttribute('src')).toContain('/old-env/output/raw/result.png');
  fireEvent.keyDown(window,{key:'Escape'});
@@ -443,7 +443,7 @@ test('Linux native input never creates a WebKit video decoder',async()=>{
  expect(view.container.querySelector('[data-native-video]')).not.toBeNull();
  vi.restoreAllMocks();
 });
-const adopt=()=>{const action=document.querySelector('[data-use-input], [data-edit="resample"]');if(action)fireEvent.click(action);};
+const adopt=()=>fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')!);
 const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
 const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
@@ -1449,6 +1449,47 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  expect(compare.dataset.zoom).toBe('1.00');
 });
 
+test.each(['click','Enter',' '] as const)('retained original opens and stars source A, not edited draft B (%s)',async activation=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null,family:'sdxl'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_media_star_status')return {starred:false,unavailable:null};
+  if(command==='native_media_star')return {oldPath:'/out/source-a.png',path:'/out/starred/source-a.png'};
+  return {path:'/out',parent:'/',entries:['source-a.png','draft-b.png'].map(name=>({name,path:'/out/'+name,kind:'file',media:'image',symlink:false,size:1,modified:1})),truncated:false};
+ });
+ vi.mocked(runWorkbenchJob).mockImplementation(async(_endpoint,intent)=>({...heldJob('source-a-job','succeeded',evidence.baseUrl),intent,outputRoot:'/out',outputs:[{filename:'render.png',subfolder:'',type:'output'}]}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input',output:'/out'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));choosePipe('Image → Image');
+ fireEvent.click(await screen.findByRole('button',{name:'source-a.png'}));adopt();
+ const source=screen.getByRole('img',{name:'source-a.png'});
+ Object.defineProperties(source,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(source);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await screen.findByRole('img',{name:'render.png'});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'source-a.png [output]'});
+ fireEvent.click(screen.getByRole('button',{name:'draft-b.png'}));adopt();
+ const draft=screen.getByRole('img',{name:'draft-b.png'});
+ Object.defineProperties(draft,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(draft);
+ fireEvent.click(screen.getByRole('button',{name:'Select'}));
+ const base=document.querySelector<HTMLElement>('[data-layer="base"]')!;
+ fireEvent.keyDown(base,{key:'ArrowLeft'});expect(base.style.left).toBe('-8px');
+ fireEvent.click(document.querySelector('[data-job-id="source-a-job"] .wb-queue-select')!);
+ expect(base.querySelector('img')?.getAttribute('src')).toContain('/out/draft-b.png');
+ expect(base.style.left).toBe('-8px');
+ const original=document.querySelector<HTMLImageElement>('.wb-current-preview > figure.media-preview img')!;
+ expect(original.getAttribute('src')).toContain('/out/source-a.png');
+ expect(original.getAttribute('role')).toBe('button');expect(original.tabIndex).toBe(0);
+ if(activation==='click')clickMedia(original);else{original.focus();expect(document.activeElement).toBe(original);expect(fireEvent.keyDown(original,{key:activation})).toBe(false);}
+ const viewer=screen.getByRole('dialog',{name:'source-a.png'});
+ expect(viewer.querySelector('img')?.getAttribute('src')).toContain('/out/source-a.png');
+ expect(within(viewer).queryByRole('button',{name:'Star draft-b.png'})).toBeNull();
+ const star=within(viewer).getByRole('button',{name:'Star source-a.png'});
+ await waitFor(()=>expect(star.hasAttribute('disabled')).toBe(false));fireEvent.click(star);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_star',{path:'/out/source-a.png'}));
+ expect(invoke).not.toHaveBeenCalledWith('native_media_star',{path:'/out/draft-b.png'});
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+});
+
 test('IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
@@ -2160,6 +2201,24 @@ const mediaEntries=[
 const menuOf=(name:string)=>{fireEvent.contextMenu(screen.getByRole('button',{name}),{clientX:5,clientY:5});return within(screen.getByRole('menu',{name}));};
 const markOf=(name:string)=>screen.getByRole('button',{name}).closest('li')!.dataset.mark;
 const loadVideo=(name:string)=>{const v=document.querySelector<HTMLVideoElement>(`.wb-stage video`)!;Object.defineProperties(v,{videoWidth:{value:1280},videoHeight:{value:704}});fireEvent.loadedMetadata(v);void name;};
+
+test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s reference preview has one stage toolbar and no figure toolbar',async(media,name)=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'}]);
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/outside',parent:'/',entries:[{name,path:'/outside/'+name,kind:'file',media,symlink:false,size:1,modified:1}],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input',output:'/out'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Multi-reference → Video').disabled).toBe(false));choosePipe('Multi-reference → Video');
+ fireEvent.click(await screen.findByRole('button',{name}));adopt();
+ const stage=screen.getByRole('region',{name:'Preview'});
+ expect(stage.querySelector('[data-browsed-preview]')).toBeNull();
+ expect(stage.querySelector(`.wb-current-preview ${media}`)).not.toBeNull();
+ expect(stage.querySelectorAll('[data-media-tools]')).toHaveLength(1);
+ expect(stage.querySelector('.wb-current-preview figure [data-media-tools]')).toBeNull();
+ const toolbar=stage.querySelector<HTMLElement>(':scope > [data-media-tools]')!;
+ expect(within(toolbar).getByRole('button',{name:'Use as input'})).toBeTruthy();
+ expect(within(stage).getAllByRole('button',{name:`Star ${name}`})).toHaveLength(1);
+ expect(within(toolbar).getByRole('button',{name:'Add as reference'})).toBeTruthy();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
 
 test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference → Video sends image keyframes at their seconds',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
