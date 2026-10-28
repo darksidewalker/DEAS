@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
-import { NativeVideo, nativeVideo } from './NativeVideo';
+import { createRef } from 'react';
+import { NativeVideo, nativeVideo, type NativeVideoControl } from './NativeVideo';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
 const state={position:1,duration:5,width:768,height:992,paused:true,muted:false,volume:100};
 beforeEach(()=>{
@@ -35,6 +36,55 @@ test('late open completion closes only its old UUID after replacement',async()=>
  await act(async()=>finish());
  expect(invoke).toHaveBeenCalledWith('native_video_update',{id:old,action:{kind:'close'}});
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_video_open')).toHaveLength(2);
+});
+test('optional status and transport refs expose native actions and clean up',async()=>{
+ const onStatus=vi.fn(),controlRef=createRef<NativeVideoControl>();
+ const ui=render(<I18nProvider><NativeVideo source={{path:'/clip.webm'}} label="Clip" onStatus={onStatus} controlRef={controlRef}/></I18nProvider>);
+ await waitFor(()=>expect(onStatus).toHaveBeenCalledWith(state));
+ act(()=>{controlRef.current!.seek(2);controlRef.current!.pause();controlRef.current!.play();controlRef.current!.playCrop(1,3);});
+ for(const action of [{kind:'seek',seconds:2},{kind:'pause',paused:true},{kind:'pause',paused:false},{kind:'crop',start:1,end:3}])expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action}));
+ ui.unmount();expect(controlRef.current).toBeNull();
+});
+test('control failures are reported through status without losing the visible error',async()=>{
+ const onStatus=vi.fn(),controlRef=createRef<NativeVideoControl>();
+ render(<I18nProvider><NativeVideo source={{path:'/clip.webm'}} label="Clip" onStatus={onStatus} controlRef={controlRef}/></I18nProvider>);
+ await waitFor(()=>expect(onStatus).toHaveBeenCalledWith(state));
+ vi.mocked(invoke).mockRejectedValueOnce('crop failed');
+ act(()=>controlRef.current!.playCrop(1,3));
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','Video playback unavailable. crop failed');
+ await waitFor(()=>expect(onStatus).toHaveBeenCalledWith({...state,error:'crop failed'}));
+});
+test('forced mute cannot be overridden and audio-only keeps visible transport bounds',async()=>{
+ const onStatus=vi.fn();
+ vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:10,top:10,right:210,bottom:50,width:200,height:40,x:10,y:10,toJSON:()=>({})});
+ Object.defineProperty(document,'elementFromPoint',{configurable:true,value:vi.fn(()=>screen.getByRole('slider',{name:'Seek video'}))});
+ const ui=render(<I18nProvider><NativeVideo source={{path:'/clip.webm'}} label="Clip" muted audioOnly onStatus={onStatus}/></I18nProvider>);
+ await waitFor(()=>expect(onStatus).toHaveBeenCalledWith({...state,muted:true}));
+ expect((screen.getByRole('button',{name:'Unmute'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(invoke).toHaveBeenCalledWith('native_video_open',expect.objectContaining({muted:true}));
+ expect(document.querySelector<HTMLElement>('.native-video-surface')!.style.display).toBe('none');
+ expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:expect.objectContaining({kind:'bounds',visible:true,audioOnly:true})}));
+ expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({muted:true}));
+ fireEvent.click(screen.getByRole('button',{name:'Unmute'}));
+ expect(invoke).not.toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'mute',muted:false}}));
+ ui.rerender(<I18nProvider><NativeVideo source={{path:'/clip.webm'}} label="Clip" muted={false} audioOnly/></I18nProvider>);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'mute',muted:false}})));
+ expect(vi.mocked(invoke).mock.calls.filter(([cmd])=>cmd==='native_video_open')).toHaveLength(1);
+});
+test('own modal is allowed while background or occluded native surfaces stay hidden',async()=>{
+ vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:10,top:10,right:210,bottom:110,width:200,height:100,x:10,y:10,toJSON:()=>({})});
+ const hit=vi.fn(()=>document.querySelector('.native-video-surface'));
+ Object.defineProperty(document,'elementFromPoint',{configurable:true,value:hit});
+ const ui=render(<I18nProvider><div role="dialog" aria-modal="true"><NativeVideo source={{path:'/clip.webm'}} label="Clip"/></div></I18nProvider>);
+ const bounds=(visible:boolean)=>expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:expect.objectContaining({kind:'bounds',visible})}));
+ await waitFor(()=>bounds(true));
+ vi.mocked(invoke).mockClear();
+ const covering=document.createElement('dialog');covering.open=true;document.body.append(covering);
+ await waitFor(()=>bounds(false));
+ covering.remove();await waitFor(()=>bounds(true));
+ vi.mocked(invoke).mockClear();hit.mockReturnValue(document.body);
+ await act(async()=>{window.dispatchEvent(new Event('resize'));});await waitFor(()=>bounds(false));
+ ui.unmount();
 });
 test('inactive preview does not open; failures remain visible',async()=>{
  const ui=render(view('/clip.webm',false));expect(invoke).not.toHaveBeenCalled();

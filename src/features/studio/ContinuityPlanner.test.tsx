@@ -7,11 +7,34 @@ import { invoke } from '@tauri-apps/api/core';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:()=>true}));
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 const plan:ContinuityPlan={session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]};
-const mount=(value=plan,running=false)=>{
+const mount=(value=plan,running=false,allowReferences=false)=>{
  localStorage.setItem('deas.locale.v1','en');const onChange=vi.fn();
- render(<I18nProvider><ContinuityPlanner plan={value} running={running} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
+ render(<I18nProvider><ContinuityPlanner allowReferences={allowReferences} plan={value} running={running} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
  return onChange;
 };
+test('reference opt-in is hidden for unsupported pipelines',()=>{
+ mount({...plan,useReferences:true});
+ expect(screen.queryByRole('checkbox',{name:'Use current references for continuations'})).toBeNull();
+});
+test('reference opt-in defaults off without rewriting legacy plans and saves explicit choices',()=>{
+ const onChange=mount(plan,false,true);const checkbox=screen.getByRole('checkbox',{name:'Use current references for continuations'}) as HTMLInputElement;
+ expect(checkbox.checked).toBe(false);expect(onChange).not.toHaveBeenCalled();
+ fireEvent.click(checkbox);expect(onChange).toHaveBeenLastCalledWith({...plan,useReferences:true});
+});
+test('saved reference opt-in can be turned off',()=>{
+ const onChange=mount({...plan,useReferences:true},false,true);const checkbox=screen.getByRole('checkbox',{name:'Use current references for continuations'}) as HTMLInputElement;
+ expect(checkbox.checked).toBe(true);fireEvent.click(checkbox);expect(onChange).toHaveBeenLastCalledWith({...plan,useReferences:false});
+});
+test('running locks reference opt-in',()=>{
+ const onChange=mount(plan,true,true);const checkbox=screen.getByRole('checkbox',{name:'Use current references for continuations'}) as HTMLInputElement;
+ expect(checkbox.disabled).toBe(true);fireEvent.click(checkbox);expect(onChange).not.toHaveBeenCalled();
+});
+test.each(['New session','Reset clips'])('reference choice survives %s while completed links are cleared',name=>{
+ const onChange=mount({...plan,useReferences:true,steps:[{...plan.steps[0],clipId:'old',jobId:'job'}]},false,true);
+ fireEvent.click(screen.getByRole('button',{name}));const next=onChange.mock.lastCall![0];
+ expect(next.useReferences).toBe(true);expect(next.steps).toEqual(plan.steps);
+});
+
 test('named session applies explicitly and keeps authored steps without old clip or job links',()=>{
  const value:ContinuityPlan={...plan,source:{clipId:'old-source',endpoint:'http://127.0.0.1:7801'},overlapFrames:56,steps:[{...plan.steps[0],clipId:'old-clip',jobId:'old-job'}]};
  const onChange=mount(value);
@@ -53,7 +76,7 @@ test('selected source enables the first action but a different endpoint blocks R
  expect(screen.getByRole('alert').textContent).toContain('Backend changed');
 });
 
-test.each(['checkpoint','video'])('Next action Forge applies only to its own step after review (%s)',async(kind)=>{
+test.each(['checkpoint','video'].flatMap(kind=>[{kind,allowReferences:false,useReferences:true},{kind,allowReferences:true,useReferences:undefined},{kind,allowReferences:true,useReferences:false},{kind,allowReferences:true,useReferences:true}]))('Next action Forge uses references only with explicit supported opt-in (%j)',async({kind,allowReferences,useReferences})=>{
  const clipId=kind==='video'?'a'.repeat(64):'root-1';
  localStorage.setItem('deas.locale.v1','en');
  const calls:{route:string;body:Record<string,unknown>}[]=[];
@@ -64,9 +87,10 @@ test.each(['checkpoint','video'])('Next action Forge applies only to its own ste
   if(call.route==='h3')return {simple_prompt:'The traveller turns.',warnings:[]};
   throw Error('Unexpected request');
  });
- const value:ContinuityPlan={...plan,overlapFrames:39,source:{clipId,endpoint:'http://127.0.0.1:7801',...(kind==='video'?{kind:'video' as const}:{})}};
+ const value:ContinuityPlan={...plan,useReferences,overlapFrames:39,source:{clipId,endpoint:'http://127.0.0.1:7801',...(kind==='video'?{kind:'video' as const}:{})}};
+ const references=[{kind:'image' as const,path:'traveller.png',role:'traveller'}];const optedIn=allowReferences&&useReferences===true;
  const onChange=vi.fn();
- render(<I18nProvider><ContinuityPlanner endpoint="http://127.0.0.1:7801" root="/env" forgeContext={{mode:'T2VA',duration:10,canvas:{width:768,height:512},references:[],easy:false}} plan={value} running={false} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
+ render(<I18nProvider><ContinuityPlanner allowReferences={allowReferences} endpoint="http://127.0.0.1:7801" root="/env" forgeContext={{mode:'REF2VA',duration:10,canvas:{width:768,height:512},references,easy:false}} plan={value} running={false} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));
  const pop=within(screen.getByRole('dialog',{name:'Prompt Forge'}));
  fireEvent.change(pop.getByRole('textbox',{name:'Next action'}),{target:{value:'turn around'}});
@@ -74,7 +98,7 @@ test.each(['checkpoint','video'])('Next action Forge applies only to its own ste
  fireEvent.click(pop.getByRole('button',{name:'Write'}));
  await pop.findByRole('textbox',{name:'Result'});
  expect(onChange).not.toHaveBeenCalled();
- expect(calls.find(c=>c.route==='h3')!.body).toMatchObject({duration:5,references:[],easy:false,continuity:{source_kind:kind,session:'kept-session',clip_id:clipId,overlap_frames:39,current_prompt:'',use_references:false}});
+ expect(calls.find(c=>c.route==='h3')!.body).toMatchObject({duration:5,references:optedIn?references:[],easy:false,continuity:{source_kind:kind,session:'kept-session',clip_id:clipId,overlap_frames:39,current_prompt:'',use_references:optedIn}});
  fireEvent.click(pop.getByRole('button',{name:'Apply'}));
  expect(onChange).toHaveBeenLastCalledWith({...value,steps:[{...value.steps[0],action:'The traveller turns.'}]});
  expect(document.activeElement).toBe(screen.getByRole('button',{name:'Prompt Forge'}));
@@ -90,15 +114,17 @@ test('Forge writing locks the continuity plan and Cancel releases it without app
   if(call.route==='cancel')return {cancelled:true};throw Error('Unexpected request');
  });
  const value:ContinuityPlan={...plan,source:{clipId:'root-1',endpoint:'http://127.0.0.1:7801'}};const onChange=vi.fn();
- render(<I18nProvider><ContinuityPlanner endpoint="http://127.0.0.1:7801" root="/env" forgeContext={{mode:'T2VA',duration:5,canvas:{width:768,height:512},references:[],easy:false}} plan={value} running={false} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
+ render(<I18nProvider><ContinuityPlanner allowReferences endpoint="http://127.0.0.1:7801" root="/env" forgeContext={{mode:'T2VA',duration:5,canvas:{width:768,height:512},references:[],easy:false}} plan={value} running={false} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
  fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));const pop=within(screen.getByRole('dialog',{name:'Prompt Forge'}));
  fireEvent.change(pop.getByRole('textbox',{name:'Next action'}),{target:{value:'turn'}});
  await pop.findByRole('option',{name:'Local vision'});
  fireEvent.click(pop.getByRole('button',{name:'Write'}));await pop.findByRole('button',{name:'Cancel'});
  expect((screen.getByRole('button',{name:'Run all'}) as HTMLButtonElement).disabled).toBe(true);
  expect((screen.getByRole('textbox',{name:'Session name'}) as HTMLInputElement).disabled).toBe(true);
+ expect((screen.getByRole('checkbox',{name:'Use current references for continuations'}) as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(pop.getByRole('button',{name:'Cancel'}));
  expect((screen.getByRole('button',{name:'Run all'}) as HTMLButtonElement).disabled).toBe(false);
+ expect((screen.getByRole('checkbox',{name:'Use current references for continuations'}) as HTMLInputElement).disabled).toBe(false);
  await act(async()=>{finish({simple_prompt:'late draft',warnings:[]});});
  expect(onChange).not.toHaveBeenCalled();expect(pop.queryByRole('textbox',{name:'Result'})).toBeNull();
 });

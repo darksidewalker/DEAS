@@ -93,6 +93,9 @@ struct Player {
     _temporary: Option<tempfile::NamedTempFile>,
     probe: bool,
     frames: Cell<u64>,
+    crop: Cell<bool>,
+    audio_only: Cell<bool>,
+    repeat: bool,
 }
 impl Player {
     fn check(code: c_int) -> Result<(), String> {
@@ -115,6 +118,18 @@ impl Player {
         let mut pointers: Vec<_> = strings.iter().map(|s| s.as_ptr()).collect();
         pointers.push(std::ptr::null());
         Self::check(unsafe { (self.api.mpv_command_async)(self.handle, 0, pointers.as_ptr()) })
+    }
+    fn clear_crop(&self) -> Result<(), String> {
+        if self.crop.get() {
+            self.command(&["set", "file-local-options/end", "none"])?;
+            self.command(&[
+                "set",
+                "file-local-options/loop-file",
+                if self.repeat { "inf" } else { "no" },
+            ])?;
+            self.crop.set(false);
+        }
+        Ok(())
     }
     fn poll(&self) {
         for _ in 0..100 {
@@ -248,6 +263,7 @@ pub fn open(
     temporary: Option<tempfile::NamedTempFile>,
     auto_play: bool,
     repeat: bool,
+    muted: bool,
 ) -> Result<(), String> {
     STATE.with(|s|{
  let mut state=s.borrow_mut();
@@ -255,9 +271,9 @@ pub fn open(
  if state.players.len()>=8 || state.players.contains_key(&id){return Err("Too many video previews".into());}
  unsafe{libc::setlocale(libc::LC_NUMERIC,c"C".as_ptr());}
  let api=unsafe{Api::load()?};let handle=unsafe{(api.mpv_create)()};if handle.is_null(){return Err("Cannot create video player".into());}
- let p=Rc::new(Player{api,handle,context:Cell::new(std::ptr::null_mut()),dirty:AtomicBool::new(true),status:RefCell::new(json!({"position":0,"duration":0,"width":0,"height":0,"paused":!auto_play,"muted":false,"volume":100,"ended":false})),id:id.clone(),_temporary:temporary,probe:std::env::var_os("DEAS_VIDEO_PROBE").is_some(),frames:Cell::new(0)});
+ let p=Rc::new(Player{api,handle,context:Cell::new(std::ptr::null_mut()),dirty:AtomicBool::new(true),status:RefCell::new(json!({"position":0,"duration":0,"width":0,"height":0,"paused":!auto_play,"muted":muted,"volume":100,"ended":false})),id:id.clone(),_temporary:temporary,probe:std::env::var_os("DEAS_VIDEO_PROBE").is_some(),frames:Cell::new(0),crop:Cell::new(false),audio_only:Cell::new(false),repeat});
  // shortcut: software decode until hardware decode is verified on supported native displays.
- for (key,value) in [("config","no"),("load-scripts","no"),("ytdl","no"),("vo","libmpv"),("hwdec","no"),("video-timing-offset","0"),("idle","yes"),("keep-open","yes"),("input-terminal","no"),("osc","no"),("audio-display","no"),("demuxer-lavf-o","protocol_whitelist=file"),("pause",if auto_play{"no"}else{"yes"}),("loop-file",if repeat{"inf"}else{"no"})] {
+ for (key,value) in [("config","no"),("load-scripts","no"),("ytdl","no"),("vo","libmpv"),("hwdec","no"),("video-timing-offset","0"),("idle","yes"),("keep-open","yes"),("input-terminal","no"),("osc","no"),("audio-display","no"),("demuxer-lavf-o","protocol_whitelist=file"),("mute",if muted{"yes"}else{"no"}),("pause",if auto_play{"no"}else{"yes"}),("loop-file",if repeat{"inf"}else{"no"})] {
  let key=CString::new(key).unwrap();let value=CString::new(value).unwrap();Player::check(unsafe{(p.api.mpv_set_option_string)(handle,key.as_ptr(),value.as_ptr())}).map_err(|e|format!("{e}: {}",key.to_string_lossy()))?;
  }
  Player::check(unsafe{(p.api.mpv_initialize)(handle)})?;
@@ -317,24 +333,44 @@ pub fn update(id: &str, action: Action) -> Result<Value, String> {
                 width,
                 height,
                 visible,
+                audio_only,
             } => {
-                if visible && width > 0 && height > 0 {
+                if p.audio_only.replace(audio_only) != audio_only {
+                    // Hidden GLAreas cannot render; disable video so its output never stalls audio.
+                    p.command(&["set", "vid", if audio_only { "no" } else { "auto" }])?;
+                }
+                if visible && !audio_only && width > 0 && height > 0 {
                     state.fixed.as_ref().unwrap().move_(&surface.area, x, y);
                     surface.area.set_size_request(width, height);
                     surface.area.show();
                 } else {
                     surface.area.hide();
-                    p.command(&["set", "pause", "yes"])?;
+                    if !visible || width <= 0 || height <= 0 {
+                        p.command(&["set", "pause", "yes"])?;
+                    }
                 }
             }
             Action::Pause { paused } => {
+                if !paused {
+                    p.clear_crop()?;
+                }
                 if !paused && p.status.borrow()["ended"] == true {
                     p.command(&["seek", "0", "absolute+exact"])?;
                 }
                 p.command(&["set", "pause", if paused { "yes" } else { "no" }])?;
             }
             Action::Seek { seconds } => {
+                p.clear_crop()?;
                 p.command(&["seek", &seconds.to_string(), "absolute+exact"])?
+            }
+            Action::Crop { start, end } => {
+                p.crop.set(true);
+                p.command(&["set", "pause", "yes"])?;
+                // mpv clips video frames and audio samples at this file-local end, not a UI timer.
+                p.command(&["set", "file-local-options/end", &end.to_string()])?;
+                p.command(&["set", "file-local-options/loop-file", "no"])?;
+                p.command(&["seek", &start.to_string(), "absolute+exact"])?;
+                p.command(&["set", "pause", "no"])?;
             }
             Action::Mute { muted } => {
                 p.command(&["set", "mute", if muted { "yes" } else { "no" }])?

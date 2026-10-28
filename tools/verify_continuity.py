@@ -20,6 +20,8 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   window.__calls.push({command,args});
   if(command==='plugin:event|listen')return ++callback;
   if(command==='plugin:event|unlisten')return null;
+  if(command==='native_workbench_current')return {jobs:[],preparing:0,capacity:20,stopAvailable:false,stopping:false,admissionEpoch:0};
+  if(command==='native_llm_read')return {provider:'ollama',baseUrl:'http://127.0.0.1:11434'};
   if(command==='native_media_list')return {path:args.path,parent:null,entries:[],truncated:false};
   if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:[],checkpoints:[],loras:[],samplers:['euler'],schedulers:['simple']}};
   if(command==='native_forge'){
@@ -46,12 +48,12 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         for locale in ['en', 'de', 'fr', 'tr', 'ja', 'zh']:
-            for width, source_kind in [(w,k) for w in [1440,1100,320] for k in ['checkpoint','video','local-video']]:
+            for width, pipeline, source_kind in [(w,p,k) for w in [1440,1100,320] for p,k in [('t2v','checkpoint'),('t2v','video'),('t2v','local-video'),('i2v','checkpoint'),('v2v','checkpoint'),('ref2v','checkpoint')]]:
                 context = browser.new_context(viewport={'width': width, 'height': 1000})
                 page = context.new_page()
                 errors = []
                 page.on('pageerror', lambda e: errors.append(str(e)))
-                page.add_init_script(INIT.replace('LOCALE', json.dumps(locale)))
+                page.add_init_script(INIT.replace('LOCALE', json.dumps(locale)).replace("JSON.stringify('t2v')", 'JSON.stringify('+json.dumps(pipeline)+')'))
                 page.goto(URL + '/tools/inpaint-fixture.html', wait_until='networkidle')
                 opener = page.locator('[data-continuity-open]')
                 expect(opener).to_be_visible()
@@ -61,6 +63,15 @@ def main():
                 dialog = page.get_by_role('dialog')
                 expect(dialog).to_be_visible()
                 assert dialog.evaluate('(d)=>d.matches(":modal")'), 'Not a native modal'
+                reference_toggle = dialog.locator('[data-cont-references]')
+                if pipeline in ('v2v', 'ref2v'):
+                    expect(reference_toggle).to_be_visible()
+                    expect(reference_toggle).not_to_be_checked()
+                    reference_toggle.check()
+                    assert page.evaluate('JSON.parse(localStorage.getItem("deas.pref.studio.run.continuity")).useReferences') is True
+                    reference_toggle.uncheck()
+                else:
+                    expect(reference_toggle).to_have_count(0)
                 overlap = dialog.locator('[data-cont-overlap]')
                 expect(overlap).to_have_value('22')
                 assert overlap.locator('option').evaluate_all('(options)=>options.map(o=>o.value)') == ['73', '56', '39', '22', '5']
@@ -117,7 +128,7 @@ def main():
                 rect = forge.evaluate('(el)=>{const r=el.getBoundingClientRect();return {x:r.x,right:r.right,top:r.top,bottom:r.bottom,overflow:el.scrollWidth-el.clientWidth};}')
                 assert rect['x'] >= 0 and rect['right'] <= width + 1 and rect['top'] >= 0 and rect['bottom'] <= 1001 and rect['overflow'] <= 1, rect
                 if locale in ['en','de']:
-                    page.screenshot(path=str(OUT / f'next-action-{source_kind}-{locale}-{width}.png'))
+                    page.screenshot(path=str(OUT / f'next-action-{pipeline}-{source_kind}-{locale}-{width}.png'))
                 forge.locator('[data-forge-brief]').focus()
                 page.keyboard.press('Escape')
                 expect(forge).to_have_count(0)
@@ -140,7 +151,7 @@ def main():
                 assert geometry['overflow'] <= 1, geometry
                 assert dialog.locator('.continuity-overlay-body').evaluate('(el)=>el.scrollWidth-el.clientWidth<=1'), 'Modal body overflows horizontally'
                 if locale in ['en', 'de']:
-                    page.screenshot(path=str(OUT / f'continuity-{source_kind}-{locale}-{width}.png'))
+                    page.screenshot(path=str(OUT / f'continuity-{pipeline}-{source_kind}-{locale}-{width}.png'))
                 page.keyboard.press('Escape')
                 expect(dialog).to_have_count(0)
                 expect(opener).to_be_focused()
@@ -162,11 +173,11 @@ def main():
                 assert not page.evaluate('window.__calls.some(x=>/native_job_/.test(x.command))'), 'Opening/closing executed a job'
                 assert page.evaluate('window.__calls.filter(x=>x.command==="native_h3_session").length') == (1 if source_kind=='checkpoint' else 0), 'Unexpected automatic session read'
                 assert not errors, errors
-                results.append({'locale': locale, 'width': width, 'sourceKind':source_kind, 'modal': True, 'focus': True, 'draftRetained': True, 'nextActionApplied': True, 'nestedEscape': True})
+                results.append({'locale': locale, 'width': width, 'pipeline':pipeline, 'sourceKind':source_kind, 'modal': True, 'focus': True, 'draftRetained': True, 'nextActionApplied': True, 'nestedEscape': True})
                 context.close()
         browser.close()
     (OUT / 'results.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
-    print(f'PASS: {len(results)} Chromium locale/viewport cases; explicit checkpoint/backend-video/local-upload flows, no generation IPC. Evidence: {OUT}')
+    print(f'PASS: {len(results)} Chromium pipeline/locale/viewport cases; explicit checkpoint/backend-video/local-upload flows, no generation IPC. Evidence: {OUT}')
 
 
 if __name__ == '__main__':

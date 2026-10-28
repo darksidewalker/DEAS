@@ -7,14 +7,15 @@ import { ContinuityVideoSource } from './ContinuityVideoSource';
 import { ContinuitySources } from './ContinuitySources';
 import { h3OverlapFrames, isH3OverlapFrames } from '../../lib/videoIntent';
 
-export interface ContinuityPlannerProps { endpoint?:string; root?:string; forgeContext?:H3Context; plan:ContinuityPlan; onChange:(plan:ContinuityPlan)=>void; /** Run the next planned step (or every remaining one in sequence). */ onRun:(all:boolean)=>void; running:boolean; disabled:boolean }
+export interface ContinuityPlannerProps { endpoint?:string; root?:string; forgeContext?:H3Context; allowReferences?:boolean; plan:ContinuityPlan; onChange:(plan:ContinuityPlan)=>void; /** Run the next planned step (or every remaining one in sequence). */ onRun:(all:boolean)=>void; running:boolean; disabled:boolean }
 /** MiniMax H3 continuity planner: planned segments with their own seconds and next action, run one or all; finished steps show the checkpoint clip they produced. */
-export function ContinuityPlanner({endpoint,root,forgeContext,plan,onChange,onRun,running,disabled}:ContinuityPlannerProps){
+export function ContinuityPlanner({endpoint,root,forgeContext,allowReferences=false,plan,onChange,onRun,running,disabled}:ContinuityPlannerProps){
  const {t}=useI18n();
  const [sessionDraft,setSessionDraft]=useState(plan.session);const sessionHintId=useId();
  useEffect(()=>setSessionDraft(plan.session),[plan.session]);
  const validSession=isContinuitySession(sessionDraft);
  const [forging,setForging]=useState(false);const locked=running||forging;
+ const useReferences=allowReferences&&plan.useReferences===true;
  const sourceChanged=!!plan.source&&plan.source.endpoint!==endpoint;
  const next=nextStep(plan);
  const step=(id:string,patch:Partial<ContinuityPlan['steps'][number]>)=>onChange({...plan,steps:plan.steps.map(s=>s.id===id?{...s,...patch}:s)});
@@ -28,6 +29,7 @@ export function ContinuityPlanner({endpoint,root,forgeContext,plan,onChange,onRu
     <small id={sessionHintId}>{t(validSession?'studio.run.cont.sessionNameHint':'studio.run.cont.invalidSession')}</small><small>{t('studio.run.cont.sessionHint')}</small>
    </div>
    <label className="wb-option"><span>{t('studio.run.cont.overlap')}</span><select data-cont-overlap aria-label={t('studio.run.cont.overlap')} title={t('studio.run.cont.overlapHint')} disabled={locked} value={plan.overlapFrames??22} onChange={e=>{const value=Number(e.target.value);if(isH3OverlapFrames(value))onChange({...plan,overlapFrames:value});}}>{h3OverlapFrames.map(n=><option key={n} value={n}>{n}</option>)}</select><small>{t('studio.run.cont.overlapHint')}</small></label>
+   {allowReferences&&<label className="wb-option"><span className="wb-option-row"><input type="checkbox" data-cont-references aria-label={t('studio.run.cont.useReferences')} checked={useReferences} disabled={locked} onChange={e=>{if(!locked)onChange({...plan,useReferences:e.target.checked});}}/>{t('studio.run.cont.useReferences')}</span><small>{t('studio.run.cont.useReferencesHint')}</small></label>}
    <label className="wb-option"><span>{t('studio.run.cont.output')}</span><select value={plan.outputMode} disabled={locked} onChange={e=>onChange({...plan,outputMode:e.target.value as ContinuityPlan['outputMode']})}><option value="full">{t('studio.run.cont.output.full')}</option><option value="segment">{t('studio.run.cont.output.segment')}</option></select></label>
   </div>
   <ContinuitySources endpoint={endpoint} session={plan.session} sourceId={plan.source?.kind==='video'?undefined:plan.source?.clipId} running={locked} onSelect={clipId=>{if(locked)return;const next=defaultPlanKeep(plan);if(clipId&&endpoint)next.source={clipId,endpoint};onChange(next);}}/>
@@ -38,7 +40,7 @@ export function ContinuityPlanner({endpoint,root,forgeContext,plan,onChange,onRu
    <span className="wb-cont-index">{i+1}</span>
    <label><span>{t('studio.run.cont.seconds')}</span><input type="number" value={s.seconds} min={0.5} max={15} step={0.5} disabled={locked||!!s.clipId} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&n>0&&n<=15)step(s.id,{seconds:n});}}/></label>
    <div className="wb-cont-action"><label><span>{t(i===0&&!plan.source?'studio.run.cont.firstTake':'studio.run.cont.action')}</span><textarea value={s.action} maxLength={16384} disabled={locked||!!s.clipId||(i===0&&!plan.source)} placeholder={t(i===0&&!plan.source?'studio.run.cont.firstTakeHint':'studio.run.cont.actionHint')} onChange={e=>step(s.id,{action:e.target.value})}/></label>
-    {!running&&!sourceChanged&&i===next?.index&&continuitySource(plan,i)&&endpoint&&root&&forgeContext&&<ForgeButton endpoint={endpoint} root={root} dialect={H3} value={s.action} onApply={action=>step(s.id,{action})} onBusyChange={setForging} h3={{...forgeContext,duration:s.seconds,references:[],easy:false,continuity:{source_kind:i===0&&plan.source?.kind==='video'?'video':'checkpoint',session:plan.session,clip_id:continuitySource(plan,i)!,current_prompt:s.action,use_references:false,...(plan.overlapFrames===undefined?{}:{overlap_frames:plan.overlapFrames})}}}/>}
+    {!running&&!sourceChanged&&i===next?.index&&continuitySource(plan,i)&&endpoint&&root&&forgeContext&&<ForgeButton endpoint={endpoint} root={root} dialect={H3} value={s.action} onApply={action=>step(s.id,{action})} onBusyChange={setForging} h3={{...forgeContext,duration:s.seconds,references:useReferences?forgeContext.references:[],easy:false,continuity:{source_kind:i===0&&plan.source?.kind==='video'?'video':'checkpoint',session:plan.session,clip_id:continuitySource(plan,i)!,current_prompt:s.action,use_references:useReferences,...(plan.overlapFrames===undefined?{}:{overlap_frames:plan.overlapFrames})}}}/>}
    </div>
    <span className="wb-cont-state">{s.clipId?<>✓ <code>{s.clipId.slice(0,12)}</code></>:running&&next?.index===i?t('studio.run.running'):t('studio.run.cont.planned')}</span>
    <button type="button" aria-label={t('studio.run.cont.remove')} disabled={locked} onClick={()=>onChange({...plan,steps:plan.steps.filter(x=>x.id!==s.id)})}>✕</button>

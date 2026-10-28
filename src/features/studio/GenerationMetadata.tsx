@@ -43,13 +43,14 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
  const duration=generationDuration(job,locale);
  // Image intents list every field; video intents share the sampling rows plus frames/fps and the family block.
  const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&!isVideoIntent(intent)?intent:undefined;
+ const extensionSeconds=v?.family==='minimax-h3'?v.h3.continuity?.durationSeconds:undefined;
  const row=(key:string,value:ReactNode)=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>;
  const timing=<>{job?.metadata&&Number.isFinite(new Date(job.metadata.startedAt).getTime())&&row('studio.run.metadata.date',new Date(job.metadata.startedAt).toLocaleString(locale))}{duration!==null&&row('studio.run.metadata.time',duration)}</>;
  return <section className="wb-metadata" aria-label={t('studio.run.metadata')}>
   <h3>{t('studio.run.metadata')}</h3>
   {v?<>{onApply&&<Apply key={job?.id} settings={{positive:v.positivePrompt,negative:v.negativePrompt,checkpoint:v.model,seed:v.seed,steps:v.steps,cfg:v.cfg,sampler:v.sampler,scheduler:v.scheduler,width:v.width,height:v.height,loras:v.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
-   {row('studio.run.positive',v.positivePrompt)}{v.negativePrompt&&row('studio.run.negative',v.negativePrompt)}{row('studio.run.checkpoint',v.model)}{row('studio.run.resolution.title',`${v.width} × ${v.height} · ${v.frames} ${t('studio.run.video.frames')} · ${v.frameRate} fps`)}
-   {row('studio.run.seed',v.seed)}{row('studio.run.steps',v.steps)}{row('studio.run.cfg',v.cfg)}{row('studio.recipe.sampler',v.sampler)}{row('studio.recipe.scheduler',v.scheduler)}{row('studio.run.textEncoder',v.textEncoder)}{row('studio.run.vae',v.vae)}
+   {row('studio.run.positive',v.positivePrompt)}{v.negativePrompt&&row('studio.run.negative',v.negativePrompt)}{row('studio.run.checkpoint',v.model)}{row('studio.run.resolution.title',`${v.width} × ${v.height} · ${extensionSeconds===undefined?`${v.frames} ${t('studio.run.video.frames')} · `:''}${v.frameRate} fps`)}
+   {extensionSeconds!==undefined&&row('studio.run.cont.seconds',extensionSeconds)}{row('studio.run.seed',v.seed)}{row('studio.run.steps',v.steps)}{row('studio.run.cfg',v.cfg)}{row('studio.recipe.sampler',v.sampler)}{row('studio.recipe.scheduler',v.scheduler)}{row('studio.run.textEncoder',v.textEncoder)}{row('studio.run.vae',v.vae)}
    {!!v.loras?.length&&row('studio.run.loras',v.loras.map(l=>`${l.name} (${l.strength})`).join(', '))}{(v.firstFrame||v.lastFrame)&&row('studio.run.pipe.input',[v.firstFrame,v.lastFrame].filter(Boolean).join(' → '))}
    {row('studio.run.video.settings',JSON.stringify(v.family==='ltx-2'?v.ltx:v.family==='wan'?v.wan:{...v.h3,references:v.h3.references.map(r=>r.image)}))}
    {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}

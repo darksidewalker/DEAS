@@ -1,5 +1,14 @@
 # News
 
+## References overlay (0.1.59)
+
+Multi-reference authoring now has a Continuity-style References popup with its own media picker and inline previews. Choose picture, sound or both from a video, set crop endpoints with fields/sliders or the playhead, and audition only that segment. Existing Director labels, people controls, packs and RefMods stay available; edits do not rewrite source files. See [Studio](STUDIO.md#multi-reference-overlay) for supported paths and remaining parity limits.
+
+
+## Development — 0.1.58
+
+H3 Continuity is now available for Video → Video and Multi-reference → Video as well as text/image inputs. Continue a pinned checkpoint or prepared input video with the existing serial planner, and opt in to current reference conditioning when needed. Generation and Next action Forge use the same reference policy. The Director’s mode-family and canvas checks remain authoritative; this does not add LTX/Wan continuity or establish real-model seam quality. [Usage](STUDIO.md#ref2va-continuation-references). Local development change, not a published release.
+
 ## Development — 0.1.54
 
 TVE adds native file-authority preparation and an optional Linux rendering engine. In the AI-enabled build, explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. The regular build keeps inference off. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#validate-and-render-with-the-optional-native-engine). Not published by this change.

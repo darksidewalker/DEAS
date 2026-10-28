@@ -81,6 +81,18 @@ pub fn native_logs_people_image_error() {
     push(Source::Deas, "ERROR: Studio PeopleBoxes image-load: reference image could not be decoded; box editing disabled (repeats limited to once per minute)");
 }
 
+/// Fixed reference-preview diagnostic; no media paths or frontend text cross this boundary.
+#[tauri::command]
+pub fn native_logs_reference_media_error() {
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+        return;
+    }
+    *last = Some(std::time::Instant::now());
+    push(Source::Deas, "ERROR: Studio ReferenceMedia preview/playback: reference media could not be decoded or played (repeats limited to once per minute)");
+}
+
 /// Entries newer than `after` (0 = everything still retained).
 #[tauri::command]
 pub fn native_logs(after: u64) -> Vec<Entry> {
@@ -125,6 +137,23 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].source, Source::Deas);
         assert!(!reports[0].text.contains("private.png"));
+    }
+
+    #[test]
+    fn reference_media_error_is_fixed_shared_and_rate_limited() {
+        native_logs_reference_media_error();
+        native_logs_reference_media_error();
+        let entries = native_logs(0);
+        let reports: Vec<_> = entries
+            .iter()
+            .filter(|e| {
+                e.text
+                    .starts_with("ERROR: Studio ReferenceMedia preview/playback:")
+            })
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, Source::Deas);
+        assert!(!reports[0].text.contains("private.mp4"));
     }
 
     #[test]

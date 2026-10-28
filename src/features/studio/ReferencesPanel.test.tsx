@@ -457,3 +457,16 @@ test('keep / ignore reach the Forge and packs; the description feeds the prefill
  fireEvent.change(screen.getByLabelText('Ignore from a.png'),{target:{value:'the umbrella'}});
  expect(onChange.mock.lastCall![0][0]).toMatchObject({drop:'the umbrella',keep:' the coat '});
 });
+
+test('H3 validates implicit trim starts, known source bounds, aggregate stream durations and both-stream counts',()=>{
+ expect(refsProblem([refAt('a.wav','audio',{trimEnd:1})])).toBe('studio.run.video.trimInvalid');
+ expect(refsProblem([refAt('a.wav','audio',{trimStart:8,sourceDuration:10})])).toBe('');
+ expect(refsProblem([refAt('a.wav','audio',{trimStart:8,trimEnd:12,sourceDuration:10})])).toBe('studio.run.video.trimInvalid');
+ expect(refsProblem([refAt('a.wav','audio',{sourceDuration:20})])).toBe('studio.run.video.trimInvalid');
+ expect(refsProblem([refAt('v.mp4','video',{mediaMode:'video_audio',trimEnd:10}),refAt('a.wav','audio',{trimEnd:6})])).toBe('studio.run.video.trimTotal');
+ expect(refsProblem([refAt('v.mp4','video',{mediaMode:'video',trimEnd:10}),refAt('a.wav','audio',{trimEnd:6})])).toBe('');
+ const pictures=Array.from({length:9},(_,n)=>refAt(`${n}.png`,'image'));
+ expect(refsProblem([...pictures,refAt('v.mp4','video',{mediaMode:'video_audio'}),refAt('a.wav','audio')])).toBe('');
+ expect(refsProblem([...pictures,refAt('v.mp4','video',{mediaMode:'video_audio'}),refAt('a.wav','audio'),refAt('b.wav','audio')])).toBe('studio.run.video.refFull');
+});
+

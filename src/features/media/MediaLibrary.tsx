@@ -60,6 +60,7 @@ export interface MediaLibraryProps { selected: MediaItem|null; onSelect: (item: 
 /** Media browser with explicit native-authorized physical starring. */
 export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter='',sort='date',view='tiles',type='all',marks,actions}:MediaLibraryProps){
  const {t}=useI18n();
+ const dropBox=useRef<HTMLElement>(null),selectRef=useRef(onSelect);selectRef.current=onSelect;
  const native=isTauri();
  const [listing,setListing]=useState<MediaListing|null>(null);
  const [treeRoot,setTreeRoot]=useState('');
@@ -104,19 +105,30 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  const changeDepth=(levels:number)=>{setDepth(levels);if(listing)void open(listing.path,levels);};
  const rootName=underRoot(treeRoot,roots.output)?'root':underRoot(treeRoot,roots.input)?t('media.root.input'):treeRoot.split(/[\\/]+/).filter(Boolean).at(-1)??treeRoot;
  const parent=listing?.parent&&underRoot(listing.parent,treeRoot)&&normalizedPath(listing.path)!==normalizedPath(treeRoot)?listing.parent:null;
- const addDropped=(items:(MediaItem|null)[])=>{const valid=items.filter((i):i is MediaItem=>!!i);if(valid.length){setDropped(d=>[...valid,...d]);onSelect(valid[0]);}};
+ const addDropped=(items:(MediaItem|null)[])=>{const valid=items.filter((i):i is MediaItem=>!!i);if(valid.length){setDropped(d=>[...valid,...d]);selectRef.current(valid[0]);}};
  const dropPaths=async(paths:string[])=>{
-  try{const entries=await describeMedia(paths);const folder=entries.find(e=>e.kind==='directory');if(folder)void open(folder.path,depth,true);addDropped(entries.map(itemFromEntry));}
+  try{const entries=await describeMedia(paths);if(!mounted.current)return;const folder=entries.find(e=>e.kind==='directory');if(folder)void open(folder.path,depth,true);addDropped(entries.map(itemFromEntry));}
   catch(e){setError(String(e));}
  };
+ const currentDrop=useRef(dropPaths);currentDrop.current=dropPaths;
  // Native webviews deliver OS drops as paths; the HTML5 handlers below serve the browser preview.
  useEffect(()=>{
   if(!native)return;
   let alive=true,unlisten:(()=>void)|undefined;
   void (async()=>{
    try{const stop=await getCurrentWebview().onDragDropEvent(e=>{
+    // A modal owns its drops; retained background browsers must not consume them too.
+    const modal=document.querySelector('dialog[open], [aria-modal="true"]');
+    if(modal){
+     const el=dropBox.current;
+     if(!el||!modal.contains(el)){setDragging(false);return;}
+     if(e.payload.type!=='leave'){
+      const r=el.getBoundingClientRect(),x=e.payload.position.x/devicePixelRatio,y=e.payload.position.y/devicePixelRatio;
+      if(x<r.left||x>r.right||y<r.top||y>r.bottom){setDragging(false);return;}
+     }
+    }
     if(e.payload.type==='enter'||e.payload.type==='over')setDragging(true);
-    else{setDragging(false);if(e.payload.type==='drop')void dropPaths(e.payload.paths);}
+    else{setDragging(false);if(e.payload.type==='drop')void currentDrop.current(e.payload.paths);}
    });if(alive)unlisten=stop;else stop();}
    catch(e){if(alive)setError(String(e));} // drag & drop unavailable must not take the library down
   })();
@@ -166,7 +178,7 @@ export function MediaLibrary({selected,onSelect,roots={},outputRevision=0,filter
  // Beside the button, so the tile's accessible name stays the file name.
  const badge=(path?:string)=>mark(path)&&<span className="media-mark">{mark(path)}</span>;
  const thumb=(media:string|null,src:string|null)=>media==='image'&&src?<img src={src} alt="" loading="lazy"/>:<span className="media-glyph" aria-hidden="true">{media==='video'?'▶':media==='audio'?'♪':'▸'}</span>;
- return <aside className={`media-library${dragging?' is-dragging':''}`} data-view={view} aria-label={t('media.title')}
+ return <aside ref={dropBox} className={`media-library${dragging?' is-dragging':''}`} data-view={view} aria-label={t('media.title')}
   onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)}
   onDrop={e=>{e.preventDefault();setDragging(false);addDropped([...e.dataTransfer.files].map(itemFromFile));}}>
   <header className="media-header"><h2>{t('media.title')}</h2>

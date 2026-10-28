@@ -185,6 +185,7 @@ fn main() {
             deas::native_logs,
             deas::native_logs_export,
             deas::native_logs_people_image_error,
+            deas::native_logs_reference_media_error,
             deas::native_backend_start,
             deas::native_backend_status,
             deas::native_backend_stop,

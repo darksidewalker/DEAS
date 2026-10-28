@@ -23,7 +23,7 @@ export type H3Scaling=typeof h3Scalings[number];
 export const h3OverlapFrames=[73,56,39,22,5] as const;
 export type H3OverlapFrames=typeof h3OverlapFrames[number];
 export const isH3OverlapFrames=(v:unknown):v is H3OverlapFrames=>h3OverlapFrames.some(n=>n===v);
-export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames }
+export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; durationSeconds?:number }
 interface VideoBase { readonly recipeId:'video-generation'; readonly version:1; readonly positivePrompt:string; readonly negativePrompt:string; readonly model:string; readonly textEncoder:string; readonly vae:string; readonly seed:number; readonly width:number; readonly height:number; readonly frames:number; readonly frameRate:number; readonly steps:number; readonly cfg:number; readonly sampler:string; readonly scheduler:string; readonly outputPrefix:string; readonly output:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly firstFrame?:string; readonly lastFrame?:string; readonly sourceVideo?:string; readonly loras?:readonly {name:string;strength:number}[]; readonly options?:RunOptions; readonly chunks?:number }
 export type VideoIntentV1=VideoBase&(
  |{readonly family:'ltx-2';readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}

@@ -100,7 +100,10 @@ pub use install::{
     native_install_cancel, native_install_open, native_install_plan, native_install_start,
     native_install_status, native_install_update,
 };
-pub use logs::{native_logs, native_logs_export, native_logs_people_image_error};
+pub use logs::{
+    native_logs, native_logs_export, native_logs_people_image_error,
+    native_logs_reference_media_error,
+};
 
 use reqwest::Url;
 

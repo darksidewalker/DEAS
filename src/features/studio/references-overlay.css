@@ -1,0 +1,21 @@
+.references-overlay { width: min(90rem, calc(100vw - 2rem)); height: min(54rem, calc(100dvh - 2rem)); }
+.references-overlay-body { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr); min-height: 0; min-width: 0; }
+.references-picker { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; border-right: 1px solid var(--line); }
+.references-picker .media-toolbar { flex-wrap: wrap; }
+.references-picker .media-toolbar input { min-width: 0; }
+.references-editor { min-height: 0; min-width: 0; overflow: auto; padding: 1rem; }
+.references-editor .wb-lanes { grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr)); }
+.references-editor .wb-ref { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.references-editor .wb-ref > strong { overflow-wrap: anywhere; min-width: 0; }
+.references-editor .wb-ref > input, .references-editor .wb-ref > select, .references-editor .wb-ref > label { grid-column: 1 / -1; min-width: 0; box-sizing: border-box; width: 100%; }
+.references-editor .wb-ref > label { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.references-editor .wb-ref-actions { flex-wrap: wrap; align-items: start; }
+.references-editor .wb-ref-toolbar select { min-width: 0; max-width: 100%; }
+.references-editor .wb-ref-more label { flex-wrap: wrap; }
+@media (max-width: 700px) {
+ .references-editor .wb-ref > strong { grid-column: 1 / -1; white-space: normal; }
+ .references-editor .wb-ref > .wb-ref-actions { grid-column: 1 / -1; justify-content: flex-end; }
+ .references-overlay-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+ .references-picker { min-height: 16rem; max-height: 22rem; border-right: 0; border-bottom: 1px solid var(--line); }
+ .references-editor { overflow: visible; }
+}

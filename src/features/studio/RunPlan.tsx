@@ -55,7 +55,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
     {row(image?.sigmas?'studio.run.opt.sigmas':'studio.recipe.scheduler',image?.sigmas?image.sigmas.join(', '):intent.scheduler)}
     {image?.denoise!==undefined&&row('studio.run.denoise',image.denoise)}
     {image?.h3Edit&&<>{row('studio.run.video.shiftVideo',image.h3Edit.shiftVideo)}{row('studio.run.video.shiftAudio',image.h3Edit.shiftAudio)}</>}
-    {video&&<>{row('studio.plan.frames',video.frames)}{row('studio.run.video.fps',video.frameRate)}{row('studio.plan.duration',String((video.frames-1)/video.frameRate))}
+    {video&&<>{video.family==='minimax-h3'&&video.h3.continuity?.durationSeconds!==undefined?row('studio.run.cont.seconds',video.h3.continuity.durationSeconds):<>{row('studio.plan.frames',video.frames)}{row('studio.plan.duration',String((video.frames-1)/video.frameRate))}</>}{row('studio.run.video.fps',video.frameRate)}
      {video.chunks&&row('studio.run.opt.chunking',video.chunks)}
      {row('studio.plan.family',video.family)}
      {video.family==='ltx-2'&&<>{row('studio.run.video.passes',<ol>{Array.from({length:video.ltx.passes},(_,n)=><li key={n}>{t('studio.plan.pass',{n:String(n+1)})}{n===0?` · ${intent.steps} · ${intent.sampler}`:` · ${t('studio.plan.nativePass')}`}</li>)}</ol>)}{row('studio.run.video.textProjection',video.ltx.textProjection)}{video.ltx.spatialUpscaler!==undefined&&row('studio.run.video.upscaler',video.ltx.spatialUpscaler)}{video.ltx.sourceStrength!==undefined&&row('studio.run.video.sourceStrength',video.ltx.sourceStrength)}</>}

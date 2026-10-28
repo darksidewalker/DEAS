@@ -8,9 +8,10 @@ import { labelCharacters, readPeopleBoxes, type PeopleBox, type H3Reference } fr
 import type { H3Context } from '../forge/ForgeButton';
 import {PeopleBoxes} from './PeopleBoxes';
 import {PeopleDetector} from './PeopleDetector';
+import {ReferenceMedia} from './ReferenceMedia';
 
 /** A Multi-reference → Video pick: LTX uses images at a second with a guide strength; H3 (REF2VA) also takes videos/audio, optionally trimmed (seconds). */
-export interface VideoRef { item:MediaItem; second:number; strength:number; mediaMode:'video'|'audio'|'video_audio'; trimStart?:number; trimEnd?:number;
+export interface VideoRef { item:MediaItem; second:number; strength:number; mediaMode:'video'|'audio'|'video_audio'; trimStart?:number; trimEnd?:number; sourceDuration?:number;
  /** Director Forge picture label (REF2VA images; unset = next free Character); `instructions` = what to take from this reference. */ label?:string; instructions?:string; who?:number[]; whoAxis?:'y'|'z'|'none'; boxes?:PeopleBox[];
  /** Forge keep / drop details (`forge_keep`/`forge_drop`) and the prefill's user description (the Director's `prompt`, not in packs). */ keep?:string; drop?:string; description?:string }
 /** Director picture labels (individual characters 1–32 and its seven left-to-right groups). */
@@ -44,7 +45,7 @@ export const directorTags=(refs:VideoRef[])=>{
 export function forgeReferences(refs:VideoRef[],mode:string,inputRoot?:string):H3Reference[]{
  const slots=slotsOf(refs);const rank={image:0,video:1,audio:2} as Record<string,number>;
  const rel=(r:VideoRef)=>{const path=inputRoot?relativeMediaPath(r.item.path??'',inputRoot):'';return path?{path}:{};};
- const length=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined?{duration_seconds:r.trimEnd-r.trimStart}:{};
+ const length=(r:VideoRef)=>{const seconds=referenceSeconds(r);return seconds===undefined?{}:{duration_seconds:seconds};};
  const labels=forgeLabels(refs);
  return refs.map((r,i)=>({r,i})).sort((a,b)=>rank[a.r.item.media??'']-rank[b.r.item.media??'']||slots[a.i]-slots[b.i]||a.i-b.i).map(({r}):H3Reference=>
   ({...(r.item.media==='image'?{kind:'image' as const,...rel(r),...(mode==='REF2VA'?{...labelRole(labels[refs.indexOf(r)]),easy_role:labels[refs.indexOf(r)],...(r.boxes?.length?{boxes:r.boxes}:{}),...(labelCharacters(labels[refs.indexOf(r)]).length&&(r.who?.length||r.whoAxis)?{picture_kinds:['character'],who:r.who??labelCharacters(labels[refs.indexOf(r)]).map(Number),...(r.whoAxis?{who_axis:r.whoAxis}:{})}:{})}:{role:'keyframe',subject_group:'',...(r.who?.length?{who:r.who}:{}),...(r.whoAxis?{who_axis:r.whoAxis}:{}),...(r.boxes?.length?{boxes:r.boxes}:{})})}
@@ -71,13 +72,22 @@ export const prefillItems=(refs:VideoRef[])=>{const slots=slotsOf(refs);const ra
 /** Counts the Director limits apply to; a video with sound counts as video and sound track (as native validation does). */
 export const refCounts=(refs:VideoRef[])=>({images:refs.filter(r=>r.item.media==='image').length,videos:refs.filter(r=>r.item.media==='video'&&r.mediaMode!=='audio').length,
  audio:refs.filter(r=>r.item.media==='audio'||(r.item.media==='video'&&r.mediaMode!=='video')).length,files:refs.length});
-export const over=(c:ReturnType<typeof refCounts>)=>c.files>12||c.images>9||c.videos>3||c.audio>3;
+export const over=(c:ReturnType<typeof refCounts>)=>c.images+c.videos+c.audio>12||c.images>9||c.videos>3||c.audio>3;
 /** Director REF2VA limits: 9 images, 3 videos, 3 sound tracks, 12 files. */
 export const h3Full=(refs:VideoRef[],item:MediaItem)=>over(refCounts([...refs,{item,second:0,strength:1,mediaMode:'video'}]));
 /** The Director takes 2–15 s per clip; checkable here only when both trim ends are set (the node checks the rest). */
-export const badTrim=(r:VideoRef)=>r.trimStart!==undefined&&r.trimEnd!==undefined&&!(r.trimEnd-r.trimStart>=2&&r.trimEnd-r.trimStart<=15);
+export const referenceSeconds=(r:VideoRef)=>(r.trimEnd??r.sourceDuration)===undefined?undefined:(r.trimEnd??r.sourceDuration!)-(r.trimStart??0);
+export const badTrim=(r:VideoRef)=>{if(r.item.media==='image')return false;const seconds=referenceSeconds(r);return seconds!==undefined&&(!(seconds>=2&&seconds<=15)||r.sourceDuration!==undefined&&(r.trimEnd??r.sourceDuration)>r.sourceDuration);};
 /** Why the reference list cannot run as is (locale key), else ''. */
-export const refsProblem=(refs:VideoRef[])=>over(refCounts(refs))?'studio.run.video.refFull':refs.some(badTrim)?'studio.run.video.trimInvalid':'';
+export const refsProblem=(refs:VideoRef[])=>{
+ if(over(refCounts(refs)))return 'studio.run.video.refFull';
+ if(refs.some(badTrim))return 'studio.run.video.trimInvalid';
+ for(const kind of ['video','audio'] as const){
+  const total=refs.reduce((sum,r)=>{const used=r.item.media==='video'?(kind==='video'?r.mediaMode!=='audio':r.mediaMode!=='video'):r.item.media===kind;return sum+(used?(referenceSeconds(r)??0):0);},0);
+  if(total>15)return 'studio.run.video.trimTotal';
+ }
+ return '';
+};
 /** A RefMod row (saved REF2VA reference in `models/refmods`); its Director slot is its position + 1. */
 export interface RefMod { name:string; strength:number; description:string; /** Library media kinds; unknown for rows loaded from a pack until the library is read. */ kinds?:string[] }
 /** A reference to add; omitted fields take the defaults (picture-only video, untrimmed). */
@@ -146,7 +156,7 @@ export function ReferencePeople({r,label,onChange,endpoint,root,inputRoot,allowE
 }
 
 export interface ReferencesPanelProps { endpoint?:string; root?:string; refs:VideoRef[]; onChange:(refs:VideoRef[])=>void; family:'ltx-2'|'minimax-h3'; /** Video length: LTX reference seconds stay inside it. */ seconds:number; /** Adds references in order (dropped tiles/files, loaded packs); `replace` starts from an empty list. */ onAdd:(adds:RefAdd[],replace?:boolean)=>void; /** ComfyUI input folder: Director packs name files relative to it. */ inputRoot?:string; label:(r:VideoRef,i:number)=>string; /** Append a Director label such as `<Picture 1>` to the prompt. */ onInsert:(label:string)=>void; /** H3 RefMod rows (Director slots 1–8 in order). */ refmods?:RefMod[]; onRefmods?:(rows:RefMod[])=>void; /** Reads the backend's RefMod library on demand. */ library?:()=>Promise<RefModEntry[]> }
-/** References dock tab: the Multi-reference → Video list in Director lanes, edited in place (order, use, trims, LTX second/strength). */
+/** Multi-reference → Video editor in Director lanes; used inside the References overlay. */
 export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,label,onAdd,onInsert,inputRoot,refmods=[],onRefmods,library}:ReferencesPanelProps){
  const {t}=useI18n();
  const box=useRef<HTMLDivElement>(null);const [error,setError]=useState('');const [hovering,setHovering]=useState(false);
@@ -197,7 +207,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
  // Order matters only inside a lane (slot numbers), so a move swaps with the nearest item of the same lane.
  const neighbour=(n:number,d:-1|1)=>{for(let m=n+d;m>=0&&m<refs.length;m+=d)if(laneOf(refs[m])===laneOf(refs[n]))return m;return -1;};
  const move=(n:number,d:-1|1)=>{const m=neighbour(n,d);if(m<0)return;const next=[...refs];[next[n],next[m]]=[next[m],next[n]];onChange(next);};
- const time=(n:number,key:'trimStart'|'trimEnd',value:string)=>{const v=value===''?undefined:Math.min(3600,Math.max(0,Number(value)));set(n,{[key]:Number.isFinite(v)?v:undefined});};
+
  const tags=directorTags(refs);const labels=forgeLabels(refs);
  // Dropping a card on another card of its lane moves it there; a dock tile dropped anywhere on the tab is added.
  const dropOn=(e:React.DragEvent,target:number)=>{const from=dragged.current;dragged.current=-1;if(from<0||from===target||laneOf(refs[from])!==laneOf(refs[target]))return;e.preventDefault();e.stopPropagation();const next=refs.filter((_,m)=>m!==from);next.splice(next.indexOf(refs[target])+(from<target?1:0),0,refs[from]);onChange(next);};
@@ -213,7 +223,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
    {status&&<span role="status">{status}</span>}
   </div>
   <p className="media-help">{t('studio.run.video.refsDrop')}</p>
-  {h3&&<p className={`wb-ref-meter${over(c)?' error-message':''}`}>{t('studio.run.video.refMeter',{images:String(c.images),videos:String(c.videos),audio:String(c.audio),files:String(c.files)})}</p>}
+  {h3&&<p className={`wb-ref-meter${over(c)?' error-message':''}`}>{t('studio.run.video.refMeter',{images:String(c.images),videos:String(c.videos),audio:String(c.audio),files:String(c.images+c.videos+c.audio)})}</p>}
   {!refs.length&&<p className="media-help">{t(h3?'studio.run.video.refsHintH3':'studio.run.video.refsHint')}</p>}
   <div className="wb-lanes">{lanes[family].map(lane=><section key={lane} className="wb-lane" aria-label={t(`studio.run.dock.type.${lane}`)}>
    {h3&&<h4>{t(`studio.run.dock.type.${lane}`)}</h4>}
@@ -235,9 +245,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
     {h3&&<details className="wb-ref-more"><summary>{t('studio.run.video.refDetails')}</summary>
      {(['description','keep','drop'] as const).map(key=><label key={key}><span>{t(`studio.run.video.ref.${key}`)}</span><input type="text" aria-label={t(`studio.run.video.ref.${key}Of`,{name:r.item.name})} maxLength={2000} value={r[key]??''} onChange={e=>set(n,{[key]:e.target.value})}/></label>)}
     </details>}
-    {h3&&r.item.media==='video'&&<select aria-label={t('studio.run.video.refMode',{name:r.item.name})} value={r.mediaMode} onChange={e=>set(n,{mediaMode:e.target.value as VideoRef['mediaMode']})}>{(['video','video_audio','audio'] as const).map(m=><option key={m} value={m}>{t(`studio.run.video.mode.${m}`)}</option>)}</select>}
-    {h3&&r.item.media!=='image'&&<>{(['trimStart','trimEnd'] as const).map(key=><label key={key}><span>{t(`studio.run.video.${key}`)}</span><input type="number" aria-label={t(`studio.run.video.${key}Of`,{name:r.item.name})} min={0} max={3600} step={0.1} placeholder={t(key==='trimStart'?'studio.run.video.trimFromStart':'studio.run.video.trimToEnd')} value={r[key]??''} onChange={e=>time(n,key,e.target.value)}/></label>)}
-     {badTrim(r)&&<p className="error-message" role="alert">{t('studio.run.video.trimInvalid')}</p>}</>}
+    <ReferenceMedia key={`${r.item.src}:${h3}`} reference={r} onChange={x=>set(n,x)}/>
    </li>)}</ul>
   </section>)}
   {h3&&onRefmods&&<section className="wb-lane" aria-label={t('studio.run.video.refmods')} data-refmods>

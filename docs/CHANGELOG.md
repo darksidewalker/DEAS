@@ -1,6 +1,19 @@
 # Changelog
 
+## Unreleased — 0.1.59
+
+- Preserve current reference additions and crop edits during native file drops; ignore drops belonging to a different modal/background browser and discard file descriptions that finish after the picker closes.
+
+- Move Multi-reference management into a Continuity-style modal with its own shared media picker, reference lanes and inline image/video/audio previews. Preserve labels, people, Forge details, RefMods, packs and non-destructive selection.
+- Add source-duration-aware numeric/range crop controls, playhead-to-start/end, reset and Play crop for video/audio. Audition video-only muted, audio-only without a picture, or synchronized picture and sound; send the same selected stream and crop to H3. Linux video reuses the native libmpv path. Known crop lengths, per-stream 15-second totals and the Director’s both-stream reference count are validated before submission.
+
+## Unreleased — 0.1.58
+
+- Enable the existing H3 Continuity planner for Video → Video and Multi-reference → Video, matching the Director’s REF2VA mode. Keep checkpoint/imported-video sources, serial Run next/all, overlap and full/segment outputs. An optional, default-off current-reference switch drives both generation and Next action Forge; tail-only continuation skips unused media uploads and RefMods. Native REF2VA continuation validation and exact requested-duration forwarding are included; ordinary runs and older intents retain their existing contracts. LTX/Wan continuity is not added.
+
 ## Unreleased — 0.1.57
+
+- Media dock: Image → Video now offers **Use as input** on an image’s right-click menu, alongside the existing Video → Video **Use as source video** action. Both select the clicked source directly; preview buttons and preview-only browsing are unchanged.
 
 - Preview toolbar: the **More** button shows a dropdown caret and opens Refine/Upscale as an overlay menu stacked top-down (the open menu no longer pushes the controls and caption below). The separate **Full view** button is gone — clicking the media in the view already opens it. Browsed and noneditable source-media controls share the top strip with **Metadata** on desktop; editor/result controls keep their own rows, and narrow previews reserve space for wrapped controls and warnings. **More** labels remain on one line inside a bounded, scrollable menu; bottom-row menus open upward. Original-image mouse and keyboard actions retain the selected job’s source/Star identity, independently of the current edit draft.
 

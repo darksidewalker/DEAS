@@ -444,7 +444,7 @@ test('Linux native input never creates a WebKit video decoder',async()=>{
  vi.restoreAllMocks();
 });
 const adopt=()=>fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')!);
-const dock=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+const dock=(name:string)=>{if(document.querySelector('.references-overlay[open]'))fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Close'}));fireEvent.click(name==='References'?document.querySelector('[data-open-references]')!:screen.getByRole('tab',{name}));};
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
 const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
 const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipe(name).value}});
@@ -1984,6 +1984,19 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  expect(screen.queryByRole('tab',{name:'Continuity'})).toBeNull();
 });
 
+test.each(['ltx-2','wan','sdxl','minimax-h3'])('Continuity is absent from non-H3-video pipelines (%s)',async family=>{
+ const model={category:'diffusion_models',name:'model.safetensors',path:'/m/model.safetensors',size:1,info:null,family};
+ vi.mocked(scanModels).mockResolvedValue(family==='ltx-2'?[...ltxModels]:[model]);
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('option',{name:family==='ltx-2'?'LTX2/ltx.safetensors':'model.safetensors'});
+ for(const pipeline of family==='ltx-2'||family==='wan'?['t2v','i2v','v2v','ref2v']:['t2i','i2i']){
+  fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipeline}});
+  expect(screen.queryByRole('button',{name:'Continuity'})).toBeNull();
+  expect(screen.queryByRole('dialog',{name:'Continuity'})).toBeNull();
+ }
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
 test('H3 continuity opens outside the dock, preserves edits and restores focus when closed',async()=>{
  localStorage.setItem('deas.pref.studio.dock.tab',JSON.stringify('continuity'));
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''},{id:'two',seconds:6,action:'turn'}]}));
@@ -2046,16 +2059,24 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  expect(screen.getByRole('button',{name:'Character 2 in other.png'}).getAttribute('aria-pressed')).toBe('false');
 });
 
-test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock references and pins continuity clips (source=%s)',async(sourceMode)=>{
+test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','video'].flatMap(sourceMode=>
+ (pipeline==='ref2v'?[false,true]:[false]).map(useReferences=>({pipeline,sourceMode,useReferences})))))(
+ 'IPC fixture: MiniMax H3 uploads dock references and pins continuity clips ($pipeline / $sourceMode / references=$useReferences)',async({pipeline,sourceMode,useReferences})=>{
  const selected=sourceMode!=='new';const video=sourceMode==='video';const videoId='a'.repeat(64);
+ const ref2va=pipeline==='v2v'||pipeline==='ref2v';const mode=ref2va?'REF2VA':pipeline==='i2v'?'I2VA':'T2VA';
+ const outputMode=sourceMode==='checkpoint'?'segment':'full';
  vi.mocked(prepareH3Video).mockResolvedValue({sourceId:videoId,filename:'clips/source.mp4',sha256:'b'.repeat(64),width:1920,height:1080,fps:24,seconds:8,hasAudio:true});
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
- vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'ref.png',path:'/env/ComfyUI/input/ref.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
- vi.mocked(uploadInput).mockResolvedValue('deas-inputs/u1.png');
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(uploadInput).mockImplementation(async(_endpoint,path)=>path.endsWith('.mp4')?'deas-inputs/clip.mp4':'deas-inputs/u1.png');
+ const expectedMedia=pipeline==='v2v'?[{type:'video',file:'deas-inputs/clip.mp4',slot:0,mediaMode:'video'}]:[
+  {type:'image',file:'deas-inputs/u1.png',slot:0},
+  {type:'video',file:'deas-inputs/clip.mp4',slot:0,mediaMode:'video',trimStart:1,trimEnd:4.5}];
+ const expectedRefmods=[{slot:1,name:'chars/hero',strength:0.6,description:'the hero'}];
  let n=0;
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`h3-${++n}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false}));
  let peerObserved=false;
@@ -2064,23 +2085,52 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
   if(submitted.at(-1)?.id==='h3-2'&&!peerObserved){peerObserved=true;return collection([heldJob('unrelated-success','succeeded'),heldJob('unrelated-failure','failed'),...submitted]);}
   return collection([heldJob('unrelated-success','succeeded'),heldJob('unrelated-failure','failed'),...submitted.map(job=>({...job,state:'succeeded' as const}))]);
  });
- vi.mocked(readH3Session).mockImplementation(async()=>({latestId:null,clips:[{clipId:'chosen',parent:null,frames:124,completed:0,export:null},{clipId:'backend-import',parent:null,frames:192,completed:0,export:null,importedVideo:{sourceId:videoId,width:1024,height:768,modeFamily:'fl2va'}},{clipId:'root1',parent:video?'backend-import':selected?'chosen':null,frames:124,completed:1,export:null},{clipId:'kid1',parent:'root1',frames:200,completed:2,export:null}]}));
+ vi.mocked(readH3Session).mockImplementation(async()=>({latestId:null,clips:[{clipId:'chosen',parent:null,frames:124,completed:0,export:null},{clipId:'backend-import',parent:null,frames:192,completed:0,export:null,importedVideo:{sourceId:videoId,width:1024,height:768,modeFamily:ref2va?'ref2va':'fl2va'}},{clipId:'root1',parent:video?'backend-import':selected?'chosen':null,frames:124,completed:1,export:null},{clipId:'kid1',parent:'root1',frames:200,completed:2,export:null}]}));
  const view=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
- await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
+ await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));
+ choosePipe(({t2v:'Text → Video',i2v:'Image → Video',v2v:'Video → Video',ref2v:'Multi-reference → Video'} as Record<string,string>)[pipeline]);
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);
+ if(pipeline==='v2v'){
+  fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));adopt();loadVideo('clip.mp4');
+  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1024'}});
+  fireEvent.change(screen.getByLabelText('Height'),{target:{value:'768'}});
+ }
+ if(pipeline==='ref2v'){
+  fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Add as reference'}));
+  fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Add as reference'}));
+  dock('References');
+  fireEvent.change(screen.getByLabelText('Start of clip.mp4'),{target:{value:'1'}});
+  fireEvent.change(screen.getByLabelText('End of clip.mp4'),{target:{value:'4.5'}});
+  vi.mocked(readRefMods).mockResolvedValue([{name:'chars/hero',kinds:['image'],description:'the hero'}]);
+  fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));
+  fireEvent.change(screen.getByLabelText('Strength of chars/hero'),{target:{value:'0.6'}});
+ }
+ fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'fixed'}});
+ fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1024'}});
+ fireEvent.change(screen.getByLabelText('Height'),{target:{value:'768'}});
+ expect(screen.getByRole('button',{name:'Continuity'})).toBeTruthy();
  expect((screen.getByLabelText('FPS') as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
- expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801','/env/ComfyUI/input/ref.png');
+ if(pipeline==='t2v')expect(uploadInput).not.toHaveBeenCalled();
+ else expect(uploadInput).toHaveBeenCalledWith('http://127.0.0.1:7801',`/env/ComfyUI/input/${pipeline==='v2v'?'clip.mp4':'ref.png'}`);
  const first=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {frames:number;h3:object;firstFrame?:string};
- expect(first).toMatchObject({family:'minimax-h3',frames:124,frameRate:24,h3:{mode:'I2VA',references:[{slot:0,image:'deas-inputs/u1.png'}]}});
+ expect(first).toMatchObject({family:'minimax-h3',frames:124,frameRate:24,h3:{mode,references:pipeline==='i2v'?[{slot:0,image:'deas-inputs/u1.png'}]:[]}});
+ if(ref2va)expect(first).toMatchObject({h3:{media:expectedMedia}});
+ if(pipeline==='ref2v')expect(first).toMatchObject({h3:{refmods:expectedRefmods}});
  expect(first.firstFrame).toBeUndefined();
  expect((first.h3 as {continuity?:object}).continuity).toBeUndefined();
  expect(readH3Session).not.toHaveBeenCalled();
  await waitFor(()=>expect(screen.getAllByText('Succeeded').length).toBeGreaterThan(0),{timeout:4000});
+ if(pipeline==='v2v'&&selected){
+  fireEvent.click(document.querySelector('[data-preview-close]')!);
+  expect(document.querySelector('[data-editor-viewport]')).toBeNull();
+  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+ }
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
  fireEvent.change(screen.getByRole('textbox',{name:'Session name'}),{target:{value:'Named_session-1'}});
  fireEvent.click(screen.getByRole('button',{name:'Use session'}));
@@ -2096,7 +2146,11 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
   fireEvent.change(screen.getByRole('combobox',{name:'Source checkpoint'}),{target:{value:'chosen'}});
   expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
  }
+ fireEvent.change(screen.getByRole('combobox',{name:'Output'}),{target:{value:outputMode}});
+ if(useReferences)fireEvent.click(screen.getByRole('checkbox',{name:'Use current references for continuations'}));
  fireEvent.click(screen.getByRole('button',{name:'Add step'}));fireEvent.click(screen.getByRole('button',{name:'Add step'}));
+ if(ref2va)fireEvent.change(document.querySelector('[data-step="0"] input[type="number"]')!,{target:{value:'6'}});
+ const uploadsBeforePlan=vi.mocked(uploadInput).mock.calls.length;
  fireEvent.change(screen.getAllByLabelText('Next action')[0],{target:{value:'she turns around'}});
  fireEvent.change(screen.getByRole('combobox',{name:'Overlap (frames)'}),{target:{value:'56'}});
  fireEvent.click(screen.getByRole('button',{name:'Run all'}));
@@ -2106,17 +2160,35 @@ test.each(['new','checkpoint','video'])('IPC fixture: MiniMax H3 uploads dock re
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3),{timeout:5000});
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
  const steps=vi.mocked(runWorkbenchJob).mock.calls.slice(1).map(c=>(c[1] as unknown as {h3:{continuity:{sourceId:string;action:string;capture:boolean}}}).h3.continuity);
- expect(steps[0]).toMatchObject({sourceId:video?videoId:selected?'chosen':'',capture:true,action:selected?'she turns around':''});
+ expect(steps[0]).toMatchObject({session:'Named_session-1',sourceId:video?videoId:selected?'chosen':'',capture:true,action:selected?'she turns around':'',outputMode});
+ if(video)expect(steps[0]).toMatchObject({sourceKind:'video',overlapFrames:56});
+ if(selected)expect(steps[0]).toMatchObject({overlapFrames:56});
  expect(Object.hasOwn(steps[0],'overlapFrames')).toBe(selected);
  expect(Object.hasOwn(steps[0],'sourceKind')).toBe(video);
  expect(Object.hasOwn(steps[1],'sourceKind')).toBe(false);
- expect(steps[1]).toMatchObject({sourceId:'root1',capture:true,action:selected?'':'she turns around',overlapFrames:56});
+ expect(steps[1]).toMatchObject({session:'Named_session-1',sourceId:'root1',capture:true,action:selected?'':'she turns around',outputMode,overlapFrames:56});
+ const planned=vi.mocked(runWorkbenchJob).mock.calls.slice(1).map(call=>call[1] as unknown as {h3:{mode:string;media?:object[];refmods?:object[];continuity:{useReferences?:boolean}}});
+ for(const [index,intent] of planned.entries()){
+  expect(intent.h3.mode).toBe(mode);
+  if(ref2va){
+   if(selected||index>0)expect(intent.h3.continuity).toHaveProperty('durationSeconds',index===0?6:5);
+   else expect(intent.h3.continuity).not.toHaveProperty('durationSeconds');
+   const keepRefs=!selected&&index===0||useReferences;
+   if(useReferences&&(selected||index>0))expect(intent.h3.continuity.useReferences).toBe(true);
+   else expect(intent.h3.continuity).not.toHaveProperty('useReferences');
+   expect(intent.h3.media).toEqual(keepRefs?expectedMedia:[]);
+   if(pipeline==='ref2v'&&keepRefs)expect(intent.h3.refmods).toEqual(expectedRefmods);
+   else expect(intent.h3).not.toHaveProperty('refmods');
+  }
+ }
+ if(ref2va)expect(uploadInput).toHaveBeenCalledTimes(uploadsBeforePlan+(useReferences?2:!selected?1:0)*(pipeline==='ref2v'?2:1));
  expect((screen.getByRole('combobox',{name:'Overlap (frames)'}) as HTMLSelectElement).value).toBe('56');
  await waitFor(()=>expect(screen.getByText('kid1')).toBeTruthy(),{timeout:5000});
  expect(readH3Session).toHaveBeenCalledWith('http://127.0.0.1:7801/','Named_session-1');
  expect(peerObserved).toBe(true);
  const pinned=JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!);
  expect(pinned.steps.filter((s:{jobId?:string})=>s.jobId).map((s:{jobId:string})=>s.jobId)).toEqual(['h3-2','h3-3']);
+ expect(pinned.steps.map((s:{clipId?:string})=>s.clipId)).toEqual(['root1','kid1']);
  expect((screen.getByRole('textbox',{name:'Session name'}) as HTMLInputElement).value).toBe('Named_session-1');
  if(selected){
   fireEvent.click(screen.getByRole('button',{name:'Add step'}));
@@ -2220,6 +2292,26 @@ test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s re
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
 
+test.each([
+ ['Image → Video','ref.png','clip.mp4','Use as input'],
+ ['Video → Video','clip.mp4','ref.png','Use as source video'],
+])('Media context menu selects the clicked %s input without preview adoption or execution',async(pipeline,name,other,label)=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe(pipeline).disabled).toBe(false));choosePipe(pipeline);
+ await screen.findByRole('button',{name});
+ expect(menuOf(other).queryByRole('menuitem',{name:label})).toBeNull();
+ fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(screen.getByRole('button',{name:other}));
+ expect(document.querySelector('[data-browsed-preview]')).not.toBeNull();
+ fireEvent.click(menuOf(name).getByRole('menuitem',{name:label}));
+ expect(screen.queryByRole('menu')).toBeNull();
+ expect(document.querySelector('[data-browsed-preview]')).toBeNull();
+ expect([...document.querySelectorAll('.wb-active')].some(el=>el.textContent?.includes(name))).toBe(true);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference → Video sends image keyframes at their seconds',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
@@ -2258,20 +2350,20 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  Object.defineProperties(img,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(img);
  fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
  expect(markOf('ref.png')).toBe('@ 0 s');
- fireEvent.click(screen.getByRole('button',{name:'Edit'}));
- expect(screen.getByRole('tab',{name:'References'}).getAttribute('aria-selected')).toBe('true');
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(screen.getByRole('dialog',{name:'References'})).toBeTruthy();
  // A dock video dropped on the tab is refused with the reason (LTX references are images).
  const clip={name:'clip.mp4',path:'/env/ComfyUI/input/clip.mp4',media:'video',src:'asset://localhost//env/ComfyUI/input/clip.mp4'};
  fireEvent.drop(document.querySelector('[data-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(clip)}});
- expect(screen.getByRole('alert').textContent).toBe('clip.mp4: LTX takes images as references only.');
+ expect(within(screen.getByRole('dialog',{name:'References'})).getByRole('alert').textContent).toBe('clip.mp4: LTX takes images as references only.');
  // The References tab button takes dock drops too (the Media tab is the drag source).
  const voice={name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',media:'audio',src:'asset://localhost//env/ComfyUI/input/voice.wav'};
- fireEvent.drop(screen.getByRole('tab',{name:'References'}),{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(voice)}});
- expect(screen.getByRole('alert').textContent).toBe('voice.wav: LTX takes images as references only.');
+ fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(voice)}});
+ expect(within(screen.getByRole('dialog',{name:'References'})).getByRole('alert').textContent).toBe('voice.wav: LTX takes images as references only.');
  fireEvent.change(screen.getByLabelText('Second of ref.png'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('Strength of ref.png'),{target:{value:'0.5'}});
  expect(screen.queryByRole('button',{name:/Insert/})).toBeNull(); // Director labels are H3-only
- fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ dock('Media');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  await screen.findByRole('button',{name:'ref.png'});
  expect(markOf('ref.png')).toBe('@ 1 s');
@@ -2284,7 +2376,7 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Remove reference ref.png'}));
  expect(markOf('ref.png')).toBeUndefined();
  // Leaving Multi-reference hides the References tab and falls back to Media.
- fireEvent.click(screen.getByRole('button',{name:'Edit'}));choosePipe('Video → Video');
+ fireEvent.click(document.querySelector('[data-open-references]')!);dock('Media');choosePipe('Video → Video');
  expect(screen.queryByRole('tab',{name:'References'})).toBeNull();
  await waitFor(()=>expect(screen.getByRole('tab',{name:'Media'}).getAttribute('aria-selected')).toBe('true'));
 });
@@ -2316,9 +2408,9 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  choosePipe('Multi-reference → Video');
  fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));adopt();
  fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
- fireEvent.click(screen.getByRole('button',{name:'Edit'}));
+ fireEvent.click(document.querySelector('[data-open-references]')!);
  fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
- fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ dock('Media');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  await screen.findByRole('button',{name:'voice.wav'});
  fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Add as reference'}));
@@ -2342,7 +2434,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(markOf('voice.wav')).toBeUndefined();expect(markOf('a2.wav')).toBe('<Audio 2>');
  // References tab: a too-short trim blocks Run with the reason; a valid one reaches h3.media; labels go into the prompt.
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
- fireEvent.click(screen.getByRole('tab',{name:'References'}));
+ dock('References');
  expect(screen.getByText('Images 1/9 · Videos 0/3 · Sound 2/3 · Files 3/12')).toBeTruthy();
  fireEvent.change(screen.getByLabelText('Start of a2.wav'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'2'}});

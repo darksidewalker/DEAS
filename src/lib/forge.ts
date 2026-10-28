@@ -17,7 +17,7 @@ export function readPeopleBoxes(raw:unknown):PeopleBox[]|null {
  return raw as PeopleBox[];
 }
 export interface H3Reference { kind: 'image' | 'video' | 'audio'; role?: string; path?: string; easy_role?: string; boxes?: PeopleBox[]; picture_kinds?: string[]; who?: number[]; who_axis?: 'y' | 'z' | 'none'; stream?: 'video' | 'audio' | 'both'; subject_group?: string; duration_seconds?: number; instructions?: string }
-export interface H3Continuity { source_kind: 'checkpoint' | 'video'; session: string; clip_id: string; overlap_frames?: 73 | 56 | 39 | 22 | 5; current_prompt: string; use_references: false }
+export interface H3Continuity { source_kind: 'checkpoint' | 'video'; session: string; clip_id: string; overlap_frames?: 73 | 56 | 39 | 22 | 5; current_prompt: string; use_references: boolean }
 export interface H3Request { continuity?: H3Continuity; model: string; mode: string; brief: string; duration: number; shots: string | number; detail: number; creativity: string; references: H3Reference[]; easy: boolean; see_pictures: boolean; shot_briefs?: string[]; output_canvas?: { width: number; height: number }; request_id?: string; /** Cast & scene cards: `{"1": text, place: text, style: text, "pose@3": text}`, each ≤ 600 chars. */ cast?: Record<string, string> }
 export interface H3Result { simple_prompt: string; warnings: string[] }
 

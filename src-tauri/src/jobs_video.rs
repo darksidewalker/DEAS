@@ -252,10 +252,8 @@ fn validate_h3(h: &Value) -> Result<(), String> {
         validate_refmods(&h["refmods"])?;
     }
     if mode == "REF2VA" {
-        validate_h3_media(&h["media"], refmods)?;
-        if c_source(h) {
-            return Err("REF2VA starts a new take; continuation is not supported".into());
-        }
+        let allow_empty = c_source(h) && h["continuity"]["useReferences"] != true;
+        validate_h3_media(&h["media"], refmods, allow_empty)?;
     }
     let slots: Vec<u64> = refs.iter().filter_map(|r| r["slot"].as_u64()).collect();
     // Director slot semantics: I2VA = slot 0, L2VA = slot 1, FL2VA = {0,1}, T2VA = none.
@@ -288,6 +286,8 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                 "action",
                 "outputMode",
                 "overlapFrames",
+                "useReferences",
+                "durationSeconds",
             ],
         ) && c["session"]
             .as_str()
@@ -304,6 +304,14 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                     })
             })
             && c["capture"].is_boolean()
+            && c.get("useReferences").is_none_or(Value::is_boolean)
+            && c.get("durationSeconds").is_none_or(|seconds| {
+                mode == "REF2VA"
+                    && c_source(h)
+                    && seconds
+                        .as_f64()
+                        .is_some_and(|s| s.is_finite() && s > 0.0 && s <= 15.0)
+            })
             && c["action"].as_str().is_some_and(|a| a.len() <= 50_000)
             && pick(c, "outputMode", &["full", "segment"])
             && c.get("overlapFrames")
@@ -372,14 +380,15 @@ fn validate_refmods(r: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// REF2VA timeline media; with RefMods the media list may be empty (RefMods count as visual references for audio).
-fn validate_h3_media(m: &Value, refmods: bool) -> Result<(), String> {
+/// Empty media is valid with RefMods or a continuation that ignores references; present items still validate.
+fn validate_h3_media(m: &Value, refmods: bool, allow_empty: bool) -> Result<(), String> {
     let items = m
         .as_array()
-        .filter(|a| (refmods || !a.is_empty()) && a.len() <= 12)
+        .filter(|a| (allow_empty || refmods || !a.is_empty()) && a.len() <= 12)
         .ok_or("h3.media: 1-12 items")?;
     let mut used: Vec<(&str, u64)> = vec![];
     let (mut videos, mut audio, mut visual) = (0, 0, 0);
+    let (mut video_seconds, mut audio_seconds) = (0.0, 0.0);
     for x in items {
         let kind = x["type"].as_str().unwrap_or_default();
         let mode = x.get("mediaMode").and_then(Value::as_str);
@@ -416,6 +425,20 @@ fn validate_h3_media(m: &Value, refmods: bool) -> Result<(), String> {
             return Err("Invalid h3.media item: {type image|video|audio, file in deas-inputs/, slot unique per lane, mediaMode? (video), trimStart/trimEnd? (video/audio)}".into());
         }
         used.push((lane, slot.unwrap()));
+        if kind != "image" {
+            if let Some(end) = x["trimEnd"].as_f64() {
+                let seconds = end - x["trimStart"].as_f64().unwrap_or(0.0);
+                if !(2.0..=15.0).contains(&seconds) {
+                    return Err("REF2VA clips must last 2-15 seconds".into());
+                }
+                if kind == "video" && mode != Some("audio") {
+                    video_seconds += seconds;
+                }
+                if kind == "audio" || mode == Some("audio") || mode == Some("video_audio") {
+                    audio_seconds += seconds;
+                }
+            }
+        }
         match (kind, mode) {
             ("image", _) => visual += 1,
             ("video", Some("audio")) => audio += 1,
@@ -430,6 +453,12 @@ fn validate_h3_media(m: &Value, refmods: bool) -> Result<(), String> {
             }
             _ => audio += 1,
         }
+    }
+    if visual + audio > 12 {
+        return Err("REF2VA allows at most 12 references (video with sound counts twice)".into());
+    }
+    if video_seconds > 15.0 || audio_seconds > 15.0 {
+        return Err("REF2VA video and audio totals must each be at most 15 seconds".into());
     }
     if videos > 3 || audio > 3 {
         return Err("REF2VA allows at most 3 videos and 3 audio clips".into());
@@ -918,7 +947,7 @@ fn h3(i: &Value) -> Value {
     }
     // Director continuity contract (v3): an empty source_id is a new take; parse_settings fills the rest.
     let c = &h["continuity"];
-    let continuity = if c["sourceId"].as_str().is_some_and(|s| !s.is_empty()) {
+    let mut continuity = if c_source(h) {
         let mut continuity = json!({"version":3,"session":c["session"],"capture":c["capture"],"output_mode":c["outputMode"],"continuation_prompt":c["action"]});
         if c["sourceKind"] == "video" {
             continuity["source_kind"] = json!("video");
@@ -934,6 +963,9 @@ fn h3(i: &Value) -> Value {
     } else {
         json!({"version":3,"session":c.get("session").cloned().unwrap_or(json!("deas")),"capture":c.get("capture").cloned().unwrap_or(json!(false)),"output_mode":c.get("outputMode").cloned().unwrap_or(json!("full"))})
     };
+    if let Some(use_references) = c.get("useReferences") {
+        continuity["use_references"] = use_references.clone();
+    }
     // DEAS already chose the canvas; by default the Director fills/crops the references to it.
     let scaling = h
         .get("inputScaling")
@@ -964,9 +996,9 @@ fn h3(i: &Value) -> Value {
         "MiniMaxChunkFeedForward",
         "seq_threshold",
     );
-    // Director rounds duration·24 up to the 17k+5 grid, which `frames` already satisfies; in continuity it means new seconds.
+    // REF2VA extensions need authored seconds, not a roundtrip through the new-take 17k+5 grid.
     g["D"] = json!({"class_type":"MiniMaxH3Director","inputs":{"mode":h["mode"],"prompt":i["positivePrompt"],"width":i["width"],"height":i["height"],
-        "duration":i["frames"].as_f64().unwrap() / 24.0,"ref_image_size":"match","timeline_data":timeline.to_string(),"builder_state":"","frame_rate":i["frameRate"]}});
+        "duration":c.get("durationSeconds").cloned().unwrap_or_else(|| json!(i["frames"].as_f64().unwrap() / 24.0)),"ref_image_size":"match","timeline_data":timeline.to_string(),"builder_state":"","frame_rate":i["frameRate"]}});
     // The Director pulls only the socket of its mode: ref2va_model for REF2VA, fl2va_model otherwise.
     g["D"]["inputs"][if h["mode"] == "REF2VA" {
         "ref2va_model"
@@ -1039,7 +1071,13 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
                         .as_array()
                         .into_iter()
                         .flatten()
-                        .filter(|m| m["type"] == "image")
+                        .filter(|m| {
+                            m["type"] == "image"
+                                && !(family == "minimax-h3"
+                                    && b["mode"] == "REF2VA"
+                                    && c_source(b)
+                                    && b["continuity"]["useReferences"] != true)
+                        })
                         .filter_map(|m| m["file"].as_str()),
                 )
                 .filter(|s| !s.ends_with(" [output]"))

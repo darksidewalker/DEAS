@@ -1,5 +1,32 @@
 # DEAS consolidated implementation status and plan
 
+## Planned RefMod creation (H3)
+
+Planned, not implemented. Owner request: DEAS must offer the Director's **Create RefMod** — encoding selected references into the backend's `models/refmods` via the node pack's `DaSiWaH3RefModExport` so they appear in `/dasiwa/refmods` and are usable as W2e2 rows. Reading/consumption (library read, strength, `<RefMod N>`, packs) exists; creating a RefMod does not — DEAS can only use RefMods someone else made in the Director UI.
+
+Acceptance:
+- [ ] Source-check `DaSiWaH3RefModExport` (node pack `nodes_minimax_h3_director*.py`): node signature, required H3 VAEs, input kinds (image/video), output naming into `models/refmods`; no pack patching from DEAS.
+- [ ] Intent/compiler slice: an explicit export job compiling the selected references to the export graph (separate from the generation graph), validated offline like `dump_video_graphs`; explicit Run, cancellation checked before any write.
+- [ ] References UI: **Create RefMod** action on selected references with the Director's strength/name semantics, six-locale labels and help, result refreshes the RefMod library read.
+- [ ] Component/native tests for payload/validation, offline graph validation, Chromium fixture evidence; real H3 VAE encoding, GPU time and target-runtime acceptance remain separate work.
+
+## Reference overlay and media crop controls (0.1.59)
+
+References for Multi-reference → Video opens beside Continuity as a modal, with the shared Media picker and retained Director lanes/Forge/RefMod/pack controls. Inline image/video/audio previews, H3 picture/sound/both selection, source-aware crop fields/sliders, playhead endpoints, reset and Play crop now share the submitted trim/stream values. Linux video reuses libmpv, including a typed native crop bound; Windows/browser and standalone audio retain media-element playback. Originals and existing jobs are untouched.
+
+Browser MP4/WAV segment playback passed 18 cases across six locales and widths 1440/700/320; the shared layout gate passed. Final gates: 118 core, 1,213 UI and 603 Rust tests passed (40 Rust tests ignored); strict Clippy, formatting and the native Wayland reference-popup crop/drop probe passed. Unit/native gates and staged artifact details are recorded in [verification](VERIFICATION.md#reference-overlay-and-media-crops-0159). Waveforms, whole-crop dragging, alternate embedded track selection, real H3 inference and Windows runtime acceptance remain open; this is not a complete Director-media parity claim.
+
+
+## H3 continuity across video pipelines (0.1.58, local)
+
+Continuity now covers all four H3 video pipelines. Video → Video and Multi-reference → Video retain REF2VA conditioning/mode and use the same Segment Prepare/Decode/Publish chain as the owner’s workflow. Current references are an explicit default-off continuation opt-in shared with Forge; tail-only continuations skip unused uploads/RefMods. Source IDs, serial sequencing, Stop, session and overlap/output policy remain intact. LTX/Wan are intentionally excluded because this mechanism is H3-only. Native strict validation and source-backed REF2VA duration forwarding are covered by regression tests. [Usage](STUDIO.md#ref2va-continuation-references) · [verification](VERIFICATION.md#h3-continuity-pipeline-parity-0158). The current integrated frontend/native gates pass; earlier concurrent partial-run failures below are historical checkpoints, not the final state. Real GPU seam quality and target-WebView runtime acceptance remain separate.
+
+## Media input context-menu parity (Unreleased)
+
+Image → Video now offers **Use as input** on image tiles through the existing Media action hook and shared preview-selection handler. Video → Video retains **Use as source video**; wrong media types do not offer either pipeline's source action. Browsing remains preview-only, selection does not upload or submit, and reference menus are unchanged. [Usage](STUDIO.md#compact-workspace-navigation).
+
+Verified locally: two direct-selection regressions plus the existing LTX source/reference submission fixture, all 36 MediaLibrary/MediaPanel tests, and 118 core tests passed. The broader selected UI run had 257 passes / 15 failures in the concurrently edited continuity area; it is not a green full-suite claim. Typecheck and `./build-linux.sh` stopped at `ContinuityPlanner.tsx(43,506)` (`boolean` not assignable to `false`), outside this menu change. No rebuilt native artifact, GTK/WebKit or Windows runtime acceptance is claimed.
+
 ## Shared viewport and tab-layout regression repair (0.1.54 follow-up)
 
 The outer shell owns one dynamic viewport; top navigation consumes its natural height and every retained active pane inherits the remainder through the common wrapper chain. Long/narrow content scrolls inside the pane. The version remains a fixed transparent overlay and does not reserve a footer band. This replaces per-tab viewport subtraction, the Workbench window-height setter and special Logs/Comfy stretching patches. Hidden mounted views retain state but cannot re-enter layout through a later feature's display rule.

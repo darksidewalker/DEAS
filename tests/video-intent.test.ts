@@ -35,6 +35,28 @@ test('saved continuity plans validate overlap without migrating old plans',()=>{
   for(const overlapFrames of [null,true,'22',22.5,0,-1,74,NaN,Infinity])assert.equal(isContinuityPlan({...old,overlapFrames}),false,String(overlapFrames));
 });
 
+test('saved continuity reference opt-in is optional and strictly boolean',()=>{
+  const old={session:'deas-test',outputMode:'full',steps:[]};
+  assert.equal(isContinuityPlan(old),true);
+  assert.equal(Object.hasOwn(old,'useReferences'),false);
+  for(const useReferences of [true,false])assert.equal(isContinuityPlan({...old,useReferences}),true);
+  for(const useReferences of [null,'true','false',0,1,[],{}])assert.equal(isContinuityPlan({...old,useReferences}),false,JSON.stringify(useReferences));
+});
+
+test('explicit reference choices reach continuations but never the initial capture',()=>{
+  for(const useReferences of [undefined,false,true]){
+    const plan={session:'deas-test',outputMode:'full' as const,...(useReferences===undefined?{}:{useReferences}),steps:[{id:'a',seconds:5,action:'',clipId:undefined as string|undefined},{id:'b',seconds:3,action:'turn'}]};
+    assert.equal(Object.hasOwn(nextStep(plan)!.continuity,'useReferences'),false);
+    plan.steps[0].clipId='root';
+    assert.equal(Object.hasOwn(nextStep(plan)!.continuity,'useReferences'),useReferences!==undefined);
+    assert.equal(nextStep(plan)!.continuity.useReferences,useReferences);
+    const source={clipId:'chosen',endpoint:'http://localhost:7801'};
+    plan.steps[0].clipId=undefined;
+    assert.equal(nextStep({...plan,source})!.continuity.useReferences,useReferences);
+    assert.equal(nextStep({...plan,source:{...source,clipId:'a'.repeat(64),kind:'video'}})!.continuity.useReferences,useReferences);
+  }
+});
+
 test('continuity sessions preserve literal valid names and reject reserved or unsafe identifiers',()=>{
   const old={session:'deas-test',outputMode:'full',steps:[]};
   for(const session of ['test_1-2','a','a'.repeat(80),'_imports-other'])assert.equal(isContinuityPlan({...old,session}),true);

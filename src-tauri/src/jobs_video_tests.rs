@@ -2,6 +2,44 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn ref2va_continuation_uses_requested_seconds_without_new_take_frame_roundtrip() {
+    let mut intent = h3();
+    intent["frames"] = json!(158);
+    intent["h3"]["mode"] = json!("REF2VA");
+    intent["h3"]["references"] = json!([]);
+    intent["h3"]["media"] = json!([]);
+    intent["h3"]["continuity"] = json!({"session":"duration-test","sourceId":"parent","capture":true,"action":"turn","outputMode":"segment","durationSeconds":6.0});
+    assert_eq!(compile(&intent).unwrap()["D"]["inputs"]["duration"], 6.0);
+    for invalid in [
+        json!(0),
+        json!(-1),
+        json!(15.01),
+        json!("6"),
+        json!(null),
+        json!(true),
+    ] {
+        let mut bad = intent.clone();
+        bad["h3"]["continuity"]["durationSeconds"] = invalid;
+        assert!(compile(&bad).is_err());
+    }
+    let mut first = intent.clone();
+    first["h3"]["continuity"]["sourceId"] = json!("");
+    first["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/ref.png","slot":0}]);
+    assert!(compile(&first).is_err());
+    let mut frame_mode = h3();
+    frame_mode["h3"]["continuity"] = intent["h3"]["continuity"].clone();
+    assert!(compile(&frame_mode).is_err());
+    intent["h3"]["continuity"]
+        .as_object_mut()
+        .unwrap()
+        .remove("durationSeconds");
+    assert_eq!(
+        compile(&intent).unwrap()["D"]["inputs"]["duration"],
+        158.0 / 24.0
+    );
+}
+
+#[test]
 fn windows_video_models_preserve_ids_but_inputs_stay_portable() {
     for mut i in [ltx(), wan(), h3()] {
         for key in ["model", "textEncoder", "vae"] {
@@ -686,7 +724,7 @@ fn h3_continuity_overlap_frames_rejects_malformed_values_and_unknown_keys() {
             );
         }
         i["h3"]["continuity"]["overlapFrames"] = json!(22);
-        for key in ["unknown", "overlap_frames", "useReferences", "sourceKind"] {
+        for key in ["unknown", "overlap_frames", "sourceKind"] {
             i["h3"]["continuity"][key] = json!(true);
             assert!(compile(&i).is_err(), "accepted continuity.{key}");
             i["h3"]["continuity"].as_object_mut().unwrap().remove(key);
@@ -820,10 +858,40 @@ fn h3_ref2va_puts_images_videos_and_audio_on_the_director_timeline() {
     let mut cont = i.clone();
     cont["h3"]["continuity"] =
         json!({"session":"s1","sourceId":"clip_1","capture":false,"action":"","outputMode":"full"});
-    assert!(compile(&cont).is_err(), "REF2VA continuation");
+    assert!(compile(&cont).is_ok(), "REF2VA continuation");
     let mut stray = h3();
     stray["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/a.png","slot":0}]);
     assert!(compile(&stray).is_err(), "media outside REF2VA");
+}
+
+#[test]
+fn h3_reference_crop_limits_match_director_stream_totals() {
+    let mut intent = h3();
+    intent["h3"]["mode"] = json!("REF2VA");
+    intent["h3"]["references"] = json!([]);
+    for end in [1.0, 15.1] {
+        intent["h3"]["media"] =
+            json!([{"type":"video","file":"deas-input-v.mp4","slot":0,"trimEnd":end}]);
+        assert!(compile(&intent).is_err());
+    }
+    intent["h3"]["media"] = json!([
+        {"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"video_audio","trimEnd":10},
+        {"type":"audio","file":"deas-inputs/a.wav","slot":0,"trimEnd":6}
+    ]);
+    assert!(compile(&intent).is_err());
+    intent["h3"]["media"][0]["mediaMode"] = json!("video");
+    assert!(compile(&intent).is_ok());
+    let mut media: Vec<Value> = (0..9)
+        .map(|n| json!({"type":"image","file":"deas-inputs/a.png","slot":n}))
+        .collect();
+    media
+        .push(json!({"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"video_audio"}));
+    media.push(json!({"type":"audio","file":"deas-inputs/a.wav","slot":0}));
+    intent["h3"]["media"] = json!(media);
+    assert!(compile(&intent).is_ok());
+    media.push(json!({"type":"audio","file":"deas-inputs/b.wav","slot":1}));
+    intent["h3"]["media"] = json!(media);
+    assert!(compile(&intent).is_err());
 }
 
 /// `cargo test --lib dump_video_graphs -- --ignored --nocapture` prints the three graphs for an offline
@@ -890,4 +958,205 @@ fn h3_ref2va_refmods_reach_the_timeline_and_may_stand_alone() {
     assert!(compile(&other).is_err());
     i["h3"].as_object_mut().unwrap().remove("refmods");
     assert!(compile(&i).is_err());
+}
+
+#[test]
+fn h3_ref2va_first_take_keeps_media_requirements_even_when_capture_is_enabled() {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/a.png","slot":0}]);
+    for capture in [false, true] {
+        for flag in [None, Some(false), Some(true)] {
+            i["h3"]["continuity"] = json!({"session":"s1","sourceId":"","capture":capture,"action":"unused","outputMode":"segment","overlapFrames":22});
+            let mut expected =
+                json!({"version":3,"session":"s1","capture":capture,"output_mode":"segment"});
+            if let Some(flag) = flag {
+                i["h3"]["continuity"]["useReferences"] = json!(flag);
+                expected["use_references"] = json!(flag);
+            }
+            let g = compile(&i).unwrap();
+            let t: Value =
+                serde_json::from_str(g["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+            assert_eq!(t["continuity"], expected);
+            assert_eq!(t["items"][0]["value"], "deas-inputs/a.png");
+            assert_eq!(
+                requirements(&i).iter().find(|r| r.0 == "images").unwrap().1,
+                vec!["deas-inputs/a.png"]
+            );
+            let mut empty = i.clone();
+            empty["h3"]["media"] = json!([]);
+            assert!(
+                compile(&empty).is_err(),
+                "capture is not a continuation source"
+            );
+        }
+    }
+    i["h3"].as_object_mut().unwrap().remove("continuity");
+    i["h3"]["media"] = json!([]);
+    assert!(compile(&i).is_err());
+}
+
+#[test]
+fn h3_ref2va_continuation_retains_strict_flags_media_and_source_validation() {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([]);
+    i["h3"]["continuity"] = json!({"session":"s1","sourceId":"clip_1","capture":false,"action":"","outputMode":"full","useReferences":true});
+    assert!(compile(&i).is_err(), "useReferences true needs references");
+    i["h3"]["refmods"] = json!([{"slot":1,"name":"chars/hero","strength":1}]);
+    assert!(compile(&i).is_ok(), "RefMods alone are valid references");
+    i["h3"].as_object_mut().unwrap().remove("refmods");
+    for flag in [
+        json!(null),
+        json!(0),
+        json!(1),
+        json!("false"),
+        json!("true"),
+        json!([]),
+        json!({}),
+    ] {
+        i["h3"]["continuity"]["useReferences"] = flag.clone();
+        assert!(compile(&i).is_err(), "accepted useReferences={flag}");
+    }
+    i["h3"]["continuity"]["useReferences"] = json!(false);
+    assert!(compile(&i).is_ok());
+    for media in [
+        json!(null),
+        json!({}),
+        json!([{"type":"image","file":"../a.png","slot":0}]),
+        json!([{"type":"image","file":"deas-inputs/a.png","slot":9}]),
+        json!([{"type":"audio","file":"deas-inputs/a.wav","slot":0}]),
+        json!([{"type":"video","file":"deas-input-v.mp4","slot":0,"trimStart":6,"trimEnd":1}]),
+        json!([{"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"loop"}]),
+        json!([{"type":"image","file":"deas-inputs/a.png","slot":0,"extra":true}]),
+    ] {
+        i["h3"]["media"] = media.clone();
+        assert!(
+            compile(&i).is_err(),
+            "accepted ignored malformed media={media}"
+        );
+    }
+    i["h3"]["media"] = json!([]);
+    i["h3"]["refmods"] = json!([{"slot":1,"name":"../hero","strength":1}]);
+    assert!(compile(&i).is_err(), "ignored RefMods still validate");
+    i["h3"].as_object_mut().unwrap().remove("refmods");
+    for source in [json!(null), json!(1), json!("../clip"), json!("")] {
+        i["h3"]["continuity"]["sourceId"] = source.clone();
+        assert!(compile(&i).is_err(), "accepted empty-media source={source}");
+    }
+    i["h3"]["continuity"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sourceId");
+    assert!(compile(&i).is_err());
+    i["h3"]["continuity"]["sourceId"] = json!("clip_1");
+    i["h3"]["continuity"]["sourceKind"] = json!("video");
+    assert!(compile(&i).is_err(), "imported video IDs stay strict");
+}
+
+#[test]
+fn h3_ref2va_continuation_requires_only_effective_reference_images() {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([{"type":"image","file":"deas-inputs/stale.png","slot":0}]);
+    i["h3"]["refmods"] = json!([{"slot":1,"name":"chars/stale","strength":1}]);
+    i["h3"]["continuity"] =
+        json!({"session":"s1","sourceId":"clip_1","capture":false,"action":"","outputMode":"full"});
+    for flag in [None, Some(false), Some(true)] {
+        if let Some(flag) = flag {
+            i["h3"]["continuity"]["useReferences"] = json!(flag);
+        }
+        let g = compile(&i).unwrap();
+        let t: Value =
+            serde_json::from_str(g["D"]["inputs"]["timeline_data"].as_str().unwrap()).unwrap();
+        // Preserve valid descriptors in the timeline; Director decides whether to consume them.
+        assert_eq!(t["items"][0]["value"], "deas-inputs/stale.png");
+        assert_eq!(t["refmods"][0]["name"], "chars/stale");
+        let req = requirements(&i);
+        assert_eq!(
+            req.iter().find(|r| r.0 == "images").unwrap().1,
+            if flag == Some(true) {
+                vec!["deas-inputs/stale.png"]
+            } else {
+                vec![]
+            }
+        );
+    }
+}
+
+#[test]
+fn h3_ref2va_continuation_maps_reference_choice_and_preserves_segment_chain() {
+    for video in [false, true] {
+        for capture in [false, true] {
+            for output in ["full", "segment"] {
+                for flag in [None, Some(false), Some(true)] {
+                    let mut i = h3();
+                    i["h3"]["mode"] = json!("REF2VA");
+                    i["h3"]["references"] = json!([]);
+                    i["h3"]["media"] = json!([]);
+                    i["h3"]["continuity"] = json!({"session":"s1","sourceId":"clip_1","capture":capture,"action":"  she turns around\n","outputMode":output,"overlapFrames":22});
+                    if video {
+                        i["h3"]["continuity"]["sourceKind"] = json!("video");
+                        i["h3"]["continuity"]["sourceId"] = json!("a".repeat(64));
+                    }
+                    if let Some(flag) = flag {
+                        i["h3"]["continuity"]["useReferences"] = json!(flag);
+                    }
+                    if flag == Some(true) {
+                        i["h3"]["media"] = json!([
+                            {"type":"image","file":"deas-inputs/a.png","slot":0},
+                            {"type":"video","file":"deas-input-v.mp4","slot":0,"mediaMode":"video_audio","trimStart":1,"trimEnd":6}
+                        ]);
+                        i["h3"]["refmods"] = json!([{"slot":1,"name":"chars/hero","strength":0.8,"description":"the hero"}]);
+                    }
+                    let g = compile(&i).unwrap();
+                    let t: Value =
+                        serde_json::from_str(g["D"]["inputs"]["timeline_data"].as_str().unwrap())
+                            .unwrap();
+                    let mut expected = json!({"version":3,"session":"s1","capture":capture,"output_mode":output,"continuation_prompt":"  she turns around\n","overlap_frames":22});
+                    expected["source_kind"] = json!(if video { "video" } else { "checkpoint" });
+                    expected[if video {
+                        "source_video_id"
+                    } else {
+                        "source_id"
+                    }] = i["h3"]["continuity"]["sourceId"].clone();
+                    if let Some(flag) = flag {
+                        expected["use_references"] = json!(flag);
+                    }
+                    assert_eq!(t["continuity"], expected);
+                    if flag == Some(true) {
+                        assert_eq!(
+                            t["items"][1],
+                            json!({"id":"m1","type":"video","value":"deas-input-v.mp4","slot":0,"order":1,"enabled":true,"media_mode":"video_audio","trim_start":1,"trim_end":6})
+                        );
+                        assert_eq!(
+                            t["refmods"],
+                            json!([{"slot":1,"name":"chars/hero","enabled":true,"strength":0.8,"description":"the hero"}])
+                        );
+                    } else {
+                        assert_eq!(t["items"], json!([]));
+                    }
+                    assert_eq!(g["D"]["inputs"]["ref2va_model"], json!(["1", 0]));
+                    assert!(g["D"]["inputs"].get("fl2va_model").is_none());
+                    assert_eq!(
+                        g["SP"]["inputs"],
+                        json!({"sampled":["5",0],"context":["G",2]})
+                    );
+                    assert_eq!(
+                        g["SD"]["inputs"],
+                        json!({"latent":["SP",0],"vae":["V",0],"audio_vae":["AV",0],"context":["SP",1]})
+                    );
+                    assert_eq!(g["7"]["inputs"]["images"], json!(["SD", 0]));
+                    assert_eq!(g["7"]["inputs"]["audio"], json!(["SD", 1]));
+                    assert_eq!(
+                        g["P"]["inputs"],
+                        json!({"filename":["7",1],"ticket":["SP",2]})
+                    );
+                }
+            }
+        }
+    }
 }

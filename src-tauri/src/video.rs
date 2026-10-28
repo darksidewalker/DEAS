@@ -32,12 +32,18 @@ pub enum Action {
         width: i32,
         height: i32,
         visible: bool,
+        #[serde(default, rename = "audioOnly")]
+        audio_only: bool,
     },
     Pause {
         paused: bool,
     },
     Seek {
         seconds: f64,
+    },
+    Crop {
+        start: f64,
+        end: f64,
     },
     Mute {
         muted: bool,
@@ -66,6 +72,13 @@ impl Action {
                     && (0..=16384).contains(height)
             }
             Self::Seek { seconds } => seconds.is_finite() && (0.0..=86400.0).contains(seconds),
+            Self::Crop { start, end } => {
+                start.is_finite()
+                    && end.is_finite()
+                    && *start >= 0.0
+                    && *start < *end
+                    && *end <= 86400.0
+            }
             Self::Volume { volume } => volume.is_finite() && (0.0..=100.0).contains(volume),
             _ => true,
         };
@@ -139,8 +152,17 @@ pub async fn native_video_open(
     source: Source,
     auto_play: bool,
     repeat: bool,
+    muted: Option<bool>,
 ) -> Result<(), String> {
-    let result = open_inner(&window, id.clone(), source, auto_play, repeat).await;
+    let result = open_inner(
+        &window,
+        id.clone(),
+        source,
+        auto_play,
+        repeat,
+        muted.unwrap_or(false),
+    )
+    .await;
     let cancelled = result
         .as_ref()
         .err()
@@ -158,13 +180,14 @@ async fn open_inner(
     source: Source,
     auto_play: bool,
     repeat: bool,
+    muted: bool,
 ) -> Result<(), String> {
     if window.label() != "main" || uuid::Uuid::parse_str(&id).is_err() {
         return Err("Invalid video owner".into());
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (source, auto_play, repeat);
+        let _ = (source, auto_play, repeat, muted);
         Err("Native video is Linux-only".into())
     }
     #[cfg(target_os = "linux")]
@@ -173,7 +196,7 @@ async fn open_inner(
         let mut cancelled = pending.cancelled.clone();
         tokio::select! {
           _=cancelled.changed()=>Err("Video preview cancelled".into()),
-          result=prepare_video(window,id,source,auto_play,repeat,pending)=>result,
+          result=prepare_video(window,id,source,auto_play,repeat,muted,pending)=>result,
         }
     }
 }
@@ -184,6 +207,7 @@ async fn prepare_video(
     source: Source,
     auto_play: bool,
     repeat: bool,
+    muted: bool,
     pending: Pending,
 ) -> Result<(), String> {
     let app = window.app_handle();
@@ -243,7 +267,7 @@ async fn prepare_video(
         if *cancelled.borrow() {
             return Err("Video preview cancelled".into());
         }
-        linux::open(id, path, temporary, auto_play, repeat)
+        linux::open(id, path, temporary, auto_play, repeat, muted)
     })
     .await
 }
@@ -419,6 +443,50 @@ mod tests {
         assert!(Pending::start(&id).is_ok());
     }
     #[test]
+    fn crop_action_is_typed_and_bounded() {
+        let crop: Action =
+            serde_json::from_value(serde_json::json!({"kind":"crop","start":1.0,"end":3.0}))
+                .unwrap();
+        assert!(crop.validate().is_ok());
+        assert!(Action::Crop {
+            start: 0.0,
+            end: 86400.0
+        }
+        .validate()
+        .is_ok());
+        let bounds = serde_json::json!({"kind":"bounds","x":0,"y":0,"width":100,"height":100,"visible":true});
+        assert!(matches!(
+            serde_json::from_value::<Action>(bounds.clone()).unwrap(),
+            Action::Bounds {
+                audio_only: false,
+                ..
+            }
+        ));
+        let mut audio_bounds = bounds;
+        audio_bounds["audioOnly"] = serde_json::json!(true);
+        assert!(matches!(
+            serde_json::from_value::<Action>(audio_bounds).unwrap(),
+            Action::Bounds {
+                audio_only: true,
+                ..
+            }
+        ));
+        for (start, end) in [
+            (-1.0, 2.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (0.0, 86401.0),
+            (f64::NAN, 3.0),
+            (0.0, f64::INFINITY),
+        ] {
+            assert!(Action::Crop { start, end }.validate().is_err());
+        }
+        assert!(serde_json::from_value::<Action>(
+            serde_json::json!({"kind":"crop","start":1,"end":2,"command":"quit"})
+        )
+        .is_err());
+    }
+    #[test]
     fn playback_boundary_rejects_commands_urls_and_invalid_values() {
         assert!(serde_json::from_value::<Action>(
             serde_json::json!({"kind":"command","args":["run","sh"]})
@@ -431,7 +499,8 @@ mod tests {
             y: 0,
             width: 20000,
             height: 10,
-            visible: true
+            visible: true,
+            audio_only: false,
         }
         .validate()
         .is_err());

@@ -858,7 +858,7 @@ fn validate_forge_continuity(value: &Value) -> Result<(), String> {
         _ => false,
     } || !valid_id(&value["session"])
         || value["session"] == "_imports"
-        || value["use_references"].as_bool() != Some(false)
+        || !value["use_references"].is_boolean()
         || !value["current_prompt"]
             .as_str()
             .is_some_and(|s| s.len() <= 50_000)
@@ -888,6 +888,9 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         }
         if let Some(spec) = body.get("continuity") {
             validate_forge_continuity(spec)?;
+            if spec["use_references"] == true && body["mode"] != "REF2VA" {
+                return Err("Invalid H3 continuity request".into());
+            }
         }
     }
     if route == "people" {
@@ -1271,6 +1274,50 @@ mod continuity_tests {
                 assert_eq!(line, "POST /dasiwa/h3/forge HTTP/1.1");
                 body["settings"] = forge_settings(&saved);
                 assert_eq!(sent, body);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn ref2va_continuity_forwards_opted_in_references_and_rejects_other_modes() {
+        let root = tempfile::tempdir().unwrap();
+        let saved = LlmConfig {
+            provider: Provider::Ollama,
+            base_url: "http://127.0.0.1:11434".into(),
+        };
+        write(root.path(), saved.clone()).unwrap();
+        for kind in ["checkpoint", "video"] {
+            let mut spec = checkpoint();
+            spec["source_kind"] = json!(kind);
+            spec["clip_id"] = json!("a".repeat(64));
+            spec["use_references"] = json!(true);
+            let mut body = json!({"mode":"REF2VA", "brief":"continue", "continuity":spec, "references":[{"kind":"image","path":"deas-inputs/ref.png"}]});
+            let reply = json!({"simple_prompt":"next shot","continuity":true,"source_kind":kind});
+            let (url, task) = fixture(200, reply.clone()).await;
+            assert_eq!(
+                native_forge(
+                    url,
+                    root.path().to_string_lossy().into(),
+                    "h3".into(),
+                    body.clone()
+                )
+                .await
+                .unwrap(),
+                reply
+            );
+            body["settings"] = forge_settings(&saved);
+            assert_eq!(task.await.unwrap().1, body);
+            for mode in ["T2VA", "I2VA", "FL2VA", "L2VA", "Image Inpaint"] {
+                body["mode"] = json!(mode);
+                let error = native_forge(
+                    "http://127.0.0.1:1".into(),
+                    root.path().to_string_lossy().into(),
+                    "h3".into(),
+                    body.clone(),
+                )
+                .await
+                .unwrap_err();
+                assert_eq!(error, "Invalid H3 continuity request");
             }
         }
     }
