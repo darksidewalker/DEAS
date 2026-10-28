@@ -2,7 +2,14 @@ pub mod auth;
 pub mod video;
 pub mod video_post;
 pub mod video_post_draft;
+pub mod video_post_job;
+pub mod video_post_prepare;
 pub use video_post_draft::native_video_post_draft;
+pub use video_post_job::{
+    native_video_post_bind, native_video_post_capabilities, native_video_post_run,
+    native_video_post_status, native_video_post_stop,
+};
+pub use video_post_prepare::{native_video_post_prepare, native_video_post_prepared_status};
 #[cfg(feature = "video-upscale")]
 pub mod video_stream;
 #[cfg(feature = "video-upscale")]

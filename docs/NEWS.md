@@ -1,5 +1,9 @@
 # News
 
+## Development — 0.1.54
+
+TVE adds native file-authority preparation and an optional Linux rendering engine. In the AI-enabled build, explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. The regular build keeps inference off. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#validate-and-render-with-the-optional-native-engine). Not published by this change.
+
 ## Development — 0.1.53
 
 TVE now has its own main tab. Inspect a video source, choose a scale/export-profile draft and explicitly check its exact output metadata in Rust; source/draft state survives navigation without computation. Image refinement stays in Studio. The draft is not a runnable enhancement job and does not verify an encoder, GPU or source cadence. See [TVE workspace](STUDIO.md#tve-workspace) and [remaining execution work](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.

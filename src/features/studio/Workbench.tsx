@@ -599,16 +599,11 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   probe.onerror=()=>{if(live.current&&sourceEpoch.current===version)setError(t('studio.editor.insertFailed'));};
   probe.src=item.src;
  };
- // Fill the viewport below the project bar; the floating version reserves no height.
- const shell=useRef<HTMLDivElement>(null);const [fit,setFit]=useState<number|undefined>();
+ // The shared shell owns viewport sizing; observe this pane only to bound dock resizing.
+ const shell=useRef<HTMLDivElement>(null);const [bodyHeight,setBodyHeight]=useState(600);
  useEffect(()=>{if(browsed)shell.current?.querySelectorAll<HTMLMediaElement>('.wb-current-preview video, .wb-current-preview audio').forEach(el=>{if(!el.paused)el.pause();});},[browsed?.src]);
  useLayoutEffect(()=>{
-  const measure=()=>{const el=shell.current;if(!el||!el.offsetParent)return;const top=el.getBoundingClientRect().top;setFit(Math.max(420,window.innerHeight-top-3));};
-  measure();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',measure);return()=>window.removeEventListener('resize',measure);}
-  const ro=new ResizeObserver(measure);ro.observe(document.documentElement);document.querySelectorAll<HTMLElement>('.aio-topbar,.project-bar').forEach(el=>ro.observe(el));return()=>ro.disconnect();
- },[t]);
- useLayoutEffect(()=>{
-  const measure=()=>{const width=shell.current?.clientWidth;if(width)setBodyWidth(width);};measure();
+  const measure=()=>{const el=shell.current;if(el?.clientWidth)setBodyWidth(el.clientWidth);if(el?.clientHeight)setBodyHeight(el.clientHeight);};measure();
   window.addEventListener('resize',measure);
   const ro=typeof ResizeObserver==='undefined'?null:new ResizeObserver(measure);if(shell.current)ro?.observe(shell.current);
   return()=>{window.removeEventListener('resize',measure);ro?.disconnect();};
@@ -616,7 +611,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const sideSize=clamp(settingsWidth,220,Math.max(220,bodyWidth-128-320-20));
  const queueSize=clamp(queueWidth,128,Math.max(128,bodyWidth-sideSize-320-20));
  const sideMax=Math.max(220,bodyWidth-queueSize-320-20),queueMax=Math.max(128,bodyWidth-sideSize-320-20);
- const dockMax=Math.max(120,(fit??600)-260),dockSize=clamp(dockHeight,120,dockMax);
+ const dockMax=Math.max(120,bodyHeight-260),dockSize=clamp(dockHeight,120,dockMax);
  const dragCleanup=useRef<()=>void>(()=>{});
  useEffect(()=>()=>dragCleanup.current(),[]);
  const dragPane=(e:React.PointerEvent<HTMLDivElement>,start:number,min:number,max:number,set:(n:number)=>void,vertical=false,reverse=false)=>{
@@ -818,8 +813,8 @@ const promptTools=forgeContext&&<>
  return <>
  <ProjectBar draft={projectDraft} busy={busy||!!current||autoPlan||resolving} onRestore={restoreProject}/>
  {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
- <div hidden={planVisible}>
- <div className="workbench" data-workbench ref={shell} style={{height:fit}}>
+ <div className="workbench-host" hidden={planVisible}>
+ <div className="workbench" data-workbench ref={shell}>
   <div className="wb-body">
    <aside id="studio-settings" className="wb-side" style={{flexBasis:sideSize}}>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>

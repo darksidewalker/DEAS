@@ -6,7 +6,7 @@ import { inspectVideoPost, type VideoPostInspection } from '../../lib/videoPost'
 const blockerCodes = ['cadenceUnknown', 'cadenceMismatch', 'interlaced', 'rotation', 'alpha', 'hdr', 'colorUnknown', 'unsupportedPixelFormat', 'multipleVideoStreams', 'unsupportedDimensions', 'fieldOrderUnknown', 'nonSquarePixels', 'pixelAspectUnknown'];
 
 /** Only a successful inspection replaces the workspace source; cancellation retains it. */
-export function VideoPostProcessing({ onInspected }: { onInspected?: (source: VideoPostInspection) => void }) {
+export function VideoPostProcessing({ onInspected, disabled = false, acquire, release }: { onInspected?: (source: VideoPostInspection) => void; disabled?: boolean; acquire?: () => boolean; release?: () => void }) {
   const { t } = useI18n();
   const [source, setSource] = useState<VideoPostInspection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -16,7 +16,7 @@ export function VideoPostProcessing({ onInspected }: { onInspected?: (source: Vi
   useEffect(() => () => { epoch.current++; }, []);
 
   async function choose() {
-    if (pending.current) return;
+    if (pending.current || disabled || !isTauri() || (acquire && !acquire())) return;
     pending.current = true;
     const current = epoch.current;
     setError(null);
@@ -30,13 +30,14 @@ export function VideoPostProcessing({ onInspected }: { onInspected?: (source: Vi
         setError(detail);
       }
     } finally {
+      release?.();
       if (epoch.current === current) { pending.current = false; setBusy(false); }
     }
   }
 
   return <section className="wb-option" data-video-post aria-label={t('studio.videoPost.title')} aria-busy={busy}>
     <span>{t('studio.videoPost.title')}</span>
-    <button type="button" className="wb-dock-action" data-video-post-inspect disabled={busy || !isTauri()} onClick={() => void choose()}>{t('studio.videoPost.choose')}</button>
+    <button type="button" className="wb-dock-action" data-video-post-inspect disabled={disabled || busy || !isTauri()} onClick={() => void choose()}>{t('studio.videoPost.choose')}</button>
     {busy && <small role="status">{t('studio.videoPost.busy')}</small>}
     {!isTauri() && <small>{t('studio.videoPost.desktop')}</small>}
     {error !== null && <small role="alert">{t('studio.videoPost.failed')}: {error}</small>}

@@ -14,7 +14,7 @@
 .forge-warning { margin: 0; color: var(--copper); font-size: 12px; text-transform: none; letter-spacing: 0; }
 
 /* Prompt Forge tab: controls left, result and the input-folder picker right. */
-.forge-tab { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; padding: 12px 0; height: calc(100vh - 7rem); min-height: 28rem; }
+.forge-tab { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; padding: 12px 0; min-height: 0; }
 .forge-controls, .forge-output { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .forge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 8px; }
 .forge-output .forge-field textarea[data-forge-result] { height: 12rem; }

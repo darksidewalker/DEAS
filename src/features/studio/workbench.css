@@ -1,4 +1,5 @@
-.workbench { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+.workbench-host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+.workbench { display: flex; flex-direction: column; flex: 1; gap: 8px; min-height: 420px; min-width: 0; }
 .wb-body { display: flex; gap: 0; flex: 1; min-height: 0; }
 .wb-column-handle { flex: 0 0 10px; position: relative; cursor: col-resize; touch-action: none; }
 .wb-column-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; border-left: 2px solid rgb(var(--blue-rgb) / 0.302); border-radius: 2px; }
@@ -181,7 +182,12 @@
 .wb-option-row input[type="number"] { width: 5rem; flex: none; }
 .wb-option-row .wb-sigmas { flex: 1 1 0; min-width: 0; padding: 3px 6px; font-size: .78rem; font-family: ui-monospace, monospace; }
 [data-option="sigmas"] select { width: auto; flex: none; max-width: 45%; }
-@media (max-width: 900px) { .wb-dock { min-height: 26rem; } .workbench { height: auto !important; } .wb-body { flex-direction: column; } .wb-side, .wb-queue, .wb-metadata { flex: none; flex-basis: auto !important; } .wb-column-handle, .wb-dock-handle { display: none; } .wb-body { gap: 10px; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
+@media (max-width: 900px) { .wb-dock { min-height: 26rem; } .workbench { flex: 0 0 auto; min-height: 100%; } .wb-body { flex: none; flex-direction: column; } .wb-center { flex: none; } .wb-side, .wb-queue, .wb-metadata { flex: none; flex-basis: auto !important; } .wb-column-handle, .wb-dock-handle { display: none; } .wb-body { gap: 10px; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
+/* Narrow panes scroll as content. Wrapped tools stay in flow, never over the role selector. */
+@media (max-width: 900px) {
+ .wb-stage .media-preview:has(> .wb-edit-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
+ .wb-stage .wb-edit-tools { position: static; inset: auto; justify-content: flex-start; padding-top: 4px; }
+}
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }
 
 /* Dock views (pref studio.dock.view): tiles = default above; thumbs = large previews; list = one name per row. */

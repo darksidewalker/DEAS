@@ -5,6 +5,12 @@ mod linux_startup;
 
 #[cfg(not(test))]
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--video-post-worker")) {
+        if std::env::args_os().len() != 2 {
+            std::process::exit(2);
+        }
+        std::process::exit(deas::video_post_job::worker_entry());
+    }
     #[cfg(target_os = "linux")]
     linux_startup::configure();
     #[cfg(target_os = "linux")]
@@ -51,6 +57,13 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             deas::native_video_post_inspect,
             deas::native_video_post_draft,
+            deas::native_video_post_prepare,
+            deas::native_video_post_prepared_status,
+            deas::native_video_post_capabilities,
+            deas::native_video_post_bind,
+            deas::native_video_post_run,
+            deas::native_video_post_status,
+            deas::native_video_post_stop,
             deas::video::native_video_open,
             deas::video::native_video_update,
             deas::native_auth_status,
@@ -174,6 +187,7 @@ fn main() {
                 deas::video::install(app);
             }
             if matches!(event, tauri::RunEvent::Exit) {
+                deas::video_post_job::shutdown();
                 deas::video::shutdown();
             }
             if matches!(

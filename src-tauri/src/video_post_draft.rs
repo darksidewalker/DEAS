@@ -97,7 +97,10 @@ const SOURCE_BLOCKERS: [&str; 12] = [
     "pixelAspectUnknown",
 ];
 
-fn build_draft(mut source: DraftSource, settings: DraftSettings) -> Result<VideoPostDraft, String> {
+pub(crate) fn build_draft(
+    mut source: DraftSource,
+    settings: DraftSettings,
+) -> Result<VideoPostDraft, String> {
     if source.name.trim().is_empty()
         || source.name.len() > 1024
         || matches!(source.name.as_str(), "." | "..")
@@ -472,7 +475,13 @@ mod tests {
                 .iter()
                 .map(|v| v.as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["native_video_post_inspect", "native_video_post_draft"]
+            [
+                "native_video_post_inspect",
+                "native_video_post_draft",
+                "native_video_post_prepare",
+                "native_video_post_prepared_status",
+                "native_video_post_capabilities"
+            ]
         );
         let capability: Value =
             serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();

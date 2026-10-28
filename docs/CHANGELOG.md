@@ -7,6 +7,17 @@
 - More (Refine/Upscale) now appears on every image preview, including dock-browsed files: the file is uploaded and the Post-Processing settings run directly on it (target = current canvas size × upscale factor).
 - Fix video source inspection rejecting every file chosen through a symlinked directory (bookmarks like ~/Downloads): parent-directory links are ordinary navigation and only the selected file itself must not be a link. Admission failures now name the reason (VIDEO_SYMLINK / VIDEO_SIZE / VIDEO_TYPE) instead of one generic VIDEO_SOURCE message.
 
+## Unreleased — 0.1.54
+
+- Fix the recurring footer-only empty band at the shared viewport boundary, not per tab. All active panes inherit the shell height; hidden retained panes stay out of layout. Remove competing Workbench/Forge/Chat height formulas and Logs/Comfy wrapper exceptions. Long/narrow content scrolls internally, and wrapped narrow preview tools no longer cover output-role controls. Add a dynamic all-tab browser regression gate to frontend CI, with future-pane and deliberate broken-layout controls.
+
+- Add the explicitly enabled Linux TVE native engine: trusted runtime/model/optional-cuDNN binding, Validate & render, serialized job status and explicit Stop. Rust runs the current executable as a private worker before GTK startup, with bounded versioned IPC, immutable native authorities, parent-owned cleanup and final no-clobber publication. One process-scoped dependency is loaded only when selected; foreign services/models are untouched.
+- Interlock DEAS-managed Comfy submissions and TVE renders without claiming global GPU arbitration. Separate render/code-execution permission from read-only inspection. Protect streaming codecs and the initial inspector against forced worker death; reject glibc loader tokens at the common native runtime boundary, with focused red/green regressions.
+- Keep the ordinary build inference-off and stage a distinct AI-enabled binary. Real CUDA app-worker and managed-parent video tests preserve source bytes, four-frame timing and AAC metadata; normal-build worker mode exits unsupported before GTK. Playback/comparison, long/full-resolution video, additional model stages and Windows rendering remain outside this bounded path.
+
+- Bind explicit native video inspections to a single retained session source ID, without granting authority to the standalone CLI inspection helper. Add native chooser-only new-MP4 output preparation and explicit source/directory/destination recheck; browser requests carry IDs/settings/title rather than file paths. Failed/cancelled selection preserves prior usable state; changed sources, directory replacements and occupied targets invalidate preparation. No file is created and all model/timing/encoder/processing readiness flags remain false.
+- Add six-language TVE preparation cards/actions with duplicate-request guards and stale-result fencing. Legacy inspections without source IDs remain usable for metadata drafts; no model selector, GPU job or Render action is enabled.
+
 ## Unreleased — 0.1.53
 
 - Add a dedicated TVE main tab for standalone video post-processing authoring, separate from Generate's image Post-Processing dock. Lazy mounting retains source inspection/output choices/checked drafts across app navigation; opening or restoring the tab does not probe, load models or submit work. Keep the Generate workbench and existing image actions mounted and unchanged.

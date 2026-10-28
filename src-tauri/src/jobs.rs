@@ -1141,6 +1141,14 @@ impl Drop for StatusPolling<'_> {
 }
 
 impl Jobs {
+    // Called only after TVE's lock-free reservation; never acquire a TVE mutex here.
+    pub(crate) fn admit_video_post(&self) -> Result<(), String> {
+        let session = self.lock()?;
+        if session.job.as_ref().is_some_and(|j| !j.terminal()) || session.workbench_busy()? {
+            return Err("VIDEO_BUSY: DEAS-managed ComfyUI work is active or unknown.".into());
+        }
+        Ok(())
+    }
     fn current(&self) -> Result<Value, String> {
         Ok(self.lock()?.snapshot())
     }
@@ -1331,6 +1339,12 @@ impl Jobs {
         // Consume before the first await: a lost response must never authorize a retry.
         let mut job = {
             let mut session = self.lock()?;
+            if crate::video_post_job::gpu_reserved() {
+                return Err(
+                    "A DEAS-managed video render is active; wait or stop it before submitting."
+                        .into(),
+                );
+            }
             if session.stop_requested {
                 return Err("Workbench preparation discarded by Stop".into());
             }
@@ -2267,6 +2281,24 @@ fn refmod_entries(v: &Value) -> Value {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod video_post_admission_tests {
+    use super::*;
+    #[test]
+    fn preparing_workbench_blocks_tve_without_consuming_state() {
+        let jobs = Jobs::default();
+        jobs.admit_video_post().unwrap();
+        jobs.lock()
+            .unwrap()
+            .workbench
+            .push(Arc::new(Jobs::default()));
+        assert!(jobs.admit_video_post().is_err());
+        assert_eq!(jobs.lock().unwrap().workbench.len(), 1);
+        jobs.lock().unwrap().workbench.clear();
+        jobs.admit_video_post().unwrap();
+    }
 }
 
 #[cfg(test)]
