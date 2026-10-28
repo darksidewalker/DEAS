@@ -1,5 +1,11 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.1.56 (one full-featured build)
+
+- `video-upscale` moved into Cargo `[features] default` (`default = ["custom-protocol", "video-upscale"]`): every Linux and Windows build compiles the native TVE spatial engine in. No separate AI-variant binary is built or published; the retired `deas-linux-amd64-video-upscale` was removed from `artifacts/releases/v0.1.55/` and the GitHub v0.1.55 asset list (its `SHA256SUMS` regenerated → three files, all OK). Engine use stays a runtime opt-in (TVE settings + trusted runtime/model binding); startup loads no runtime, model or GPU; nothing is bundled or auto-downloaded. Docs (`NATIVE-UPSCALING.md`, `STUDIO.md`, `CREDITS.md`, CHANGELOG) updated; the platform gate `cfg!(all(target_os="linux", feature="video-upscale"))` keeps the native worker Linux-only.
+- Fresh gates after the change: Vitest **116 core / 1154 UI passed**, `tsc` clean; serial Cargo **all suites ok with the native video-post suite running engine-enabled** (the `cfg(feature)` skips now execute); `cargo fmt --check`, strict Clippy over `--lib --bins --examples -D warnings` and the Windows-MSVC `cargo xwin check --locked --all-targets` crosscheck (first full Windows compile of `ort`/`half`) all clean.
+- `bash build-linux.sh --release` at commit `a7fb58f` staged `artifacts/releases/v0.1.56/` (four files, no AI variant): `deas-linux-amd64 182c5bef032e08694dd8fd52db5dcf017b8007712fe019e61a45e7b0c82edcc2` (default features incl. video-upscale, glibc floor 2.39 derived from the binary), `deas.exe b2e7655fa0f4dc8f35964820eaa2b8787d20c5d5e484c70b94b6ff87172b66ec` (xwin, unsigned), `SHA256SUMS` (all OK), `BUILD-MANIFEST.json` (tree `e532e95f8e26b60448c8113c1a84b5be7a7bc521`, rustc 1.97.0 / node v26.12.1). Launch probe under the live Wayland session: 30-second staged-binary run, exit 124 (timeout), zero panic/GTK-init lines.
+
 ## Release 0.1.55 (0.1.50–0.1.54 roll-up)
 
 - Version `0.1.55` set in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`/`Cargo.lock`, `src-tauri/tauri.conf.json`; `docs/CHANGELOG.md` rolls the former 0.1.50–0.1.54 unreleased sections into `## Unreleased — 0.1.55`; README documents the canonical release-artifact location (`artifacts/releases/v<version>/` as the only home for release binaries; no loose binaries in `artifacts/`).
