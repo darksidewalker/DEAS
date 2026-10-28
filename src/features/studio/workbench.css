@@ -1,4 +1,5 @@
-.workbench { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+.workbench-host { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+.workbench { display: flex; flex-direction: column; flex: 1; gap: 8px; min-height: 420px; min-width: 0; }
 .wb-body { display: flex; gap: 0; flex: 1; min-height: 0; }
 .wb-column-handle { flex: 0 0 10px; position: relative; cursor: col-resize; touch-action: none; }
 .wb-column-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; border-left: 2px solid rgb(var(--blue-rgb) / 0.302); border-radius: 2px; }
@@ -77,12 +78,18 @@
 .wb-output-choices { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
 .wb-output-choices button { padding: 3px 8px; font-size: .75rem; }
 .wb-output-choices button[aria-pressed="true"] { border-color: var(--copper); }
-.wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; margin: 0; }
+.wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, auto) minmax(0, auto); flex: 1; min-height: 0; min-width: 0; margin: 0; }
 .wb-stage .media-preview img, .wb-stage .media-preview video { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; }
 .wb-stage .media-preview { position: relative; }
-/* Controls ride the stage header row (stage pads 30px for it; the figure starts below, hence -25px): right-aligned, ending before the Metadata pill (close + metadata reserve 150px covers the longest locale label). */
-.wb-edit-tools { position: absolute; top: -25px; left: 8px; right: 150px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; pointer-events: none; }
-.wb-edit-tools > * { pointer-events: auto; }
+/* One bounded content row, including jobs with more than one product. The
+   existing per-output Star controls remain associated with their filenames. */
+.wb-stage .wb-media-content { display: grid; grid-auto-rows: minmax(5rem, 1fr); min-height: 0; min-width: 0; overflow: auto; }
+.wb-stage .media-preview > .native-video { min-width: 0; overflow: auto; }
+.wb-stage .media-preview > figcaption { min-height: 0; min-width: 0; overflow: auto; }
+/* Reserve space below the media/editor instead of covering pixels or player
+   controls. Long translated actions wrap inside the available view. */
+.wb-stage .wb-media-tools { position: static; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; min-height: 0; max-width: 100%; padding: 4px 0; overflow: auto; }
+.wb-stage .wb-media-tools > * { min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }
 .wb-queue-output > .media-star-control { position: absolute; top: 5px; right: 5px; }
@@ -99,8 +106,8 @@
 .wb-edit-tools .media-star-control .media-star { width: auto; min-height: 0; height: 22px; padding: 0 9px; border: 1px solid rgb(var(--ink-rgb) / 0.165); border-radius: 11px; background: rgb(var(--shadow-rgb) / 0.627); font-size: 11px; line-height: 20px; color: var(--gold); }
 /* More dropdown: pill summary (styled by the shared rule) opening a compact menu under it. */
 .wb-more summary { list-style: none; }
-.wb-more[open] > .wb-more-menu { position: absolute; top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
-.wb-more[open] { position: relative; }
+.wb-more[open] > .wb-more-menu { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
+.wb-edit-tools button { max-width: 100%; min-width: 0; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
 /* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
 .wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .wb-compare > img, .wb-compare-top { grid-area: 1 / 1; }
@@ -111,9 +118,8 @@
 .wb-compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .wb-compare input[type="range"]:focus-visible { opacity: .4; }
 /* Keep one source editor mounted while the queue result is shown. */
-.wb-editor-host { display:grid; grid-template-rows:minmax(0,1fr) auto auto; flex:1; min-height:0; min-width:0; }
+.wb-editor-host { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,auto) minmax(0,auto); flex:1; min-height:0; min-width:0; }
 .wb-editor-host > .sie { min-height:0; }
-.wb-editor-host > .wb-edit-tools { position:static; justify-content:flex-end; flex-wrap:wrap; padding:4px 0; }
 .wb-editor-caption { font-size:.7rem; color:var(--muted); overflow-wrap:anywhere; }
 .wb-editor-host[hidden] { display:none; }
 /* An explicit row: an implicit auto row grows to a large render's intrinsic height and the halves overflow each other. */
@@ -181,7 +187,12 @@
 .wb-option-row input[type="number"] { width: 5rem; flex: none; }
 .wb-option-row .wb-sigmas { flex: 1 1 0; min-width: 0; padding: 3px 6px; font-size: .78rem; font-family: ui-monospace, monospace; }
 [data-option="sigmas"] select { width: auto; flex: none; max-width: 45%; }
-@media (max-width: 900px) { .wb-dock { min-height: 26rem; } .workbench { height: auto !important; } .wb-body { flex-direction: column; } .wb-side, .wb-queue, .wb-metadata { flex: none; flex-basis: auto !important; } .wb-column-handle, .wb-dock-handle { display: none; } .wb-body { gap: 10px; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
+@media (max-width: 900px) { .wb-dock { min-height: 26rem; } .workbench { flex: 0 0 auto; min-height: 100%; } .wb-body { flex: none; flex-direction: column; } .wb-center { flex: none; } .wb-side, .wb-queue, .wb-metadata { flex: none; flex-basis: auto !important; } .wb-column-handle, .wb-dock-handle { display: none; } .wb-body { gap: 10px; } .wb-metadata { max-height: 18rem; } .wb-queue ul { flex-direction: row; } .wb-queue button { width: 6rem; } .wb-queue img, .wb-queue .wb-thumb { width: 5.6rem; height: 4rem; } .wb-prompts { grid-template-columns: minmax(0, 1fr); } .wb-dock-tabs { flex-wrap: wrap; } }
+/* Narrow panes scroll as content. Wrapped tools stay in flow, never over the role selector. */
+@media (max-width: 900px) {
+ .wb-stage .media-preview:has(> .wb-edit-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
+ .wb-stage .wb-edit-tools { position: static; inset: auto; justify-content: flex-start; padding-top: 4px; }
+}
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }
 
 /* Dock views (pref studio.dock.view): tiles = default above; thumbs = large previews; list = one name per row. */

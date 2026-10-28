@@ -121,8 +121,8 @@ test('only an explicit choice invokes the native chooser and displays an inspect
   vi.mocked(invoke).mockResolvedValue(source);
   render(view());
   expect(invoke).not.toHaveBeenCalled();
-  expect(screen.getByText(/Matching header rates do not prove CFR/)).toBeTruthy();
-  expect(screen.getByText(/Rust video inference is not implemented/)).toBeTruthy();
+  expect(screen.getByText(/matching header rates do not prove CFR/)).toBeTruthy();
+  expect(screen.getByText(/Nothing is processed by inspection/)).toBeTruthy();
   await act(async () => choose());
   expect(invoke).toHaveBeenCalledExactlyOnceWith('native_video_post_inspect', { title: 'Choose video source' });
   expect(screen.getByText('source.mp4')).toBeTruthy();

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { aspects as settingsAspects } from '../../lib/resolution';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
-import { LayoutStudio, applyGenerated, forPrompt, resizeProject, useLayoutProject } from './LayoutStudio';
+import { canonicalForgeAspect, forgeAspectChoices, resolveForgeCanvas, type ForgeCanvasContext, type ForgeSendCanvas } from '../../lib/forgeCanvas';
+import type { Size } from '../../lib/resolution';
+import { LayoutStudio, applyGenerated, exportLayout, forPrompt, resizeProject, useLayoutProject } from './LayoutStudio';
 import { Randomizer } from './Randomizer';
 import { Reading, ReferenceImages, type RefPicture } from './ReferenceImages';
 import { TagPicker, weighted, type PickedTag } from './TagPicker';
@@ -18,16 +20,15 @@ const pretty = (v: string) => { const s = v.replace(/_/g, ' '); return s.charAt(
 const FOLDS = ['presets', 'output', 'verbatim', 'camera', 'lighting', 'tags', 'refs'] as const;
 /** PromptForge's bounds for the manual length. */
 const LENGTH_MIN = 10, LENGTH_MAX = 4000;
-const fixedAspects: readonly string[] = settingsAspects.filter(a => a !== 'auto' && a !== 'custom');
-const ratioOf = (value: string) => /^(\d+:\d+)(?:\s|$)/.exec(value)?.[1] ?? '';
-interface Draft { result: NativeResult; prompt: string; negative: string }
+interface Association { scope: object; canvas?: Size; contextKey: string; layoutRevision?: number; textRevision: number }
+interface Draft { result: NativeResult; prompt: string; negative: string; association: Association | null }
 
 /**
  * The Prompt Forge editor for the image models: PromptForge's own pipeline run natively — character canon from the local
  * tables, the tag-search and guidance tools, then the mechanical clean-up — with PromptForge's builder: named-notch
  * sliders, folding sections that say what is set inside them, and camera/light tiles. The result goes to Generate.
  */
-export function NativeForge({ root, target, forge, brief, setBrief, detail, setDetail, creativity, setCreativity, onSend, header, active = true }: { brief: string; setBrief: (value: string) => void; detail: number; setDetail: (value: number) => void; creativity: number; setCreativity: (value: number) => void; root?: string; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
+export function NativeForge({ root, endpoint = '', canvasContext, target, forge, brief, setBrief, detail, setDetail, creativity, setCreativity, onSend, header, active = true }: { brief: string; setBrief: (value: string) => void; detail: number; setDetail: (value: number) => void; creativity: number; setCreativity: (value: number) => void; root?: string; endpoint?: string; canvasContext?: ForgeCanvasContext; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string, canvas?: ForgeSendCanvas) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<NativeTargets | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -36,6 +37,8 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const [quality, setQuality] = usePref(`forge.native.${target}.quality`, 'none', isString);
   const [style, setStyle] = usePref(`forge.native.${target}.style`, 'None', isString);
   const [aspect, setAspect] = usePref(`forge.native.${target}.aspect`, 'N/A', isString);
+  const [customWidth, setCustomWidth] = usePref(`forge.native.${target}.customWidth`, 1, isNumber);
+  const [customHeight, setCustomHeight] = usePref(`forge.native.${target}.customHeight`, 1, isNumber);
   const [angle, setAngle] = usePref(`forge.native.${target}.angle`, '', isString);
   const [shot, setShot] = usePref(`forge.native.${target}.shot`, '', isString);
   const [light, setLight] = usePref(`forge.native.${target}.light`, '', isString);
@@ -59,8 +62,12 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const [keepPositive, setKeepPositive] = useState('');
   const [keepNegative, setKeepNegative] = useState('');
   const [result, setResult] = useState<NativeResult | null>(null);
+  const [association, setAssociation] = useState<Association | null>(null);
   const [prompt, setPrompt] = useState('');
   const [negative, setNegative] = useState('');
+  const textRevision = useRef(0);
+  const editPrompt = (value: string) => { textRevision.current++; setPrompt(value); };
+  const editNegative = (value: string) => { textRevision.current++; setNegative(value); };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -72,10 +79,10 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
     let alive = true;
     nativeForgeTargets(root!).then(v => { if (alive) setTargets(v); }, e => { if (alive) setLoadError(forgeError(e)); });
     return () => { alive = false; };
-  }, [ready, root]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, root, targets]);
   useEffect(() => { setTargets(null); setLoadError(''); }, [root]);
   // A result belongs to the target it was written for.
-  useEffect(() => { setResult(null); setPrompt(''); setNegative(''); setError(''); setUndo([]); }, [target]);
+  useEffect(() => { setResult(null); setAssociation(null); setPrompt(''); setNegative(''); setError(''); setUndo([]); }, [target]);
 
   const spec = targets?.targets.find(x => x.key === target);
   const modes = spec?.modes ?? [];
@@ -91,26 +98,44 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const pick = { angle: offered(spec?.camera?.angle, angle), shot: offered(spec?.camera?.shot, shot), light: offered(spec?.camera?.light, light) };
   const qualities = spec?.qualityPresets.filter(p => p !== 'none') ?? [];
   const styles = spec?.styles.filter(s => s !== 'None') ?? [];
-  const packAspects = spec?.aspectRatios?.filter(a => a !== 'N/A') ?? [];
-  const aspects = layoutMode ? packAspects : fixedAspects;
-  let activeAspect = aspects.includes(aspect) ? aspect : 'N/A';
-  // Read old labelled preferences without rewriting their per-target saved values.
-  if (!layoutMode && packAspects.includes(aspect) && fixedAspects.includes(ratioOf(aspect))) activeAspect = ratioOf(aspect);
-  // An equivalent pack preset keeps its existing Layout JSON canvas when switching modes.
-  if (layoutMode && fixedAspects.includes(aspect)) activeAspect = packAspects.find(a => ratioOf(a) === aspect) ?? 'N/A';
+  const selectedAspect = canonicalForgeAspect(aspect);
+  const resolved = resolveForgeCanvas(aspect, { width: customWidth, height: customHeight }, canvasContext, layoutMode ? 'layout' : 'image');
   const lightingNotches = spec?.lightingLevels ?? [];
   const lightingOn = lightingNotches.some(([n]) => n === lighting) ? lighting : 0;
 
-  const canvas = layoutMode ? spec!.layoutCanvas![activeAspect] ?? spec!.layoutCanvas!['N/A'] : null;
+  const canvas = resolved.canvas;
   useEffect(() => {
-    if (canvas && (studio.project.w !== canvas[0] || studio.project.h !== canvas[1])) studio.set(resizeProject(studio.project, canvas[0], canvas[1]));
-  }, [canvas?.[0], canvas?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (layoutMode && canvas && !resolved.error) studio.set(resizeProject(studio.project, canvas.width, canvas.height));
+  }, [layoutMode, canvas?.width, canvas?.height, resolved.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An identity object changes even across A → B → A. Responses from an older
+  // authoring context cannot replace the current text or layout.
+  const scopeKey = JSON.stringify([root, endpoint, target, activeMode, forge.model, forge.rev, aspect, customWidth, customHeight, canvasContext?.key, canvas, resolved.error]);
+  // Reference pictures can contain large data URLs. Their immutable state
+  // identity participates in freshness without serializing their bytes.
+  const scope = useMemo(() => ({}), [scopeKey, brief, detail, creativity, lightingOn, quality, style, pick.angle, pick.shot, pick.light, keepPositive, keepNegative, lengthUnit, lengthValue, tags, pictures, withNegative, withNotes]);
+  const latestScope = useRef<object | null>(scope);
+  latestScope.current = scope;
+  useEffect(() => { latestScope.current = scope; return () => { latestScope.current = null; }; }, [scope]);
+  const resultFits = !!association && association.scope === scope && (!layoutMode || association.layoutRevision === studio.revision);
+  const handoffBlocked = !!association?.canvas && canvasContext?.acceptsCanvas?.(association.canvas) === false;
+  const layoutReady = !layoutMode || ((!canvas || (studio.project.w === canvas.width && studio.project.h === canvas.height)) && studio.project.w >= 128 && studio.project.h >= 128 && studio.project.w <= 8192 && studio.project.h <= 8192 && studio.project.w % 16 === 0 && studio.project.h % 16 === 0 && studio.project.w * studio.project.h <= 16_777_216);
+  const geometryError = resolved.error || (!layoutReady ? 'forge.canvas.layoutInvalid' : '');
+  const consume = (): Association => ({ scope, ...(canvas ? { canvas: { ...canvas } } : {}), contextKey: canvasContext?.key ?? '', textRevision: textRevision.current, ...(layoutMode ? { layoutRevision: studio.revision } : {}) });
+  const current = (snapshot: Association) => latestScope.current === snapshot.scope && snapshot.textRevision === textRevision.current && (snapshot.layoutRevision === undefined || studio.isCurrent(snapshot.layoutRevision));
+  const send = (positive: string, negativeText: string, textOnly = false) => {
+    if (!positive.trim()) return;
+    if (textOnly) { onSend(positive, negativeText); return; }
+    if (!resultFits || geometryError || handoffBlocked || busy) return;
+    if (association?.canvas) onSend(positive, negativeText, { canvas: { ...association.canvas }, contextKey: association.contextKey });
+    else onSend(positive, negativeText);
+  };
   const lengthOk = Number.isInteger(lengthValue) && lengthValue >= LENGTH_MIN && lengthValue <= LENGTH_MAX;
   const request = (): NativeWrite => ({
     target, brief, model: nativeModelId(forge.model), mode: activeMode || undefined, segmentsOn,
     controls: {
       detail, creativity, lighting: lightingOn || undefined,
-      qualityPreset: qualities.includes(quality) ? quality : 'none', style: styles.includes(style) ? style : 'None', aspectRatio: activeAspect,
+      qualityPreset: qualities.includes(quality) ? quality : 'none', style: styles.includes(style) ? style : 'None', aspectRatio: selectedAspect ?? aspect,
+      ...(canvas ? { canvas: { ...canvas } } : {}),
       cameraAngle: pick.angle || undefined, cameraShot: pick.shot || undefined, cameraLight: pick.light || undefined,
       positive: keepPositive.trim() || undefined, negative: keepNegative.trim() || undefined,
       maxLength: lengthUnit && lengthOk ? { unit: lengthUnit, value: lengthValue } : undefined,
@@ -118,18 +143,20 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
       imageReferences: pictures.length ? pictures.map(({ role, fidelity, note, character, image }) => ({ role, fidelity, note, character, image })) : undefined,
     },
   });
-  const show = (out: NativeResult) => { setResult(out); setPrompt(out.prompt); setNegative(out.negative ?? ''); };
+  const show = (out: NativeResult, snapshot: Association) => { setResult(out); setAssociation(snapshot); setPrompt(out.prompt); setNegative(out.negative ?? ''); };
   const run = async () => {
-    if (!root || !forge.model) return;
+    if (!root || !forge.model || busy || geometryError) return;
+    const snapshot = consume();
     setBusy(true); setError('');
-    try { show(await nativeForgeWrite(root, request())); setUndo([]); }
-    catch (e) { setError(forgeError(e)); }
+    try { const out = await nativeForgeWrite(root, request()); if (current(snapshot)) { show(out, snapshot); setUndo([]); } else if (latestScope.current) setError('forge.canvas.replyStale'); }
+    catch (e) { if (current(snapshot)) setError(forgeError(e)); }
     finally { setBusy(false); }
   };
   // Layout JSON in PromptForge's two steps. Generate prompt: the brief, written as Natural language writes it, into the
   // Global prompt. Generate JSON: the Global prompt (or the brief while it is empty) into the boxes; drawn boxes stay.
   const generate = async (which: 'prompt' | 'json') => {
-    if (!root || !forge.model) return;
+    if (!root || !forge.model || busy || geometryError) return;
+    const snapshot = consume();
     const base = request();
     const p = studio.project;
     const text = which === 'json' && p.caption.trim() ? p.caption : brief;
@@ -140,37 +167,42 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
       const out = await nativeForgeWrite(root, which === 'prompt'
         ? { ...base, brief: text, mode: 'Natural language', segmentsOn: base.segmentsOn?.filter(l => /negative/i.test(l)), controls }
         : { ...base, brief: text, mode: 'Layout JSON', controls: { ...controls, layout: forPrompt(p) } });
-      setResult(out); setNegative(out.negative ?? ''); setUndo([]);
+      if (!current(snapshot)) { if (latestScope.current) setError('forge.canvas.replyStale'); return; }
+      let published = p;
       if (which === 'prompt') {
         const prose = out.segments.find(x => x.label === 'Enhanced prompt')?.body ?? out.prompt;
-        if (prose.trim()) studio.set({ ...p, caption: prose.trim() });
+        if (prose.trim()) published = { ...p, caption: prose.trim() };
       } else {
         const body = out.segments.find(x => x.label === 'Layout JSON')?.body;
         if (body) {
           // The Global prompt it was written from stays the person's own.
-          try { const laid = applyGenerated(p, body); studio.set(p.caption.trim() ? { ...laid, caption: p.caption } : laid); }
-          catch { setError('forge.layout.unreadable'); }
+          try { const laid = applyGenerated(p, body); published = p.caption.trim() ? { ...laid, caption: p.caption } : laid; }
+          catch { setError('forge.layout.unreadable'); return; }
         }
       }
-    } catch (e) { setError(forgeError(e)); }
+      studio.set(published);
+      setResult(out); setAssociation({ ...snapshot, layoutRevision: snapshot.layoutRevision! + (published === p ? 0 : 1) }); setNegative(out.negative ?? ''); setUndo([]);
+    } catch (e) { if (current(snapshot)) setError(forgeError(e)); }
     finally { setBusy(false); setStep(''); }
   };
   // The draft as it stands on screen: the person's edits to the prompt and the negative go back with it.
   const onScreen = (): NativeSegment[] => (result?.segments ?? []).map(s =>
     s.body === result?.prompt && s.label !== 'Negative prompt' ? { ...s, body: prompt } : s.label === 'Negative prompt' ? { ...s, body: negative } : s);
   const revise = async (instruction?: string) => {
-    if (!root || !forge.model || !result) return;
+    if (!root || !forge.model || !result || !resultFits || busy || geometryError) return;
+    const snapshot = consume();
     setBusy(true); setError('');
     try {
-      const before: Draft = { result, prompt, negative };
+      const before: Draft = { result, prompt, negative, association };
       const out = await nativeForgeRevise(root, { ...request(), segments: onScreen(), instruction, referenceAnalysis: result.referenceAnalysis ?? undefined });
-      setUndo([...undo, before]); show(out);
+      if (!current(snapshot)) { if (latestScope.current) setError('forge.canvas.replyStale'); return; }
+      setUndo([...undo, before]); show(out, snapshot);
       if (instruction) setRefineText('');
-    } catch (e) { setError(forgeError(e)); }
+    } catch (e) { if (current(snapshot)) setError(forgeError(e)); }
     finally { setBusy(false); }
   };
-  const back = () => { const last = undo.at(-1); if (!last) return; setUndo(undo.slice(0, -1)); setResult(last.result); setPrompt(last.prompt); setNegative(last.negative); };
-  const clear = () => { setResult(null); setPrompt(''); setNegative(''); setError(''); setUndo([]); };
+  const back = () => { const last = undo.at(-1); if (!last) return; textRevision.current++; setUndo(undo.slice(0, -1)); setResult(last.result); setAssociation(last.association); setPrompt(last.prompt); setNegative(last.negative); };
+  const clear = () => { textRevision.current++; setResult(null); setAssociation(null); setPrompt(''); setNegative(''); setError(''); setUndo([]); };
   const copy = async () => {
     try { await navigator.clipboard.writeText(negative.trim() ? `${prompt}\n\n${t('forge.negativeShort')}: ${negative}` : prompt); setCopied(true); setTimeout(() => setCopied(false), 1500); }
     catch { setError('forge.copyFailed'); }
@@ -188,7 +220,7 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
   const label = (list: NativeCameraOption[] | undefined, key: string) => list?.find(o => o.key === key)?.label ?? '';
 
   const summary = {
-    presets: [qualities.includes(quality) && pretty(quality), styles.includes(style) && style, activeAspect !== 'N/A' && activeAspect].filter(Boolean).join(' · ') || t('forge.nothingSet'),
+    presets: [qualities.includes(quality) && pretty(quality), styles.includes(style) && style, aspect !== 'N/A' && aspect].filter(Boolean).join(' · ') || t('forge.nothingSet'),
     output: [lengthUnit && lengthOk ? `${lengthValue} ${t(`forge.length.${lengthUnit}`)}` : t('forge.length.default'), [negativeLabel && withNegative && t('forge.segment.negative'), notesLabels.length && withNotes && t('forge.segment.notes')].filter(Boolean).join(', ') || t('forge.promptOnly')].join(' · '),
     verbatim: [keepPositive.trim() && t('forge.customPositive'), keepNegative.trim() && spec?.hasNegative && t('forge.customNegative')].filter(Boolean).join(' + ') || t('forge.empty'),
     camera: [label(spec?.camera?.angle, pick.angle), label(spec?.camera?.shot, pick.shot)].filter(Boolean).join(' · ') || t('forge.any'),
@@ -223,10 +255,14 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
         {fold('presets', <>
           {qualities.length > 0 && <Chips name="quality" label={t('forge.quality')} value={qualities.includes(quality) ? quality : 'none'} onChange={setQuality} options={[{ key: 'none', label: t('forge.none') }, ...qualities.map(q => ({ key: q, label: pretty(q) }))]}/>}
           {styles.length > 0 && <Chips name="style" label={t('forge.style')} value={styles.includes(style) ? style : 'None'} onChange={setStyle} options={[{ key: 'None', label: t('forge.none') }, ...styles.map(s => ({ key: s, label: s }))]}/>}
-          {aspects.length > 0 && <Tiles name="aspect" label={t('forge.aspect')} value={activeAspect} onChange={setAspect} options={[
-            { key: 'N/A', label: t('forge.any'), icon: icon('any'), sub: t('forge.aspectNone') },
-            ...aspects.map(a => { const ratio = /\d+\s*:\s*\d+/.exec(a)?.[0] ?? ''; return { key: a, label: a.replace(ratio, '').trim() || ratio, sub: ratio, icon: aspectIcon(a) }; }),
-          ]}/>}
+          <Tiles name="aspect" label={t('forge.aspect')} value={selectedAspect ?? aspect} onChange={setAspect} options={forgeAspectChoices.map(a => ({
+            key: a, label: a === 'N/A' ? 'N/A' : a === 'auto' ? t('forge.canvas.auto') : a === 'custom' ? t('forge.canvas.custom') : a,
+            icon: aspectIcon(a), ...(a === 'N/A' ? { sub: t('forge.aspectNone') } : {}),
+          }))}/>
+          {selectedAspect === 'custom' && <div className="forge-row forge-custom-ratio">
+            <label className="forge-field"><span>{t('forge.canvas.ratioWidth')}</span><input data-forge-custom-width type="number" min={1} max={100} step="any" value={customWidth} onChange={e => setCustomWidth(Number(e.target.value))}/></label>
+            <label className="forge-field"><span>{t('forge.canvas.ratioHeight')}</span><input data-forge-custom-height type="number" min={1} max={100} step="any" value={customHeight} onChange={e => setCustomHeight(Number(e.target.value))}/></label>
+          </div>}
         </>)}
         {fold('output', <div className="forge-switches">
           <div className="forge-length">
@@ -255,21 +291,28 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
         {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeModelId(forge.model) : ''} vocab={targets.references} pictures={pictures}
           onPictures={setPictures}/>)}
       </div>}
+      <p className={geometryError ? 'forge-warning' : 'forge-note'} data-forge-canvas role={geometryError ? 'status' : undefined}>
+        {geometryError ? `${t(geometryError)}${selectedAspect === null ? ` (${aspect})` : ''}` : canvas ? t('forge.canvas.resolved', { width: String(canvas.width), height: String(canvas.height) }) : t('forge.aspectNone')}
+      </p>
       {layoutMode ? <div className="forge-layout-gen">
-        <button type="button" className="action-button forge-write" data-forge-generate-prompt disabled={busy || !forge.model || !brief.trim()} title={t('forge.layout.genPromptHelp')} onClick={() => void generate('prompt')}>{t(step === 'prompt' ? 'forge.writing' : 'forge.layout.genPrompt')}</button>
-        <button type="button" className="action-button forge-write" data-forge-generate-json disabled={busy || !forge.model || (!brief.trim() && !studio.project.caption.trim())} title={t('forge.layout.genJsonHelp')} onClick={() => void generate('json')}>{t(step === 'json' ? 'forge.writing' : 'forge.layout.genJson')}</button>
+        <button type="button" className="action-button forge-write" data-forge-generate-prompt disabled={busy || !forge.model || !brief.trim() || !!geometryError} title={t('forge.layout.genPromptHelp')} onClick={() => void generate('prompt')}>{t(step === 'prompt' ? 'forge.writing' : 'forge.layout.genPrompt')}</button>
+        <button type="button" className="action-button forge-write" data-forge-generate-json disabled={busy || !forge.model || (!brief.trim() && !studio.project.caption.trim()) || !!geometryError} title={t('forge.layout.genJsonHelp')} onClick={() => void generate('json')}>{t(step === 'json' ? 'forge.writing' : 'forge.layout.genJson')}</button>
       </div> : <>
-      <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk)} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
+      <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk) || !!geometryError} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
       </>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {randomizer && root && <Randomizer root={root} onClose={() => setRandomizer(false)} onInsert={(text, replace) => setBrief(replace || !brief.trim() ? text : `${brief.trim().replace(/[,\s]+$/, '')}, ${text}`)}/>}
     </div>
     {layoutMode ? <div className="forge-layout-col">
-      <LayoutStudio root={root} model={forge.model ? nativeModelId(forge.model) : ''} studio={studio} busy={busy}/>
+      <LayoutStudio root={root} model={forge.model ? nativeModelId(forge.model) : ''} studio={studio} busy={busy} requestScope={scope} geometryValid={!geometryError}/>
       {(busy || result) && <div className="forge-card" aria-busy={busy} data-forge-layout-result>
         {busy && <p className="forge-note">{t(step === 'prompt' ? 'forge.layout.busyPrompt' : 'forge.layout.busyJson')}</p>}
         {result && <>
-          {spec?.hasNegative && negative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>}
+          {!resultFits && <p className="forge-warning" data-forge-stale role="status">{t('forge.canvas.stale')}</p>}
+          {handoffBlocked && <p className="forge-warning" data-forge-handoff-blocked role="status">{t('forge.canvas.handoffBlocked')}</p>}
+          {association?.canvas && <p className="forge-note" data-forge-result-canvas>{t('forge.canvas.consumed', { width: String(association.canvas.width), height: String(association.canvas.height) })}</p>}
+          <div className="forge-send"><button type="button" className="action-button" data-forge-send-layout disabled={!resultFits || busy || !!geometryError || handoffBlocked} onClick={() => send(JSON.stringify(exportLayout(studio.project), null, 2), negative)}>{t('forge.canvas.sendLayout')}</button></div>
+          {spec?.hasNegative && negative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
           {result.characters.length > 0 && <p className="forge-note">{t('forge.canon', { list: result.characters.join(', ') })}</p>}
           {result.fixes.length > 0 && <p className="forge-note">{t('forge.fixes', { list: result.fixes.join('; ') })}</p>}
           {result.warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
@@ -284,21 +327,25 @@ export function NativeForge({ root, target, forge, brief, setBrief, detail, setD
         </div>
       </div>
       <div className="forge-refine">
-        <input type="text" data-forge-refine value={refineText} maxLength={2000} disabled={!result || busy} placeholder={t('forge.refinePlaceholder')} aria-label={t('forge.refine')} onChange={e => setRefineText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && refineText.trim()) void revise(refineText.trim()); }}/>
-        <button type="button" className="forge-ghost" data-forge-refine-run disabled={!result || busy || !refineText.trim()} onClick={() => void revise(refineText.trim())}>{t('forge.refine')}</button>
-        {spec?.secondPass && <button type="button" className="forge-ghost" data-forge-second-pass disabled={!result || busy} title={t('forge.secondPassHelp')} onClick={() => void revise()}>{t('forge.secondPass')}</button>}
+        <input type="text" data-forge-refine value={refineText} maxLength={2000} disabled={!result || !resultFits || busy || !!geometryError} placeholder={t('forge.refinePlaceholder')} aria-label={t('forge.refine')} onChange={e => setRefineText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && refineText.trim()) void revise(refineText.trim()); }}/>
+        <button type="button" className="forge-ghost" data-forge-refine-run disabled={!result || !resultFits || busy || !refineText.trim() || !!geometryError} onClick={() => void revise(refineText.trim())}>{t('forge.refine')}</button>
+        {spec?.secondPass && <button type="button" className="forge-ghost" data-forge-second-pass disabled={!result || !resultFits || busy || !!geometryError} title={t('forge.secondPassHelp')} onClick={() => void revise()}>{t('forge.secondPass')}</button>}
         <button type="button" className="forge-ghost" data-forge-undo disabled={!undo.length || busy} onClick={back}>{t('forge.undo')}</button>
       </div>
       {!prompt && !result ? <div className={`forge-empty${busy ? ' busy' : ''}`} data-forge-empty>
         <strong>{t(busy ? 'forge.writing' : 'forge.emptyTitle')}</strong>
         <span>{t(busy ? pictures.length ? 'forge.refs.busy' : 'forge.emptyBusy' : 'forge.emptyBody')}</span>
       </div> : <>
-        <label className="forge-field"><span>{t('forge.positive')}</span><textarea data-forge-result aria-label={t('forge.result')} value={prompt} onChange={e => setPrompt(e.target.value)}/></label>
-        {spec?.hasNegative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>}
+        <label className="forge-field"><span>{t('forge.positive')}</span><textarea data-forge-result aria-label={t('forge.result')} value={prompt} onChange={e => editPrompt(e.target.value)}/></label>
+        {spec?.hasNegative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
       </>}
+      {result && !resultFits && <p className="forge-warning" data-forge-stale role="status">{t('forge.canvas.stale')}</p>}
+      {handoffBlocked && <p className="forge-warning" data-forge-handoff-blocked role="status">{t('forge.canvas.handoffBlocked')}</p>}
+      {association?.canvas && <p className="forge-note" data-forge-result-canvas>{t('forge.canvas.consumed', { width: String(association.canvas.width), height: String(association.canvas.height) })}</p>}
       <div className="forge-send">
-        <button type="button" className="action-button" data-forge-send disabled={!prompt.trim()} onClick={() => onSend(prompt, '')}>{t('forge.sendPrompt')}</button>
-        {spec?.hasNegative && <button type="button" className="action-button" data-forge-send-both disabled={!prompt.trim() || !negative.trim()} onClick={() => onSend(prompt, negative)}>{t('forge.sendBoth')}</button>}
+        <button type="button" className="action-button" data-forge-send disabled={!prompt.trim() || !resultFits || busy || !!geometryError || handoffBlocked} onClick={() => send(prompt, '')}>{t('forge.sendPrompt')}</button>
+        {spec?.hasNegative && <button type="button" className="action-button" data-forge-send-both disabled={!prompt.trim() || !negative.trim() || !resultFits || busy || !!geometryError || handoffBlocked} onClick={() => send(prompt, negative)}>{t('forge.sendBoth')}</button>}
+        {prompt.trim() && (!resultFits || handoffBlocked) && <button type="button" className="forge-ghost" data-forge-send-text-only onClick={() => send(prompt, negative, true)}>{t('forge.canvas.sendTextOnly')}</button>}
       </div>
       {result && <div className="forge-report" data-forge-report>
         {result.characters.length > 0 && <p className="forge-note">{t('forge.canon', { list: result.characters.join(', ') })}</p>}

@@ -452,6 +452,11 @@ async fn whole_stop_finishes_all_targets_and_reopens_gate_with_no_waiters() {
     );
     assert_eq!(f.lock().unwrap().posts, 1);
     assert_eq!(pf.lock().unwrap().posts, 1);
+    // Both detached Stop targets commit history even after their only Stop waiter disappears.
+    let historical = serde_json::to_value(jobs.3.view()).unwrap();
+    assert_eq!(historical["records"][0]["state"], "cancelled");
+    let peer_history = serde_json::to_value(peer.3.view()).unwrap();
+    assert_eq!(peer_history["records"][0]["state"], "cancelled");
     task.abort();
     pt.abort();
 }

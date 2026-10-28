@@ -729,12 +729,13 @@ it('H3 cast cards: one per labelled Character / place, Read fills a card, filled
   expect([...document.querySelectorAll('[data-forge-read]')].map(b => b.textContent)).toEqual(['Read again', 'Read', 'Read again']); // filled cards are read again (`redo`)
 });
 
-it.each(['Illustrious','Anima','Krea2','MOSS'])('uses every fixed Settings aspect in ordinary Prompt Forge modes (%s)', async target => {
+const forgeCanvasContext = { key: 'studio', effective: { width: 1024, height: 1024 }, model: { width: 1024, height: 1024 }, grid: 16, resolution: 'model', megapixels: 1, fixed: { width: 1024, height: 1024 } };
+it.each(['Illustrious','Anima','Krea2','MOSS'])('uses every Settings aspect in ordinary Prompt Forge modes (%s)', async target => {
   localStorage.setItem('deas.pref.forge.target', JSON.stringify(target));
-  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()} canvasContext={forgeCanvasContext}/></I18nProvider>);
   await screen.findByRole('heading', { name: `Build · ${target.toLowerCase()}` });
   await screen.findByRole('button', { name: 'Open all' });
-  const ratios = ['N/A', ...settingsAspects.filter(a => a !== 'auto' && a !== 'custom')];
+  const ratios = ['N/A', ...settingsAspects];
   expect([...document.querySelectorAll('[data-forge-tile^="aspect:"]')].map(e => e.getAttribute('data-forge-tile')!.slice(7))).toEqual(ratios);
   fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'a quiet forest' } });
   for (const [index, ratio] of ratios.entries()) {
@@ -748,7 +749,7 @@ it.each(['Illustrious','Anima','Krea2','MOSS'])('uses every fixed Settings aspec
 });
 
 it.each([
-  ['2:3 Portrait','2:3'], ['9:32','9:32'], ['3:2 forged','N/A'], ['auto','N/A'], ['custom','N/A'], ['N/A','N/A'],
+  ['2:3 Portrait','2:3'], ['9:32','9:32'], ['3:2 forged','3:2'], ['auto','auto'], ['custom','custom'], ['N/A','N/A'],
 ])('keeps saved aspect %s intact while Write and Revise use %s', async (saved, effective) => {
   const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((c,a) => c === 'native_forge_targets'
@@ -756,7 +757,7 @@ it.each([
     : c === 'native_forge_revise' ? base('native_forge_write',a) : base(c,a));
   localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
   localStorage.setItem('deas.pref.forge.native.illustrious.aspect', JSON.stringify(saved));
-  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  render(<I18nProvider><PromptForge endpoint="" root="/env" onSend={vi.fn()} canvasContext={forgeCanvasContext}/></I18nProvider>);
   await screen.findByRole('button', { name: 'Open all' });
   expect(document.querySelector(`[data-forge-tile="aspect:${effective}"]`)!.getAttribute('aria-pressed')).toBe('true');
   fireEvent.change(document.querySelector('[data-forge-brief]')!, {target:{value:'a quiet forest'}});
@@ -777,7 +778,7 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(rich) : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: ['frieren'], tools: [], rounds: 1, warnings: [], fixes: [] }) : base(c, a));
   localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
-  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()} canvasContext={{ key: 'studio', effective: { width: 1024, height: 1024 }, model: { width: 1024, height: 1024 }, grid: 16, resolution: 'model', megapixels: 1, fixed: { width: 1024, height: 1024 } }}/></I18nProvider>);
   await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
   // Empty state until something is written; actions wait for a result.
   expect(screen.getByText('No prompt yet')).toBeTruthy();
@@ -799,7 +800,7 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
   await screen.findByDisplayValue('1girl, campfire');
   expect(nativeCalls().at(-1)!.request).toMatchObject({ target: 'illustrious', brief: 'frieren by a campfire', segmentsOn: ['Negative prompt'],
-    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
+    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3', canvas: { width: 832, height: 1216 }, cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
   expect((screen.getByRole('textbox', { name: 'Negative prompt' }) as HTMLTextAreaElement).value).toBe('lowres');
   expect(screen.getByText('Character canon from the local table: frieren')).toBeTruthy();
   // Picks belong to the model: Anima starts clean.
@@ -810,6 +811,11 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.click(await screen.findByRole('button', { name: 'Write' }));
   await waitFor(() => expect(nativeCalls().at(-1)!.request.target).toBe('anima'));
   expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ qualityPreset: 'none', style: 'None', aspectRatio: 'N/A', cameraAngle: undefined, lighting: undefined });
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Illustrious' } });
+  await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
+  expect(document.querySelector('[data-forge-tile="aspect:2:3"]')!.getAttribute('aria-pressed')).toBe('true');
+  expect(document.querySelector('[data-forge-chip="quality:masterpiece"]')!.getAttribute('aria-pressed')).toBe('true');
+  expect(nativeCalls()).toHaveLength(2);
 });
 
 it('Prompt Forge tab refines, second-passes and undoes the draft on screen, with a length', async () => {

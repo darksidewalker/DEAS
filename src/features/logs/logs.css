@@ -17,6 +17,5 @@
 .log-warning { color: var(--gold); }
 .log-debug { color: var(--muted); }
 .logs-count { margin: .4rem 0 0; font-size: .75rem; }
-/* The log view fills the window down to the footer: each wrapper between page and panel stretches. */
-main:has(.logs-panel), .aio-setup:has(.logs-panel), .aio-left:has(> .logs-panel), .logs-panel { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
-.aio-decision-area:has(.logs-panel) { flex: 1 1 0; min-height: 0; align-items: stretch; }
+/* The shared shell owns the viewport; this pane owns only its content. */
+.logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }

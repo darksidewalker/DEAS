@@ -4,9 +4,20 @@
 
 ## Scope
 
-`video-upscale` is an optional, default-off Cargo feature for standalone Rust spatial inference and a bounded short-video streaming core. These are developer examples, not a Studio video Render action, a finished enhancer or an arbitrary-model loader. Rust owns RGB preprocessing, the native ONNX Runtime session, output validation and no-clobber PNG publication. No Python or Go worker is used. Native ONNX Runtime/CUDA libraries execute the kernels; “Rust pipeline” does not mean reimplementing those native libraries' neural-network math.
+`video-upscale` is an optional, default-off Cargo feature for standalone Rust spatial inference and a bounded short-video streaming core. The developer examples underpin the separately enabled managed TVE renderer; they are not a finished general enhancer or arbitrary-model loader. The native TVE path adds chooser-authorized IDs and an owned job lifecycle; direct CLI paths are not frontend authority. Rust owns RGB preprocessing, the native ONNX Runtime session, output validation and no-clobber PNG publication. No Python or Go worker is used. Native ONNX Runtime/CUDA libraries execute the kernels; “Rust pipeline” does not mean reimplementing those native libraries' neural-network math.
 
 The normal DEAS build does not include or initialize this optional inference path. Opening Studio or inspecting a source video does not load a model, initialize CUDA or download anything. The existing ComfyUI image pipeline remains separate.
+
+## Build the managed engine explicitly
+
+From the repository root:
+
+```fish
+npm run build
+env CARGO_TARGET_DIR="$PWD/src-tauri/target" cargo build --manifest-path src-tauri/Cargo.toml --locked --release --features video-upscale --bin deas
+```
+
+The resulting `src-tauri/target/release/deas` includes the optional managed engine but does not initialize it at startup. A locally staged AI-enabled binary is named `artifacts/deas-linux-amd64-video-upscale`; the regular `artifacts/deas-linux-amd64` keeps inference off. Neither variant bundles a native runtime or model. Use the [TVE guide](STUDIO.md#validate-and-render-with-the-optional-native-engine) for explicit source/output and SDK selection; no global `LD_PRELOAD` is needed when the optional dependency is selected for the owned worker.
 
 ## Dependencies and supported contract
 
@@ -60,13 +71,15 @@ On the verified host, the installed `libonnxruntime_providers_cuda.so` reference
 env LD_PRELOAD=/usr/lib/libcudnn.so.9 cargo run --locked --manifest-path src-tauri/Cargo.toml --features video-upscale --example upscale_png -- "$ort" "$model" /absolute/path/to/input.png /absolute/path/to/new-output.png
 ```
 
-Use this only for matching trusted installed libraries; it is not a universal ORT/CUDA requirement or a runtime installer. DEAS does not silently preload libraries, alter system loader configuration or create ABI-version symlinks. The real two-frame PNG inference succeeded with this explicit prerequisite. That establishes neither a completed AI-video run nor managed TVE execution. Do not run competing GPU work when the device is occupied, and never stop foreign services to make room automatically.
+Use this only for matching trusted installed libraries; it is not a universal ORT/CUDA requirement or a runtime installer. DEAS does not silently preload libraries, alter system loader configuration or create ABI-version symlinks. The real two-frame PNG inference succeeded with this explicit prerequisite. Subsequent four-frame CUDA video and managed parent/application-worker publication also passed; see [native evidence and remaining GUI acceptance](VERIFICATION.md#native-preparation-and-real-ai-video-core-0154-development). Do not run competing GPU work when the device is occupied, and never stop foreign services to make room automatically.
+
+Linux runtime library paths containing `$` are rejected at the common native-load boundary because glibc expands tokens even in `dlopen` filenames. Values are not repaired or escaped into another library; ordinary runtime/model spaces remain supported. Optional preload dependencies additionally reject colon and whitespace.
 
 ## Verification and remaining work
 
 Pure conversion/shape/PNG/publication/log tests must not require installed runtime libraries. Real CUDA tests are explicit opt-in and use existing local weights; test fixtures do not download models. Record the exact model/runtime/device, actual output dimensions, source preservation and execution outcome in [Verification](VERIFICATION.md), distinguishing static checks from a real run.
 
-Before TVE video execution: bind native source/model/output authority to a retained plan, integrate the bounded core into an owned cancellable worker/job lifecycle, verify full real-AI clip output and coordinate GPU use. Larger inputs need model-specific halo tiling and separate acceptance. Keep rational cadence/audio/color checks and verified no-clobber publication. No TVE execution is enabled by these examples.
+The optional managed TVE path now binds retained source/model/output authority, starts the current executable as an isolated native worker, coordinates DEAS-managed Comfy submissions and supervises cancellation/final no-clobber publication. Use [Validate and render](STUDIO.md#validate-and-render-with-the-optional-native-engine); the normal build still keeps this engine off. Larger inputs need model-specific halo tiling and separate acceptance. OS-dialog/live-WebView and Windows-render acceptance, native video comparison, persistent history/library integration and quality/resource benchmarking remain separate. Direct examples do not grant browser execution authority.
 
 ## Attribution
 

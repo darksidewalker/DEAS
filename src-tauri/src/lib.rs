@@ -2,7 +2,14 @@ pub mod auth;
 pub mod video;
 pub mod video_post;
 pub mod video_post_draft;
+pub mod video_post_job;
+pub mod video_post_prepare;
 pub use video_post_draft::native_video_post_draft;
+pub use video_post_job::{
+    native_video_post_bind, native_video_post_capabilities, native_video_post_run,
+    native_video_post_status, native_video_post_stop,
+};
+pub use video_post_prepare::{native_video_post_prepare, native_video_post_prepared_status};
 #[cfg(feature = "video-upscale")]
 pub mod video_stream;
 #[cfg(feature = "video-upscale")]
@@ -31,7 +38,8 @@ pub mod jobs_video;
 pub use jobs::{
     native_h3_refmods, native_h3_session, native_h3_video_prepare, native_h3_video_upload,
     native_input_upload, native_job_current, native_job_export, native_job_output,
-    native_job_prepare, native_job_status, native_job_submit, native_mask_upload,
+    native_job_prepare, native_job_status, native_job_submit, native_jobs_history,
+    native_jobs_history_outputs, native_logs_history_error, native_mask_upload,
     native_workbench_cancel_pending, native_workbench_current, native_workbench_interrupt_running,
     native_workbench_poll, native_workbench_run, native_workbench_stop,
 };

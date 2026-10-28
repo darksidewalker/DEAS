@@ -34,6 +34,13 @@ Automation recommends and prepares; users retain control of settings, resources,
 - Use existing shared auth, download, folder, asset, job, output, model-family and locale services. Promote a helper only when another real caller needs it; do not build one-use generic frameworks.
 - Shared functions/scripts must take explicit parameters, return structured results and avoid hidden global state, UI assumptions and hard-coded user paths. Preserve cancellation, validation and errors when extracting reusable behavior.
 
+### Shared window-layout contract
+
+- The application shell MUST be the single viewport-height owner. Top-level views and retained Studio panes inherit the remaining space through the shared wrappers; do not add per-tab `100vh - header/footer` calculations or JS setters for outer workspace height. Observe actual pane size only for internal controls such as dock bounds.
+- Retained `[hidden]` views MUST occupy no layout space, irrespective of a feature's flex/grid display rules. Keep their state/lifecycle mounted; do not fix sizing by unmounting running views.
+- Long or narrow content MUST remain reachable through pane scrolling without document overflow, overlapping controls or a footer-only dead region. The version remains a small fixed overlay, not a reserved row.
+- Every new tab, root wrapper or layout change MUST pass `npm run test:layout` in addition to normal tests. It discovers main tabs from the real navigation and measures all six locales/seven window sizes, retained navigation, an unknown future pane, long content and hidden panes. Its deliberate broken-layout control must fail. The frontend CI job runs this gate; Chromium fixture evidence does not replace target-WebView runtime acceptance.
+
 ### Cross-project changes and upstream pull requests
 
 - Depending on another project does not authorize changing it. First use its supported public APIs, extension points and configuration; keep DEAS-specific behavior in the DEAS adapter when possible.

@@ -1,0 +1,20 @@
+.wb-history{position:relative;padding:.35rem .5rem;border-bottom:1px solid var(--line)}
+.wb-history-panel{position:fixed;z-index:35;inset:12vh max(1rem,8vw);padding:1rem;background:var(--panel);border:1px solid var(--line);border-radius:.6rem;box-shadow:0 1rem 4rem #0008;max-height:76vh;overflow:auto;color:var(--chalk)}
+.wb-history-content{display:grid;grid-template-columns:minmax(12rem,1fr) minmax(0,2fr);gap:1rem}
+.wb-history-list{padding:0;list-style:none;max-height:54vh;overflow:auto}
+.wb-history-list button{display:flex;flex-direction:column;text-align:start;width:100%;padding:.6rem;border:1px solid var(--line);background:var(--surface);color:var(--chalk);cursor:pointer}
+.wb-history-list button[aria-pressed=true]{border-color:var(--copper)}
+.wb-history-list small,.wb-history-detail li,.wb-history-detail dd{overflow-wrap:anywhere}
+.wb-history-detail{min-width:0}.wb-history-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto;font-size:.75rem}
+.wb-history-detail .wb-metadata{position:static;width:auto;max-height:none;background:transparent;border:0;padding:0}
+.wb-history-detail button{margin:.25rem .4rem .25rem 0}
+.wb-queue > ul[hidden]{display:none}
+.wb-queue .wb-history-panel ul{display:block;flex:none;overflow:visible}
+.wb-queue .wb-history-panel .wb-history-list{max-height:54vh;overflow:auto}
+.wb-history .wb-history-panel button{width:auto}
+.wb-history .wb-history-list button{width:100%;align-items:flex-start;text-align:start;padding:.6rem;border:1px solid var(--line)}
+.wb-queue .wb-history > button{width:auto}
+.wb-history-draft{font-size:.75rem;padding:.35rem .6rem;border:1px solid var(--line);border-radius:.4rem;overflow-wrap:anywhere}
+.wb-reference-card[data-history-reference-unresolved]{min-width:0}
+.wb-reference-card [data-history-reference-select],.wb-reference-card[data-history-reference-unresolved]>small{max-width:100%;white-space:normal;overflow-wrap:anywhere;font-size:.7rem}
+@media(max-width:650px){.wb-history-panel{inset:8vh .5rem;max-height:84vh;padding:.6rem}.wb-history-content{display:flex;flex-direction:column;gap:.4rem}.wb-queue .wb-history-panel .wb-history-list{max-height:24vh}.wb-history-detail{width:100%}}

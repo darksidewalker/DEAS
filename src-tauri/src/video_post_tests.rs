@@ -28,6 +28,10 @@ fn parser_normalizes_exact_rates_and_never_claims_readiness() {
     assert_eq!(value["processingReady"], false);
     assert_eq!(value.as_object().unwrap().len(), 14);
     assert!(value.get("path").is_none());
+    assert!(
+        value.get("sourceId").is_none(),
+        "native-only metadata is not chooser authority"
+    );
 }
 #[test]
 fn parser_rejects_malformed_missing_and_unbounded_metadata() {
@@ -284,6 +288,64 @@ fn real_ffmpeg_clip_inspected_by_production_native_helper() {
     println!(
         "Real ffmpeg/ffprobe inspection: {}",
         serde_json::to_string(&inspected).unwrap()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn forced_worker_death_also_terminates_initial_source_probe() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    const READY: &str = "DEAS_TEST_SOURCE_PROBE_DEATH_READY";
+    if let Some(ready) = std::env::var_os(READY) {
+        let mut command = Command::new("sleep");
+        command.arg("60");
+        let probe = OwnedProbe::spawn(command).unwrap();
+        fs::write(ready, probe.child.id().to_string()).unwrap();
+        loop {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let ready = dir.path().join("probe-pid");
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "video_post::tests::forced_worker_death_also_terminates_initial_source_probe",
+        ])
+        .env(READY, &ready);
+    let mut worker = OwnedProbe::spawn(command).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let pid: i32 = fs::read_to_string(ready).unwrap().parse().unwrap();
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
+    assert!(raw >= 0);
+    let pidfd = unsafe { OwnedFd::from_raw_fd(raw) };
+    worker.child.kill().unwrap();
+    drop(worker);
+    let mut poll = libc::pollfd {
+        fd: pidfd.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let dead = unsafe { libc::poll(&mut poll, 1, 3000) };
+    if dead <= 0 {
+        // Reap the exact fixture if the regression fails; never signal a reusable numeric PID.
+        unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                pidfd.as_raw_fd(),
+                libc::SIGKILL,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            );
+        }
+    }
+    assert!(
+        dead > 0,
+        "initial source probe survived forced worker death"
     );
 }
 

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
 import { defaultOptions } from './OptionsPanel';
+import type { HistoryRecord } from './history';
+import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
@@ -2845,4 +2847,276 @@ test('overlapping fixed-seed Runs restart an invalidated in-flight peer poll whi
   view.unmount();await act(async()=>runs.forEach((finish,i)=>finish(heldJob('overlap-'+i,'queued'))));
   vi.useRealTimers();
  }
+});
+
+
+const recentHistoryRecord=(intent:HistoryRecord['intent']):HistoryRecord=>({id:'historical-attempt',clientId:'historic-client',promptId:'historic-prompt',origin:'studio',appVersion:'0.1.48',admittedAt:1700000000000,observedAt:1700000001000,revision:3,state:'failed',intent,outputs:[],outputRoot:'/env/ComfyUI/output',backendOrigin:'http://127.0.0.1:7801',error:null});
+const historicalImage={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'Exact historic prompt 猫',negativePrompt:'historic negative',checkpoint:'a.safetensors',seed:987654321,width:1216,height:832,steps:17,cfg:4.25,sampler:'euler',scheduler:'normal',outputPrefix:'raw/history/exact'} as const;
+const openHistoryRecord=async()=>{
+ fireEvent.click(screen.getByRole('button',{name:'Recent generations'}));
+ await waitFor(()=>expect(document.querySelector('[data-history-id]')).not.toBeNull());
+ fireEvent.click(document.querySelector('[data-history-id]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Use settings'}));
+};
+test('history restores exact rich settings without probing or submitting and keeps native queue snapshots immutable',async()=>{
+ const original=recentHistoryRecord({...historicalImage,loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'second.png',strength:0.2},{image:'first.png',strength:0.9}]},refine:{width:2432,height:1664,denoise:0.35},imageFormat:'webp',imageCompression:83});
+ const encoded=JSON.stringify(original);
+ const live={...heldJob('existing-native-job','failed'),intent:{...historicalImage,positivePrompt:'Immutable existing run'}};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([live]));
+ const liveBefore=JSON.stringify(live);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},{category:'loras',name:'style.safetensors',family:'sdxl',path:'/m/lora',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'ModelAttentionBackend','EasyCache','TorchCompileModel','VAEDecodeTiled','CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],attention:['sdpa'],compile:['inductor'],visionModels:['vision.safetensors'],images:['first.png','second.png']}});
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{path:'/env/ComfyUI/input',parent:'/env',entries:['first.png','second.png'].map(name=>({name,path:'/env/ComfyUI/input/'+name,kind:'file',media:'image',size:1,modified:1,symlink:false})),truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ await openHistoryRecord();
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).not.toBe(historicalImage.positivePrompt);
+ fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe(historicalImage.positivePrompt);
+ expect((screen.getByRole('spinbutton',{name:'Seed'}) as HTMLInputElement).value).toBe(String(historicalImage.seed));
+ expect(screen.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
+ expect(document.querySelectorAll('[data-reference-controls]')).toHaveLength(2);
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(document.querySelectorAll('[data-reference-controls] img')).toHaveLength(0);
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'second.png'}));
+ fireEvent.click(document.querySelector('[data-history-reference-select="0"]')!);
+ const transfer=new Map<string,string>();const data={clearData:()=>transfer.clear(),setData:(key:string,value:string)=>transfer.set(key,value),getData:(key:string)=>transfer.get(key)??'',get types(){return [...transfer.keys()];}};
+ fireEvent.dragStart(screen.getByRole('button',{name:'first.png'}),{dataTransfer:data});
+ fireEvent.drop(document.querySelectorAll('[data-reference-controls]')[1],{dataTransfer:data});
+ expect(document.querySelectorAll('[data-reference-controls]')).toHaveLength(2);
+ expect(document.querySelectorAll('[data-reference-controls] img')).toHaveLength(2);
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ // This separate user Run is the first computation/transfer, using the restored order and strengths.
+ vi.mocked(uploadInput).mockImplementation(async(_base,path)=>path.endsWith('second.png')?'uploaded-second.png':'uploaded-first.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('new-history-run','failed'),baseUrl:evidence.baseUrl});
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({...historicalImage,loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'uploaded-second.png',strength:0.2},{image:'uploaded-first.png',strength:0.9}]},refine:{width:2432,height:1664,denoise:0.35},imageFormat:'webp',imageCompression:83});
+ expect(JSON.stringify(original)).toBe(encoded);expect(JSON.stringify(live)).toBe(liveBefore);
+});
+test('partial history restore clears unrelated input and keeps unresolved mask/reference gates blocking Run',async()=>{
+ const original=recentHistoryRecord({...historicalImage,inputImage:'missing-input.png',inputMask:'deas-masks/missing.png',imageReference:{visionModel:'missing-vision.safetensors',images:[{image:'missing-ref.png',strength:0.4}]}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{entries:[],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ await openHistoryRecord();expect(screen.getByText(/Cannot reconstruct.*inputMask/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(document.querySelector('[data-history-draft]')?.textContent).toContain('inputMask');
+ expect(document.querySelector('[data-reference-controls]')?.textContent).toContain('missing-ref.png');
+ expect(document.querySelector('.wb-editor-host')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ fireEvent.click(document.querySelector('[data-run]')!);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+test('history authoring uses active project autosave and keeps failed-save unsaved protection',async()=>{
+ const original=recentHistoryRecord(historicalImage);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_project_open')return projectFixture;if(c==='native_jobs_history')return {schemaVersion:1,records:[original],readOnly:false,error:null};if(c==='native_project_save')throw Error('disk full');return {entries:[],truncated:false};});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe(projectFixture.draft.positivePrompt));
+ await openHistoryRecord();expect(screen.getByText(/active project keeps its autosave/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Apply settings'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_project_save',expect.objectContaining({projectId:projectFixture.id,draft:expect.objectContaining({positivePrompt:historicalImage.positivePrompt,seed:historicalImage.seed,width:historicalImage.width,height:historicalImage.height})})));
+ expect(document.querySelector('#project-status-slot')?.textContent).not.toContain('Saved');
+ const restart=new Event('deas:before-update-restart',{cancelable:true});window.dispatchEvent(restart);expect(restart.defaultPrevented).toBe(true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
+test('history text-to-image keeps native-valid 1000 square canvas without family-preset snapping',async()=>{
+ const original=recentHistoryRecord({...historicalImage,width:1000,height:1000});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{entries:[],truncated:false});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('exact-square-run','failed'),baseUrl:evidence.baseUrl});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ await openHistoryRecord();fireEvent.click(screen.getByRole('button',{name:'Apply settings'}));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({width:1000,height:1000,seed:historicalImage.seed});
+});
+
+
+test('Forge canvas handoff uses effective fixed dimensions and preserves immutable jobs until explicit Run',async()=>{
+ for(const [key,value] of Object.entries({resolution:'fixed',width:1000,height:1000,seed:73,seedMode:'fixed',positive:'original draft',negative:'kept negative'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ const held={...heldJob('before-forge','failed'),intent:{...historicalImage,positivePrompt:'immutable job'}};
+ const before=JSON.stringify(held);vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([held]));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1000,height:1000});return value!;});
+ expect(context.requiredGrid).toBe(8);expect(context.grid).toBe(64);expect(context.acceptsCanvas?.({width:1000,height:1000})).toBe(true);
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ // Publishing a read-only context never changes authoring or starts work.
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('original draft');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'sent landscape',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1216,height:832}}}}/></I18nProvider>);
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('sent landscape');
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1216');expect((screen.getByLabelText('Height') as HTMLInputElement).value).toBe('832');
+ expect((screen.getByLabelText('Resolution') as HTMLSelectElement).value).toBe('fixed');
+ expect((screen.getByLabelText('Seed') as HTMLInputElement).value).toBe('73');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.negative')!)).toBe('kept negative');
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(held)).toBe(before);
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('after-forge','failed'),baseUrl:evidence.baseUrl});
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'sent landscape',negativePrompt:'kept negative',checkpoint:'a.safetensors',seed:73,width:1216,height:832});expect(JSON.stringify(held)).toBe(before);
+});
+
+test('Forge canvas rejects stale or invalid handoffs before changing text and keeps prompt-only callers compatible',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ localStorage.setItem('deas.pref.studio.run.positive',JSON.stringify('original'));
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).not.toBeNull();expect(value?.acceptsCanvas?.({width:1024,height:1024})).toBe(true);return value!;});
+ for(const [n,contextKey,canvas] of [[1,'stale-context',{width:1216,height:832}],[2,context.key,{width:8192,height:8192}]] as const){
+  view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'must not apply',negative:'',n,canvas:{contextKey,canvas}}}/></I18nProvider>);
+  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('original');
+ }
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'prompt-only',negative:'',n:3}}/></I18nProvider>);
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('prompt-only');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+
+test('Forge canvas uses actual inpaint source and preserves editor identity and the required mask gate',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_command,args)=>({path:(args as {path?:string})?.path??'/env/out',parent:'/env',entries:[{name:'wide.png',path:'/env/out/wide.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m',output:'/env/out'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));adopt();
+ const img=screen.getByRole('img',{name:'wide.png'});Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1024,height:640});expect(value?.requiredGrid).toBe(64);return value!;});
+ expect(context.acceptsCanvas?.({width:1216,height:832})).toBe(false);expect(context.acceptsCanvas?.({width:1024,height:640})).toBe(true);
+ const editor=document.querySelector('.wb-editor-host');expect(editor).not.toBeNull();
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'inpaint draft',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1024,height:640}}}}/></I18nProvider>);
+ expect(document.querySelector('.wb-editor-host')).toBe(editor);expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('inpaint draft');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(screen.getByRole('button',{name:'Inpaint',pressed:true})).toBeTruthy();
+ expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each([['ltx-2',32],['minimax-h3',32]] as const)('Forge canvas retains required video alignment for %s without accepting an image-valid fixed square',async(family,grid)=>{
+ for(const [key,value] of Object.entries({pipeline:'t2v',resolution:'fixed',width:1000,height:1000,checkpoint:'video.safetensors'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ vi.mocked(scanModels).mockResolvedValue([{category:'unet',name:'video.safetensors',family,path:'/m/video',size:1,info:null}]);
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}} onCanvasContext={publish}/></I18nProvider>);
+ await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.grid).toBe(grid);expect(value?.requiredGrid).toBe(grid);expect(value?.effective).toBeNull();expect(value?.acceptsCanvas?.({width:1000,height:1000})).toBe(false);expect(value?.acceptsCanvas?.({width:1024,height:1024})).toBe(true);});
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+
+test('Forge canvas handoff follows project autosave and retains failed-save unsaved protection',async()=>{
+ const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'a.safetensors',pipeline:'t2i'}};
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_project_open')return saved;if(command==='native_project_save')throw Error('disk full');return {entries:[],truncated:false};});
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe(saved.draft.positivePrompt));
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.key).toContain(saved.id);expect(value?.effective).toEqual({width:1024,height:1024});return value!;});
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'project landscape',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1216,height:832}}}}/></I18nProvider>);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_project_save',expect.objectContaining({projectId:saved.id,draft:expect.objectContaining({positivePrompt:'project landscape',width:1216,height:832,seed:42,checkpoint:'a.safetensors'})})));
+ const restart=new Event('deas:before-update-restart',{cancelable:true});window.dispatchEvent(restart);expect(restart.defaultPrevented).toBe(true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+
+const dropHistoryReference=(index:number,name:string,path:string)=>{
+ const item={name,path,media:'image',src:'asset://localhost/'+path};
+ fireEvent.drop(document.querySelectorAll('[data-reference-controls]')[index],{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(item)}});
+};
+test('history source collision stays unresolved until explicit Media selection and invalidates again on input-root changes',async()=>{
+ const original={...recentHistoryRecord({...historicalImage,inputImage:'same.png',denoise:0.6}),outputRoot:'/environment-B/output',outputRootIdentity:'output-is-not-input-provenance'};
+ const before=JSON.stringify(original),endpoint='http://127.0.0.1:7801/backend-B/';
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,images:['same.png','unrelated.png']}});
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{path:(args as {path?:string})?.path??'/environment-B/input',parent:'/environment-B',entries:['same.png','unrelated.png'].map(name=>({name,path:((args as {path?:string})?.path??'/environment-B/input')+'/'+name,kind:'file',media:'image',size:1,modified:1,symlink:false})),truncated:false});
+ const props={endpoint,roots:{models:'/m',input:'/environment-B/input',output:'/environment-B/output'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'unrelated.png'}));adopt();
+ const unrelated=screen.getByRole('img',{name:'unrelated.png'});Object.defineProperties(unrelated,{naturalWidth:{value:1216},naturalHeight:{value:832}});fireEvent.load(unrelated);
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ await openHistoryRecord();fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(document.querySelector('.wb-editor-host')).toBeNull();
+ expect(document.querySelector('[data-history-draft]')?.textContent).toContain('same.png');
+ fireEvent.click(screen.getByRole('button',{name:'same.png'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // Preview alone is not source selection.
+ adopt();const chosen=screen.getByRole('img',{name:'same.png'});Object.defineProperties(chosen,{naturalWidth:{value:1216},naturalHeight:{value:832}});fireEvent.load(chosen);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ view.rerender(<I18nProvider><Workbench {...props} roots={{...props.roots,input:'/environment-C/input'}}/></I18nProvider>);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(document.querySelector('.wb-editor-host')).toBeNull();
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(JSON.stringify(original)).toBe(before);
+});
+test('history native references require explicit ordered replacement and reselect after same-origin backend-prefix changes',async()=>{
+ const original=recentHistoryRecord({...historicalImage,checkpoint:'qwen.safetensors',width:1024,height:1024,diffusion:{textEncoder:'qwen3vl_8b.safetensors',clipType:'qwen_image',vae:'qwen_image_2.1_vae.safetensors'},nativeImageReference:{method:'qwen-image-2.1',images:['same.png','second.png']}});
+ const before=JSON.stringify(original),input='/environment-B/input';
+ vi.mocked(scanModels).mockResolvedValue(referenceModels());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'UNETLoader','CLIPLoader','VAELoader'],images:['same.png','second.png'],textEncoders:['qwen3vl_8b.safetensors'],vaes:['qwen_image_2.1_vae.safetensors']}});
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{entries:[],truncated:false});
+ const props={endpoint:'http://127.0.0.1:7801/backend-A/',roots:{models:'/m',input}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ await openHistoryRecord();fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(document.querySelectorAll('[data-reference-controls] img')).toHaveLength(0);
+ for(const media of ['video','audio']){
+  let readable=false;const transfer={types:['application/x-deas-media'],getData:()=>readable?JSON.stringify({name:'not-an-image',path:input+'/foreign.bin',media,src:'asset://foreign'}):'',dropEffect:'none'};
+  fireEvent.dragOver(document.querySelectorAll('[data-reference-controls]')[0],{dataTransfer:transfer});expect(transfer.dropEffect).toBe('none');
+  readable=true;fireEvent.drop(document.querySelectorAll('[data-reference-controls]')[0],{dataTransfer:transfer});
+  expect(document.querySelectorAll('[data-reference-controls] img')).toHaveLength(0);
+ }
+ dropHistoryReference(0,'current-two.png',input+'/current-two.png');dropHistoryReference(1,'current-one.png',input+'/current-one.png');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);expect(screen.queryByLabelText('Reference strength')).toBeNull();
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ const nextEndpoint='http://127.0.0.1:7801/backend-B/';view.rerender(<I18nProvider><Workbench {...props} endpoint={nextEndpoint}/></I18nProvider>);
+ await waitFor(()=>expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes+1));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(document.querySelectorAll('[data-reference-controls] img')).toHaveLength(0);
+ dropHistoryReference(0,'current-two.png',input+'/current-two.png');dropHistoryReference(1,'current-one.png',input+'/current-one.png');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ vi.mocked(uploadInput).mockImplementation(async(_endpoint,path)=>path.endsWith('current-two.png')?'uploaded-two.png':'uploaded-one.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('explicit-history-reference','failed'),baseUrl:nextEndpoint});
+ fireEvent.click(document.querySelector('[data-run]')!);await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][0]).toBe(nextEndpoint);
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({seed:historicalImage.seed,width:1024,height:1024,nativeImageReference:{method:'qwen-image-2.1',images:['uploaded-two.png','uploaded-one.png']}});
+ expect(JSON.stringify(original)).toBe(before);
+});
+test('history video first and last frames remain unresolved until each explicit Media choice without upload or probes',async()=>{
+ const original=recentHistoryRecord({recipeId:'video-generation',version:1,family:'ltx-2',positivePrompt:'historical video',negativePrompt:'',model:'LTX2/ltx.safetensors',textEncoder:'gemma_3_12B_it_fp8.safetensors',vae:'LTX2/LTX23_video_vae_bf16.safetensors',seed:43,width:1024,height:768,frames:49,frameRate:24,steps:20,cfg:5,sampler:'euler',scheduler:'normal',outputPrefix:'raw/history/video',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'Auto',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},firstFrame:'same.png',lastFrame:'same-last.png',ltx:{passes:1,audioVae:'LTX2/LTX23_audio_vae_bf16.safetensors',textProjection:'ltx-2.3_text_projection_bf16.safetensors'}});
+ const before=JSON.stringify(original),input='/environment-B/input';
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([{...heldJob('old-frame-result','succeeded'),outputRoot:'/environment-A/output',outputs:[{filename:'foreign-last.png',subfolder:'raw',type:'output'}]}]));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,images:['same.png','same-last.png'],textEncoders:['gemma_3_12B_it_fp8.safetensors','ltx-2.3_text_projection_bf16.safetensors'],vaes:['LTX2/LTX23_video_vae_bf16.safetensors','LTX2/LTX23_audio_vae_bf16.safetensors']}});
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:command==='native_media_star_status'?{starred:false,unavailable:null}:{path:input,parent:'/environment-B',entries:['same.png','same-last.png'].map(name=>({name,path:input+'/'+name,kind:'file',media:'image',size:1,modified:1,symlink:false})),truncated:false});
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801/backend-B/" roots={{models:'/m',input}}/></I18nProvider>);
+ await waitFor(()=>expect(scanModels).toHaveBeenCalled());const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ await openHistoryRecord();fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ expect(document.querySelector('[data-history-draft]')?.textContent).toContain('same-last.png');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'same.png'}));adopt();
+ const chosen=screen.getByRole('img',{name:'same.png'});Object.defineProperties(chosen,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(chosen);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
+ fireEvent.click(document.querySelector('[data-job-id="old-frame-result"] .wb-queue-select')!);
+ fireEvent.click(document.querySelector('.wb-shown [data-edit-last]')!);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // This LTX builder cannot resolve an old environment's frame handle.
+ fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(document.querySelector('[data-browsed-preview] [data-edit-last]')!);
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(original)).toBe(before);
 });

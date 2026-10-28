@@ -128,7 +128,15 @@ mod linux {
             cmd.process_group(0).stderr(Stdio::piped());
             // File cap is enforced by the OS even if a muxer ignores ffmpeg's -fs.
             unsafe {
-                cmd.pre_exec(|| {
+                let parent = libc::getpid();
+                cmd.pre_exec(move || {
+                    // Kill only this owned codec if its worker dies, including the fork race.
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent {
+                        libc::_exit(1);
+                    }
                     let lim = libc::rlimit {
                         rlim_cur: CAP,
                         rlim_max: CAP,
@@ -208,6 +216,57 @@ mod linux {
                 }
                 thread::sleep(Duration::from_millis(3));
             }
+        }
+    }
+    #[test]
+    fn forced_worker_death_kills_its_owned_codec() {
+        const READY: &str = "DEAS_TEST_CODEC_DEATH_READY";
+        if let Some(ready) = std::env::var_os(READY) {
+            let mut command = Command::new("sleep");
+            command.arg("60").stdin(Stdio::null()).stdout(Stdio::null());
+            let codec = Owned::spawn(command).unwrap();
+            fs::write(ready, codec.child.id().to_string()).unwrap();
+            loop {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("codec-pid");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "video_stream::linux::forced_worker_death_kills_its_owned_codec",
+            ])
+            .env(READY, &ready)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        let mut worker = Owned::spawn(command).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let pid = fs::read_to_string(&ready).expect("codec fixture started");
+        worker.child.kill().unwrap();
+        drop(worker);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let stat = fs::read_to_string(format!("/proc/{pid}/stat"));
+            if stat
+                .as_ref()
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                || stat.as_ref().is_ok_and(|s| {
+                    s.split_once(") ")
+                        .is_some_and(|(_, tail)| tail.starts_with('Z'))
+                })
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "owned codec survived forced worker death"
+            );
+            thread::sleep(Duration::from_millis(5));
         }
     }
     impl Drop for Owned {

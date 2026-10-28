@@ -19,11 +19,13 @@ const TYPE: &str = "VIDEO_TYPE: The selected file is not an MP4/MOV/MKV/WebM vid
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const STDERR_LIMIT: usize = 16 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
-static INSPECTING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+pub(crate) static INSPECTING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSourceInspection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
     pub name: String,
     pub width: u32,
     pub height: u32,
@@ -40,18 +42,33 @@ pub struct VideoSourceInspection {
     pub processing_ready: bool,
 }
 
-fn finish<T>(id: uuid::Uuid, result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+pub(crate) fn finish_operation<T>(
+    operation: &str,
+    success: &str,
+    id: uuid::Uuid,
+    result: Result<Option<T>, String>,
+) -> Result<Option<T>, String> {
     let (severity, outcome) = match &result {
         Ok(None) => ("INFO", "cancelled"),
-        Ok(Some(_)) => ("INFO", "inspected"),
+        Ok(Some(_)) => ("INFO", success),
         Err(_) => ("ERROR", "failed"),
     };
     // Never forward titles, source names, tool output or OS errors to shared Logs.
     crate::logs::push(
         crate::logs::Source::Deas,
-        &format!("{severity}: video-post operation=inspect operationId={id} outcome={outcome}"),
+        &format!("{severity}: video-post operation={operation} operationId={id} outcome={outcome}"),
     );
     result
+}
+
+fn finish<T>(id: uuid::Uuid, result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+    finish_operation("inspect", "inspected", id, result)
+}
+pub(crate) fn validate_title(title: &str) -> Result<(), String> {
+    if title.trim().is_empty() || title.len() > 240 || title.chars().any(char::is_control) {
+        return Err("VIDEO_TITLE: Use a nonempty chooser title of at most 240 bytes without control characters.".into());
+    }
+    Ok(())
 }
 
 /// The sole frontend seam: no caller-provided file path, program or probe arguments.
@@ -60,8 +77,8 @@ pub async fn native_video_post_inspect(
     title: String,
 ) -> Result<Option<VideoSourceInspection>, String> {
     let id = uuid::Uuid::new_v4();
-    if title.trim().is_empty() || title.len() > 240 || title.chars().any(char::is_control) {
-        return finish(id, Err("VIDEO_TITLE: Use a nonempty chooser title of at most 240 bytes without control characters.".into()));
+    if let Err(error) = validate_title(&title) {
+        return finish(id, Err(error));
     }
     let permit = match INSPECTING.try_acquire() {
         Ok(permit) => permit,
@@ -85,7 +102,12 @@ pub async fn native_video_post_inspect(
     // The owner keeps admission, cleanup and diagnostic delivery if its IPC waiter disappears.
     match tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        finish(id, inspect_source(&path).map(Some))
+        finish(
+            id,
+            inspect_retained(&path)
+                .and_then(crate::video_post_prepare::retain_source)
+                .map(Some),
+        )
     })
     .await
     {
@@ -182,6 +204,30 @@ fn open_source(path: &Path) -> Result<File, String> {
 /// Native-only inspection helper; not registered as IPC. The tool is always ffprobe on PATH.
 /// shortcut: pre/post identity checks are not a sandbox against hostile same-user path races.
 pub fn inspect_source(path: &Path) -> Result<VideoSourceInspection, String> {
+    inspect_retained(path).map(|source| source.metadata)
+}
+
+pub(crate) struct RetainedSource {
+    path: std::path::PathBuf,
+    pub(crate) metadata: VideoSourceInspection,
+    file: File,
+    identity: Identity,
+}
+impl RetainedSource {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+    pub(crate) fn recheck(&self) -> Result<(), String> {
+        if identity(&self.file)? != self.identity
+            || identity(&open_source(&self.path)?)? != self.identity
+        {
+            return Err(SOURCE.into());
+        }
+        Ok(())
+    }
+}
+fn inspect_retained(path: &Path) -> Result<RetainedSource, String> {
     let mut file = open_source(path)?;
     let before = identity(&file)?;
     let name = path
@@ -223,7 +269,13 @@ pub fn inspect_source(path: &Path) -> Result<VideoSourceInspection, String> {
     if identity(&file)? != before || identity(&open_source(path)?)? != before {
         return Err("VIDEO_CHANGED: Source changed during inspection; select it again.".into());
     }
-    parse_metadata(name.to_owned(), &bytes)
+    let metadata = parse_metadata(name.to_owned(), &bytes)?;
+    Ok(RetainedSource {
+        path: path.to_owned(),
+        metadata,
+        file,
+        identity: before,
+    })
 }
 
 struct OwnedProbe {
@@ -241,6 +293,20 @@ impl OwnedProbe {
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
+            #[cfg(target_os = "linux")]
+            unsafe {
+                let parent = libc::getpid();
+                // The initial inspector also runs inside a force-killable render worker.
+                command.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent {
+                        libc::_exit(1);
+                    }
+                    Ok(())
+                });
+            }
         }
         #[cfg(windows)]
         {
@@ -636,6 +702,7 @@ fn parse_metadata(name: String, bytes: &[u8]) -> Result<VideoSourceInspection, S
     }
     let (fps_numerator, fps_denominator) = average.or(nominal).unwrap_or((0, 1));
     Ok(VideoSourceInspection {
+        source_id: None,
         name,
         width,
         height,
@@ -651,6 +718,18 @@ fn parse_metadata(name: String, bytes: &[u8]) -> Result<VideoSourceInspection, S
         timing_verified: false,
         processing_ready: false,
     })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn test_retained(path: &Path, metadata: VideoSourceInspection) -> RetainedSource {
+    let file = open_source(path).unwrap();
+    let identity = identity(&file).unwrap();
+    RetainedSource {
+        path: path.to_owned(),
+        metadata,
+        file,
+        identity,
+    }
 }
 
 #[cfg(test)]

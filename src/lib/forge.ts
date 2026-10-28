@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import families from '../families/builtin.json' with { type: 'json' };
+import type { Size } from './resolution';
 
 /** Prompt Forge runs in the DaSiWa node pack on the backend; `native_forge` forwards one call and adds DEAS's saved LLM endpoint. */
 export interface ForgeModel { id: string; label: string; disabled?: boolean }
@@ -40,7 +41,7 @@ export const findPeople = (baseUrl:string,root:string,body:{model:string;path:st
 /** Stops the running Director Forge call that carries this `request_id`. */
 export const cancelForge = (baseUrl: string, root: string, request_id: string) => call<{ cancelled: boolean }>(baseUrl, root, 'cancel', { request_id });
 /** The native Prompt Forge (image models): PromptForge's whole pipeline in DEAS — character canon, tag-search and guidance tools, clean-up — straight to the LLM server. */
-export interface NativeControls { creativity?: number; detail?: number; aspectRatio?: string; qualityPreset?: string; style?: string; positive?: string; negative?: string; tags?: string[]; cameraAngle?: string; cameraShot?: string; cameraLight?: string; lighting?: number; imageReferences?: NativeImageRef[]; layout?: { width: number; height: number; items: { name: string; label: string; caption: string; text?: string; bbox: number[] }[] }; maxLength?: { unit: 'words' | 'tokens'; value: number } }
+export interface NativeControls { creativity?: number; detail?: number; aspectRatio?: string; canvas?: Size; qualityPreset?: string; style?: string; positive?: string; negative?: string; tags?: string[]; cameraAngle?: string; cameraShot?: string; cameraLight?: string; lighting?: number; imageReferences?: NativeImageRef[]; layout?: { width: number; height: number; items: { name: string; label: string; caption: string; text?: string; bbox: number[] }[] }; maxLength?: { unit: 'words' | 'tokens'; value: number } }
 export interface NativeWrite { target: string; brief: string; model: string; mode?: string; segmentsOn?: string[]; controls?: NativeControls }
 export interface NativeSegment { label: string; body: string }
 export interface NativeResult { segments: NativeSegment[]; refused: boolean; prompt: string; negative: string | null; characters: string[]; tools: { name: string; queries: string[]; document: string | null; ok: boolean }[]; rounds: number; warnings: string[]; fixes: string[]; changed?: number; referenceAnalysis?: string | null }

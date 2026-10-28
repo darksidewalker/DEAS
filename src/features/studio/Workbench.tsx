@@ -22,6 +22,9 @@ import { ProjectBar } from '../projects/ProjectBar';
 import type { ImageDraft, ProjectSnapshot } from '../../lib/projects';
 import { JobOutputPreview } from './JobOutputPreview';
 import { GenerationMetadata } from './GenerationMetadata';
+import { RecentHistory } from './RecentHistory';
+import { historyInputSelectionContext, type HistoryRestore } from './history';
+import type { ForgeCanvasContext, ForgeSendCanvas } from '../../lib/forgeCanvas';
 import { generationDuration } from './generationDuration';
 import type { GenerationSettings } from '../../lib/imageMetadata';
 import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
@@ -83,13 +86,13 @@ const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v'] as const;
 type Pipeline=typeof pipelines[number];
 /** Edits of the shown image: plain image-to-image (`resample`) or inpaint; refine/upscale live in the Post-Processing tab. */
 const editModes=['resample','inpaint'] as const;
-export interface WorkbenchProps { endpoint:string; planVisible?:boolean; onOpenVideoPost?:()=>void; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. `extraModels` are additional model roots on other drives. */ roots?:MediaRoots&{models?:string;extraModels?:string[]}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number} }
+export interface WorkbenchProps { endpoint:string; planVisible?:boolean; onOpenVideoPost?:()=>void; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. `extraModels` are additional model roots on other drives. */ roots?:MediaRoots&{models?:string;extraModels?:string[]}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number;canvas?:ForgeSendCanvas}; onCanvasContext?:(context:ForgeCanvasContext|undefined)=>void }
 /** Text-to-image workbench: settings left, preview over the prompts, queue right, bottom dock with Media · Models · LoRAs tabs. */
 export function Workbench(props:WorkbenchProps){
  const [project,setProject]=useState<ProjectSnapshot|null>(null);
  return <PreferencePersistenceContext.Provider value={!project}><WorkbenchContent {...props} project={project} onProject={setProject}/></PreferencePersistenceContext.Provider>;
 }
-function WorkbenchContent({endpoint,roots={},root,incoming,planVisible=false,onOpenVideoPost,project,onProject}:WorkbenchProps&{project:ProjectSnapshot|null;onProject:(project:ProjectSnapshot|null)=>void}){
+function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpenVideoPost,planVisible=false,project,onProject}:WorkbenchProps&{project:ProjectSnapshot|null;onProject:(project:ProjectSnapshot|null)=>void}){
  const {t,locale}=useI18n();const native=isTauri();const linuxVideo=nativeVideo();const modelsDir=roots.models;const outputDir=roots.output;const extraModelsKey=(roots.extraModels??[]).join('\n');
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [browsed,setBrowsed]=useState<MediaItem|null>(null);
@@ -115,11 +118,15 @@ function WorkbenchContent({endpoint,roots={},root,incoming,planVisible=false,onO
  const [negative,setNegative]=usePref('studio.run.negative','',isString);
  const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
  const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
- useEffect(()=>{if(incoming){setPositive(incoming.positive);if(incoming.negative.trim())setNegative(incoming.negative);}},[incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
  const [checkpointPref,setCheckpoint]=usePref('studio.run.checkpoint','',isString);
  const [loras,setLoras]=usePref<Lora[]>('studio.run.loras',[],isLoras);
  // Prompt pictures share attachment UI; only ReVision uses a strength and vision model.
  const [imageRefs,setImageRefs]=useState<{item:MediaItem;strength:number}[]>([]);
+ const [historyDraft,setHistoryDraft]=useState<HistoryRestore|null>(null);
+ const historyInputContext=historyInputSelectionContext(endpoint,roots.input);
+ const [historySelectionContext,setHistorySelectionContext]=useState('');
+ const [historySourceSelected,setHistorySourceSelected]=useState(false);
+ const [historyOpen,setHistoryOpen]=useState(false);
  const referenceDrag='application/x-deas-reference-order';
  const draggedReference=useRef<(typeof imageRefs)[number]|null>(null);
  const moveReference=(from:number,to:number)=>setImageRefs(refs=>{
@@ -259,6 +266,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const inputImage=comfyName(media)||(projectInput?projectInput.id+'.png':'');
  // Extra images pasted onto the source (SwarmUI editor image layers), in source pixels; they belong to one source.
  const [layers,setLayers]=useState<ImageLayer[]>([]);
+ // Explicit selections belong to the currently selected backend namespace and
+ // input root. A context change invalidates them; returning does not rebind them.
+ useLayoutEffect(()=>{
+  if(!historyDraft||historySelectionContext===historyInputContext)return;
+  setHistorySelectionContext(historyInputContext);setHistorySourceSelected(false);
+  sourceEpoch.current++;setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);setLastFrame(null);
+  setImageRefs(values=>values.map(ref=>({...ref,item:{name:ref.item.name,media:'image',src:''}})));
+ },[historyDraft,historySelectionContext,historyInputContext]);
  // Image pipelines stay clickable without an input; the missing picture only greys Run and names what to pick.
 // A chip whose pipeline the remembered model cannot run picks the first compatible model (with its family defaults).
  const why=(id:Pipeline):string=>!allModels.some(m=>!blocked(m,id))?(id==='t2i'||id==='i2i'?'studio.run.noModels':'studio.run.pipe.noRecipe'):'';
@@ -282,6 +297,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const promptEncoder=imageRefs.length&&referenceMethod&&referenceMethod!=='revision'?nativeImageReferenceEncoders[referenceMethod]:'CLIPTextEncode';
  const validReference=(item:MediaItem|null):item is MediaItem&{path:string}=>!!item&&item.media==='image'&&typeof item.path==='string'&&!item.path.includes('\0')&&/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(item.path);
  const promptImage=(dt:DataTransfer)=>draggedItem(dt)??droppedImage(dt);
+ const restoredReferenceMethod=historyDraft&&!isVideoIntent(historyDraft.intent)?historyDraft.intent.imageReference?'revision':historyDraft.intent.nativeImageReference?.method:undefined;
+ const historyReferenceCompatible=!!historyDraft&&!!referenceMethod&&(!restoredReferenceMethod||referenceMethod===restoredReferenceMethod);
+ const replaceHistoryReference=(index:number,item:MediaItem|null)=>{
+  if(!historyReferenceCompatible||historySelectionContext!==historyInputContext||!validReference(item))return;
+  // This explicit Media choice is a new authoring input, not inferred identity.
+  setImageRefs(values=>values.map((ref,i)=>i===index?{...ref,item:{...item}}:ref));
+ };
  const recommended=family?{textEncoders:componentFiles(models??[],family,'textEncoders'),vaes:componentFiles(models??[],family,'vaes'),audioVaes:componentFiles(models??[],family,'audioVaes'),textProjections:componentFiles(models??[],family,'textProjections')}:null;
  const textEncoder=textEncoderPref||recommended?.textEncoders[0]||'';
  const vae=vaePref||recommended?.vaes[0]||'';
@@ -318,6 +340,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   ...(pipeline==='i2i'&&inputScaling==='pad'?[{name:t('studio.run.resolution.scaling'),reset:()=>setInputScaling('off')}]:[]),
  ];
  const unavailable=[
+  ...imageRefs.filter(r=>!r.item.path).map(r=>t('studio.history.missingInput',{name:r.item.name})),
   ...mossIssues.map(i=>t('studio.run.moss.plain',{name:i.name})),
   ...(imageRefs.length&&!referenceMethod?[t('studio.run.reference.inactive')]:[]),
   ...(imageRefs.length&&referenceMethod?(!choices?[t('studio.run.opt.unread')]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:[promptEncoder,'LoadImage',...(qwenRefs?['ImageScale']:[])]).filter(n=>!choices.nodes.includes(n))):[]),
@@ -364,6 +387,41 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   :(!validCanvas(outputSize)||((moss||qwenRefs)&&(outputSize.width%grid!==0||outputSize.height%grid!==0)))?'studio.run.resolution.invalid'
   :(pipeline==='i2i'||pipeline==='i2v'||pipeline==='v2v')&&!source?'studio.run.resolution.waiting'
   :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&media&&media.media!=='audio'&&!source?'studio.run.resolution.waiting':'';
+ const historyProblems=historyDraft?[
+  ...historyDraft.unsupported,
+  ...(!choices?['capabilities unvalidated']:[]),
+  ...(historyDraft.source&&(!media||!historySourceSelected)?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
+  ...(historyDraft.lastFrame&&(!lastFrame?.path||(videoFamily!=='minimax-h3'&&!lastFrameName))?[t('studio.history.missingInput',{name:historyDraft.lastFrame.name})]:[]),
+  ...(historySelectionContext!==historyInputContext?['input context changed']:[]),
+  ...(isVideoIntent(historyDraft.intent)&&videoFamily!==historyDraft.intent.family?['video.family']:[]),
+  ...(!isVideoIntent(historyDraft.intent)&&imageRefs.length&&historyDraft.intent.imageReference&&referenceMethod!=='revision'?['imageReference.method']:[]),
+  ...(!isVideoIntent(historyDraft.intent)&&imageRefs.length&&historyDraft.intent.nativeImageReference&&referenceMethod!==historyDraft.intent.nativeImageReference.method?['nativeImageReference.method']:[]),
+  ...(!isVideoIntent(historyDraft.intent)&&pipeline==='i2i'&&source&&(outputSize.width!==historyDraft.intent.width||outputSize.height!==historyDraft.intent.height)?['effective dimensions']:[]),
+ ]:[];
+ // Forge reads this actual authoring calculation. It never guesses from saved
+ // preferences or changes the source/model/scaling path to accept a canvas.
+ const requiredCanvasGrid=(isVideo||moss||qwenRefs||inpaint)?grid:8;
+ const acceptsForgeCanvas=(requested:Size)=>{
+  if(!model||!validCanvas(requested)||requested.width%requiredCanvasGrid!==0||requested.height%requiredCanvasGrid!==0)return false;
+  let produced=requested;
+  if(pipeline==='i2i'){
+   if(!source)return false;
+   const next=scaleInput(inpaint?'off':inputScaling,source,requested,grid);
+   produced=inpaint||(moss&&!next.resize)?source:next.size;
+  }
+  return produced.width===requested.width&&produced.height===requested.height;
+ };
+ const forgeCanvasKey=JSON.stringify([historyInputContext,root,roots.models,outputDir,project?.id,checkpoint,family?.id,pipeline,edit,inputScaling,media?.src,source?.width,source?.height,grid,requiredCanvasGrid,resolution,aspect,aspectWidth,aspectHeight,megapixels,width,height,outputSize.width,outputSize.height,sizeError]);
+ useEffect(()=>{
+  onCanvasContext?.({key:forgeCanvasKey,effective:model&&!sizeError&&validCanvas(outputSize)&&outputSize.width%requiredCanvasGrid===0&&outputSize.height%requiredCanvasGrid===0?{width:outputSize.width,height:outputSize.height}:null,model:modelSize,grid,requiredGrid:requiredCanvasGrid,resolution,megapixels,fixed:{width,height},acceptsCanvas:acceptsForgeCanvas});
+ },[forgeCanvasKey,onCanvasContext]); // eslint-disable-line react-hooks/exhaustive-deps
+ useEffect(()=>()=>onCanvasContext?.(undefined),[onCanvasContext]);
+ useEffect(()=>{
+  if(!incoming)return;
+  if(incoming.canvas&&(incoming.canvas.contextKey!==forgeCanvasKey||!acceptsForgeCanvas(incoming.canvas.canvas))){setError(t('forge.canvas.handoffBlocked'));return;}
+  setPositive(incoming.positive);if(incoming.negative.trim())setNegative(incoming.negative);
+  if(incoming.canvas){setWidth(incoming.canvas.canvas.width);setHeight(incoming.canvas.canvas.height);setResolution('fixed');}
+ },[incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
  const ratio=aspect==='auto'?(source?source.width/source.height:1):aspect==='custom'?aspectWidth/aspectHeight:Number(aspect.split(':')[0])/Number(aspect.split(':')[1]);
  const swatchRatio=Number.isFinite(ratio)&&ratio>0?ratio:1;
  const readMediaSize=(width:number,height:number)=>{if(media&&width>0&&height>0)setMediaSize({src:media.src,width,height});};
@@ -391,7 +449,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean}){
   if(!native||stopLock.current||admissionBlocked||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
-  if(unavailable.length)return; // The overlay derives dependency warnings from the current selections.
+  if(unavailable.length||historyProblems.length)return; // The overlay derives dependency warnings from the current selections.
   const editing=!only&&inpaint;
   if(!only&&sizeError){setError(t(sizeError,{multiple:String(grid)}));return;}
   if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
@@ -563,7 +621,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   if(!next||videoFamily!=='minimax-h3'||!frameVideo){setAutoPlan(false);return;}
   void run(undefined,{index:next.index,all:true});
  },[autoPlan,current,admissionBlocked,serialBlocked,busy,resolving,plan]); // eslint-disable-line react-hooks/exhaustive-deps
- const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving)return;const next=nextStep(plan);if(!next||videoFamily!=='minimax-h3'||!frameVideo)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
+ const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length)return;const next=nextStep(plan);if(!next||videoFamily!=='minimax-h3'||!frameVideo)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  async function stop(){
   if(stopLock.current)return;
   stopLock.current=true;setStopping(true);setAutoPlan(false);planRun.current=null;
@@ -579,7 +637,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   finally{stopLock.current=false;if(live.current)setStopping(false);}
  }
  // Picking media on the strip takes over the preview until the next job is selected.
- const select=(item:MediaItem)=>{setBrowsed(null);setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
+ const select=(item:MediaItem)=>{if(historyDraft)setHistorySourceSelected(true);setBrowsed(null);setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
  // A dock tile dropped on the editor becomes a layer at its original size, centred on the drop point (image-to-image only).
  const insertLayer=(item:MediaItem,at:{x:number;y:number})=>{
   if(!source||!media)return;
@@ -599,16 +657,11 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   probe.onerror=()=>{if(live.current&&sourceEpoch.current===version)setError(t('studio.editor.insertFailed'));};
   probe.src=item.src;
  };
- // Fill the viewport below the project bar; the floating version reserves no height.
- const shell=useRef<HTMLDivElement>(null);const [fit,setFit]=useState<number|undefined>();
+ // The shared shell owns viewport sizing; observe this pane only to bound dock resizing.
+ const shell=useRef<HTMLDivElement>(null);const [bodyHeight,setBodyHeight]=useState(600);
  useEffect(()=>{if(browsed)shell.current?.querySelectorAll<HTMLMediaElement>('.wb-current-preview video, .wb-current-preview audio').forEach(el=>{if(!el.paused)el.pause();});},[browsed?.src]);
  useLayoutEffect(()=>{
-  const measure=()=>{const el=shell.current;if(!el||!el.offsetParent)return;const top=el.getBoundingClientRect().top;setFit(Math.max(420,window.innerHeight-top-3));};
-  measure();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',measure);return()=>window.removeEventListener('resize',measure);}
-  const ro=new ResizeObserver(measure);ro.observe(document.documentElement);document.querySelectorAll<HTMLElement>('.aio-topbar,.project-bar').forEach(el=>ro.observe(el));return()=>ro.disconnect();
- },[t]);
- useLayoutEffect(()=>{
-  const measure=()=>{const width=shell.current?.clientWidth;if(width)setBodyWidth(width);};measure();
+  const measure=()=>{const el=shell.current;if(el?.clientWidth)setBodyWidth(el.clientWidth);if(el?.clientHeight)setBodyHeight(el.clientHeight);};measure();
   window.addEventListener('resize',measure);
   const ro=typeof ResizeObserver==='undefined'?null:new ResizeObserver(measure);if(shell.current)ro?.observe(shell.current);
   return()=>{window.removeEventListener('resize',measure);ro?.disconnect();};
@@ -616,7 +669,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const sideSize=clamp(settingsWidth,220,Math.max(220,bodyWidth-128-320-20));
  const queueSize=clamp(queueWidth,128,Math.max(128,bodyWidth-sideSize-320-20));
  const sideMax=Math.max(220,bodyWidth-queueSize-320-20),queueMax=Math.max(128,bodyWidth-sideSize-320-20);
- const dockMax=Math.max(120,(fit??600)-260),dockSize=clamp(dockHeight,120,dockMax);
+ const dockMax=Math.max(120,bodyHeight-260),dockSize=clamp(dockHeight,120,dockMax);
  const dragCleanup=useRef<()=>void>(()=>{});
  useEffect(()=>()=>dragCleanup.current(),[]);
  const dragPane=(e:React.PointerEvent<HTMLDivElement>,start:number,min:number,max:number,set:(n:number)=>void,vertical=false,reverse=false)=>{
@@ -742,11 +795,11 @@ const promptTools=forgeContext&&<>
  <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
  <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
  {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
- const tools=(item:MediaItem,showStar=true)=><div className="wb-edit-tools" role="toolbar" aria-label={t('studio.run.edit.title')}>
+ const tools=(item:MediaItem,showStar=true)=><div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
   <button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
   {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. */}
-  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current;return only&&<details className="wb-more"><summary data-more>{t('studio.run.more')}</summary><div className="wb-more-menu">
+  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;return only&&<details className="wb-more"><summary data-more>{t('studio.run.more')}</summary><div className="wb-more-menu">
    <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>void run(only)}>{t('studio.run.post.refine')}</button>
    <button type="button" data-run-upscale disabled={off} title={t('studio.run.post.upscaleHint')} onClick={()=>void run({...only,upscaleOnly:true})}>{t('studio.run.post.upscale')}</button></div></details>;})()}
   {item.media==='image'&&<button type="button" data-view-full onClick={()=>setViewer({src:item.src,alt:item.name,item})}>{t('studio.run.viewer.open')}</button>}
@@ -782,15 +835,46 @@ const promptTools=forgeContext&&<>
   if(s.loras)setLoras(s.loras.flatMap(l=>{const m=loraModels.find(x=>x.name===l.name)??loraModels.find(x=>base(x.name)===base(l.name));if(!m)skipped.push(`LoRA: ${l.name}`);return m?[{name:m.name,strength:l.strength}]:[];}));
   return skipped;
  };
+ const restoreHistory=(value:HistoryRestore)=>{
+  const intent=value.intent;
+  // Use the same setters as ordinary authoring: an open project keeps its normal
+  // autosave and unsaved-close protection. Native jobs and the queue are untouched.
+  setHistoryDraft(value);setHistorySelectionContext(historyInputContext);setHistorySourceSelected(false);setPositive(intent.positivePrompt);setNegative(intent.negativePrompt);
+  fixedSeed(intent.seed);setCheckpoint(isVideoIntent(intent)?intent.model:intent.checkpoint);
+  setSteps(intent.steps);setCfg(intent.cfg);setSampler(intent.sampler);setScheduler(intent.scheduler);
+  setWidth(intent.width);setHeight(intent.height);setResolution('fixed');setAspect('auto');
+  setLoras((intent.loras??[]).map(l=>({...l})));setOptions(value.options);
+  setPipeline(value.pipeline);setComponentOverrides({textEncoders:true,vaes:true,audioVaes:true,textProjections:true});
+  sourceEpoch.current++;setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);
+  setLastFrame(null);setBrowsed(null);setSelectedJob('');setRefs([]);setRefmods([]);setFramePeople({});
+  setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
+  setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setInputScaling('off');setEdit('resample');
+  setWildcardEnabled(false);setRefVision('');setVideo(defaultVideo);setH3Scaling('Fill and crop');setSourceStrength(1);setSourceAudio(false);
+  if(isVideoIntent(intent)){
+   setTextEncoder(intent.textEncoder);setVae(intent.vae);
+   const shared={...defaultVideo,seconds:intent.frames/intent.frameRate,fps:intent.frameRate};
+   if(intent.family==='ltx-2'){setVideo({...shared,passes:intent.ltx.passes,upscaler:intent.ltx.spatialUpscaler??'',audioVae:intent.ltx.audioVae,textProjection:intent.ltx.textProjection});setSourceStrength(intent.ltx.sourceStrength??1);}
+   else if(intent.family==='wan')setVideo({...shared,shiftHigh:intent.wan.shiftHigh,shiftLow:intent.wan.shiftLow,refinerStep:intent.wan.refinerStep});
+   else {setVideo({...shared,audioVae:intent.h3.audioVae,shiftVideo:intent.h3.shiftVideo,shiftAudio:intent.h3.shiftAudio});setH3Scaling(intent.h3.inputScaling??'Fill and crop');}
+  }else{
+   setTextEncoder(intent.diffusion?.textEncoder??'');setVae(intent.diffusion?.vae??'');
+   setDenoise(intent.denoise??0.6);setInpaintDenoise(intent.denoise??0.8);setEdit(intent.inputMask?'inpaint':'resample');setMaskBlur(intent.maskBlur??0);setInpaintOnlyMasked(false);
+   setRefVision(intent.imageReference?.visionModel??'');
+   if(intent.wildcard){setWildcard(structuredClone(intent.wildcard));setWildcardEnabled(true);}
+   if(intent.h3Edit)setVideo({...defaultVideo,shiftVideo:intent.h3Edit.shiftVideo,shiftAudio:intent.h3Edit.shiftAudio});
+   if(intent.refine){setPost(true);setPostTiled(!!intent.refine.tiled);setUpscale(intent.refine.width/intent.width);setRefineDenoise(intent.refine.denoise);setUpscaleModel(intent.refine.upscaleModel??'');}
+  }
+ };
  const tile=(m:LocalModel,pressed:boolean,onClick:()=>void,extra?:React.ReactNode,reason='')=><li key={`${m.category}/${m.name}`}><button type="button" aria-label={m.name} aria-pressed={pressed} disabled={!!reason} title={reason?t(reason):m.name} onClick={onClick}>{m.info?.civitai?.preview?<img src={m.info.civitai.preview} alt="" loading="lazy"/>:<span className="wb-thumb" aria-hidden="true">◆</span>}<span className="wb-tile-name">{shortName(m.name)}</span>{familyOf(m)&&<small className="wb-family">{familyOf(m)!.name}</small>}</button>{extra}</li>;
  const pick=(id:string,value:string,list:readonly string[],set:(v:string)=>void,onFocus?:()=>void)=><label key={id} className="wb-field"><span>{t(id)}</span><select value={value} onFocus={onFocus} onPointerDown={onFocus} onChange={e=>set(e.target.value)}>{(list.includes(value)?list:[value,...list]).map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
  const componentPick=(id:string,slot:ComponentSlot,value:string,list:readonly string[],set:(value:string)=>void)=><ComponentPicker key={slot} label={t(id)} value={value} automatic={recommended?.[slot][0]??''} files={list} all={componentOverrides[slot]} onAll={all=>setComponentOverrides({...componentOverrides,[slot]:all})} onChange={set}/>;
  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isVideo?'video':'image',seed,model:checkpoint});
  const preview=planVisible&&naming!==null?(isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
- const planNotices=[t('studio.plan.validation'),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[t('studio.run.opt.unread')]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[])];
+ const planNotices=[t('studio.plan.validation'),...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[t('studio.run.opt.unread')]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[])];
  const inputNotes=[...(inpaint?[t('studio.plan.mask',{blur:String(maskBlur),grow:String(maskGrow),crop:t(inpaintOnlyMasked?'studio.plan.yes':'studio.plan.no')})]:[]),...(pipeline==='i2i'&&layers.some(l=>l.visible)?[t('studio.plan.layersPending')]:[]),...(isVideo||imageRefs.length?[t('studio.plan.uploadPending')]:[])];
  const projectDraft:ImageDraft={positivePrompt:positive,negativePrompt:negative,checkpoint:project?checkpointPref:checkpoint,width:project&&!model?width:outputSize.width,height:project&&!model?height:outputSize.height,steps,cfg,sampler,scheduler,seed,denoise,pipeline:pipeline==='i2i'?'i2i':'t2i'};
  const restoreProject=(next:ProjectSnapshot|null)=>{
+  setHistoryDraft(null);
   const d=next?.draft??{positivePrompt:readPref('studio.run.positive','',isString),negativePrompt:readPref('studio.run.negative','',isString),checkpoint:readPref('studio.run.checkpoint','',isString),width:readPref('studio.run.width',1024,isNumber),height:readPref('studio.run.height',1024,isNumber),steps:readPref('studio.run.steps',20,isNumber),cfg:readPref('studio.run.cfg',5,isNumber),sampler:readPref('studio.run.sampler','euler',isString),scheduler:readPref('studio.run.scheduler','normal',isString),seed:readPref('studio.run.seed',0,isSeed),denoise:readPref('studio.run.denoise',0.6,isNumber),pipeline:readPref('studio.run.pipeline','t2i',oneOf(...pipelines))};
   onProject(next);setPositive(d.positivePrompt);setNegative(d.negativePrompt);setCheckpoint(d.checkpoint);setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);setSeed(d.seed);setDenoise(d.denoise);setPipeline(d.pipeline);
   setSeedMode(next?'fixed':readPref('studio.run.seedMode','random',oneOf('random','fixed')));
@@ -808,6 +892,8 @@ const promptTools=forgeContext&&<>
   setMediaSize(input?{src:convertFileSrc(input.path),width:input.width,height:input.height}:null);
  };
  const stageWarnings=[...new Set([
+  ...(historyDraft?.source&&!media?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
+  ...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),
   ...(checkpointPref&&!model?[t('studio.quick.unavailable',{names:checkpointPref})]:[]),
   ...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
   ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
@@ -818,8 +904,9 @@ const promptTools=forgeContext&&<>
  return <>
  <ProjectBar draft={projectDraft} busy={busy||!!current||autoPlan||resolving} onRestore={restoreProject}/>
  {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
- <div hidden={planVisible}>
- <div className="workbench" data-workbench ref={shell} style={{height:fit}}>
+ <div className="workbench-host" hidden={planVisible}>
+ <div className="workbench" data-workbench ref={shell}>
+ {historyDraft&&<div className="wb-history-draft" role="status" data-history-draft>{t('studio.history.draft')}{(historyDraft.source||historyDraft.references.length>0||historyDraft.lastFrame)&&<p>{t('studio.history.inputReselect')}</p>}{historyProblems.length>0&&<><p>{t('studio.history.blocked',{items:historyProblems.join(' · ')})}</p><button type="button" className="wb-dock-action" data-history-new-draft onClick={()=>setHistoryDraft(null)}>{t('studio.history.newDraft')}</button></>}</div>}
   <div className="wb-body">
    <aside id="studio-settings" className="wb-side" style={{flexBasis:sideSize}}>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
@@ -907,11 +994,11 @@ const promptTools=forgeContext&&<>
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{duration(shown)}</p>
       {paired&&terminalOutput(shown)&&<div className="wb-output-choices" role="group" aria-label={t('studio.jobs.outputs')}>{shown.outputs.map((o,index)=><button type="button" key={index} data-output-role={o.role} aria-pressed={index===outputIndex} onClick={()=>{setSelectedOutput(index);setSlider(false);}}>{o.role?t(`studio.jobs.role.${o.role}`):o.filename}</button>)}</div>}
-      {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview">{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
-        :visibleOutputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview">{shown.outputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
+      {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview"><div className="wb-media-content" data-media-content>{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
+        :visibleOutputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div>{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{shown.outputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
-     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}{(inputImage||(pipeline==='ref2v'&&media.path))?tools(media):<StarMediaButton item={media}/>}<figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
+     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}{(inputImage||(pipeline==='ref2v'&&media.path))?tools(media):<div className="wb-media-tools" data-media-tools><StarMediaButton item={media}/></div>}<figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
      :!media?<p className="empty-note" role={hint?'status':undefined}>{t(hint||'studio.run.empty')}</p>:null}
      </div>
      {viewer&&<ImageViewer src={viewer.src} alt={viewer.alt} item={viewer.item} onClose={()=>setViewer(null)}/>}
@@ -921,8 +1008,9 @@ const promptTools=forgeContext&&<>
      <div className="wb-prompt wb-negative"><label htmlFor="run-negative">{t('studio.run.negative')}</label><textarea id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button>{promptActions('negative',negative,setNegative)}</div>
      {imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:4})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
      {imageRefs.length>0&&<div className="wb-reference-strip wb-wide">
-      {imageRefs.map((r,i)=><div key={`${i}:${r.item.path}`} className="wb-reference-card" data-reference-controls data-reference-position={i+1} role="group" aria-label={t('studio.run.reference.position',{position:i+1})} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.clearData();e.dataTransfer.setData(referenceDrag,String(i));e.dataTransfer.effectAllowed='move';draggedReference.current=r;}} onDragEnd={()=>{draggedReference.current=null;}} onDragOver={e=>{if(e.dataTransfer.types.includes(referenceDrag)&&draggedReference.current){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';}}} onDrop={e=>{if(e.dataTransfer.types.includes(referenceDrag)){e.preventDefault();e.stopPropagation();moveReference(imageRefs.indexOf(draggedReference.current!),i);draggedReference.current=null;}}}>
-       <div className="wb-reference-thumb"><img src={r.item.src} alt={r.item.name} title={r.item.name} draggable={false}/><span className="wb-reference-position" title={t('studio.run.reference.position',{position:i+1})}>{i+1}</span><button type="button" className="wb-reference-remove" data-reference-remove aria-label={`${t('studio.run.reference.remove')} · ${i+1}`} title={t('studio.run.reference.remove')} onClick={()=>setImageRefs(v=>v.filter((_,j)=>j!==i))}>✕</button></div>
+      {imageRefs.map((r,i)=><div key={`${i}:${r.item.path}`} className="wb-reference-card" data-reference-controls data-history-reference-unresolved={historyDraft&&!r.item.path?true:undefined} data-reference-position={i+1} role="group" aria-label={t('studio.run.reference.position',{position:i+1})} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.clearData();e.dataTransfer.setData(referenceDrag,String(i));e.dataTransfer.effectAllowed='move';draggedReference.current=r;}} onDragEnd={()=>{draggedReference.current=null;}} onDragOver={e=>{if(e.dataTransfer.types.includes(referenceDrag)&&draggedReference.current){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect=historyReferenceCompatible&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(promptImage(e.dataTransfer)))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(referenceDrag)){e.preventDefault();e.stopPropagation();moveReference(imageRefs.indexOf(draggedReference.current!),i);draggedReference.current=null;}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();replaceHistoryReference(i,promptImage(e.dataTransfer));}}}>
+       <div className="wb-reference-thumb">{r.item.src?<img src={r.item.src} alt={r.item.name} title={r.item.name} draggable={false}/>:<span role="status" title={r.item.name}>{t('studio.history.missingInput',{name:r.item.name})}</span>}<span className="wb-reference-position" title={t('studio.run.reference.position',{position:i+1})}>{i+1}</span><button type="button" className="wb-reference-remove" data-reference-remove aria-label={`${t('studio.run.reference.remove')} · ${i+1}`} title={t('studio.run.reference.remove')} onClick={()=>setImageRefs(v=>v.filter((_,j)=>j!==i))}>✕</button></div>
+       {historyDraft&&!r.item.path&&<><small>{t('studio.history.referenceReselect')}</small><button type="button" data-history-reference-select={i} disabled={!historyReferenceCompatible||!validReference(browsed??media)} onClick={()=>replaceHistoryReference(i,browsed??media)}>{t('studio.history.referenceUseSelected',{position:i+1})}</button></>}
        {revisionOk&&num('reference.strength',r.strength,n=>setImageRefs(v=>v.map((e,j)=>j===i?{...e,strength:clamp(n,0,1)}:e)),0,1,0.05,undefined,true)}
       </div>)}
      </div>}
@@ -932,12 +1020,13 @@ const promptTools=forgeContext&&<>
    </div>
    {columnHandle('queue')}
    <section id="studio-queue" style={{flexBasis:queueSize}} className="wb-queue" aria-label={t('studio.run.queue')}>
+    <RecentHistory liveIds={jobs.map(j=>j.id)} context={{endpoint,inputRoot:roots.input,allow:choices,models:models??[]}} outputRoot={outputDir} projectOpen={!!project} authoringBusy={working||autoPlan||resolving||!!planRun.current} onRestore={restoreHistory} onOpenChange={setHistoryOpen}/>
     <h3>{t('studio.run.queue')}</h3>
-    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(terminalOutput(j)?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob&&(!j.outputs.some(o=>o.role)||index===outputIndex)} data-state={j.state} onClick={()=>pickJob(j,index)}>
+    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul hidden={historyOpen}>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(terminalOutput(j)?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob&&(!j.outputs.some(o=>o.role)||index===outputIndex)} data-state={j.state} onClick={()=>pickJob(j,index)}>
      {j.outputRoot&&o&&!isVideoOut(o)?<img src={fileSrc(j,o)!} alt="" draggable onDragStart={e=>dragItem(e.dataTransfer,outputItem(j,o))}/>:o&&isVideoOut(o)?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='cancelled'?'×':j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)} · {j.id.slice(0,8)}{duration(j)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{o?.role&&<strong>{t(`studio.jobs.role.${o.role}`)} · </strong>}{o?.filename??j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button>{o&&j.outputRoot&&<StarMediaButton item={outputItem(j,o)}/>}</div>)}</li>)}</ul>}
      <div className="wb-run-actions">
-     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||unavailable.length>0} title={!native?t('studio.backendHelp'):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" className="wb-run-stop" data-run-stop disabled={stopping} aria-label={t('studio.run.stop.label')} title={t('studio.run.stop.hint')} onClick={()=>void stop()}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}<span id="project-actions-slot"/></div>
+     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||unavailable.length>0||historyProblems.length>0} title={!native?t('studio.backendHelp'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" className="wb-run-stop" data-run-stop disabled={stopping} aria-label={t('studio.run.stop.label')} title={t('studio.run.stop.hint')} onClick={()=>void stop()}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}<span id="project-actions-slot"/></div>
      <div id="project-status-slot"/>{stopStatus&&<p role="status" data-run-stop-status>{stopStatus}</p>}
    </section>
   </div>

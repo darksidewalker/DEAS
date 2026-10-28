@@ -143,18 +143,7 @@ fn prepare<'a>(
     refs_state: &RefState,
 ) -> Result<Prepared<'a>, String> {
     let pack = &data.pack;
-    let model: &PackModel = pack
-        .models
-        .get(&req.target)
-        .ok_or_else(|| format!("Prompt Forge has no writer for \"{}\"", req.target))?;
-    if req.brief.trim().is_empty() {
-        return Err("Write a brief first.".into());
-    }
-    let mode = req
-        .mode
-        .clone()
-        .or_else(|| model.str("default_mode").map(String::from))
-        .filter(|m| model.modes().contains(m));
+    let (model, mode) = validate_request(data, req)?;
     // An unset control means the model's default, as PromptForge's form always sends one:
     // a quality preset left out entirely lets the model add a ladder of its own.
     let mut filled = req.controls.clone();
@@ -312,6 +301,8 @@ pub async fn write(
     config: &LlmConfig,
     req: &WriteRequest,
 ) -> Result<WriteResult, String> {
+    // Validate consumed geometry before reference-reading can issue a vision request.
+    validate_request(data, req)?;
     let pack = &data.pack;
     let mut warnings = vec![];
     let (refs_state, carried) = read_references(data, config, req, &mut warnings).await;
@@ -761,23 +752,108 @@ pub async fn reference_readback(
     Ok(text)
 }
 
-/// The Layout JSON canvas for this request (PromptForge's canvasFor): the studio's own size
-/// when it sent a usable one, else the aspect's entry in `layout_canvas`.
+fn validate_request<'a>(
+    data: &'a Data,
+    req: &WriteRequest,
+) -> Result<(&'a PackModel, Option<String>), String> {
+    let model = data
+        .pack
+        .models
+        .get(&req.target)
+        .ok_or_else(|| format!("Prompt Forge has no writer for \"{}\"", req.target))?;
+    if req.brief.trim().is_empty() {
+        return Err("Write a brief first.".into());
+    }
+    let mode = req
+        .mode
+        .clone()
+        .or_else(|| model.str("default_mode").map(String::from))
+        .filter(|mode| model.modes().contains(mode));
+    validate_controls(model, mode.as_deref(), &req.controls)?;
+    Ok((model, mode))
+}
+
+fn validate_controls(
+    model: &PackModel,
+    mode: Option<&str>,
+    controls: &Controls,
+) -> Result<(), String> {
+    let invalid = message::CANVAS_ERROR;
+    let aspect = controls.aspect_ratio.as_deref().unwrap_or("");
+    let unset = matches!(aspect, "" | "N/A");
+    let numeric = message::numeric_aspect(aspect);
+    // Exact registry membership is the explicit compatibility path for old saved labels.
+    let legacy = model
+        .strings("aspect_ratios")
+        .iter()
+        .any(|value| value == aspect);
+    if !unset && !matches!(aspect, "auto" | "custom") && numeric.is_none() && !legacy {
+        return Err(format!("{invalid}: unknown aspect selection"));
+    }
+    if unset && controls.canvas.is_some() {
+        return Err(format!("{invalid}: N/A cannot request a new canvas"));
+    }
+    let layout_mode = model
+        .expected(mode)
+        .iter()
+        .any(|label| label == "Layout JSON");
+    if let Some(canvas) = controls.canvas {
+        canvas.validate(layout_mode)?;
+        if let Some((width, height)) = numeric {
+            // Canonical buckets and snapping can differ from mathematical proportions.
+            // Reject reversed orientation, but allow a snapped square for a non-square ratio.
+            if (width == height && canvas.width != canvas.height)
+                || (width > height && canvas.width < canvas.height)
+                || (width < height && canvas.width > canvas.height)
+            {
+                return Err(format!("{invalid}: aspect and canvas orientation disagree"));
+            }
+        }
+    } else if !unset && (!legacy || matches!(aspect, "auto" | "custom")) {
+        return Err(format!(
+            "{invalid}: the requested aspect needs a resolved canvas"
+        ));
+    }
+    if let Some(layout) = &controls.layout {
+        message::Canvas {
+            width: layout.width,
+            height: layout.height,
+        }
+        .validate(true)?;
+        if controls
+            .canvas
+            .is_some_and(|canvas| canvas.width != layout.width || canvas.height != layout.height)
+        {
+            return Err(format!("{invalid}: layout and effective canvas disagree"));
+        }
+    }
+    if layout_mode {
+        let (width, height) = layout_size(model, mode, controls)
+            .ok_or_else(|| format!("{invalid}: no canvas is defined for this layout request"))?;
+        message::Canvas { width, height }.validate(true)?;
+    }
+    Ok(())
+}
+
+/// The validated consumed canvas, otherwise the exact legacy registry/default entry.
+/// Explicit invalid/new selections never fall back to the registry's N/A canvas.
 fn layout_size(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<(f64, f64)> {
     if !model.expected(mode).iter().any(|l| l == "Layout JSON") {
         return None;
     }
-    let table = model.entry.get("layout_canvas")?;
-    if let Some(l) = &controls.layout {
-        let ok = |v: f64| v.fract() == 0.0 && (128.0..=8192.0).contains(&v) && v % 16.0 == 0.0;
-        if ok(l.width) && ok(l.height) {
-            return Some((l.width, l.height));
-        }
+    if let Some(canvas) = controls.canvas {
+        return Some((canvas.width, canvas.height));
     }
-    let size = table
-        .get(controls.aspect_ratio.as_deref().unwrap_or("N/A"))
-        .or_else(|| table.get("N/A"))?
-        .as_array()?;
+    if let Some(l) = &controls.layout {
+        return Some((l.width, l.height));
+    }
+    let table = model.entry.get("layout_canvas")?;
+    let aspect = controls
+        .aspect_ratio
+        .as_deref()
+        .filter(|aspect| !aspect.is_empty())
+        .unwrap_or("N/A");
+    let size = table.get(aspect)?.as_array()?;
     Some((size.first()?.as_f64()?, size.get(1)?.as_f64()?))
 }
 
@@ -831,6 +907,11 @@ pub struct LayoutRewrite {
 
 /// PromptForge's rewriteMessages: the studio's own instruction plus which section to rewrite.
 fn rewrite_messages(base: &str, r: &LayoutRewrite) -> Result<(String, String), String> {
+    message::Canvas {
+        width: r.width,
+        height: r.height,
+    }
+    .validate(true)?;
     let only = match r.task.as_str() {
         "item" => "Rewrite ONLY the selected element prompt; do not rewrite other elements or the scene.",
         "scene" => "Rewrite ONLY the global scene prompt; individual element prompts are context and must not be rewritten.",
@@ -891,6 +972,18 @@ pub async fn layout_rewrite(
 }
 
 fn canvas_line(model: &PackModel, mode: Option<&str>, controls: &Controls) -> Option<String> {
+    if !model
+        .expected(mode)
+        .iter()
+        .any(|label| label == "Layout JSON")
+    {
+        return controls.canvas.map(|canvas| {
+            format!(
+                "Canvas: {}×{} pixels — the resolved output canvas for this request.",
+                canvas.width, canvas.height
+            )
+        });
+    }
     let (w, h) = layout_size(model, mode, controls)?;
     let (w, h) = (w as i64, h as i64);
     let mut line = format!(
@@ -1292,6 +1385,10 @@ fn tidy_layout(
 }
 
 #[cfg(test)]
+#[path = "aspect_tests.rs"]
+mod aspect_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1632,6 +1729,10 @@ pub async fn native_forge_write(
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
     write(&data, &config, &request).await.inspect_err(|e| {
+        if e.starts_with(message::CANVAS_ERROR) {
+            message::report_canvas_failure("write");
+            return;
+        }
         crate::logs::push(
             crate::logs::Source::Deas,
             &format!("ERROR: Prompt Forge {}: {e}", request.target),
@@ -1676,6 +1777,10 @@ pub async fn native_forge_layout_rewrite(
     layout_rewrite(&data, &config, &model, &request)
         .await
         .inspect_err(|e| {
+            if e.starts_with(message::CANVAS_ERROR) {
+                message::report_canvas_failure("layout");
+                return;
+            }
             crate::logs::push(
                 crate::logs::Source::Deas,
                 &format!("ERROR: Prompt Forge layout rewrite: {e}"),
@@ -1695,6 +1800,10 @@ pub async fn native_forge_revise(
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
     revise(&data, &config, &request).await.inspect_err(|e| {
+        if e.starts_with(message::CANVAS_ERROR) {
+            message::report_canvas_failure("revise");
+            return;
+        }
         crate::logs::push(
             crate::logs::Source::Deas,
             &format!("ERROR: Prompt Forge revise {}: {e}", request.write.target),

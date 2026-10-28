@@ -184,6 +184,12 @@ impl SpatialUpscaler {
         if !library.is_file() {
             return Err(error("ORT library must be a local file"));
         }
+        // glibc also expands loader tokens in dlopen filenames, not only LD_PRELOAD.
+        if cfg!(target_os = "linux") && library.as_os_str().as_encoded_bytes().contains(&b'$') {
+            return Err(error(
+                "native runtime paths cannot contain dynamic-loader tokens ('$')",
+            ));
+        }
         let mut file = open_regular(model)?;
         let mut bytes = Vec::new();
         checked(
@@ -568,6 +574,37 @@ mod tests {
             .unwrap();
         assert!(read_png(&path).is_err());
     }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rejects_dynamic_loader_tokens_before_loading_any_runtime() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let missing_model = dir.path().join("missing.onnx");
+        for name in [
+            "$ORIGIN",
+            "${ORIGIN}",
+            "$LIB",
+            "${LIB}",
+            "$PLATFORM",
+            "${PLATFORM}",
+        ] {
+            let folder = dir.path().join(name);
+            fs::create_dir(&folder).unwrap();
+            let library = folder.join("runtime.so");
+            fs::write(&library, b"not loaded").unwrap();
+            let error = SpatialUpscaler::open(&library, &missing_model)
+                .err()
+                .unwrap();
+            assert!(error.contains("dynamic-loader tokens"), "{name}: {error}");
+        }
+        let library = dir.path().join("runtime with spaces.so");
+        fs::write(&library, b"not loaded").unwrap();
+        let error = SpatialUpscaler::open(&library, &missing_model)
+            .err()
+            .unwrap();
+        assert!(!error.contains("dynamic-loader tokens"));
+    }
+
     #[test]
     #[ignore = "requires explicit trusted ORT_LIBRARY and UPSCALE_MODEL paths and CUDA device zero"]
     fn real_cuda_reuses_session() {
