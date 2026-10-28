@@ -37,7 +37,8 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
       if (!nodepack) {
         const result = await discoverLlmModels(root);
         const warnings = [...result.warnings];
-        if (result.models.some(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
+        // Only when local GGUFs are all there is: beside a usable server they are just greyed out.
+        if (result.models.length && result.models.every(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
         return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name, disabled: m.provider === 'local' })), errors: Object.fromEntries(warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
       }
       // The node pack lists its models concurrently with the readiness check.

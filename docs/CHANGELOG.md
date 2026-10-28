@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Prompt Forge, the hammer and Chat no longer say a server is needed when one is already connected: the "local GGUF runner does not support tool calls" warning now appears only when local GGUFs are the only models found. Beside a usable server, local GGUFs stay listed and greyed out.
 - Studio preview: the Post-process button is now a **More** dropdown under *Use as input*, offering **Refine** (the refine+upscale pass alone, with the hint) and **Upscale** (the upscale pass alone, no diffusion, no sigmas) — both run immediately with the Post-Processing settings on the shown image.
 - Studio preview controls unified: the control row (Use as input, edit modes, inpaint, last frame, star, More, …) rides the stage header row right-aligned, ending before the Metadata pill on the same line, and every control — buttons, the More summary, the stars — shares the Metadata pill's round-pill shape, height and font.
 - More (Refine/Upscale) now appears on every image preview, including dock-browsed files: the file is uploaded and the Post-Processing settings run directly on it (target = current canvas size × upscale factor).
