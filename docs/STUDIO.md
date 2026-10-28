@@ -154,7 +154,7 @@ This is **file-authority preparation, not rendering readiness**: `modelBound`, `
 
 #### Validate and render with the optional native engine
 
-The regular build keeps `video-upscale` off. Its **DRAFT only** badge and disabled engine controls are intentional; enabling the engine is a build choice, not a model download or a GPU-readiness check. The AI-enabled Linux variant reports **Native engine included**. Opening TVE reads this compile/platform capability once, without loading an SDK, probing the GPU or starting a render.
+The regular build includes `video-upscale` by default (since 0.1.56 — one build everywhere, Linux and Windows). Its **DRAFT only** badge and disabled engine controls are intentional; enabling the engine is an explicit runtime opt-in (settings + trusted runtime/model binding), not a model download or a GPU-readiness check, and nothing is initialized at startup. Linux builds report **Native engine included**; on other platforms the engine is compiled in with the platform capability reported. Opening TVE reads this compile/platform capability once, without loading an SDK, probing the GPU or starting a render.
 
 In an engine-enabled build:
 

@@ -4,20 +4,20 @@
 
 ## Scope
 
-`video-upscale` is an optional, default-off Cargo feature for standalone Rust spatial inference and a bounded short-video streaming core. The developer examples underpin the separately enabled managed TVE renderer; they are not a finished general enhancer or arbitrary-model loader. The native TVE path adds chooser-authorized IDs and an owned job lifecycle; direct CLI paths are not frontend authority. Rust owns RGB preprocessing, the native ONNX Runtime session, output validation and no-clobber PNG publication. No Python or Go worker is used. Native ONNX Runtime/CUDA libraries execute the kernels; “Rust pipeline” does not mean reimplementing those native libraries' neural-network math.
+`video-upscale` is a Cargo feature (default-on since 0.1.56 — every Linux and Windows build includes it) for standalone Rust spatial inference and a bounded short-video streaming core. The developer examples underpin the separately enabled managed TVE renderer; they are not a finished general enhancer or arbitrary-model loader. The native TVE path adds chooser-authorized IDs and an owned job lifecycle; direct CLI paths are not frontend authority. Rust owns RGB preprocessing, the native ONNX Runtime session, output validation and no-clobber PNG publication. No Python or Go worker is used. Native ONNX Runtime/CUDA libraries execute the kernels; “Rust pipeline” does not mean reimplementing those native libraries' neural-network math.
 
-The normal DEAS build does not include or initialize this optional inference path. Opening Studio or inspecting a source video does not load a model, initialize CUDA or download anything. The existing ComfyUI image pipeline remains separate.
+The normal DEAS build compiles the inference path in but never initializes it at startup. Opening Studio or inspecting a source video does not load a model, initialize CUDA or download anything; the engine only runs after the user's explicit opt-in settings with a trusted runtime/model binding. No native runtime or model is bundled or auto-downloaded. The existing ComfyUI image pipeline remains separate.
 
-## Build the managed engine explicitly
+## Build the managed engine
 
 From the repository root:
 
 ```fish
 npm run build
-env CARGO_TARGET_DIR="$PWD/src-tauri/target" cargo build --manifest-path src-tauri/Cargo.toml --locked --release --features video-upscale --bin deas
+env CARGO_TARGET_DIR="$PWD/src-tauri/target" cargo build --manifest-path src-tauri/Cargo.toml --locked --release --bin deas
 ```
 
-The resulting `src-tauri/target/release/deas` includes the optional managed engine but does not initialize it at startup. A locally staged AI-enabled binary is named `artifacts/deas-linux-amd64-video-upscale`; the regular `artifacts/deas-linux-amd64` keeps inference off. Neither variant bundles a native runtime or model. Use the [TVE guide](STUDIO.md#validate-and-render-with-the-optional-native-engine) for explicit source/output and SDK selection; no global `LD_PRELOAD` is needed when the optional dependency is selected for the owned worker.
+The resulting `src-tauri/target/release/deas` includes the managed engine (it is in the default features since 0.1.56) and does not initialize it at startup. Use the [TVE guide](STUDIO.md#validate-and-render-with-the-optional-native-engine) for explicit source/output and SDK selection; no global `LD_PRELOAD` is needed when the optional dependency is selected for the owned worker.
 
 ## Dependencies and supported contract
 
@@ -38,7 +38,7 @@ set -l ort /absolute/path/to/libonnxruntime.so
 set -l model /absolute/path/to/embedded-fp16-model.onnx
 set -l input /absolute/path/to/input.png
 set -l output /absolute/path/to/new-output.png
-cargo run --locked --manifest-path src-tauri/Cargo.toml --features video-upscale --example upscale_png -- "$ort" "$model" "$input" "$output"
+cargo run --locked --manifest-path src-tauri/Cargo.toml --example upscale_png -- "$ort" "$model" "$input" "$output"
 ```
 
 On Windows, supply a compatible local ONNX Runtime DLL and its native dependencies instead; Linux library discovery is not Windows deployment or execution evidence. Model/native library paths are developer-trusted execution inputs, not downloadable URLs. Do not make symlinks between incompatible TensorRT/ONNX Runtime ABI versions to bypass missing-library errors.
@@ -54,7 +54,7 @@ set -l ort /absolute/path/to/libonnxruntime.so
 set -l model /absolute/path/to/embedded-fp16-model.onnx
 set -l input /absolute/path/to/source.mp4
 set -l output /absolute/path/to/new-processed.mp4
-cargo run --locked --manifest-path src-tauri/Cargo.toml --features video-upscale --example upscale_video -- "$ort" "$model" "$input" "$output"
+cargo run --locked --manifest-path src-tauri/Cargo.toml --example upscale_video -- "$ort" "$model" "$input" "$output"
 ```
 
 This initial core is deliberately narrow: source/output files at most 256 MiB; input edges at most 512 pixels; output edges at most 2048 pixels; 2–600 frames, at most 10 seconds and 120 fps; one progressive opaque BT.709 SDR video, square pixels, known range, zero start, and at most one zero-start audio stream. Subtitle/data/attachment streams, unknown or changing per-frame properties, nonzero offsets, unsupported color and inexact/VFR timestamps are rejected. Every frame PTS and complete stream duration must agree exactly with the rational cadence; equal header rates alone are insufficient. Containers that omit exact stream durations are not accepted. There is no tiling, interpolation, HDR or unrestricted long-video support.
@@ -68,7 +68,7 @@ Pipe/wait operations check cancellation and a five-minute cooperative deadline; 
 On the verified host, the installed `libonnxruntime_providers_cuda.so` references `cudnnGetConvolutionBackwardDataAlgorithm_v7` without a cuDNN `DT_NEEDED` entry. Existing `/usr/lib/libcudnn.so.9` exports that symbol. An explicit **process-scoped** launch resolves this installed-library linkage issue:
 
 ```fish
-env LD_PRELOAD=/usr/lib/libcudnn.so.9 cargo run --locked --manifest-path src-tauri/Cargo.toml --features video-upscale --example upscale_png -- "$ort" "$model" /absolute/path/to/input.png /absolute/path/to/new-output.png
+env LD_PRELOAD=/usr/lib/libcudnn.so.9 cargo run --locked --manifest-path src-tauri/Cargo.toml --example upscale_png -- "$ort" "$model" /absolute/path/to/input.png /absolute/path/to/new-output.png
 ```
 
 Use this only for matching trusted installed libraries; it is not a universal ORT/CUDA requirement or a runtime installer. DEAS does not silently preload libraries, alter system loader configuration or create ABI-version symlinks. The real two-frame PNG inference succeeded with this explicit prerequisite. Subsequent four-frame CUDA video and managed parent/application-worker publication also passed; see [native evidence and remaining GUI acceptance](VERIFICATION.md#native-preparation-and-real-ai-video-core-0154-development). Do not run competing GPU work when the device is occupied, and never stop foreign services to make room automatically.

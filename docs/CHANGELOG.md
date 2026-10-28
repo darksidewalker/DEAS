@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.56
+
+- One build everywhere: `video-upscale` is now a default Cargo feature, so every Linux and Windows DEAS binary includes the native TVE spatial engine (ONNX Runtime loaded dynamically at runtime, nothing bundled or auto-downloaded, no GPU/runtime initialization at startup). The separate `deas-linux-amd64-video-upscale` variant is retired — engine use stays an explicit runtime opt-in (settings + trusted runtime/model binding).
+
 ## Unreleased — 0.1.55
 
 - Prompt Forge, the hammer and Chat no longer say a server is needed when one is already connected: the "local GGUF runner does not support tool calls" warning now appears only when local GGUFs are the only models found. Beside a usable server, local GGUFs stay listed and greyed out.

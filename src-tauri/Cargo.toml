@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.1.55"
+version = "0.1.56"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
@@ -48,7 +48,7 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "video-upscale"]
 custom-protocol = ["tauri/custom-protocol"]
 video-upscale = ["dep:ort", "dep:half"]
 
