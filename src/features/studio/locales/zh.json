@@ -655,6 +655,7 @@
   "studio.run.video.ref.dropOf": "从 {name} 忽略",
   "studio.editor.restoreFrame": "放回画框",
   "studio.run.useInput": "用作输入",
+  "studio.run.reference.use": "用作提示参考",
   "studio.backend.unavailable": "无法连接后端。请在 Backend 中启动它。如果已启动，请等待就绪，检查后端地址并查看日志。",
   "studio.backend.timeout": "后端未及时响应。它可能仍在启动或正忙。请稍等后重试；如果问题持续，请检查 Backend 和日志。",
   "studio.backend.requestFailed": "后端连接失败或中断。请在 Backend 中检查状态和地址，然后重试。详情请查看日志。",

@@ -786,8 +786,12 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const refLabel=(r:VideoRef,i:number)=>videoFamily==='ltx-2'?t('studio.run.video.mark.at',{second:String(r.second)}):refTags[i];
  const refsTab=pipeline==='ref2v'&&(videoFamily==='ltx-2'||videoFamily==='minimax-h3');
  useEffect(()=>{if(!refsTab||planVisible)setReferencesOpen(false);},[refsTab,planVisible]);
- const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:[]);
+ const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
+ const togglePromptRef=(item:MediaItem&{path:string})=>{const at=imageRefs.findIndex(r=>r.item.path===item.path);if(at>=0){setImageRefs(v=>v.filter((_,j)=>j!==at));return;}
+  setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);
+  if(revisionOk&&native&&!(choices?.visionModels?.length??0)&&window.confirm(t('studio.run.reference.dlAsk')))void dlVision();};
  const mediaActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
+  :referenceMethod&&item.media==='image'&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=4&&t('studio.run.reference.max',{count:imageRefs.length,max:4}))||undefined}]
   :pipeline==='i2v'&&item.media==='image'?[{label:t('studio.run.useInput'),onClick:()=>select(item)}]
   :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),onClick:()=>select(item)}]:[];
  const stageMark=media?.path&&marks.get(media.path);

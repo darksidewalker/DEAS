@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.60
+
+- Media dock: on Text → Image / Image → Image with a model that supports image prompting, right-click an image → **Use as prompt reference** (the same reference as dropping the tile on the prompt; disabled with the 4-reference count when full, badged in the dock, and the entry becomes **Remove reference** on referenced tiles).
+
 ## Unreleased — 0.1.59
 
 - Preserve current reference additions and crop edits during native file drops; ignore drops belonging to a different modal/background browser and discard file descriptions that finish after the picker closes.

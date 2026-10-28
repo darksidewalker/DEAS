@@ -655,6 +655,7 @@
   "studio.run.video.ref.dropOf": "Ignorer de {name}",
   "studio.editor.restoreFrame": "Replacer dans le cadre",
   "studio.run.useInput": "Utiliser comme entrée",
+  "studio.run.reference.use": "Utiliser comme référence de prompt",
   "studio.backend.unavailable": "Moteur injoignable. Démarrez-le dans Backend. S’il est déjà démarré, attendez qu’il soit prêt, vérifiez son adresse et consultez les journaux.",
   "studio.backend.timeout": "Le moteur ne répond pas à temps. Il démarre peut-être encore ou est occupé. Patientez puis réessayez ; sinon, vérifiez Backend et les journaux.",
   "studio.backend.requestFailed": "La connexion au moteur a échoué ou a été interrompue. Vérifiez son état et son adresse dans Backend puis réessayez. Les détails sont dans les journaux.",
