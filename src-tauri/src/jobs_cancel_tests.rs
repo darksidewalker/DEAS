@@ -1,6 +1,8 @@
 use super::*;
 #[path = "jobs_stop_tests.rs"]
 mod stop_tests;
+#[path = "jobs_observer_stop_tests.rs"]
+mod observer_tests;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PROMPT: &str = "11111111-1111-4111-8111-111111111111";

@@ -94,6 +94,8 @@ Header detection identifies the MOSS diffusion model and supported full-width Qw
 
 ### Queue output controls and generation time
 
+Live progress/preview observation belongs to the native job and survives navigation or a remounted Studio view. Native terminal results, confirmed whole-Workbench Stop and final native job release end that optional observer promptly. Closing observation does not prove backend termination: uncertain jobs stay **unknown** and retain their normal reconciliation path. Last preview data, outputs and history are retained under their existing bounds. Stop keeps its existing confirmation and ownership restrictions. This observer-lifetime correction has authored native fixtures; native/platform runtime acceptance remains pending.
+
 Each succeeded output has its own queue thumbnail/placeholder and keyboard-focusable corner star. The star acts on that output only; clicking the surrounding selection control still opens the job. Multiple outputs retain all star/unstar actions and filenames, without nested buttons. Succeeded rows and selected-job details show the native measured generation time using the current locale, including a valid zero duration. Unknown, invalid and failed timings are omitted rather than estimated. Image and video metadata share the same date/duration formatting.
 
 Repeated Run, split Run/Stop and native targeted cancellation are delivered within the fixture/build scope described above. The backend still controls execution order; concurrent model execution is not implied. Explicitly labelled client-side queued/running elapsed time remains separate pending work. Submitted settings remain immutable when outputs are selected or starred.

@@ -1,6 +1,8 @@
 use super::*;
 #[path = "jobs_cancel_tests.rs"]
 mod cancel_tests;
+#[path = "jobs_observer_tests.rs"]
+mod observer_tests;
 
 #[tokio::test]
 async fn watch_completion_sends_close_frame() {
@@ -34,11 +36,13 @@ async fn watch_completion_sends_close_frame() {
         socket.flush().await.unwrap();
     });
     let live: Arc<Mutex<Live>> = Arc::default();
+    let completed = live.lock().unwrap().observer.completion();
     watch(&base, "test-client", live.clone()).await;
     tokio::time::timeout(Duration::from_secs(3), server)
         .await
         .unwrap()
         .unwrap();
+    observer_tests::finished(completed).await;
 }
 
 #[tokio::test]
@@ -103,11 +107,13 @@ async fn watch_ignores_foreign_completion_and_progress_but_answers_pings() {
         assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
         socket.flush().await.unwrap();
     });
+    let completed = live.lock().unwrap().observer.completion();
     watch(&base, "test-client", live.clone()).await;
     tokio::time::timeout(Duration::from_secs(3), server)
         .await
         .unwrap()
         .unwrap();
+    observer_tests::finished(completed).await;
 }
 
 #[tokio::test]
@@ -153,11 +159,13 @@ async fn watch_close_wait_is_bounded_without_holding_live_mutex() {
             0
         );
     });
+    let completed = live.lock().unwrap().observer.completion();
     watch(&base, "test-client", live.clone()).await;
     tokio::time::timeout(Duration::from_secs(3), server)
         .await
         .unwrap()
         .unwrap();
+    observer_tests::finished(completed).await;
 }
 
 #[tokio::test]
@@ -173,11 +181,13 @@ async fn watch_answers_peer_close() {
         assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
     });
     let live: Arc<Mutex<Live>> = Arc::default();
+    let completed = live.lock().unwrap().observer.completion();
     watch(&base, "test-client", live.clone()).await;
     tokio::time::timeout(Duration::from_secs(3), server)
         .await
         .unwrap()
         .unwrap();
+    observer_tests::finished(completed).await;
 }
 
 fn prepared_video() -> Value {

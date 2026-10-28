@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tie optional native preview observers to job ownership, terminal commits and confirmed Workbench Stop, with wakeable cancellation and bounded graceful socket cleanup. Submission, unknown-state reconciliation, history and outputs retain their existing contracts; native acceptance is pending.
 - Add shared Settings ratios to native image Prompt Forge and standalone H3, explicit N/A/Auto/Custom dimensions, request-bound MOSS layouts and guarded Send-to-Generate canvas transfer. Native geometry is checked before inference; legacy LTX/Wan remain explicitly prompt-only. Native/platform acceptance is pending.
 - Keep applicable Studio media actions in a contained, wrapping bottom row across browsed previews, adopted editors and selected results, preserving media eligibility, retained drafts and per-output Star/Unstar actions.
 - Add optional global recent-generation metadata for ten native attempts and a Studio history view with explicit compatible-settings restore, unresolved dependency gates and output-location repair after Star/Unstar. Media and the separate live queue are preserved. Source candidate; [batch verification and native acceptance limits](VERIFICATION.md#batch-b-recent-generation-history-unreleased) apply. No version bump or release.

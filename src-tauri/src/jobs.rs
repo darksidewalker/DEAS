@@ -17,6 +17,9 @@ mod stop;
 mod workbench;
 #[path = "jobs_history.rs"]
 mod history;
+#[path = "jobs_observer.rs"]
+mod observer;
+use observer::watch;
 pub use cancel::{native_workbench_cancel_pending, native_workbench_interrupt_running};
 pub use history::{native_jobs_history, native_jobs_history_outputs, native_logs_history_error};
 pub use stop::native_workbench_stop;
@@ -96,11 +99,23 @@ struct Live {
     value: u64,
     max: u64,
     preview: Option<String>,
+    // All Job clones share this owner; the observer task holds only a weak Live reference.
+    observer: observer::Observer,
 }
 
 impl Job {
     fn terminal(&self) -> bool {
         matches!(self.state, "succeeded" | "failed" | "cancelled")
+    }
+    fn stop_observer(&self) {
+        // Cleanup does not consume display data, including after an optional view failure.
+        let live = self.live.lock().unwrap_or_else(|error| error.into_inner());
+        live.observer.cancel();
+    }
+    fn stop_observer_if_terminal(&self) {
+        if self.terminal() {
+            self.stop_observer();
+        }
     }
     fn snapshot(&self) -> Value {
         let mut value = json!({"id":self.id,"baseUrl":self.plan.base.as_str(),"promptId":self.prompt_id,"state":self.state,"outputs":self.outputs,"error":self.error,"generationReady":false,"intent":self.plan.intent,"metadata":self.metadata,"appVersion":env!("CARGO_PKG_VERSION")});
@@ -1416,6 +1431,7 @@ impl Jobs {
         job.submitting = false;
         let result = job.snapshot();
         let mut session = self.lock()?;
+        job.stop_observer_if_terminal();
         self.3.observe(&job);
         session.job = Some(job);
         Ok(result)
@@ -1468,6 +1484,7 @@ impl Jobs {
             .as_mut()
             .filter(|j| j.id == job_id)
             .ok_or("Native job changed during status request")?;
+        job.stop_observer_if_terminal();
         self.3.observe(&job);
         *current = job;
         // Disarm under the same lock: Drop must never clear a subsequent operation's flag.
@@ -1508,97 +1525,6 @@ fn preview_frame(frame: &[u8]) -> Option<String> {
         "data:image/{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(image)
     ))
-}
-
-/// Best-effort live view over `/ws?clientId=`; failures only mean no preview.
-// shortcut: plain ws only (no TLS feature), https endpoints get no live preview; add rustls if remote https backends matter.
-async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<Live>>) {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
-    let Ok(mut url) = base.join("ws") else { return };
-    if base.scheme() != "http" || url.set_scheme("ws").is_err() {
-        return;
-    }
-    url.query_pairs_mut().append_pair("clientId", client_id);
-    let config = WebSocketConfig::default().max_message_size(Some(RESPONSE_LIMIT * 16));
-    let connect = tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false);
-    let Ok(Ok((mut socket, _))) = tokio::time::timeout(Duration::from_secs(3), connect).await
-    else {
-        return;
-    };
-    tokio::spawn(async move {
-        // execution_start is directed to this unique client, unlike broadcast interruptions.
-        let mut prompt_id: Option<String> = None;
-        // Ends with the job's own completion events, idle silence, or when the job is dropped.
-        while Arc::strong_count(&live) > 1 {
-            let Ok(Some(Ok(message))) =
-                tokio::time::timeout(Duration::from_secs(600), socket.next()).await
-            else {
-                break;
-            };
-            match message {
-                Message::Binary(frame) => {
-                    if let Some(preview) = preview_frame(&frame) {
-                        let Ok(mut live) = live.lock() else { break };
-                        live.preview = Some(preview);
-                    }
-                }
-                Message::Text(text) => {
-                    let event: Value = serde_json::from_str(&text).unwrap_or_default();
-                    match event["type"].as_str() {
-                        Some("execution_start") if prompt_id.is_none() => {
-                            prompt_id = event["data"]["prompt_id"]
-                                .as_str()
-                                .filter(|id| !id.is_empty())
-                                .map(str::to_owned);
-                        }
-                        Some("progress")
-                            if event["data"]["prompt_id"].is_null()
-                                || (prompt_id.is_some()
-                                    && event["data"]["prompt_id"].as_str()
-                                        == prompt_id.as_deref()) =>
-                        {
-                            let Ok(mut live) = live.lock() else { break };
-                            live.value = event["data"]["value"].as_u64().unwrap_or(0);
-                            live.max = event["data"]["max"].as_u64().unwrap_or(0);
-                        }
-                        Some("execution_success" | "execution_error" | "execution_interrupted")
-                            if prompt_id.is_some()
-                                && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
-                        {
-                            break
-                        }
-                        _ => {}
-                    }
-                }
-                Message::Close(_) => {
-                    let _ = tokio::time::timeout(Duration::from_secs(1), socket.flush()).await;
-                    return;
-                }
-                // Tungstenite queues the matching pong; flush it even on an otherwise idle socket.
-                Message::Ping(_)
-                    if !matches!(
-                        tokio::time::timeout(Duration::from_secs(1), socket.flush()).await,
-                        Ok(Ok(()))
-                    ) =>
-                {
-                    break;
-                }
-                _ => {}
-            }
-        }
-        // A TCP drop races ComfyUI's queued sends; finish the WebSocket close handshake instead.
-        let _ = tokio::time::timeout(Duration::from_secs(1), async {
-            socket.close(None).await?;
-            while let Some(message) = socket.next().await {
-                if matches!(message?, Message::Close(_)) {
-                    break;
-                }
-            }
-            Ok::<_, tokio_tungstenite::tungstenite::Error>(())
-        })
-        .await;
-    });
 }
 
 fn correlate(tuple: &Value, job: &Job) -> Result<(), String> {
