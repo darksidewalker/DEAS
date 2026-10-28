@@ -1,5 +1,91 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## U-01: Prompt Forge canvas handoff (Unreleased)
+
+2026-10-28, Windows local checkout. Actual branch `feat/deas-recent-history`, full HEAD `adfdb03515005ec9f87fec85e1648db8fbcdb9c6`; index empty. Continued the interrupted U-01 working tree, preserving the reviewed uncommitted U-02 package, Batch B checkpoint and unrelated `.gitignore` edit. The original pre-U-01 snapshot remains `.tools/U01-initial-working-tree-2026-10-27.json`; interrupted-run progress was not treated as test evidence.
+
+Implemented: canonical Settings choices plus N/A, current effective Workbench context, Auto/Custom/legacy/unknown semantics, native before-network canvas validation, MOSS project preservation and monotonic layout revisions, consumed request/result geometry, stale publication/Send guards and optional typed explicit Fixed-dimension handoff. Native Illustrious/Anima/Krea2/MOSS and standalone H3 are covered; H3 uses existing `output_canvas`. Legacy LTX/Wan explicitly remain prompt-only. Common generation geometry preserves valid fixed 1000×1000; MOSS layout retains its stricter 128 minimum and /16 alignment. Generation preparation remains authoritative; no inference/model-quality acceptance is claimed.
+
+Completed-package checkpoint with existing local tools:
+
+| Executed command | Exact result |
+| --- | --- |
+| `node --experimental-strip-types --test tests/resolution.test.ts tests/forgeCanvas.test.ts tests/i18n.test.ts` | 13 passed, zero failures/skips: all canonical ratios, shared bucket/grid sizes, Auto/Custom/N/A, aliases/unknown/invalid values, fixed effective dimensions, route-specific limits and six-language key/placeholder parity |
+| `node node_modules/vitest/vitest.mjs run src/features/forge/Forge.test.tsx src/features/forge/NativeForge.test.tsx src/features/forge/LayoutStudio.test.tsx src/features/forge/PromptForgeCanvas.test.tsx src/features/studio/history.test.tsx src/features/studio/RecentHistory.test.tsx src/components/MediaStar.test.tsx` | 148 passed across six matched files, zero failures/skips. The last supplied path does not exist and contributed no tests; the real Star suite was separately run below. Native-writer/H3 request and Send snapshots, A→B→A/context/revise races, MOSS resizing/undo/redo/rewrite, preserved references and history/availability protections included |
+| `node node_modules/vitest/vitest.mjs run src/features/media/StarMediaButton.test.tsx` | 16 passed, zero failures/skips |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx -t 'Forge canvas\|history\|unknown output root\|column pointer cancellation\|starring an adopted preview\|stars every queued\|dock clicks preview\|an explicit Run replaces\|with an edit draft open\|automatic aspect is confined\|native resolution is one\|resolution picker follows\|Inpaint rejects a source\|MOSS blocks an unaligned\|MOSS explicit'` | 27 passed, one failed, 171 filtered / 199 total. The new project-handoff test clicked Open while its existing async guard still disabled it. Added the same enabled-button wait used by project regressions; production behavior was unchanged |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx -t 'Forge canvas'` | Affected rerun after the project wait: all four passed, 195 filtered / 199 total. Together with the first selector, 28 distinct selected Workbench cases passed. Covers exact fixed dimensions, immutable held jobs, explicit-only Run, stale/invalid handoff, prompt-only compatibility, actual inpaint source/editor/mask gate and project autosave/failed-save protection |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx -t 'Forge canvas\|history text-to-image keeps native-valid 1000'` | Final source audit added mandatory video-family alignment to the Forge context/handoff boundary. Final rerun: seven passed, 194 filtered / 201 total, including LTX/H3 rejection of image-valid 1000×1000 and preserved SDXL exact 1000×1000. An initial additional Wan test used a nonexistent family/t2v combination; it was removed because that route is unsupported, without changing product capabilities. Cumulatively 30 distinct selected Workbench cases passed |
+| `node node_modules/typescript/bin/tsc --noEmit` | Final passed. Initial check found two new test-helper callback type annotations; both now use the concrete component `onSend` type. Repeats after the project-test wait and video-alignment correction also passed |
+| `node node_modules/vite/bin/vite.js build` | Passed after the callback type fixes and repeated only after the video-alignment correction; existing mixed static/dynamic Tauri import and >500 kB bundle warnings retained |
+| `python tools/verify_forge_canvas.py http://127.0.0.1:4197 .tools/U01-2026-10-28-browser` | 18 passed states: nine each at 1440/390 px; final affected repeat after video-alignment correction also passed, actual Workbench/PromptForge with strict simulated IPC and four deferred completions per viewport. Preset/Custom sizing, MOSS IDs/order/captions/text/meta/normalized placement/undo/redo, stale aspect/root replies, exact consumed Send, N/A retention/prompt-only Send and no preparation/submission/upload/unexpected network. Desktop/narrow Custom and narrow Send screenshots visually inspected |
+| `git diff --check` plus scoped untracked text/JSON/Python and patch checks | Passed; full scoped inventory and cumulative/incremental patches supplied for source review. All 34 protected baseline files retain their original SHA-256 hashes. U-02-only CSS/browser verification source remains byte-identical to the pre-U-01 snapshot; all prior verification sections below remain text-identical |
+
+Raw stdout: `.tools/U01-2026-10-28-{core,forge-history-star,star,workbench,workbench-final,workbench-alignment,workbench-alignment-final,typecheck,typecheck-final,typecheck-final2,typecheck-alignment,build,build-alignment,browser,browser-final}.log`. Initial failures are retained, not overwritten. Final simulated browser JSON and PNGs are in `.tools/U01-2026-10-28-browser-final/` (the initial passing run is retained separately); the agent-owned Vite fixture server was stopped after checks. No test timeout/skip configuration was changed.
+
+Five new native Forge regressions plus one H3 forwarding/logging regression are authored, **unexecuted**. They cover route-specific geometry including common-valid/MOSS-invalid 1000×1000, strict typed canvas shape, all four image writers, legacy/unset behavior without unknown fallback, layout snapshot/bbox/text preservation, invalid write/revise/layout rejection before reference/vision/LLM network and H3 reject-before-settings/HTTP with redacted, rate-limited shared Logs delivery. `Get-Command cargo,rustfmt,node,python -ErrorAction SilentlyContinue` found only Node/Python. Cargo tests, rustfmt, Clippy, native builds and Linux/Windows platform acceptance remain pending; no toolchain installation was attempted.
+
+No full-suite rerun or historical timeout investigation occurred. Batch B's historical 105 core passes / one Windows-conditional skip and 872 UI passes / nine timeouts remain unchanged: one exact baseline reproduction and eight unresolved, detailed below. Live backend/LLM/model/provider/dialog/ignored tests, broad resource/model-quality acceptance and native-platform runtime checks remain pending. No dependencies, manifests/locks/version, backend services, user media/projects, Git index/HEAD or remotes were changed. All implementation edits remain unstaged/uncommitted for owner source review.
+
+### R1 source-review correction — pending standalone H3 result edits (2026-10-28)
+
+Continued the reviewed dirty tree on `feat/deas-recent-history` at unchanged HEAD `adfdb03515005ec9f87fec85e1648db8fbcdb9c6`, empty index, under `plan/DEAS_U01_SOURCE_REVIEW_2026-10-28.md`. R1 changes only `src/features/forge/PromptForge.tsx`, its existing untracked `PromptForgeCanvas.test.tsx` and this factual verification entry. The pre-correction file hashes/text are retained in `.tools/U01-R1-initial-working-tree-2026-10-28.json`.
+
+Manual result edits/clears advance a monotonic text revision, captured at request admission. Result/warning/association/error publication requires the consumed revision and current scope/token ownership. Cleanup checks ownership independently of text freshness, releases the owning Write after a discarded reply and cannot clear a newer pending request. Editing a completed result leaves its authoring scope and consumed-canvas association intact for explicit Send. Existing context/A→B→A/unmount, text-only Send and native/model contracts remain unchanged.
+
+| Executed command | Exact result |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run src/features/forge/PromptForgeCanvas.test.tsx src/features/forge/Forge.test.tsx --reporter=verbose` | **88 passed across two files; zero failures/skips** (22 canvas cases + 66 Forge cases). Four new deferred cases cover first Write/regeneration × edit/clear: preserve manual text, suppress late warning/new association, release busy/admission ownership, and admit/complete a subsequent Write. Existing completed-result edit + consumed-canvas Send, obsolete success/error during a newer request, A→B→A, unmount and prompt-only controls passed |
+| `node node_modules/typescript/bin/tsc --noEmit` | Passed, exit 0 |
+| `node node_modules/vite/bin/vite.js build` | Passed, exit 0; existing mixed static/dynamic Tauri import and >500 kB chunk warnings retained |
+| `git diff --check` plus scoped tracked/untracked whitespace and forward/reverse patch-content checks | Passed. All 73 files outside the three-file R1 scope in the 76-file correction baseline retain their exact SHA-256 hashes, including native sources, U-02-only files, `.gitignore`, plans, manifests/locks and the original reviewed diffs. Removing only this new entry reproduces the entire pre-correction verification text |
+
+Raw stdout: `.tools/U01-R1-2026-10-28-{forge,typecheck,build}.log`. Refreshed cumulative and U-01 incremental diffs include all eight additions and preserve the exact U-02 ignored planning-note delta. No earlier results were rewritten. No full-suite, browser, unrelated U-02 or native checks were rerun for this frontend-only correction; no live service/model/provider/dialog/ignored test or installation was attempted. Native/platform acceptance and the historical nine UI timeouts (one exact baseline match, eight unresolved) remain pending. Git remained read-only; all implementation changes remain unstaged/uncommitted for source review.
+
+## U-02: contained bottom media controls (Unreleased)
+
+2026-10-27, Windows local checkout. Base/HEAD: `adfdb03515005ec9f87fec85e1648db8fbcdb9c6` on `feat/deas-recent-history`, the source-reviewed Batch B checkpoint. Initial status contained only the owner's unrelated `.gitignore` edit. Git operations for U-02 are read-only; changes remain unstaged and uncommitted.
+
+The existing Workbench action renderer now occupies a contained bottom row in browsed previews, adopted editors and selected results. CSS reserves toolbar/caption height, wraps labels and bounds multi-output media in its own content area. Existing handlers, media eligibility, editor host/key/source epoch, source-pixel geometry, per-output Star mapping, queue controls and Batch B history guards are unchanged. No position-only unit suite or application state/lifecycle refactor was added.
+
+Scope: `src/features/studio/Workbench.tsx`, `src/features/studio/workbench.css`, `tools/verify_media_stars.py`, `docs/STUDIO.md`, `docs/IMPLEMENTATION-STATUS.md`, `docs/VERIFICATION.md` and `docs/CHANGELOG.md`. The ignored historical `plan/DEAS_NEXT_AGENT_TASK.md` receives only a dated clarification that Batch B is checkpointed and U-02 is current; its original task is retained. U-01 remains subsequent work.
+
+| Executed check | Result |
+| --- | --- |
+| `node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx -t '^(?:unknown output root uses\|column pointer cancellation\|starring an adopted preview\|stars every queued result\|dock clicks preview only\|an explicit Run replaces a browsed preview\|IPC fixture: with an edit draft open\|history \|partial history restore)' --reporter=verbose` | 14 passed / 181 filtered (195 total); exact selected names below |
+| `node node_modules/vitest/vitest.mjs run src/features/media/StarMediaButton.test.tsx` | 16 passed |
+| `node node_modules/typescript/bin/tsc --noEmit` | Passed |
+| `node node_modules/vite/bin/vite.js build` | Passed; existing mixed-import and >500 kB chunk warnings retained |
+| `python tools/verify_media_stars.py http://127.0.0.1:1420 .tools/U02-2026-10-27-browser-final-bounds` | Passed: nine rendered states at each 1440 / 390 px, 18 total; simulated IPC only |
+| `git diff --check`, complete scoped whitespace/Python-syntax/local-link checks | Passed; index empty, branch/HEAD unchanged |
+
+The browser measures toolbar, media/editor/player, button and host bounds; tests hit targets and keyboard traversal; and verifies preview-only browsing, explicit adoption, return to the same editor/geometry, Star/Unstar/viewer relocation, both central result stars against their captured output root, image-only Last frame eligibility and existing video restrictions. German controls use one row at 1440 px and two at 390 px (37.19 / 60.19 px toolbar heights), measured by overlapping vertical button intervals so differently sized buttons in one row are not mistaken for wrapping. No upload/submission occurs. Representative desktop/narrow screenshots were visually inspected. The NativeVideo web controls/surface geometry use mocked native IPC; no native surface or codec was opened.
+
+`npm run typecheck` failed before compilation with the existing sandbox `EPERM` while inspecting `C:\Users\arasb`; the direct locked local TypeScript/Vite steps above required no installation or dependency change. Logs are `.tools/U02-2026-10-27-{workbench,star,typecheck-npm,typecheck-direct,build}.log`. Browser attempts are retained in the corresponding `browser*.log` files. The extended fixture was corrected for an existing one-action adopted-video state, a square narrow preview with no letterbox margin, and accurate button-row grouping; an indentation startup error was also corrected. Only the browser check was repeated after those fixture fixes. Application code, tests, timeouts and skip configuration were unchanged after the combined checkpoint began. Final browser bounds/screenshots are under `.tools/U02-2026-10-27-browser-final-bounds/`; the agent-owned Vite server was stopped afterward.
+
+Exact selected Workbench test names:
+
+```text
+unknown output root uses bound preview/export with no local-path actions
+column pointer cancellation, independent queue dragging, restored bounds and dock keyboard resize
+starring an adopted preview repairs its location without remounting or losing editor geometry
+stars every queued result and repairs output locations without changing its submitted intent
+dock clicks preview only and preserve the adopted editor until explicit replacement
+an explicit Run replaces a browsed preview with the accepted job
+IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view
+history restores exact rich settings without probing or submitting and keeps native queue snapshots immutable
+partial history restore clears unrelated input and keeps unresolved mask/reference gates blocking Run
+history authoring uses active project autosave and keeps failed-save unsaved protection
+history text-to-image keeps native-valid 1000 square canvas without family-preset snapping
+history source collision stays unresolved until explicit Media selection and invalidates again on input-root changes
+history native references require explicit ordered replacement and reselect after same-origin backend-prefix changes
+history video first and last frames remain unresolved until each explicit Media choice without upload or probes
+```
+
+Batch B's verification history below is preserved. Native acceptance remains pending; the historical full npm gate remains 105 core passes / one Windows-conditional skip and 872 UI passes / nine timeouts, with one exact baseline match and eight unresolved. No full-suite rerun, Rust gate attempt, installation, live backend/model/provider/dialog/ignored test, user-media mutation, Git mutation, publication or U-01 work occurred. Linux WebKitGTK/Windows WebView2, actual native media operations/playback and broader resource/platform/full-suite acceptance remain open.
+
+Preservation checks: 33 protected files, including the unrelated `.gitignore`, other plans and the prior review ZIP/patch/full failure log, retain their initial SHA-256 hashes. The historical plan differs only by its authorized dated clarification. Native sources, manifests, lockfiles, workflows, locales, history mapper/component files and all test sources match the checkpoint. The complete prior Batch B verification section remains text-identical. The U-02 diff contains seven tracked modifications plus the ignored planning-note delta; no new application files are introduced.
+
 ## Batch B: recent generation history (Unreleased)
 
 ### Source-review correction batch (2026-10-26)

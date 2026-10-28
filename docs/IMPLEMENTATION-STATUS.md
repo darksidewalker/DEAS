@@ -90,17 +90,18 @@ Subagent-driven implementation order and acceptance:
 - [ ] **P3 — Generalize from P1/P2 consumers:** share only demonstrated common pipeline mechanisms; retain explicit family capabilities and exact model constraints. Unknown architecture/metadata overrides and GGUF remain separately scoped plan items, not automatic consequences of choosing a family.
 - [ ] For each landed slice: fresh independent review, focused frontend/native regressions, relevant full gates, documentation and explicit separation of compiler/browser/native/model evidence. `Workbench.tsx` has one writer at a time; no subagent commits/pushes without parent integration.
 
-## Planned Prompt Forge aspect-ratio parity with main Settings
+## Prompt Forge aspect ratios and explicit canvas handoff (U-01)
 
-**Status: planned, not implemented.** Owner request: Prompt Forge must offer all aspect ratios available in the main Settings, including portrait, landscape, ultrawide and custom ratios; do not maintain a smaller independent list per tab.
+**Status: implemented locally; affected frontend/build/browser verification is recorded in [VERIFICATION.md](VERIFICATION.md#u-01-prompt-forge-canvas-handoff-unreleased). Native acceptance remains pending.** `forgeCanvas.ts` derives choices from Settings' `resolution.ts::aspects` and uses the same `canvasSize`/`validCanvas` calculation. Workbench publishes its current effective model/source/grid context. N/A stays prompt-only; Auto consumes that context; Custom accepts finite ratio components from 1 through 100. Legacy numeric labels are mapped explicitly, and unknown/unresolved selections remain visible and blocked.
 
-Current source: `src/lib/resolution.ts::aspects` defines the Settings list and `canvasSize` resolves model-aligned dimensions. `src/features/forge/NativeForge.tsx` currently derives its choices solely from `spec.aspectRatios`, filters out `N/A`, and uses `spec.layoutCanvas` for MOSS Layout JSON. Unknown or stale selections are replaced by `N/A` in the request. That is not parity with Settings.
+| Writer | Implemented authoring contract | Acceptance limit |
+| --- | --- | --- |
+| Native Illustrious, Anima, Krea2, MOSS natural language | Canonical choices, actual dimensions, native canvas snapshot, guarded explicit Send | Native regressions authored; Cargo/platform and real-model acceptance pending |
+| MOSS Layout JSON | Same resolved canvas in preview/request/result/Send; preserved box identity/order, captions/text, metadata and undo/redo; revision-guarded rewrite/Generate responses | Layout additionally requires 128–8192 edges aligned to 16; global pixel cap retained |
+| Standalone H3 | Same choices through existing optional `output_canvas`; consumed-result Send and stale-response guards | Native forwarding regressions authored; no node-pack/Continuity/hammer expansion or live execution |
+| Legacy LTX/Wan node-pack writers | Explicit unsupported canvas disclosure; existing prompt-only requests/Send retained | No supported aspect contract; no invented fields or universal parity claim |
 
-Acceptance:
-- [ ] Reuse the canonical Settings ratio data instead of copying its strings. Preserve model-compatible alignment/limits and exact submitted dimensions; adding a ratio does not establish model-quality acceptance.
-- [ ] Define explicit `auto` and custom-ratio behavior using the current Settings/source dimensions, with bounded native validation. Preserve the existing `N/A` meaning where no aspect hint is requested; do not silently substitute a square canvas.
-- [ ] Carry the effective ratio through native prompt requests and MOSS Layout JSON canvas sizing, preview and Send-to-Generate, without crop, aspect distortion or stale-result remapping. Resizing layout objects must retain the existing layout-preservation contract.
-- [ ] Test every canonical ratio, custom values, invalid/stale selections, target switches and in-flight results. Verify UI/native parity and document unsupported capabilities rather than silently dropping a selected ratio. Six-language UI and native Linux/Windows acceptance remain separate gates.
+Only explicit Send applies exact Fixed dimensions and text. Incompatible source/scaling/inpaint paths block canvas transfer and offer a labelled text-only action. Seed/model/source/mask/reference controls, history gates, project autosave/unsaved protection and immutable submitted jobs retain their existing paths. Common generation geometry remains 64–8192, aligned to 8, at most 16,777,216 pixels; valid Studio fixed 1000×1000 remains supported, while the stricter MOSS layout route rejects it. Six-language UI keys are maintained. Full-suite/platform/resource/model-quality acceptance remains separate.
 
 ## Planned user-defined model/recipe profiles for unknown architectures
 
@@ -156,14 +157,17 @@ Queue statistics:
 - [x] **Implemented in 0.1.45:** succeeded queue rows and selected-job details show locale-formatted native `generationMs`, including zero; unknown/invalid/failed durations are omitted. Image/video metadata share the formatter; filenames and immutable settings remain visible. Unit/component tests cover six locales; measured duration is distinct from the still-pending client elapsed timer.
 - [ ] Expand with the stats the job already carries, no new tracking: show elapsed queued/running time for live rows (client-measured from submission, marked as client-side), steps/seed/checkpoint name in the click-detail view. Acceptance: fixtures for known/unknown `generationMs`, video jobs, failed rows (no duration), localized formatting in six languages.
 
-## Planned consistent bottom media controls
+## Consistent bottom media controls (U-02, Unreleased)
 
-Owner-requested UX correction; **planned, not implemented**. Browsing a media item currently places its controls at the top, while adopting it with Use as input moves controls to the bottom. The controls must have a consistent bottom position in both states.
+Owner-requested UX correction, continued from local Batch B checkpoint `adfdb03515005ec9f87fec85e1648db8fbcdb9c6` on `feat/deas-recent-history`. Applicable per-media actions reuse the existing renderer in contained bottom rows for browsed previews, adopted editors and selected results. Rows reserve their height and wrap labels without covering the editor or player. The mounted editor, source geometry, action eligibility, per-output Star identities and Batch B's history gates are preserved. U-01 ratio parity remains a separate subsequent package.
 
-- [ ] Place the per-media controls **☆ (Star/Unstar), Use as input, Image to Image, Inpaint, Full view, Last frame** at the bottom of the media view wherever applicable. They must not jump from top to bottom when switching from browsed preview to adopted input/editor or back.
-- [ ] Preserve existing action eligibility, media-type restrictions, native star/unstar safety, selected media and editor/mask/geometry state; consistent placement does not authorize enabling unsupported actions or starting computation.
-- [ ] Reuse the existing toolbar/actions rather than creating a second action implementation. Keep the bottom controls visible, keyboard-accessible and unclipped across image/video states, all six locales and narrow/resized layouts; wrap controls where necessary without covering essential media/editor interaction.
-- [ ] Acceptance: select an image/video in Media, inspect the bottom controls, click Use as input, and verify that applicable controls remain at the bottom without losing state. Exercise Image to Image, Inpaint, Full view, Last frame and star/unstar where supported; check actual rendered bounds in GTK/WebKit and Chromium, with separate Windows runtime evidence. Position-only work must not change execution behavior.
+Verified in the completed frontend package: 14 affected Workbench tests, 16 shared Star tests, typecheck, production build and 18 simulated-browser states at 1440 / 390 px passed. Rendered bounds, actual German wrapping, keyboard focus, image/video restrictions, retained editor geometry and both result Star paths are covered. No test timeouts/skips were changed. Git remains read-only and implementation changes are unstaged; this does not establish native runtime acceptance.
+
+- [x] Place the applicable **☆ (Star/Unstar), Use as input, Image to Image, Inpaint, Full view, Last frame** controls in contained bottom rows, using the existing actions and media restrictions.
+- [x] Preserve preview-only browsing, retained editor identity/geometry, per-output Star association, immutable jobs and history media-reselection/frame gates. No native, IPC, upload, generation or Run/Stop behavior changes.
+- [ ] Complete target-platform acceptance across image/video states, all six locales and resized layouts: keyboard access, wrapped labels and rendered bounds in Linux WebKitGTK and Windows WebView2. Chromium fixtures do not establish native runtime acceptance; the broader platform/resource gates remain open.
+
+Batch B's source checkpoint and its existing verification history remain intact: native acceptance is pending, and the historical full UI gate retains nine timeouts with one exact unchanged-HEAD match and eight unresolved. See [Studio usage](STUDIO.md#compact-workspace-navigation) and [U-02 verification](VERIFICATION.md#u-02-contained-bottom-media-controls-unreleased).
 
 ## Planned project menu, portable state and starred media
 

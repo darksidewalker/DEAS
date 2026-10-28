@@ -809,6 +809,10 @@ pub async fn native_forge(
     forge(&base_url, &root, &route, body)
         .await
         .inspect_err(|e| {
+            if e.starts_with(crate::forge::message::CANVAS_ERROR) {
+                crate::forge::message::report_canvas_failure("h3");
+                return;
+            }
             crate::logs::push(
                 crate::logs::Source::Deas,
                 &format!(
@@ -872,6 +876,16 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         return Err("Invalid Prompt Forge request".into());
     }
     if route == "h3" {
+        if let Some(canvas) = body.get("output_canvas") {
+            let canvas: crate::forge::message::Canvas = serde_json::from_value(canvas.clone())
+                .map_err(|_| {
+                    format!(
+                        "{}: invalid H3 output_canvas",
+                        crate::forge::message::CANVAS_ERROR
+                    )
+                })?;
+            canvas.validate(false)?;
+        }
         if let Some(spec) = body.get("continuity") {
             validate_forge_continuity(spec)?;
         }
@@ -1058,6 +1072,49 @@ mod continuity_tests {
     }
 
     #[tokio::test]
+    async fn forge_h3_canvas_rejects_invalid_geometry_before_settings_or_http_with_shared_logs() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let before = crate::logs::native_logs(0).last().map_or(0, |entry| entry.seq);
+        for canvas in [
+            Value::Null,
+            json!({"width":63,"height":64}),
+            json!({"width":512.5,"height":512}),
+            json!({"width":8192,"height":8192}),
+            json!({"width":512,"height":512,"token":"private-secret"}),
+            json!({"width":"512","height":512}),
+            json!({"width":512}),
+        ] {
+            let error = native_forge(
+                format!("http://{}", listener.local_addr().unwrap()),
+                root.path().to_string_lossy().into(),
+                "h3".into(),
+                json!({"output_canvas":canvas,"brief":"private-prompt"}),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.starts_with(crate::forge::message::CANVAS_ERROR));
+            assert!(!error.contains("private"));
+        }
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert!(!root.path().join(FILE).exists());
+        let entries: Vec<_> = crate::logs::native_logs(before)
+            .into_iter()
+            .filter(|entry| {
+                entry.text.contains("origin=prompt-forge operation=h3 canvas validation failed")
+            })
+            .collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source, crate::logs::Source::Deas);
+        assert!(!entries[0].text.contains("private"));
+        assert!(!entries[0].text.contains("http"));
+    }
+
+    #[tokio::test]
     async fn continuity_rejects_success_responses_without_source_evidence_marker() {
         let root = tempfile::tempdir().unwrap();
         write(
@@ -1139,7 +1196,9 @@ mod continuity_tests {
         }
         for route in ["h3", "cast", "write", "models", "cancel"] {
             let mut body = json!({"brief":"ordinary", "existing_field":true});
-            if route != "h3" {
+            if route == "h3" {
+                body["output_canvas"] = json!({"width":1216,"height":832});
+            } else {
                 body["continuity"] = Value::Null;
             }
             let (url, task) = fixture(200, json!({"ok":true})).await;

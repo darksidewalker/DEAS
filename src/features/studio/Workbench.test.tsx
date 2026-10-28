@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
 import { defaultOptions } from './OptionsPanel';
 import type { HistoryRecord } from './history';
+import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
@@ -2809,6 +2810,91 @@ test('history text-to-image keeps native-valid 1000 square canvas without family
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({width:1000,height:1000,seed:historicalImage.seed});
 });
 
+
+test('Forge canvas handoff uses effective fixed dimensions and preserves immutable jobs until explicit Run',async()=>{
+ for(const [key,value] of Object.entries({resolution:'fixed',width:1000,height:1000,seed:73,seedMode:'fixed',positive:'original draft',negative:'kept negative'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ const held={...heldJob('before-forge','failed'),intent:{...historicalImage,positivePrompt:'immutable job'}};
+ const before=JSON.stringify(held);vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([held]));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1000,height:1000});return value!;});
+ expect(context.requiredGrid).toBe(8);expect(context.grid).toBe(64);expect(context.acceptsCanvas?.({width:1000,height:1000})).toBe(true);
+ const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ // Publishing a read-only context never changes authoring or starts work.
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('original draft');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'sent landscape',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1216,height:832}}}}/></I18nProvider>);
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('sent landscape');
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1216');expect((screen.getByLabelText('Height') as HTMLInputElement).value).toBe('832');
+ expect((screen.getByLabelText('Resolution') as HTMLSelectElement).value).toBe('fixed');
+ expect((screen.getByLabelText('Seed') as HTMLInputElement).value).toBe('73');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.negative')!)).toBe('kept negative');
+ expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(held)).toBe(before);
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('after-forge','failed'),baseUrl:evidence.baseUrl});
+ fireEvent.click(document.querySelector('[data-run]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'sent landscape',negativePrompt:'kept negative',checkpoint:'a.safetensors',seed:73,width:1216,height:832});expect(JSON.stringify(held)).toBe(before);
+});
+
+test('Forge canvas rejects stale or invalid handoffs before changing text and keeps prompt-only callers compatible',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ localStorage.setItem('deas.pref.studio.run.positive',JSON.stringify('original'));
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).not.toBeNull();expect(value?.acceptsCanvas?.({width:1024,height:1024})).toBe(true);return value!;});
+ for(const [n,contextKey,canvas] of [[1,'stale-context',{width:1216,height:832}],[2,context.key,{width:8192,height:8192}]] as const){
+  view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'must not apply',negative:'',n,canvas:{contextKey,canvas}}}/></I18nProvider>);
+  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('original');
+ }
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'prompt-only',negative:'',n:3}}/></I18nProvider>);
+ expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('prompt-only');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+
+test('Forge canvas uses actual inpaint source and preserves editor identity and the required mask gate',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_command,args)=>({path:(args as {path?:string})?.path??'/env/out',parent:'/env',entries:[{name:'wide.png',path:'/env/out/wide.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m',output:'/env/out'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));adopt();
+ const img=screen.getByRole('img',{name:'wide.png'});Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1024,height:640});expect(value?.requiredGrid).toBe(64);return value!;});
+ expect(context.acceptsCanvas?.({width:1216,height:832})).toBe(false);expect(context.acceptsCanvas?.({width:1024,height:640})).toBe(true);
+ const editor=document.querySelector('.wb-editor-host');expect(editor).not.toBeNull();
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'inpaint draft',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1024,height:640}}}}/></I18nProvider>);
+ expect(document.querySelector('.wb-editor-host')).toBe(editor);expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('inpaint draft');
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);expect(screen.getByRole('button',{name:'Inpaint',pressed:true})).toBeTruthy();
+ expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each([['ltx-2',32],['minimax-h3',32]] as const)('Forge canvas retains required video alignment for %s without accepting an image-valid fixed square',async(family,grid)=>{
+ for(const [key,value] of Object.entries({pipeline:'t2v',resolution:'fixed',width:1000,height:1000,checkpoint:'video.safetensors'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ vi.mocked(scanModels).mockResolvedValue([{category:'unet',name:'video.safetensors',family,path:'/m/video',size:1,info:null}]);
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}} onCanvasContext={publish}/></I18nProvider>);
+ await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.grid).toBe(grid);expect(value?.requiredGrid).toBe(grid);expect(value?.effective).toBeNull();expect(value?.acceptsCanvas?.({width:1000,height:1000})).toBe(false);expect(value?.acceptsCanvas?.({width:1024,height:1024})).toBe(true);});
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+
+test('Forge canvas handoff follows project autosave and retains failed-save unsaved protection',async()=>{
+ const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'a.safetensors',pipeline:'t2i'}};
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_project_open')return saved;if(command==='native_project_save')throw Error('disk full');return {entries:[],truncated:false};});
+ const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Open project'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe(saved.draft.positivePrompt));
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.key).toContain(saved.id);expect(value?.effective).toEqual({width:1024,height:1024});return value!;});
+ view.rerender(<I18nProvider><Workbench {...props} incoming={{positive:'project landscape',negative:'',n:1,canvas:{contextKey:context.key,canvas:{width:1216,height:832}}}}/></I18nProvider>);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_project_save',expect.objectContaining({projectId:saved.id,draft:expect.objectContaining({positivePrompt:'project landscape',width:1216,height:832,seed:42,checkpoint:'a.safetensors'})})));
+ const restart=new Event('deas:before-update-restart',{cancelable:true});window.dispatchEvent(restart);expect(restart.defaultPrevented).toBe(true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
 
 const dropHistoryReference=(index:number,name:string,path:string)=>{
  const item={name,path,media:'image',src:'asset://localhost/'+path};

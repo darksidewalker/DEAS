@@ -727,7 +727,7 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((c, a) => c === 'native_forge_targets' ? Promise.resolve(rich) : c === 'native_forge_write' ? Promise.resolve({ segments: [], refused: false, prompt: '1girl, campfire', negative: 'lowres', characters: ['frieren'], tools: [], rounds: 1, warnings: [], fixes: [] }) : base(c, a));
   localStorage.setItem('deas.pref.forge.target', JSON.stringify('Illustrious'));
-  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  render(<I18nProvider><PromptForge endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()} canvasContext={{ key: 'studio', effective: { width: 1024, height: 1024 }, model: { width: 1024, height: 1024 }, grid: 16, resolution: 'model', megapixels: 1, fixed: { width: 1024, height: 1024 } }}/></I18nProvider>);
   await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
   // Empty state until something is written; actions wait for a result.
   expect(screen.getByText('No prompt yet')).toBeTruthy();
@@ -736,7 +736,7 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.click(screen.getByRole('button', { name: 'Open all' }));
   fireEvent.click(document.querySelector('[data-forge-chip="quality:masterpiece"]')!);
   fireEvent.click(document.querySelector('[data-forge-chip="style:Anime"]')!);
-  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3 Portrait"]')!);
+  fireEvent.click(document.querySelector('[data-forge-tile="aspect:2:3"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="angle:birds_eye"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="shot:medium"]')!);
   fireEvent.click(document.querySelector('[data-forge-tile="light:left"]')!);
@@ -744,12 +744,12 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.change(document.querySelector('[data-forge-keep-positive]')!, { target: { value: 'lora_trigger' } });
   fireEvent.click(screen.getByRole('button', { name: 'Close all' }));
   const summary = (name: string) => document.querySelector(`[data-forge-fold="${name}"] .forge-fold-summary`)!.textContent;
-  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3 Portrait', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
+  expect([summary('presets'), summary('camera'), summary('lighting'), summary('verbatim')]).toEqual(['Masterpiece · Anime · 2:3', "Bird's eye · Medium", 'Dark · from left', 'Custom positive']);
   fireEvent.change(document.querySelector('[data-forge-brief]')!, { target: { value: 'frieren by a campfire' } });
   fireEvent.click(screen.getByRole('button', { name: 'Write' }));
   await screen.findByDisplayValue('1girl, campfire');
   expect(nativeCalls().at(-1)!.request).toMatchObject({ target: 'illustrious', brief: 'frieren by a campfire', segmentsOn: ['Negative prompt'],
-    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3 Portrait', cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
+    controls: { qualityPreset: 'masterpiece', style: 'Anime', aspectRatio: '2:3', canvas: { width: 832, height: 1216 }, cameraAngle: 'birds_eye', cameraShot: 'medium', cameraLight: 'left', lighting: 3, positive: 'lora_trigger' } });
   expect((screen.getByRole('textbox', { name: 'Negative prompt' }) as HTMLTextAreaElement).value).toBe('lowres');
   expect(screen.getByText('Character canon from the local table: frieren')).toBeTruthy();
   // Picks belong to the model: Anima starts clean.
@@ -760,6 +760,11 @@ it('Prompt Forge tab sends the builder picks: chips, tiles, lighting, kept-as-wr
   fireEvent.click(await screen.findByRole('button', { name: 'Write' }));
   await waitFor(() => expect(nativeCalls().at(-1)!.request.target).toBe('anima'));
   expect(nativeCalls().at(-1)!.request.controls).toMatchObject({ qualityPreset: 'none', style: 'None', aspectRatio: 'N/A', cameraAngle: undefined, lighting: undefined });
+  fireEvent.change(document.querySelector('[data-forge-target]')!, { target: { value: 'Illustrious' } });
+  await screen.findByRole('heading', { name: 'Build · Illustrious XL' });
+  expect(document.querySelector('[data-forge-tile="aspect:2:3"]')!.getAttribute('aria-pressed')).toBe('true');
+  expect(document.querySelector('[data-forge-chip="quality:masterpiece"]')!.getAttribute('aria-pressed')).toBe('true');
+  expect(nativeCalls()).toHaveLength(2);
 });
 
 it('Prompt Forge tab refines, second-passes and undoes the draft on screen, with a length', async () => {
