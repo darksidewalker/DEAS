@@ -27,6 +27,18 @@ test('native model discovery lists provider-qualified models and diagnostics wit
   expect(result.current.usable.map(m => m.label)).toEqual(['Qwen', 'Remote']);
   expect(result.current.model).toBe('ollama:qwen:latest');
   expect(result.current.list!.models.find(m => m.id.startsWith('local:'))?.disabled).toBe(true);
-  expect(Object.values(result.current.list!.errors)).toEqual(['Optional endpoint unavailable', 'forge.native.serverRequired']);
+  expect(Object.values(result.current.list!.errors)).toEqual(['Optional endpoint unavailable']);
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_llm_models', { root: '/env' }]]);
+});
+
+test('native model discovery asks for a server only when local GGUFs are all it found', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'native_llm_models') return { models: [{ provider: 'local', id: 'nested/model.gguf', name: 'Local model' }], warnings: [] };
+    throw Error(`Unexpected ${command}`);
+  });
+  const { result } = renderHook(() => useForgeModels('', '/env'));
+  act(() => result.current.load());
+  await waitFor(() => expect(result.current.list).not.toBeNull());
+  expect(result.current.usable).toEqual([]);
+  expect(Object.values(result.current.list!.errors)).toEqual(['forge.native.serverRequired']);
 });

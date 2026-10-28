@@ -11,6 +11,37 @@
 - Both final Linux binaries built successfully from the updated source: default `artifacts/deas-linux-amd64` SHA-256 `c44f687f42254c77aafeb13e3befe6948826f443102729d41bb11dc1bf93794c`; opt-in AI `artifacts/deas-linux-amd64-video-upscale` SHA-256 `153d9b666cb4ba3080040002881431d01f036f4688d682cafb15bffdb5218b2c`. The ordinary binary rejected worker mode with exit 2 and no GTK/stdout/stderr. The actual AI release binary passed the managed-parent hardware test again and its published `release-managed-parent.mp4` fully decoded with the original source hash unchanged; processed hash `39fe4ee755ed8a00922fe18565cd38ba0aefd207a65a94b730266e74be553aa8`.
 - Render/code-execution commands have a separate local-main permission from read-only inspection/build capabilities. Linux glibc runtime-token rejection is covered by a no-load regression (red/green), preserving ordinary runtime/model spaces. No SDK/model was bundled/downloaded, no foreign service stopped and no commit/publication was performed by this implementation run. OS-dialog/live-WebView interaction, Windows rendering, general-resolution/long/temporal/HDR support, asset/library comparison and quality/resource benchmarks remain open.
 - The updated browser verifier passes 28 strict simulated-IPC checks including binding, job launch, terminal cancellation/completion and source/preparation retention across six languages/three widths. Its job snapshots are explicitly fixtures, not evidence of native managed-worker execution. Native supervisor/application-worker proof is recorded separately above; live OS-dialog/WebView acceptance remains open.
+## Windows runtime: Chat and Prompt Forge (0.1.53 release build)
+
+Contributor-run native Windows pass of the published `deas.exe` (SHA-256 `cbfa1c7c04aca488874064eb573069d130dd8c45267bdff4dfa8d91797bf54f9`, matching `SHA256SUMS`) on Windows 10 / WebView2 with an RTX 5080, existing environment, shared models folder. LLM: a remote OpenAI-compatible llama-swap server (Qwen3.8 27B Q4_K_P) reached through an SSH tunnel. Driven through the WebView2 DevTools port; screenshots inspected.
+
+Accepted on Windows:
+- Launch and owned-backend autostart (`Owned backend · Installed · Started`); ComfyUI 0.42.0 on cuda:0. Startup `object_info` BACKEND_UNAVAILABLE/BACKEND_TIMEOUT warnings while ComfyUI loads reach central Logs, rate-limited.
+- Chat: server model list with a default selection; a send runs the `write_prompt` tool and renders the Illustrious card with Copy and Send to Generate; `search_tags` rounds reach Logs. Streaming shows partial text; **Stop** mid-reply returned Send, kept the partial reply, and the server GPU fell from 97 % to 0 % within 2 s (cancellation reaches the server).
+- Prompt Forge tab, Illustrious: one Write in about 20 s with local canon (`frieren via unique name`), three tag-lookup rounds and negative clean-up; positive and negative filled; builder controls visible once models loaded. **Send prompt + negative to Generate** filled Studio's Prompt and Negative fields.
+- Studio hammer: follows the selected checkpoint (`Write for: Anima`), pre-fills the current prompt, shows Writing…, then Current/New with Use/Keep; Use replaced the prompt with Anima-style output (`safe, 1girl, solo, frieren, …`).
+
+Findings:
+- Fixed (Unreleased): the server-required warning showed in Chat, the Forge tab and the hammer while a working server was connected, because `ForgeButton.tsx` added it whenever any local GGUF was discovered. It now appears only when local GGUFs are the only models; `ForgeModels.test.tsx` covers both cases.
+- Open: an Illustrious result from the Forge tab can be sent to Generate while an Anima checkpoint is selected, with no warning. The stale/incompatible Send guard on the unmerged `feat/deas-recent-history` branch may cover it; not changed here to avoid overlapping that branch.
+- Open: Chat answered "write an Illustrious prompt, then explain the tag order in one sentence" with the prompt card only; the explanation was dropped after the tool call.
+- Not reproduced: the first Chat message after launch was sent with a stray leading `t`; later sends were clean.
+
+Not covered: the builder with no reachable LLM, image generation, vision/i2i hammer, MOSS Layout write.
+## Windows runtime: TVE source inspection and output draft (0.1.53 release build)
+
+Contributor-run native Windows pass of the published `deas.exe` (SHA-256 `cbfa1c7c04aca488874064eb573069d130dd8c45267bdff4dfa8d91797bf54f9`) on Windows 10 / WebView2, ffprobe 8.1 (gyan.dev full build) on PATH through a WinGet link. The native chooser was answered through UI Automation/window messages; results were read through the WebView2 DevTools port. Sources were synthetic ffmpeg clips only.
+
+Accepted on Windows:
+- MP4/H.264/AAC at 30000/1001 (exact rational rate, one audio stream), WebM/VP9 without audio, 1920×1080 at 60 fps, plain MKV/H.264/AAC, and a file in a folder named with spaces and `ü` all inspected correctly.
+- Blockers: `yuv444p` reports *Pixel format is unsupported*; a 90° display matrix reports *Source rotation is unsupported*; every clip reports unknown color metadata. A text file named `.mp4` is refused with `VIDEO_TYPE` (container signature mismatch). Chooser cancel and failed inspections keep the previous result; each inspection writes one `video-post` line to central Logs.
+- TVE output draft at 1×/2×/4× gives the expected dimensions (512×288 → 512×288 / 1024×576 / 2048×1152; 1920×1080 at 4× → 7680×4320, within the 8192 limit), keeps the source rate exactly and maps AAC audio or *No audio*.
+
+Fixed (Unreleased): about two in three inspections of valid files failed with `VIDEO_PROBE_FAILED` on Windows. `win::exited` reads the exit code, which Windows sets before the process object is signalled; `terminate()` then ran `TerminateJobObject(job, 1)` inside that window and the probe's 0 became 1. `run_probe` now waits for the already-exited probe before the job kill and uses that status. A repeated-inspection loop through the production helper failed 33/50, 32/50 and 36/50 on three clips before the change and 0/50 on each of five clips after it. The ignored `real_ffmpeg_clip_inspected_by_production_native_helper` smoke test now repeats the inspection 20 times; on Windows it failed at its first inspection before the change and passes after it.
+
+Windows native suite (`cargo test --locked -- --test-threads=1`): 440 passed, 29 ignored, 4 failed, identical before and after the fix. The four are long-standing Windows-only failures, not caused by this change: `llm::tests::python_worker_mocked_import_fixtures`, `media::star::tests::recognized_media_moves_nested_arbitrary_bytes_without_parsing`, `projects::tests::create_cancel_save_close_reopen_and_single_writer`, `settings::tests::extra_model_roots_register_beside_the_primary_root`. `cargo fmt --check` and `cargo clippy --locked --lib -- -D warnings` pass.
+
+Not covered: real user media, HDR/interlaced/alpha/non-square sources, ffprobe missing from PATH, a fix-build GUI pass of the inspection (the fix was verified through the production helper in a loop, not by clicking).
 
 ## TVE workspace and native spatial core (0.1.53, local build)
 
