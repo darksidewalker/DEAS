@@ -2,14 +2,14 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.55
+
 - Prompt Forge, the hammer and Chat no longer say a server is needed when one is already connected: the "local GGUF runner does not support tool calls" warning now appears only when local GGUFs are the only models found. Beside a usable server, local GGUFs stay listed and greyed out.
 - Fix video source inspection failing intermittently on Windows with VIDEO_PROBE_FAILED for valid files (about two in three attempts): Windows sets ffprobe's exit code before the process is fully finished, and the cleanup job kill in that window overwrote the code with 1. The probe's exit status is now read after the process has finished and before the cleanup kill.
 - Studio preview: the Post-process button is now a **More** dropdown under *Use as input*, offering **Refine** (the refine+upscale pass alone, with the hint) and **Upscale** (the upscale pass alone, no diffusion, no sigmas) — both run immediately with the Post-Processing settings on the shown image.
 - Studio preview controls unified: the control row (Use as input, edit modes, inpaint, last frame, star, More, …) rides the stage header row right-aligned, ending before the Metadata pill on the same line, and every control — buttons, the More summary, the stars — shares the Metadata pill's round-pill shape, height and font.
 - More (Refine/Upscale) now appears on every image preview, including dock-browsed files: the file is uploaded and the Post-Processing settings run directly on it (target = current canvas size × upscale factor).
 - Fix video source inspection rejecting every file chosen through a symlinked directory (bookmarks like ~/Downloads): parent-directory links are ordinary navigation and only the selected file itself must not be a link. Admission failures now name the reason (VIDEO_SYMLINK / VIDEO_SIZE / VIDEO_TYPE) instead of one generic VIDEO_SOURCE message.
-
-## Unreleased — 0.1.54
 
 - Fix the recurring footer-only empty band at the shared viewport boundary, not per tab. All active panes inherit the shell height; hidden retained panes stay out of layout. Remove competing Workbench/Forge/Chat height formulas and Logs/Comfy wrapper exceptions. Long/narrow content scrolls internally, and wrapped narrow preview tools no longer cover output-role controls. Add a dynamic all-tab browser regression gate to frontend CI, with future-pane and deliberate broken-layout controls.
 

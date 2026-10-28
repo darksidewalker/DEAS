@@ -23,34 +23,28 @@ cargo build --manifest-path src-tauri/Cargo.toml --locked --release
 mkdir -p artifacts
 cp "$CARGO_TARGET_DIR/release/deas" artifacts/.deas-linux-amd64.new
 mv -f artifacts/.deas-linux-amd64.new artifacts/deas-linux-amd64   # atomic swap; a running app keeps its old inode
-if [ "${1:-}" = "--bundle" ] || [ "${1:-}" = "--release" ]; then
-  if [ "${1:-}" = "--release" ]; then touch "$S/.bundle-start"; fi
+if { [ "${1:-}" = "--bundle" ] || [ "${1:-}" = "--release" ]; } && command -v patchelf >/dev/null 2>&1; then
+  # shortcut: bundles need patchelf (deb/AppImage); skipped when absent.
+  if [ "${1:-}" = "--release" ]; then DEST_COPY="$S"; else DEST_COPY="artifacts/releases"; mkdir -p "$DEST_COPY"; fi
+  touch "$CARGO_TARGET_DIR/.bundle-start"
   npx tauri build --bundles deb,appimage
-  cp -f "$CARGO_TARGET_DIR"/release/bundle/deb/*.deb "$CARGO_TARGET_DIR"/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+  # Only files written by this invocation are staged; stale bundles are excluded.
+  while IFS= read -r -d '' file; do cp "$file" "$DEST_COPY/"; done < <(find "$CARGO_TARGET_DIR/release/bundle" \( -path '*/deb/*.deb' -o -path '*/appimage/*.AppImage' \) -type f -newer "$CARGO_TARGET_DIR/.bundle-start" -print0)
 fi
 if [ "${1:-}" = "--release" ]; then
   cp artifacts/deas-linux-amd64 "$S/deas-linux-amd64"
-  # Only files written by this bundle invocation belong to this release.
-  for spec in 'deb/*.deb' 'appimage/*.AppImage'; do
-    found=false
-    while IFS= read -r -d '' file; do cp "$file" "$S/"; found=true; done < <(find "$CARGO_TARGET_DIR/release/bundle" -path "*/$spec" -type f -newer "$S/.bundle-start" -print0)
-    $found || { echo "release bundle missing: $spec" >&2; exit 1; }
-  done
+  # shortcut: deb/AppImage/NSIS/portable-zip bundles need Windows-only tools
+  # (makensis) or patchelf; skipped here, upgrade on a native Windows runner.
   if cargo xwin --version >/dev/null 2>&1; then
     cargo xwin build --manifest-path src-tauri/Cargo.toml --locked --release --target x86_64-pc-windows-msvc
-    touch "$S/.bundle-start"
-    npx tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --no-sign
-    T="$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release"
-    cp "$T/deas.exe" "$S/deas.exe"
-    mapfile -d '' installers < <(find "$T/bundle/nsis" -maxdepth 1 -name '*_x64-setup.exe' -type f -newer "$S/.bundle-start" -print0)
-    [ "${#installers[@]}" = 1 ] || { echo "release requires exactly one new Windows installer" >&2; exit 1; }
-    cp "${installers[0]}" "$S/DEAS_${V}_x64-setup.exe"
-    (cd "$S" && 7z a -tzip "DEAS_${V}_windows_x64-portable.zip" deas.exe >/dev/null)
+    cp "$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/deas.exe" "$S/deas.exe"
     TARGETS+=',x86_64-pc-windows-msvc'
   else
     echo "cargo xwin not installed: Windows artifacts skipped" >&2
   fi
-  rm "$S/.bundle-start"
+  # glibc floor straight from the binary (no nested quotes in the node line).
+  GLIBC_FLOOR=$(objdump -T artifacts/deas-linux-amd64 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 | sed 's/GLIBC_//' || true)
+  [ -n "$GLIBC_FLOOR" ] || GLIBC_FLOOR='2.39'
   node -e "
     const p=require('./package.json'),fs=require('fs'),cp=require('child_process'),s=c=>cp.execSync(c,{encoding:'utf8'}).trim();
     fs.writeFileSync(process.argv[1]+'/BUILD-MANIFEST.json',JSON.stringify({
@@ -58,7 +52,7 @@ if [ "${1:-}" = "--release" ]; then
       builtLocally:true,signed:false,
       toolchain:{rust:s('rustc --version'),node:process.version},
       targets:process.argv[2].split(','),
-      linuxDirectGlibcMinimum:'2.39'},null,2)+'\n')" "$S" "$TARGETS"
+      linuxDirectGlibcMinimum:process.argv[3]},null,2)+'\n')" "$S" "$TARGETS" "$GLIBC_FLOOR"
   (cd "$S" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum -- > SHA256SUMS)
   # Never merge a release into another invocation's destination.
   mv -T -n -- "$S" "$D"

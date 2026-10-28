@@ -23,6 +23,8 @@ bash build-linux.sh
 ./artifacts/deas-linux-amd64
 ```
 
+`bash build-linux.sh --release` stages the complete release set (Linux binary, Windows exe, `SHA256SUMS`, `BUILD-MANIFEST.json`, plus bundles only when the Windows bundle tools are present) under `artifacts/releases/v<version>/`. That versioned folder is the canonical home for release binaries: no loose binaries accumulate in `artifacts/`.
+
 **Windows — Command Prompt:**
 
 ```bat

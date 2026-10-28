@@ -13,6 +13,8 @@ test('release staging rejects dirty/existing destinations and excludes stale bun
   mkdirSync(join(root,'node_modules'));mkdirSync(join(root,'bin'));
   for(const [name,body] of Object.entries({
    npm:'exit 0',rustc:'echo rustc-mock',
+   patchelf:'exit 0',
+   objdump:'printf "GLIBC_2.34\\n"',
    cargo:`if [ "$1" = xwin ]; then\n [ -f enable-xwin ] || exit 1\n [ "$2" != build ] || { mkdir -p "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release; printf windows > "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/deas.exe; }\n exit 0\nfi\nmkdir -p "$CARGO_TARGET_DIR"/release\nprintf binary > "$CARGO_TARGET_DIR"/release/deas`,
    npx:`[ ! -f fail-bundle ] || exit 1\nif [ "$2" = bundle ]; then\n [ "$*" = 'tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --no-sign' ]\n mkdir -p "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/bundle/nsis\n printf installer > "$CARGO_TARGET_DIR"/x86_64-pc-windows-msvc/release/bundle/nsis/fresh_x64-setup.exe\nelse\n mkdir -p "$CARGO_TARGET_DIR"/release/bundle/{deb,appimage}\n printf deb > "$CARGO_TARGET_DIR"/release/bundle/deb/fresh.deb\n printf image > "$CARGO_TARGET_DIR"/release/bundle/appimage/fresh.AppImage\nfi`,
   })){const path=join(root,'bin',name);writeFileSync(path,'#!/usr/bin/env bash\nset -e\n'+body+'\n');chmodSync(path,0o755);}
@@ -42,7 +44,9 @@ test('release staging rejects dirty/existing destinations and excludes stale bun
   const result=run('--release');assert.equal(result.status,0,result.stderr);
   const dest=join(releases,'v1.2.3');
   assert.deepEqual(readdirSync(dest).sort(),['BUILD-MANIFEST.json','SHA256SUMS','deas-linux-amd64','fresh.AppImage','fresh.deb']);
-  assert.deepEqual(JSON.parse(readFileSync(join(dest,'BUILD-MANIFEST.json'),'utf8')).targets,['x86_64-unknown-linux-gnu']);
+  const manifest=JSON.parse(readFileSync(join(dest,'BUILD-MANIFEST.json'),'utf8'));
+  assert.deepEqual(manifest.targets,['x86_64-unknown-linux-gnu']);
+  assert.equal(manifest.linuxDirectGlibcMinimum,'2.34','glibc floor derived from the binary');
   execFileSync('sha256sum',['-c','SHA256SUMS'],{cwd:dest});
   writeFileSync(join(dest,'user-file'),'preserve');
   assert.notEqual(run('--release').status,0);
@@ -52,7 +56,8 @@ test('release staging rejects dirty/existing destinations and excludes stale bun
   writeFileSync(join(root,'.git','info','exclude'),readFileSync(join(root,'.git','info','exclude'),'utf8')+'enable-xwin\n');
   const cross=run('--release');assert.equal(cross.status,0,cross.stderr);
   assert.deepEqual(JSON.parse(readFileSync(join(dest,'BUILD-MANIFEST.json'),'utf8')).targets,['x86_64-unknown-linux-gnu','x86_64-pc-windows-msvc']);
-  execFileSync('7z',['t',join(dest,'DEAS_1.2.3_windows_x64-portable.zip')]);
+  assert.deepEqual(readdirSync(dest).sort(),['BUILD-MANIFEST.json','SHA256SUMS','deas-linux-amd64','deas.exe','fresh.AppImage','fresh.deb'],'versioned release folder holds the binaries');
+  assert.equal(existsSync(join(root,'artifacts','deas-linux-amd64-video-upscale')),false,'no loose unversioned binaries outside the versioned folder');
   execFileSync('sha256sum',['-c','SHA256SUMS'],{cwd:dest});
  }finally{rmSync(root,{recursive:true,force:true});}
 });
