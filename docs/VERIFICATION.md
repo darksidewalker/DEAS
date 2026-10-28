@@ -2,7 +2,7 @@
 
 ## Reference editors, video controls and preview More menu (0.1.62)
 
-Local implementation; not committed or published. H3 selected references use static thumbnails plus current stream/crop summaries. Existing per-reference fields and ReferenceMedia are hosted in a second native dialog; source identity keeps that editor mounted across video-to-audio lane changes. Close/Escape stops the player, retains edits and restores the card's Edit focus. LTX reference editing and backend intent/pack formats are unchanged. Native video thumbnails are bounded cached FFmpeg frames at trim start, with a named/glyph fallback when extraction is unavailable; no WebKit video decoder is used for native thumbnails. Cache has no eviction policy.
+Committed at `e8e5e728` and shipped in release 0.1.62 (see section above). H3 selected references use static thumbnails plus current stream/crop summaries. Existing per-reference fields and ReferenceMedia are hosted in a second native dialog; source identity keeps that editor mounted across video-to-audio lane changes. Close/Escape stops the player, retains edits and restores the card's Edit focus. LTX reference editing and backend intent/pack formats are unchanged. Native video thumbnails are bounded cached FFmpeg frames at trim start, with a named/glyph fallback when extraction is unavailable; no WebKit video decoder is used for native thumbnails. Cache has no eviction policy.
 
 Verified on Linux:
 - `npm test`: 118 core and 1,217 UI tests passed, including persistence/reopen, nested cancel isolation, lane identity/focus and stale thumbnail completion tests. Workbench submission tests enter the new editor explicitly and retain exact intent assertions.
@@ -10,9 +10,19 @@ Verified on Linux:
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`: 606 passed, 40 ignored. Strict all-target Clippy and formatting passed. The real FFmpeg thumbnail regression verifies different selected frames, invalid paths/times, source preservation and cache invalidation.
 - `tools/verify_references.py`: all 18 locale/width combinations passed against real range-served synthetic MP4/WAV, with mocked native IPC. Nested focus trapping, real Escape, reopen persistence, mode/lane change, zero overview players and bounded crop playback passed. Final screenshots at 320/700/1440px inspected. Browser chrome can retain body focus after Tab; the background-focus rejection check first focuses the editor, then proves the outer opener cannot steal it.
 - `tools/verify_native_references.py`: real owned GTK/Tauri dev instance on Wayland with libmpv; nested editor/crop/audio-mode/drop preservation passed, three framebuffer samples with changed hashes and no GL errors. Synthetic discovery headers only; no model load/inference or foreign service changes. The first native attempts correctly failed framebuffer acceptance: WebKitGTK overlay scrollbar hit-testing covered the video's right corners. Reserving additional end padding in the editor scroll body fixed visibility; the final probe explicitly checks all four corners plus framebuffer changes. Final evidence: scratch `deas-reference-native-editor-final/results.json`; Chromium evidence: scratch `deas-reference-editor-final-browser/results.json`.
-- `./build-linux.sh` rebuilt and atomically staged `artifacts/deas-linux-amd64` (0.1.61), SHA-256 `d1a60855a4a498dcc569f67ca35799062ea68f307397672d539435fc6119d6cf`. Relaunch that artifact to use the changes.
+- `./build-linux.sh` rebuilt `artifacts/deas-linux-amd64` at the release commit (0.1.62), SHA-256 `3f043fd7aff0c44981d11a3a87de39bfcc1ca5602046eac0619625dd50944c92`; the published copy lives in `artifacts/releases/v0.1.62/`. Relaunch the release binary to use the changes.
 
-Not verified: Windows WebView2 runtime, audible audio/A/V sync, real H3 inference, general hostile-file sandboxing or resource/performance benchmarks. Originals and unrelated working-tree probes were preserved. No commit/push, release or user-service restart.
+Not verified: Windows WebView2 runtime, audible audio/A/V sync, real H3 inference, general hostile-file sandboxing or resource/performance benchmarks. Originals and unrelated working-tree probes were preserved. No user-service restart.
+
+## Release 0.1.62 (published)
+
+Published 2026-10-28 as the rollup of 0.1.60–0.1.62 (last published release was v0.1.59; 0.1.60 and 0.1.61 were tagged-era unreleased sections rolled up). Source commit `e8e5e7288830d0393b14b8fbce22237a9d95d094` (tree `db6daa2fb1d89f61130f827cf50842907d6c2c7d`); tag `v0.1.62` at that commit, pushed to gitea; GitHub release `v0.1.62` created with `--target` pinned to the source commit (Actions runners gated — local fallback build; Release DEAS disabled fires nothing). Fresh gates on the source commit: tsc clean; core 118/118; UI 1218/1218; shared layout gate 381/381; version strings 0.1.62 consistent across package.json/package-lock.json/Cargo.toml/tauri.conf.json; `git diff --check` clean; cargo fmt/clippy clean; Rust suite 606 passed with `--test-threads=1`; `cargo xwin check --all-targets` clean. Cargo.lock refreshed once without `--locked` at the version bump (committed in the gated snapshot).
+Linux binary built by `build-linux.sh` (glibc floor derived from the binary: 2.39; `ldd` reports zero "not found"). Windows exe via `cargo xwin build --release --locked` (62 benign LNK4099 missing-debug-info warnings; cross-compiled — first real Windows launch is the runtime acceptance test). Assets (SHA-256), staged in `artifacts/releases/v0.1.62/`:
+- `deas-linux-amd64` 3f043fd7aff0c44981d11a3a87de39bfcc1ca5602046eac0619625dd50944c92
+- `deas.exe` b254782a15ec050a6e9adbff798a9af16ba0ec762088cddbdd34d0f6029048b5
+- `SHA256SUMS` (manifest hashed first, sorted)
+- `BUILD-MANIFEST.json` aaecda60e2e63bc2a922cbc12442ee0ba6c34d87b899d60ac7c3058b7fc9df53
+GitHub release URL: https://github.com/darksidewalker/DEAS/releases/tag/v0.1.62 — all four assets verified via `gh release view --json assets`. NSIS installer/portable zip skipped (native Windows runner required).
 
 ## Release 0.1.59 (published)
 
