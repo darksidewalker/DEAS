@@ -6,6 +6,10 @@ The outer shell owns one dynamic viewport; top navigation consumes its natural h
 
 Developers must run `npm run test:layout` for new tabs/layout changes. The CI gate discovers navigation tabs rather than maintaining a hand-written allowlist, checks all six locales and seven desktop/narrow/short sizes, retains drafts on return, and exercises an unknown future pane, long-content reachability, hidden-style overrides and a deliberately broken negative control. Paired-output pointer tests additionally protect against controls overlapping after responsive changes. This guards the reproduced footer-only gap; it is not a guarantee against every possible future stylesheet or target-WebView defect.
 
+## Run/Stop segmented control (Unreleased)
+
+Corrected Queue button-style specificity so Stop has square internal edges, matching typography and theme-aware reddish danger colours, including hover. The project dropdown stretches with the row for wrapped labels. No execution logic changed. Verified frontend typecheck, 106 core / 910 UI tests and 18 Chromium Run/Stop IPC-fixture cases, including six locales at 320/1440px with exact segment adjacency, equal heights and danger-token assertions. Native Linux/Windows visual interaction remains unverified.
+
 ## Windows/Linux path compatibility (Unreleased)
 
 Audited native Rust/embedded Python, frontend callers, build/tool scripts and configuration. Exact native ComfyUI model IDs and safe Windows output subfolders now survive discovery/validation/compilation; media references, Starred relocation, model display/search and developer tooling use the appropriate path contract. Existing filesystem authorization remains native and fail-closed. [Audit scope and tool usage](PATH-COMPATIBILITY.md) · [verification and remaining Windows runtime gates](VERIFICATION.md#windowslinux-path-audit-unreleased). No version bump, external dependency patch or user-service change.

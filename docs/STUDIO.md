@@ -4,6 +4,8 @@
 
 ## Image draft projects
 
+Run, the reddish Stop button (while work is active), and the project dropdown form one flush, equal-height segmented control. Stop uses the active theme’s danger colours; its behavior is unchanged.
+
 The small project dropdown attached to the right-hand side of the full-width Run button creates/opens native project folders, autosaves baseline image settings, imports one managed PNG and imports/exports a bounded draft ZIP. Opening does not run or upload; missing saved checkpoints are not silently replaced. This first slice does not persist jobs, generated outputs, masks/layers or optional processing settings. Opening starts baseline image settings; closing restores global Studio defaults. Read [Projects](PROJECTS.md) before relying on the saved scope.
 
 ## Compact workspace navigation

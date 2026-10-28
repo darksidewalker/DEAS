@@ -184,7 +184,12 @@ def control_geometry(page):
     geometry = page.evaluate(r"""()=>{
  const run=document.querySelector('[data-run]'),stop=document.querySelector('[data-run-stop]');
  const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};};
- return {run:rect(run),stop:rect(stop),parent:rect(run.parentElement),
+ const arrow=document.querySelector('#project-actions-slot .project-menu > summary');
+ const style=getComputedStyle(stop);
+ const expected=document.createElement('span');expected.style.color='var(--danger-text)';expected.style.background='var(--danger-bg)';stop.parentElement.append(expected);
+ const danger=getComputedStyle(expected),colors={background:style.backgroundColor,text:style.color,expectedBackground:danger.backgroundColor,expectedText:danger.color};expected.remove();
+ return {run:rect(run),stop:rect(stop),arrow:rect(arrow),parent:rect(run.parentElement),
+  colors,radius:style.borderRadius,font:style.fontSize,runFont:getComputedStyle(run).fontSize,
   siblings:run.parentElement===stop.parentElement,tag:stop.tagName,tab:stop.tabIndex,
   width:innerWidth,scroll:document.documentElement.scrollWidth};
 }""")
@@ -198,8 +203,14 @@ def control_geometry(page):
         assert rect['x'] >= parent['x'] - 1 and rect['y'] >= parent['y'] - 1, geometry
         assert rect['x'] + rect['w'] <= parent['x'] + parent['w'] + 1, geometry
         assert rect['y'] + rect['h'] <= parent['y'] + parent['h'] + 1, geometry
-    assert geometry['stop']['x'] >= geometry['run']['x'] + geometry['run']['w'] - 1, geometry
-    assert geometry['stop']['x'] - geometry['run']['x'] - geometry['run']['w'] <= 24, geometry
+    for left, right in (('run', 'stop'), ('stop', 'arrow')):
+        assert abs(geometry[left]['x'] + geometry[left]['w'] - geometry[right]['x']) <= 1, geometry
+        assert abs(geometry[left]['y'] - geometry[right]['y']) <= 1, geometry
+        assert abs(geometry[left]['h'] - geometry[right]['h']) <= 1, geometry
+    assert geometry['radius'] == '0px' and geometry['font'] == geometry['runFont'], geometry
+    colors = geometry['colors']
+    assert colors['background'] == colors['expectedBackground'] != 'rgba(0, 0, 0, 0)', geometry
+    assert colors['text'] == colors['expectedText'], geometry
 
 
 def repeated(browser, url, passed):
