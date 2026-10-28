@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Unreleased — 0.1.57
+
+- Preview toolbar: the **More** button shows a dropdown caret and opens Refine/Upscale as an overlay menu stacked top-down (the open menu no longer pushes the controls and caption below). The separate **Full view** button is gone — clicking the media in the view already opens it. For every media (image, video, audio, source, output), the control row rides the top strip of the preview right-aligned next to the **Metadata** pill, like in 0.1.53 (the source editor keeps its row below the canvas; narrow panes keep the tools in flow).
+
 ## Unreleased — 0.1.56
 
 - One build everywhere: `video-upscale` is now a default Cargo feature, so every Linux and Windows DEAS binary includes the native TVE spatial engine (ONNX Runtime loaded dynamically at runtime, nothing bundled or auto-downloaded, no GPU/runtime initialization at startup). The separate `deas-linux-amd64-video-upscale` variant is retired — engine use stays an explicit runtime opt-in (settings + trusted runtime/model binding).
