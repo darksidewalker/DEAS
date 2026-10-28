@@ -63,32 +63,45 @@ def bottom_bounds(page, phase, width, minimum_actions=2):
       const box=n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
       const host=e.parentElement,children=Array.from(host.children),before=children.slice(0,children.indexOf(e));
       return {toolbar:box(e),host:box(host),stage:box(e.closest('.wb-stage')),
+        pill:e.closest('.wb-stage').querySelector('.wb-stage-meta')?box(e.closest('.wb-stage').querySelector('.wb-stage-meta')):null,
+        close:e.closest('.wb-stage').querySelector('.wb-stage-close')?box(e.closest('.wb-stage').querySelector('.wb-stage-close')):null,
+        position:getComputedStyle(e).position,
         content:before.filter(n=>n.getBoundingClientRect().height>0).map(box),
         media:host.matches('figure')?Array.from(host.querySelectorAll('img,video,[data-native-video],.native-video-controls')).map(box):[],
-        buttons:Array.from(e.querySelectorAll('button')).map(n=>({...box(n),label:n.textContent,clipped:n.scrollWidth>n.clientWidth+1})),
+        buttons:Array.from(e.querySelectorAll('button')).map(n=>({...box(n),label:n.textContent,clipped:n.scrollWidth>n.clientWidth+1,visible:getComputedStyle(n).visibility!=='hidden'&&n.offsetWidth>0})),
         rows:(()=>{const rows=[];for(const button of e.querySelectorAll('button')){
+          if(getComputedStyle(button).visibility==='hidden'||!button.offsetWidth)continue;
           const r=button.getBoundingClientRect(),row=rows.find(v=>r.top<v.bottom-1&&r.bottom>v.top+1);
           if(row){row.top=Math.min(row.top,r.top);row.bottom=Math.max(row.bottom,r.bottom);}
           else rows.push({top:r.top,bottom:r.bottom});
         }return rows.map(r=>Math.round(r.top));})()};
     }''')
     toolbar = metrics['toolbar']
-    for boundary in ('host', 'stage'):
-        rect = metrics[boundary]
-        assert toolbar['x'] >= rect['x']-1 and toolbar['right'] <= rect['right']+1, (phase, width, boundary, metrics)
-        assert toolbar['y'] >= rect['y']-1 and toolbar['bottom'] <= rect['bottom']+1, (phase, width, boundary, metrics)
+    stage = metrics['stage']
+    # The row lives inside the stage; in overlay mode it rides the header line with the Metadata pill.
+    assert toolbar['x'] >= stage['x']-1 and toolbar['right'] <= stage['right']+1, (phase, width, 'stage', metrics)
+    assert toolbar['y'] >= stage['y']-1 and toolbar['bottom'] <= stage['bottom']+1, (phase, width, 'stage', metrics)
+    if metrics['position'] == 'absolute':
+        for peer in (metrics['pill'], metrics['close']):
+            if peer:
+                assert abs(toolbar['y'] - peer['y']) <= 1, (phase, width, 'toolbar not on the pill line', metrics)
+                assert toolbar['right'] <= peer['x']+1, (phase, width, 'toolbar overlaps pill/close', metrics)
+    else:
+        assert all(r['bottom'] <= toolbar['y']+1 for r in metrics['content']), (phase, width, 'toolbar covers content/player/editor', metrics)
+        assert all(r['bottom'] <= toolbar['y']+1 for r in metrics['media']), (phase, width, 'media/player overflows reserved row', metrics)
     assert metrics['content'], (phase, width, 'missing media/editor content', metrics)
     assert all(r['width'] > 0 and r['height'] > 0 for r in metrics['content']), (phase, width, 'collapsed content', metrics)
-    assert all(r['bottom'] <= toolbar['y']+1 for r in metrics['content']), (phase, width, 'toolbar covers content/player/editor', metrics)
-    assert all(r['bottom'] <= toolbar['y']+1 and r['x'] >= metrics['host']['x']-1 and r['right'] <= metrics['host']['right']+1 for r in metrics['media']), (phase, width, 'media/player overflows reserved row', metrics)
+    assert all(r['x'] >= metrics['host']['x']-1 and r['right'] <= metrics['host']['right']+1 for r in metrics['media']), (phase, width, 'media/player overflows host', metrics)
     for button in metrics['buttons']:
+        if not button['visible']:
+            continue  # Closed dropdown rows: laid out invisibly, not interactive.
         assert button['width'] > 0 and button['height'] > 0 and not button['clipped'], (phase, width, 'clipped label', button)
         assert button['x'] >= toolbar['x']-1 and button['right'] <= toolbar['right']+1, (phase, width, button, metrics)
         assert button['y'] >= toolbar['y']-1 and button['bottom'] <= toolbar['bottom']+1, (phase, width, button, metrics)
     star = tools.locator('button.media-star')
     if star.count():
         expect(star).to_be_enabled()
-    enabled = tools.locator('button:enabled')
+    enabled = tools.locator('button:enabled:visible')
     assert enabled.count() >= minimum_actions, (phase, width, 'expected keyboard actions')
     enabled.nth(0).focus()
     page.keyboard.press('Tab')
@@ -143,13 +156,15 @@ def run_case(browser, width):
     page.locator('.media-list').get_by_role('button', name='fixture.png', exact=True).click()
     assert authoring_state(page) == before, 'browsing changed generation authoring'
     preview = page.locator('[data-browsed-preview]')
-    expect(preview.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
+    # The control toolbar rides the stage header as a direct stage child (user contract).
+    preview_tools = page.locator('.wb-stage > [data-media-tools]')
+    expect(preview_tools.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
     image = preview.locator('img')
     expect(image).to_be_visible()
     page.wait_for_function('()=>document.querySelector("[data-browsed-preview] img").naturalWidth>0')
     results = [bottom_bounds(page, 'browsed-image', width)]
     page.get_by_label('Fixture language', exact=True).select_option('de')
-    expect(preview.locator('[data-use-input]')).to_have_text('Als Eingabe verwenden')
+    expect(preview_tools.locator('[data-use-input]')).to_have_text('Als Eingabe verwenden')
     translated = bottom_bounds(page, 'browsed-image-German', width)
     if width == 390:
         assert len(translated['rows']) > 1, ('longer German controls must wrap', translated)
@@ -164,7 +179,7 @@ def run_case(browser, width):
     image.click()
     expect(page.get_by_role('dialog', name='fixture.png', exact=True)).to_be_visible()
     page.keyboard.press('Escape')
-    preview.locator('[data-use-input]').press('Enter')
+    preview_tools.locator('[data-use-input]').press('Enter')
     editor = page.locator('[data-editor-viewport]')
     expect(editor).to_be_visible()
     results.append(bottom_bounds(page, 'adopted-image', width))
@@ -180,7 +195,8 @@ def run_case(browser, width):
     retained_geometry(page, editor, base)
     expect(page.locator('[data-browsed-preview]')).to_have_count(0)
     expect(toolbar.get_by_role('button', name='Unstar fixture.png', exact=True)).to_be_enabled()
-    toolbar.locator('[data-view-full]').click()
+    # No Full view button anymore: the media label in the view opens the viewer (user contract).
+    page.locator('[data-editor-caption]').click()
     viewer = page.get_by_role('dialog', name='fixture.png', exact=True)
     expect(viewer.get_by_role('button', name='Unstar fixture.png', exact=True)).to_be_enabled()
     assert viewer.locator('img').get_attribute('src').endswith('/starred/image/2026-10-19/fixture.png')
@@ -190,7 +206,7 @@ def run_case(browser, width):
     page.wait_for_function('()=>document.querySelector("[data-layer=base] img").src.endsWith("/output/raw/image/2026-10-19/fixture.png")')
     retained_geometry(page, editor, base)
     expect(toolbar.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
-    toolbar.locator('[data-view-full]').click()
+    page.locator('[data-editor-caption]').click()
     viewer = page.get_by_role('dialog', name='fixture.png', exact=True)
     expect(viewer.get_by_role('button', name='Star fixture.png', exact=True)).to_be_enabled()
     assert viewer.locator('img').get_attribute('src').endswith('/output/raw/image/2026-10-19/fixture.png')
