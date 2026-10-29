@@ -1,9 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { CompiledRecipe, DiagnosticImageIntentV1 } from './execution';
-import type { VideoIntentV1 } from './videoIntent';
+import { isMusicIntent, type MusicIntentV1 } from './musicIntent';
+import { isVideoIntent, type VideoIntentV1 } from './videoIntent';
 
-/** Image recipe or one of the video family recipes; both compile natively. */
-export type JobIntent = DiagnosticImageIntentV1 | VideoIntentV1;
+/** Image recipe, one of the video family recipes or a YuE2 music recipe; all compile natively. */
+export type JobIntent = DiagnosticImageIntentV1 | VideoIntentV1 | MusicIntentV1;
+export const isImageIntent = (i: JobIntent): i is DiagnosticImageIntentV1 => !isVideoIntent(i) && !isMusicIntent(i);
 
 export interface DiagnosticJobPlan {
   id: string;
@@ -97,21 +99,23 @@ export const submitDiagnosticJob = (planId: string): Promise<JobStatus> => nativ
 export const readDiagnosticJobStatus = (jobId: string): Promise<JobStatus> => native('native_job_status', { jobId });
 export const readCurrentDiagnosticJob = (): Promise<JobStatus | null> => native('native_job_current', {});
 export interface JobOutput {
-  jobId: string; index: number; mimeType: 'image/png'; width: number; height: number; sha256: string; bytes: number[];
+  jobId: string; index: number; mimeType: 'image/png' | 'audio/flac'; /** 0×0 for audio. */ width: number; height: number; sha256: string; bytes: number[];
 }
 export interface JobExport { path: string; sha256: string; size: number }
 export async function loadDiagnosticJobOutput(jobId: string, index: number): Promise<JobOutput> {
   const value = await native<JobOutput>('native_job_output', { jobId, index });
-  if (!value || value.jobId !== jobId || value.index !== index || value.mimeType !== 'image/png'
-    || !Number.isInteger(value.width) || value.width <= 0 || value.width > 8192
-    || !Number.isInteger(value.height) || value.height <= 0 || value.height > 8192
-    || value.width * value.height > 16_777_216
+  const audio = value?.mimeType === 'audio/flac';
+  if (!value || value.jobId !== jobId || value.index !== index || (value.mimeType !== 'image/png' && !audio)
+    || (audio ? value.width !== 0 || value.height !== 0
+      : !Number.isInteger(value.width) || value.width <= 0 || value.width > 8192
+      || !Number.isInteger(value.height) || value.height <= 0 || value.height > 8192
+      || value.width * value.height > 16_777_216)
     || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)
     || !Array.isArray(value.bytes) || value.bytes.length === 0 || value.bytes.length > 144 * 1024 * 1024) {
-    throw new Error('Invalid native PNG output.');
+    throw new Error('Invalid native output.');
   }
   for (const byte of value.bytes) {
-    if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new Error('Invalid native PNG output.');
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new Error('Invalid native output.');
   }
   return value;
 }

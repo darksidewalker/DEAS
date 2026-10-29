@@ -455,6 +455,7 @@ async fn whole_stop_retains_terminal_cache_completed_records_and_diagnostic_slot
     let cached = Arc::new(CachedOutput {
         job_id: "terminal".into(),
         index: 0,
+        mime_type: "image/png",
         width: 1,
         height: 1,
         sha256: format!("{:x}", Sha256::digest([42])),
@@ -504,6 +505,7 @@ async fn retains_two_correlated_completions_and_repairs_earlier_output_after_lat
     let cached = Arc::new(CachedOutput {
         job_id: "second".into(),
         index: 0,
+        mime_type: "image/png",
         width: 1,
         height: 1,
         sha256: format!("{:x}", Sha256::digest([42])),
@@ -935,6 +937,97 @@ async fn binary_server(
         String::from_utf8(bytes).unwrap()
     });
     (base, task)
+}
+
+#[tokio::test]
+async fn music_flac_outputs_are_decoded_before_preview_and_export() {
+    let flac = include_bytes!("../../tests/fixtures/music/tone.flac").to_vec();
+    let music = crate::jobs_music::tests::full();
+    let with_music = |jobs: &Jobs, state: &'static str| {
+        let mut session = jobs.lock().unwrap();
+        let job = session.job.as_mut().unwrap();
+        job.state = state;
+        job.plan.graph = compile(&music).unwrap();
+        job.plan.intent = music.clone();
+        job.outputs = vec![
+            json!({"filename":"YuE2_00001.flac","subfolder":"raw","type":"output"}),
+            json!({"filename":"YuE2_00002.flac","subfolder":"raw","type":"output"}),
+        ];
+    };
+    for (state, index) in [("succeeded", 0), ("failed", 1), ("cancelled", 1)] {
+        let (base, server) = binary_server(flac.clone(), 200, "Content-Type: audio/x-flac").await;
+        let jobs = completed(&base);
+        with_music(&jobs, state);
+        let result = jobs.output("job-a".into(), index).await.unwrap();
+        assert_eq!(
+            (result.mime_type, result.width, result.height, result.index),
+            ("audio/flac", 0, 0, index)
+        );
+        assert_eq!(result.bytes, flac);
+        assert_eq!(result.sha256, format!("{:x}", Sha256::digest(&flac)));
+        server.await.unwrap();
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            let dir = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
+            assert!(jobs
+                .export_to("job-a", index, Some(&dir.path().join("song.png")))
+                .is_err());
+            let path = dir.path().join("song ü.flac");
+            let exported = jobs
+                .export_to("job-a", index, Some(&path))
+                .unwrap()
+                .unwrap();
+            assert_eq!(exported["sha256"], result.sha256);
+            assert_eq!(std::fs::read(&path).unwrap(), flac);
+            assert!(
+                jobs.export_to("job-a", index, Some(&path)).is_err(),
+                "no clobber"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), flac);
+            assert!(
+                jobs.export_to("job-a", index, None).unwrap().is_none(),
+                "cancelled chooser"
+            );
+        }
+    }
+    // Rejected: truncated/corrupt streams, forged signatures, wrong content type, oversize and image jobs.
+    let mut truncated = flac.clone();
+    truncated.truncate(flac.len() - 200);
+    // ffmpeg-written FLAC carries a large PADDING block; flip inside the last audio frame so the CRC-16 must catch it.
+    let mut corrupt = flac.clone();
+    corrupt[flac.len() - 50] ^= 0xff;
+    let mut trailing = flac.clone();
+    trailing.extend_from_slice(b"fLaC junk");
+    for (bytes, header) in [
+        (truncated, "Content-Type: audio/flac"),
+        (corrupt, "Content-Type: audio/flac"),
+        (trailing, "Content-Type: audio/flac"),
+        (b"fLaC\0\0\0\0".to_vec(), "Content-Type: audio/flac"),
+        (png_bytes(1, 1), "Content-Type: audio/flac"),
+        (flac.clone(), "Content-Type: image/png"),
+        (flac.clone(), "Content-Type: text/html"),
+    ] {
+        let (base, server) = binary_server(bytes, 200, header).await;
+        let jobs = completed(&base);
+        with_music(&jobs, "succeeded");
+        assert!(jobs.output("job-a".into(), 0).await.is_err(), "{header}");
+        assert!(jobs.lock().unwrap().output.is_none());
+        server.await.unwrap();
+    }
+    for (bytes, header) in [
+        (flac.clone(), "Content-Type: audio/flac"),
+        (flac.clone(), "Content-Type: image/png"),
+    ] {
+        let (base, server) = binary_server(bytes, 200, header).await;
+        let jobs = completed(&base);
+        assert!(
+            jobs.output("job-a".into(), 0).await.is_err(),
+            "image job never accepts FLAC"
+        );
+        server.await.unwrap();
+    }
+    assert!(validate_flac(&flac).is_ok());
+    assert!(validate_flac(b"").is_err());
 }
 
 #[tokio::test]

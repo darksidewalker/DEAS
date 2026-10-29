@@ -1442,6 +1442,69 @@ async fn video_prepare_checks_every_graph_node_and_reads_gifs_outputs() {
     assert_eq!(out, json!([{"filename":"x_first.png","subfolder":"video","type":"output"},{"filename":"x_00001.webm","subfolder":"video","type":"output","format":"video/webm"}]).as_array().unwrap().clone());
 }
 
+#[tokio::test]
+async fn music_prepare_dispatches_without_image_fallbacks_and_reads_audio_outputs() {
+    let t2m = crate::jobs_music::tests::full();
+    let cover: Value = serde_json::from_str(include_str!("../../tests/fixtures/music/cover.intent.json")).unwrap();
+    let graph = compile(&t2m).unwrap();
+    assert_eq!(graph["7"]["class_type"], "SaveAudioAdvanced");
+    assert!(graph.as_object().unwrap().values().all(|n| n["class_type"] != "SaveImage"));
+    // Captured from the installed core (A6 gate): V1 checkpoint combo, V3 encoder combo, DynamicCombo saver.
+    let mut all = json!({"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["yue2.safetensors","sd/model.safetensors"]]}}},
+        "AudioEncoderLoader":{"input":{"required":{"audio_encoder_name":["COMBO",{"multiselect":false,"options":["sheetsage2_bf16.safetensors","../x.safetensors"]}]}}},
+        "LoadAudio":{"input":{"required":{"audio":["COMBO",{"options":["tone.flac"]}]}}},
+        "KSampler":{"input":{"required":{"sampler_name":[["dpm_2"]],"scheduler":[["sgm_uniform"]]}}},
+        "DaSiWa_MetadataImageSaver":{},"DaSiWa_MetadataConfig":{}});
+    for n in crate::jobs_music::MUSIC_NODES {
+        if all.get(n).is_none() {
+            all[n] = json!({});
+        }
+    }
+    let without = {
+        let mut m = all.clone();
+        m.as_object_mut().unwrap().remove("YuE2GenerateABC");
+        m
+    };
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = calls.clone();
+    let (base, server) = server(move |path, _| {
+        assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+        let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        (200, if n == 0 { without.clone() } else { all.clone() }.to_string())
+    })
+    .await;
+    let jobs = Jobs::default();
+    let err = jobs.prepare(base.clone(), t2m.clone()).await.unwrap_err();
+    assert!(err.contains("nodes") && err.contains("YuE2GenerateABC"), "{err}");
+    let plan = jobs.prepare(base.clone(), t2m.clone()).await.unwrap();
+    assert_eq!(plan["graph"]["7"]["class_type"], "SaveAudioAdvanced");
+    assert_eq!(plan["intent"], t2m);
+    assert!(plan["graph"].get("M").is_some() && plan["graph"].get("A").is_some());
+    // Cover: the fresh upload name is not in the stale LoadAudio combo; the encoder must be listed.
+    let plan = jobs.prepare(base.clone(), cover.clone()).await.unwrap();
+    assert_eq!(plan["graph"]["I"]["inputs"]["audio"], "deas-input-source.mp4");
+    let mut other = cover.clone();
+    other["audioEncoder"] = json!("missing.safetensors");
+    let err = jobs.prepare(base.clone(), other).await.unwrap_err();
+    assert!(err.contains("audioEncoders") && err.contains("missing.safetensors"), "{err}");
+    let mut other = t2m.clone();
+    other["checkpoint"] = json!("sd/other.safetensors");
+    assert!(jobs.prepare(base, other).await.unwrap_err().contains("checkpoints"));
+    assert!(calls.load(std::sync::atomic::Ordering::SeqCst) >= 5);
+    server.abort();
+    // History: SaveAudioAdvanced lists FLAC descriptors under `audio` (A6-captured shape).
+    let e = json!({"outputs":{"7":{"audio":[{"filename":"YuE2_00001.flac","subfolder":"raw","type":"output"}]},
+        "foreign":{"audio":[{"filename":"foreign.flac","subfolder":"raw","type":"output"}]}}});
+    let o = outputs(&e).unwrap();
+    assert_eq!(o, json!([{"filename":"YuE2_00001.flac","subfolder":"raw","type":"output"}]).as_array().unwrap().clone());
+    assert!(outputs(&json!({"outputs":{"7":{"audio":[{"filename":"../escape.flac","subfolder":"raw","type":"output"}]}}})).is_err());
+    assert!(outputs(&json!({"outputs":{"7":{"audio":[{"filename":"a.flac","subfolder":"raw","type":"temp"}]}}})).is_err());
+    assert!(outputs(&json!({"outputs":{"7":{"audio":{"filename":"a.flac"}}}})).is_err());
+    let many: Vec<Value> = (0..65).map(|n| json!({"filename":format!("a{n}.flac"),"subfolder":"raw","type":"output"})).collect();
+    assert!(outputs(&json!({"outputs":{"7":{"audio":many}}})).is_err());
+    assert_eq!(outputs(&json!({"outputs":{"7":{"audio":[]}}})).unwrap().len(), 0);
+}
+
 #[test]
 fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
     for field in intent().as_object().unwrap().keys() {

@@ -67,10 +67,23 @@ test('browser cannot load or export; native failures and invalid PNG responses n
   expect(screen.getByRole('alert').textContent).toContain('OUTPUT_ERROR: PNG unavailable');
   vi.mocked(invoke).mockResolvedValueOnce({ ...output, mimeType: 'image/jpeg' });
   await act(async () => load());
-  expect(screen.getByRole('alert').textContent).toContain('Invalid native PNG output');
+  expect(screen.getByRole('alert').textContent).toContain('Invalid native output');
   expect(create).not.toHaveBeenCalled();
   expect(document.querySelector('[data-job-output-export]')).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+test('validated FLAC results render a player with controls instead of an image', async () => {
+  const music: JobStatus = { ...job, outputs: [{ filename: 'YuE2_00001.flac', subfolder: 'raw', type: 'output' }, { filename: 'YuE2_00002.flac', subfolder: 'raw', type: 'output' }] };
+  vi.mocked(invoke).mockResolvedValueOnce({ ...output, index: 1, mimeType: 'audio/flac', width: 0, height: 0, bytes: [102, 76, 97, 67] });
+  render(view(music)); await act(async () => load(1));
+  const player = document.querySelector('audio[data-job-output-preview]') as HTMLAudioElement;
+  expect(player.getAttribute('src')).toBe('blob:first');
+  expect(player.hasAttribute('controls')).toBe(true);
+  expect(player.hasAttribute('autoplay')).toBe(false);
+  expect(document.querySelector('img[data-job-output-preview]')).toBeNull();
+  expect(create.mock.calls[0][0].type).toBe('audio/flac');
+  expect(document.querySelector('[data-job-output-export]')).not.toBeNull();
 });
 
 test.each(['succeeded', 'failed', 'cancelled'] as const)('paired %s output loads and exports its exact native index', async state => {

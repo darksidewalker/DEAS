@@ -281,6 +281,9 @@ async fn get(client: &reqwest::Client, base: &reqwest::Url, path: &str) -> Resul
 }
 
 fn compile(i: &Value) -> Result<Value, String> {
+    if crate::jobs_music::is_music(i) {
+        return crate::jobs_music::compile(i);
+    }
     if crate::jobs_video::is_video(i) {
         return crate::jobs_video::compile(i);
     }
@@ -1321,11 +1324,14 @@ impl Jobs {
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
             let video = crate::jobs_video::is_video(&intent);
-            if !video {
+            let music = crate::jobs_music::is_music(&intent);
+            if !video && !music {
                 civitai_saver(&mut graph, &allow["nodes"], &intent);
             }
             // Video recipes name their models/encoders/VAEs/images per family; image recipes below.
-            let mut required: Vec<(&str, Vec<&str>)> = if video {
+            let mut required: Vec<(&str, Vec<&str>)> = if music {
+                crate::jobs_music::requirements(&intent)
+            } else if video {
                 crate::jobs_video::requirements(&intent)
             } else {
                 let gguf = is_gguf(intent["checkpoint"].as_str().unwrap());
@@ -1758,8 +1764,9 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
     let Some(node) = all.get("7") else {
         return Ok(vec![]);
     };
-    // Image savers list `images`; the DaSiWa video combine lists the video under `gifs` (plus frame PNGs under `images`).
-    let images: Vec<&Value> = ["images", "gifs"]
+    // Image savers list `images`; the DaSiWa video combine lists the video under `gifs` (plus frame PNGs under `images`);
+    // `SaveAudioAdvanced` lists FLAC files under `audio`.
+    let images: Vec<&Value> = ["images", "gifs", "audio"]
         .iter()
         .filter_map(|k| node.get(*k))
         .map(|v| v.as_array().ok_or("Malformed diagnostic image outputs"))

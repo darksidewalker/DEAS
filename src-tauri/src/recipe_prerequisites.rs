@@ -160,7 +160,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).chain(crate::jobs_music::MUSIC_NODES.iter()).filter(|name| definitions.contains_key(**name)).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
             "images":combo(nodes, "LoadImage", "image")?,
@@ -182,7 +182,8 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             // Core v3 node: its file combo uses the v3 form.
             "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::comfy_model_name),
             "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::comfy_model_name),
-            "h3LatentUpscaleModels":options(nodes, "DaSiWaH3TiledUpscale", "upscale_model", crate::jobs_video::h3_latent_model)
+            "h3LatentUpscaleModels":options(nodes, "DaSiWaH3TiledUpscale", "upscale_model", crate::jobs_video::h3_latent_model),
+            "audioEncoders":options(nodes, "AudioEncoderLoader", "audio_encoder_name", crate::jobs::comfy_model_name)
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -207,6 +208,8 @@ pub async fn native_recipe_prerequisites(base_url: String) -> Result<Value, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn zz_real_object_info(){let v:Value=serde_json::from_str(&std::fs::read_to_string(std::env::var("OI").unwrap()).unwrap()).unwrap();let r=parse(&reqwest::Url::parse("http://127.0.0.1:8199/").unwrap(),&v);match r{Ok(r)=>{println!("LTX {}",r["allowlist"]["latentUpscaleModels"]);println!("H3 {}",r["allowlist"]["h3LatentUpscaleModels"]);println!("NODES {}",r["allowlist"]["nodes"]);},Err(e)=>println!("ERR {e}")}}
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -255,6 +258,30 @@ mod tests {
             "CLIPVisionLoader": {"input":{"required":{"clip_name":[["clip-vit.safetensors"], {}]}}},
             "CLIPVisionEncode": {}, "unCLIPConditioning": {}
         })
+    }
+
+    #[test]
+    fn music_nodes_and_audio_encoders_are_optional_and_scoped() {
+        let base = reqwest::Url::parse("http://127.0.0.1:8188/").unwrap();
+        let mut info = nodes();
+        let without = parse(&base, &info).unwrap();
+        assert_eq!(without["allowlist"]["audioEncoders"], json!([]));
+        assert!(!without["allowlist"]["nodes"].as_array().unwrap().iter().any(|n| n == "YuE2GenerateMusic"));
+        assert_eq!(without["missingNodes"], json!([]));
+        for n in crate::jobs_music::MUSIC_NODES {
+            if info.get(n).is_none() {
+                info[n] = json!({});
+            }
+        }
+        // Core V3 combo shape as captured from the installed backend; unsafe names are dropped silently.
+        info["AudioEncoderLoader"] = json!({"input":{"required":{"audio_encoder_name":["COMBO",{"multiselect":false,"options":["sheetsage2_bf16.safetensors","sub/other.safetensors","../escape.safetensors"]}]}}});
+        let with = parse(&base, &info).unwrap();
+        assert_eq!(with["allowlist"]["audioEncoders"], json!(["sheetsage2_bf16.safetensors", "sub/other.safetensors"]));
+        let listed = with["allowlist"]["nodes"].as_array().unwrap();
+        assert!(["YuE2GenerateMusic", "SheetSage2AudioToABC", "SaveAudioAdvanced"].iter().all(|n| listed.iter().any(|l| l == n)));
+        assert_eq!(with["missingNodes"], without["missingNodes"]);
+        info["AudioEncoderLoader"] = json!({"input":{"required":{"audio_encoder_name":["COMBO",{"options":"broken"}]}}});
+        assert_eq!(parse(&base, &info).unwrap()["allowlist"]["audioEncoders"], json!([]));
     }
 
     #[test]

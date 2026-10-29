@@ -35,6 +35,8 @@ tempfile = "3"
 rusqlite = { version = "0.40", features = ["bundled", "serialize"] }
 # Decodes the compressed bundled payload; the exporter compresses it with the zstd CLI.
 ruzstd = "0.8"
+# Decodes retained YuE2 FLAC results before caching/exporting them (pure Rust, bounded).
+claxon = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

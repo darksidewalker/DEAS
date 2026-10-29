@@ -3,6 +3,9 @@ use sha2::{Digest, Sha256};
 
 const PNG_LIMIT: usize = 144 * 1024 * 1024;
 const DECODE_LIMIT: usize = 160 * 1024 * 1024;
+// FLAC results: encoded bytes share PNG_LIMIT; decoded PCM (i32 samples) stays under 768 MiB.
+const FLAC_PCM_LIMIT: u64 = 768 * 1024 * 1024;
+const FLAC_MAX_SECONDS: u64 = 900;
 // Retained outputs are reference-repair records, not filesystem move authority.
 const COMPLETED_LIMIT: usize = 20; // Workbench's existing queue bound; each job has at most 64 outputs.
 
@@ -83,6 +86,7 @@ pub struct OutputPreview {
     job_id: String,
     index: usize,
     mime_type: &'static str,
+    // 0×0 for audio: not applicable.
     width: u32,
     height: u32,
     sha256: String,
@@ -91,6 +95,7 @@ pub struct OutputPreview {
 pub(super) struct CachedOutput {
     job_id: String,
     index: usize,
+    mime_type: &'static str,
     width: u32,
     height: u32,
     sha256: String,
@@ -101,11 +106,18 @@ impl CachedOutput {
         OutputPreview {
             job_id: self.job_id.clone(),
             index: self.index,
-            mime_type: "image/png",
+            mime_type: self.mime_type,
             width: self.width,
             height: self.height,
             sha256: self.sha256.clone(),
             bytes: self.bytes.clone(),
+        }
+    }
+    fn extension(&self) -> &'static str {
+        if self.mime_type == "audio/flac" {
+            "flac"
+        } else {
+            "png"
         }
     }
 }
@@ -212,7 +224,7 @@ impl Jobs {
             .as_ref()
             .filter(|c| c.job_id == job_id && c.index == index)
             .cloned()
-            .ok_or("Load this native PNG before exporting".into())
+            .ok_or("Load this native output before exporting".into())
     }
 
     fn export_to(
@@ -237,7 +249,7 @@ impl Jobs {
         {
             return Err("Native job changed before export".into());
         }
-        export_png(path, &cached.bytes)?;
+        export_file(path, &cached.bytes, cached.extension())?;
         Ok(Some(
             json!({"path":path,"sha256":cached.sha256,"size":cached.bytes.len()}),
         ))
@@ -277,6 +289,10 @@ impl Jobs {
             }
         }
         let image = &job.outputs[index];
+        // Only the music saver's own FLAC product may bypass the PNG decoder.
+        let flac = job.plan.graph["7"]["class_type"] == "SaveAudioAdvanced"
+            && job.plan.graph["7"]["inputs"]["format"] == "flac";
+        let kind = if flac { "FLAC" } else { "PNG" };
         let mut url = job
             .plan
             .base
@@ -288,7 +304,10 @@ impl Jobs {
             .append_pair("type", "output");
         let mut response = client()?
             .get(url)
-            .header(reqwest::header::ACCEPT, "image/png")
+            .header(
+                reqwest::header::ACCEPT,
+                if flac { "audio/flac" } else { "image/png" },
+            )
             .send()
             .await
             .map_err(|_| "Output request failed")?;
@@ -300,38 +319,75 @@ impl Jobs {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| {
-                v.split(';')
+                let v = v
+                    .split(';')
                     .next()
                     .unwrap_or("")
                     .trim()
-                    .eq_ignore_ascii_case("image/png")
+                    .to_ascii_lowercase();
+                // ComfyUI guesses `audio/x-flac` (Linux mime.types) or falls back to octet-stream; decoding below is the validation.
+                if flac {
+                    ["audio/flac", "audio/x-flac", "application/octet-stream"].contains(&v.as_str())
+                } else {
+                    v == "image/png"
+                }
             })
         {
-            return Err("Output must have image/png content type".into());
+            return Err(format!("Output must have a {kind} content type"));
         }
         const LIMIT: usize = PNG_LIMIT;
         if response.content_length().is_some_and(|n| n > LIMIT as u64) {
-            return Err("PNG size limit exceeded".into());
+            return Err(format!("{kind} size limit exceeded"));
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| "PNG response interrupted")?
+            .map_err(|_| format!("{kind} response interrupted"))?
         {
             if chunk.len() > LIMIT - bytes.len() {
-                return Err("PNG size limit exceeded".into());
+                return Err(format!("{kind} size limit exceeded"));
             }
             bytes.extend_from_slice(&chunk);
         }
-        validate_envelope(&bytes)?;
+        let (width, height) = if flac {
+            validate_flac(&bytes)?;
+            (0, 0)
+        } else {
+            self.validate_png(&job, image, &bytes)?
+        };
+        let cached = std::sync::Arc::new(CachedOutput {
+            job_id: job_id.clone(),
+            index,
+            mime_type: if flac { "audio/flac" } else { "image/png" },
+            width,
+            height,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            bytes,
+        });
+        let mut session = self.lock()?;
+        if !session.job.as_ref().is_some_and(|current| {
+            current.id == job_id
+                && current.terminal()
+                && current.outputs == job.outputs
+                && current.plan.id == job.plan.id
+        }) {
+            return Err("Native job changed during output fetch".into());
+        }
+        let result = cached.preview();
+        session.output = Some(cached);
+        Ok(result)
+    }
+
+    fn validate_png(&self, job: &Job, image: &Value, bytes: &[u8]) -> Result<(u32, u32), String> {
+        validate_envelope(bytes)?;
         let mut options = png::DecodeOptions::default();
         options.set_ignore_crc(false);
         options.set_ignore_adler32(false);
         options.set_skip_ancillary_crc_failures(false);
         options.set_ignore_text_chunk(true);
         options.set_ignore_iccp_chunk(true);
-        let mut decoder = png::Decoder::new_with_options(std::io::Cursor::new(&bytes), options);
+        let mut decoder = png::Decoder::new_with_options(std::io::Cursor::new(bytes), options);
         decoder.set_limits(png::Limits {
             bytes: DECODE_LIMIT,
         });
@@ -371,27 +427,45 @@ impl Jobs {
             .next_frame(&mut frame)
             .map_err(|_| "Invalid PNG frame")?;
         reader.finish().map_err(|_| "Invalid PNG end")?;
-        let cached = std::sync::Arc::new(CachedOutput {
-            job_id: job_id.clone(),
-            index,
-            width,
-            height,
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
-            bytes,
-        });
-        let mut session = self.lock()?;
-        if !session.job.as_ref().is_some_and(|current| {
-            current.id == job_id
-                && current.terminal()
-                && current.outputs == job.outputs
-                && current.plan.id == job.plan.id
-        }) {
-            return Err("Native job changed during output fetch".into());
-        }
-        let result = cached.preview();
-        session.output = Some(cached);
-        Ok(result)
+        Ok((width, height))
     }
+}
+/// Fully decodes the stream (nothing retained) so a truncated or forged FLAC never reaches the player or export.
+pub(crate) fn validate_flac(bytes: &[u8]) -> Result<(), String> {
+    if !bytes.starts_with(b"fLaC") {
+        return Err("Invalid FLAC signature".into());
+    }
+    let mut reader =
+        claxon::FlacReader::new(std::io::Cursor::new(bytes)).map_err(|_| "Invalid FLAC header")?;
+    let info = reader.streaminfo();
+    let samples = info.samples.ok_or("FLAC without a sample count")?;
+    if info.channels == 0
+        || info.channels > 2
+        || info.sample_rate == 0
+        || info.sample_rate > 192_000
+        || samples == 0
+        || samples > FLAC_MAX_SECONDS * u64::from(info.sample_rate)
+        || samples * u64::from(info.channels) * 4 > FLAC_PCM_LIMIT
+    {
+        return Err("FLAC exceeds the supported duration, channel or sample-rate bounds".into());
+    }
+    let mut blocks = reader.blocks();
+    let mut buffer = Vec::new();
+    let mut decoded = 0u64;
+    while let Some(block) = blocks
+        .read_next_or_eof(buffer)
+        .map_err(|_| "Invalid FLAC frame")?
+    {
+        decoded += u64::from(block.duration());
+        if decoded > samples {
+            return Err("FLAC frames exceed the declared length".into());
+        }
+        buffer = block.into_buffer();
+    }
+    if decoded != samples {
+        return Err("Truncated FLAC".into());
+    }
+    Ok(())
 }
 // The decoder stops at IEND; reject animation and anything hidden beyond it.
 pub(crate) fn validate_envelope(bytes: &[u8]) -> Result<(), String> {
@@ -423,11 +497,11 @@ pub(crate) fn validate_envelope(bytes: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "linux", windows))]
-fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+fn export_file(path: &std::path::Path, bytes: &[u8], extension: &str) -> Result<(), String> {
     use crate::downloads::fs::Anchor;
     use std::io::Write;
     if !path.is_absolute()
-        || path.extension().and_then(|s| s.to_str()) != Some("png")
+        || path.extension().and_then(|s| s.to_str()) != Some(extension)
         || path.components().any(|p| {
             !matches!(
                 p,
@@ -437,13 +511,13 @@ fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
             )
         })
     {
-        return Err("Select a new absolute .png file".into());
+        return Err(format!("Select a new absolute .{extension} file"));
     }
     let name = path
         .file_name()
         .and_then(|s| s.to_str())
         .filter(|s| !s.chars().any(char::is_control))
-        .ok_or("Invalid PNG filename")?;
+        .ok_or("Invalid export filename")?;
     let parent = Anchor::open(path.parent().ok_or("Missing export parent")?)?;
     parent.validate_directory(false)?;
     parent.absent(name)?;
@@ -451,8 +525,8 @@ fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = parent.partial(&temp)?;
     let result = (|| {
         file.write_all(bytes)
-            .map_err(|_| "Cannot write exported PNG")?;
-        file.sync_all().map_err(|_| "Cannot sync exported PNG")?;
+            .map_err(|_| "Cannot write exported output")?;
+        file.sync_all().map_err(|_| "Cannot sync exported output")?;
         parent.validate_directory(false)?;
         if !parent.owns_partial(&temp, &file) {
             return Err("Export temporary file changed".into());
@@ -465,8 +539,8 @@ fn export_png(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     result
 }
 #[cfg(not(any(target_os = "linux", windows)))]
-fn export_png(_: &std::path::Path, _: &[u8]) -> Result<(), String> {
-    Err("Safe PNG export currently requires Linux or Windows".into())
+fn export_file(_: &std::path::Path, _: &[u8], _: &str) -> Result<(), String> {
+    Err("Safe output export currently requires Linux or Windows".into())
 }
 
 #[tauri::command]
@@ -485,15 +559,15 @@ pub async fn native_job_export(
     title: String,
 ) -> Result<Option<Value>, String> {
     if title.chars().count() > 240 || title.chars().any(char::is_control) {
-        return Err("Invalid PNG save dialog title".into());
+        return Err("Invalid save dialog title".into());
     }
     let held = state.workbench_job(&job_id)?;
     let jobs = held.as_deref().unwrap_or(&state);
-    jobs.cached_output(&job_id, index)?;
+    let extension = jobs.cached_output(&job_id, index)?.extension();
     let selected = rfd::AsyncFileDialog::new()
         .set_title(title)
-        .add_filter("PNG", &["png"])
-        .set_file_name("DEAS-output.png")
+        .add_filter(&extension.to_ascii_uppercase(), &[extension])
+        .set_file_name(format!("DEAS-output.{extension}"))
         .set_can_create_directories(false)
         .save_file()
         .await;
