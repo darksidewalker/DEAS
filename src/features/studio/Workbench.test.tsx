@@ -3917,7 +3917,10 @@ test('text-to-music lists only YuE2 checkpoints, two music editors, no canvas/ne
  expect(screen.getByLabelText('ABC Planning')).toHaveProperty('value','full');
  expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','120');
  const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
- await waitFor(()=>expect(run.title).toContain('Enter a song style.'));
+ await waitFor(()=>expect(run.title).toBe('Enter a song style.'));
+ expect(run.disabled).toBe(true);
+ // An empty Style is a draft hint, not an incompatible-dependency warning.
+ expect(document.body.textContent).not.toMatch(/Unavailable or incompatible selections[^.]*Enter a song style/);
  fireEvent.change(music().style,{target:{value:'English, indie pop'}});fireEvent.change(music().lyrics,{target:{value:'[Verse]\nHello world'}});
  fireEvent.change(screen.getByLabelText('Seed'),{target:{value:'42'}});
  await waitFor(()=>expect(run.disabled).toBe(false));
@@ -3949,6 +3952,18 @@ test('ABC Off drops the planner, switches AR guidance to 1.01 once, and keeps AB
  expect(off).toMatchObject({mode:'t2m',planning:'off',generation:{cfgScale:2}});expect(off).not.toHaveProperty('abc');
  fireEvent.change(screen.getByLabelText('ABC Planning'),{target:{value:'full'}});
  expect((screen.getAllByLabelText('Maximum ABC tokens')[0] as HTMLInputElement).value).toBe('2048');
+});
+
+test('cover mode stage toolbar offers the same "Use for music cover" action as the media menu',async()=>{
+ await mountMusic('Music (Cover Music)');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'voice.wav'}));
+ const use=await waitFor(()=>{const b=document.querySelector('[data-media-tools] [data-music-source-action]') as HTMLButtonElement|null;expect(b).not.toBeNull();return b!;});
+ expect(use.textContent).toBe('Use for music cover');
+ expect(screen.queryByRole('button',{name:'Use as input'})).toBeNull();
+ fireEvent.click(use);
+ await waitFor(()=>expect(document.querySelector('[data-music-source]')?.textContent).toContain('voice.wav'));
+ expect(markOf('voice.wav')).toBe('Cover source (audio or video)');
 });
 
 test('cover needs an explicitly selected audio or video source, uploads it once on Run, and is immutable to later edits',async()=>{

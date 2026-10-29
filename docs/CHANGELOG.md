@@ -3,6 +3,8 @@
 ## 0.1.67 (unreleased)
 
 - H3 latent upscale in Generate → Post-Processing gains **☰ More upscaler options** with the remaining `DaSiWaH3TiledUpscale` inputs (refine CFG/scheduler, precision, spatial tiling, temporal chunking, memory planning/reserve/budget, Spike Guard, Continuity soft refine). All start at the node defaults and only changed values are sent, so existing graphs stay identical; native validation bounds every value and checks the scheduler against the backend. The refine fields are now labelled **Upscale refine steps/strength** to make clear they are independent of the generation steps.
+- Music pipelines: an empty **Style** no longer shows the "Unavailable or incompatible selections" dependency warning. Run stays disabled with the hint "Enter a song style." until a style is entered.
+- Music (Cover Music): the stage toolbar button for a browsed audio/video file now reads **Use for music cover** and selects the cover source, the same action as the media panel's right-click menu (it previously said "Use as input" and replaced the shown media instead).
 - Pass `audio_encoders` from the configured models folder (and extra model roots) to the owned backend and the Library scan. SheetSage2 encoders placed there were invisible to ComfyUI before, which blocked **Music (Cover Music)**; restart the owned backend once so it picks up the regenerated model-paths file.
 
 ## 0.1.66
