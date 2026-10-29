@@ -126,6 +126,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   return ()=>{alive=false;};
  },[native,state.opened,t]);
  useEffect(()=>{generation.current++;setNativePlan(null);setTechnicalError('');},[signature]);
+ // A started plan is consumed natively: after a failed/cancelled run, plan again instead of retrying a dead ID.
+ useEffect(()=>{if((status?.state==='failed'||status?.state==='cancelled')&&nativePlan&&startedPlan.current===nativePlan){startedPlan.current=null;setNativePlan(null);}},[status?.state,nativePlan]);
  useEffect(()=>{
   if(!native||status?.state!=='succeeded'||(!planMatches&&!reopening)||!nativePlan||startedPlan.current!==nativePlan||notifiedPlans.current.has(nativePlan.id))return;
   notifiedPlans.current.add(nativePlan.id);
@@ -188,7 +190,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   if(!native||operationLock.current||busy||running||pickerBusy||folderPickerBusy||error||plan?.route!=='managed')return;
   operationLock.current=true;
   const version=generation.current;
-  setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(null);
+  // Keep a failed/cancelled run's logs and error visible while planning the retry.
+  setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(s=>s?.state==='failed'||s?.state==='cancelled'?s:null);
   const {storagePath,backend,features,options,comfyRef}=plan;
   try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath:takeoverOn&&takeoverPath?takeoverPath:storagePath,backend,features,options,comfyRef,...(takeoverOn?{takeover:true}:{}),...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
   catch(e){if(version===generation.current)setTechnicalError(String(e));}

@@ -26,6 +26,8 @@ const UV_URL: &str =
     "https://github.com/astral-sh/uv/releases/download/0.8.22/uv-x86_64-pc-windows-msvc.zip";
 #[cfg(windows)]
 const UV_SHA: &str = "5049375aa2a5162f132b2c1cb992e25d42d47d934cab8c174dbe6f60973dcc12";
+const UV_STALL: Duration = Duration::from_secs(60);
+const UNFINISHED_INSTALL: &str = "This folder holds an unfinished DEAS installation: an earlier install failed or was cancelled. DEAS never deletes or reuses it: choose a new directory (you may delete this one yourself).";
 pub(crate) const VENV_BIN: &str = if cfg!(windows) {
     "venv/Scripts"
 } else {
@@ -255,6 +257,9 @@ fn validate_takeover(input: &str, creating: bool) -> Result<PathBuf, String> {
         Ok(m) if m.file_type().is_symlink() => {
             return Err("DEAS manifest must be a regular file".into())
         }
+        Ok(_) if creating && !path.join("deas-install.json").exists() => {
+            return Err(UNFINISHED_INSTALL.into())
+        }
         Ok(_) if creating => {
             return Err("This folder is already DEAS-managed; reopen it from Setup instead".into())
         }
@@ -389,6 +394,10 @@ impl Engine {
             .map_err(|e| format!("Existing environment is unavailable: {e}"))?;
         let bytes = crate::backend::read_owned(&root.join("deas-plan.json"), 1024 * 1024)
             .map_err(|_| "This folder is not a complete DEAS environment; choose a new directory or a completed DEAS installation".to_string())?;
+        // provision() writes the plan first and the install manifest last: plan alone = an interrupted install.
+        if !root.join("deas-install.json").exists() {
+            return Err(UNFINISHED_INSTALL.into());
+        }
         let mut plan: Plan = serde_json::from_slice(&bytes)
             .map_err(|_| "Existing DEAS plan is invalid".to_string())?;
         let persisted_root = dunce::canonicalize(&plan.request.storage_path)
@@ -946,16 +955,19 @@ async fn bootstrap(
     inner: &Arc<Mutex<Inner>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<PathBuf, String> {
+    // A slow but moving download is fine; only a stalled one fails. A whole-request deadline
+    // surfaced mid-body as reqwest's misleading "error decoding response body".
     let client = reqwest::Client::builder()
         .https_only(true)
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(180))
+        .read_timeout(UV_STALL)
+        .timeout(Duration::from_secs(900))
         .build()
         .map_err(|e| e.to_string())?;
-    let mut response=tokio::select! {r=client.get(UV_URL).send()=>r.map_err(|e|e.to_string())?, _=wait_cancel(cancel)=>return Err("Cancelled".into())}.error_for_status().map_err(|e|e.to_string())?;
+    let mut response=tokio::select! {r=client.get(UV_URL).send()=>r.map_err(uv_download_error)?, _=wait_cancel(cancel)=>return Err("Cancelled".into())}.error_for_status().map_err(uv_download_error)?;
     let mut bytes = vec![];
     loop {
-        let chunk = tokio::select! { r=response.chunk()=>r.map_err(|e|e.to_string())?, _=wait_cancel(cancel)=>return Err("Cancelled".into()) };
+        let chunk = tokio::select! { r=response.chunk()=>r.map_err(uv_download_error)?, _=wait_cancel(cancel)=>return Err("Cancelled".into()) };
         let Some(chunk) = chunk else { break };
         if bytes.len() + chunk.len() > 64 * 1024 * 1024 {
             return Err("uv archive exceeds size limit".into());
@@ -968,6 +980,16 @@ async fn bootstrap(
         "uv archive SHA-256 verified against embedded release digest".into(),
     );
     Ok(uv)
+}
+fn uv_download_error(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        format!(
+            "uv download stalled (no data for {} s, or over 15 minutes in total); check the network connection or pause other downloads, then retry",
+            UV_STALL.as_secs()
+        )
+    } else {
+        format!("uv download failed: {error}")
+    }
 }
 async fn wait_cancel(cancel: &AtomicBool) {
     while !cancel.load(Ordering::SeqCst) {
@@ -1673,6 +1695,57 @@ mod tests {
         lock(&engine.inner).status.state = "running".into();
         assert!(!engine.folders_idle());
     }
+    #[test]
+    fn interrupted_install_folder_says_so_for_reopen_and_takeover() {
+        // provision() writes deas-plan.json before any download and deas-install.json last.
+        let tmp = scratch();
+        std::fs::create_dir(tmp.path().join("ComfyUI")).unwrap();
+        std::fs::write(tmp.path().join("ComfyUI/main.py"), "fixture").unwrap();
+        std::fs::write(tmp.path().join("deas-plan.json"), "{}").unwrap();
+        let engine = Engine::default();
+        let mut r = request(tmp.path());
+        r.storage_path = tmp.path().to_str().unwrap().into();
+        assert_eq!(engine.plan(r.clone()).unwrap_err(), UNFINISHED_INSTALL);
+        r.takeover = true;
+        assert_eq!(engine.plan(r).unwrap_err(), UNFINISHED_INSTALL);
+        assert!(tmp.path().join("deas-plan.json").exists());
+    }
+
+    #[test]
+    fn uv_download_stall_is_reported_as_a_stall() {
+        // A loopback server that sends headers and part of the body, then goes silent.
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npartial");
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let error = runtime.block_on(async {
+            let client = reqwest::Client::builder()
+                .read_timeout(Duration::from_millis(300))
+                .build()
+                .unwrap();
+            let mut response = client
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap();
+            loop {
+                match response.chunk().await {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => panic!("stalled body must not complete"),
+                    Err(error) => break uv_download_error(error),
+                }
+            }
+        });
+        assert!(error.starts_with("uv download stalled"), "{error}");
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn existing_environment_requires_explicit_open_without_reinstall_or_autostart() {
@@ -2208,6 +2281,8 @@ mod tests {
         std::fs::write(tmp.path().join("ComfyUI/main.py"), "").unwrap();
         assert!(engine.plan(r.clone()).is_ok());
         std::fs::write(tmp.path().join("deas-plan.json"), "{}").unwrap();
+        // Plan without install manifest = interrupted install (see interrupted_install_folder_…).
+        std::fs::write(tmp.path().join("deas-install.json"), "{}").unwrap();
         assert!(engine.plan(r).unwrap_err().contains("already DEAS-managed"));
     }
 

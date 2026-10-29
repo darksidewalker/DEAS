@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Setup recovery after a failed or cancelled install: Setup plans again instead of retrying the consumed plan ("Unknown or already consumed plan ID"), keeping the failed run's logs visible. A folder left by an interrupted install (`deas-plan.json` without `deas-install.json`) now says so for new installs, reopening and takeover, instead of pointing at a reopen that cannot work. The uv download fails only after 60 s without data (15-minute ceiling) with a "uv download stalled" message, instead of a fixed 180 s total surfacing as "error decoding response body".
+
 - Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
 
 - Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
