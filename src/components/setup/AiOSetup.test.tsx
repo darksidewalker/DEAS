@@ -256,6 +256,19 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   await waitFor(()=>expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(false));
   click('Start install');await waitFor(()=>expect(started).toEqual(['plan-1','plan-2']));
  });
+ it('shows a planning error in the review panel where Start would be',async()=>{
+  nativeFixture();
+  vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')throw new Error('unfinished installation fixture');
+   return {state:'idle',stepId:null,logs:[],error:null};
+  });
+  mount();open();
+  const alert=await screen.findByText(/unfinished installation fixture/);
+  expect(alert.closest('.aio-right')).not.toBeNull();
+  expect(screen.getAllByText(/unfinished installation fixture/)).toHaveLength(1);
+  expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
+ });
  it('hands off only when a running actual install polls succeeded',async()=>{
   nativeFixture();const installed=vi.fn();const completion=deferred<unknown>();
   vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
