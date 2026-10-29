@@ -2,7 +2,7 @@
 
 ## Development — 0.1.66
 
-Generate now offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints: independent Style/Lyrics editors with ABC Off/Full/Melody planning, maximum duration and advanced sampling; covers build a new song from the melody of a selected audio file or video-with-audio. Outputs are FLAC, kept in Recent history with full settings restore. Real-model generation and native playback acceptance are still open. [Usage and limits](STUDIO.md#music-yue2-0166-development). Not a published release.
+Generate now offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints: independent Style/Lyrics editors with ABC Off/Full/Melody planning, maximum duration and advanced sampling; covers build a new song from the melody of a selected audio file or video-with-audio. Outputs are FLAC, kept in Recent history with full settings restore. Real-model generation and native playback acceptance are still open. [Usage and limits](STUDIO.md#music-yue2-0166-development). Released as 0.1.66.
 
 ## Development — 0.1.64
 
