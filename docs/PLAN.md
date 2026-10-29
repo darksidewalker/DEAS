@@ -1,393 +1,269 @@
-# DEAS — Dark Engine AI Studio
-
-> Historical milestone ledger. Current cross-feature status and priorities are consolidated in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md). [PROJECT-RULES.md](PROJECT-RULES.md) governs new work; later verified implementation supersedes stale unchecked entries here.
-
-## Alpha vision and plugin roadmap
-
-DEAS is an early-alpha all-in-one replacement for the owner's separate installer, generation frontend, prompting, training, enhancement, comparison and media tools. Most of the final product is not implemented. The intended Rust/Tauri application owns a complete image/video authoring experience, an editable end-to-end media planner, a player/organizer and optional backend/model/resource setup. Every feature belongs to a versioned plugin family; small trusted shared kernel services avoid duplicate runtimes, credentials and queues.
-
-See [the all-in-one plugin roadmap](PLUGIN-ROADMAP.md) for the mapping of DaSiWa-TrainFlow, TrueVideoEnhancer, ComfyUI-DaSiWa-Nodes, PromptForge and simple-video-compare, plus the additional editor, library, automation and model-pack plugins. Existing implementations are foundations, not completed ports of those projects. Checked entries below require verified acceptance; roadmap targets remain unchecked.
-
-**Post-setup rule:** optional features, backends and resource packs can be installed later from the same UX. Successfully installed components are included automatically; there is no second enable step. Backend process start and per-recipe readiness remain separate. The first-run wizard must never be the only route to installation. Preserve projects, existing outputs and unrelated external environments when extending the studio.
-
-## Product contract
-A lightweight Rust/Tauri desktop application with a React/TypeScript single-page studio. Neural feature blobs are clickable and connected by meaningful parent-child edges. Selected features expand their controls in the page; no modal maze or conventional dashboard replaces this visual model.
-
-The final product provisions ComfyUI through a native Rust installer ported from the Go DaSiWa installer. No external Go installer application or sidecar is bundled. ComfyUI is the baseline; Director is one explicit package selection including Prompt Forge, RefMods, Continuity and Output. The default setup is automatic-first: read-only findings produce conservative editable recommendations and one brief plan summary, with explicit final Start install consent instead of repeated per-step questions. The earlier guided confirmation flow is an optional fallback, not the default. Recommendations use translated badges only, without connection lines or automatic activation. All UX text uses decentralized language resources and data-only language plugins. Python/PyTorch remain the execution engine; existing installations and services are never implicitly modified or stopped.
-
-## Execution-only backend ownership
-
-DEAS owns feature selection, inputs/settings, media, validation, queue/progress and output playback/export. ComfyUI only receives and executes dynamically compiled API-format jobs; its internal computational nodes are not the source of DEAS UI controls. The Studio does not embed ComfyUI controls. The standalone **Comfy** tab is the explicit exception, exposing the original owned-backend editor and installed frontend extensions without converting them into Studio controls. Prefer a verified SDK/API adapter with explicit local endpoint binding; retain a separate classic API adapter when v2 is absent. SDK availability, beta proxy requirements, job/output ownership and safety gates are specified in [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md).
-
-Implemented bounded slice: native-owned diagnostic recipe prerequisites and a DEAS-owned compile preview. Check required built-in nodes and exact checkpoint/sampler/scheduler choices through an explicit read-only core API probe; compilation is not model-load, architecture or generation acceptance. Next: correlated submission/assets and a real Director recipe. Explicit owned lifecycle, read-only API negotiation and a pure diagnostic recipe compiler are implemented. No foreign-service start/adoption, cloud fallback or assumption of generation readiness; owned-backend autostart follows the Settings preference.
-
-## Model-exact values
-
-Every numeric value DEAS sends to a model must be valid for that model, not just plausible: resolution, aspect, frame count, fps, durations/timings, audio sample counts, latent lengths, steps/CFG defaults and sampler/scheduler names. A value that ComfyUI pads, crops, rounds or silently resamples counts as wrong.
-
-- Port math from the reference implementation (Director/DaSiWa nodes, ComfyUI model code) together with its constants: base area (1024² megapixels), rounding mode and divisor. Taking the formula without the divisor is an incomplete port.
-- Model constraints are family data in `src/families/builtin.json` (canvas `multiple`; later frame rule, fps, audio rate), read by every calculation. No hardcoded 8 or generic fallback where a family is known; unknown models use the strictest safe common value.
-- Snap once, at the end, with the model's rule. Display exactly the value that is submitted.
-- Each constraint gets a test with the exact expected numbers, checked against the reference implementation or SwarmUI where comparable (e.g. 3:4 at 1 MP on SDXL = 896×1152).
-- Values not confirmed from model code or the reference implementation are marked unverified in code and handoff, never presented as correct.
-
-## Milestones and acceptance checklist
-
-### Output naming (0.1.25)
-- [x] Persist an extensionless Output-relative naming template in Generate Options, with type/date/time/seed/model substitution before immutable job preparation.
-- [x] Apply to core and metadata image savers; validate bounded safe relative paths in TypeScript and Rust with collision-safe counters and unchanged extensions. DEAS-owned backend saves now use `-00001.png`, without the trailing underscore; standalone Comfy jobs remain unchanged.
-- [x] Video recipes use the same template with `%type%` = `video`; the DaSiWa Enhanced Video Combine receives the prefix (0.1.27). Standalone Comfy node settings are independent.
-
-### Masked-area inpaint and blur (0.1.22)
-- [x] Opt-in context crop with integer grow (0–512), model-grid processing dimensions and original-coordinate recompositing; default off.
-- [x] Integer mask blur (0–31, default off), shared between sampling and final blending, with SwarmUI's Gaussian kernel/sigma and no new node dependency.
-- [x] Native/TypeScript validation, old-graph compatibility, UI tests, browser real-mask fixtures and real CPU ComfyUI image/mask operation checks.
-- [ ] New model/GPU generation quality and native Windows/WebKitGTK control interaction remain unverified.
-
-### Embedded workflow handoff (0.1.21)
-- [x] Recognize embedded editor workflows in existing image/video metadata and explicitly open them in the owned Comfy tab without execution.
-- [x] Preserve the previous editor draft; validate source/origin, await editor readiness/acknowledgement and report import/timeout/disconnect failures.
-- [x] Focused UI/transport tests, six-language/five-width Comfy regression fixtures and real Chromium/WebKitGTK frontend imports.
-- [ ] Windows native interaction and generation from an imported graph remain unverified.
-
-### Layered image editing (0.1.20)
-- [x] Extend Generate's existing preview with cursor-anchored zoom, Fit/100%, pan and source-pixel image/mask interaction.
-- [x] Selectable thumbnails, independent mask visibility/erase/clear, visible-only inserts, image ordering and active-image handles; round/square brush and numeric/range diameter controls.
-- [x] Preserve draft ownership across edit modes, result selection and Generate/map navigation; source changes reset it, submitted snapshots stay immutable.
-- [x] Focused UI regression tests and Chromium real-pixel/PNG fixture checks; six languages at five widths. No execution-contract or service-lifecycle changes.
-- [ ] Native WebKitGTK pointer interaction and new real GPU inpaint acceptance; persisted editor projects, undo and transparent-cutout compositing remain separate work.
-
-### Original ComfyUI tab (0.1.19)
-- [x] Comfy beside Library: original owned-backend frontend and installed extensions; only shared tab band and footer remain visible.
-- [x] Preserve editor/Studio across tab switches; revoke the editor endpoint after Stop/failure/lost native status.
-- [x] Waiting/loading spinner plus native Starting… / ✓ Started hints in the Backend header button, localized in all six languages.
-- [x] Focused UI tests, responsive browser fixtures, read-only real frontend and WebKitGTK rendering; rebuild/stage Linux artifact.
-- [ ] Windows HTML5 file drops/native interaction and original editor generation acceptance remain unverified/unsupported as documented.
-
-### Shared discovered LLM models (0.1.18)
-- [x] Move LLM endpoint settings right of Startup optimizations; no global remote model, local path, context, GPU-layer or fallback controls.
-- [x] Always discover local language GGUFs from the configured models folder's llm directory; add configured server models without hiding local choices on remote failure.
-- [x] Select discovered provider/model per request in tests and the shared prompt-feature contract, never as a saved global model; automatic local llama-cpp runtime selection.
-- [x] Verify discovery/inference/native/UI/browser coverage and rebuild the Linux artifact.
-
-### Presets & Wildcards (0.1.24)
-- [x] Dock tab beside LoRAs; hammer chooses LLM Prompt Forge or the wildcard controls. Persist opt-in activation, selections, weights, style, seed, budget and reroll mode.
-- [x] Read the original installed library; execute `DaSiWa_WildcardPresetPromptBuilder` before the encoders, preserving base prompts and original category/order/budget rules. Per-generation picks retain selected subjects; Random Select stays explicit.
-- [x] Active/disable badge, immutable job-rule display and actual evaluated strings fed to the metadata saver. Missing plugin fails closed.
-- [x] Native HTTP/capability tests, TS/compiler/UI tests, real-library browser fixtures at six locales/five widths, direct real-node and PNG metadata execution.
-- [ ] Native Windows interaction and new model/GPU generation acceptance; editing/importing custom library files in DEAS is not included.
-
-### Prompt Forge (0.1.23)
-- [x] Hammer in the Generate prompt field: write/enhance in the selected family's dialect, review, Apply, Undo; disabled for families without a dialect.
-- [x] Prompt Forge tab beside Generate: all family dialects plus H3 modes, Duration, Shots, labelled input-folder pictures, vision reading, Send to Generate (prompt + optional negative).
-- [x] No duplicated prompting: native `native_forge` forwards to the node pack's Prompt Writer and H3 Forge routes with DEAS's saved LLM endpoint; route allowlist tested.
-- [x] Real CPU-ComfyUI + local 4B GGUF run of `/dasiwa/llm/write` (text and vision) and H3 REF2VA with a labelled picture.
-- [ ] Streaming/cancel, H3 cast cards/people boxes, video/audio references, continuity drafts, H3 Generate recipe.
-- [ ] Native-window verification of the hammer popover and the tab.
-
-### Shared LLM backend (0.1.17, superseded by per-request discovery)
-- [x] Backend: per-environment local llama-cpp-python, Ollama or OpenAI-compatible API configuration and explicit test completion.
-- [x] Shared native completion service and TypeScript caller for PromptForge/prompt writers; bounded transport and GGUF fallback only on server unavailability.
-- [x] Verify transport fixtures, local worker inference, frontend tests and responsive localized rendering; build the Linux artifact.
-- [ ] Full model-specific PromptForge writer, streaming/cancellation/review/apply and API-key authentication remain separate work.
-
-### Media folder navigator (0.1.16)
-- [x] Separate left-hand expandable folder navigator with lazy child listing, click-to-browse, ancestor/parent navigation and local error retry; file-only media tiles.
-- [x] Media/Workbench tests and Chromium IPC fixtures across five widths and six locales; read-only native media API unchanged.
-
-### Generate seed controls (0.1.15)
-- [x] Random/Fixed, New, exact wrapping ±1, last submitted seed, persisted ten-seed history and restore/copy in all six locales.
-- [x] Workbench tests and responsive Chromium IPC fixtures at five widths; existing safe-integer job contract retained, not full uint64 support.
-
-### Generate metadata (0.1.14)
-- [x] Metadata column between preview and queue using the selected session job's immutable native intent; localized in all six languages.
-- [x] Backend-correlated execution date/duration when present; omit unreported settings instead of guessing.
-- [x] Read bounded embedded generation metadata from browsed and OS-dropped local PNG/JPEG/WebP files; retain unknown text, with empty/error/stale-reply handling.
-- [x] Civitai-compatible output metadata through the DaSiWa Metadata Image Saver when its nodes are listed (A1111 `parameters` with AutoV2 model hash beside `prompt`/`workflow`); core-only backends keep `SaveImage`.
-- [x] Explicit "Use these settings" from a job snapshot or embedded image metadata (A1111/Swarm/ComfyUI graph) into the controls; models matched against the scanned folder only.
-- [x] The same for videos: native reading of `prompt`/`workflow` container tags (mp4 `mdta`, Matroska/WebM) — the only metadata Civitai and ComfyUI carry in video files; A1111 sampler names mapped to ComfyUI ids, untranslatable values reported, never guessed.
-- [x] LoRA hashes (`Lora hashes:`) in the saver (DaSiWa 0.5.29) so civitai.com links LoRAs too; video outputs carry only `prompt`/`workflow` container tags (all civitai.com reads from mp4/webm/mkv), audio metadata is not read by civitai.com at all.
-
-### Generate resolution and reference scaling (0.1.13)
-- [x] Canvas and input-scaling edges snap to the family `multiple` (SDXL 64, MiniMax H3/LTX 32, others and unknown 16) instead of a fixed 8 grid; 1024²-based megapixels as in the Director.
-- [x] Director-style aspect/resolution selectors, additional ultrawide/portrait ratios, custom aspect/megapixels/exact dimensions, persisted controls and reference metadata aspect limited to media-input pipelines. One native/model-default resolution derives from the active family; the aspect swatch is inside the picker.
-- [x] Image-to-image scaling before the next model's VAE encode: Off, Auto, Target, Fit, Fill/crop and Fit/pad; matching native/preview validation and effective output dimensions.
-- [x] Core/UI/native targeted tests, real ComfyUI CPU transform execution and responsive browser fixtures in six locales/five widths.
-- [x] Text/Image → Video recipes for LTX 2.3, Wan 2.2 (image-to-video) and MiniMax H3 compiled natively from the owner's DaSiWa workflow wiring (0.1.27); offline `validate_prompt` against the real ComfyUI checkout. Real model runs, Video → Video, multi-reference and multi-model chaining remain unverified/unimplemented.
-- [ ] Real model/GPU generation acceptance and native-webview input-scaling click-through.
-
-### M0 — Repository and architecture
-- [x] Create project directory and local main branch.
-- [x] Publish the alpha source repository on GitHub.
-- [x] Define frontend, desktop, installer and ComfyUI ownership boundaries.
-- [x] Delegate UI, native shell and adapter/registry work independently.
-- [x] Integrate and independently verify the first implementation.
-
-### M1 — Executable neural studio foundation (complete)
-- [x] React/TypeScript/Vite application builds and typechecks.
-- [x] Neural blobs show feature hierarchy and expand controls inline.
-- [x] Keyboard navigation, responsive layout and reduced motion work.
-- [x] Trusted built-in plugin manifests describe features and drive hierarchy.
-- [x] Manifest validation rejects duplicates, missing parents and cycles.
-- [x] Explicit user action inspects ComfyUI node/device/capability data (HTTP fixtures verified; live endpoint unavailable).
-- [x] Connection failures are actionable; no fabricated readiness or generation.
-- [x] Rust/Tauri desktop shell compiles with bounded read-only backend access.
-- [x] Frontend and Rust tests pass.
-- [x] Browser interaction checks and screenshot complete.
-- [x] Native binary launches independently of development browser.
-
-### M1b — Reusable neural paths and setup decisions (implemented)
-- [x] AiO installer is the initial and first visible feature blob.
-- [x] Opening a decision spawns all available alternatives, arranged vertically.
-- [x] Historical M1b behavior: choosing an alternative revealed the next decision; the confirmation revision below supersedes this.
-- [x] Changing an earlier decision invalidates incompatible later choices.
-- [x] Shared NeuralBlob, NeuralPath and NeuralGraph atoms replace duplicated shapes and connector math.
-- [x] Stable node/edge IDs support reuse, references and tests.
-- [x] Roads indicate direction with gentle sequential illumination or moving cat pawprints.
-- [x] Animation preferences and prefers-reduced-motion provide static alternatives.
-- [x] Setup produces a validated local plan; no fabricated installation or readiness.
-- [x] Existing-backend route hands off explicitly to read-only inspection.
-- [x] Unit, browser and native rendering checks pass after refactoring.
-
-### UX confirmation and included Director package (historical)
-- [x] Every setup selection remains on the current step until explicit Confirm & continue.
-- [x] Detected backend preselection must still expose optional attention/media controls and require confirmation.
-- [x] History/step heading clicks cannot bypass a pending decision or its extra options.
-- [x] Recommendations render localized labels only; no Suggested roads or legends.
-- [x] Director is one selectable package including Prompt Forge, RefMods, Continuity and Output.
-- [x] Included features are passive reusable microbubble atoms, not independent choices or readiness claims.
-- [x] Native plans expand Director into its included native feature IDs before separate installation consent, without writing targets.
-- [x] Verify locale/draft roundtrip, five browser widths, history/selection/confirmation, native rebuilt rendering.
-
-### Stable controls refinement
-- [x] Historical shared green viewport-anchored button; latest revision below moves it to the selection area.
-- [x] Hover/focus/selection change visibility and colour only, with stable natural help/badge slots.
-- [x] Remove history transform/recede movement, retaining opacity and optional road motion.
-- [x] Verify geometry and CTA placement at five widths, all frontend gates, native release build and launch.
-
-### Selection-area CTA and backend continuation (historical; superseded by the tab-strip setup)
-- [x] Green confirmation footer at the lower-right of the current selection/control area, not the viewport corner.
-- [x] Preserve stable hover/focus/selection geometry, shared button identity and input form submission.
-- [x] Review execution-only backend plan against official SDK/API docs; all feature inputs/outputs remain DEAS-owned.
-- [x] Explicit owned backend start/status/stop after successful approved native provisioning.
-- [x] Verify actual local-fixture API responses, process identity, timeout/failure/shutdown and foreign-service isolation; full ComfyUI stack acceptance remains open.
-- [x] Integrate localized frontend lifecycle actions; retain generationReady:false until recipe acceptance.
-- [x] Rebuild and independently test native/UI/browser gates: 38 core/73 UI/46 Rust, four browser suites down to 320px, release/native rendering.
-
-### Automatic-first setup and later machine optimization
-- [x] Native read-only defaults recommend a compatible backend and a new environment beside the running executable; no writes or downloads. Tests cover failed/incompatible detection and existing-target preservation.
-- [x] Show brief findings and an editable plan; directory, backend, package, attention/media flags and source ref remain editable before final Start install.
-- [x] Any edit invalidates the prepared immutable plan; late discovery cannot overwrite manual/restored values, and final Start install cannot submit a stale request.
-- [x] Preserve old drafts and existing-backend inspection; keep unknown/unsupported hardware and selected-option blockers visible.
-- [x] Verify automatic defaults, no writes before final consent, collisions, native IPC, locales and responsive UI; rebuild the native artifact. Browser native-start checks use IPC fixtures; real native defaults/rendering are separately verified.
-
-### Installation-to-studio continuation (0.1.3)
-- [x] Reveal the studio after successful native installation of the exact approved plan; no extra Explore/enable action for Director or its included components.
-- [x] Bind the studio automatically to the actual running owned backend endpoint, once per endpoint/lifecycle; preserve explicit Start/Stop and do not auto-inspect, submit or claim generation readiness.
-- [ ] Complete the diagnostic classic execution slice: explicit job submission, correlated progress/cancellation, validated output retrieval and DEAS playback/export.
-- [ ] Verify a consented real model job separately before marking any generation recipe ready.
-- [x] Support checked reopening of completed DEAS environments after app restart using bounded manifests, native ownership/launch-file capture and one-time preview approval; saved setup drafts alone never authorize reuse. Auto-start the owned backend by default with a persisted Settings opt-out; real target-platform/GPU restart acceptance remains separate from fixture proof.
-
-### Diagnostic classic job transport (0.1.4, implemented bounded slice)
-- [x] Revalidate the explicit versioned diagnostic intent natively against fresh core prerequisites; store an immutable native endpoint/graph plan.
-- [x] Require separate unchecked consent and explicit Run; submit once through classic POST prompt, retaining uncertain transport outcomes instead of retrying silently.
-- [x] Track only the returned prompt/client/graph identity through bounded history/queue reads; expose real queued/running/failed/completed/unknown states and validated output metadata.
-- [x] Keep active job identity independent of draft edits and recover the native-held job explicitly after panel navigation; no global interrupt/queue clear, media transfer or generation-ready claim.
-- [x] Verify real local HTTP transport fixtures, explicit frontend IPC controls, six locales/responsive browser rendering and the native release artifact.
-
-### Diagnostic PNG output transfer (0.1.5, verified stopping point)
-- [x] Retrieve only indexed validated outputs of the current succeeded native job, with bounded nonredirecting PNG transport.
-- [x] Fully decode with CRC/dimension/allocation checks; preserve original bytes and SHA-256 in one bounded session cache.
-- [x] Add explicit local-Blob preview and native Save As export of the cached original, with cancellation and stale/unmounted-result safeguards.
-- [x] Export only new files through an explicit native chooser; reject clobbering, unsafe parents and symlinks, preserving original bytes.
-- [x] Verify HTTP/PNG/filesystem fixtures, explicit IPC/browser paths, six locales at five widths and native release rendering.
-
-**Owner stopped at this verified slice; development later resumed into 0.1.6+.** Resume instructions: [NEXT-SESSION.md](NEXT-SESSION.md). No model downloads or real generation attempts were started.
-
-### Simplified automatic setup and media start page (0.1.6)
-- [x] Automatic setup asks only for the storage folder and the optional Director package; backend, optional packages and Git ref live under Advanced options. The native plan is prepared automatically after each edit; Start install stays the single explicit authorization and shows a one-line summary with full details collapsed.
-- [x] Studio start page with top tabs (Generate, Prompt Forge, Run Plan; legacy `map` preference preserved) and a media library side panel: native read-only folder listing with symlinked folders, OS drag & drop (paths) and browser drag & drop (files), image/video/audio preview through the asset protocol. The library is registered as the `media` plugin; `plugin`-kind entries mount as panels, not as graph nodes.
-- [ ] Native click-through of the media library (asset preview, OS drop) is unverified; only listing, scope semantics and browser rendering are tested. Video/Image tabs hold no inference yet.
-
-### Single-path setup, credential bubble and categorised downloads (0.1.6)
-- [x] Removed the manual step-by-step installer, draft save/restore and the collapsed downloads disclosure. Setup is one automatic path; an existing backend address lives under Advanced options.
-- [x] Provider authorization and Optional downloads are always-visible bubbles below the setup. Downloads are grouped by ComfyUI model folder (checkpoints, diffusion_models, loras, …, workflows) as preview cards generated from catalog data; the bundled `src-tauri/downloads/darksidewalker.toml` lists all 22 current CivitAI checkpoints, LoRAs and workflows of the owner with preview media. CivitAI search (`scope = "search"`) returns previewed models; opening one lists its files with previews and ComfyUI category.
-- [x] Managed installs receive files in place: a plan with an empty folder name stages into the existing `ComfyUI/models/<category>` (or `user/default/workflows`) folder, still creating files exclusively and never overwriting; no manifest is written there. Choosing a parent folder (optional new subfolder) overrides the destination.
-- [ ] CivitAI downloads of the owner's models require a configured CivitAI token (creator setting); anonymous browse works. Live token download and `.mp4` preview rendering in WebKitGTK are unverified.
-
-### Setup tab strip, Library and Settings refinement (0.1.6)
-- [x] Setup is a top tab strip (Installer · Provider authorization · Library · Settings): the installer tab pulses green until install success, then shows a done check and stays clickable to re-run; the installer tab is the only one rendering the hardware findings. The Review & edit panel is sticky so it never scrolls out of sight; collapses to one column below 900px.
-- [x] Dense plan facts (backend + GPU, selected packages, Torch/CUDA) and a step-chain pill row built from the native plan; native warnings collapsed in notes; no separate plan-JSON/consent-checkbox disclosures.
-- [x] Optional downloads renamed **Library**; a fourth Settings tab edits per-environment models/input/output folders (`deas-settings.json`, atomic tmp+rename); the owned backend honours them at start and fails closed on a vanished saved folder.
-- [x] NSFW light-switch with a one-time in-app 18+ confirmation dialog (never a system dialog), `18+` tags, base-model chip filter (Anima, Illustrious, Krea 2, LTX 2.3, MiniMax H3, Wan 2.1/2.2), Models tab image/video filter, preview posters (no autoplaying video in WebKitGTK), login/API-key hints, local-present rows without checkboxes, provider token page opened in the system browser.
-- [x] Windows support compiled and CI-built (`deas.exe` + NSIS on windows-latest): managed uv/Python provisioning, Job-Object/`GetExtendedTcpTable` owned lifecycle, anchored no-clobber downloads and export. No Windows runtime acceptance.
-
-### Library sorting and folder relocation (0.1.7)
-- [x] Library sorts catalog cards and loaded file rows by publication date (newest first) or name (A–Z); undated entries last.
-- [x] Atomic settings saves and no-clobber relocation groundwork: all-tree conflict/overlap checks before copying, exclusive streamed copy, byte verification, settings switched only after verification, originals removed last; collisions abort, never overwrite.
-
-### Existing environments and backend autostart (0.1.10, current)
-- [x] Native existing-environment previews and checked open without reinstalling, updating or wiping; changed manifests/launch files invalidate the preview.
-- [x] Restore the last selected complete environment, revalidate before open and auto-start only the owned backend by default; persist the Settings opt-out and never auto-restart after manual Stop.
-- [x] Prevent duplicate DEAS starts with an OS-held environment lock; fixture tests preserve explicit start/stop and foreign-service isolation.
-- [x] Read-only native inspection/open of the owner's existing NVIDIA/Director environment succeeds. Real GPU/backend execution after reopening and Windows runtime acceptance remain unverified.
-
-### Automatic provider-token checks (0.1.9)
-- [x] Check configured official-provider tokens automatically on authorization-panel opening/provider change and after saving/restoring; Refresh retries without re-entry.
-- [x] Show a green checkmark only for validated authenticated identity responses. Distinguish rejected credentials from unavailable/unsupported checks; keep credentials native-only and discard stale results.
-- [x] Verify real local HTTP fixtures, frontend IPC and five browser widths; rebuild the Linux artifact. Real provider/vault acceptance remains open.
-
-### Library rework, setup layout and remembered choices (0.1.9, in progress)
-- [x] Root cause of "a checkpoint shows no files": real CivitAI version downloads are `…/api/download/models/<version>?fileId=<n>` and the native URL guard only accepted `type|format|size|fp`, so the whole model listing failed and the only error appeared at the far end of the panel. `fileId` (digits only) is now accepted; unit test plus an ignored live test (`live_civitai_checkpoint_lists_selectable_files`, 26 selectable files for model 1981116).
-- [x] Clicking a card opens its file picker directly under the card; loading (spinner) and browse failures show inside that picker. Files are grouped by model version chips; each file row shows its variant (`fp8 · pruned · SafeTensor · ≈13.5 GB`, display-only — rounded CivitAI size is never used for verification).
-- [x] Sort is an inline `Newest ↓ / Name ↑` chip pair with direction toggle.
-- [x] Setup layout: installer, credentials and settings are buttons right of the headline; the tab band is Studio then Library; the install review shows only on the installer view and hides after success (second installer click re-runs); install status with spinner sits under the band.
-- [x] Remembered choices through `src/lib/preferences.ts` (`usePref`, validated): install folder (restored only while `deas-install.json` exists, otherwise first run returns), Library category/base/media/sort, Studio sub-tab.
-- [ ] One flow per card: selection count, destination, Prepare, consent and Start inside the picker instead of at the panel bottom; one-click "download this variant" for the common single-file case.
-- [ ] Exact sizes and free-space check in the plan (HEAD/Content-Length), not only the rounded display size.
-- [ ] Per-version browsing instead of one model-wide listing capped at 50 files; mark cards whose files are already local.
-- [ ] Variant labels for Hugging Face/HTTP sources (quant suffixes, sizes); version grouping exists only for CivitAI.
-- [x] Backend start for a remembered completed install after checked reopening, with default-on autostart and a persistent Settings opt-out. Native local-process fixtures and read-only opening of the owner’s environment are verified; real GPU restart execution is not.
-- [ ] Native-window click-through acceptance of the Library (WebKitGTK); current evidence is browser fixtures plus the live native listing test.
-
-### Folder alias resolution and safe relocation (0.1.8)
-- [x] `native_pick_directory` canonicalizes explicitly chosen existing directories at the chooser boundary; installation execution still refuses symlink substitutions.
-- [x] First-setup optional folders remain an in-memory draft; Settings edits that same draft before success and keeps installed folder settings in separate state (saving/moving after success never invalidates the provisioning plan).
-- [x] Post-install Settings separates path-only save from explicit **Move files & save folders** consent; retained originals are warnings, not successful moved-file counts. Relocation currently supports Linux; other platforms reject movement without changing files. The per-app `FolderOperations` gate covers settings writes/moves and backend/install/download startup.
-- [ ] Relocation runtime acceptance on other platforms, transactional crash/power-loss recovery, and job-scoped cancellation remain open.
-
-### Windows support (compiled, not runtime-verified)
-- [x] `win.rs` Job-Object group termination, TCP-table listener ownership, handle-based no-clobber helpers; `downloads/fs.rs` Windows anchor rejecting reparse points; venv/Scripts and pinned uv msvc zip paths; `nsis` bundle target; CI workflow builds the release binary and installer.
-- [ ] Windows runtime acceptance on actual hardware remains open; CI success is not Windows verification.
-
-### Planned later — machine capability scan and optimization mode
-- [ ] Add a separate opt-in capability/optimization scan for the actual target machine, not the development host.
-- [ ] Record CPU/ISA/core count, RAM, GPU identity/VRAM/driver/compute capability, available storage, supported runtime/attention/codec capabilities and competing resource use. Distinguish measured data, compatibility rules and recommendations.
-- [ ] Propose supported ComfyUI launch parameters, memory/offload policy and optional attention/media choices from a versioned capability profile; keep every proposed value editable.
-- [ ] Offer explicit bounded smoke/benchmark probes only with consent; no automatic model downloads, external-service shutdown, system tuning or unverified hardware support claims.
-- [ ] Persist the accepted profile and exact launch arguments with the immutable plan; invalidate/recheck changed hardware/runtime and provide a conservative fallback.
-- [ ] Verify opt-in scan failures, stale evidence, manual overrides, rollback to conservative defaults and performance benefit on real target hardware. This mode is planned, not implemented by basic read-only default recommendations.
-
-### M2 — Managed AiO setup
-- [x] Implement native Rust uv/Python/ComfyUI baseline for Linux x86_64 CPU/NVIDIA; Go remains a read-only reference.
-- [ ] Reach full Go parity: AMD/Intel, attention extensions, FFmpeg, models/workflows and target-platform setup.
-- [x] Expose immutable native plans, explicit confirmed execution, status and owned-process cancellation.
-- [x] Select capabilities explicitly; baseline planning/execution needs no extra feature.
-- [x] Verify complete new CPU/NVIDIA ComfyUI installation through the real Engine, framework computation, owned API readiness and stop; no model generation claim.
-- [x] Verify selected Director-nodepack dependencies, actual required node registration and owned API lifecycle on NVIDIA. Missing selected nodes block install completion.
-- [x] Show Suggested metadata without silently enabling features; the label-only revision below supersedes the original paths.
-- [x] Decentralize static UX/menu resources and provide validated German, English, Turkish, French, Simplified Chinese and Japanese language plugins, with native names and ISO selector suffixes; raw technical output is preserved.
-- [x] Migrate old local drafts without implicit feature activation.
-- [ ] Bootstrap Git or remove the external Git prerequisite safely.
-- [x] Validate new targets, platform, NVIDIA identity/driver/capability and unsupported choices before execution.
-- [ ] Add free-space estimates, multi-GPU selection and AMD/Intel preflight.
-- [ ] Define tested functional packs and exact required nodes/model files.
-- [ ] Track licenses and gated-download consent without accepting secrets in chat.
-- [ ] Required-component failures prevent Ready; optional failures explain fallback.
-- [ ] Verify GPU computation, backend startup, node availability and pack requirements.
-- [ ] Make downloads resumable and integrity checked.
-- [ ] Handle interrupted setup, repair and storage relocation.
-- [ ] Keep launch read-only except starting the app-owned backend; never stop unrelated processes.
-
-### M2b — Declarative optional downloads and authentication plugins
-- [x] Data-only TOML catalogs describe optional models/files/presets/workflows and provider metadata; native validation feeds UX automatically, including explicit additive session imports.
-- [x] Explicit dynamic user/repository browsing for HF, Civitai and GitHub, plus read-only Ollama discovery and generic configured HTTPS downloads; adapter fixtures, not live provider acceptance.
-- [x] Independent optional token plugin: exact-origin native session storage, anonymous default, metadata-only reads, clear/remove and no credentials in drafts/catalogs/logs.
-- [x] Immutable native download plans, separate consent, safe new destination, real streamed status, digest checks and owned cancellation; Linux scratch byte/file fixtures verified.
-- [x] Add inline AiO/studio plugin access, decentralized locale resources and token/privacy/selection/consent regression tests.
-- [x] Implement explicit optional OS-keyring persistence/restore without plaintext fallback; injected-vault tests only, real OS-store operation unverified.
-- [x] Exercise final frontend/native build gates and six-language browser rendering down to 320px; rebuilt native initial rendering verified, interactive plugin IPC remains fixture coverage.
-- [ ] Managed-environment placement, resumable transfer, real authenticated provider/vault acceptance and explicitly approved Ollama pulls remain separate work.
-
-### M3a — Diagnostic recipe prerequisites and compile preview (implemented)
-- [x] Explicit native read-only core `object_info` probe on the selected endpoint; bounded transport, no redirects/proxy/cloud fallback and no writes.
-- [x] Extract exact checkpoint, sampler and scheduler identities; report missing built-in nodes and reject malformed or unsafe choice lists without normalizing identifiers.
-- [x] DEAS-owned diagnostic controls compile only against observed prerequisites; missing nodes/models block compilation and endpoint edits discard stale evidence.
-- [x] Verify real HTTP fixture transport, frontend IPC fixtures, six locales and responsive rendering; distinguish compile preview from model architecture/load and generation acceptance.
-
-### M3 — Director vertical slice
-- [ ] Complete negotiated SDK/v2 and classic execution adapters; explicit endpoint/no cloud defaults, no ComfyUI editor dependency.
-- [x] Native read-only v2/classic negotiation with explicit endpoint, bounded real HTTP fixtures, distinct failures and localized desktop action.
-- [x] Versioned pure diagnostic text-to-image compiler with explicit capability/model allowlists and deterministic built-in graphs; not a Director recipe.
-- [x] Compile versioned DEAS feature intent dynamically to internal API graphs, not mirrored node-widget forms: image intent plus the family-discriminated `video-generation` intent (`src-tauri/src/jobs_video.rs`).
-- [ ] Own input asset upload, correlated job status/cancellation and verified output download in DEAS.
-- [ ] Media import, reference labels, trim and serialization.
-- [ ] Model/VAE selection and validated execution recipes.
-- [ ] Prompt Forge streaming/cancel/review/apply.
-- [x] Continuity planner: planned H3 segments run in order, each pinning the checkpoint clip the previous step produced (read-only session listing), with the DaSiWa Segment Prepare/Decode/Publish nodes in the graph. Not yet: RefMods, REF2VA/Image Inpaint, join clips, transitions, real-run acceptance.
-- [ ] Queue, progress, cancellation and actionable node errors.
-- [ ] Playback and original-file export tested in the actual native webview.
-- [ ] Existing workflow/reference-pack roundtrip migration tests.
-
-### M4 — Plugins and safe updates
-- [ ] Versioned studio SDK with declared nodes, permissions and compatibility.
-- [ ] Declarative recipes first; untrusted UI extensions isolated explicitly.
-- [ ] Separate app, installer, backend, nodepack and plugin versions.
-- [ ] Stable and experimental channels with compatibility checks.
-- [ ] Stage backend updates in a new environment and support rollback.
-- [ ] Preserve projects/models/media across updates and uninstall.
-
-### M4b — Feature manager and shared project/media domain
-- [ ] Define versioned plugin manifests: dependencies, permissions, resource packs, backend/model capabilities, locale references and project migrations.
-- [ ] Reopen installation after setup; add/remove/update optional plugins without resetting the studio or projects. Installed components need no separate enable action.
-- [ ] Distinguish available, installed, verified and job-ready plugin states; installed components are included automatically.
-- [ ] Shared project/asset library with immutable revisions, metadata/provenance, collections, tags and search.
-- [ ] Native media player, thumbnails and reusable compatibility proxies; preserve originals.
-- [ ] Shared GPU/job scheduler and isolated runtime profiles where dependency stacks conflict.
-
-### M4c — Editable end-to-end planner and image/video editors
-- [ ] Versioned project/shot operation graph: import → prompt → generate → review → edit → enhance → assemble → export.
-- [ ] Allow editing/replacing intermediate assets at any time; invalidate only dependent results and retain completed branches.
-- [ ] Keep running submissions immutable; draft changes produce a new revision and explicit cancel/re-run decisions.
-- [ ] Non-destructive image crop/resize/masks/layers, crop-inpaint-composite and model-specific instruction editing.
-- [ ] Video/audio timeline, trims/splits, shot assembly, transitions, overlays and export.
-- [ ] Review/pause/resume points, batch execution where supported and recovery after interruption.
-- [ ] A/B image/video comparison and synchronized playback/scrubbing using shared media/proxy services.
-- [ ] Validate editing, comparison, codecs, audio and original export in the actual native webview.
-
-### M4d — Enhancement, training and nodepack capability ports
-- [ ] TrueVideoEnhancer plugin: verified upscaling/multi-pass/interpolation workers, tiled/memory safeguards, previews and cancellation.
-- [ ] TrainFlow plugin: profile-specific LoRA/applicable LoKr/textual inversion, dataset prep/tagging/captions, previews and state resume.
-- [ ] Publish trained models and enhancement outputs to the shared library with provenance, never automatic overwrite.
-- [ ] Port most nodepack behavior into task plugins: sizing/resize, LoRA stacks, image/video saving, watermark and inpaint compositing.
-- [ ] Prompt/preset/seed services, LLM/VLM analysis, resource telemetry and opt-in model-scoped optimizations.
-- [ ] Rebuild Rust/Tauri orchestration and DEAS controls; retain appropriate Python computational workers, not legacy Go app UIs.
-- [ ] Audit upstream licenses, code reuse and model/SDK redistribution obligations before integration/distribution.
-
-### M4e — Model packs, backend adapters and automation
-- [ ] Tested image-family adapters: checkpoint SD/SDXL/Pony/Illustrious, Anima, Krea, Qwen Image/edit and additional verified families such as FLUX.
-- [ ] Tested video-family adapters: MiniMax H3, LTX and Wan; more families through the same recipe/pack contract.
-- [ ] Per-pack architecture/runtime/node/model/encoder/VAE/LoRA declarations, hardware bounds and license gates.
-- [ ] Prompt Forge reusable standalone/Director assistance with distinct model dialects, reference analysis and review/apply.
-- [ ] Explicit local LLM/VLM backend adapters for Ollama/OpenAI-compatible services; no implicit cloud fallback.
-- [ ] Automated planning suggestions and repeatable presets, with explicit approval for execution, cost or destructive changes.
-- [ ] Add optional audio/speech/music packs only with separately verified execution backends.
-- [ ] Private collaboration workflow with bounded plugin workstreams, shared contracts and reviewed tests; repository visibility/invitations require separate authorization.
-
-### M5 — Distribution
-- [ ] Native Windows and Linux builds exercised on their target OS.
-- [ ] Signed artifacts and updater verification.
-- [ ] Fresh-machine setup acceptance tests with no Python/Git installed.
-- [ ] Offline restart after successful setup.
-- [ ] Release binaries and beginner documentation.
-
-## Explicit non-goals for M1
-No automatic backend installation, model download, generation, arbitrary third-party executable loading, full graph-editor rewrite, public release, or remote push. M1 proves the shell, interaction model and discovery seam; it is not the completed AiO product.
-
-## Design tokens and layout direction
-Graphite #121719, panel slate #1c2427, mist #e4e9e5, muted stone #8d9b99, copper #ce9875, glacial blue #83b8c8. Organic feature shapes are the signature; connection lines encode ownership, not decorative wiring. App chrome remains quiet. Display typography uses a characterful local serif fallback; controls use readable sans-serif and technical details monospace. Actual implementation may refine these tokens but must preserve legibility and the single-page neural model.
-
-## Integration boundaries
-- Rust: desktop lifecycle, narrow native IPC, scoped native provisioning and owned-job cancellation.
-- TypeScript: complete DEAS UX, versioned feature intent/recipes, draft state and SDK/API adapter contract; no ComfyUI frontend imports.
-- Go installer repository: read-only behavioral/compatibility reference for native Rust porting.
-- ComfyUI/Python: execution-only model loading, conditioning, sampling, processing and encoding; internal computational nodes are hidden implementation details.
-
-All unfinished controls identify their status. Browser fixture data belongs only in tests. An HTTP response is not proof of generation readiness; an installed package is not proof of working GPU computation.
-
-## Follow-up backlog (2026-10-21)
-
-- [ ] ComfyUI integrated view is sometimes blurry (preview rendering — investigate scale factor / CSS sizing vs. native video resolution).
-- [ ] Prompt spellcheck missing in prompt editors.
-- [ ] Prompt counter (token/character) missing in prompt editors.
-- See docs/DRAFT-VIDEO-PLAYBACK-FIX.md for the verified Linux playback root cause (superseded by the in-app fix; kept for reproducibility).
+# DEAS plan
+
+[Documentation index](README.md) · [Project rules](PROJECT-RULES.md) · [Product decisions](PRODUCT-DECISIONS.md) · [Verification journal](VERIFICATION.md) · [Changelog](CHANGELOG.md)
+
+This is the **single current plan** for DEAS: what is in place, what is still open and what has to be proven before an item counts as accepted. It replaces the earlier `IMPLEMENTATION-STATUS.md`, `VIDEO-PLAN.md`, `YUE2-MUSIC-PLAN.md`, `PLUGIN-ROADMAP.md`, `NEXT-SESSION.md`, `DRAFT-VIDEO-PLAYBACK-FIX.md` and the old milestone checklist that used this file name; they remain in Git history.
+
+- Delivered work is described in the [changelog](CHANGELOG.md) (per version) and the user guides; evidence lives in the [verification journal](VERIFICATION.md). Finished slices are not repeated here.
+- [PROJECT-RULES.md](PROJECT-RULES.md), [COMFYUI-RULES.md](COMFYUI-RULES.md) and [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md) govern how work is done; [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) governs scope.
+- An open row here is **not** authorization to start it. New integrations and large slices need an explicit owner priority.
+
+Baseline: source version **0.1.66** (tag `v0.1.66`), reviewed 2026-10-29.
+
+## 1. Evidence levels
+
+An item is only as accepted as its strongest evidence. Keep the levels separate when updating this plan.
+
+| Level | Meaning |
+| --- | --- |
+| Implemented, bounded | Code exists for the named slice; it does not mean the whole area is done |
+| Fixture-verified | Unit/component/HTTP/Chromium fixtures or offline graph validation passed |
+| Native Linux | Exercised in the real GTK/WebKitGTK (or libmpv) app on Linux |
+| Real model | Actual model computation produced a checked artifact on named hardware |
+| Windows runtime | Exercised in the real WebView2 app on Windows; a cross-build is not this |
+
+**Cross-cutting open gates.** Most delivered slices are fixture-verified and many are native-Linux verified. Unless a slice says otherwise, these remain open product-wide: Windows/WebView2 runtime acceptance, real-model quality/performance per family, measured RAM/VRAM/idle resources, and native click-through on hosts where input automation is blocked (KDE Wayland ignores XTest).
+
+## 2. Status by area
+
+| Area | State (0.1.66) | Open |
+| --- | --- | --- |
+| Shell, navigation, layout | Implemented. Tabs: Studio, Library, Prompt Forge, Chat, TVE, Run Plan, Comfy, Backend, Logs. Shared viewport gate `npm run test:layout` | Windows/native visual acceptance |
+| Provisioning (installer) | Partial. Immutable consented plans, Linux/Windows x86_64 CPU/NVIDIA baseline, pinned ComfyUI-GGUF, checked reopening, foreign-install takeover, explicit Upgrade/Reinstall | §4.8 |
+| Owned backend lifecycle | Implemented, bounded. Approved ownership, default-on autostart, explicit Stop, Windows Job Object / Linux process group | Real GPU restart matrix, crash/power-loss recovery |
+| Downloads and Library | Partial. Catalogs, providers, managed placement, integrity, cancellation, Scan Files | Resume, free-space UX, §4.7 backlog, broad authenticated-provider acceptance |
+| Authentication | Partial. Native exact-origin credentials, metadata-only readback | Real OS-store and provider acceptance beyond fixtures |
+| Localization | Implemented, bounded. Six languages, module-owned locales | Native-speaker review |
+| API negotiation | Partial. Classic/v2 discovery, exact node/model/sampler choices | Complete v2/SDK execution adapter |
+| Image generation and families | Partial. Image recipes, LoRA stacks, family constraints, MOSS, SDXL/Qwen/Krea/MOSS image references, paired refine products, GGUF split loaders, Edit meta… family override, wrong-folder gating | Per-family real-model matrix; §4.4, §4.5 |
+| Video generation | Partial. LTX 2.3, Wan 2.2, MiniMax H3 (T2VA/I2VA/FL2VA/L2VA/REF2VA, image edit), LTX v2v/keyframes, learned H3/LTX latent upscale | §4.1 |
+| Director and Continuity | Partial. Continuity for all H3 pipelines, sessions, checkpoint/imported/uploaded sources, overlap, use-references, Forge Next action, References modal, RefMod reading, packs, people boxes, cast/pose cards | RefMod creation, joined clips, automatic card reading; §4.1 |
+| Music (YuE2) | Implemented 0.1.66, fixture-verified. Text to Music (ABC Off/Full/Melody), Cover Music, FLAC results/history | §4.3 |
+| Prompt Forge / Chat / shared LLM | Partial. Native writers, MOSS Layout Studio, streamed Chat with HTTP cancellation, model-exact routing, tag suggestions | Forge request streaming (Forge still sends `stream:false`), remote API-key auth where absent, real-LLM acceptance |
+| Presets, wildcards, seeds | Partial. Separate Presets/Wildcards tabs, reproducible seeds | Custom wildcard library editing/import, versioned cross-feature smart presets, hardware-aware recommendations |
+| Image editing | Partial. Layers/masks, paint, magic wand, outpaint frame, full-size drop, crop-inpaint-composite | Undo, transparent inserts, outpaint seam quality, §4.4 |
+| Queue, jobs, history | Implemented, bounded. Repeated Run, split Run/Stop (scoped pending delete + `/deas/jobs/interrupt`), all-job polling, owned preview observers, last-10 recent history | Queue statistics expansion (§4.6); real GPU cancellation |
+| Media and playback | Partial. Media dock, star/unstar raw↔starred, metadata, Linux video via embedded libmpv, WebKit `<audio>` with bundled GStreamer plugins | §4.1 playback acceptance |
+| Output and export | Partial. PNG/FLAC bounded retrieval, cache, no-clobber export; paired image products | Strict baseline-before-refine ordering; paired video products (§4.2) |
+| Projects | Partial. Image-draft projects, single-writer lock, managed PNG import, draft ZIP | Full persistence is deferred by owner scope (§4.6) |
+| TVE video post-processing | Partial. TVE tab, Rust FFprobe inspection, native source/output authority, managed Rust worker, ONNX spatial upscale (`video-upscale` default feature since 0.1.56; rendering available on Linux only) | §4.2 |
+| Video comparison | Missing dedicated integration (image compare exists) | §4.9 |
+| Video assembly | Missing | §4.9 |
+| Training / datasets | Missing | §4.9 |
+| Telemetry / optimization | Partial primitives (`hardware.rs`) | Resource profiles, shared GPU scheduling, opt-in benchmarks |
+| Plugin platform | Metadata/data plugins only | §4.10 |
+| Updates and migrations | Partial. Confirmed app-binary update (Linux self-replace; Windows manual), in-place backend update | Staged update/rollback, project migrations, packed release assets (§4.8) |
+| Distribution | Partial. Local unsigned Linux/Windows builds, release manifest/SHA256SUMS; hosted workflows disabled | Signed/portable distribution, fresh-machine acceptance, glibc portability |
+
+## 3. Owner scope
+
+Current scope (see [product decisions](PRODUCT-DECISIONS.md)): the lightweight global recent-job history is delivered; managed generated-PNG adoption, immutable i2i revisions and full persistent-project recovery are **deferred**. Integrations delivered since that decision (MOSS, image references, TVE, learned latent upscale, GGUF, YuE2) were each explicitly prioritized by the owner. There is no automatic “next slice”: pick from §4 only on explicit owner priority.
+
+## 4. Open work
+
+### 4.1 Video, H3 Director and playback
+
+- **Paste and replace-on-paste for references (W2b′).** Clipboard files have no path; this needs a new native byte-upload command (sniffed, size-capped, written to `deas-inputs/`), which is a trust-boundary change of its own.
+- **Trim editor remainder.** Whole-crop move: needs two finite endpoints, preserves the 2–15 s span, clamps to `[-start, 3600-end]` and updates both ends atomically (3600 is a safety bound, not source duration). The Director's keys move the playhead (Left/Right ±1 s, Shift ±0.1 s); do not call trim nudges Director parity. Waveforms and thumbnail strips.
+- **Create RefMod (W2e3).** Offer the Director's *Create RefMod*: encode selected references via the node pack's `DaSiWaH3RefModExport` into `models/refmods` so they appear in `/dasiwa/refmods`.
+  - [ ] Source-check the node signature, required H3 VAEs, input kinds and output naming; no pack patching from DEAS.
+  - [ ] Separate export intent/graph, validated offline like `dump_video_graphs`; explicit Run, cancellation checked before any write.
+  - [ ] **Create RefMod** on selected references with the Director's strength/name semantics, six locales; refresh the RefMod library afterwards.
+  - [ ] Component/native/offline-graph tests; real H3 VAE encoding and GPU time separately.
+- **References in the main view (W7).** Multi-reference already uses the References modal. Still open: the Image → Video start image, the first/last-frame pair and the Video → Video source as stage slots with replace/remove/drop, keeping `refs`, `lastFrame` and the intent shape unchanged.
+- **Later recipe features (W6).** LTX keep source audio (audio VAE encode + 3-D noise mask), LTX IC-LoRA control (`iclora_parameters` on core `LTXVAddGuide`), LTX per-segment prompts (GPL Prompt Relay patch, explicit opt-in only), LTX retake, source-fps resampling, H3 Image Inpaint as its own pipeline label, join clips/transitions, Wan T2V/S2V, per-model Wan LoRA lists. Unplanned ideas: colour transfer, seamless loop, watermark/soundmark, NAG, TritonVAE.
+- **Real GPU acceptance (W5).** On a throwaway ComfyUI on another port (never the owner's backend): one LTX v2v, one LTX keyframe run, one H3 REF2VA with a 2–15 s clip, one H3 image edit with and without mask. Record outputs, time, VRAM and visible quality. Questions: does H3 frame 0 carry the edit; is unresampled LTX source fps acceptable; does `VAEDecode` after `LTXVSeparateAVLatent` decode H3 correctly.
+- **Learned latent upscale.** Real model quality/performance; strict baseline-first preservation for the paired Original/Processed outputs.
+- **Playback acceptance.** On Linux, embedded libmpv has replaced the old WebKit/GStreamer path (and its Matroska crash) for all Workbench video. Still open: libmpv runtime acceptance (audible audio, A/V sync, seek/EOF/reopen, resources), WebView2 video on Windows, and WebKit `<audio>` (music/FLAC, audio references) with the bundled GStreamer plugins. Keep `src-tauri/gstreamer/`: the plugins are compiled in via `include_bytes!` and serve `<audio>`.
+
+### 4.2 Video post-processing (TVE) and paired products
+
+Rules: the standalone pipeline is Rust (no Go/Python workers); ComfyUI keeps model-dependent latent work. When optional post-processing is enabled the user gets **two real encoded products** (unprocessed baseline and processed result), both selectable/exportable and kept after failure/cancellation; the imported original is preserved. No extra lossy round trip just to save the baseline. Process separation alone is not a memory optimization.
+
+- [ ] **PP1 strict ordering.** Paired image refine products ship (0.1.51), but sibling savers do not enforce baseline-before-refinement; a failure before the baseline saver runs can leave no baseline.
+- [ ] **W8a2 — Rust inference/model plan.** Supported native runtime/model contract and dependency/platform checks; bind source identity, exact geometry and output choices before Run.
+- [ ] **W8b remainder / PP2b2 — streaming spatial path.** A bounded short-clip Linux path exists (≤512 px edges, 2–600 frames, ≤10 s, BT.709 SDR, one audio stream, no subtitles). Open: model-aware tiling for larger inputs, real encoder preflight, Windows rendering, native-dialog/live-WebView acceptance.
+- [ ] **W8c — generated video and more effects.** A lossless intermediate or bounded producer handoff before generated-video support; then individually proven restoration/interpolation/HDR in the order restore → spatial → temporal → HDR. No full-clip tensor batch or PNG sequence.
+- [ ] **Paired-video acceptance.** Baseline boundary per chain; both products in results/library/compare/export with six-language role labels; decoded readback (dimensions, frame count/timing, audio, colour/bit depth); measured RAM/VRAM/throughput per platform.
+
+Reference: TrueVideoEnhancer `67ddb2508fdb6da7f1897bbd964f316592f762d0` (`backend/custom_pipeline.py`, `streaming_pipeline.py`, `render_contract.py`, `nvidia_vfx_pipeline.py`) is a behavioural reference only. Its rawvideo path loses source PTS, its host budgets exclude GPU tensors and its final publication lacks a cancellation check. GPL code reuse does not clear model, NVIDIA SDK or FFmpeg terms.
+
+### 4.3 Music (YuE2)
+
+Delivered in 0.1.66 (see [MUSIC.md](MUSIC.md)). Open:
+
+- [ ] Cover source preflight: actionable no-audio-stream error and decoded-PCM memory bounds for the input (only output FLAC is bounded today).
+- [ ] Live-backend SheetSage2 list multiplicity with real weights.
+- [ ] External-backend FLAC export: `jobs_outputs_tests.rs::music_flac_outputs_are_decoded_before_preview_and_export` covers fetch/decode/no-clobber export; confirm it runs without `outputRoot`, then close.
+- [ ] Real Text to Music (Full/Melody/Off), audio and video covers, scoped cancellation.
+- [ ] Native FLAC playback on WebKitGTK and WebView2; Windows runtime.
+
+Constraints kept from the implementation plan: signatures from one checkpoint do not cover every YuE2 variant (unknown variants stay unavailable; no filename fallback); missing optional nodes disable only the affected modes; no transcription, voice cloning, extra codecs, cloud fallback or automatic installer changes.
+
+### 4.4 Image: masking, references, regional prompting
+
+- **SAM 3.1 masking (planned).** Text → mask and click/box → object mask via core `SAM3_Detect` (`CheckpointLoaderSimple` → `CLIPTextEncode` → `SAM3_Detect` with `bboxes`, `positive_coords`/`negative_coords`, `threshold`, `individual_masks`; `SAM3_VideoTrack` later). Preferred over SAM2 + GroundingDINO (two packs, two models). DEAS already detects `sam3` checkpoints but has no pipeline for them. Limits: text prompts ≤32 tokens; the weights `sam3.1_multiplex_fp16.safetensors` are under the custom SAM License (license inventory and explicit download consent first); VRAM is unmeasured.
+  - [ ] Recipe `sam3-mask` returning a new editor mask layer (never overwriting masks); both compilers and `recipe_prerequisites` list the node and checkpoint.
+  - [ ] Prompt field plus click/box tool, mapped through the brush's source-pixel transform.
+  - [ ] Missing model/node shows the install path; real run with measured time/VRAM.
+  - Frontend-only follow-ups: select-all-similar colour (non-contiguous wand), edge stop (gradient barrier).
+- **More reference techniques.** SDXL IP-Adapter (external `ComfyUI_IPAdapter_plus`; consent/license check first), Flux Redux via core style-model nodes, edit models (Flux Kontext/Flux.2/Qwen Image Edit) through their own reference nodes, OS-file drops onto the prompt, and video/audio chips reusing the H3 reference contract. Unsupported families must explain why instead of ignoring references.
+- **Regional prompting (planned).** Opt-in regions (name, positive and optional negative prompt, strength, rectangle or painted mask), SDXL first; the global prompts stay. No enabled region means an unchanged graph.
+  - [ ] Prove a two-region SDXL recipe on the owned backend first (`ConditioningSetArea`/`ConditioningSetAreaPercentage`/`ConditioningSetMask`/`ConditioningCombine`) against a fixed-seed baseline; record placement, leakage, latency and VRAM.
+  - [ ] Typed region data in `execution.ts` and native validation in `jobs.rs`; required nodes in `recipe_prerequisites.rs`; families in `builtin.json`; bounded payloads and in-bounds geometry.
+  - [ ] Region editor via Workbench and `StudioImageEditor`; text-to-image needs an output-sized canvas; region masks stay distinct from inpaint masks.
+  - [ ] Coordinates against the generation canvas through zoom/pan/resize/crop-inpaint/refine; snapshot before uploads; Run Plan/metadata/preset serialization.
+  - [ ] Compiler parity tests, UI tests and a real artifact per advertised family; six locales and guides.
+
+### 4.5 Models
+
+- **User-defined recipe profiles (M-02, planned).** M-01 (the Edit meta… family override) shipped in 0.1.66. M-02 would add:
+  - a versioned, data-only local profile binding an unknown model to an existing recipe adapter, with exact VAE/encoder references;
+  - adapter-supported defaults/constraints and explicit supported modes;
+  - a stable profile ID, with revalidation when components are replaced;
+  - distinct states *Configured* / *Backend requirements checked* / *Successfully executed*;
+  - optional bounded import/export (no credentials or weights).
+
+  A genuinely new architecture still needs a reviewed adapter. A later *Import example workflow…* may only assist the mapping; it must never execute arbitrary graphs.
+- **GGUF.** Real bounded image/video/audio-in-video GGUF inference and the Windows runtime. ComfyUI-GGUF has no full-checkpoint or GGUF VAE loader, so a manual family assignment can still fail on unsupported labels.
+
+### 4.6 Studio UX
+
+- **Startup splash (planned).** Owner-provided Catgirl idle animation. The asset is pending: transparent looping APNG preferred, animated WebP as an alternative, static PNG fallback; do not substitute artwork. Requirements:
+  - Show early while the main window initializes hidden; hand off once UI state is restored, without an artificial minimum duration or a Backend flash.
+  - Show real startup phases (no invented percentages), with bounded waits and retry or a route to Backend.
+  - Reduced-motion fallback; no duplicate backend starts.
+  - Accept cold/warm start, configured/unconfigured environments, slow/failed backend and disabled autostart, natively on Linux and Windows.
+- **Global search (planned).**
+  - Magnifier entry on every tab, keyboard-openable, six locales.
+  - A static index derived from the existing tab/control/localization data (aliases kept as data).
+  - Results show the breadcrumb tab → section → control, including controls not currently visible. Selecting one switches tab, expands the group, scrolls and flashes the control.
+  - A hit that does not apply right now shows the reason and reveals the control greyed out in place.
+  - Search never writes a setting, submits or calls the backend.
+- **Spellcheck dictionary suggestion (planned).** If no dictionary is available for the selected spellcheck language, suggest a Hunspell dictionary download instead of only showing the unavailable state. Today Linux reports `SPELLCHECK_DICTIONARY_MISSING` and asks for an Enchant-compatible dictionary (`spellcheck.rs`); Windows reports `SPELLCHECK_UNSUPPORTED` because native dictionary selection is not available in WebView2.
+  - Linux: offer the matching Hunspell `.dic`/`.aff` pair, installed into a user-level location that Enchant/WebKitGTK actually loads (verify with the existing loaded-dictionary check after a restart; no system package manager, no root).
+  - Windows: first establish whether WebView2 can use a supplied Hunspell dictionary at all; if not, keep the explicit unsupported state and do not offer a download.
+  - The download is explicit (source, size and license shown; the LibreOffice/Hunspell dictionaries carry per-language licenses), integrity-checked and bounded, and goes through the existing Library/download service. Opening Settings or typing never downloads anything.
+  - Six locales; fixtures for missing, downloaded-but-not-loaded and loaded states; native acceptance on WebKitGTK and WebView2.
+- **Queue statistics expansion.** Client-measured elapsed queued/running time for live rows (marked as client-side) and steps/seed/checkpoint in the detail view; no new tracking.
+- **Project persistence (deferred).** The full target, if resumed:
+  - complete Studio authoring state;
+  - managed inputs, adopted results and job records;
+  - an extension of the versioned `project.json` (no parallel schema);
+  - one portable ZIP with credentials and weights excluded, and safe extraction;
+  - reopening without computation.
+
+  Existing draft projects stay as they are.
+- **Native acceptance still open for shipped UX slices:**
+  - star/unstar round-trips (Unicode, collisions, permissions, restart);
+  - column resizing and the remembered session;
+  - Quick Settings resets and project/global isolation;
+  - LLM-setup routing from every entry point;
+  - Settings dropdown rendering and dependency-warning clearing in WebKitGTK/WebView2;
+  - contained bottom media controls (U-02).
+
+### 4.7 Library and downloads backlog
+
+- One flow per card (selection, destination, Prepare, consent and Start inside the picker); one-click single-variant download.
+- Exact sizes (HEAD/Content-Length) and a free-space check in the plan.
+- Per-version browsing beyond the 50-file listing cap; mark cards whose files are already local.
+- Variant labels (quant suffix, size) for Hugging Face/HTTP sources; grouping exists only for CivitAI.
+- Resumable downloads.
+
+### 4.8 Installer, backend and distribution
+
+- AMD/Intel profiles and preflight; multi-GPU selection (`install_torch.rs` refuses more than one GPU today); free-space estimates.
+- Git bootstrap, or removal of the external Git prerequisite; full FFmpeg/attention-extension provisioning.
+- Interrupted-install repair/resume; staged environment upgrade with rollback (reinstall replaces the venv, which is not rollback).
+- Pin the DaSiWa node-pack ref. It is cloned from `main` with the revision recorded but not user-selected, which falls short of the explicit-updates decision.
+- Settings relocation on Windows (`settings_move.rs` rejects non-Linux).
+- **Packed release assets (planned).** Linux `deas-linux-amd64.tar.gz`, Windows `deas-windows-amd64.7z`.
+  - Detect packing by magic bytes (`1f 8b` for gzip, `37 7A BC AF 27 1C` for 7z).
+  - Verify the archive digest and size first.
+  - Extract exactly one entry with the expected executable name: reject paths, dirs, symlinks and extra entries, and bound the decompressed size. Then apply the existing header and atomic-replacement checks.
+  - Raw assets stay accepted in both directions (old updaters with new releases and the reverse).
+  - Fixtures for raw, tar.gz, 7z, extra/symlink/traversal entries, decompression bomb, digest mismatch and mixed releases.
+- Signed/update-verifiable distribution, fresh-machine/Git-free setup, glibc portability and current CI readback.
+
+### 4.9 Reference-project ports
+
+These are the local reference repositories; their functionality does not count as implemented in DEAS. Each port needs an explicit owner priority, a Rust-first native boundary and its own Linux/Windows acceptance.
+
+- **Video comparison:** `/data/GitHub/DaSiWa-simple-video-compare` (Rust/Tauri/libmpv: `src-tauri/src/native.rs`, `embedded.rs`, `embedded_windows.rs`, `runtime.rs`, `desktop/src/model.ts`).
+  - Share the player/probe/runtime boundary with DEAS's libmpv player.
+  - One/two-source side-by-side, wipe, blend and difference; seek, frame-step and source audio.
+  - Test mismatched dimensions/fps/duration, short-source EOF and missing audio.
+  - Filters normalize to `yuv420p`, so this is not bit-exact HDR analysis.
+  - Assess GPL/libmpv/FFmpeg redistribution first.
+- **Video assembly:** `/data/GitHub/DaSiWa-simple-rtx-video-assambler` (`vid_tool.py`; spelling retained).
+  - A Rust FFmpeg plugin: ordered sources, labels, grid layouts (contain/cover/stretch), audio selection/mixing, NVENC AV1/SVT-AV1.
+  - Do not port its defects: the preview only computes resolution, the audio mix assumes every input has audio, the `p8`/`p9` presets are not universal, and `-y` plus timestamp names can overwrite files.
+  - Spatial grid and temporal montage are separate contracts.
+- **LoRA training:** `/data/GitHub/DaSiWa-TrainFlow` (`internal/trainer/profiles.go`, `config.go`, `defaults.go`, `musubi.go`, `manager.go`, `normalizer.go`).
+  - Profiles: Anima, SDXL/Pony/Illustrious, LTX 2.3, Wan 2.2, Krea 2.
+  - Rust owns datasets, typed config/argv, process groups, progress, cancel/resume and result indexing. Python stays the sd-scripts/Musubi engine, in an isolated environment.
+  - The runtime uses cu130 (not the README's CUDA 12.4); ROCm is experimental; Musubi is single-process. Replace whitespace-split extra args with typed argv.
+- **Full TVE parity**, beyond §4.2: AI/NVIDIA restoration, RIFE/NVIDIA interpolation and SDR→HDR, each only for tested combinations. The reference stack is CUDA-specific and must not become a universal environment.
+
+Node-pack features and their intended DEAS destination (not yet planned in detail):
+
+| Node-pack feature | DEAS destination |
+| --- | --- |
+| H3 Cache / Kitchen Attention | Opt-in inference optimization profiles |
+| RTX Upscaler & Refiner | Enhancement plugin with an explicit NVIDIA SDK requirement |
+| Watermark Overlay | Editor overlay |
+| System Monitor | Native telemetry |
+| Random String Picker | Prompt/seed services |
+| Node Status Switch | Planner stage enable/bypass |
+| LLM/VLM Analyze | Analysis/captioning plugin |
+
+A PromptForge port keeps per-model dialects, structured video sections, reference labels, tagger integration and review/apply. It uses DEAS's execution layer rather than its own ComfyUI queue, and licensing is verified first.
+
+### 4.10 Plugin platform and planner
+
+`PluginManifest` holds identity/parent/text/node/include/suggest metadata; `validatePlugins` checks duplicates, missing parents and cycles. A manifest alone cannot install or run an implementation.
+
+- [ ] Extend the smallest contract the first real new plugin needs: schema version, dependencies, capabilities/platforms, permissions, lifecycle, settings/locales, tests.
+- [ ] Durable project/asset/recipe/job identities and immutable revisions before claiming restartable multi-pipeline editing.
+- [ ] Shared job scheduling and scoped recovery across plugins (today: session-held jobs and serial H3 sequencing).
+- [ ] Post-setup feature add/remove/update without resetting projects.
+- [ ] A trusted built-in versus untrusted extension boundary before loading downloaded executable/UI plugins.
+- [ ] A general editable planner (operation graph, revisions, downstream invalidation, review/pause/resume), only once real consumers need it.
+
+### 4.11 Known defects and audits
+
+- The Comfy tab's integrated view is sometimes blurry (scale factor / CSS sizing). Not yet investigated.
+- Chat's `read_guide` cuts every guide at 16,000 characters (`forge/assistant.rs`). Most of [STUDIO.md](STUDIO.md) and the Presets/Wildcards sections of [PROMPTING.md](PROMPTING.md) are therefore unreachable from Chat, and MUSIC/TVE/APP-UPDATES are not offered at all.
+- `src-tauri/src/output_naming.py::prepare` wraps core/DaSiWa saver methods. This global-patch compatibility exception needs an audit under the [ComfyUI rules](COMFYUI-RULES.md).
+- `src/lib/setup.ts` still carries the guided-setup state machine used by core tests and the `existing` plan route; delete it only together with those tests.
+
+## 5. H3 Director and video reference facts
+
+Re-check after node-pack updates.
+
+- **Recipe reference:** the owner's DaSiWa workflows (LTX *OmniForge*, Wan 2.2 *FastFidelity*, MiniMax H3 *MythicAlchemy*; not in this repository) define the wiring. ComfyUI templates and `comfy_extras/nodes_*.py` are only for node signatures. Read subgraph-promoted widget values (e.g. H3 steps 4, shift 10/3, `euler`).
+- **MiniMax H3 Director** (DaSiWa node pack: `nodes/nodes_minimax_h3_director*.py`, `js/minimax_h3_director.js`):
+  - Modes `T2VA, I2VA, FL2VA, L2VA, REF2VA, Image Inpaint`. `ref2va_model` serves REF2VA and `fl2va_model` the rest. There is **no video-to-video mode**.
+  - `timeline_data` items: `{id, type, value, slot, order, enabled, trim_start?, trim_end?, media_mode?}`.
+  - Lanes: images 0–8, video 0–2, audio 0–2. Limits: ≤9 images, ≤3 videos, ≤3 audio, ≤12 files. Audio needs an image or video (RefMods count as visual). Clips are 2–15 s; video and audio totals ≤15 s each.
+  - Image Inpaint: one image in slot 0, no mask input, a 5-frame pass; frame 0 is the result.
+  - All Forge routes return 409 while a workflow is queued.
+  - HTTP routes used by the Director: `/upload/image`, `/view?type=input`, `/dasiwa/refmods*`, `/df_h3_continuity/*`, `/dasiwa/h3/forge*`, `/dasiwa/llm/write`, `/dasiwa/input-images`.
+- **WhatDreamsCost LTX Director** (GPL-3.0): its guide step equals core `LTXVAddGuide` per segment. Do **not** emit its nodes: they are GPL, its timeline strings come from a 469 KB JS UI, and `/video_ui_custom_view` (arbitrary file read) and `/video_ui_upload_chunk` (path traversal) are unsafe.
+
+Decisions (keep unless the owner changes them):
+1. H3 Video → Video and Multi-reference → Video both run **REF2VA**; label it honestly. A REF2VA checkpoint is recommended (a hint, not a block).
+2. LTX uses core nodes only (`LoadVideo`, `GetVideoComponents`, `ImageFromBatch`, `LTXVAddGuide`); Wan gets no v2v/ref2v.
+3. H3 image edit uses the native node the Director calls, so DEAS masks, crops and layers keep working; frame 0 is the result.
+4. DEAS drives node-pack features over their existing HTTP routes. New routes are node-pack work first (route + test + version bump there), never patched from DEAS.
+5. Director prompt tokens (`<Picture N>`, `<Video N>`, `<Audio N>`, `<RefMod N>`) stay English in every locale, because they are model input.
+
+## 6. Maintaining this plan
+
+- When a slice lands: record the evidence in [VERIFICATION.md](VERIFICATION.md), the user-facing change in [CHANGELOG.md](CHANGELOG.md)/[NEWS.md](NEWS.md) and its guide, then **remove** the finished item here (or narrow it to what is still open). Do not keep delivered narratives in this file.
+- Never promote source inspection, a form field, offline graph validation or an HTTP success to real inference, playback or platform acceptance.
+- Gates:
+  - frontend: `npm run typecheck`, `npm test`, `npm run build`, `npm run test:layout`;
+  - native: `cd src-tauri && cargo test --locked`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`;
+  - video graphs: `cargo test --lib dump_video_graphs -- --ignored --nocapture`, then `tools/validate_video_graphs.py <json> --comfy-root <checkout> --extra-model-paths-config <yaml>`. This proves node names, inputs and link types only.
+- Documentation-only changes need link/anchor/diff checks, not a version bump.

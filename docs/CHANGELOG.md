@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.1.66
+## 0.1.66
 
 - **YuE2 music generation:** Generate gains **Music (Text to Music)** and **Music (Cover Music)** pipelines. Style and Lyrics are independent editors with the YuE2-specific writers, shared prompt tools and copy/clear/expand; there is no negative prompt. Text-to-music exposes **ABC Off / Full / Melody** planning with separate ABC and autoregressive settings, seed, sampling, scheduler and a maximum duration. Music has its own state: switching pipelines never relabels image prompts, hidden image/video options never leak into a music intent, and Run snapshots are immutable across later edits.
 
@@ -12,13 +12,13 @@
 
 - Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
 
-## Unreleased — 0.1.65
+## 0.1.65 (untagged; shipped in 0.1.66)
 
 - **Model-family metadata:** Studio and installed Library models share **Edit meta…**, including keyboard access on blocked models. Family declarations use the existing source-bound sidecar and stay distinct from detection. Native preparation/submission now reject stale or malformed selected model/LoRA metadata, including changes during the observer handshake. Reset removes a structurally valid unknown family without losing current cached hashes or provider metadata; malformed sidecars are preserved and remain blocked. No automatic download, preparation or submission is triggered by editing.
 
-- **GGUF integration:** supported split diffusion/video models use `UnetLoaderGGUF`; GGUF text encoders use `CLIPLoaderGGUF` or LTX's `DualCLIPLoaderGGUF`, with independent backend model/type catalogs and missing-loader/file Run gates. Unknown models use the existing source-bound **Edit meta…** family sidecar, never filename-based architecture guessing. Unsupported self-contained GGUF checkpoints, GGUF VAEs/projections and all non-Safetensors LoRA files fail explicitly; LoRA-on-GGUF-base remains conservatively blocked, including Wan's LOW model. The bounded v2/v3 header parser uses standard metadata types and independent malformed/format fixtures. New managed installation plans provision and CPU-import-check a pinned ComfyUI-GGUF pack; legacy manifests remain reopenable without silent dependency migration, while explicit Upgrade/Reinstall adds the pinned dependency and atomically updates the plan after successful checks. Remaining acceptance is tracked in the [resume checklist](IMPLEMENTATION-STATUS.md#gguf-loader-variants-for-every-pipeline-and-checkpoint-variant). Real model generation and Windows runtime remain separate acceptance gates.
+- **GGUF integration:** supported split diffusion/video models use `UnetLoaderGGUF`; GGUF text encoders use `CLIPLoaderGGUF` or LTX's `DualCLIPLoaderGGUF`, with independent backend model/type catalogs and missing-loader/file Run gates. Unknown models use the existing source-bound **Edit meta…** family sidecar, never filename-based architecture guessing. Unsupported self-contained GGUF checkpoints, GGUF VAEs/projections and all non-Safetensors LoRA files fail explicitly; LoRA-on-GGUF-base remains conservatively blocked, including Wan's LOW model. The bounded v2/v3 header parser uses standard metadata types and independent malformed/format fixtures. New managed installation plans provision and CPU-import-check a pinned ComfyUI-GGUF pack; legacy manifests remain reopenable without silent dependency migration, while explicit Upgrade/Reinstall adds the pinned dependency and atomically updates the plan after successful checks. Remaining acceptance is tracked in the [plan](PLAN.md#45-models). Real model generation and Windows runtime remain separate acceptance gates.
 
-## Unreleased — 0.1.64
+## 0.1.64 (untagged; shipped in 0.1.66)
 
 - Studio remembers last-edited drafts per pipeline and exact selected model for the app session, including prompts, input/reference media, editor masks/paint/layers, LoRAs, seed, components, Options and post-processing. Returning to a pipeline restores its last compatible model. The cache is memory-only, clears on restart/default reset and never overrides an explicit project/history/metadata restore or changes submitted jobs.
 
@@ -32,11 +32,11 @@
 
 - Add optional learned H3 and LTX latent upscale under Generate → Post-Processing, using family-specific safetensors in `latent_upscale_models`. Missing-model activation offers the existing Library flow in a popup; downloads remain explicitly authorized. The final generation latent is upscaled before decoding, without a lossy video round trip; existing LTX multipass controls stay separate. Paired Original/Processed video outputs retain their roles. H3 segment-capture pairing now compiles with exactly one Segment Decode: the Processed video comes from the upscaled decode, and the Original baseline is assembled on core nodes (core VAE decode of the prepared window plus an `ImageFromBatch` crop mirroring the nodepack's continuation timing, with audio reused from the Segment Decode), with the pinned checkpoint clip's frame count resolved from the session list at prepare time; first takes, imported-video pins and clip lists stay fail closed. Strict baseline-first failure preservation remains unverified.
 
-## Unreleased — 0.1.63
+## 0.1.63 (untagged; shipped in 0.1.66)
 
 - Add right-aligned Studio prompt character counts, shared inline/enlarged spelling aids with an independent remembered system-default language, and default-off autocomplete using Prompt Forge’s local tag search. Backend language settings and Quick Settings control both aids without changing generation settings or submitting prompts.
 
-## Unreleased — 0.1.62
+## 0.1.62
 
 - H3 References now shows compact selected-media thumbnails with current stream/trim summaries. The Edit button carries a copper glow so the opened media editor is easy to spot. Each Edit button opens a separate modal for that reference’s existing playback, crop, Forge labels/details and people controls. Closing it retains changes, stops its player and returns to the selected card; Escape does not close the underlying References overlay. Native video thumbnails use a cached frame at the selected crop start without a WebKit video decoder. Originals and execution settings remain unchanged.
 
@@ -44,32 +44,38 @@
 
 - Correct the shared Linux video-player seek and volume tracks: theme-colored fill ends at the playhead, the full 0–100% range is usable without input-field padding, and current/total time plus volume percentage stay visible. Replace platform-dependent play/mute glyphs with themed SVG controls; preserve native playback and forced mute.
 
-## Unreleased — 0.1.60
+## 0.1.60 (untagged; shipped in 0.1.62)
 
 - Media dock: on Text → Image / Image → Image with a model that supports image prompting, right-click an image → **Use as prompt reference** (the same reference as dropping the tile on the prompt; disabled with the 4-reference count when full, badged in the dock, and the entry becomes **Remove reference** on referenced tiles).
 
-## Unreleased — 0.1.59
+## 0.1.59
 
 - Preserve current reference additions and crop edits during native file drops; ignore drops belonging to a different modal/background browser and discard file descriptions that finish after the picker closes.
 
 - Move Multi-reference management into a Continuity-style modal with its own shared media picker, reference lanes and inline image/video/audio previews. Preserve labels, people, Forge details, RefMods, packs and non-destructive selection.
 - Add source-duration-aware numeric/range crop controls, playhead-to-start/end, reset and Play crop for video/audio. Audition video-only muted, audio-only without a picture, or synchronized picture and sound; send the same selected stream and crop to H3. Linux video reuses the native libmpv path. Known crop lengths, per-stream 15-second totals and the Director’s both-stream reference count are validated before submission.
 
-## Unreleased — 0.1.58
+## 0.1.58 (untagged; shipped in 0.1.59)
 
 - Enable the existing H3 Continuity planner for Video → Video and Multi-reference → Video, matching the Director’s REF2VA mode. Keep checkpoint/imported-video sources, serial Run next/all, overlap and full/segment outputs. An optional, default-off current-reference switch drives both generation and Next action Forge; tail-only continuation skips unused media uploads and RefMods. Native REF2VA continuation validation and exact requested-duration forwarding are included; ordinary runs and older intents retain their existing contracts. LTX/Wan continuity is not added.
 
-## Unreleased — 0.1.57
+## 0.1.57
 
 - Media dock: Image → Video now offers **Use as input** on an image’s right-click menu, alongside the existing Video → Video **Use as source video** action. Both select the clicked source directly; preview buttons and preview-only browsing are unchanged.
 
 - Preview toolbar: the **More** button shows a dropdown caret and opens Refine/Upscale as an overlay menu stacked top-down (the open menu no longer pushes the controls and caption below). The separate **Full view** button is gone — clicking the media in the view already opens it. Browsed and noneditable source-media controls share the top strip with **Metadata** on desktop; editor/result controls keep their own rows, and narrow previews reserve space for wrapped controls and warnings. **More** labels remain on one line inside a bounded, scrollable menu; bottom-row menus open upward. Original-image mouse and keyboard actions retain the selected job’s source/Star identity, independently of the current edit draft.
 
-## Unreleased — 0.1.56
+## 0.1.56
 
 - One build everywhere: `video-upscale` is now a default Cargo feature, so every Linux and Windows DEAS binary includes the native TVE spatial engine (ONNX Runtime loaded dynamically at runtime, nothing bundled or auto-downloaded, no GPU/runtime initialization at startup). The separate `deas-linux-amd64-video-upscale` variant is retired — engine use stays an explicit runtime opt-in (settings + trusted runtime/model binding).
 
-## Unreleased — 0.1.55
+## 0.1.55
+
+- Tie optional native preview observers to job ownership, terminal commits and confirmed Workbench Stop, with wakeable cancellation and bounded graceful socket cleanup. Submission, unknown-state reconciliation, history and outputs retain their existing contracts; native acceptance is pending.
+- Add shared Settings ratios to native image Prompt Forge and standalone H3, explicit N/A/Auto/Custom dimensions, request-bound MOSS layouts and guarded Send-to-Generate canvas transfer. Native geometry is checked before inference; legacy LTX/Wan remain explicitly prompt-only. Native/platform acceptance is pending.
+- Keep applicable Studio media actions in a contained, wrapping bottom row across browsed previews, adopted editors and selected results, preserving media eligibility, retained drafts and per-output Star/Unstar actions.
+- Add optional global recent-generation metadata for ten native attempts and a Studio history view with explicit compatible-settings restore, unresolved dependency gates and output-location repair after Star/Unstar. Media and the separate live queue are preserved; [batch verification and native acceptance limits](VERIFICATION.md#batch-b-recent-generation-history-0155) apply.
+- Keep historical inputs unresolved until explicit Media reselection and invalidate output-availability labels on selected-context changes, record updates and close. Preserve reference order/strengths and ignore obsolete availability replies.
 
 - Prompt Forge, the hammer and Chat no longer say a server is needed when one is already connected: the "local GGUF runner does not support tool calls" warning now appears only when local GGUFs are the only models found. Beside a usable server, local GGUFs stay listed and greyed out.
 - Fix video source inspection failing intermittently on Windows with VIDEO_PROBE_FAILED for valid files (about two in three attempts): Windows sets ffprobe's exit code before the process is fully finished, and the cleanup job kill in that window overwrote the code with 1. The probe's exit status is now read after the process has finished and before the cleanup kill.
@@ -87,23 +93,23 @@
 - Bind explicit native video inspections to a single retained session source ID, without granting authority to the standalone CLI inspection helper. Add native chooser-only new-MP4 output preparation and explicit source/directory/destination recheck; browser requests carry IDs/settings/title rather than file paths. Failed/cancelled selection preserves prior usable state; changed sources, directory replacements and occupied targets invalidate preparation. No file is created and all model/timing/encoder/processing readiness flags remain false.
 - Add six-language TVE preparation cards/actions with duplicate-request guards and stale-result fencing. Legacy inspections without source IDs remain usable for metadata drafts; no model selector, GPU job or Render action is enabled.
 
-## Unreleased — 0.1.53
+## 0.1.53
 
 - Add a dedicated TVE main tab for standalone video post-processing authoring, separate from Generate's image Post-Processing dock. Lazy mounting retains source inspection/output choices/checked drafts across app navigation; opening or restoring the tab does not probe, load models or submit work. Keep the Generate workbench and existing image actions mounted and unchanged.
 - Add an optional Linux-only Rust short-clip streaming core and actual-session `upscale_video` developer example: bounded raw RGB pipes, complete rational frame timing checks, AAC audio mapping, cooperative cancellation/owned-child cleanup, completed-file verification and no-clobber MP4 publication. Source/output limits and unsupported platforms fail explicitly; real-codec CPU tests are not AI-video acceptance. No TVE Render action is enabled.
 - Add explicit Rust metadata output-draft validation for 1×/2×/4× and MP4/H.264, MKV/H.264 or WebM/VP9 profiles, with exact rational cadence, audio omission/mapping, source warnings, target-size limits and explicit subtitle blockers. Edits invalidate obsolete drafts; all readiness flags remain false. No executable video plan, encoder discovery, model selection, preview, Run/queue, JSON import/export or video output is advertised.
 
-## Unreleased — 0.1.52
+## 0.1.52
 
 - Add explicit local video source inspection to Post-Processing: a Rust-owned, bounded native FFprobe process reports dimensions, exact rational cadence, stream metadata and conservative timing/color/interlace/rotation/alpha/pixel-aspect blockers. Preserve the previous result on chooser cancellation, prevent duplicate inspection and route sanitized operation diagnostics to central Logs. No file upload, model/GPU initialization, output write or video Run action.
 - Record the owner’s complete-Rust requirement for the standalone video enhancement/inference pipeline; no Go server or Python worker. Source inspection does not establish full CFR verification, inference compatibility or executable enhancement. Existing ComfyUI image behavior remains separate.
 
-## Unreleased — 0.1.51
+## 0.1.51 (untagged; shipped in 0.1.52)
 
 - Save separate Original and Processed image products for the existing optional refine/upscale chain, with a composed pre-refine baseline, native/TypeScript compiler parity and graph-derived roles. Keep final filenames and no-refine graphs unchanged; selected saver format/compression applies to both products.
 - Select paired outputs individually, compare the actual baseline/result, and retain reported completed products on failed/cancelled jobs with indexed PNG preview/export. A backend success missing either paired product is not reported as complete. Baseline saving is still an independent ComfyUI branch: failures before it executes can leave no baseline; strict pre-refinement publication and the streamed video worker remain planned.
 
-## Unreleased — 0.1.50
+## 0.1.50
 
 - Match prerequisite model names with separator-insensitive comparison so Windows subfolder paths (`Anima\model+Int8.safetensors`) validate against the backend's slash-separated combos; `+` in names was already allowed.
 
@@ -115,25 +121,19 @@
 
 - Fix Windows/Linux path compatibility across exact ComfyUI model identifiers, media references, output subfolders/Starred moves, model-tree display, Git discovery and Explorer paths. Remove developer-specific graph-validation paths, use UTF-8 tool I/O and close SQLite handles before replacement; align build staging with `CARGO_TARGET_DIR` and preserve Windows UNC/caller directories. Keep protocol traversal/no-clobber guards and external ComfyUI files unchanged. See [path contracts and limits](PATH-COMPATIBILITY.md).
 
-- Tie optional native preview observers to job ownership, terminal commits and confirmed Workbench Stop, with wakeable cancellation and bounded graceful socket cleanup. Submission, unknown-state reconciliation, history and outputs retain their existing contracts; native acceptance is pending.
-- Add shared Settings ratios to native image Prompt Forge and standalone H3, explicit N/A/Auto/Custom dimensions, request-bound MOSS layouts and guarded Send-to-Generate canvas transfer. Native geometry is checked before inference; legacy LTX/Wan remain explicitly prompt-only. Native/platform acceptance is pending.
-- Keep applicable Studio media actions in a contained, wrapping bottom row across browsed previews, adopted editors and selected results, preserving media eligibility, retained drafts and per-output Star/Unstar actions.
-- Add optional global recent-generation metadata for ten native attempts and a Studio history view with explicit compatible-settings restore, unresolved dependency gates and output-location repair after Star/Unstar. Media and the separate live queue are preserved. Source candidate; [batch verification and native acceptance limits](VERIFICATION.md#batch-b-recent-generation-history-unreleased) apply. No version bump or release.
-- Keep historical inputs unresolved until explicit Media reselection and invalidate output-availability labels on selected-context changes, record updates and close. Preserve reference order/strengths and ignore obsolete availability replies.
-
 ## 0.1.48
 
 Includes the model-aware reference wiring developed under 0.1.47 below, plus compact drag-only reference thumbnails. Local unsigned release; platform/model acceptance limits are recorded in [verification](VERIFICATION.md).
 
 - Replace full-width prompt-reference filename rows with compact numbered thumbnails, red overlay removal controls, and drag-only reordering. Keep filenames available as accessible image descriptions/tooltips, preserve each picture's ReVision strength, and submit the displayed reference order without changing already captured jobs.
 
-## Unreleased — 0.1.47
+## 0.1.47 (untagged; shipped in 0.1.48)
 
 - Keep Krea/MOSS numbered reference placeholders bound to the intended images on both prompt branches, including out-of-order markers. Carry image eligibility in the internal drag MIME types so protected drag payloads do not advertise video/audio as attachable pictures. Add real-core tokenizer and protected-drag regressions; verify GPU reference effects for Qwen Turbo, MOSS and Krea at fixed prompt/seed.
 
 - Wire one prompt-picture draft through model-specific image execution: retain SDXL ReVision, add Qwen Image 2.1/Turbo core text/vision plus ordered reference latents, and Krea 2/MOSS text/vision conditioning through the bundled `DEAS_ImagePromptEncode` adapter. Route both conditioning branches where required, preserve sampler/custom-sigma/refine consumers and upload references outside configured media roots. Native picture paths do not expose ineffective ReVision strengths/vision pickers. Missing capabilities block Run; no automatic backend restart, external node installation or model download. Run Plan shows attached pictures. Experimental edit-LoRA/reference-latent modes and generic Anima references are not added.
 
-## Unreleased — 0.1.46
+## 0.1.46
 
 - Remove the unsupported-reference paragraph below the prompt and refuse unsupported model-family drops with `dropEffect:none` instead of a misleading green copy/plus cursor. Existing ReVision compatibility and model-native input paths are unchanged.
 
@@ -148,12 +148,12 @@ Includes the model-aware reference wiring developed under 0.1.47 below, plus com
 - Add the native-only Workbench all-job polling foundation for the existing bounded session collection. Refresh correlated submitted jobs without resubmitting, preserve unknown outcomes and keep no-network session snapshots separate. Studio now reuses this same collection and keeps diagnostic execution separate.
 - Block image Run before preparation when Wildcards is enabled but its node is missing, including MOSS. Keep the user's wildcard choices until they explicitly disable the feature; available plugins retain the existing intent.
 
-## Unreleased — 0.1.45
+## 0.1.45
 
 - Add a bounded MOSS-Image family adapter for Text → Image and ordinary denoise-based Image → Image, using the dedicated MOSS text encoder, Flux2 VAE/empty latent and model-aligned dimensions. Validate the nodes actually emitted by the selected image graph instead of unused baseline nodes. Model loading, packed encoder support and generation quality remain unverified; unsupported MOSS combinations fail closed.
 - Queue outputs have individually associated corner star overlays and localized measured generation time in succeeded rows/details. Image and video metadata share timing formatting; unknown/failed durations are omitted. Repeated Run, split Stop and client elapsed timers remain planned.
 
-## Unreleased — 0.1.44
+## 0.1.44
 
 - Centralize dropdown styling across all tabs using the compact Settings appearance. New native select fields inherit it automatically; theme-aware arrows, option colours, focus and disabled states replace per-feature styling. Keep native keyboard interaction and high-contrast fallback.
 
@@ -176,7 +176,7 @@ Includes the model-aware reference wiring developed under 0.1.47 below, plus com
 
 - **Bundled PromptForge data has a reviewed update path**: `tools/update-forge-data.py` (`--check`, `--update`, `--verify`) selects a pinned upstream revision, exports the pack inside a read-only Bubblewrap sandbox, validates digests, SQLite integrity/schema and row counts, writes only substantive changes with a rollback-safe swap, and stops with `review-required` on license/notice changes. A weekly review PR workflow runs the same import; no runtime updater and no automatic merge. See [Bundled PromptForge data updates](FORGE-DATA-UPDATES.md).
 
-## Unreleased — 0.1.42
+## 0.1.42
 
 - Every red banner and alert message (studio, setup, jobs, logs) gets a Dismiss × button so users can close error banners without the underlying state changing.
 
@@ -195,7 +195,7 @@ Includes the model-aware reference wiring developed under 0.1.47 below, plus com
 
 All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Verification evidence lives in [docs/VERIFICATION.md](VERIFICATION.md); the roadmap in [docs/PLAN.md](PLAN.md).
 
-## Unreleased — 0.1.41
+## 0.1.41 (untagged; shipped in 0.1.42)
 
 - **FFmpeg (opt-in) is now installable**: checking it no longer blocks the plan with "Unsupported options". The installer adds an `ffmpeg` step — `uv pip install imageio-ffmpeg` into the managed venv and copies the static FFmpeg binary to `venv/bin/ffmpeg` (`venv/Scripts/ffmpeg.exe` on Windows) — and the launched ComfyUI process gets the venv bin on its PATH. Reopen accepts environments installed with the option. (Previously ffmpeg, sage, radial and flash opt-ins were all stubs marked unsupported; sage/radial/flash remain unsupported.)
 
@@ -206,12 +206,12 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Place text encoders, image/video/audio VAEs and text projections in one initially collapsed **Model files** menu below the other Studio settings. Keep selected files and independent All files switches intact.
 - Share the compact Media selector skin with all Studio Settings dropdowns, including Pipeline, aspect/resolution, sampler/scheduler and scaling. Replace the static checkpoint readout with a scanned-model dropdown synchronized bidirectionally with the Models dock through its existing selection/defaults handler; preserve pipeline gates, missing selections and explicit Run authorization.
 
-## Unreleased — 0.1.40
+## 0.1.40 (untagged; shipped in 0.1.42)
 
 - Detect supported text-encoder/VAE companion architectures from safetensors tensor names and shapes, keeping real filenames independent of provider renaming. Header identities take precedence over filename hints.
 - Rework companion dropdowns as full-width compact selectors with explicit automatic recommendations and independent, default-off **All files** switches for text encoders, VAEs, audio VAEs and text projections. Keep models selectable while companions are missing, but block Run until requirements are explicitly satisfied. Preserve manual choices, category/backend/path safeguards and immutable submitted jobs.
 
-## Unreleased — 0.1.39
+## 0.1.39
 
 - Show hover hints where buttons are not self-explanatory: the disabled Run button names its blocking reason (backend, size, missing mask, no checkpoint, unavailable selections), icon-only seed ±/history, last-frame remove and the pane/dock resize handles get native tooltips from their existing labels.
 
@@ -223,7 +223,7 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 
 - Add Unstar to the existing per-media star control. Use the fixed `Output/raw/<Output naming>` ↔ `Output/starred/<Output naming>` layout, preserving full named paths. Existing stars work without receipts; no-clobber, native idle checks, reference repair and shared Logs remain. Do not draw stars on Input tiles. Use Output/Starred/Input buttons (raw/starred/input) instead of the superseded light switch, with a relative folder tree anchored at the Output folder as root. No media migration, overwrites or deletion; project-linked/sidecar-associated moves remain unavailable.
 
-## Unreleased — 0.1.38 follow-up
+## 0.1.38 follow-up (shipped in 0.1.38)
 
 - Share the compact Media dropdown skin with Backend settings, including language, Startup, LLM and installation-review backend selection. Move the vertical Backend menu above the pane at widths up to 480px so selected built-in labels fit; preserve all configuration/execution behavior.
 
@@ -243,29 +243,29 @@ All notable changes to DEAS — Dark Engine AI Studio. Versions match `package.j
 - Route unconfigured LLM entry points to Backend's LLM pane without generation or transfer. Preserve drafts and distinguish missing setup from a configured backend's failure.
 - Add per-media stars with native collision-safe physical moves to the owned Output/starred folder and in-session output/preview reference repair. Unsafe/external, project-managed and detected sidecar-associated files remain explicitly unavailable; no unstar policy is invented.
 
-## Unreleased — 0.1.37
+## 0.1.37 (untagged; shipped in 0.1.38)
 
 - Replace the stacked Startup optimizations, LLM backend and Provider authorization cards with a left selection menu and one consistently styled right-hand pane. Keep visited drafts mounted across panel/main-tab navigation, reset runtime state by environment, retain global authorization drafts, and propagate credential revisions to Library. Add vertical keyboard navigation and disable runtime choices until an installed root is available; selection itself never saves, restarts or executes.
 
-## Unreleased — 0.1.36
+## 0.1.36 (untagged; shipped in 0.1.38)
 
 - Default image-viewer Fit fills the available edge proportionally, including small-image upscaling; use a semi-transparent backdrop without checkerboard and click outside the picture to close. Keep picture/toolbar clicks and drag-to-backdrop safe, with the existing editor zoom limits unchanged. Make the floating footer fully transparent, label its version DEAS v…, and show native backend starting state followed by a once-per-running-transition green confirmation that disappears after 3 seconds, with reduced-motion support.
 
-## Unreleased — 0.1.35
+## 0.1.35 (untagged; shipped in 0.1.38)
 
 - Move Backend/Logs behind Comfy and repository actions to the header right. Unify backend management, settings and inline provider authorization without redundant navigation buttons; add installed/configured status marks. Rename Owned backend, open read-only media previews by click into the existing zoomable full-window viewer, use 3px outer edges and make the version/update hint float without footer-height reservation. Preserve image-edit gestures and explicit install/job authorization.
 
-## Unreleased — 0.1.34
+## 0.1.34 (untagged; shipped in 0.1.38)
 
 - Compact Studio/Library/Prompt Forge/Run Plan/Comfy navigation; move branding and utility actions to the footer and installer/authentication under Backend. Media browsing is preview-only with explicit input adoption and retained editor state. Add transform restoration and a visible yellow dashed processing frame; avoid an empty comparison half before a render exists.
 
-## Unreleased — 0.1.33
+## 0.1.33 (untagged; shipped in 0.1.38)
 
 - Prevent normal window close while a project draft or project operation is pending; allow retry after saving or explicit discard after a failed save. Report listener-registration failure visibly and through fixed, rate-limited native Logs; grant only the local-main destroy API required by Tauri’s close listener. Forced termination and running-job exit consent remain separate work.
 
 - Add native image-draft project folders with revision-checked autosave, exclusive writer locks, explicit create/open/close and managed PNG input. Restore baseline image settings without silently replacing a missing checkpoint or overwriting global Studio defaults; upload a managed input only on explicit Run. This is not job/result persistence, restart recovery or complete SDXL/native-platform acceptance. See [Projects](PROJECTS.md).
 
-## Unreleased — 0.1.32
+## 0.1.32 (untagged; shipped in 0.1.38)
 
 - H3 Continuity adds explicit native local-video upload (MP4/MOV/WebM/MKV, up to 512 MiB), reusing source-preserving input transport. Upload only fills the returned backend filename; Prepare, Use and Run stay separate. Cancellation/stale replies are guarded, six languages are updated, and upload errors reach bounded redacted shared Logs.
 

@@ -1,6 +1,6 @@
 # Native Rust spatial upscaling prototype
 
-[Documentation index](README.md) · [Video plan](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products) · [Verification](VERIFICATION.md)
+[Documentation index](README.md) · [Video plan](PLAN.md#42-video-post-processing-tve-and-paired-products) · [Verification](VERIFICATION.md)
 
 ## Scope
 
@@ -71,7 +71,7 @@ On the verified host, the installed `libonnxruntime_providers_cuda.so` reference
 env LD_PRELOAD=/usr/lib/libcudnn.so.9 cargo run --locked --manifest-path src-tauri/Cargo.toml --example upscale_png -- "$ort" "$model" /absolute/path/to/input.png /absolute/path/to/new-output.png
 ```
 
-Use this only for matching trusted installed libraries; it is not a universal ORT/CUDA requirement or a runtime installer. DEAS does not silently preload libraries, alter system loader configuration or create ABI-version symlinks. The real two-frame PNG inference succeeded with this explicit prerequisite. Subsequent four-frame CUDA video and managed parent/application-worker publication also passed; see [native evidence and remaining GUI acceptance](VERIFICATION.md#native-preparation-and-real-ai-video-core-0154-development). Do not run competing GPU work when the device is occupied, and never stop foreign services to make room automatically.
+Use this only for matching trusted installed libraries; it is not a universal ORT/CUDA requirement or a runtime installer. DEAS does not silently preload libraries, alter system loader configuration or create ABI-version symlinks. The real two-frame PNG inference succeeded with this explicit prerequisite. Subsequent four-frame CUDA video and managed parent/application-worker publication also passed; see [native evidence and remaining GUI acceptance](VERIFICATION.md#native-preparation-and-real-ai-video-core-0154-shipped-in-0155). Do not run competing GPU work when the device is occupied, and never stop foreign services to make room automatically.
 
 Linux runtime library paths containing `$` are rejected at the common native-load boundary because glibc expands tokens even in `dlopen` filenames. Values are not repaired or escaped into another library; ordinary runtime/model spaces remain supported. Optional preload dependencies additionally reject colon and whitespace.
 

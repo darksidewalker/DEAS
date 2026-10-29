@@ -1,26 +1,31 @@
 # DEAS documentation
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Start and use DEAS
 
-Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [Wildcards](PROMPTING.md#wildcards).
+Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Run Plan · Comfy · Backend · Logs.
 
 | Feature, tab or action | Guide |
 | --- | --- |
 | Installation, Windows/Linux build, launch and first setup | [Getting started](GETTING-STARTED.md) |
-| AiO installer, Backend lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
+| Backend tab: install review, foreign-installation takeover, lifecycle, startup settings, folders and language | [Backend and settings](BACKEND.md) |
 | Confirmed application-binary updates, manual restart and platform limitations | [Application updates](APP-UPDATES.md) |
 | Studio → Generate, model/LoRA docks, Options, image editing, post-processing, metadata and H3 Continuity | [Studio](STUDIO.md) |
-| TVE → standalone video source inspection and Rust-validated output drafts (not video rendering) | [TVE workspace](STUDIO.md#tve-workspace) |
-| Native Rust spatial-inference developer example (optional, not Studio video rendering) | [Native upscaling prototype](NATIVE-UPSCALING.md) |
+| Image prompt references (SDXL ReVision, Qwen, Krea/MOSS) | [Image references](STUDIO.md#image-references) |
+| Multi-reference → Video references overlay and media crops | [Multi-reference overlay](STUDIO.md#multi-reference-overlay) |
+| GGUF models and **Edit meta…** architecture assignment | [GGUF and manual architecture](STUDIO.md#gguf-models-and-manual-architecture-assignment) |
+| Per-pipeline session drafts, prompt counts, spellcheck and tag completion | [Session drafts](STUDIO.md#session-only-pipeline-and-model-drafts-0164-shipped-in-0166) · [Writing aids](STUDIO.md#prompt-writing-aids-0163-shipped-in-0166) |
+| Quick Settings, layout reset and colour schemes | [Layout and Quick Settings](STUDIO.md#layout-last-used-state-and-quick-settings) |
+| Music (Text to Music / Cover Music) with YuE2 | [Music](MUSIC.md) |
+| TVE tab: video source inspection, output drafts and bounded native spatial rendering (Linux) | [TVE workspace](STUDIO.md#tve-workspace) |
+| Native Rust ONNX spatial upscaling engine and developer examples | [Native upscaling](NATIVE-UPSCALING.md) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
-| Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
-| Studio → Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |
-| Studio → Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
-| Studio → Music: YuE2 text-to-music, ABC planning and melody covers | [Music](MUSIC.md) |
-| Media dock, navigation, preview and embedded metadata | [Media](MEDIA.md) |
-| Library → Catalog / Installed and provider authorization | [Library and authorization](LIBRARY.md) |
+| Prompt Forge, hammer, MOSS Layout Studio, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) · [Presets](PROMPTING.md#presets) · [Wildcards](PROMPTING.md#wildcards) |
+| Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |
+| Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
+| Media dock, starred media, preview, playback and embedded metadata | [Media](MEDIA.md) |
+| Library → Catalog / Installed, Scan Files; Backend → Provider authorization | [Library and authorization](LIBRARY.md) |
 | Original Comfy editor and workflow import | [Comfy tab](COMFY.md) |
 | Logs, source/level/search filters, copy/export | [Logs](LOGS.md) |
 
@@ -32,18 +37,15 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 
 ## Architecture and contributor contracts
 
-- [Accepted product/architecture decisions and first image-project milestone](PRODUCT-DECISIONS.md) — binding target contract, not implementation evidence
+- [Plan](PLAN.md) — the single current status and open-work list
+- [Product decisions](PRODUCT-DECISIONS.md) — owner-approved scope and architecture boundaries
 - [Project rules, goals and dependencies](PROJECT-RULES.md)
 - [ComfyUI integration/coexistence rules](COMFYUI-RULES.md)
-- [Consolidated current status and implementation plan](IMPLEMENTATION-STATUS.md)
-- [Video, references and Director parity — working plan](VIDEO-PLAN.md)
+- [Execution ownership and trust boundaries](EXECUTION-CONTRACT.md)
 - [Development, builds and diagnostic API](DEVELOPMENT.md)
 - [Windows/Linux path contracts, audit and tooling limits](PATH-COMPATIBILITY.md)
 - [Bundled PromptForge data updates and weekly review PRs](FORGE-DATA-UPDATES.md)
-- [Execution ownership and trust boundaries](EXECUTION-CONTRACT.md)
 - [Installer integration ledger](INSTALLER-INTEGRATION.md) and [native IPC reference](../src-tauri/README.md)
-- [Download catalog guide](DOWNLOAD-PLUGINS.md), [download plugin contract](DOWNLOAD-PLUGIN-CONTRACT.md), [authentication contract](AUTH-PLUGIN.md)
+- [Download catalogs and plugin contract](DOWNLOAD-PLUGINS.md), [authentication contract](AUTH-PLUGIN.md)
 - [Localization contract](LOCALIZATION.md) and [neural primitives](NEURAL-PRIMITIVES.md)
 - [Verification journal and known limitations](VERIFICATION.md)
-
-[PLAN.md](PLAN.md), [PLUGIN-ROADMAP.md](PLUGIN-ROADMAP.md) and [NEXT-SESSION.md](NEXT-SESSION.md) retain historical/detail context. Current status comes from the consolidated index, not old checkbox totals. Training, dedicated comparison, video enhancement and assembly remain planned ports; see their source-specific acceptance criteria there.

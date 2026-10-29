@@ -1,6 +1,6 @@
 # Windows and Linux path compatibility
 
-[Documentation index](README.md) · [Development](DEVELOPMENT.md) · [Verification](VERIFICATION.md#windowslinux-path-audit-unreleased)
+[Documentation index](README.md) · [Development](DEVELOPMENT.md) · [Verification](VERIFICATION.md#windowslinux-path-audit-0149)
 
 ## Path contracts
 

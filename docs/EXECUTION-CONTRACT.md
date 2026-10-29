@@ -34,7 +34,7 @@ Capability negotiation selects the v2 SDK/API adapter only after a real compatib
 
 For v2, polling is the authoritative status/output view; live SSE events enhance progress but cannot serve as the durable result store.[2] The classic adapter must correlate progress/history with its own prompt/client ID and recover results after reconnect. Never display fabricated progress or treat a successful HTTP submission as successful computation.
 
-## Dynamic execution path (diagnostic transport implemented; complete media execution pending)
+## Dynamic execution path (implemented for Studio image, video and music recipes)
 
 1. UX creates a versioned feature intent from DEAS-owned inputs/settings.
 2. Recipe validation checks required parameters, models, capability/node versions, media constraints and licenses. Missing prerequisites block Run without claiming readiness.
@@ -57,7 +57,7 @@ A local process/HTTP fixture proves lifecycle and protocol checks, not a full ne
 
 The bounded diagnostic adapter accepts only the versioned diagnostic checkpoint intent, never arbitrary frontend API graphs. Native preparation rechecks core prerequisites and stores the exact endpoint and compiled seven-node graph. An explicit Run authorizes one submission of that immutable plan. A lost or malformed submission response is an uncertain result, not permission to retry. Session-held job identity is the only authority for subsequent history/queue reads; correlate the prompt ID, client identity and exact graph before interpreting completion or exposing safe output metadata.
 
-No global interrupt, clear-all queue operation or foreign job adoption is permitted. Running submissions remain independent of authoring edits. Output metadata is not a downloaded/verified media asset; PNG retrieval/preview/new-file export are implemented in the bounded slice below; scoped cancellation and actual model-generation acceptance remain separate work. This diagnostic classic route is explicit, not automatic fallback from failed v2 authentication/negotiation.
+No global interrupt, clear-all queue operation or foreign job adoption is permitted. Running submissions remain independent of authoring edits. Output metadata is not a downloaded/verified media asset; PNG retrieval/preview/new-file export are implemented in the bounded slice below. Studio jobs (not this diagnostic route) have scoped pending deletion and interruption through the owned `/deas/jobs/interrupt` adapter (see [native IPC](../src-tauri/README.md)); real model-generation acceptance remains separate work. This diagnostic classic route is explicit, not automatic fallback from failed v2 authentication/negotiation.
 
 ## Diagnostic output transfer boundary
 
@@ -75,18 +75,19 @@ Loading a preview and exporting are separate explicit actions. The studio uses l
 - [x] Pure versioned diagnostic checkpoint text-to-image compiler; supplied capability/model allowlists, strict validation and deterministic immutable graph.
 - [x] Native read-only diagnostic recipe-prerequisite discovery and DEAS-owned compile preview; HTTP/IPC fixtures verified, not architecture/model-load or generation acceptance.
 - [x] Explicit diagnostic classic native prepare/submit/status plus read-only current-session job recovery; bounded HTTP fixtures and localized IPC/browser checks, not model-generation acceptance.
-- [x] Indexed native PNG retrieval, bounded full decoding, original-byte cache, explicit local Blob preview and safe new-file Linux export; HTTP/filesystem/browser fixtures only.
+- [x] Indexed native PNG (and YuE2 FLAC) retrieval, bounded full decoding, original-byte cache, explicit local Blob preview and safe no-clobber export with Linux and Windows code paths (Windows runtime unverified); HTTP/filesystem/browser fixtures only.
 - [ ] Complete capability-negotiated SDK/classic execution adapters.
-- [x] Versioned recipes and dynamic API graph compilation from UX intent: image recipe and the family-discriminated video recipe (LTX 2.3 / Wan 2.2 / MiniMax H3 through the DaSiWa Director), fixture-verified and validated offline with ComfyUI's `validate_prompt`; no real-model acceptance yet.
-- [ ] DEAS-owned input/output assets, job correlation/cancellation and result playback/export.
-- [ ] A real Director recipe accepted on a newly provisioned compatible backend (the H3 graph compiles and validates; generation remains unverified).
+- [x] Versioned recipes and dynamic API graph compilation from UX intent: image recipes (including MOSS and GGUF split loaders), the family-discriminated video recipe (LTX 2.3 / Wan 2.2 / MiniMax H3 through the DaSiWa Director) and YuE2 text-to-music/cover, fixture-verified and validated offline with ComfyUI's `validate_prompt`. Individual real runs are in the verification journal; broad real-model acceptance is open.
+- [x] Explicit input uploads, correlated Workbench jobs with all-job polling, scoped pending deletion/running interruption/whole-queue Stop, result preview/playback and export.
+- [ ] A durable DEAS-owned asset registry (managed media, revisions, provenance) — deferred by owner scope.
+- [ ] A real Director recipe accepted on a newly provisioned compatible backend (an owner-run H3 I2VA job succeeded; acceptance on a newly provisioned backend remains open).
 
 ## Verification targets and likely files
 
 - `src-tauri/src/backend.rs`, `install.rs`, `main.rs`, `permissions/backend.toml`, `capabilities/main.json`: owned lifecycle, successful-install authorization, canonical paths, loopback identity, real child exit/timeout/stop and app shutdown tests.
 - `src/components/setup/AiOSetup.tsx`, setup locales/tests, `src/lib/setup.ts`: explicit backend controls only following actual successful provisioning; start/status/error handling, no generation claim or automatic foreign-service action.
-- Future `src/lib/execution.ts` and `tests/execution.test.ts`: typed job/domain contract and deterministic recipe compiler; validate inputs and unknown capability/model failures before submission.
-- Future native API/asset adapter modules: exact endpoint binding, bounded JSON/media access, correlated jobs and isolated cancellation with HTTP fixtures.
+- `src/lib/execution.ts` and `tests/execution.test.ts`: typed job/domain contract and the TypeScript compile preview, kept in parity with the native compiler; validate inputs and unknown capability/model failures before submission.
+- Native API/job modules (`api.rs`, `jobs*.rs`): exact endpoint binding, bounded JSON/media access, correlated jobs and isolated cancellation with HTTP fixtures.
 - UI/browser tests: Studio controls and outputs are DEAS-owned, no editor navigation from Studio, no submission without explicit Run; the separate Comfy tab may navigate its frame to the owned endpoint `/` and exposes original ComfyUI controls; preserve stable selection geometry and content-anchored confirmation.
 - Gates: `npm run typecheck`, `npm test`, `npm run build`, Cargo test/clippy/fmt/release; targeted browser checks and real native rendering. Fixture passes must be labelled as fixture evidence.
 

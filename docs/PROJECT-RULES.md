@@ -1,10 +1,10 @@
 # DEAS project rules and goals
 
-This is the normative development guide. **MUST** is a requirement; **SHOULD** allows a documented technical exception. Existing code is not automatically compliant merely because it predates these rules. Current delivery status belongs in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md); ComfyUI-specific requirements belong in [COMFYUI-RULES.md](COMFYUI-RULES.md).
+This is the normative development guide. **MUST** is a requirement; **SHOULD** allows a documented technical exception. Existing code is not automatically compliant merely because it predates these rules. Current delivery status belongs in [PLAN.md](PLAN.md); ComfyUI-specific requirements belong in [COMFYUI-RULES.md](COMFYUI-RULES.md).
 
 ## Accepted product contract
 
-[PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) is the owner-approved target contract: experienced local users, persistent managed-media projects, immutable revisions/jobs, explicit execution, local-first privacy and a bounded Studio surface using ComfyUI. It supersedes conflicting older product priorities, not existing safety rules or evidence. The owner subsequently reduced the next scope to a bounded global recent-job history (last 10 jobs; one local JSON file proposed) and deferred managed generated PNG/revision persistence and the full SDXL project/recovery milestone as excessive for the current workflow. The scope correction at the top of PRODUCT-DECISIONS governs over the older interview target. Preserve existing project features/files and separately recorded video defects; further integrations require explicit priority. Keep normal correctness, source-preservation and platform verification for changed behavior. This is decided scope, not a claim of implementation, execution authorization or a rewrite mandate. The broader AiO goal below remains the long-term direction.
+[PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) is the owner-approved scope contract: experienced local users, explicit execution, local-first privacy and a bounded Studio surface using ComfyUI. The current scope keeps a bounded global recent-job history instead of full project persistence, and starts new integrations only on explicit owner priority. It supersedes conflicting older product priorities, not these safety rules or recorded evidence. The broader AiO goal below remains the long-term direction.
 
 ## 1. Product goal
 
@@ -51,11 +51,11 @@ Automation recommends and prepares; users retain control of settings, resources,
 
 ## 4. Linux and Windows are required targets
 
-- Every implementation MUST have a Linux and Windows path, or explicitly report a capability-specific unsupported state before execution. A platform-specific accelerator is an optional capability, not grounds to make the application itself platform-specific.
+- Every implementation MUST have a Linux and Windows path, or explicitly report a capability-specific unsupported state before execution. Linux may pass reference acceptance first; describe Windows artifacts as experimental until their own native runtime acceptance, and do not create Linux-only architectural dead ends. A platform-specific accelerator is an optional capability, not grounds to make the application itself platform-specific.
 - Keep OS-specific filesystem, process, socket and desktop behavior behind narrow native modules. Use platform-aware paths and argv-based process APIs; never assume Bash, fish, a drive letter, `/proc`, POSIX signals or a particular shell.
 - Preserve Windows Job Object cleanup and Linux owned-process-group cleanup. Do not manage processes by loose names or port matches.
 - Test spaces/Unicode, long paths, canonical identities, symlinks/reparse points, cancellation and no-clobber output on both systems. Use existing Windows-aware path handling such as `dunce` where required.
-- Native playback must be exercised in Linux WebKitGTK and Windows WebView2; Chromium fixtures and a cross-build are not target-platform runtime acceptance.
+- Native playback must be exercised on the real targets: Linux embedded libmpv (video) and WebKitGTK (audio), Windows WebView2. Chromium fixtures and a cross-build are not target-platform runtime acceptance.
 - Performance/correctness equivalence is the goal, not identical vendor acceleration. Publish hardware/driver/codec limitations and verified fallbacks rather than silent substitutions.
 
 ## 5. Dependency policy and current stack
@@ -67,14 +67,15 @@ The checked-in manifests, lockfiles and installer profiles—not this table—de
 | Boundary | Current dependencies / requirement | Rule |
 | --- | --- | --- |
 | Native shell | Rust 2021, Cargo, Tauri 2; `src-tauri/Cargo.toml` and `Cargo.lock` | Main trusted orchestration layer |
-| Native services | serde/serde_json, Tokio, reqwest with rustls, SHA-256, UUID, TOML, PNG, rfd, keyring, WebSocket support | Reuse existing services before adding alternatives |
+| Native services | serde/serde_json, Tokio, reqwest with rustls, SHA-256, UUID, TOML, PNG, zip/tar/flate2, rfd, keyring, WebSocket (tokio-tungstenite), rusqlite (Prompt Forge databases), ruzstd (bundled data), claxon (FLAC decoding) | Reuse existing services before adding alternatives |
+| Native inference | `ort` (ONNX Runtime, `load-dynamic`) behind the default `video-upscale` feature; the ONNX Runtime/CUDA libraries are user-supplied at runtime, never bundled or auto-downloaded | No GPU/runtime initialization at startup |
 | Platform APIs | Unix libc; Windows windows-sys; dunce | Keep platform branches localized |
 | Frontend/tooling | React 19, TypeScript 5.9, Vite 7, Tauri JS API; Node/npm and `package-lock.json` | Rendering/drafts and development tooling, not a second runtime daemon |
-| Linux desktop | Tauri build packages, GTK/WebKitGTK 4.1 and required GStreamer plugins | System/native dependencies remain real requirements |
+| Linux desktop | Tauri build packages, GTK/WebKitGTK 4.1, libmpv (`libmpv.so.2`, loaded at runtime for video) and the GStreamer plugins WebKit needs for audio (missing ones are compiled in) | System/native dependencies remain real requirements |
 | Windows desktop | Tauri Windows toolchain and WebView2 runtime | Verify packaging and runtime on Windows |
 | Managed execution | Verified uv bootstrap, managed Python 3.12, selected pinned Torch trio, ComfyUI and explicitly selected node packs | Resolve actual profile in `install_torch.rs`; do not duplicate fast-changing pins here |
 | Source acquisition | Git prerequisite; explicitly selected refs and recorded revisions | No implicit system-package changes |
-| Optional ML/media | Selected models, FFmpeg/probe/codecs, training and enhancement worker stacks | Declare per-plugin; not all are provisioned today |
+| Optional ML/media | Selected models, FFmpeg/FFprobe/codecs, future training stacks | Declare per-plugin; FFmpeg and training stacks are not provisioned today |
 | Tests | Node test runner, Vitest/Testing Library, Cargo tests; Python/Playwright for targeted verification | Distinguish fixture, native, GPU and target-OS evidence |
 
 Backend/training/enhancement dependency stacks may conflict. Isolate profiles instead of upgrading a shared environment underneath another plugin. Do not install dependencies, initialize GPUs or load large models during plugin discovery.
@@ -84,6 +85,13 @@ Backend/training/enhancement dependency stacks may conflict. Isolate profiles in
 Follow the complete [ComfyUI rules](COMFYUI-RULES.md). DEAS owns Studio controls and versioned user intent; ComfyUI executes internal computational recipes. The separate original Comfy tab is a deliberate exception, not an alternative architecture for Studio.
 
 Model packs must declare architecture evidence, required checkpoint/encoder/VAE/adapter components, supported operations and exact dimensions/frame/fps/audio constraints. Preserve filenames and API identifiers literally. Unknown compatibility blocks unsupported operations; do not infer architecture from a friendly filename or claim universal future-model support.
+
+**Model-exact values.** Every numeric value DEAS sends to a model must be valid for that model, not just plausible: resolution, aspect, frame count, fps, durations/timings, audio sample counts, latent lengths, steps/CFG defaults and sampler/scheduler names. A value that ComfyUI pads, crops, rounds or silently resamples counts as wrong.
+
+- Port math from the reference implementation (Director/DaSiWa nodes, ComfyUI model code) together with its constants: base area, rounding mode and divisor. A formula without its divisor is an incomplete port.
+- Model constraints are family data in `src/families/builtin.json`, read by every calculation. No hardcoded 8 or generic fallback where a family is known; unknown models use the strictest safe common value.
+- Snap once, at the end, with the model's rule, and display exactly the submitted value.
+- Each constraint gets a test with exact expected numbers checked against the reference implementation or SwarmUI where comparable (e.g. 3:4 at 1 MP on SDXL = 896×1152). Unconfirmed values are marked unverified in code and handoff.
 
 Centralize model constraints in family data and shared native validation. Display exactly what is submitted. Test constants as well as formulas against the reference model implementation. Capability probes and version diagnostics must fail clearly without replacing another pack's registrations or silently choosing another model/backend.
 
@@ -130,4 +138,4 @@ For changed executable behavior: focused regression tests, relevant full suites,
 
 Performance is a release gate: measure a reproducible before/after workload where behavior changes, recording hardware/OS/driver, model/runtime versions, settings, warm/cold conditions, latency/throughput and peak RAM/VRAM as applicable. UI/shared-service changes also check idle CPU/memory and responsiveness. A benchmark not run remains unverified; neither unit-test speed nor upstream marketing establishes inference performance.
 
-Update the consolidated plan with evidence and remaining work. Keep implementation, static validation, fixtures, native interaction, real model quality/performance and Windows/Linux acceptance separate. Documentation-only changes require link/content/diff checks, not costly model runs or a version bump. Commit/push/release only when requested.
+Record evidence in VERIFICATION.md and update [PLAN.md](PLAN.md): remove delivered items and keep only what is still open. Keep implementation, static validation, fixtures, native interaction, real model quality/performance and Windows/Linux acceptance separate. Documentation-only changes require link/content/diff checks, not costly model runs or a version bump. Commit/push/release only when requested.

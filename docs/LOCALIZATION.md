@@ -17,10 +17,10 @@ A manifest accepts only these fields. Executable entrypoints, scripts and unknow
 Each owning UI module keeps its texts beside its code:
 
 - `src/locales/{de,en,fr,ja,tr,zh}.json`: application chrome.
-- `src/components/setup/locales/{de,en,fr,ja,tr,zh}.json`: setup menus, choices, notices and installer step labels.
-- `src/components/neural/locales/{de,en,fr,ja,tr,zh}.json`: graph labels and Suggested legend.
-- `src/features/studio/locales/{de,en,fr,ja,tr,zh}.json`: creative workspace and feature metadata.
-- `src/features/downloads/locales/{de,en,fr,ja,tr,zh}.json`: separate optional resource/authentication plugins.
+- `src/components/*/locales/`: shared components (for example `setup`, `neural`, `models`).
+- `src/features/*/locales/`: one folder per feature (for example `studio`, `downloads`, `forge`, `chat`, `llm`, `logs`, `media`, `presets`, `projects`, `settings`, `wildcards`).
+
+Every `locales/` folder carries all six languages.
 
 Files are flat string-only dictionaries, with namespaced keys such as `setup.prepare`. Keep backend enum values, feature IDs, references, paths, saved choices and graph IDs language-independent.
 

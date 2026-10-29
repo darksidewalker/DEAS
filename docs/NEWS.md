@@ -1,53 +1,53 @@
 # News
 
-## Development — 0.1.66
+## 0.1.66
 
-Generate now offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints: independent Style/Lyrics editors with ABC Off/Full/Melody planning, maximum duration and advanced sampling; covers build a new song from the melody of a selected audio file or video-with-audio. Outputs are FLAC, kept in Recent history with full settings restore. Real-model generation and native playback acceptance are still open. [Usage and limits](MUSIC.md). Released as 0.1.66.
+Generate now offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints: independent Style/Lyrics editors with ABC Off/Full/Melody planning, maximum duration and advanced sampling; covers build a new song from the melody of a selected audio file or video-with-audio. Outputs are FLAC, kept in Recent history with full settings restore. Real-model generation and native playback acceptance are still open. [Usage and limits](MUSIC.md).
 
-## Development — 0.1.64
+## 0.1.64 (untagged; shipped in 0.1.66)
 
-Generate's Post-Processing adds learned H3 and LTX latent upscale, separate from TVS and LTX's existing multipass refinement. Enable it, select the compatible latent model, and review the final canvas before Run. If weights are missing, a Library popup offers the family-specific model in `latent_upscale_models`; opening it never starts a download or generation. [Usage and limits](STUDIO.md#learned-video-latent-upscale-0164-development). Not a published release.
+Generate's Post-Processing adds learned H3 and LTX latent upscale, separate from TVS and LTX's existing multipass refinement. Enable it, select the compatible latent model, and review the final canvas before Run. If weights are missing, a Library popup offers the family-specific model in `latent_upscale_models`; opening it never starts a download or generation. [Usage and limits](STUDIO.md#learned-video-latent-upscale-0164-shipped-in-0166). Shipped in 0.1.66.
 
-## Development — 0.1.63
+## 0.1.63 (untagged; shipped in 0.1.66)
 
-Studio adds inline character counts and shared writing aids for normal/enlarged prompts. Configure the independent spellcheck language below Backend’s language selector; toggle spellcheck and optional local Forge-tag completion there or in Quick Settings. Completion starts off. See [usage and dictionary requirements](STUDIO.md#prompt-writing-aids-0163-development). Not a published release.
+Studio adds inline character counts and shared writing aids for normal/enlarged prompts. Configure the independent spellcheck language below Backend’s language selector; toggle spellcheck and optional local Forge-tag completion there or in Quick Settings. Completion starts off. See [usage and dictionary requirements](STUDIO.md#prompt-writing-aids-0163-shipped-in-0166). Shipped in 0.1.66.
 
-## Unreleased bug fix — Chat prompt routing
+## 0.1.66 — Chat prompt routing fix
 
 Chat now keeps the requested generation model: it refers to that model’s Prompt Forge mode first, falls back only to a compatible registered simple writer, and otherwise says no compatible writer exists. H3 requests no longer end by offering four unrelated image models. Referrals name the exact Write for mode without switching tabs or modifying drafts automatically. [Usage and limits](CHAT.md).
 
-## Unreleased bug fix — model folders
+## 0.1.66 — model folder fix
 
 Studio now explains known models in the wrong loader folder instead of offering them as runnable. Anima belongs in `diffusion_models` (or `unet`) for its split recipe, not `checkpoints`. Files remain visible; move them yourself and refresh the list. Native preparation also distinguishes an opposite-loader listing from a missing model. No model moves or automatic loader changes. See [Studio model controls](STUDIO.md).
 
-## Development — 0.1.62
+## 0.1.62
 
-H3 References separates selection from editing: compact thumbnails show the current crop and stream choice, and the copper-glowing Edit button opens one larger media dialog. Close/Escape retains changes and returns to the card; the underlying reference picker stays open. Existing crop/playback, people and Forge controls are retained. Linux keeps native libmpv playback and uses cached FFmpeg thumbnails. [Usage](STUDIO.md#multi-reference-overlay). The preview **More** menu closes on its own click and outside clicks; **Use these settings** moved there from the metadata dock, next to the new **Reuse prompt** which refills prompt and sampler settings from a file's embedded metadata. Version 0.1.62 is the published release (see [CHANGELOG](CHANGELOG.md)).
+H3 References separates selection from editing: compact thumbnails show the current crop and stream choice, and the copper-glowing Edit button opens one larger media dialog. Close/Escape retains changes and returns to the card; the underlying reference picker stays open. Existing crop/playback, people and Forge controls are retained. Linux keeps native libmpv playback and uses cached FFmpeg thumbnails. [Usage](STUDIO.md#multi-reference-overlay). The preview **More** menu closes on its own click and outside clicks; **Use these settings** moved there from the metadata dock, next to the new **Reuse prompt** which refills prompt and sampler settings from a file's embedded metadata.
 
-## References overlay (0.1.59)
+## 0.1.59 — References overlay
 
 Multi-reference authoring now has a Continuity-style References popup with its own media picker and inline previews. Choose picture, sound or both from a video, set crop endpoints with fields/sliders or the playhead, and audition only that segment. Existing Director labels, people controls, packs and RefMods stay available; edits do not rewrite source files. See [Studio](STUDIO.md#multi-reference-overlay) for supported paths and remaining parity limits.
 
 
-## Development — 0.1.58
+## 0.1.58 (untagged; shipped in 0.1.59)
 
-H3 Continuity is now available for Video → Video and Multi-reference → Video as well as text/image inputs. Continue a pinned checkpoint or prepared input video with the existing serial planner, and opt in to current reference conditioning when needed. Generation and Next action Forge use the same reference policy. The Director’s mode-family and canvas checks remain authoritative; this does not add LTX/Wan continuity or establish real-model seam quality. [Usage](STUDIO.md#ref2va-continuation-references). Local development change, not a published release.
+H3 Continuity is now available for Video → Video and Multi-reference → Video as well as text/image inputs. Continue a pinned checkpoint or prepared input video with the existing serial planner, and opt in to current reference conditioning when needed. Generation and Next action Forge use the same reference policy. The Director’s mode-family and canvas checks remain authoritative; this does not add LTX/Wan continuity or establish real-model seam quality. [Usage](STUDIO.md#ref2va-continuation-references). Shipped in 0.1.59.
 
-## Development — 0.1.54
+## 0.1.54 (untagged; shipped in 0.1.55)
 
-TVE adds native file-authority preparation and an optional Linux rendering engine. In the AI-enabled build, explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. The regular build keeps inference off. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#validate-and-render-with-the-optional-native-engine). Not published by this change.
+TVE adds native file-authority preparation and an optional Linux rendering engine. Explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#validate-and-render-with-the-optional-native-engine). Shipped in 0.1.55; since 0.1.56 every build includes the engine (still an explicit runtime opt-in).
 
-## Development — 0.1.53
+## 0.1.53
 
-TVE now has its own main tab. Inspect a video source, choose a scale/export-profile draft and explicitly check its exact output metadata in Rust; source/draft state survives navigation without computation. Image refinement stays in Studio. The draft is not a runnable enhancement job and does not verify an encoder, GPU or source cadence. See [TVE workspace](STUDIO.md#tve-workspace) and [remaining execution work](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.
+TVE now has its own main tab. Inspect a video source, choose a scale/export-profile draft and explicitly check its exact output metadata in Rust; source/draft state survives navigation without computation. Image refinement stays in Studio. The draft is not a runnable enhancement job and does not verify an encoder, GPU or source cadence. See [TVE workspace](STUDIO.md#tve-workspace) and [remaining execution work](PLAN.md#42-video-post-processing-tve-and-paired-products).
 
-## Development — 0.1.52
+## 0.1.52
 
-Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#video-source-inspection-0152-development) and [video plan](VIDEO-PLAN.md#w8-streamed-video-post-processing-and-paired-products). Not a published release.
+Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#video-source-inspection-0152) and [video plan](PLAN.md#42-video-post-processing-tve-and-paired-products).
 
-## Development — 0.1.51
+## 0.1.51 (untagged; shipped in 0.1.52)
 
-Optional image refinement now produces labelled Original and Processed products for individual selection and comparison. Already-reported completed products remain available when later work fails or is cancelled. This is the first bounded post-processing slice, not a full video-enhancement port or a guarantee that a baseline saver runs before every failure. See [usage and limits](STUDIO.md#original-and-processed-image-products-0151-development) and [remaining work](IMPLEMENTATION-STATUS.md#38-hybrid-post-processing-and-paired-originalprocessed-outputs). Not a published release.
+Optional image refinement now produces labelled Original and Processed products for individual selection and comparison. Already-reported completed products remain available when later work fails or is cancelled. This is the first bounded post-processing slice, not a full video-enhancement port or a guarantee that a baseline saver runs before every failure. See [usage and limits](STUDIO.md#original-and-processed-image-products-0151-shipped-in-0152) and [remaining work](PLAN.md#42-video-post-processing-tve-and-paired-products). Shipped in 0.1.52.
 
 ## 0.1.50
 
@@ -62,41 +62,41 @@ Windows/Linux path fixes preserve exact backend model identifiers and output sub
 This release includes the model-aware SDXL/Qwen/Krea/MOSS prompt-reference wiring developed under 0.1.47 below.
 Prompt references use compact numbered picture thumbnails rather than full-width filenames. Remove a picture with its red X, drag pictures into a new order. The numbering follows the order used by the next generation; each picture keeps its own ReVision strength. See [image references](STUDIO.md#image-references).
 
-## Unreleased — 0.1.47
+## 0.1.47 (untagged; shipped in 0.1.48)
 
-Studio’s prompt picture drop is now wired to the selected image family: SDXL ReVision, Qwen Image 2.1/Turbo native text/vision plus reference latents, and Swarm-style Krea 2/MOSS visual conditioning. Attached filenames and Run Plan show the inputs; model-specific prerequisites still apply. The small Krea/MOSS adapter is bundled for approved DEAS-owned backend starts, not silently installed into foreign backends. See [Studio usage/support](STUDIO.md#image-references) and [verification](VERIFICATION.md#unified-image-reference-wiring-0147). This is an untagged development update, not a universal quality/identity guarantee.
+Studio’s prompt picture drop is now wired to the selected image family: SDXL ReVision, Qwen Image 2.1/Turbo native text/vision plus reference latents, and Swarm-style Krea 2/MOSS visual conditioning. Attached filenames and Run Plan show the inputs; model-specific prerequisites still apply. The small Krea/MOSS adapter is bundled for approved DEAS-owned backend starts, not silently installed into foreign backends. See [Studio usage/support](STUDIO.md#image-references) and [verification](VERIFICATION.md#unified-image-reference-wiring-0147). Shipped in 0.1.48; not a universal quality/identity guarantee.
 
-## Unreleased
+## 0.1.46
 
-The native-only cancellation foundation can remove one correlated queued prompt or request a scoped interruption of one running prompt on the current owned backend, with explicit confirmation and readback. Running interruption uses an authenticated DEAS queue-locked route and is confined to inspected backend sources; no Studio cancellation button or whole-queue Stop is enabled. Confirmed cancellation has a six-language terminal label. Repeated Run/Stop still awaits whole-queue lifecycle integration. See [running-interrupt verification](VERIFICATION.md#scoped-running-interruption-and-status-abort-recovery-unreleased) and [pending-cancel verification](VERIFICATION.md#native-pending-cancellation-foundation-unreleased).
+The native-only cancellation foundation can remove one correlated queued prompt or request a scoped interruption of one running prompt on the current owned backend, with explicit confirmation and readback. Running interruption uses an authenticated DEAS queue-locked route and is confined to inspected backend sources; no Studio cancellation button or whole-queue Stop is enabled. Confirmed cancellation has a six-language terminal label. Repeated Run/Stop still awaits whole-queue lifecycle integration. See [running-interrupt verification](VERIFICATION.md#scoped-running-interruption-and-status-abort-recovery-0146) and [pending-cancel verification](VERIFICATION.md#native-pending-cancellation-foundation-0146).
 
-Image Run now reports a missing Wildcards plugin before preparation instead of failing after the click; enabled settings remain until explicitly disabled. The native all-job polling foundation is tested but is not connected to Studio yet, so repeated Run/Stop remains planned. See [verification](VERIFICATION.md#workbench-all-job-polling-foundation-and-wildcards-readiness-unreleased).
+Image Run now reports a missing Wildcards plugin before preparation instead of failing after the click; enabled settings remain until explicitly disabled. The native all-job polling foundation is tested but is not connected to Studio yet, so repeated Run/Stop remains planned. See [verification](VERIFICATION.md#workbench-all-job-polling-foundation-and-wildcards-readiness-0146).
 
-## Unreleased — 0.1.45
+## 0.1.45
 
-MOSS-Image gains a bounded t2i/i2i generation adapter through the existing image pipeline. Queue thumbnails now place stars on their corresponding outputs and show measured generation duration. These are development changes, not a tagged release or MOSS inference acceptance. Repeated Run/Stop, generation-reference prompting and Prompt Forge aspect-ratio parity remain open. See [Studio](STUDIO.md) and [verification](VERIFICATION.md#moss-image-adapter-and-queue-presentation-0145).
+MOSS-Image gains a bounded t2i/i2i generation adapter through the existing image pipeline. Queue thumbnails now place stars on their corresponding outputs and show measured generation duration. This is not MOSS inference acceptance. Repeated Run/Stop, generation-reference prompting and Prompt Forge aspect-ratio parity remain open. See [Studio](STUDIO.md) and [verification](VERIFICATION.md#moss-image-adapter-and-queue-presentation-0145).
 
-## Unreleased — 0.1.44
+## 0.1.44
 
-Native image Prompt Forge, Studio Chat and colour schemes are integrated. The required prompts, Randomizer and optional tag/character tables ship in the executable; native LLM model selection works without starting ComfyUI. DEAS is now licensed under GPL-3.0-or-later. This is a Git development update, not a tagged release. See [Prompting](PROMPTING.md), [Chat](CHAT.md) and [data provenance](../src-tauri/forge-data/README.md).
+Native image Prompt Forge, Studio Chat and colour schemes are integrated. The required prompts, Randomizer and optional tag/character tables ship in the executable; native LLM model selection works without starting ComfyUI. DEAS is now licensed under GPL-3.0-or-later. See [Prompting](PROMPTING.md), [Chat](CHAT.md) and [data provenance](../src-tauri/forge-data/README.md).
 
-## Unreleased — 0.1.42
+## 0.1.42
 
 Save custom Studio configurations in **Presets**, load them later and edit/update them for quick reuse. **Wildcards** remains a separate tab with the existing prompt-library controls. See [Presets](PROMPTING.md#presets).
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 News summarizes user-visible development changes; it is not proof that a tagged release, signed artifact or platform acceptance exists. Check [official releases](https://github.com/darksidewalker/DEAS/releases), the [full changelog](CHANGELOG.md) and [verification evidence](VERIFICATION.md).
 
-## Unreleased — 0.1.41
+## 0.1.41 (untagged; shipped in 0.1.42)
 
 - Studio keeps companion file choices under the compact **Model files** disclosure beneath its other settings. Its Checkpoint dropdown and Models tiles update each other; all Settings dropdowns share the compact selector style.
 
-## Unreleased — 0.1.40
+## 0.1.40 (untagged; shipped in 0.1.42)
 
 - Studio can recognize supported companion architectures without relying on their download names. Each text-encoder/VAE selector also has its own **All files** switch for manual selection, including audio VAEs and text projections where required. Switches default off; selecting unverified components is not a compatibility guarantee. See [Studio component selection](STUDIO.md#text-encoders-vaes-and-companion-files).
 
-## Unreleased — 0.1.39
+## 0.1.39
 
 - Opening raw/starred now creates the missing fixed directory under the selected native-approved Output folder; arbitrary missing browse paths still show errors.
 
@@ -108,29 +108,29 @@ News summarizes user-visible development changes; it is not proof that a tagged 
 - Project actions move beside Run. Export/import a portable **draft ZIP** containing baseline image settings and its managed input PNG; generated results and full Studio-state persistence are still not included.
 - Star eligible generated media to physically move it into Output/starred. Native safety checks keep unmanaged/project-linked/sidecar-associated files unavailable rather than risking broken references.
 
-## Unreleased — 0.1.37
+## 0.1.37 (untagged; shipped in 0.1.38)
 
 - Backend configuration now uses a left-hand menu for Startup optimizations, LLM backend and Provider authorization, shown in one matching right-hand pane. Switching panels retains unsaved drafts; explicit Save/Apply behavior is unchanged.
 
-## Unreleased — 0.1.36
+## 0.1.36 (untagged; shipped in 0.1.38)
 
 - Image previews now fit to the available window edge over a semi-transparent, non-checkered background. Click outside the image to close; zoom and pan remain available. The transparent DEAS v… footer shows backend startup progress, then a brief green check that vanishes after 3 seconds.
 
-## Unreleased — 0.1.35
+## 0.1.35 (untagged; shipped in 0.1.38)
 
 - Use nearly the whole window: 3px exterior edges and a floating version hint. Backend and Logs join the top tabs; GitHub/star move to the header right. Backend now shows its settings and provider authorization directly, with a compact status overview. Click a read-only image preview for zoomable full-window viewing; edit canvases keep their existing behavior.
 
-## Unreleased — 0.1.34
+## 0.1.34 (untagged; shipped in 0.1.38)
 
 - More vertical space for media: one top tab band, footer utilities and Backend-owned installer/authorization. Browse media without replacing your edit draft, and return shifted images to a clearly marked original frame.
 
-## Unreleased — 0.1.33
+## 0.1.33 (untagged; shipped in 0.1.38)
 
 - Closing the main window waits for pending project changes: save first, or explicitly discard a failed draft. A missing close guard is reported instead of silently implying protection.
 
 - Keep baseline image settings and an explicitly imported PNG in a native project folder, then reopen them without starting a job. Global Studio defaults remain separate. Jobs, generated results, optional processing and editor layers are not restored by this first slice; see [Projects](PROJECTS.md).
 
-## Unreleased — 0.1.32
+## 0.1.32 (untagged; shipped in 0.1.38)
 
 - Upload a local video directly from Continuity, then prepare and select it explicitly. Originals are preserved; no playback or generation starts automatically.
 
@@ -156,6 +156,15 @@ News summarizes user-visible development changes; it is not proof that a tagged 
 - Outpaint areas within the source frame, original-size inserted pictures, taller prompt fields with Copy/Clear, and corrected release staging/provenance.
 - Source and local unsigned release builds do not imply Windows runtime, GPU quality/performance or oldest-Linux portability acceptance. See the release manifest and verification journal for exact evidence.
 
+## Included maintenance (0.1.31)
+
+- H3 character references gain manual people boxes for directing Cast reads. **Find people** now offers explicitly applied candidates through the selected vision model; stopping is best effort. Real vision quality and native-platform interaction are not newly verified.
+- H3 character references gain **People & order** for selecting people and their spatial arrangement. Manual/detected boxes are available separately; frame-mode Cast controls remain planned.
+- MiniMax H3 reference pictures support ordered character-group labels and separate Cast cards per member, with Director-compatible pack storage. Vision/model and native-platform acceptance are still open.
+- Rust-first, cross-platform, atomic-plugin and ComfyUI coexistence rules are now project-local. A consolidated implementation plan distinguishes code, recorded acceptance and missing work.
+- User documentation now lives in focused guides under `docs/`; README is the short installation/start/documentation entry point. Changelog history is preserved here, with a root compatibility pointer.
+- NVIDIA preflight retains the host driver environment and returns bounded failure stdout/stderr and raw exit diagnostics; regression tests accompany the change. This is not Windows runtime acceptance.
+
 ## 0.1.30 — 2026-10-19
 
 - References dock for image/video/audio inputs, Director-compatible reference packs, MiniMax H3 RefMods, input scaling, prompt helpers and run-aware Prompt Forge controls.
@@ -178,12 +187,3 @@ News summarizes user-visible development changes; it is not proof that a tagged 
 - Generate has family-specific LTX 2.3, Wan 2.2 and MiniMax H3 video recipes, output settings and an H3 Continuity dock. A real owner-run H3 I2VA job reached succeeded; broad model/platform acceptance remains open.
 - **Known blocker:** native video playback can crash in GStreamer Matroska demuxing after playback starts. Audible audio is unconfirmed. Do not treat the alpha as playback-complete.
 - Prompt Forge, presets/wildcards, image masks/layers and opt-in image refine/upscale share the generation workspace; see [Studio](STUDIO.md) and [prompting](PROMPTING.md).
-
-## Included maintenance (0.1.31)
-
-- H3 character references gain manual people boxes for directing Cast reads. **Find people** now offers explicitly applied candidates through the selected vision model; stopping is best effort. Real vision quality and native-platform interaction are not newly verified.
-- H3 character references gain **People & order** for selecting people and their spatial arrangement. Manual/detected boxes are available separately; frame-mode Cast controls remain planned.
-- MiniMax H3 reference pictures support ordered character-group labels and separate Cast cards per member, with Director-compatible pack storage. Vision/model and native-platform acceptance are still open.
-- Rust-first, cross-platform, atomic-plugin and ComfyUI coexistence rules are now project-local. A consolidated implementation plan distinguishes code, recorded acceptance and missing work.
-- User documentation now lives in focused guides under `docs/`; README is the short installation/start/documentation entry point. Changelog history is preserved here, with a root compatibility pointer.
-- NVIDIA preflight retains the host driver environment and returns bounded failure stdout/stderr and raw exit diagnostics; regression tests accompany the change. This is not Windows runtime acceptance.

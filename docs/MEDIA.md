@@ -1,6 +1,6 @@
 # Media browser, previews and metadata
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Purpose and prerequisites
 
@@ -36,9 +36,9 @@ Use [Studio](STUDIO.md) for image-to-image, masks, inserts, last-frame marking a
 
 ## Playback and limits
 
-Owned job video uses the backend `/view` route; dock video/audio uses fetched bytes in a Blob because WebKitGTK rejects the asset protocol for video. This describes the selected transport, **not accepted playback**: the latest journal records a GStreamer Matroska assertion abort after video starts, with audio unconfirmed. See [video limitations](STUDIO.md#video-generation) and [verification](VERIFICATION.md). Originals must remain intact.
+On Linux, Workbench video (browsed, source, reference and output) plays through the embedded native libmpv player; reference thumbnails come from a bounded cached FFmpeg frame. Audio (including FLAC music results) still uses WebKit `<audio>` with the bundled GStreamer plugins. Windows and browser builds use the media element. The earlier WebKit/GStreamer Matroska crash no longer applies to Linux video; full native playback acceptance (audible A/V sync, resources, Windows) is still open. See [video limitations](STUDIO.md#video-generation) and [verification](VERIFICATION.md). Originals must remain intact.
 
-Dedicated synchronized two-source comparison, shared libmpv playback, collections/tags, persistent asset revisions and general montage remain [planned integrations](IMPLEMENTATION-STATUS.md#3-real-reference-projects-and-integration-plans).
+Dedicated synchronized two-source comparison, collections/tags, persistent asset revisions and general montage remain [planned integrations](PLAN.md#49-reference-project-ports).
 
 ## Errors
 

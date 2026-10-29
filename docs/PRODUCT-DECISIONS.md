@@ -1,22 +1,19 @@
 # DEAS product and architecture decisions
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md) · [Project rules](PROJECT-RULES.md)
+[Documentation index](README.md) · [Plan](PLAN.md) · [Project rules](PROJECT-RULES.md)
 
 ## Authority and status
 
-**Accepted target contract, not an implementation or runtime-acceptance claim.** The owner approved the decisions below in the product/architecture interview (Q2–Q26) and explicitly authorized recording them in repository documentation. Q1 selected whole-product/architecture review rather than only the next video slice.
+**Accepted target contract, not an implementation or runtime-acceptance claim.** The owner approved these decisions in the product/architecture interview and authorized recording them here. This document governs product scope and architecture boundaries; [PROJECT-RULES.md](PROJECT-RULES.md) governs engineering/safety requirements and [PLAN.md](PLAN.md) is the single status and open-work list. Changing a decision requires explicit owner approval. Approving documentation does not authorize implementation, model downloads, external-service changes, commits, publication or releases.
 
-This document governs product scope, architecture boundaries and the first acceptance milestone. [PROJECT-RULES.md](PROJECT-RULES.md) governs engineering/safety requirements; [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) remains the single delivery/status index. This decision set supersedes older conflicting delivery priorities, not recorded evidence or already implemented features. Broader AiO work remains a long-term direction, not parallel first-milestone scope. Changing these decisions requires explicit owner approval.
+The interview's first-milestone block (an image-first persistent SDXL project workflow that held back other integrations, Q15–Q19) was withdrawn by the owner and is no longer part of this contract; it is in Git history.
 
-This documentation approval does not authorize implementation, model downloads, external-service changes, commits, publication or releases. No version bump accompanies it.
+## Current scope
 
-## Owner scope correction — lightweight global history
-
-The owner subsequently reduced the next scope: executed settings are useful as one **global history/backlog of the last 10 executed jobs**, not a per-project or per-render project archive. A single bounded local JSON file is the proposed smallest storage choice; record effective settings, status and references to existing output files, without copying media, model weights or credentials. Restoring settings is explicit and never starts computation. Missing files are shown as missing. Evicting an old history entry removes metadata only, never its output files.
-
-Managed generated PNG adoption, immutable i2i revision lineage and the full persistent SDXL project/recovery/acceptance milestone are **deferred as excessive for the current workflow**, not prerequisites for this history. Preserve existing project-draft/import/export features and their files; do not remove or expand them silently. Keep ordinary correctness, error, source-preservation and platform checks for changed behavior; deferring the large project milestone does not waive testing or permit automatic resubmission. Further integrations require their own explicit priority rather than inheriting the old image-milestone gate.
-
-This correction supersedes conflicting project-first priorities and acceptance requirements in the interview/exit list below; those remain historical target detail, not the next implementation backlog. The history is planned, not delivered by this documentation correction.
+- **Global recent-job history instead of project archives.** Executed settings are kept as one global history of the last 10 executed jobs in one bounded local JSON file: effective settings, status and references to existing outputs, without media copies, model weights or credentials. Restoring settings is explicit and never starts computation; missing files show as missing; evicting an entry removes metadata only. Delivered in 0.1.55.
+- **Deferred:** managed generated-PNG adoption, immutable i2i revision lineage and full persistent-project recovery. Existing project drafts and their files stay supported; do not remove or silently expand them. The project decisions below remain the target if that work is resumed.
+- **Integrations need explicit owner priority.** New model families, enhancement, assembly, training and other large integrations are started only when the owner prioritizes them (as was done for MOSS, image references, TVE, learned latent upscale, GGUF and YuE2). Deferring the project milestone does not waive testing, safe writes or platform evidence for changed behavior.
+- **Platform evidence:** Linux may pass reference acceptance first; Windows architecture/build support is maintained, and Windows artifacts stay experimental until their own native runtime acceptance (see [project rules §4](PROJECT-RULES.md#4-linux-and-windows-are-required-targets)).
 
 ## Product and execution boundary
 
@@ -26,6 +23,7 @@ This correction supersedes conflicting project-first priorities and acceptance r
 - **Q5 — Executor:** ComfyUI remains the generation executor for the foreseeable product phase. DEAS owns intent, validation, job control and results. Do not introduce a universal backend abstraction for hypothetical future consumers; other tools may execute specific supported tasks.
 - **Q6 — Studio completeness:** a supported Studio workflow must work without graph repair in the Comfy editor. Offer a bounded, clearly declared supported surface rather than promise arbitrary graph compatibility.
 - **Q7 — Repeatability:** retain the exact effective submitted settings, seed, input identities, model identities and recipe/backend versions. Missing dependencies block reruns; never silently substitute them. This is traceable re-execution, not a promise of pixel-identical output across hardware/runtime changes.
+- **Q22 — Initial interaction model:** one guided workspace for inputs/settings, a readable run plan, results and revisions. No freely wired second graph editor. Reuse current UI components; this decision is not a wholesale redesign authorization.
 - **Q10 — Expert editor:** the separate Comfy editor is outside the Studio project contract. No automatic bidirectional mapping between arbitrary graphs and Studio settings. A future explicit import may accept a declared supported subset. Protect Studio jobs from editor operations with global backend effects, or disable those operations where isolation cannot be established.
 
 ## Projects, assets and revisions
@@ -48,24 +46,3 @@ This correction supersedes conflicting project-first priorities and acceptance r
 - **Q13 — Bounded extensions:** initially use reviewed DEAS modules and validated data packs. No marketplace, arbitrary downloaded executable plugins, dynamic loader or general plugin SDK before a concrete need justifies its cost and trust boundary. Reuse existing small module contracts.
 - **Q14 — Explicit updates:** explicitly initiate runtime/recipe updates, validate before switching and keep project dependency identities. Require visible confirmation for necessary migrations. Never silently select latest versions on open. Report an unavailable old environment as missing; offer rollback only when the retained old version is actually usable.
 - **Q25 — Local-first:** the creative workflow works without a cloud account. Prompts/media leave the local system only through explicitly configured external services or deliberate transfers; make remote Forge/vision destinations apparent before sending. No cloud fallback for local failures or insufficient VRAM. Keep credentials outside projects. Project folders contain sensitive prompts/media; a future sharing export must separately expose sensitive content/metadata choices rather than imply folders are automatically safe to share.
-
-## First acceptance milestone
-
-- **Q15 — Image first:** finish one persistent image workflow before requiring a complete video workflow. Keep existing video work, but its outstanding acceptance does not block image acceptance. The recorded native playback crash remains a separate unresolved defect, not an accepted permanent limitation; its existing deferred-fix status is not permission to repair it now.
-- **Q16 — Hold expansion:** defer new training, enhancement, assembly and additional model-family integrations until the first workflow, failure paths and restart behavior work. Preserve existing features and fix necessary defects without opening new large integrations.
-- **Q17 — Platform evidence:** Linux may pass reference acceptance first. Maintain Windows architecture/build support, but describe Windows artifacts as experimental until their own native runtime acceptance. Cross-compilation alone is insufficient; do not create Linux-only architectural dead ends.
-- **Q18 — Real acceptance:** require actual model computation, native interaction, verified export, reopen with media/job records intact, understandable failure/cancellation states and measured resources. Fixtures/screenshots supplement rather than replace this evidence. Verification applies to the named hardware/model/runtime combination only.
-- **Q19 — Reference workflow:** one fixed SDXL configuration: text → image → use the result as a new image-to-image revision → compare before/after → export PNG → close and reopen the project. Inspect the concrete checkpoint and suitability before executing. Forge, LoRAs, inpainting and upscaling are not prerequisites for this first acceptance; do not remove existing implementations.
-- **Q22 — Initial interaction model:** one guided workspace for inputs/settings, a readable run plan, results and revisions. No freely wired second graph editor. Reuse current UI components; this decision is not a wholesale redesign authorization.
-
-### Exit evidence to collect (all pending under this contract)
-
-- [ ] Inspect/reuse existing project, asset, job, image recipe and UI code; map callers, migrations and tests before changing it. Do not assume a rewrite is needed.
-- [ ] Select and record the exact compatible SDXL checkpoint/runtime, input fixture, effective recipe/settings and test hardware; obtain separate execution/download authorization where required.
-- [ ] Execute the reference workflow in native Linux DEAS and verify decoded result/export files, revision lineage and immutable job records.
-- [ ] Reopen the project with its managed inputs/results intact and no accidental submission. Distinguish saved drafts from executed effective settings.
-- [ ] Exercise failed/cancelled stages, partial-result retention, uncertain submission/reconnect, app-exit decisions, disk/write failures, safe deletion and single-writer protection; preserve external services.
-- [ ] Record reproducible workload conditions, latency/throughput, peak RAM/VRAM, idle resources and UI responsiveness. Set explicit workload-specific performance limits from evidence before declaring acceptance; no numeric performance threshold was agreed in the interview.
-- [ ] Repeat native acceptance on Windows before claiming equivalent Windows runtime support. Keep builds, fixtures, native interaction and real computation as separate evidence.
-
-Concrete checkpoint/version identities, low-level schema/migration design and measured performance limits are implementation-discovery work, not silently settled by the interview. Existing drafts/data must be inspected and preserved or explicitly migrated under the rules above. Record actual outcomes in [VERIFICATION.md](VERIFICATION.md) and summarize delivery state in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md); do not check these gates off based on this document.

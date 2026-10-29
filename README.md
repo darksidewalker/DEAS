@@ -1,8 +1,8 @@
 # DEAS — Dark Engine AI Studio
 
-A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model-aware prompting, model/resource browsing and image editing in one interface. Studio, Library and the original Comfy editor share the same owned backend; installation, authorization, Backend settings and Logs remain accessible from the header.
+A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model-aware prompting, model/resource browsing and image editing in one interface. Studio, Library, Prompt Forge, Chat, TVE, Run Plan and the original Comfy editor share the same owned backend; installation, provider authorization and settings live in the Backend tab, diagnostics in Logs.
 
-**Early alpha.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Video recipes exist, but native playback has a known crash. Training, dedicated video enhancement, synchronized comparison and assembly are planned integrations, not completed ports. See [current status and limitations](docs/IMPLEMENTATION-STATUS.md).
+**Early alpha.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Image, video and YuE2 music recipes exist; Linux video plays through embedded libmpv, but real-model quality and native playback acceptance are still open. TVE offers a bounded native spatial upscale on Linux; full video enhancement, synchronized comparison, assembly and training are planned integrations, not completed ports. See [current status and limitations](docs/PLAN.md).
 
 [Documentation](docs/README.md) · [Getting started](docs/GETTING-STARTED.md) · [News](docs/NEWS.md) · [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
@@ -23,7 +23,7 @@ bash build-linux.sh
 ./artifacts/deas-linux-amd64
 ```
 
-`bash build-linux.sh --release` stages the complete release set (Linux binary, Windows exe, `SHA256SUMS`, `BUILD-MANIFEST.json`, plus bundles only when the Windows bundle tools are present) under `artifacts/releases/v<version>/`. That versioned folder is the canonical home for release binaries: no loose binaries accumulate in `artifacts/`.
+`bash build-linux.sh --release` stages the release set under `artifacts/releases/v<version>/`: the Linux binary, deb/AppImage bundles (need `patchelf`), the Windows `deas.exe` when `cargo xwin` is installed (NSIS/portable bundles come from `build-windows.cmd --release` on Windows), `SHA256SUMS` and `BUILD-MANIFEST.json`. The plain build always writes the development binary to `artifacts/deas-linux-amd64`. Details: [development and builds](docs/DEVELOPMENT.md#local-linux-executable).
 
 **Windows — Command Prompt:**
 
@@ -34,7 +34,7 @@ build-windows.cmd
 artifacts\deas-windows-x86_64.exe
 ```
 
-In the app, review **AiO installer**, choose a **new writable environment folder**, and authorize **Start install**. DEAS manages Python, PyTorch and ComfyUI; Git and a compatible graphics driver remain prerequisites. Model weights are installed separately through Library or configured model folders. Do not select an existing unrelated ComfyUI installation. Follow [first setup and troubleshooting](docs/GETTING-STARTED.md#first-setup-inside-deas).
+In the app, open **Backend**, review the installation, choose a **new writable environment folder**, and authorize **Start install**. DEAS manages Python, PyTorch and ComfyUI; Git and a compatible graphics driver remain prerequisites. Model weights are installed separately through Library or configured model folders. Adopting an existing ComfyUI folder is a separate, explicit option that rebuilds its venv ([Backend](docs/BACKEND.md#adopting-a-foreign-installation)). Follow [first setup and troubleshooting](docs/GETTING-STARTED.md#first-setup-inside-deas).
 
 ## Documentation
 
@@ -44,10 +44,14 @@ In the app, review **AiO installer**, choose a **new writable environment folder
 | Use prompt image references with SDXL, Qwen 2.1/Turbo, Krea 2 or MOSS | [Image references](docs/STUDIO.md#image-references) |
 | Write/enhance prompts, configure LLMs, use presets and wildcards | [Prompting](docs/PROMPTING.md) |
 | Discuss prompts with the configured LLM and optional web search | [Chat](docs/CHAT.md) |
+| Generate songs and melody covers with YuE2 | [Music](docs/MUSIC.md) |
+| Inspect and upscale a video in the TVE tab | [TVE workspace](docs/STUDIO.md#tve-workspace) |
+| Use GGUF models or assign a model's architecture (**Edit meta…**) | [GGUF](docs/STUDIO.md#gguf-models-and-manual-architecture-assignment) |
 | Save/reopen image drafts and import/export draft ZIP packages | [Projects](docs/PROJECTS.md) |
 | Browse media, inspect metadata and preview results | [Media](docs/MEDIA.md) |
 | Browse/download resources and authorize providers | [Library](docs/LIBRARY.md) |
 | Manage the owned backend, startup settings, folders and language | [Backend](docs/BACKEND.md) |
+| Update the DEAS application | [App updates](docs/APP-UPDATES.md) |
 | Use the original workflow editor or import embedded workflows | [Comfy](docs/COMFY.md) |
 | Inspect/export diagnostic logs | [Logs](docs/LOGS.md) |
 | Develop or extend DEAS | [Project rules](docs/PROJECT-RULES.md), [ComfyUI rules](docs/COMFYUI-RULES.md), [development](docs/DEVELOPMENT.md) |

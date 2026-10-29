@@ -1,6 +1,6 @@
 # Installation, launch and first setup
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Getting started — Windows and Linux
 
@@ -107,7 +107,7 @@ For later launches, open the `DEAS/artifacts` folder in your file manager and op
 
 These steps are the same on both systems. Button names below are English; use the language selector to switch to English if you want the labels to match.
 
-1. Open **AiO installer** if the setup screen is not already visible. DEAS checks your hardware and prepares a recommendation; this alone installs nothing.
+1. Open the **Backend** tab if the setup screen is not already visible. DEAS checks your hardware and prepares a recommendation; this alone installs nothing.
 2. Under **Review & edit installation**, check **Storage directory**. The default is a new `deas-environment` folder beside the executable. To use another drive, choose an existing parent folder and a **new** environment subfolder. Do not point it at an existing ComfyUI installation or a folder containing your files.
 3. Leave the recommended backend selected. **Director** is checked by default and includes Forge, RefMods, Continuity and Output; uncheck it if you only want core ComfyUI. Leave **Advanced options** unchanged for your first install. Unsupported options block installation rather than being skipped.
    To reuse existing models before installation, expand **Optional folders** and choose **Models folder** (Input and Output are optional too). These choices are included in the reviewed installation plan; selecting folders does not move files or start installation. The order in which you choose them does not matter. Native folder safety checks still apply.
@@ -116,7 +116,7 @@ These steps are the same on both systems. Button names below are English; use th
 6. **Install model files separately.** Setup does not include model weights. Use **Library** to browse and download files, or use existing model folders configured under **Backend**. Follow the chosen model's license and folder requirements; some models need additional text encoders and a VAE, not just one checkpoint. Provider authorization is optional for public files, but gated files may need a token and license acceptance on the provider's website.
 7. In **Studio → Generate**, choose a supported image model/family and provide its required files, enter a prompt, then use **Run** when prerequisites are satisfied. Alternatively, **Comfy** opens the original ComfyUI workflow editor for the same backend. Only compatible operations are enabled; video quality/runtime coverage and playback remain limited. A successful installation does **not** guarantee every model or workflow will work.
 
-**Next time:** open the same DEAS executable. The last checked DEAS environment is restored without reinstalling, and its backend follows your auto-start setting. Keep the environment folder; it contains the managed installation and may contain your models and media. **Use existing environment** is for reopening a completed DEAS installation, not adopting an arbitrary ComfyUI folder.
+**Next time:** open the same DEAS executable. The last checked DEAS environment is restored without reinstalling, and its backend follows your auto-start setting. Keep the environment folder; it contains the managed installation and may contain your models and media. **Use existing environment** is for reopening a completed DEAS installation. Adopting a foreign ComfyUI folder is a separate, destructive option (it rebuilds that folder's venv); see [Backend](BACKEND.md#adopting-a-foreign-installation).
 
 ### If something goes wrong
 

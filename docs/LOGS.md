@@ -1,10 +1,10 @@
 # Logs and diagnostic export
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Purpose and access
 
-The **Logs** header action displays recent DEAS, owned ComfyUI and installer CLI output in one view. Native logging comes from the app-owned session; opening Logs does not launch a job, install packages or restart a service. Browser fixtures do not provide real native logs.
+The **Logs** tab displays recent DEAS, owned ComfyUI and installer CLI output in one view. Native logging comes from the app-owned session; opening Logs does not launch a job, install packages or restart a service. Browser fixtures do not provide real native logs.
 
 ## Controls
 

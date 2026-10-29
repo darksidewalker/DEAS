@@ -1,6 +1,6 @@
 # Prompt Forge, LLM settings, presets and wildcards
 
-[Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
+[Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Shared LLM backend
 

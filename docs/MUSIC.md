@@ -1,6 +1,6 @@
 # Music — YuE2 text-to-music and melody covers
 
-[Documentation index](README.md) · [Studio](STUDIO.md) · [Implementation status](IMPLEMENTATION-STATUS.md#yue2-music-generation-and-covers) · [Implementation plan](YUE2-MUSIC-PLAN.md)
+[Documentation index](README.md) · [Studio](STUDIO.md) · [Open work](PLAN.md#43-music-yue2)
 
 Studio → Generate offers two music pipelines for YuE2 checkpoints. Both compile to the ComfyUI core YuE2 nodes natively; no custom node pack is needed for generation.
 
