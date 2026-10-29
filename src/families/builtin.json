@@ -92,5 +92,12 @@
     "architectures": ["ace-step"], "bases": [],
     "model": [["lyric.encoder.layers"]],
     "lora": []
+  },
+  {
+    "id": "yue2", "name": "YuE2", "loader": "checkpoint", "pipelines": ["t2m", "cover"],
+    "architectures": [], "bases": [],
+    "model": [["model.diffusion.model.llm2vae.weight", "text.encoders.model.embed.tokens.weight"]],
+    "lora": [],
+    "defaults": {"width": 1024, "height": 1024, "steps": 32, "cfg": 1, "sampler": "dpm_2", "scheduler": "sgm_uniform"}
   }
 ]

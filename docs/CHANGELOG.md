@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — 0.1.66
+
+- **YuE2 music generation:** Generate gains **Music (Text to Music)** and **Music (Cover Music)** pipelines. Style and Lyrics are independent editors with the YuE2-specific writers, shared prompt tools and copy/clear/expand; there is no negative prompt. Text-to-music exposes **ABC Off / Full / Melody** planning with separate ABC and autoregressive settings, seed, sampling, scheduler and a maximum duration. Music has its own state: switching pipelines never relabels image prompts, hidden image/video options never leak into a music intent, and Run snapshots are immutable across later edits.
+
+- **Covers:** an explicitly selected audio file or a video with audio feeds core `LoadAudio` → SheetSage2 melody ABC → melody-conditioned YuE2; cover generation always uses the selected encoder offered by the running backend. Silent/no-audio sources fail actionably; there is no transcription, voice cloning or silent text-only fallback.
+
+- **Results and history:** decoded FLAC results are retained with correlated audio history, music-aware Run Plan stages and GenerationMetadata rows, full settings restore from Recent history (source re-selection stays explicit), and the model-family catalog recognizes YuE2 checkpoints by header keys so pickers list them for the music pipelines. Real-model generation quality, native playback and Windows runtime acceptance remain open.
+
+- Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
+
+- Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
+
 ## Unreleased — 0.1.65
 
 - **Model-family metadata:** Studio and installed Library models share **Edit meta…**, including keyboard access on blocked models. Family declarations use the existing source-bound sidecar and stay distinct from detection. Native preparation/submission now reject stale or malformed selected model/LoRA metadata, including changes during the observer handshake. Reset removes a structurally valid unknown family without losing current cached hashes or provider metadata; malformed sidecars are preserved and remain blocked. No automatic download, preparation or submission is triggered by editing.
@@ -23,12 +35,6 @@
 ## Unreleased — 0.1.63
 
 - Add right-aligned Studio prompt character counts, shared inline/enlarged spelling aids with an independent remembered system-default language, and default-off autocomplete using Prompt Forge’s local tag search. Backend language settings and Quick Settings control both aids without changing generation settings or submitting prompts.
-
-## Unreleased
-
-- Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
-
-- Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
 
 ## Unreleased — 0.1.62
 

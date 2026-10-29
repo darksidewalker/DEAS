@@ -923,6 +923,26 @@ mod tests {
 
     type Signature<'a> = &'a [(&'a str, &'a [u64])];
 
+    #[test]
+    fn yue2_checkpoint_identity_requires_both_header_keys() {
+        // Keys and shapes as inspected header-only on a real YuE2 3B checkpoint; no payload is read.
+        let dir = tempfile::tempdir().unwrap();
+        let keys = [
+            "model.diffusion_model.llm2vae.weight",
+            "text_encoders.model.embed_tokens.weight",
+        ];
+        let both = serde_json::json!({keys[0]:{"dtype":"BF16","shape":[64,2048]}, keys[1]:{"dtype":"BF16","shape":[184704,2048]}});
+        let path = write(dir.path(), "renamed.safetensors", both.clone());
+        assert_eq!(detect("checkpoints", &path, None).as_deref(), Some("yue2"));
+        assert_eq!(detect("loras", &path, None), None);
+        for key in keys {
+            let mut partial = both.clone();
+            partial.as_object_mut().unwrap().remove(key);
+            let path = write(dir.path(), "yue2_3b.safetensors", partial);
+            assert_ne!(detect("checkpoints", &path, None).as_deref(), Some("yue2"));
+        }
+    }
+
     // Sparse payloads exercise real header/offset validation without allocating model weights.
     fn component_file(dir: &Path, name: &str, tensors: Signature<'_>) -> std::path::PathBuf {
         let mut head = serde_json::Map::new();

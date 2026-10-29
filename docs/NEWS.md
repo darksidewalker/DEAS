@@ -1,5 +1,9 @@
 # News
 
+## Development — 0.1.66
+
+Generate now offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints: independent Style/Lyrics editors with ABC Off/Full/Melody planning, maximum duration and advanced sampling; covers build a new song from the melody of a selected audio file or video-with-audio. Outputs are FLAC, kept in Recent history with full settings restore. Real-model generation and native playback acceptance are still open. [Usage and limits](STUDIO.md#music-yue2-0166-development). Not a published release.
+
 ## Development — 0.1.64
 
 Generate's Post-Processing adds learned H3 and LTX latent upscale, separate from TVS and LTX's existing multipass refinement. Enable it, select the compatible latent model, and review the final canvas before Run. If weights are missing, a Library popup offers the family-specific model in `latent_upscale_models`; opening it never starts a download or generation. [Usage and limits](STUDIO.md#learned-video-latent-upscale-0164-development). Not a published release.

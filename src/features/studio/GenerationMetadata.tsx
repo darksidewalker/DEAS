@@ -1,10 +1,11 @@
 import { isVideoIntent, latentUpscaleSize } from '../../lib/videoIntent';
+import { isMusicIntent } from '../../lib/musicIntent';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { MediaItem } from '../../lib/media';
 import { generationSettings, imageMetadataRows, readImageMetadata, type GenerationSettings, type ImageMetadata } from '../../lib/imageMetadata';
 import { embeddedWorkflow, OpenComfyWorkflow, type ComfyWorkflow } from '../../lib/comfyWorkflow';
-import type { JobStatus } from '../../lib/jobs';
+import { isImageIntent, type JobStatus } from '../../lib/jobs';
 import { useI18n } from '../../i18n/I18nProvider';
 import { generationDuration } from './generationDuration';
 
@@ -42,13 +43,20 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
  const {t,locale}=useI18n();
  const duration=generationDuration(job,locale);
  // Image intents list every field; video intents share the sampling rows plus frames/fps and the family block.
- const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&!isVideoIntent(intent)?intent:undefined;
+ const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&isImageIntent(intent)?intent:undefined;const m=intent&&isMusicIntent(intent)?intent:undefined;
  const extensionSeconds=v?.family==='minimax-h3'?v.h3.continuity?.durationSeconds:undefined;
  const row=(key:string,value:ReactNode)=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>;
  const timing=<>{job?.metadata&&Number.isFinite(new Date(job.metadata.startedAt).getTime())&&row('studio.run.metadata.date',new Date(job.metadata.startedAt).toLocaleString(locale))}{duration!==null&&row('studio.run.metadata.time',duration)}</>;
  return <section className="wb-metadata" aria-label={t('studio.run.metadata')}>
   <h3>{t('studio.run.metadata')}</h3>
-  {v?<>{onApply&&<Apply key={job?.id} settings={{positive:v.positivePrompt,negative:v.negativePrompt,checkpoint:v.model,seed:v.seed,steps:v.steps,cfg:v.cfg,sampler:v.sampler,scheduler:v.scheduler,width:v.width,height:v.height,loras:v.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
+  {m?<dl data-music-metadata>{/* Music has no image "use these settings"; Recent history restores the whole record. */}
+   {row('studio.music.style',m.style)}{m.lyrics&&row('studio.music.lyrics',m.lyrics)}{row('studio.run.checkpoint',m.checkpoint)}
+   {row('studio.music.planning',t(`studio.music.${m.planning}`))}{row('studio.music.maxDuration',`${m.maxDuration} · ${t('studio.music.durationHint')}`)}
+   {m.mode==='cover'&&<>{row('studio.music.source',m.sourceAudio)}{row('studio.music.audioEncoder',m.audioEncoder)}</>}
+   {row('studio.run.seed',m.seed)}{row('studio.run.steps',m.steps)}{row('studio.run.cfg',m.cfg)}{row('studio.recipe.sampler',m.sampler)}{row('studio.recipe.scheduler',m.scheduler)}
+   {row('studio.music.generationSettings',JSON.stringify(m.generation))}{m.mode==='t2m'&&m.abc&&row('studio.music.abcSettings',JSON.stringify(m.abc))}
+   {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
+  </dl>:v?<>{onApply&&<Apply key={job?.id} settings={{positive:v.positivePrompt,negative:v.negativePrompt,checkpoint:v.model,seed:v.seed,steps:v.steps,cfg:v.cfg,sampler:v.sampler,scheduler:v.scheduler,width:v.width,height:v.height,loras:v.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
    {row('studio.run.positive',v.positivePrompt)}{v.negativePrompt&&row('studio.run.negative',v.negativePrompt)}{row('studio.run.checkpoint',v.model)}{row('studio.run.resolution.title',`${v.width} × ${v.height} · ${extensionSeconds===undefined?`${v.frames} ${t('studio.run.video.frames')} · `:''}${v.frameRate} fps`)}
    {extensionSeconds!==undefined&&row('studio.run.cont.seconds',extensionSeconds)}{row('studio.run.seed',v.seed)}{row('studio.run.steps',v.steps)}{row('studio.run.cfg',v.cfg)}{row('studio.recipe.sampler',v.sampler)}{row('studio.recipe.scheduler',v.scheduler)}{row('studio.run.textEncoder',v.textEncoder)}{row('studio.run.vae',v.vae)}
    {!!v.loras?.length&&row('studio.run.loras',v.loras.map(l=>`${l.name} (${l.strength})`).join(', '))}{(v.firstFrame||v.lastFrame)&&row('studio.run.pipe.input',[v.firstFrame,v.lastFrame].filter(Boolean).join(' → '))}

@@ -103,6 +103,8 @@ export interface RecipeAllowlist {
   readonly upscaleModels?: readonly string[];
   readonly latentUpscaleModels?: readonly string[];
   readonly h3LatentUpscaleModels?: readonly string[];
+  /** `AudioEncoderLoader` choices (SheetSage2 for YuE2 covers); absent on older backends. */
+  readonly audioEncoders?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {

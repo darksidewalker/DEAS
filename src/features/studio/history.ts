@@ -1,7 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { JobIntent, JobStatus } from '../../lib/jobs';
+import { isImageIntent, type JobIntent, type JobStatus } from '../../lib/jobs';
 import type { RecipeAllowlist } from '../../lib/execution';
 import { defaultVideoOutput, isVideoIntent, videoFrames } from '../../lib/videoIntent';
+import { isMusicIntent } from '../../lib/musicIntent';
 import { defaultOptions, type OptionsPref } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 
@@ -37,7 +38,7 @@ export interface RestoreContext {
 }
 export interface RestoredReference {name:string;strength:number;path?:string}
 export interface HistoryRestore {
- intent:JobIntent; pipeline:'t2i'|'i2i'|'t2v'|'i2v'|'v2v'|'ref2v'; options:OptionsPref;
+ intent:JobIntent; pipeline:'t2i'|'i2i'|'t2v'|'i2v'|'v2v'|'ref2v'|'t2m'|'cover'; options:OptionsPref;
  references:RestoredReference[]; source?:RestoredReference; lastFrame?:RestoredReference;
  /** Unsupported authoring data is disclosed before apply and keeps Run blocked. */
  unsupported:string[]; unavailable:string[]; environmentMismatch:boolean; backendOrigin:string;
@@ -53,7 +54,7 @@ export function historyInputSelectionContext(endpoint:string,inputRoot?:string):
 
 /** Pure authoring projection; deliberately performs no discovery, uploads or execution. */
 export function historyRestore(record:HistoryRecord,context:RestoreContext):HistoryRestore {
- const intent=structuredClone(record.intent),video=isVideoIntent(intent);
+ const intent=structuredClone(record.intent),video=isVideoIntent(intent),image=isImageIntent(intent);
  const unsupported:string[]=[],unavailable:string[]=[];
  const environmentMismatch=origin(context.endpoint)!==record.backendOrigin;
  // This schema records no original input-root identity or backend namespace.
@@ -69,8 +70,8 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
  const o=intent.options;
  const options:OptionsPref={...structuredClone(defaultOptions),attention:o?.attention?`a:${o.attention}`:o?.sage?`s:${o.sage}`:'',cache:o?.cache?.node??'',threshold:o?.cache?.threshold??defaultOptions.threshold,compile:o?.compile??'',vae:o?.vaeTile?'tiled':'full',tile:o?.vaeTile??defaultOptions.tile,
   // The effective prefix is already a literal; preserving it avoids inventing a template.
-  outputNaming:intent.outputPrefix.replace(/^raw\//,''),sigmas:!video?intent.sigmas?.join(', ')??'':'',
-  output:video?{...defaultVideoOutput,...intent.output}:{...defaultVideoOutput,imageFormat:intent.imageFormat??'png',imageCompression:intent.imageCompression??44}};
+  outputNaming:intent.outputPrefix.replace(/^raw\//,''),sigmas:image?intent.sigmas?.join(', ')??'':'',
+  output:video?{...defaultVideoOutput,...intent.output}:{...defaultVideoOutput,imageFormat:(image&&intent.imageFormat)||'png',imageCompression:(image?intent.imageCompression:undefined)??44}};
  if(!intent.outputPrefix.startsWith('raw/'))unsupported.push('outputPrefix');
  if(o?.attention&&!context.allow?.attention?.includes(o.attention))unavailable.push(`attention: ${o.attention}`);
  if(o?.sage&&!context.allow?.sage?.includes(o.sage))unavailable.push(`sage: ${o.sage}`);
@@ -78,7 +79,15 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
  for(const node of [o?.cache?.node,o?.vaeTile?'VAEDecodeTiled':undefined])if(node&&!context.allow?.nodes.includes(node))unavailable.push(node);
  let references:RestoredReference[]=[],source:RestoredReference|undefined,lastFrame:RestoredReference|undefined;
  let pipeline:HistoryRestore['pipeline']='t2i';
- if(!video){
+ if(isMusicIntent(intent)){
+  pipeline=intent.mode;
+  for(const node of ['YuE2GenerateMusic','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced',...(intent.planning==='off'?[]:intent.mode==='cover'?['LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC']:['YuE2GenerateABC'])])if(!context.allow?.nodes.includes(node))unavailable.push(node);
+  if(intent.mode==='cover'){
+   source=resolve(intent.sourceAudio);
+   if(!context.allow?.audioEncoders?.includes(intent.audioEncoder))unavailable.push(`audioEncoder: ${intent.audioEncoder}`);
+  }
+  if(modelFamily!=='yue2')unavailable.push('family: yue2');
+ }else if(image){
   pipeline=intent.inputImage?'i2i':'t2i';
   if(intent.inputImage)source=resolve(intent.inputImage);
   if(intent.imageReference){references=intent.imageReference.images.map(r=>resolve(r.image,r.strength));if(!context.allow?.visionModels?.includes(intent.imageReference.visionModel))unavailable.push(`visionModel: ${intent.imageReference.visionModel}`);}

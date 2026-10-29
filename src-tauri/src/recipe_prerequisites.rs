@@ -208,8 +208,6 @@ pub async fn native_recipe_prerequisites(base_url: String) -> Result<Value, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn zz_real_object_info(){let v:Value=serde_json::from_str(&std::fs::read_to_string(std::env::var("OI").unwrap()).unwrap()).unwrap();let r=parse(&reqwest::Url::parse("http://127.0.0.1:8199/").unwrap(),&v);match r{Ok(r)=>{println!("LTX {}",r["allowlist"]["latentUpscaleModels"]);println!("H3 {}",r["allowlist"]["h3LatentUpscaleModels"]);println!("NODES {}",r["allowlist"]["nodes"]);},Err(e)=>println!("ERR {e}")}}
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -266,7 +264,11 @@ mod tests {
         let mut info = nodes();
         let without = parse(&base, &info).unwrap();
         assert_eq!(without["allowlist"]["audioEncoders"], json!([]));
-        assert!(!without["allowlist"]["nodes"].as_array().unwrap().iter().any(|n| n == "YuE2GenerateMusic"));
+        assert!(!without["allowlist"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n == "YuE2GenerateMusic"));
         assert_eq!(without["missingNodes"], json!([]));
         for n in crate::jobs_music::MUSIC_NODES {
             if info.get(n).is_none() {
@@ -276,12 +278,25 @@ mod tests {
         // Core V3 combo shape as captured from the installed backend; unsafe names are dropped silently.
         info["AudioEncoderLoader"] = json!({"input":{"required":{"audio_encoder_name":["COMBO",{"multiselect":false,"options":["sheetsage2_bf16.safetensors","sub/other.safetensors","../escape.safetensors"]}]}}});
         let with = parse(&base, &info).unwrap();
-        assert_eq!(with["allowlist"]["audioEncoders"], json!(["sheetsage2_bf16.safetensors", "sub/other.safetensors"]));
+        assert_eq!(
+            with["allowlist"]["audioEncoders"],
+            json!(["sheetsage2_bf16.safetensors", "sub/other.safetensors"])
+        );
         let listed = with["allowlist"]["nodes"].as_array().unwrap();
-        assert!(["YuE2GenerateMusic", "SheetSage2AudioToABC", "SaveAudioAdvanced"].iter().all(|n| listed.iter().any(|l| l == n)));
+        assert!([
+            "YuE2GenerateMusic",
+            "SheetSage2AudioToABC",
+            "SaveAudioAdvanced"
+        ]
+        .iter()
+        .all(|n| listed.iter().any(|l| l == n)));
         assert_eq!(with["missingNodes"], without["missingNodes"]);
-        info["AudioEncoderLoader"] = json!({"input":{"required":{"audio_encoder_name":["COMBO",{"options":"broken"}]}}});
-        assert_eq!(parse(&base, &info).unwrap()["allowlist"]["audioEncoders"], json!([]));
+        info["AudioEncoderLoader"] =
+            json!({"input":{"required":{"audio_encoder_name":["COMBO",{"options":"broken"}]}}});
+        assert_eq!(
+            parse(&base, &info).unwrap()["allowlist"]["audioEncoders"],
+            json!([])
+        );
     }
 
     #[test]
@@ -712,7 +727,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[]
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "audioEncoders":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

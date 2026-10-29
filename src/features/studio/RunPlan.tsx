@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { JobIntent } from '../../lib/jobs';
+import { isImageIntent, type JobIntent } from '../../lib/jobs';
+import { isMusicIntent } from '../../lib/musicIntent';
 import { isVideoIntent, latentUpscaleSize } from '../../lib/videoIntent';
 
 /** Authoring preview only: native preparation remains the validation/compilation authority. */
@@ -18,8 +19,27 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
  </>;
 
  const stage=(id:string,body:ReactNode)=><li data-plan-stage={id}><h3>{t(`studio.plan.${id}`)}</h3><dl className="run-plan-facts">{body}</dl></li>;
+ if(intent&&isMusicIntent(intent)){
+  const music=intent;
+  // Music keeps the stage chain (input → model → prompt → ABC → generate → output) without any image/video fields.
+  const settings=(o:object)=>Object.entries(o).map(([k,v])=>row(k==='cfgScale'?'studio.music.arCfg':`studio.music.${k}`,v));
+  return <section className="feature-panel run-plan" aria-label={t('studio.tab.map')}>
+   <div className="panel-heading"><h2>{t('studio.tab.map')}</h2><span>{t(`studio.run.pipe.${pipeline}`)}</span></div>
+   <p>{t('studio.plan.notice')}</p>
+   <ul className="run-plan-notices">{notices.map((s,i)=><li key={i}>{s}</li>)}</ul>
+   <ol className="run-plan-stages">
+    {(music.mode==='cover'||inputNotes.length>0)&&stage('input',<>{music.mode==='cover'&&<>{row('studio.music.source',music.sourceAudio)}{row('studio.music.audioEncoder',music.audioEncoder)}<dd>{t('studio.music.coverHint')}</dd></>}{inputNotes.map((s,i)=><dd key={i}>{s}</dd>)}</>)}
+    {stage('model',<>{row('studio.run.checkpoint',music.checkpoint)}{row('studio.run.textEncoder',t('studio.plan.checkpointParts'))}{row('studio.run.vae',t('studio.plan.checkpointParts'))}</>)}
+    {stage('prompt',<>{row('studio.music.style',music.style||'∅')}{row('studio.music.lyrics',music.lyrics||'∅')}</>)}
+    {music.planning!=='off'&&stage('abc',<>{row('studio.music.planning',t(`studio.music.${music.planning}`))}{music.mode==='t2m'&&settings(music.abc)}</>)}
+    {stage('generate',<>{row('studio.music.maxDuration',music.maxDuration)}<dd>{t('studio.music.durationHint')}</dd>{row('studio.run.seed',music.seed)}{row('studio.run.steps',music.steps)}{row('studio.run.cfg',music.cfg)}{row('studio.recipe.sampler',music.sampler)}{row('studio.recipe.scheduler',music.scheduler)}{settings(music.generation)}</>)}
+    {stage('output',<>{row('studio.music.output','FLAC')}{row('settings.output',outputRoot)}{row('studio.run.opt.outputNaming',music.outputPrefix)}<dd>{t('studio.plan.outputPending')}</dd></>)}
+   </ol>
+   <details className="run-plan-intent"><summary>{t('studio.plan.intent')}</summary><pre data-plan-intent>{JSON.stringify(intent,null,2)}</pre></details>
+  </section>;
+ }
  const video=intent&&isVideoIntent(intent)?intent:null;
- const image=intent&&!isVideoIntent(intent)?intent:null;
+ const image=intent&&isImageIntent(intent)?intent:null;
  const videoSize=video?.latentUpscale?latentUpscaleSize(video.family,video,video.latentUpscale.scale):video;
  return <section className="feature-panel run-plan" aria-label={t('studio.tab.map')}>
   <div className="panel-heading"><h2>{t('studio.tab.map')}</h2><span>{t(`studio.run.pipe.${pipeline}`)}</span></div>

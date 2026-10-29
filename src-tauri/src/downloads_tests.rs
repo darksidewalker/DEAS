@@ -139,7 +139,7 @@ fn strict_catalog_and_extension() {
             .as_array()
             .unwrap()
             .len(),
-        8 + 35
+        11 + 35
     );
     let bundled = c
         .entries

@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn(),writeModelFamily:vi.fn()}));
 vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn(async()=>[] as [string,string][])}));
-vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
+vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn(),isImageIntent:(i:{recipeId?:string})=>!!i&&i.recipeId!=='video-generation'&&i.recipeId!=='music-generation'}));
 const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler','euler_ancestral','euler_cfg_pp','er_sde'],schedulers:['normal','simple','linear_quadratic']}};
@@ -147,6 +147,22 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  fireEvent.click(document.querySelector('[data-latent-upscale-enabled]')!);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({latentUpscale:plan.latentUpscale,width:plan.width,height:plan.height,frames:plan.frames,output:plan.output});
+});
+
+test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
+ const allow=(latentUpscaleModels:string[])=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow([]));
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(checkRecipePrerequisites).toHaveBeenCalled());
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,50));});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow([ltx]));
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect((screen.getByLabelText('Latent upscale model') as HTMLSelectElement).value).toBe(ltx));
+ fireEvent.click(screen.getByLabelText('Latent upscale after sampling'));
+ expect(document.querySelector('[data-latent-upscale-download]')).toBeNull();
 });
 
 test('latent family preferences persist independently and never replace an explicit missing model',async()=>{
@@ -826,10 +842,16 @@ test('vision offer card shows the hosting platform and downloads via the Library
  expect(document.querySelector('[data-vision-download]')).not.toBeNull();
  for(const [text,tag] of [['SDXL ReVision vision tower','span'],['ReVision CivitAI mirror','span'],['Hugging Face','em.download-auth'],['CivitAI','em.download-auth']] as const)expect(within(dialog).getByText(text,{selector:tag})).not.toBeNull();
  const before=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ await within(dialog).findByLabelText('clip_vision_g.safetensors');
  fireEvent.click(within(dialog).getByLabelText('clip_vision_g.safetensors'));
  fireEvent.click(within(dialog).getByRole('button',{name:'Download all (1)'}));
- await within(dialog).findByText('Succeeded');
- expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'huggingface',resources:[file],parentPath:'/configured',folderName:'clip_vision',authenticated:false}});
+ await within(dialog).findByText('Running');
+ for(let i=0;i<4;i++){
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,300));});
+  view.rerender(<I18nProvider><Workbench endpoint={evidence.baseUrl} root="/env" roots={{models:'/configured'}}/></I18nProvider>);
+ }
+ await screen.findByText('Succeeded',undefined,{timeout:2000});
+ expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'huggingface',resources:[file],parentPath:'/configured/clip_vision',folderName:'',authenticated:false}});
  await waitFor(()=>expect(checkRecipePrerequisites).toHaveBeenCalledTimes(before+1));
 });
 function reorderReferences(from:number,to:number){

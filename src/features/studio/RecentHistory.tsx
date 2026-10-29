@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isVideoIntent } from '../../lib/videoIntent';
+import { isMusicIntent } from '../../lib/musicIntent';
 import { generationDuration } from './generationDuration';
 import { checkHistoryOutputs, historicalRows, historyRestore, readHistory, type HistoryOutputAvailability, type HistoryRecord, type HistoryRestore, type HistorySnapshot, type RestoreContext } from './history';
 import './recentHistory.css';
@@ -89,7 +90,7 @@ export function RecentHistory({liveIds,context,outputRoot,projectOpen,authoringB
      <p>{new Date(record.observedAt).toLocaleString(locale)} · {record.origin==='studio'?t('studio.history.origin.studio'):t('studio.history.origin.diagnostic')} · {record.appVersion}</p>
      {(record.state==='queued'||record.state==='running'||record.state==='unknown')&&<p>{t('studio.history.uncertain')}</p>}
      {record.error&&<p role="status">{record.error}</p>}
-     <dl className="wb-metadata"><div><dt>{t('studio.run.seed')}</dt><dd>{record.intent.seed}</dd></div><div><dt>{t('studio.run.resolution.title')}</dt><dd>{record.intent.width} × {record.intent.height}</dd></div><div><dt>{t('studio.run.positive')}</dt><dd>{record.intent.positivePrompt}</dd></div></dl>
+     <dl className="wb-metadata"><div><dt>{t('studio.run.seed')}</dt><dd>{record.intent.seed}</dd></div>{isMusicIntent(record.intent)?<div><dt>{t('studio.music.style')}</dt><dd>{record.intent.style}</dd></div>:<><div><dt>{t('studio.run.resolution.title')}</dt><dd>{record.intent.width} × {record.intent.height}</dd></div><div><dt>{t('studio.run.positive')}</dt><dd>{record.intent.positivePrompt}</dd></div></>}</dl>
      {duration!==null&&<p>{t('studio.run.metadata.time')}: {duration}</p>}
      <details open={settingsOpen} onToggle={event=>setSettingsOpen(event.currentTarget.open)}><summary>{t('studio.history.effective')}</summary>{effectiveJson!==null&&<pre>{effectiveJson}</pre>}</details>
      <h4>{t('studio.history.outputs')}</h4>

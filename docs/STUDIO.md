@@ -2,6 +2,16 @@
 
 [Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
 
+## Music (YuE2) — 0.1.66 development
+
+Generate offers **Music (Text to Music)** and **Music (Cover Music)** for YuE2 checkpoints (detected by header keys, listed like other checkpoints). Music replaces the positive/negative prompt pair with two independent editors: **Style** (required) and **Lyrics** (section tags like `[verse]`/`[chorus]` supported), each with the YuE2-specific writer from Prompt Forge, expand/copy/clear tools and its own draft — image prompts are never relabelled into music fields.
+
+- **Text to music** chooses ABC planning **Off / Full / Melody**: Full/Melody generate an ABC sheet first (with their own ABC settings: max tokens, temperature, top-p/top-k, repetition penalty and window); Off skips straight to autoregressive generation with the AR settings (temperature, top-p/top-k, repetition penalty, AR CFG). Maximum duration bounds the requested length; the actual generated duration can be shorter. Seed, steps, CFG, sampler and scheduler work as in image generation.
+- **Cover** takes an explicitly selected audio file or a video with audio: core `LoadAudio` reads its first audio stream, SheetSage2 transcribes it to a melody ABC, and YuE2 generates a **new** song from that melody plus Style/Lyrics. A cover always needs the selected **audio encoder** offered by the running backend; the source list is explicit and a silent/no-audio source blocks Run with a named reason. A cover is a melody reinterpretation — it does not preserve timbre, singer identity, accompaniment, exact tempo or duration, and there is no lyric transcription or voice cloning.
+- Outputs are **FLAC**, retained in Recent generation history with full settings restore (the cover source must be re-selected explicitly). The Run Plan and Generation Metadata show the exact music intent. Missing YuE2/SheetSage2 nodes or writers disable only the dependent modes with a visible reason; nothing downloads automatically.
+
+**Not yet accepted:** real YuE2 model generation quality, SheetSage2 list/multiplicity behavior on live backends, FLAC playback on the native WebKitGTK/WebView2 runtimes and external-backend export fallback, Windows runtime, and the inspected checkpoint's CC-BY-NC-4.0 source terms for any future download catalog. See [VERIFICATION.md](VERIFICATION.md#yue2-music-studio-slice-0166-development) and [YUE2-MUSIC-PLAN.md](YUE2-MUSIC-PLAN.md).
+
 ## GGUF models and manual architecture assignment
 
 Use GGUF diffusion weights in `models/diffusion_models` or `models/unet`, and supported GGUF text encoders in `models/text_encoders` or `models/clip`. Select the matching separate VAE and, for LTX, audio VAE and text projection. GGUF does not provide an all-in-one checkpoint loader: files under `checkpoints` are not silently moved or treated as MODEL/CLIP/VAE bundles. VAE and projection files must use the backend's supported non-GGUF formats. LoRA files must be Safetensors; GGUF LoRAs are not supported. Applying a Safetensors LoRA to a GGUF base also remains blocked until that execution path is verified, including either model of a Wan HIGH/LOW pair.

@@ -566,7 +566,7 @@ pub async fn native_job_export(
     let extension = jobs.cached_output(&job_id, index)?.extension();
     let selected = rfd::AsyncFileDialog::new()
         .set_title(title)
-        .add_filter(&extension.to_ascii_uppercase(), &[extension])
+        .add_filter(extension.to_ascii_uppercase(), &[extension])
         .set_file_name(format!("DEAS-output.{extension}"))
         .set_can_create_directories(false)
         .save_file()

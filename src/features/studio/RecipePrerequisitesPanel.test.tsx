@@ -4,7 +4,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { prepareDiagnosticJob, submitDiagnosticJob, readDiagnosticJobStatus, readCurrentDiagnosticJob, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type DiagnosticJobPlan, type JobStatus } from '../../lib/jobs';
 import { compileRecipe } from '../../lib/execution';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => false) }));
-vi.mock('../../lib/jobs', () => ({ prepareDiagnosticJob: vi.fn(), submitDiagnosticJob: vi.fn(), readDiagnosticJobStatus: vi.fn(), readCurrentDiagnosticJob: vi.fn(), loadDiagnosticJobOutput: vi.fn(), exportDiagnosticJobOutput: vi.fn() }));
+vi.mock('../../lib/jobs', () => ({ prepareDiagnosticJob: vi.fn(), submitDiagnosticJob: vi.fn(), readDiagnosticJobStatus: vi.fn(), readCurrentDiagnosticJob: vi.fn(), loadDiagnosticJobOutput: vi.fn(), exportDiagnosticJobOutput: vi.fn(), isImageIntent: (i: { recipeId?: string }) => !!i && i.recipeId !== 'video-generation' && i.recipeId !== 'music-generation' }));
 beforeEach(() => vi.mocked(isTauri).mockReturnValue(false));
 import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites, type RecipePrerequisites } from '../../lib/recipePrerequisites';
@@ -103,7 +103,7 @@ test('stale errors are discarded and unmount cannot publish pending evidence', a
   render(view()); expect(screen.queryByText(fixture.baseUrl)).toBeNull();
   expect(checkRecipePrerequisites).toHaveBeenCalledTimes(2);
 });
-test('Engine mounts the localized diagnostic panel without probing; endpoint edit clears its preview', async () => {
+test('Engine mounts the localized diagnostic panel; its Check button probes and endpoint edit clears its preview', async () => {
   localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
   vi.mocked(checkRecipePrerequisites).mockResolvedValue(fixture);
   render(<I18nProvider><App /></I18nProvider>);
@@ -112,8 +112,10 @@ test('Engine mounts the localized diagnostic panel without probing; endpoint edi
   fireEvent.click(screen.getByText('Engine diagnostics & legacy workspace'));
   fireEvent.click(screen.getByRole('button', { name: 'Engine' }));
   expect(document.querySelector('[data-recipe-prerequisites]')).toBeTruthy();
-  expect(checkRecipePrerequisites).not.toHaveBeenCalled();
+  // The Workbench post dock may auto-probe shown latent options; the panel itself probes only on demand.
+  const mounted = vi.mocked(checkRecipePrerequisites).mock.calls.length;
   fireEvent.click(screen.getByRole('button', { name: 'Check recipe prerequisites' }));
+  expect(vi.mocked(checkRecipePrerequisites).mock.calls.length).toBe(mounted + 1);
   await screen.findByText(fixture.baseUrl);
   fireEvent.click(screen.getByRole('button', { name: 'Compile diagnostic preview' }));
   expect(document.querySelector('[data-recipe-graph]')).toBeTruthy();

@@ -6,13 +6,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// Every class the graphs can emit; prepare() checks the compiled graph's nodes against object_info.
-pub(crate) const MUSIC_NODES: [&str; 11] = [
-    "CheckpointLoaderSimple",
+/// (`CheckpointLoaderSimple`/`KSampler` are already core-required.)
+pub(crate) const MUSIC_NODES: [&str; 9] = [
     "YuE2GenerateABC",
     "YuE2GenerateMusic",
     "ConditioningZeroOut",
     "EmptyYuE2LatentAudio",
-    "KSampler",
     "VAEDecodeAudio",
     "SaveAudioAdvanced",
     "LoadAudio",

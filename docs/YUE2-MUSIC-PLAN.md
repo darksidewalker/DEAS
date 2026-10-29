@@ -1,6 +1,6 @@
 # YuE2 music pipelines — implementation plan
 
-**Status: planned, not implemented.** Owner request. This repository document is the durable implementation handoff linked from [the consolidated plan](IMPLEMENTATION-STATUS.md#planned-yue2-music-generation-and-covers).
+**Status: implemented in 0.1.66 (fixture-verified); real-model, native-playback and Windows acceptance open.** Owner request. This repository document is the durable implementation handoff linked from [the consolidated plan](IMPLEMENTATION-STATUS.md#yue2-music-generation-and-covers).
 
 > **For Hermes:** Implement task-by-task with the `deas-development`, `test-driven-development` and Ponytail skills; use isolated subagents for independent review, not concurrent writers of Workbench.tsx. Load the subagent-development workflow if available. This document authorizes no implementation, commit, download, service operation or publication.
 
@@ -745,17 +745,17 @@ Expected: exit 0 for each, all intended tests discovered; no unexplained skips. 
 
 ## 6. Handoff checklist
 
-- [ ] Reinspect baseline dirty edits before implementation; preserve other-session changes.
-- [ ] A6 schema/LoadAudio/history/list gate passed and evidence recorded.
-- [ ] Native compiler tests and strict validation green.
-- [ ] Music optional prerequisites scoped, no image fallback.
-- [ ] Source preflight bounds and no-stream error verified.
-- [ ] Independent prompt state and both exact writers verified.
-- [ ] Full/Melody/Off and advanced settings reflected exactly in intent.
-- [ ] Run snapshot is immutable across awaited uploads and UI edits.
-- [ ] Audio history/output transfer/cache/export including external backend verified.
-- [ ] Plan, metadata, recent-history restore and image-project guards verified.
-- [ ] All six locales, docs and layout gates updated.
+- [x] Reinspect baseline dirty edits before implementation; preserve other-session changes.
+- [ ] A6 schema/LoadAudio/history/list gate passed and evidence recorded. *(Live-backend SheetSage2 list/multiplicity not yet observed.)*
+- [x] Native compiler tests and strict validation green.
+- [x] Music optional prerequisites scoped, no image fallback.
+- [ ] Source preflight bounds and no-stream error verified. *(Actionable no-source/no-encoder blocking is in; decoded-PCM memory bounds probe remains open.)*
+- [x] Independent prompt state and both exact writers verified.
+- [x] Full/Melody/Off and advanced settings reflected exactly in intent.
+- [x] Run snapshot is immutable across awaited uploads and UI edits.
+- [ ] Audio history/output transfer/cache/export including external backend verified. *(Native FLAC retention/history correlation is in; external-backend export fallback open.)*
+- [x] Plan, metadata, recent-history restore and image-project guards verified.
+- [x] All six locales, docs and layout gates updated.
 - [ ] Linux/Windows native playback evidence separated from browser fixtures.
 - [ ] Real model/cover quality and scoped cancellation tested, or explicitly blocked.
-- [ ] Final review confirms no unrelated changes, no secret/private host data in docs, no unauthorized publication.
+- [x] Final review confirms no unrelated changes, no secret/private host data in docs, no unauthorized publication.
