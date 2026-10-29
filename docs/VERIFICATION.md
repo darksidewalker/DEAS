@@ -4,6 +4,17 @@
 
 Contributor-run on Windows 10 (user profile with a space, so `%TEMP%` is an 8.3 short path; Python 3.13 from python.org). Before, on 0.1.63 (`3671426`): `cargo test --lib` 505 passed / 6 failed — `llm` python_worker fixtures, `projects` single_writer, `settings` extra_model_roots, `media::star` nested move, and the two `jobs` shared-log tests (these two pass alone). After: 512 passed / 0 failed / 30 ignored on three consecutive full runs; `cargo fmt --check` and `cargo clippy --lib --tests` clean apart from the existing `video_upscale.rs` `chunks_exact` warnings. Root cause of the jobs pair, confirmed by three green runs with only `incremental_reads_and_byte_cap` skipped: its 12 MiB of pushes overflowed the 10 MiB shared store mid-run. Linux behaviour of the changed tests is unchanged by construction (`python3` kept off Windows; canonicalizing a long path is a no-op), not re-run on Linux.
 
+## Windows runtime: 0.1.63 checks (release build of `3671426`)
+
+Contributor-run on Windows 10 / WebView2, RTX 5080, existing owned environment, driven through the WebView2 DevTools port; screenshots inspected.
+
+- **Model loader-folder mismatch:** an Anima file present in both `checkpoints/` and `diffusion_models/` shows twice in the Checkpoint dropdown and the Models tiles; the `checkpoints/` entry is disabled with the folder guidance as its tooltip, the `diffusion_models/` entry selects normally. Observation: both entries carry the same visible name, and the guidance is only reachable by hovering the disabled entry.
+- **Chat model-exact routing** (Qwen3.8 27B over an OpenAI-compatible server): MiniMax H3, LTX and Illustrious requests each answer with the exact `Studio → Prompt Forge → Write for → <mode>` referral; no four-image-model substitution was offered.
+- **Video preview on Windows** (non-libmpv path, WebView2 `<video controls>`): a generated 20 s 1280×720 H.264/AAC test pattern with a burned-in timestamp plays with Chromium's native controls (play/pause, time, seek, volume, fullscreen). Clicking the middle of the seek bar lands on `currentTime` 10.000 and the displayed frame reads `00:00:10.000`, frame 300; playing 2 s advances to ≈12.1 s; pause holds. The Linux-only seek/volume track fixes of 0.1.62 do not apply on this path and no inaccuracy was found; the controls are the stock Chromium style, not the themed Linux controls.
+- **Logs:** `SPELLCHECK_UNSUPPORTED` is written at ERROR level on every launch (an expected Windows state); otherwise only the usual startup `object_info` warnings while ComfyUI loads.
+
+Not checked: audible A/V sync beyond the tone playing, H3 reference-editor playback on Windows, model inference.
+
 ## Prompt counts and writing aids (0.1.63 development)
 
 Studio’s positive/negative labels now retain their accessible names while showing right-aligned UTF-16 length / 16384. Inline and enlarged editors share persisted writing settings, separate from UI language and project/Studio defaults. Autocomplete defaults off and reuses the native Forge tag database and its existing shared error logging; selecting a suggestion never submits a prompt.
