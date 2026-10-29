@@ -24,7 +24,8 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 8] = [
+const OPTIONAL: [&str; 9] = [
+    "latentUpscale",
     "outputPrefix",
     "sourceVideo",
     "output",
@@ -62,7 +63,8 @@ const H3_INPUT_SCALING: [&str; 7] = [
     "Long side with divisible crop",
 ];
 /// Every class the three graphs can emit; prepare() checks each against object_info.
-pub(crate) const VIDEO_NODES: [&str; 35] = [
+pub(crate) const VIDEO_NODES: [&str; 36] = [
+    "DaSiWaH3TiledUpscale",
     "DualCLIPLoader",
     "LoraLoaderModelOnly",
     "RandomNoise",
@@ -166,6 +168,152 @@ fn valid_output(o: &Value) -> bool {
 fn finite(v: &Value, min: f64, max: f64) -> bool {
     v.as_f64()
         .is_some_and(|n| n.is_finite() && (min..=max).contains(&n))
+}
+
+pub(crate) fn learned_latent_model(name: &str) -> bool {
+    comfy_model_name(name) && (name.ends_with(".safetensors") || name.ends_with(".sft"))
+}
+
+/// Post-upscale pixel canvas; H3 uses Python round's ties-to-even 32-pixel grid.
+pub(crate) fn latent_upscale_size(i: &Value) -> (u64, u64) {
+    let dimension = |key: &str| {
+        let n = i[key].as_u64().unwrap_or(0);
+        let Some(u) = i.get("latentUpscale") else {
+            return n;
+        };
+        if i["family"] == "minimax-h3" {
+            ((n as f64 * u["scale"].as_f64().unwrap_or(1.0) / 32.0).round_ties_even() as u64) * 32
+        } else {
+            n * 2
+        }
+    };
+    (dimension("width"), dimension("height"))
+}
+
+pub(crate) fn h3_latent_model(name: &str) -> bool {
+    let file = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    learned_latent_model(name)
+        && file.starts_with("minimax_h3_latent_upscal")
+        && !file.contains("ltx")
+}
+
+fn ltx_latent_model(name: &str) -> bool {
+    let file = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    learned_latent_model(name)
+        && file.starts_with("ltx")
+        && file.contains("spatial")
+        && file.contains("upscal")
+}
+
+fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
+    let Some(u) = i.get("latentUpscale") else {
+        return Ok(());
+    };
+    let settings = match family {
+        "ltx-2" => keys_in(u, &["model", "scale"]) && u["scale"].as_f64() == Some(2.0),
+        "minimax-h3" => {
+            keys_in(u, &["model", "scale", "steps", "denoise"])
+                && finite(&u["scale"], 1.0, 8.0)
+                && u["steps"].as_u64().is_some_and(|n| (1..=100).contains(&n))
+                && finite(&u["denoise"], 0.0, 1.0)
+        }
+        _ => false,
+    };
+    if !settings
+        || !u["model"].as_str().is_some_and(if family == "minimax-h3" {
+            h3_latent_model
+        } else {
+            ltx_latent_model
+        })
+    {
+        return Err("Invalid latentUpscale: learned .safetensors/.sft model and family-specific settings required".into());
+    }
+    let (w, h) = latent_upscale_size(i);
+    if w > 8192 || h > 8192 || w * h > 16_777_216 {
+        return Err("latentUpscale canvas exceeds dimension or pixel limits".into());
+    }
+    let prefix = format!("{}_original", effective_output_prefix(i).as_str().unwrap());
+    if !safe_output_prefix(&prefix) {
+        return Err("latentUpscale original output prefix exceeds limits".into());
+    }
+    if family == "minimax-h3"
+        && i["h3"]["continuity"]["capture"] == true
+        && i["h3"]["continuity"]["outputMode"] == "segment"
+        && segment_crop_plan(i).is_none()
+    {
+        return Err("latentUpscale with captured segment output needs a pinned checkpoint clip (imported-video sources are unsupported) with its sourceFrames from the session list".into());
+    }
+    Ok(())
+}
+
+/// Compile-time copy of the node pack's segment_policy.render_layout crop fields: the core decode of
+/// the prepared render window starts at the global frame offset, so the new segment is its final
+/// extension frames. shortcut: mirrors the pack's layout constants; on pack drift the pack's own
+/// render validation fails closed at runtime.
+fn segment_crop_plan(i: &Value) -> Option<(u64, u64)> {
+    let c = &i["h3"]["continuity"];
+    if c["capture"] != true || c["outputMode"] != "segment" {
+        return None;
+    }
+    // The node pack renders a segment crop only over a source window: a first take has none, and
+    // an imported-video source builds its window latent inside SegmentPrepare (not reproducible
+    // from compile-time fields), so only checkpoint pins are supported here.
+    if c["sourceKind"] == "video" {
+        return None;
+    }
+    let source = c["sourceFrames"].as_u64()?;
+    // Continuation timing: newly visible seconds snapped to 17-frame steps. Without authored
+    // duration the Director receives frames/24 seconds, so the snap runs on frames/17 directly.
+    let extension = match c.get("durationSeconds").and_then(Value::as_f64) {
+        Some(s) => ((s * 24.0 / 17.0 + 0.5).floor().max(1.0) as u64) * 17,
+        None => ((i["frames"].as_f64()? / 17.0 + 0.5).floor().max(1.0) as u64) * 17,
+    };
+    Some((source - source.saturating_sub(102) / 51 * 51, extension))
+}
+
+/// prepare() must look up the pinned clip's frame count before compiling this intent.
+pub(crate) fn needs_source_frames(i: &Value) -> bool {
+    is_video(i)
+        && i["family"] == "minimax-h3"
+        && i.get("latentUpscale").is_some()
+        && i["h3"]["continuity"]["capture"] == true
+        && i["h3"]["continuity"]["outputMode"] == "segment"
+        && i["h3"]["continuity"]["sourceKind"] != "video"
+        && i["h3"]["continuity"]["sourceId"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+}
+
+/// The pinned source's frame count from the read-only session clip list: the staged import for video
+/// sources (matching canvas and mode family), otherwise the pinned checkpoint clip.
+pub(crate) fn source_frames(list: &Value, i: &Value) -> Option<u64> {
+    let c = &i["h3"]["continuity"];
+    let id = c["sourceId"].as_str().filter(|s| !s.is_empty())?;
+    let clip = list["clips"].as_array()?.iter().find(|cl| {
+        if c["sourceKind"] == "video" {
+            let p = &cl["importedVideo"];
+            p["sourceId"] == id
+                && p["width"] == i["width"]
+                && p["height"] == i["height"]
+                && p["modeFamily"]
+                    == (if i["h3"]["mode"] == "REF2VA" {
+                        "ref2va"
+                    } else {
+                        "fl2va"
+                    })
+        } else {
+            cl["clipId"] == id
+        }
+    })?;
+    clip["frames"].as_u64()
 }
 
 fn validate_ltx(l: &Value, frames: u64, source: bool) -> Result<(), String> {
@@ -288,6 +436,7 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                 "overlapFrames",
                 "useReferences",
                 "durationSeconds",
+                "sourceFrames",
             ],
         ) && c["session"]
             .as_str()
@@ -312,6 +461,8 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                         .as_f64()
                         .is_some_and(|s| s.is_finite() && s > 0.0 && s <= 15.0)
             })
+            && c.get("sourceFrames")
+                .is_none_or(|n| n.as_u64().is_some_and(|n| n >= 5 && (n - 5) % 17 == 0))
             && c["action"].as_str().is_some_and(|a| a.len() <= 50_000)
             && pick(c, "outputMode", &["full", "segment"])
             && c.get("overlapFrames")
@@ -582,6 +733,7 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         "wan" => validate_wan(&i["wan"], steps)?,
         _ => validate_h3(&i["h3"])?,
     }
+    validate_latent_upscale(i, family)?;
     Ok(family)
 }
 
@@ -700,6 +852,17 @@ fn combine(g: &mut Value, images: Value, audio: Option<Value>, frame_rate: Value
         inputs["audio"] = a;
     }
     g["7"] = json!({"class_type":"DaSiWa_EnhancedVideoCombine","inputs":inputs});
+}
+
+fn baseline_combine(g: &mut Value, images: Value, audio: Value, i: &Value) {
+    let mut saver = g["7"].clone();
+    saver["inputs"]["images"] = images;
+    saver["inputs"]["audio"] = audio;
+    saver["inputs"]["filename_prefix"] = json!(format!(
+        "{}_original",
+        effective_output_prefix(i).as_str().unwrap()
+    ));
+    g["B7"] = saver;
 }
 
 /// One LTX sampling pass. `suffix` "" is the first pass; guides are re-added on the given video latent,
@@ -850,6 +1013,13 @@ fn ltx(i: &Value) -> Value {
             (video, audio) = ltx_pass(&mut g, "c", video, audio, &model, &full, json!(2), 0.2, i);
         }
     }
+    if let Some(u) = i.get("latentUpscale") {
+        decode(&mut g, "B6", video.clone(), json!(["V", 0]), i);
+        g["UML"] =
+            json!({"class_type":"LatentUpscaleModelLoader","inputs":{"model_name":u["model"]}});
+        g["U"] = json!({"class_type":"LTXVLatentUpsampler","inputs":{"samples":video,"upscale_model":["UML",0],"vae":["V",0]}});
+        video = json!(["U", 0]);
+    }
     decode(&mut g, "6", video, json!(["V", 0]), i);
     g["AD"] =
         json!({"class_type":"LTXVAudioVAEDecode","inputs":{"samples":audio,"audio_vae":["AV",0]}});
@@ -860,6 +1030,9 @@ fn ltx(i: &Value) -> Value {
         i["frameRate"].clone(),
         i,
     );
+    if i.get("latentUpscale").is_some() {
+        baseline_combine(&mut g, json!(["B6", 0]), json!(["AD", 0]), i);
+    }
     g
 }
 
@@ -1020,6 +1193,37 @@ fn h3(i: &Value) -> Value {
         json!(["D", 8]),
         i,
     );
+    if let Some(u) = i.get("latentUpscale") {
+        // Capture mode allows exactly one SegmentDecode (node pack validation): in segment mode the
+        // baseline side decodes the prepared window on core nodes, cropped to the new segment.
+        let segment_capture = c["capture"] == true && c["outputMode"] == "segment";
+        if !segment_capture {
+            g["BSD"] = g["SD"].clone();
+        }
+        g["U"] = json!({"class_type":"DaSiWaH3TiledUpscale","inputs":{
+            "model":["SS",0],"conditioning":["G",0],"latent":["SP",0],"continuity_context":["SP",1],
+            "director_guide":["D",0],"vae":["V",0],"sampler":["Q",0],"noise":["N",0],"sampler_name":i["sampler"],
+            "scale":u["scale"],"upscale_model":u["model"],"steps":u["steps"],"denoise":u["denoise"],"seed":i["seed"],
+            "cfg":1.0,"scheduler":"simple","memory_budget_mb":0,"upscale_precision":"auto",
+            "continuity_soft_refine":false,"continuity_mask_strength":1.0,
+            "spatial_tiling":true,"temporal_chunking":true,"spike_guard":false,
+            "guard_sensitivity":4.3,"guard_strength":1.0,"guard_mode":"burn_direction",
+            "enforce_memory_budget":true,"memory_reserve_pct":5.0
+        }});
+        g["SD"]["inputs"]["latent"] = json!(["U", 0]);
+        if segment_capture {
+            // The render plan is derived at runtime from the prepared latent tensor and context;
+            // SegmentDecode accepts no duration input. The compile-time crop mirrors the pack's
+            // continuation timing for the duration the Director received (durationSeconds else frames/24).
+            let (crop_start, crop_frames) =
+                segment_crop_plan(i).expect("validated in validate_latent_upscale");
+            decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
+            g["CB"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["BA",0],"batch_index":crop_start,"length":crop_frames}});
+            baseline_combine(&mut g, json!(["CB", 0]), json!(["SD", 1]), i);
+        } else {
+            baseline_combine(&mut g, json!(["BSD", 0]), json!(["BSD", 1]), i);
+        }
+    }
     g["P"] = json!({"class_type":"DaSiWaH3ContinuityPublish","inputs":{"filename":["7",1],"ticket":["SP",2]}});
     g
 }
@@ -1083,7 +1287,25 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
                 .filter(|s| !s.ends_with(" [output]"))
                 .collect(),
         ),
-        ("latentUpscaleModels", strs(&[&b["spatialUpscaler"]])),
+        (
+            "h3LatentUpscaleModels",
+            (family == "minimax-h3")
+                .then(|| i["latentUpscale"]["model"].as_str())
+                .flatten()
+                .into_iter()
+                .collect(),
+        ),
+        (
+            "latentUpscaleModels",
+            strs(&[&b["spatialUpscaler"]])
+                .into_iter()
+                .chain(
+                    (family == "ltx-2")
+                        .then(|| i["latentUpscale"]["model"].as_str())
+                        .flatten(),
+                )
+                .collect(),
+        ),
     ]
 }
 

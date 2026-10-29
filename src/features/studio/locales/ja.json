@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "サンプリング後に潜在アップスケール",
+  "studio.run.latent.enabled": "サンプリング後に潜在アップスケール",
+  "studio.run.latent.model": "潜在アップスケールモデル",
+  "studio.run.latent.choose": "学習済みモデルを選択",
+  "studio.run.latent.hint": "最終サイズ：{width} × {height}。最後のサンプラーの後に処理し、元の動画と音声を保持します。",
+  "studio.run.latent.download": "潜在アップスケールモデルを入手…",
+  "studio.run.latent.consent": "ライブラリで配布元・ライセンス・保存先を確認してください。ファイルを選び「すべてダウンロード」で同意します。有効化だけではダウンロードも実行もしません。",
+  "studio.run.latent.missing": "互換性のある潜在アップスケールモデルがありません：{name}",
+  "studio.run.latent.invalid": "潜在アップスケールの設定が無効です。",
   "studio.run.video.trimTotal": "動画と音声の選択範囲は、それぞれ合計15秒以内にしてください。",
   "studio.run.video.pickerHint": "ファイルをクリックして参照を追加・削除します。実行するまでアップロードされません。",
   "studio.run.video.preview.unknown": "不明",

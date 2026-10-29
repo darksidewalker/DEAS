@@ -1,4 +1,5 @@
 {
+  "downloads.folder.latent_upscale_models": "Latente Upscaler",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "Token wird geprüft…",
   "downloads.authCheck.verified": "Token bestätigt",

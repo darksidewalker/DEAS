@@ -1,12 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { backendErrorText } from '../../lib/backendErrors';
-import { browseDownloads, planDownloads, startDownloads } from '../../lib/downloads';
+import { browseDownloads, planDownloads, startDownloads, type DownloadStatus } from '../../lib/downloads';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
-import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, latentUpscaleSize, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { RunPlan } from './RunPlan';
+import { DownloadPanel } from '../downloads/DownloadPluginPanel';
 import { ContinuityOverlay } from './ContinuityOverlay';
 import { ReferencesOverlay } from './ReferencesOverlay';
 import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource, type ContinuityPlan } from '../../lib/continuity';
@@ -51,6 +52,13 @@ import { NativeVideo, nativeVideo } from './NativeVideo';
 interface Family extends ComponentFamily { id:string; name:string; multiple?:number; imagePrompting?:'revision'|'qwen-image-2.1'|'krea-2'|'moss-image'; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]} }
 /** Remembered video controls; family rows read only their own keys. */
 interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string; shiftHigh:number; shiftLow:number; refinerStep:number; shiftVideo:number; shiftAudio:number; audioVae:string; textProjection:string }
+interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number}
+const defaultLatent:LatentPref={enabled:false,model:'',scale:2,steps:1,denoise:0.2};
+const isLatentPref=(v:unknown):v is LatentPref=>{const p=v as LatentPref;return !!p&&typeof p.enabled==='boolean'&&typeof p.model==='string'&&[p.scale,p.steps,p.denoise].every(Number.isFinite);};
+const latentModels=(family:VideoFamily|undefined,allow:RecipeAllowlist|null)=>(family==='minimax-h3'?allow?.h3LatentUpscaleModels:allow?.latentUpscaleModels)?.filter(m=>{
+ const file=m.split(/[/\\]/).pop()!.toLowerCase();
+ return /\.(safetensors|sft)$/.test(m)&&(family==='minimax-h3'?!/ltx/i.test(m):file.startsWith('ltx')&&file.includes('spatial')&&file.includes('upscal'));
+})??[];
 const defaultLayout={settings:272,queue:152,dock:220};
 const defaultVideo:VideoPref={seconds:5,fps:24,passes:1,upscaler:'',shiftHigh:5,shiftLow:5,refinerStep:2,shiftVideo:10,shiftAudio:3,audioVae:'',textProjection:''};
 const isVideoPref=(v:unknown):v is VideoPref=>{const o=v as VideoPref;return !!o&&typeof o==='object'&&Object.keys(defaultVideo).every(k=>typeof (o as unknown as Record<string,unknown>)[k]===typeof (defaultVideo as unknown as Record<string,unknown>)[k])&&[1,2,3].includes(o.passes);};
@@ -165,6 +173,15 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
+ const [h3Latent,setH3Latent]=usePref('studio.run.latent.h3',defaultLatent,isLatentPref);
+ const [ltxLatent,setLtxLatent]=usePref('studio.run.latent.ltx',defaultLatent,isLatentPref);
+ const [latentDownload,setLatentDownload]=useState<VideoFamily|null>(null);
+ const latentDialog=useRef<HTMLDialogElement>(null);
+ const capabilityEpoch=useRef(0);
+ const refreshChoices=useCallback(async(report=true)=>{const revision=++capabilityEpoch.current;try{const value=await checkRecipePrerequisites(endpoint);if(live.current&&revision===capabilityEpoch.current)setChoices(value.allowlist);}catch(e){if(report&&live.current&&revision===capabilityEpoch.current)setError(backendErrorText(e,t));}},[endpoint,t]);
+ const latentDownloadStatus=useCallback((status:DownloadStatus)=>{if(status.state==='succeeded')void refreshChoices();},[refreshChoices]);
+ const closeLatentDownload=()=>{setLatentDownload(null);void refreshChoices();};
+ useEffect(()=>{if(!latentDownload)return;const dialog=latentDialog.current!;dialog.showModal();return()=>{if(dialog.open)dialog.close();};},[latentDownload]);
  const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
  // shortcut: source URLs identify frame pictures; use asset revisions when same-path edits are supported.
  const [framePeople,setFramePeople]=useState<Record<string,FramePeople>>({});
@@ -209,11 +226,11 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const MEDIA_IMAGE_RE=/\.(png|jpe?g|webp|bmp|avif|gif)$/i;
 // shortcut: webkit-injected File.path only exists in Tauri; upgrade when Tauri's onDragDropEvent lands.
 const droppedImage=(dt:DataTransfer):MediaItem|null=>{const f=dt.files?.[0] as (File&{path?:string})|undefined;return f?.path&&MEDIA_IMAGE_RE.test(f.name)?{name:f.name,path:f.path,media:'image',src:convertFileSrc(f.path)}:null;};
-const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequisites(endpoint).then(e=>{if(live.current)setChoices(e.allowlist);},()=>{});};
+const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(false);};
  const dlVision=async():Promise<boolean>=>{if(!native||!modelsDir||!endpoint.trim())return false;try{const l=await browseDownloads({providerId:'huggingface',scope:'repo',locator:'models:comfyanonymous/clip_vision_g',authenticated:false});const res=l.resources.find(r=>r.downloadable&&/clip_vision_g\.safetensors/.test(r.label));if(!res)return false;const p=await planDownloads({providerId:'huggingface',resources:[res],parentPath:modelsDir,folderName:'clip_vision',authenticated:false});if(!p.canExecute)return false;await startDownloads(p.id);if(live.current){const e=await checkRecipePrerequisites(endpoint);if(live.current)setChoices(e.allowlist);}return true;}catch(e){window.alert(backendErrorText(e,t));return false;}};
  useEffect(()=>{live.current=true;return()=>{live.current=false;preparationGeneration.current++;};},[]);
  // A native <select> opens synchronously on the first click; a list fetched on that click only shows on the second one.
- useEffect(()=>{setChoices(null);if(native&&endpoint.trim())checkRecipePrerequisites(endpoint).then(e=>{if(live.current)setChoices(e.allowlist);},()=>{});},[native,endpoint]);
+ useEffect(()=>{setChoices(null);setLatentDownload(null);if(native&&endpoint.trim())void refreshChoices(false);return()=>{capabilityEpoch.current++;};},[native,endpoint,modelsDir,root]);
  // Models come from the environment's models folder (read-only scan, no backend probe); the backend list is the fallback.
  async function load(automatic=false){
   if(!native||(!automatic&&(lock.current||scanning))||(!modelsDir&&!endpoint.trim()))return;
@@ -313,6 +330,15 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  const textEncoder=textEncoderPref||recommended?.textEncoders[0]||'';
  const vae=vaePref||recommended?.vaes[0]||'';
  const videoFamily=family?.video?family.id as VideoFamily:undefined;
+ const latent=isVideo&&(videoFamily==='minimax-h3'||videoFamily==='ltx-2');
+ const latentPref=videoFamily==='minimax-h3'?h3Latent:ltxLatent;
+ const setLatentPref=videoFamily==='minimax-h3'?setH3Latent:setLtxLatent;
+ const latentChoices=latentModels(videoFamily,choices);
+ const latentModel=latentPref.model||latentChoices[0]||'';
+ const latentEnabled=latent&&latentPref.enabled;
+ const latentNodes=videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'];
+ useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
+ const latentProblems=!latentEnabled?[]:[...(!choices?[t('studio.run.opt.unread')]:latentNodes.filter(n=>!choices.nodes.includes(n))),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=videoFamily==='minimax-h3'&&isVideo;
  const continuityReferences=pipeline==='v2v'||pipeline==='ref2v';
  const continuationWithoutReferences=continuityAvailable&&continuityReferences&&!!nextStep(plan)?.continuity.sourceId&&!plan.useReferences;
@@ -347,6 +373,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   ...(pipeline==='i2i'&&inputScaling==='pad'?[{name:t('studio.run.resolution.scaling'),reset:()=>setInputScaling('off')}]:[]),
  ];
  const unavailable=[
+  ...latentProblems,
   ...imageRefs.filter(r=>!r.item.path).map(r=>t('studio.history.missingInput',{name:r.item.name})),
   ...mossIssues.map(i=>t('studio.run.moss.plain',{name:i.name})),
   ...(imageRefs.length&&!referenceMethod?[t('studio.run.reference.inactive')]:[]),
@@ -358,8 +385,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   ...(split&&isVideo&&family?.textProjections&&!split.projections.includes(textProjection)?[textProjection||t('studio.run.video.textProjection')]:[]),
   ...(choices?[...(!isVideo&&wildcardEnabled&&!choices.nodes.includes(wildcardNode)?[wildcardNode]:[]),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
   ...(imageRefs.length>0&&revisionOk&&(!refVision||!choices.visionModels?.includes(refVision))?[refVision||t('studio.run.reference.vision')]:[]),
-   ...(post&&upscaleModelPref&&!choices.upscaleModels?.includes(upscaleModelPref)?[upscaleModelPref]:[]),
-   ...(post&&postTiled&&!choices.nodes.includes('DaSiWaTiledDiffusion')?['DaSiWaTiledDiffusion']:[]),
+   ...(!isVideo&&post&&upscaleModelPref&&!choices.upscaleModels?.includes(upscaleModelPref)?[upscaleModelPref]:[]),
+   ...(!isVideo&&post&&postTiled&&!choices.nodes.includes('DaSiWaTiledDiffusion')?['DaSiWaTiledDiffusion']:[]),
    ...(optionsPref.attention&&!options?.attention&&!options?.sage?[optionsPref.attention]:[]),
    ...(optionsPref.cache&&!options?.cache?[optionsPref.cache]:[]),...(optionsPref.compile&&!options?.compile?[optionsPref.compile]:[]),
    ...(optionsPref.vae==='tiled'&&!options?.vaeTile?['VAEDecodeTiled']:[])]:[])
@@ -388,6 +415,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
  const outputSize=(inpaint||(moss&&pipeline==='i2i'&&!scaled?.resize))&&source?source:(scaled?.size??canvas);
+ const latentSize=latentEnabled&&videoFamily?latentUpscaleSize(videoFamily,outputSize,latentPref.scale):outputSize;
+ if(latentEnabled&&!validCanvas(latentSize))unavailable.push(t('studio.run.resolution.invalid'));
  const sizeErrorFor=(continuing=false)=>inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
   :needsInput&&!continuing?needsInput
   :moss&&pipeline==='i2i'&&source&&!scaled?.resize&&(source.width%grid!==0||source.height%grid!==0)?'studio.run.moss.resize'
@@ -464,7 +493,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   if(!only&&(step?continuitySizeError:sizeError)){setError(t(step?continuitySizeError:sizeError,{multiple:String(grid)}));return;}
   if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
   const target=up(only?only.size:outputSize);
-  const refinePass=post&&!h3Image;
+  const refinePass=post&&!h3Image&&!isVideo;
   if((refinePass||only)&&!validCanvas(target)){setError(t('studio.run.resolution.invalid'));return;}
   const capturedSeed=seedMode==='random'?nextSeed.current:seed;
   const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isVideo&&!only?'video':'image',seed:capturedSeed,model:checkpoint});
@@ -531,7 +560,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
    if(vf==='ltx-2'){
     const source=pipeline==='v2v'&&media?.path?{sourceVideo:nameOf(media,true)}:{};
     const keyframes=pipeline==='ref2v'?refs.map(r=>({image:nameOf(r.item),frame:Math.min(count-1,Math.round(r.second*fps)),strength:r.strength})):[];
-    intent={...base,...(pipeline==='i2v'?{firstFrame:inputImage}:{}),...last,...source,family:'ltx-2',ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{}),
+    intent={...base,...(pipeline==='i2v'?{firstFrame:inputImage}:{}),...last,...source,family:'ltx-2',...(latentEnabled?{latentUpscale:{model:latentModel,scale:2 as const}}:{}),ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{}),
      ...(keyframes.length?{keyframes}:{}),...('sourceVideo' in source?{sourceStrength}:{})}};
    }
    else if(vf==='wan')intent={...base,firstFrame:inputImage,...last,family:'wan',wan:{lowModel:lowOf(model!,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
@@ -553,6 +582,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
+   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise}};
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){
@@ -575,7 +605,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
    admitted=true;
    const job=await runWorkbenchJob(endpoint,Object.freeze(intent),ticket.admissionEpoch);
    if(activeRun(ticket)){
-    setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));
+    setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSlider(false);setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));
     if(cont&&step){planRun.current={jobId:job.id,...step,...(cont.continuity.sourceKind==='video'&&intent.family==='minimax-h3'?{imported:{sourceId:cont.continuity.sourceId,width:intent.width,height:intent.height,modeFamily:intent.h3.mode==='REF2VA'?'ref2va' as const:'fl2va' as const}}:{})};setPlan({...plan,steps:plan.steps.map((x,i)=>i===cont.index?{...x,jobId:job.id}:x)});}
    }
    if(cont&&step&&activeRun(ticket)){
@@ -634,7 +664,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())checkRecipePrerequis
   if(!next||!continuityAvailable){setAutoPlan(false);return;}
   void run(undefined,{index:next.index,all:true});
  },[autoPlan,current,admissionBlocked,serialBlocked,busy,resolving,plan,continuityAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
- const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length)return;const next=nextStep(plan);if(!next||!continuityAvailable)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
+ const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length||unavailable.length)return;const next=nextStep(plan);if(!next||!continuityAvailable)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  async function stop(){
   if(stopLock.current)return;
   stopLock.current=true;setStopping(true);setAutoPlan(false);planRun.current=null;
@@ -885,6 +915,10 @@ const promptTools=forgeContext&&<>
   setLastFrame(null);setBrowsed(null);setSelectedJob('');setRefs([]);setRefmods([]);setFramePeople({});
   setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
   setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setInputScaling('off');setEdit('resample');
+  if(isVideoIntent(intent)){
+   if(intent.family==='minimax-h3')setH3Latent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...h3Latent,enabled:false});
+   if(intent.family==='ltx-2')setLtxLatent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...ltxLatent,enabled:false});
+  }
   setWildcardEnabled(false);setRefVision('');setVideo(defaultVideo);setH3Scaling('Fill and crop');setSourceStrength(1);setSourceAudio(false);
   if(isVideoIntent(intent)){
    setTextEncoder(intent.textEncoder);setVae(intent.vae);
@@ -934,7 +968,7 @@ const promptTools=forgeContext&&<>
   ...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
   ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
  ])];
- const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&post&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}</div>;
+ const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{id==='loras'&&activeLoras.length>0&&<small> {activeLoras.length}</small>}{id==='wildcards'&&wildcardEnabled&&<small aria-label={t('wildcards.active')}> ✓</small>}{id==='post'&&(isVideo?latentEnabled:post)&&<small aria-label={t('studio.run.post.enabled')}> ✓</small>}{id==='options'&&options&&<small> {Object.keys(options).length}</small>}</button>)}</div>;
  return <>
  <ProjectBar draft={projectDraft} busy={busy||!!current||autoPlan||resolving} onRestore={restoreProject}/>
  {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
@@ -1030,7 +1064,7 @@ const promptTools=forgeContext&&<>
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{duration(shown)}</p>
       {paired&&terminalOutput(shown)&&<div className="wb-output-choices" role="group" aria-label={t('studio.jobs.outputs')}>{shown.outputs.map((o,index)=><button type="button" key={index} data-output-role={o.role} aria-pressed={index===outputIndex} onClick={()=>{setSelectedOutput(index);setSlider(false);}}>{o.role?t(`studio.jobs.role.${o.role}`):o.filename}</button>)}</div>}
       {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview"><div className="wb-media-content" data-media-content>{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
-        :visibleOutputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div>{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[0])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{shown.outputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
+        :visibleOutputs.map(o=>isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div>{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[outputIndex])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{visibleOutputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
      :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}
@@ -1075,11 +1109,20 @@ const promptTools=forgeContext&&<>
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
    {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
      {onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}
-    <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+    {latent&&<>
+     <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
+     <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
+     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.steps')}</span><input type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/></label><label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
+     <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
+     {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
+    </>}
+    {!isVideo&&<><div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+   </>}
    </div></section>}
 
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
@@ -1090,7 +1133,8 @@ const promptTools=forgeContext&&<>
    </section>}
   </div>
  </div>
+ {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryId={latentDownload==='minimax-h3'?'h3-latent-upscaler':'ltx-latent-upscaler'} filenameFilter={latentDownload==='minimax-h3'?'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors':'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'} onStatus={latentDownloadStatus}/></div></dialog>}
  {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay endpoint={endpoint} root={root} refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={toggleRef} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}/> }
- {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
+ {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError||unavailable.length>0} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
  </div></>;
 }

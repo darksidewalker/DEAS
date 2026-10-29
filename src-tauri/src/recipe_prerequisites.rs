@@ -173,7 +173,8 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "compile":options(nodes, "TorchCompileModel", "backend", option),
             // Core v3 node: its file combo uses the v3 form.
             "upscaleModels":options(nodes, "UpscaleModelLoader", "model_name", crate::jobs::comfy_model_name),
-            "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::comfy_model_name)
+            "latentUpscaleModels":options(nodes, "LatentUpscaleModelLoader", "model_name", crate::jobs::comfy_model_name),
+            "h3LatentUpscaleModels":options(nodes, "DaSiWaH3TiledUpscale", "upscale_model", crate::jobs_video::h3_latent_model)
         }, "missingNodes":REQUIRED_NODES.iter().filter(|name| !definitions.contains_key(**name)).collect::<Vec<_>>(), "generationReady":false
     }))
 }
@@ -200,6 +201,41 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn latent_post_upscale_catalogs_use_own_safe_model_choices() {
+        let base = reqwest::Url::parse("http://127.0.0.1:8188/").unwrap();
+        let mut info = nodes();
+        info["DaSiWaH3TiledUpscale"] = json!({"input":{"required":{"upscale_model":[[
+            "interpolation", "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+            "H3/minimax_h3_latent_upscaler_3d_conv_v1_fp16.sft",
+            r"H3\minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+            "../minimax_h3_latent_upscaler.safetensors", "other.safetensors",
+            "minimax_h3_latent_upscaler.pt", "ltx-spatial-upscaler.safetensors"
+        ]]}}});
+        // Retain the legacy multipass core catalog; only new post-upscale selection is family-strict.
+        info["LatentUpscaleModelLoader"] = json!({"input":{"required":{"model_name":["COMBO",{"options":["old.safetensors","ltx-2.3-spatial-upscaler-x2-1.1.safetensors"]}]}}});
+        let result = parse(&base, &info).unwrap();
+        assert_eq!(
+            result["allowlist"]["h3LatentUpscaleModels"],
+            json!([
+                "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+                "H3/minimax_h3_latent_upscaler_3d_conv_v1_fp16.sft",
+                r"H3\minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
+            ])
+        );
+        assert_eq!(
+            result["allowlist"]["latentUpscaleModels"],
+            json!([
+                "old.safetensors",
+                "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+            ])
+        );
+        assert!(result["allowlist"]["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("DaSiWaH3TiledUpscale")));
+    }
 
     fn nodes() -> Value {
         json!({
@@ -612,7 +648,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[]
+                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );

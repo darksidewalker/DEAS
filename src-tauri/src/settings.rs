@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "deas-settings.json";
-pub(crate) const MODEL_FOLDERS: [&str; 14] = [
+pub(crate) const MODEL_FOLDERS: [&str; 15] = [
     "checkpoints",
     "diffusion_models",
     "loras",
@@ -14,6 +14,7 @@ pub(crate) const MODEL_FOLDERS: [&str; 14] = [
     "clip_vision",
     "controlnet",
     "upscale_models",
+    "latent_upscale_models",
     "embeddings",
     "unet",
     "style_models",
@@ -167,6 +168,46 @@ pub fn native_files_present(paths: Vec<String>) -> Result<Vec<bool>, String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    #[test]
+    fn latent_upscale_category_is_registered_and_scanned_for_all_model_roots() {
+        let tmp = TempDir::new().unwrap();
+        let primary = tmp.path().join("models");
+        let extra = tmp.path().join("extra models");
+        for root in [&primary, &extra] {
+            std::fs::create_dir_all(root.join("latent_upscale_models")).unwrap();
+            std::fs::write(
+                root.join("latent_upscale_models/upscaler.safetensors"),
+                b"fixture",
+            )
+            .unwrap();
+        }
+        write(
+            tmp.path(),
+            Folders {
+                models: Some(primary.to_str().unwrap().into()),
+                extra_models: vec![extra.to_str().unwrap().into()],
+                ..Folders::default()
+            },
+        )
+        .unwrap();
+        backend_args(tmp.path()).unwrap();
+        let yaml = std::fs::read_to_string(tmp.path().join("deas-models.yaml")).unwrap();
+        for block in ["deas:", "deas-extra-1:"] {
+            let block = yaml
+                .split(block)
+                .nth(1)
+                .unwrap()
+                .split("\ndeas")
+                .next()
+                .unwrap();
+            assert!(block.contains("  latent_upscale_models: latent_upscale_models\n"));
+        }
+        let models = crate::downloads::models::scan_roots(&[primary, extra]).unwrap();
+        assert_eq!(models.len(), 2);
+        assert!(models
+            .iter()
+            .all(|model| model.category == "latent_upscale_models"));
+    }
     #[test]
     fn extra_model_roots_register_beside_the_primary_root() {
         let tmp = TempDir::new().unwrap();

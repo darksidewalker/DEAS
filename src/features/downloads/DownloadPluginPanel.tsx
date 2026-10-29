@@ -128,7 +128,7 @@ function InstalledModels({root,locked,category,setCategory}:{root:string;locked:
   <div className="download-cards">{shown.map(m=><Fragment key={m.path}><button type="button" className="download-card" aria-pressed={selected===m.path} disabled={locked} onClick={()=>setSelected(v=>v===m.path?'':m.path)}><Preview src={m.info?.civitai?.preview} alt=""/>{m.info?.civitai?.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<span>{m.name}</span></button>{selected===m.path&&detail(m)}</Fragment>)}</div>
  </>;
 }
-export interface DownloadPanelProps { installTarget?:string; modelsDir?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean }
+export interface DownloadPanelProps { installTarget?:string; modelsDir?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean; initialEntryId?:string; filenameFilter?:string }
 // Undated sources stay last; never infer publication dates from filenames or IDs.
 const published=(r:{publishedAt?:string})=>Date.parse(r.publishedAt??'')||0;
 const key=(r:DownloadResource)=>JSON.stringify([r.id,r.url,r.locator]);
@@ -138,7 +138,7 @@ const catalogSources=['DaSiWa'];
 /** A ticked file keeps the browse context it was picked in, so selections from many cards download together. */
 interface Picked {resource:DownloadResource;providerId:string;authenticated:boolean;folder:string}
 interface Group {request:PlanRequest;keys:string[]}
-export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,embedded=false}:DownloadPanelProps={}) {
+export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,embedded=false,initialEntryId,filenameFilter}:DownloadPanelProps={}) {
  const {t}=useI18n();const io=useNativeRequest();const [opened,setOpened]=useState(false);const open=embedded||opened;
  const [catalogText,setCatalogText]=useState('');const [sort,setSort]=usePref<{by:'newest'|'name';dir:1|-1}>('library.sort',{by:'newest',dir:-1},validSort);
  // Undated items stay last in both directions; name breaks date ties.
@@ -152,7 +152,7 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  const [parentPath,setParentPath]=useState('');const [folderName,setFolderName]=useState('');const [blocked,setBlocked]=useState<DownloadPlan|null>(null);const [queue,setQueue]=useState<Group[]>([]);const [status,setStatus]=useState<DownloadStatus|null>(null);
  const [view,setView]=useState<'catalog'|'installed'>('catalog');const modelsRoot=installTarget?modelsDir??`${installTarget}/ComfyUI/models`:'';
  const selectView=(next:'catalog'|'installed')=>{if(next==='catalog'&&catalog){const tabs=categories(catalog);setCategory(c=>tabs.includes(c)?c:tabs[0]??'');}setView(next);};
- const running=status?.state==='running';const executionLock=useRef(false);const locked=running||executionLock.current;
+ const running=status?.state==='running';const executionLock=useRef(false);const locked=running||executionLock.current||!!initialEntryId&&!status;
  const edit=()=>{io.invalidate();setBlocked(null);};
  const sourceEdit=()=>{edit();setListing(null);setVersion('');};
  useEffect(()=>{if(!executionLock.current)io.invalidate();setBlocked(null);setListing(null);},[authRevision,io.invalidate]);
@@ -167,6 +167,13 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  const load=()=>void io.request(readDownloadCatalog,applyCatalog);
  const publishStatus=useCallback((value:DownloadStatus)=>{executionLock.current=value.state==='running';setStatus(value);onStatus?.(value);},[onStatus]);
  useEffect(()=>{
+  if(!initialEntryId||!io.native)return;
+  let alive=true;
+  // Catalog browsing invalidates io.request; recovery must survive that independent read.
+  readDownloadStatus().then(value=>{if(alive)publishStatus(value);},error=>{if(alive)void io.request(()=>Promise.reject(error),()=>{});});
+  return()=>{alive=false;};
+ },[initialEntryId,io.native]);
+ useEffect(()=>{
   if(!io.native||!running)return;
   let alive=true;let timer:ReturnType<typeof setTimeout>;
   const poll=async()=>{await io.request(readDownloadStatus,value=>{if(alive)publishStatus(value);});if(alive)timer=setTimeout(()=>void poll(),1000);};
@@ -179,6 +186,8 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  },value=>{setAuthenticated(value.authenticated);setListing(previous=>({...value.listing,resources:cursor?[...new Map([...(previous?.resources??[]),...value.listing.resources].map(r=>[key(r),r])).values()]:value.listing.resources}));});};
  const current={providerId,scope,locator};
  const openEntry=(entry:CatalogEntry)=>{sourceEdit();setProviderId(entry.providerId);setScope(entry.scope);setLocator(entry.locator);setEntryId(entry.id);setFolder(entry.target);browse({providerId:entry.providerId,scope:entry.scope,locator:entry.locator});};
+ const initialOpened=useRef(false);
+ useEffect(()=>{if(!catalog||!initialEntryId||initialOpened.current)return;const entry=catalog.entries.find(e=>e.id===initialEntryId);if(entry){initialOpened.current=true;setCategory(tabOf(entry.target));setBase(entry.base??'');openEntry(entry);}},[catalog,initialEntryId]);
  const openResource=(r:DownloadResource,nextScope:DownloadScope)=>{sourceEdit();setEntryId('');setScope(nextScope);setLocator(r.locator!);if(r.category)setFolder(r.category);browse({providerId,scope:nextScope,locator:r.locator!});};
  const runSearch=()=>{const civitai=catalog?.providers.find(p=>p.kind==='civitai'&&p.scopes.includes('search'));if(!civitai||!search.trim())return;sourceEdit();setEntryId('');setProviderId(civitai.id);setScope('search');setLocator(search.trim());browse({providerId:civitai.id,scope:'search',locator:search.trim()});};
  const resourceDetails=(r:DownloadResource)=><dl className="download-identity"><dt>{t('downloads.identity')}</dt><dd>{r.id}</dd><dt>{t('downloads.category')}</dt><dd>{r.category??r.kind}</dd><dt>{t('downloads.source')}</dt><dd>{r.url??r.locator??t('downloads.unknown')}</dd><dt>{t('downloads.size')}</dt><dd>{r.size??t('downloads.unknown')}</dd><dt>{t('downloads.digest')}</dt><dd>{r.sha256??t('downloads.unknown')}</dd><dt>{t('downloads.license')}</dt><dd>{r.license??t('downloads.unknown')}</dd></dl>;
@@ -189,13 +198,13 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  // Typing narrows the catalog cards live; Enter additionally searches CivitAI.
  const needle=search.trim().toLowerCase();
  const entries=visibleEntries.filter(e=>(!needle||e.label.toLowerCase().includes(needle))&&(!base||e.base===base)&&(category!=='models'||mediaFilter==='all'||e.media===mediaFilter)).sort(compare);
- const allResources=listing?.resources.filter(r=>(!base||!r.base||r.base===base)).sort(compare)??[];
+ const allResources=listing?.resources.filter(r=>(!filenameFilter||(r.locator??r.label).split('/').pop()===filenameFilter)&&(!base||!r.base||r.base===base)).sort(compare)??[];
  // Files of one model version (quants/formats) are picked together; the first (newest by default) version is preselected.
  const versions=[...new Set(allResources.map(r=>r.version).filter((v):v is string=>!!v))];
  const activeVersion=versions.includes(version)?version:versions[0]??'';
  const resources=allResources.filter(r=>!activeVersion||r.version===activeVersion);
  // Managed install folders receive files in place; a chosen parent (with optional new subfolder) overrides.
- const placeOf=(f:string)=>parentPath?{parentPath,folderName:folderName.trim()}:installTarget&&f?{parentPath:comfyFolder(installTarget,f,modelsDir),folderName:''}:null;
+ const placeOf=(f:string)=>parentPath?{parentPath,folderName:folderName.trim()}:(installTarget||modelsDir)&&f?{parentPath:comfyFolder(installTarget??'',f,modelsDir),folderName:''}:null;
  const destination=placeOf(folder);
  const picked=(r:DownloadResource)=>basket.some(b=>key(b.resource)===key(r));
  const toggle=(r:DownloadResource)=>{edit();setBasket(old=>picked(r)?old.filter(b=>key(b.resource)!==key(r)):[...old,{resource:r,providerId,authenticated,folder}]);};

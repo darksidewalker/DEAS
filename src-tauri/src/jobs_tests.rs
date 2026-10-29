@@ -681,7 +681,7 @@ fn nodes() -> Value {
         "LoadImage":{"input":{"required":{"image":[["ref.png","my ref ä.png","../bad.png"]]}}},"VAEEncode":{}})
 }
 
-async fn server<F>(mut respond: F) -> (String, tokio::task::JoinHandle<()>)
+pub(super) async fn server<F>(mut respond: F) -> (String, tokio::task::JoinHandle<()>)
 where
     F: FnMut(String, Value) -> (u16, String) + Send + 'static,
 {
@@ -2666,6 +2666,88 @@ async fn concurrent_submit_reserves_job_before_any_network_await() {
     task.abort();
 }
 
+#[tokio::test]
+async fn prepare_latent_upscale_requires_exact_catalog_id_without_changing_legacy_admission() {
+    for mut intent in [
+        crate::jobs_video::tests::ltx(),
+        crate::jobs_video::tests::h3(),
+    ] {
+        let ltx = intent["family"] == "ltx-2";
+        let filename = if ltx {
+            "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+        } else {
+            "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
+        };
+        for separator in ["/", "\\"] {
+            let exact = format!("nested{separator}{filename}");
+            intent["latentUpscale"] = if ltx {
+                json!({"model":exact,"scale":2})
+            } else {
+                json!({"model":exact,"scale":1.5,"steps":2,"denoise":0.2})
+            };
+            if ltx {
+                intent["ltx"]["passes"] = json!(2);
+                intent["ltx"]["spatialUpscaler"] = json!(r"legacy\old.safetensors");
+            }
+            let graph = compile(&intent).unwrap();
+            let mut info = nodes();
+            for node in graph.as_object().unwrap().values() {
+                let class = node["class_type"].as_str().unwrap();
+                if info.get(class).is_none() {
+                    info[class] = json!({});
+                }
+            }
+            for (field, names) in crate::jobs_video::requirements(&intent) {
+                let (node, input) = match field {
+                    "diffusionModels" => ("UNETLoader", "unet_name"),
+                    "textEncoders" => ("CLIPLoader", "clip_name"),
+                    "clipTypes" => ("CLIPLoader", "type"),
+                    "vaes" => ("VAELoader", "vae_name"),
+                    "images" => ("LoadImage", "image"),
+                    "latentUpscaleModels" => ("LatentUpscaleModelLoader", "model_name"),
+                    "h3LatentUpscaleModels" => ("DaSiWaH3TiledUpscale", "upscale_model"),
+                    _ => unreachable!("{field}"),
+                };
+                let names: Vec<_> = names
+                    .iter()
+                    .map(|name| {
+                        if *name == r"legacy\old.safetensors" {
+                            "legacy/old.safetensors"
+                        } else {
+                            *name
+                        }
+                    })
+                    .collect();
+                info[node]["input"]["required"][input] = json!([names]);
+            }
+            info["KSampler"]["input"]["required"]["sampler_name"] = json!([[intent["sampler"]]]);
+            info["KSampler"]["input"]["required"]["scheduler"] = json!([[intent["scheduler"]]]);
+            let (base, task) = server(move |path, _| {
+                assert_eq!(
+                    path, "GET /comfy/object_info HTTP/1.1",
+                    "prepare must never submit"
+                );
+                (200, info.to_string())
+            })
+            .await;
+            let jobs = Jobs::default();
+            let prepared = jobs.prepare(base.clone(), intent.clone()).await.unwrap();
+            assert_eq!(prepared["intent"]["latentUpscale"]["model"], exact);
+            let mut mismatched = intent.clone();
+            mismatched["latentUpscale"]["model"] =
+                json!(exact.replace(separator, if separator == "/" { "\\" } else { "/" }));
+            let result = jobs.prepare(base, mismatched).await;
+            assert!(
+                result.is_err(),
+                "accepted separator-different {exact}: {result:?}"
+            );
+            assert!(jobs.lock().unwrap().plan.is_none());
+            assert!(jobs.lock().unwrap().job.is_none());
+            task.abort();
+        }
+    }
+}
+
 #[test]
 fn paired_output_roles_are_graph_owned_final_first_and_bounded() {
     let image =
@@ -2708,6 +2790,55 @@ fn paired_output_roles_are_graph_owned_final_first_and_bounded() {
     assert!(compile(&i).unwrap_err().contains("prefix"));
     i["outputPrefix"] = json!("x".repeat(171));
     assert!(compile(&i).is_ok());
+}
+
+#[test]
+fn paired_video_outputs_keep_processed_video_primary_and_validate_both_paths() {
+    let graph = json!({
+        "7":{"class_type":"DaSiWa_EnhancedVideoCombine","inputs":{}},
+        "B7":{"class_type":"DaSiWa_EnhancedVideoCombine","inputs":{}}
+    });
+    let saver = |node: &str| {
+        json!({
+            "images":[{"filename":format!("{node}_first.png"),"subfolder":"video/run-1","type":"output","role":"spoofed"}],
+            "gifs":[{"filename":format!("{node}.webm"),"subfolder":"video/run-1","type":"output","format":"video/webm","role":"spoofed"}]
+        })
+    };
+    let entry = json!({"outputs":{"7":saver("7"),"B7":saver("B7"),"foreign":saver("foreign")}});
+    let parsed = job_outputs(&entry, &graph).unwrap();
+    assert_eq!(parsed.len(), 4);
+    assert_eq!(parsed[0]["filename"], "7.webm");
+    assert_eq!(parsed[0]["format"], "video/webm");
+    assert_eq!(parsed[0]["role"], "processed");
+    assert_eq!(
+        parsed.iter().filter(|o| o["role"] == "processed").count(),
+        2
+    );
+    assert_eq!(parsed.iter().filter(|o| o["role"] == "original").count(), 2);
+    assert!(parsed
+        .iter()
+        .any(|o| o["filename"] == "B7.webm" && o["role"] == "original"));
+    // An unpaired legacy combine must retain its existing frame-first indices.
+    let legacy = job_outputs(&entry, &json!({"7":graph["7"]})).unwrap();
+    assert_eq!(legacy, outputs(&entry).unwrap());
+    assert_eq!(legacy[0]["filename"], "7_first.png");
+    assert!(legacy.iter().all(|o| o.get("role").is_none()));
+    for node in ["7", "B7"] {
+        for field in ["images", "gifs"] {
+            for (key, value) in [
+                ("filename", json!("../unsafe.webm")),
+                ("subfolder", json!(r"video\..\private")),
+                ("type", json!("temp")),
+            ] {
+                let mut unsafe_entry = entry.clone();
+                unsafe_entry["outputs"][node][field][0][key] = value;
+                assert!(
+                    job_outputs(&unsafe_entry, &graph).is_err(),
+                    "{node}/{field}/{key}"
+                );
+            }
+        }
+    }
 }
 
 #[tokio::test]

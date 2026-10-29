@@ -25,10 +25,17 @@ export type H3OverlapFrames=typeof h3OverlapFrames[number];
 export const isH3OverlapFrames=(v:unknown):v is H3OverlapFrames=>h3OverlapFrames.some(n=>n===v);
 export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; durationSeconds?:number }
 interface VideoBase { readonly recipeId:'video-generation'; readonly version:1; readonly positivePrompt:string; readonly negativePrompt:string; readonly model:string; readonly textEncoder:string; readonly vae:string; readonly seed:number; readonly width:number; readonly height:number; readonly frames:number; readonly frameRate:number; readonly steps:number; readonly cfg:number; readonly sampler:string; readonly scheduler:string; readonly outputPrefix:string; readonly output:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly firstFrame?:string; readonly lastFrame?:string; readonly sourceVideo?:string; readonly loras?:readonly {name:string;strength:number}[]; readonly options?:RunOptions; readonly chunks?:number }
+export interface H3LatentUpscale { model:string; scale:number; steps:number; denoise:number }
+export interface LtxLatentUpscale { model:string; scale:2 }
+/** Matches Python round, not JavaScript's half-up rounding. */
+export function latentUpscaleSize(family:VideoFamily,size:{width:number;height:number},scale:number){
+ const edge=(n:number)=>{if(family==='ltx-2')return n*2;const x=n*scale/32,lo=Math.floor(x);return Math.max(32,(x-lo===0.5?(lo%2===0?lo:lo+1):Math.round(x))*32);};
+ return {width:edge(size.width),height:edge(size.height)};
+}
 export type VideoIntentV1=VideoBase&(
- |{readonly family:'ltx-2';readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}
- |{readonly family:'wan';readonly wan:{lowModel:string;shiftHigh:number;shiftLow:number;refinerStep:number}}
- |{readonly family:'minimax-h3';readonly h3:{mode:'T2VA'|'I2VA'|'L2VA'|'FL2VA'|'REF2VA';audioVae:string;shiftVideo:number;shiftAudio:number;references:{slot:0|1;image:string}[];media?:H3Media[];continuity?:H3Continuity;inputScaling?:H3Scaling;refmods?:{slot:number;name:string;strength:number;description?:string}[]}});
+ |{readonly family:'ltx-2';readonly latentUpscale?:LtxLatentUpscale;readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}
+ |{readonly family:'wan';readonly latentUpscale?:never;readonly wan:{lowModel:string;shiftHigh:number;shiftLow:number;refinerStep:number}}
+ |{readonly family:'minimax-h3';readonly latentUpscale?:H3LatentUpscale;readonly h3:{mode:'T2VA'|'I2VA'|'L2VA'|'FL2VA'|'REF2VA';audioVae:string;shiftVideo:number;shiftAudio:number;references:{slot:0|1;image:string}[];media?:H3Media[];continuity?:H3Continuity;inputScaling?:H3Scaling;refmods?:{slot:number;name:string;strength:number;description?:string}[]}});
 export const isVideoIntent=(i:{recipeId:string}):i is VideoIntentV1=>i.recipeId==='video-generation';
 /** Frame counts as the owner's workflows compute them: LTX/Wan `round(s·fps/8)·8+1`, MiniMax H3 `17k+5` at 24 fps (snapped up). */
 export function videoFrames(family:VideoFamily,seconds:number,fps:number):number{

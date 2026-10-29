@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "采样后进行潜空间放大",
+  "studio.run.latent.enabled": "采样后进行潜空间放大",
+  "studio.run.latent.model": "潜空间放大模型",
+  "studio.run.latent.choose": "选择已训练模型",
+  "studio.run.latent.hint": "最终尺寸：{width} × {height}。在最后一个采样器之后处理；保留原始视频和音频。",
+  "studio.run.latent.download": "获取潜空间放大模型…",
+  "studio.run.latent.consent": "请在模型库中检查来源、许可和目标目录。选择文件并点击全部下载以明确同意。仅启用此选项不会下载或执行任何内容。",
+  "studio.run.latent.missing": "缺少兼容的潜空间放大模型：{name}",
+  "studio.run.latent.invalid": "潜空间放大设置无效。",
   "studio.run.video.trimTotal": "视频和音频选区各自的总时长不得超过15秒。",
   "studio.run.video.pickerHint": "点击文件以添加或移除参考；运行之前不会上传。",
   "studio.run.video.preview.unknown": "未知",

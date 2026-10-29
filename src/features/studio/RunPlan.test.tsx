@@ -2,9 +2,24 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { RunPlan } from './RunPlan';
+import { GenerationMetadata } from './GenerationMetadata';
+import type { VideoIntentV1 } from '../../lib/videoIntent';
 import type { DiagnosticImageIntentV1 } from '../../lib/execution';
 afterEach(cleanup);
 const intent:DiagnosticImageIntentV1={recipeId:'checkpoint-text-to-image-diagnostic',version:1,checkpoint:'test.safetensors',positivePrompt:'forest',negativePrompt:'blur',seed:42,width:896,height:1152,steps:20,cfg:5,sampler:'euler',scheduler:'normal',outputPrefix:'image/42',inputImage:'source.png',denoise:0.6,inputResize:{width:896,height:1152,crop:'center'},loras:[{name:'style.safetensors',strength:0.7}],refine:{width:1792,height:2304,denoise:0.25,tiled:{tileWidth:1024,tileHeight:1024,overlap:128}}};
+test.each(['ltx-2','minimax-h3'] as const)('latent post stage and held metadata show final canvas without changing source or audio (%s)',family=>{
+ localStorage.setItem('deas.locale.v1','en');
+ const video:VideoIntentV1={recipeId:'video-generation',version:1,positivePrompt:'film',negativePrompt:'',model:'model',textEncoder:'text',vae:'v',seed:7,width:768,height:512,frames:family==='ltx-2'?121:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/7',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},...(family==='ltx-2'?{family,ltx:{passes:3,audioVae:'audio',textProjection:'projection',spatialUpscaler:'generation-upscale'},latentUpscale:{model:'post.safetensors',scale:2}}:{family,h3:{mode:'T2VA',audioVae:'audio',shiftVideo:10,shiftAudio:3,references:[]},latentUpscale:{model:'post.safetensors',scale:2,steps:1,denoise:0.2}})};
+ const original=JSON.stringify(video);
+ const view=render(<I18nProvider><RunPlan pipeline="t2v" intent={video} notices={[]}/></I18nProvider>);
+ expect(view.container.querySelector('[data-plan-stage="latentUpscale"]')?.textContent).toContain('post.safetensors');
+ expect(view.container.querySelector('[data-plan-stage="output"]')?.textContent).toContain('1536 × 1024');
+ expect(view.container.querySelector('[data-plan-stage="audio"]')?.textContent).toContain('audio');
+ view.rerender(<I18nProvider><GenerationMetadata job={{id:'v',baseUrl:'http://localhost',promptId:'p',state:'succeeded',error:null,generationReady:false,outputs:[],intent:video}}/></I18nProvider>);
+ expect(view.container.textContent).toContain('post.safetensors');expect(view.container.textContent).toContain('1536 × 1024');
+ expect(JSON.stringify(video)).toBe(original);
+});
+
 test('read-only ordered stages show effective image settings and no inactive video stages',()=>{
  localStorage.setItem('deas.locale.v1','en');
  const view=render(<I18nProvider><RunPlan intent={intent} pipeline="i2i" notices={['Backend validation pending']} outputRoot="/output"/></I18nProvider>);

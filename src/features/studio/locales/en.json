@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "Latent upscale after sampling",
+  "studio.run.latent.enabled": "Latent upscale after sampling",
+  "studio.run.latent.model": "Latent upscale model",
+  "studio.run.latent.choose": "Choose a learned model",
+  "studio.run.latent.hint": "Final canvas: {width} × {height}. After the last sampler; original video and audio are retained.",
+  "studio.run.latent.download": "Get latent upscale model…",
+  "studio.run.latent.consent": "Review the source, license and destination in Library. Select the file, then Download all to consent. Enabling this option never downloads or runs anything.",
+  "studio.run.latent.missing": "Missing compatible latent upscale model: {name}",
+  "studio.run.latent.invalid": "Invalid latent upscale settings.",
   "studio.run.video.trimTotal": "Video and sound selections must each total at most 15 s.",
   "studio.run.video.pickerHint": "Click a file to add or remove it as a reference; no upload until Run.",
   "studio.run.video.preview.unknown": "unknown",

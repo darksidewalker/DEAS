@@ -337,18 +337,30 @@ impl Jobs {
         });
         let mut reader = decoder.read_info().map_err(|_| "Invalid PNG header")?;
         let (width, height) = (reader.info().width, reader.info().height);
-        let dimensions = if job.plan.graph.get("B7").is_some() && image["role"] == "processed" {
-            &job.plan.intent["refine"]
-        } else {
-            &job.plan.intent
-        };
+        let (expected_width, expected_height) =
+            if job.plan.graph.get("B7").is_some() && image["role"] == "processed" {
+                if crate::jobs_video::is_video(&job.plan.intent) {
+                    let (w, h) = crate::jobs_video::latent_upscale_size(&job.plan.intent);
+                    (Some(w), Some(h))
+                } else {
+                    (
+                        job.plan.intent["refine"]["width"].as_u64(),
+                        job.plan.intent["refine"]["height"].as_u64(),
+                    )
+                }
+            } else {
+                (
+                    job.plan.intent["width"].as_u64(),
+                    job.plan.intent["height"].as_u64(),
+                )
+            };
         if width == 0
             || height == 0
             || width > 8192
             || height > 8192
             || u64::from(width) * u64::from(height) > 16_777_216
-            || dimensions["width"].as_u64() != Some(width as u64)
-            || dimensions["height"].as_u64() != Some(height as u64)
+            || expected_width != Some(width as u64)
+            || expected_height != Some(height as u64)
             || reader.info().animation_control.is_some()
             || reader.output_buffer_size() > DECODE_LIMIT
         {

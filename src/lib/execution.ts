@@ -95,6 +95,7 @@ export interface RecipeAllowlist {
   readonly compile?: readonly string[];
   readonly upscaleModels?: readonly string[];
   readonly latentUpscaleModels?: readonly string[];
+  readonly h3LatentUpscaleModels?: readonly string[];
 }
 export type ApiLink = readonly [nodeId: string, outputIndex: number];
 export interface ApiNode {

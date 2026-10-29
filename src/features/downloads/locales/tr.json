@@ -1,4 +1,5 @@
 {
+  "downloads.folder.latent_upscale_models": "Gizil büyütücüler",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "Token denetleniyor…",
   "downloads.authCheck.verified": "Token doğrulandı",

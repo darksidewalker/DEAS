@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — 0.1.64
+
+- Add optional learned H3 and LTX latent upscale under Generate → Post-Processing, using family-specific safetensors in `latent_upscale_models`. Missing-model activation offers the existing Library flow in a popup; downloads remain explicitly authorized. The final generation latent is upscaled before decoding, without a lossy video round trip; existing LTX multipass controls stay separate. Paired Original/Processed video outputs retain their roles. H3 segment-capture pairing now compiles with exactly one Segment Decode: the Processed video comes from the upscaled decode, and the Original baseline is assembled on core nodes (core VAE decode of the prepared window plus an `ImageFromBatch` crop mirroring the nodepack's continuation timing, with audio reused from the Segment Decode), with the pinned checkpoint clip's frame count resolved from the session list at prepare time; first takes, imported-video pins and clip lists stay fail closed. Strict baseline-first failure preservation remains unverified.
+
 ## Unreleased — 0.1.63
 
 - Add right-aligned Studio prompt character counts, shared inline/enlarged spelling aids with an independent remembered system-default language, and default-off autocomplete using Prompt Forge’s local tag search. Backend language settings and Quick Settings control both aids without changing generation settings or submitting prompts.

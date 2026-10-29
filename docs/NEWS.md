@@ -1,5 +1,9 @@
 # News
 
+## Development — 0.1.64
+
+Generate's Post-Processing adds learned H3 and LTX latent upscale, separate from TVS and LTX's existing multipass refinement. Enable it, select the compatible latent model, and review the final canvas before Run. If weights are missing, a Library popup offers the family-specific model in `latent_upscale_models`; opening it never starts a download or generation. [Usage and limits](STUDIO.md#learned-video-latent-upscale-0164-development). Not a published release.
+
 ## Development — 0.1.63
 
 Studio adds inline character counts and shared writing aids for normal/enlarged prompts. Configure the independent spellcheck language below Backend’s language selector; toggle spellcheck and optional local Forge-tag completion there or in Quick Settings. Completion starts off. See [usage and dictionary requirements](STUDIO.md#prompt-writing-aids-0163-development). Not a published release.

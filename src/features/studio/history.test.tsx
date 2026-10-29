@@ -8,6 +8,16 @@ const image={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePr
 const record=(intent:JobIntent=image):HistoryRecord=>({id:'history-1',clientId:'client',promptId:'prompt',origin:'studio',appVersion:'0.1.48',admittedAt:10,observedAt:20,revision:3,state:'failed',intent,outputs:[],outputRoot:null,backendOrigin:'http://127.0.0.1:7801',error:null});
 const context:RestoreContext={endpoint:'http://127.0.0.1:7801/',inputRoot:'/selected/input',models:[{name:'exact.safetensors',family:'sdxl'},{name:'style.safetensors',family:'sdxl'}],allow:{nodes:['VAEDecodeTiled','EasyCache'],checkpoints:['exact.safetensors'],samplers:['euler'],schedulers:['normal'],images:['first.png','second.png'],loras:['style.safetensors'],visionModels:['vision.safetensors'],attention:['sdpa'],compile:['inductor'],textEncoders:['clip.safetensors'],vaes:['vae.safetensors']}};
 beforeEach(()=>{vi.clearAllMocks();vi.mocked(invoke).mockResolvedValue(null);});
+test.each(['ltx-2','minimax-h3'] as const)('history retains exact latent post choice and discloses missing model/node (%s)',family=>{
+ const {imageFormat,imageCompression,...output}=defaultVideoOutput;void imageFormat;void imageCompression;
+ const video:JobIntent={recipeId:'video-generation',version:1,positivePrompt:'film',negativePrompt:'',model:'model',textEncoder:'text',vae:'v',seed:7,width:768,height:512,frames:family==='ltx-2'?121:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/7',output,...(family==='ltx-2'?{family,ltx:{passes:1,audioVae:'audio',textProjection:'projection'},latentUpscale:{model:'missing.safetensors',scale:2}}:{family,h3:{mode:'T2VA',audioVae:'audio',shiftVideo:10,shiftAudio:3,references:[]},latentUpscale:{model:'missing.safetensors',scale:2,steps:1,denoise:0.2}})};
+ const before=JSON.stringify(video),restored=historyRestore(record(video),context);
+ expect(restored.intent).toEqual(video);
+ expect(restored.unavailable).toContain('latentUpscale: missing.safetensors');
+ expect(restored.unavailable).toContain(family==='ltx-2'?'LTXVLatentUpsampler':'DaSiWaH3TiledUpscale');
+ expect(JSON.stringify(video)).toBe(before);expect(invoke).not.toHaveBeenCalled();
+});
+
 test('history mapper preserves immutable exact seed, canvas, options, LoRAs and ordered ReVision strengths',()=>{
  const original=record({...image,loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'second.png',strength:0.2},{image:'first.png',strength:0.9}]},imageFormat:'webp',imageCompression:83});
  const before=JSON.stringify(original),restore=historyRestore(original,context);

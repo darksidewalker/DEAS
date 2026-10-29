@@ -34,6 +34,177 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
 const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
+test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, family scoped, and held in Run Plan and Run (%s)',async family=>{
+ const h3=family==='minimax-h3';
+ const files=h3?[
+  {category:'diffusion_models',name:'h3.safetensors',family},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
+ ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})):[...ltxModels];
+ vi.mocked(scanModels).mockResolvedValue(files);
+ const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors',h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:[ltx,h3Model,'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'],h3LatentUpscaleModels:[h3Model,ltx,'interpolation']}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('latent','failed'),error:'fixture'});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ const view=render(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-plan-intent]')?.textContent).toContain('video-generation'));
+ expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!)).not.toHaveProperty('latentUpscale');
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(screen.getByLabelText('Latent upscale after sampling'));
+ const picker=screen.getByLabelText('Latent upscale model') as HTMLSelectElement;
+ expect([...picker.options].map(o=>o.value)).toContain(h3?h3Model:ltx);
+ expect([...picker.options].map(o=>o.value)).not.toContain(h3?ltx:h3Model);
+ expect([...picker.options].map(o=>o.value)).not.toContain('ltx-2.3-temporal-upscaler-x2-1.0.safetensors');
+ fireEvent.change(picker,{target:{value:h3?h3Model:ltx}});
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ const plan=JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!);
+ expect(plan.latentUpscale).toEqual(h3?{model:h3Model,scale:2,steps:1,denoise:0.2}:{model:ltx,scale:2});
+ expect(plan.output).toMatchObject({audioCodec:'Auto',audioBitrate:'192k'});
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ fireEvent.click(document.querySelector('[data-latent-upscale-enabled]')!);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({latentUpscale:plan.latentUpscale,width:plan.width,height:plan.height,frames:plan.frames,output:plan.output});
+});
+
+test('latent family preferences persist independently and never replace an explicit missing model',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.checkpoint',JSON.stringify('LTX2/ltx.safetensors'));
+ localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:false,model:'ltx-missing.safetensors',scale:2,steps:1,denoise:0.2}));
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-missing.safetensors',scale:3,steps:2,denoise:0.3}));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels,{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3',path:'/m/h3',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,latentUpscaleModels:['ltx-present.safetensors'],h3LatentUpscaleModels:['h3-present.safetensors']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
+ fireEvent.click(document.querySelector('[data-dock-tab="post"]')!);
+ expect(document.querySelector('[data-latent-upscale-model]')).toHaveProperty('value','ltx-missing.safetensors');
+ expect(document.querySelector('[data-latent-upscale-enabled]')).toHaveProperty('checked',false);
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:'h3.safetensors'}});
+ expect(document.querySelector('[data-latent-upscale-model]')).toHaveProperty('value','h3-missing.safetensors');
+ expect(document.querySelector('[data-latent-upscale-scale]')).toHaveProperty('value','3');
+ expect(document.querySelector('[data-latent-upscale-enabled]')).toHaveProperty('checked',true);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:'LTX2/ltx.safetensors'}});
+ expect(document.querySelector('[data-latent-upscale-model]')).toHaveProperty('value','ltx-missing.safetensors');
+ expect(document.querySelector('[data-latent-upscale-enabled]')).toHaveProperty('checked',false);
+ expect(document.querySelector('[data-latent-upscale-scale]')).toHaveProperty('value','2');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('latent H3 segment capture is allowed in Continuity with the core baseline decode',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-post.safetensors',scale:2,steps:1,denoise:0.2}));
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]}));
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
+ const dialog=screen.getByRole('dialog',{name:'Continuity'});
+ expect(dialog.textContent).not.toContain('turn off latent upscale');
+ expect(dialog.querySelector('[data-cont-run]')).toHaveProperty('disabled',false);
+ expect(dialog.querySelector('[data-cont-run-all]')).toHaveProperty('disabled',false);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('late latent capability replies from an old endpoint cannot enable the new backend',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:true,model:'ltx-post.safetensors',scale:2,steps:1,denoise:0.2}));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ let finish!:(value:Awaited<ReturnType<typeof checkRecipePrerequisites>>)=>void;
+ vi.mocked(checkRecipePrerequisites).mockImplementation(url=>url.includes('old')?new Promise(resolve=>{finish=resolve;}):Promise.resolve(evidence));
+ const props={roots:{models:'/m'}};
+ const view=render(<I18nProvider><Workbench {...props} endpoint="http://old:7801"/></I18nProvider>);
+ await waitFor(()=>expect(finish).toBeTypeOf('function'));
+ view.rerender(<I18nProvider><Workbench {...props} endpoint="http://new:7801"/></I18nProvider>);
+ await act(async()=>{});
+ await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-post.safetensors']}}));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(document.querySelector('.wb-stage-warning')?.textContent).toContain('LatentUpscaleModelLoader');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each(['cancel','download'] as const)('missing latent model opens the actual Library offer without automatic work (%s)',async action=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:false,model:'explicit-missing.safetensors',scale:2,steps:1,denoise:0.2}));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ const filename='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
+ let installed=false,started=false;
+ vi.mocked(checkRecipePrerequisites).mockImplementation(async()=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:installed?[filename]:[]}}));
+ const file={id:'file',label:filename,locator:filename,downloadable:true,kind:'file',url:'https://huggingface.co/file',size:1};
+ vi.mocked(invoke).mockImplementation(async c=>{
+  if(c==='native_download_catalog')return {version:1,providers:[{id:'huggingface',kind:'huggingface',label:'Hugging Face',origin:'https://huggingface.co',scopes:['repo'],anonymousNotice:''}],entries:[{id:'ltx-latent-upscaler',label:'LTX',providerId:'huggingface',scope:'repo',locator:'models:Lightricks/LTX-2.3',kind:'repo',target:'latent_upscale_models'}]};
+  if(c==='native_auth_status')return [];
+  if(c==='native_download_browse')return {resources:[file],warnings:[],nextCursor:null};
+  if(c==='native_files_present')return [false];
+  if(c==='native_download_plan')return {id:'consented',target:'/configured/latent_upscale_models',resources:[file],canExecute:true,warnings:[],totalKnownBytes:1,unknownSizeCount:0};
+  if(c==='native_download_start'){started=true;return {state:'running',completed:0,total:1,bytesDownloaded:0,error:null};}
+  if(c==='native_download_status'){if(!started)return {state:'idle',completed:0,total:0,bytesDownloaded:0,error:null};installed=true;return {state:'succeeded',completed:1,total:1,bytesDownloaded:1,error:null};}
+  return {path:'/input',parent:'/',entries:[],truncated:false};
+ });
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} root="/env" roots={{models:'/configured'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(screen.getByLabelText('Latent upscale after sampling'));
+ const dialog=screen.getByRole('dialog',{name:'Get latent upscale model…'});
+ await within(dialog).findByLabelText(filename);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_plan'||c==='native_download_start')).toBe(false);
+ const before=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ if(action==='download'){
+  fireEvent.click(within(dialog).getByLabelText(filename));
+  fireEvent.click(within(dialog).getByRole('button',{name:'Download all (1)'}));
+  await within(dialog).findByText('Running');
+  for(let i=0;i<4;i++){
+   await act(async()=>{await new Promise(resolve=>setTimeout(resolve,300));});
+   view.rerender(<I18nProvider><Workbench endpoint={evidence.baseUrl} root="/env" roots={{models:'/configured'}}/></I18nProvider>);
+  }
+  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_status')).toHaveLength(2);
+  await within(dialog).findByText('Succeeded');
+  expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'huggingface',resources:[file],parentPath:'/configured/latent_upscale_models',folderName:'',authenticated:false}});
+  await waitFor(()=>expect(checkRecipePrerequisites).toHaveBeenCalledTimes(before+1));
+ }
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+ expect(screen.getByLabelText('Latent upscale model')).toHaveProperty('value','explicit-missing.safetensors');
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each([true,false])('paired video role selection renders one player even without output root (%s)',async owned=>{
+ const job:JobStatus={...heldJob('video-pair','succeeded'),...(owned?{outputRoot:'/old/output'}:{}),outputs:[{filename:'processed.mp4',subfolder:'',type:'output',format:'video/mp4',role:'processed'},{filename:'original.mp4',subfolder:'',type:'output',format:'video/mp4',role:'original'},{filename:'processed-first.png',subfolder:'frames',type:'output',role:'processed'},{filename:'original-last.png',subfolder:'frames',type:'output',role:'original'}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(loadDiagnosticJobOutput).mockImplementation(async(jobId,index)=>({jobId,index,mimeType:'image/png',width:1,height:1,sha256:'a'.repeat(64),bytes:[137,80,78,71]}));
+ vi.stubGlobal('URL',Object.assign(class extends URL {},{createObjectURL:vi.fn(()=>'blob:video-side-frame'),revokeObjectURL:vi.fn()}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-output-role="original"]')).toBeTruthy());
+ expect(document.querySelectorAll('.wb-shown video')).toHaveLength(1);
+ fireEvent.click(document.querySelector('[data-output-role="original"]')!);
+ expect(document.querySelectorAll('.wb-shown video')).toHaveLength(1);
+ expect(document.querySelector('.wb-shown video')?.getAttribute('src')).toContain('original.mp4');
+ for(const index of [2,3]){
+  fireEvent.click(document.querySelectorAll('.wb-output-choices button')[index]);
+  if(owned){
+   expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain(`/old/output/frames/${job.outputs[index].filename}`);
+   expect(loadDiagnosticJobOutput).not.toHaveBeenCalled();
+  }else{
+   await waitFor(()=>expect(loadDiagnosticJobOutput).toHaveBeenLastCalledWith(job.id,index));
+   await waitFor(()=>expect(document.querySelector('[data-job-output-preview]')?.getAttribute('src')).toBe('blob:video-side-frame'));
+   expect(loadDiagnosticJobOutput).toHaveBeenCalledTimes(index-1);
+  }
+  expect(document.querySelectorAll('.wb-shown video')).toHaveLength(0);
+ }
+ fireEvent.click(document.querySelector('[data-output-role="processed"]')!);
+ expect(document.querySelectorAll('.wb-shown video')).toHaveLength(1);
+ expect(document.querySelector('.wb-shown video')?.getAttribute('src')).toContain('processed.mp4');
+ expect(document.querySelector('.wb-shown img')).toBeNull();
+ expect(document.querySelector('[data-job-output-preview]')).toBeNull();
+ if(!owned)expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:video-side-frame');
+});
+
 test.each([false,true])('video workspace navigation seam is optional (%s) and leaves image Post settings intact',async connected=>{
  const onOpen=vi.fn();
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" onOpenVideoPost={connected?onOpen:undefined}/></I18nProvider>);
@@ -3085,6 +3256,25 @@ const openHistoryRecord=async()=>{
  fireEvent.click(document.querySelector('[data-history-id]')!);
  fireEvent.click(screen.getByRole('button',{name:'Use settings'}));
 };
+test('history restores independent latent post settings without submitting or changing the record',async()=>{
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-remembered.safetensors',scale:3,steps:2,denoise:0.3}));
+ const original=recentHistoryRecord({recipeId:'video-generation',version:1,family:'ltx-2',positivePrompt:'historic video',negativePrompt:'',model:ltxModels[0].name,textEncoder:ltxModels[1].name,vae:ltxModels[3].name,seed:19,width:768,height:512,frames:121,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},ltx:{passes:1,audioVae:ltxModels[4].name,textProjection:ltxModels[2].name},latentUpscale:{model:'ltx-held.safetensors',scale:2}});
+ const before=JSON.stringify(original);
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-held.safetensors'],textEncoders:[ltxModels[1].name,ltxModels[2].name],vaes:[ltxModels[3].name,ltxModels[4].name]}});
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{path:'/env/input',parent:'/env',entries:[],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(ltxModels[0].name));
+ await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ fireEvent.click(document.querySelector('[data-dock-tab="post"]')!);
+ expect(document.querySelector('[data-latent-upscale-enabled]')).toHaveProperty('checked',true);
+ expect(document.querySelector('[data-latent-upscale-model]')).toHaveProperty('value','ltx-held.safetensors');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.latent.ltx')!)).toMatchObject({enabled:true,model:'ltx-held.safetensors',scale:2});
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.latent.h3')!)).toMatchObject({enabled:true,model:'h3-remembered.safetensors',scale:3});
+ expect(JSON.stringify(original)).toBe(before);expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
 test('history restores exact rich settings without probing or submitting and keeps native queue snapshots immutable',async()=>{
  const original=recentHistoryRecord({...historicalImage,loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'second.png',strength:0.2},{image:'first.png',strength:0.9}]},refine:{width:2432,height:1664,denoise:0.35},imageFormat:'webp',imageCompression:83});
  const encoded=JSON.stringify(original);

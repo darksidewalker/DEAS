@@ -25,6 +25,55 @@ async function open(){mount();click('Library');await screen.findByRole('option',
 async function browse(){await open();fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');}
 async function pick(){await browse();fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});}
 const tab=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+it('embedded targeted offer browses once, filters exact filename and waits for Library consent',async()=>{
+ const selected={...resource,id:'wanted',label:'wanted.safetensors',locator:'nested/wanted.safetensors'};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_download_browse'?{resources:[selected,{...resource,id:'other',label:'other.pth',locator:'other.pth'}],warnings:[],nextCursor:null}:c==='native_files_present'?[false]:c==='native_download_plan'?{id:'p',target:'/configured/latent_upscale_models',resources:[selected],canExecute:true,warnings:[],totalKnownBytes:23,unknownSizeCount:0}:{state:c==='native_download_status'?'idle':'running',completed:0,total:1,bytesDownloaded:0,error:null});
+ render(<I18nProvider><DownloadPanel embedded modelsDir="/configured" installTarget="/env" initialEntryId="curated" filenameFilter="wanted.safetensors"/></I18nProvider>);
+ await screen.findByLabelText('wanted.safetensors');
+ expect(screen.queryByLabelText('other.pth')).toBeNull();
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_browse')).toHaveLength(1);
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_plan'||c==='native_download_start')).toBe(false);
+ fireEvent.click(screen.getByLabelText('wanted.safetensors'));
+ fireEvent.click(screen.getByRole('button',{name:'Download all (1)'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_download_start',{planId:'p',confirmed:true}));
+});
+
+it('targeted Library recovers running downloads after close and supports cancellation or completion',async()=>{
+ let state='idle';
+ const onStatus=vi.fn();
+ const status=()=>({state,completed:state==='succeeded'?1:0,total:1,bytesDownloaded:0,error:null});
+ vi.mocked(invoke).mockImplementation(async c=>{
+  if(c==='native_download_catalog')return catalog;
+  if(c==='native_auth_status')return [];
+  if(c==='native_download_browse')return {resources:[resource],warnings:[],nextCursor:null};
+  if(c==='native_files_present')return [false];
+  if(c==='native_download_plan')return {id:'reopen',target:'/configured/models',resources:[resource],canExecute:true,warnings:[],totalKnownBytes:23,unknownSizeCount:0};
+  if(c==='native_download_start')state='running';
+  if(c==='native_download_cancel')state='cancelled';
+  return status();
+ });
+ const panel=()=><I18nProvider><DownloadPanel embedded modelsDir="/configured" initialEntryId="curated" onStatus={onStatus}/></I18nProvider>;
+ let view=render(panel());
+ await screen.findByLabelText('Remote file');
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_download_status'));
+ fireEvent.click(screen.getByLabelText('Remote file'));
+ click('Download all (1)');
+ await screen.findByText('Running');
+ view.unmount();
+ view=render(panel());
+ await screen.findByText('Running');
+ expect(screen.getByRole('button',{name:'Cancel download'})).toBeTruthy();
+ click('Cancel download');
+ await screen.findByText('Cancelled');
+ view.unmount();
+ state='succeeded';
+ view=render(panel());
+ await screen.findByText('Succeeded');
+ expect(onStatus).toHaveBeenLastCalledWith(expect.objectContaining({state:'succeeded'}));
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_start')).toHaveLength(1);
+ view.unmount();
+});
+
 it('uses exact nested IPC and metadata-only auth contracts',async()=>{
  const request={providerId:'fixture',scope:'index' as const,locator:'source',authenticated:false};await browseDownloads(request);expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request});
  const plan={providerId:'fixture',resources:[resource],parentPath:'/parent',folderName:'new',authenticated:false};await planDownloads(plan);expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:plan});

@@ -43,6 +43,163 @@ fn completed(base: &str) -> Jobs {
     jobs
 }
 
+#[tokio::test]
+async fn latent_video_history_requires_encoded_pairs_and_retains_terminal_products() {
+    for (status, present, expected) in [
+        ("success", "both", "succeeded"),
+        ("success", "frames", "failed"),
+        ("success", "7", "failed"),
+        ("success", "B7", "failed"),
+        ("error", "B7", "failed"),
+        ("interrupted", "B7", "cancelled"),
+        ("error", "7", "failed"),
+        ("interrupted", "7", "cancelled"),
+        ("error", "none", "failed"),
+        ("interrupted", "none", "cancelled"),
+    ] {
+        let graph = json!({
+            "7":{"class_type":"DaSiWa_EnhancedVideoCombine","inputs":{}},
+            "B7":{"class_type":"DaSiWa_EnhancedVideoCombine","inputs":{}}
+        });
+        let tuple = json!([0,"prompt-video",graph,{"client_id":"client"},["7","B7"]]);
+        let (base, task) = super::super::tests::server(move |path, _| {
+            assert_eq!(path, "GET /comfy/history/prompt-video HTTP/1.1");
+            let mut outputs = json!({});
+            for node in ["7", "B7"] {
+                if present != "none" {
+                    outputs[node] = json!({"images":[{"filename":format!("{node}_first.png"),"subfolder":"video","type":"output"}]});
+                    if present == "both" || present == node {
+                        outputs[node]["gifs"] = json!([{"filename":format!("{node}.webm"),"subfolder":"video","type":"output","format":"video/webm"}]);
+                    }
+                }
+            }
+            let messages = match status {
+                "error" => json!([["execution_error",{"prompt_id":"prompt-video","node_id":"LU","node_type":"LatentUpscale","exception_message":"upscale failed"}]]),
+                "interrupted" => json!([["execution_interrupted",{"prompt_id":"prompt-video"}]]),
+                _ => json!([]),
+            };
+            (200, json!({"prompt-video":{"prompt":tuple,"outputs":outputs,"status":{
+                "completed":status=="success","status_str":if status=="success" {"success"} else {"error"},"messages":messages
+            }}}).to_string())
+        }).await;
+        let dir = tempfile::tempdir().unwrap();
+        let jobs = completed(&format!("{base}/"));
+        {
+            let mut session = jobs.lock().unwrap();
+            let job = session.job.as_mut().unwrap();
+            job.plan.graph = graph;
+            // Result handling uses the immutable graph, not current authoring settings.
+            job.plan.intent =
+                json!({"kind":"video","latentUpscale":{"model":"learned.safetensors"}});
+            job.plan.media_root = Some(MediaRoot::capture(dir.path().into()).unwrap());
+            job.prompt_id = Some("prompt-video".into());
+            job.state = "running";
+            job.outputs.clear();
+        }
+        let snapshot = jobs.status("job-a".into()).await.unwrap();
+        assert_eq!(
+            snapshot["state"], expected,
+            "{status}/{present}: {snapshot}"
+        );
+        let session = jobs.lock().unwrap();
+        let job = session.job.as_ref().unwrap();
+        let videos: Vec<_> = job
+            .outputs
+            .iter()
+            .filter(|o| o["format"] == "video/webm")
+            .collect();
+        assert_eq!(
+            videos.len(),
+            match present {
+                "both" => 2,
+                "7" | "B7" => 1,
+                _ => 0,
+            }
+        );
+        for video in videos {
+            assert_eq!(
+                video["role"],
+                if video["filename"] == "7.webm" {
+                    "processed"
+                } else {
+                    "original"
+                }
+            );
+        }
+        if present == "none" {
+            assert!(session.completed.is_empty());
+        } else {
+            assert_eq!(session.completed.len(), 1);
+            assert_eq!(session.completed[0].outputs, job.outputs);
+        }
+        if status == "error" {
+            assert!(job.error.as_deref().unwrap().contains("upscale failed"));
+        } else if status == "interrupted" {
+            assert!(job.error.is_none());
+        } else if expected == "failed" {
+            assert!(job.error.is_some());
+        }
+        task.abort();
+    }
+}
+
+#[test]
+fn retained_video_pair_relocation_preserves_roles_indices_and_source_bytes() {
+    for state in ["succeeded", "failed", "cancelled"] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let jobs = completed("http://127.0.0.1:8188/");
+        let outputs = vec![
+            json!({"filename":"processed.webm","subfolder":"video/run-1","type":"output","format":"video/webm","role":"processed"}),
+            json!({"filename":"original.webm","subfolder":"video/run-1","type":"output","format":"video/webm","role":"original"}),
+        ];
+        {
+            let mut session = jobs.lock().unwrap();
+            let job = session.job.as_mut().unwrap();
+            job.state = state;
+            job.outputs = outputs.clone();
+            job.history_outputs = outputs.clone();
+            job.plan.media_root = Some(MediaRoot::capture(root.clone()).unwrap());
+            session.retain_completed();
+        }
+        let source = output_path(&root, &outputs[0]);
+        let original = output_path(&root, &outputs[1]);
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        // Opaque bytes: relocation must not transcode or claim to validate encoded media.
+        std::fs::write(&source, b"processed-video-fixture").unwrap();
+        std::fs::write(&original, b"original-video-fixture").unwrap();
+        let target = root.join("starred/processed.webm");
+        std::fs::create_dir(target.parent().unwrap()).unwrap();
+        let intent = jobs
+            .lock()
+            .unwrap()
+            .job
+            .as_ref()
+            .unwrap()
+            .plan
+            .intent
+            .clone();
+        jobs.relocate_media(&root, &source, || {
+            std::fs::rename(&source, &target).unwrap();
+            Ok(target.clone())
+        })
+        .unwrap();
+        let session = jobs.lock().unwrap();
+        let job = session.job.as_ref().unwrap();
+        assert_eq!(job.outputs[0]["filename"], "processed.webm");
+        assert_eq!(job.outputs[0]["subfolder"], "starred");
+        assert_eq!(job.outputs[0]["role"], "processed");
+        assert_eq!(job.outputs[0]["format"], "video/webm");
+        assert_eq!(job.outputs[1], outputs[1]);
+        assert_eq!(job.history_outputs, job.outputs);
+        assert_eq!(session.completed[0].outputs, job.outputs);
+        assert_eq!(job.plan.intent, intent);
+        assert_eq!(std::fs::read(target).unwrap(), b"processed-video-fixture");
+        assert_eq!(std::fs::read(original).unwrap(), b"original-video-fixture");
+        assert!(!source.exists());
+    }
+}
+
 #[test]
 fn snapshot_output_root_requires_original_directory_identity() {
     let temp = tempfile::tempdir().unwrap();
@@ -813,6 +970,68 @@ async fn paired_png_reads_use_role_dimensions_and_allow_terminal_partial_exports
         jobs.lock().unwrap().job.as_mut().unwrap().outputs.clear();
         assert!(jobs.output("job-a".into(), 0).await.is_err());
         assert!(jobs.export_to("job-a", 0, None).is_err());
+    }
+}
+
+#[tokio::test]
+async fn paired_video_png_frames_use_latent_geometry_and_original_source_bounds() {
+    for mut intent in [
+        crate::jobs_video::tests::ltx(),
+        crate::jobs_video::tests::h3(),
+    ] {
+        intent["width"] = json!(320);
+        intent["height"] = json!(352);
+        intent["latentUpscale"] = if intent["family"] == "ltx-2" {
+            json!({"model":"ltx-spatial-upscaler.safetensors","scale":2})
+        } else {
+            json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":1.5,"steps":2,"denoise":0.2})
+        };
+        intent["output"]["saveFirstFrame"] = json!(true);
+        intent["output"]["saveLastFrame"] = json!(true);
+        let graph = compile(&intent).unwrap();
+        assert!(intent["refine"].is_null());
+        let processed = crate::jobs_video::latent_upscale_size(&intent);
+        let source = (320, 352);
+        for role in ["processed", "original"] {
+            for frame in ["first", "last"] {
+                for correct in [true, false] {
+                    let expected = if role == "processed" {
+                        processed
+                    } else {
+                        source
+                    };
+                    let wrong = if role == "processed" {
+                        source
+                    } else {
+                        processed
+                    };
+                    let (w, h) = if correct { expected } else { wrong };
+                    let bytes = png_bytes(w as u32, h as u32);
+                    let (base, server) =
+                        binary_server(bytes.clone(), 200, "Content-Type: image/png").await;
+                    let jobs = completed(&base);
+                    {
+                        let mut session = jobs.lock().unwrap();
+                        let job = session.job.as_mut().unwrap();
+                        job.plan.intent = intent.clone();
+                        job.plan.graph = graph.clone();
+                        job.outputs = vec![
+                            json!({"filename":format!("{role}_{frame}.png"),"subfolder":"video","type":"output","role":role}),
+                        ];
+                    }
+                    let result = jobs.output("job-a".into(), 0).await;
+                    assert_eq!(
+                        result.is_ok(),
+                        correct,
+                        "{}/{role}/{frame}/{w}x{h}: {:?}",
+                        intent["family"],
+                        result.err()
+                    );
+                    assert_eq!(jobs.lock().unwrap().output.is_some(), correct);
+                    server.await.unwrap();
+                }
+            }
+        }
     }
 }
 

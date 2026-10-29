@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "Agrandissement latent après échantillonnage",
+  "studio.run.latent.enabled": "Agrandissement latent après échantillonnage",
+  "studio.run.latent.model": "Modèle d’agrandissement latent",
+  "studio.run.latent.choose": "Choisir un modèle appris",
+  "studio.run.latent.hint": "Dimensions finales : {width} × {height}. Après le dernier échantillonneur ; vidéo originale et audio conservés.",
+  "studio.run.latent.download": "Obtenir un modèle d’agrandissement latent…",
+  "studio.run.latent.consent": "Vérifiez la source, la licence et la destination dans la bibliothèque. Sélectionnez le fichier puis Tout télécharger pour consentir. Activer cette option ne télécharge et n’exécute rien.",
+  "studio.run.latent.missing": "Modèle d’agrandissement latent compatible manquant : {name}",
+  "studio.run.latent.invalid": "Paramètres d’agrandissement latent invalides.",
   "studio.run.video.trimTotal": "Les sélections vidéo et audio sont chacune limitées à 15 s au total.",
   "studio.run.video.pickerHint": "Cliquez sur un fichier pour l’ajouter ou le retirer des références ; aucun envoi avant Exécuter.",
   "studio.run.video.preview.unknown": "inconnue",

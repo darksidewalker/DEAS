@@ -112,6 +112,11 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
   if(intent.h3Edit&&modelFamily!=='minimax-h3')unsupported.push('h3Edit');
  }else{
   if(modelFamily!==intent.family)unavailable.push(`video family: ${intent.family}`);
+  if(intent.latentUpscale){
+   const models=intent.family==='minimax-h3'?context.allow?.h3LatentUpscaleModels:context.allow?.latentUpscaleModels;
+   if(!models?.includes(intent.latentUpscale.model))unavailable.push(`latentUpscale: ${intent.latentUpscale.model}`);
+   for(const node of intent.family==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])if(!context.allow?.nodes.includes(node))unavailable.push(node);
+  }
   // Native diagnostic intents may carry image-only output members, while Studio's
   // video builder deliberately omits them. Preserve that distinction explicitly.
   for(const key of ['imageFormat','imageCompression'])if(key in intent.output)unsupported.push(`output.${key}`);

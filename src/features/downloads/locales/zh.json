@@ -1,4 +1,5 @@
 {
+  "downloads.folder.latent_upscale_models": "潜空间放大模型",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "正在验证令牌…",
   "downloads.authCheck.verified": "令牌已验证",

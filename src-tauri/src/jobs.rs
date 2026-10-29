@@ -1192,8 +1192,19 @@ impl Jobs {
             .map_err(|_| "Native job state unavailable".into())
     }
 
-    async fn prepare(&self, base_url: String, intent: Value) -> Result<Value, String> {
+    async fn prepare(&self, base_url: String, mut intent: Value) -> Result<Value, String> {
         let base = crate::validate_base_url(&base_url)?;
+        // The segment-capture graph needs the pinned clip's frame count for its crop plan: read it
+        // from the read-only session list before compiling; missing counts fail closed in compile.
+        if crate::jobs_video::needs_source_frames(&intent) {
+            if let Some(session) = intent["h3"]["continuity"]["session"].as_str() {
+                if let Ok(list) = native_h3_session(base.to_string(), session.to_string()).await {
+                    if let Some(frames) = crate::jobs_video::source_frames(&list, &intent) {
+                        intent["h3"]["continuity"]["sourceFrames"] = json!(frames);
+                    }
+                }
+            }
+        }
         let mut graph = compile(&intent)?;
         let id = uuid::Uuid::new_v4().to_string();
         {
@@ -1323,6 +1334,17 @@ impl Jobs {
                         .collect(),
                 ),
             ]);
+            if let Some(model) = intent["latentUpscale"]["model"].as_str() {
+                let field = if intent["family"] == "minimax-h3" {
+                    "h3LatentUpscaleModels"
+                } else {
+                    "latentUpscaleModels"
+                };
+                let available = allow[field].as_array().ok_or("Malformed native prerequisites")?;
+                if !available.iter().any(|name| name.as_str() == Some(model)) {
+                    return Err(format!("Diagnostic {field} are not available on this backend: {model}"));
+                }
+            }
             for (field, required) in required {
                 let available = allow[field]
                     .as_array()
@@ -1682,6 +1704,15 @@ fn job_outputs(entry: &Value, graph: &Value) -> Result<Vec<Value>, String> {
     for output in &mut originals {
         output["role"] = json!("original");
     }
+    if graph["7"]["class_type"] == "DaSiWa_EnhancedVideoCombine" {
+        for outputs in [&mut final_outputs, &mut originals] {
+            outputs.sort_by_key(|o| {
+                !o["format"]
+                    .as_str()
+                    .is_some_and(|f| f.starts_with("video/"))
+            });
+        }
+    }
     final_outputs.extend(originals);
     Ok(final_outputs)
 }
@@ -1806,9 +1837,16 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
                     return Err("Completed history has no diagnostic image output".into());
                 }
                 if job.plan.graph.get("B7").is_some()
-                    && !["original", "processed"]
-                        .iter()
-                        .all(|role| images.iter().any(|o| o["role"] == *role))
+                    && !["original", "processed"].iter().all(|role| {
+                        images.iter().any(|o| {
+                            o["role"] == *role
+                                && (job.plan.graph["7"]["class_type"]
+                                    != "DaSiWa_EnhancedVideoCombine"
+                                    || o["format"]
+                                        .as_str()
+                                        .is_some_and(|f| f.starts_with("video/")))
+                        })
+                    })
                 {
                     job.outputs = images;
                     job.state = "failed";

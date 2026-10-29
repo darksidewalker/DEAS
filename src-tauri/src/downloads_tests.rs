@@ -139,7 +139,7 @@ fn strict_catalog_and_extension() {
             .as_array()
             .unwrap()
             .len(),
-        6 + 35
+        8 + 35
     );
     let bundled = c
         .entries
@@ -412,6 +412,135 @@ fn cancellation_interrupts_stalled_stream_and_cleans_partial() {
         0
     );
     task.join().unwrap();
+}
+#[cfg(any(target_os = "linux", windows))]
+#[test]
+fn empty_folder_creates_only_the_absent_destination_leaf_after_confirmation() {
+    let bytes = b"latent fixture".to_vec();
+    let (origin, server) = fixture(bytes.clone());
+    let r = resource(
+        &origin,
+        Some(format!("{:x}", Sha256::digest(&bytes))),
+        Some(bytes.len() as u64),
+    );
+    let e = engine(provider(origin), &r);
+    let d = scratch();
+    let target = d.path().join("latent_upscale_models");
+    let p = e
+        .plan(PlanRequest {
+            provider_id: "fixture".into(),
+            resources: vec![r],
+            parent_path: target.to_str().unwrap().into(),
+            folder_name: String::new(),
+            authenticated: false,
+        })
+        .unwrap();
+    assert_eq!(p.target, target.to_str().unwrap());
+    assert!(!target.exists());
+    assert!(e.start(p.id.clone(), false, &AuthState::default()).is_err());
+    assert!(!target.exists());
+    e.start(p.id, true, &AuthState::default()).unwrap();
+    let status = finished(&e);
+    assert_eq!(status.state, "succeeded", "{:?}", status.error);
+    server.join().unwrap();
+    assert_eq!(std::fs::read(target.join("tiny.bin")).unwrap(), bytes);
+    assert!(!d.path().join("tiny.bin").exists());
+}
+#[cfg(any(target_os = "linux", windows))]
+#[test]
+fn absent_destination_leaf_rejects_unsafe_paths_and_start_collisions() {
+    let d = scratch();
+    let r = resource("https://files.example.org", None, Some(3));
+    let e = engine(provider("https://files.example.org".into()), &r);
+    let request = |path: &std::path::Path, folder: &str| PlanRequest {
+        provider_id: "fixture".into(),
+        resources: vec![r.clone()],
+        parent_path: path.to_str().unwrap().into(),
+        folder_name: folder.into(),
+        authenticated: false,
+    };
+    for path in ["missing/latent_upscale_models", "CON", "bad.", "bad:"] {
+        assert!(e.plan(request(&d.path().join(path), "")).is_err(), "{path}");
+    }
+    assert!(e
+        .plan(request(&d.path().join("latent_upscale_models"), "nested"))
+        .is_err());
+    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 0);
+    let file = d.path().join("file");
+    std::fs::write(&file, b"keep").unwrap();
+    for path in [&file, &file.join("latent_upscale_models")] {
+        assert!(e.plan(request(path, "")).is_err());
+    }
+    for directory in [false, true] {
+        let target = d
+            .path()
+            .join(if directory { "directory" } else { "collision" });
+        let p = e.plan(request(&target, "")).unwrap();
+        if directory {
+            std::fs::create_dir(&target).unwrap();
+            std::fs::write(target.join("tiny.bin"), b"keep").unwrap();
+        } else {
+            std::fs::write(&target, b"keep").unwrap();
+        }
+        assert!(e.start(p.id, true, &AuthState::default()).is_err());
+        let existing = if directory {
+            target.join("tiny.bin")
+        } else {
+            target
+        };
+        assert_eq!(std::fs::read(existing).unwrap(), b"keep");
+    }
+    let parent = d.path().join("models");
+    std::fs::create_dir(&parent).unwrap();
+    let p = e
+        .plan(request(&parent.join("latent_upscale_models"), ""))
+        .unwrap();
+    std::fs::rename(&parent, d.path().join("old models")).unwrap();
+    std::fs::create_dir(&parent).unwrap();
+    assert!(e.start(p.id, true, &AuthState::default()).is_err());
+    assert!(!parent.join("latent_upscale_models").exists());
+    assert!(!d.path().join("old models/latent_upscale_models").exists());
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn absent_destination_leaf_rejects_symlinks_before_plan_and_start() {
+    use std::os::unix::fs::symlink;
+    let d = scratch();
+    let outside = scratch();
+    let r = resource("https://files.example.org", None, Some(3));
+    let e = engine(provider("https://files.example.org".into()), &r);
+    let target = d.path().join("latent_upscale_models");
+    let request = PlanRequest {
+        provider_id: "fixture".into(),
+        resources: vec![r],
+        parent_path: target.to_str().unwrap().into(),
+        folder_name: String::new(),
+        authenticated: false,
+    };
+    for destination in [outside.path().to_owned(), outside.path().join("missing")] {
+        symlink(&destination, &target).unwrap();
+        assert!(e.plan(request.clone()).is_err());
+        std::fs::remove_file(&target).unwrap();
+        let p = e.plan(request.clone()).unwrap();
+        symlink(&destination, &target).unwrap();
+        assert!(e.start(p.id, true, &AuthState::default()).is_err());
+        assert_eq!(std::fs::read_link(&target).unwrap(), destination);
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+        std::fs::remove_file(&target).unwrap();
+    }
+    symlink(outside.path(), d.path().join("linked models")).unwrap();
+    assert!(e
+        .plan(PlanRequest {
+            parent_path: d
+                .path()
+                .join("linked models/latent_upscale_models")
+                .to_str()
+                .unwrap()
+                .into(),
+            ..request
+        })
+        .is_err());
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
 }
 #[cfg(any(target_os = "linux", windows))]
 #[test]

@@ -82,6 +82,314 @@ fn omitted_video_output_prefix_defaults_to_raw() {
     assert_eq!(compile(&explicit).unwrap(), graph);
 }
 
+#[test]
+fn latent_post_upscale_ltx_preserves_final_pass_baseline_and_audio() {
+    for passes in 1..=3 {
+        let mut i = ltx();
+        i["ltx"]["passes"] = json!(passes);
+        if passes > 1 {
+            i["ltx"]["spatialUpscaler"] = json!("old.safetensors");
+        }
+        let before = compile(&i).unwrap();
+        i["latentUpscale"] =
+            json!({"model":"post/ltx-2.3-spatial-upscaler-x2-1.1.safetensors","scale":2});
+        let g = compile(&i).unwrap();
+        assert_eq!(
+            g["U"]["inputs"]["samples"],
+            before["6"]["inputs"]["samples"]
+        );
+        assert_eq!(g["U"]["class_type"], "LTXVLatentUpsampler");
+        assert_eq!(g["U"]["inputs"]["upscale_model"], json!(["UML", 0]));
+        assert_eq!(
+            g["UML"]["inputs"]["model_name"],
+            "post/ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+        );
+        assert_eq!(g["6"]["inputs"]["samples"], json!(["U", 0]));
+        assert_eq!(g["B6"], before["6"]);
+        assert_eq!(g["AD"], before["AD"]);
+        let mut baseline = g["7"].clone();
+        baseline["inputs"]["images"] = json!(["B6", 0]);
+        baseline["inputs"]["filename_prefix"] = json!("video/2026-10-18/x_original");
+        assert_eq!(g["B7"], baseline);
+        let required = requirements(&i);
+        assert_eq!(
+            required
+                .iter()
+                .find(|(k, _)| *k == "latentUpscaleModels")
+                .unwrap()
+                .1,
+            if passes > 1 {
+                vec![
+                    "old.safetensors",
+                    "post/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+                ]
+            } else {
+                vec!["post/ltx-2.3-spatial-upscaler-x2-1.1.safetensors"]
+            }
+        );
+    }
+}
+
+#[test]
+fn latent_post_upscale_rejects_untrusted_intent() {
+    for (mut i, options) in [
+        (ltx(), json!(null)),
+        (ltx(), json!({"model":"interpolation","scale":2})),
+        (ltx(), json!({"model":"../bad.safetensors","scale":2})),
+        (ltx(), json!({"model":"x.pt","scale":2})),
+        (ltx(), json!({"model":"x.safetensors","scale":1})),
+        (ltx(), json!({"model":"x.safetensors","scale":2,"steps":1})),
+        (wan(), json!({"model":"x.safetensors","scale":2})),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":0.99,"steps":1,"denoise":0.2}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":8.01,"steps":1,"denoise":0.2}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":0,"denoise":0.2}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":101,"denoise":0.2}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":1.01}),
+        ),
+        (h3(), json!({"model":"x.safetensors","scale":2,"steps":1})),
+    ] {
+        let mut options = options;
+        if options["model"] == "x.safetensors" {
+            options["model"] = if i["family"] == "ltx-2" {
+                json!("ltx-spatial-upscaler.safetensors")
+            } else {
+                json!("minimax_h3_latent_upscaler.safetensors")
+            };
+        }
+        i["latentUpscale"] = options;
+        assert!(compile(&i).is_err(), "accepted {}", i["latentUpscale"]);
+    }
+    for mut i in [ltx(), h3()] {
+        i["latentUpscale"] = if i["family"] == "ltx-2" {
+            json!({"model":"folder/ltx-spatial-upscaler.sft","scale":2})
+        } else {
+            json!({"model":"folder/minimax_h3_latent_upscaler.sft","scale":1,"steps":100,"denoise":0})
+        };
+        assert!(compile(&i).is_ok());
+    }
+}
+
+#[test]
+fn latent_post_upscale_h3_wires_prepared_context_and_processed_publish() {
+    let mut i = h3();
+    let before = compile(&i).unwrap();
+    i["latentUpscale"] = json!({"model":"h3/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":1.5,"steps":3,"denoise":0.25});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["U"]["class_type"], "DaSiWaH3TiledUpscale");
+    let inputs = &g["U"]["inputs"];
+    for (key, value) in [
+        ("noise", json!(["N", 0])),
+        ("model", json!(["SS", 0])),
+        ("conditioning", json!(["G", 0])),
+        ("latent", json!(["SP", 0])),
+        ("continuity_context", json!(["SP", 1])),
+        ("director_guide", json!(["D", 0])),
+        ("vae", json!(["V", 0])),
+        ("sampler", json!(["Q", 0])),
+        (
+            "upscale_model",
+            json!("h3/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"),
+        ),
+        ("scale", json!(1.5)),
+        ("steps", json!(3)),
+        ("denoise", json!(0.25)),
+        ("seed", json!(7)),
+        ("cfg", json!(1.0)),
+        ("scheduler", json!("simple")),
+        ("upscale_precision", json!("auto")),
+        ("memory_budget_mb", json!(0)),
+        ("spatial_tiling", json!(true)),
+        ("temporal_chunking", json!(true)),
+        ("enforce_memory_budget", json!(true)),
+        ("memory_reserve_pct", json!(5.0)),
+        ("continuity_soft_refine", json!(false)),
+        ("continuity_mask_strength", json!(1.0)),
+        ("spike_guard", json!(false)),
+        ("guard_sensitivity", json!(4.3)),
+        ("guard_strength", json!(1.0)),
+        ("guard_mode", json!("burn_direction")),
+    ] {
+        assert_eq!(inputs[key], value, "{key}");
+    }
+    assert_eq!(g["SP"], before["SP"]);
+    assert_eq!(g["BSD"], before["SD"]);
+    let mut processed = before["SD"].clone();
+    processed["inputs"]["latent"] = json!(["U", 0]);
+    assert_eq!(g["SD"], processed);
+    assert_eq!(g["7"], before["7"]);
+    assert_eq!(g["P"], before["P"]);
+    let mut baseline = before["7"].clone();
+    baseline["inputs"]["images"] = json!(["BSD", 0]);
+    baseline["inputs"]["audio"] = json!(["BSD", 1]);
+    baseline["inputs"]["filename_prefix"] = json!("video/2026-10-18/x_original");
+    assert_eq!(g["B7"], baseline);
+    let required = requirements(&i);
+    assert_eq!(
+        required
+            .iter()
+            .find(|(k, _)| *k == "h3LatentUpscaleModels")
+            .unwrap()
+            .1,
+        vec!["h3/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"]
+    );
+    assert!(required
+        .iter()
+        .find(|(k, _)| *k == "latentUpscaleModels")
+        .unwrap()
+        .1
+        .is_empty());
+}
+
+#[test]
+fn latent_post_upscale_bounds_canvas_prefix_and_h3_capture() {
+    for (family, width, height, scale, ok) in [
+        ("ltx-2", 4096, 4096, 2.0, false),
+        ("ltx-2", 4096, 1024, 2.0, true),
+        ("minimax-h3", 4096, 64, 2.00390625, true), // 8208: tie rounds down to even 8192.
+        ("minimax-h3", 4096, 64, 2.01171875, false), // 8240: tie rounds up to even 8256.
+        ("minimax-h3", 4096, 4096, 1.00390625, true), // Both 4112 ties round down.
+        ("minimax-h3", 4096, 4096, 1.004, false),
+    ] {
+        let mut i = if family == "ltx-2" { ltx() } else { h3() };
+        i["width"] = json!(width);
+        i["height"] = json!(height);
+        i["latentUpscale"] = if family == "ltx-2" {
+            json!({"model":"ltx-spatial-upscaler.safetensors","scale":scale})
+        } else {
+            json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":scale,"steps":1,"denoise":0.2})
+        };
+        assert_eq!(
+            compile(&i).is_ok(),
+            ok,
+            "{family} {width}x{height} * {scale}"
+        );
+    }
+    let mut i = h3();
+    i["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+    for capture in [false, true] {
+        for mode in ["full", "segment"] {
+            i["h3"]["continuity"] = json!({"session":"take","sourceId":"","action":"","capture":capture,"outputMode":mode});
+            assert_eq!(compile(&i).is_ok(), !(capture && mode == "segment"));
+        }
+    }
+    i["h3"].as_object_mut().unwrap().remove("continuity");
+    for (length, ok) in [(171, true), (172, false), (180, false)] {
+        i["outputPrefix"] = json!("x".repeat(length));
+        assert_eq!(compile(&i).is_ok(), ok, "prefix {length}");
+    }
+}
+
+#[test]
+fn h3_latent_upscale_segment_capture_decodes_the_baseline_on_core_nodes() {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([]);
+    i["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+    i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"she turns around","outputMode":"segment"});
+    // Fail closed without the pinned clip's frame count (prepare looks it up in the session list).
+    assert!(compile(&i).is_err());
+    i["h3"]["continuity"]["sourceFrames"] = json!(243);
+    let g = compile(&i).unwrap();
+    // Exactly one SegmentDecode, fed by the upscale chain and kept on the publish path.
+    assert_eq!(g["SD"]["inputs"]["latent"], json!(["U", 0]));
+    assert_eq!(g["U"]["inputs"]["latent"], json!(["SP", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["SD", 0]));
+    assert!(
+        g.get("BSD").is_none(),
+        "segment capture uses exactly one SegmentDecode"
+    );
+    let decodes = g
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|n| n["class_type"] == "DaSiWaH3ContinuitySegmentDecode")
+        .count();
+    assert_eq!(decodes, 1);
+    // Baseline side: core decode of the prepared window cropped to the new segment (the pinned
+    // 243-frame clip starts the window at 102, frames/24 duration = 119 frames) plus its audio.
+    assert_eq!(g["BA"]["inputs"]["samples"], json!(["SP", 0]));
+    assert_eq!(
+        g["CB"]["inputs"],
+        json!({"image":["BA",0],"batch_index":141,"length":119})
+    );
+    assert_eq!(
+        g["SD"]["inputs"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        vec!["audio_vae", "context", "latent", "vae"],
+        "SegmentDecode accepts no duration input"
+    );
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["CB", 0]));
+    assert_eq!(g["B7"]["inputs"]["audio"], json!(["SD", 1]));
+    assert_eq!(
+        g["B7"]["inputs"]["filename_prefix"],
+        json!("video/2026-10-18/x_original")
+    );
+    assert_eq!(
+        g["7"]["inputs"]["filename_prefix"],
+        json!("video/2026-10-18/x")
+    );
+    // An authored duration snaps the crop to 17-frame steps; video sources stay fail-closed.
+    i["h3"]["continuity"]["durationSeconds"] = json!(10.0);
+    let g = compile(&i).unwrap();
+    assert_eq!(g["CB"]["inputs"]["length"], json!(238));
+    i["h3"]["continuity"]["sourceKind"] = json!("video");
+    i["h3"]["continuity"]["sourceId"] = json!("0123456789abcdef".repeat(4));
+    assert!(compile(&i).is_err());
+}
+
+#[test]
+fn latent_post_upscale_rejects_cross_family_models_even_when_core_lists_them() {
+    for (mut i, model) in [
+        (
+            ltx(),
+            "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+        ),
+        (ltx(), "folder/other.safetensors"),
+        (ltx(), "ltx-checkpoint.safetensors"),
+        (h3(), "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"),
+        (h3(), "folder/other.safetensors"),
+        (h3(), "minimax_h3_latent_upscaler_ltx.safetensors"),
+    ] {
+        i["latentUpscale"] = if i["family"] == "ltx-2" {
+            json!({"model":model,"scale":2})
+        } else {
+            json!({"model":model,"scale":2,"steps":1,"denoise":0.2})
+        };
+        assert!(compile(&i).is_err(), "accepted {model}");
+    }
+    for (mut i, model) in [
+        (ltx(), r"LTX2\ltx-2.3-spatial-upscaler-x2-1.1.safetensors"),
+        (h3(), r"H3\minimax_h3_latent_upscaler_3d_conv_v1_fp16.sft"),
+    ] {
+        i["latentUpscale"] = if i["family"] == "ltx-2" {
+            json!({"model":model,"scale":2})
+        } else {
+            json!({"model":model,"scale":2,"steps":1,"denoise":0.2})
+        };
+        assert!(compile(&i).is_ok());
+    }
+}
+
 pub(crate) fn ltx() -> Value {
     json!({
         "recipeId":"video-generation","version":1,"family":"ltx-2",
@@ -918,6 +1226,29 @@ fn dump_video_graphs() {
         "{}",
         json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap()})
     );
+}
+
+#[test]
+#[ignore]
+fn dump_latent_upscale_graphs() {
+    let mut graphs = json!({});
+    for passes in 1..=3 {
+        let mut i = ltx();
+        i["ltx"]["passes"] = json!(passes);
+        if passes > 1 {
+            i["ltx"]["spatialUpscaler"] = json!("ltx-2.3-spatial-upscaler-x2-1.1.safetensors");
+        }
+        i["latentUpscale"] =
+            json!({"model":"ltx-2.3-spatial-upscaler-x2-1.1.safetensors","scale":2});
+        graphs[format!("ltx_post_{passes}")] = compile(&i).unwrap();
+    }
+    for capture in [false, true] {
+        let mut i = h3();
+        i["h3"]["continuity"] = json!({"session":"deas","sourceId":"","action":"","capture":capture,"outputMode":"full"});
+        i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":2,"steps":1,"denoise":0.2});
+        graphs[format!("h3_post_capture_{capture}")] = compile(&i).unwrap();
+    }
+    println!("{graphs}");
 }
 
 #[test]

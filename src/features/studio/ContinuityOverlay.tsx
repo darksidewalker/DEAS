@@ -3,9 +3,9 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { ContinuityPlanner, type ContinuityPlannerProps } from './ContinuityPlanner';
 import './continuity-overlay.css';
 
-export type ContinuityOverlayProps = ContinuityPlannerProps & { onClose: () => void };
+export type ContinuityOverlayProps = ContinuityPlannerProps & { onClose: () => void; blocker?:string };
 
-export function ContinuityOverlay({ onClose, ...planner }: ContinuityOverlayProps) {
+export function ContinuityOverlay({ onClose, blocker, ...planner }: ContinuityOverlayProps) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -24,6 +24,6 @@ export function ContinuityOverlay({ onClose, ...planner }: ContinuityOverlayProp
     <header className="continuity-overlay-header"><h2 id={titleId}>{t('studio.run.dock.continuity')}</h2>
       <button ref={closeRef} type="button" onClick={dismiss}>{t('studio.close')}</button>
     </header>
-    <div className="continuity-overlay-body"><ContinuityPlanner {...planner}/></div>
+    <div className="continuity-overlay-body">{blocker&&<p role="status">{blocker}</p>}<ContinuityPlanner {...planner}/></div>
   </dialog>;
 }

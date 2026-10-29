@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkCount, videoFrames } from '../src/lib/videoIntent.ts';
+import * as video from '../src/lib/videoIntent.ts';
+
+test('post upscale canvas follows H3 Python ties-even 32 rounding and fixed LTX 2x',()=>{
+ assert.equal(typeof video.latentUpscaleSize,'function');
+ assert.deepEqual(video.latentUpscaleSize('minimax-h3',{width:96,height:160},1.5),{width:128,height:256});
+ assert.deepEqual(video.latentUpscaleSize('ltx-2',{width:768,height:512},2),{width:1536,height:1024});
+});
 import { nextStep, resolveClip, isContinuityPlan, type ContinuityPlan } from '../src/lib/continuity.ts';
 
 test('frame counts follow the owner workflows: 8k+1 for LTX/Wan, 17k+5 at 24 fps for MiniMax H3', () => {

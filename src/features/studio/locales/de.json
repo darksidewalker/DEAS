@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "Latentes Upscaling nach dem Sampling",
+  "studio.run.latent.enabled": "Latentes Upscaling nach dem Sampling",
+  "studio.run.latent.model": "Latentes Upscaling-Modell",
+  "studio.run.latent.choose": "Gelerntes Modell auswählen",
+  "studio.run.latent.hint": "Endformat: {width} × {height}. Nach dem letzten Sampler; Originalvideo und Audio bleiben erhalten.",
+  "studio.run.latent.download": "Latentes Upscaling-Modell laden…",
+  "studio.run.latent.consent": "Quelle, Lizenz und Ziel in der Bibliothek prüfen. Datei auswählen und mit Alle herunterladen zustimmen. Das Aktivieren lädt nichts herunter und führt nichts aus.",
+  "studio.run.latent.missing": "Kompatibles latentes Upscaling-Modell fehlt: {name}",
+  "studio.run.latent.invalid": "Ungültige latente Upscaling-Einstellungen.",
   "studio.run.video.trimTotal": "Video- und Tonausschnitte dürfen jeweils insgesamt höchstens 15 s lang sein.",
   "studio.run.video.pickerHint": "Datei anklicken, um sie als Referenz hinzuzufügen oder zu entfernen; Upload erst bei Start.",
   "studio.run.video.preview.unknown": "unbekannt",

@@ -1,4 +1,5 @@
 {
+  "downloads.folder.latent_upscale_models": "Agrandisseurs latents",
   "downloads.installed.sizeGib": "{n} Gio",
   "downloads.authCheck.checking": "Vérification du token…",
   "downloads.authCheck.verified": "Token vérifié",

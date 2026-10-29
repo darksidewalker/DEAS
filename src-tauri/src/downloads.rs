@@ -641,11 +641,31 @@ impl DownloadEngine {
             warnings: page.warnings,
         })
     }
-    pub fn plan(&self, request: PlanRequest) -> Result<DownloadPlan, String> {
+    pub fn plan(&self, mut request: PlanRequest) -> Result<DownloadPlan, String> {
         if request.resources.is_empty() || request.resources.len() > MAX_FILES {
             return Err("Select 1–16 files".into());
         }
-        let parent = PathBuf::from(request.parent_path);
+        let mut parent = PathBuf::from(request.parent_path);
+        let target = if request.folder_name.is_empty() {
+            parent.clone()
+        } else {
+            parent.join(&request.folder_name)
+        };
+        // Only one absent leaf can reuse the anchored, confirmation-only new-folder path.
+        if request.folder_name.is_empty()
+            && matches!(std::fs::symlink_metadata(&parent), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        {
+            let leaf = parent
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or("Unsafe destination folder")?;
+            safe_name(leaf)?;
+            request.folder_name = leaf.to_owned();
+            parent = parent
+                .parent()
+                .ok_or("Missing destination parent")?
+                .to_owned();
+        }
         let anchor = fs::Anchor::open(&parent)?;
         // Empty folder name stages directly into the existing parent (e.g. ComfyUI/models/loras);
         // files are still created exclusively, so nothing is overwritten.
@@ -708,14 +728,7 @@ impl DownloadEngine {
         }
         let view = DownloadPlan {
             id: uuid::Uuid::new_v4().to_string(),
-            target: if request.folder_name.is_empty() {
-                parent.to_string_lossy().into_owned()
-            } else {
-                parent
-                    .join(&request.folder_name)
-                    .to_string_lossy()
-                    .into_owned()
-            },
+            target: target.to_string_lossy().into_owned(),
             total_known_bytes: total,
             unknown_size_count: request
                 .resources

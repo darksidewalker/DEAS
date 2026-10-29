@@ -8,6 +8,28 @@
 # Entry-only imports use providers=[] and may reference existing provider IDs.
 version = 1
 
+[[entries]]
+id = "h3-latent-upscaler"
+label = "MiniMax H3 learned latent upscaler (BF16)"
+providerId = "huggingface"
+scope = "repo"
+locator = "models:LBH-123-AI/Minimax_h3_latent_Upscaler"
+kind = "repo"
+target = "latent_upscale_models"
+base = "MiniMax H3"
+media = "video"
+
+[[entries]]
+id = "ltx-latent-upscaler"
+label = "LTX 2.3 learned latent upscaler (2×)"
+providerId = "huggingface"
+scope = "repo"
+locator = "models:Lightricks/LTX-2.3"
+kind = "repo"
+target = "latent_upscale_models"
+base = "LTX 2.3"
+media = "video"
+
 [[providers]]
 id = "huggingface"
 kind = "huggingface"

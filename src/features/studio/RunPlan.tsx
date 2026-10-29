@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { JobIntent } from '../../lib/jobs';
-import { isVideoIntent } from '../../lib/videoIntent';
+import { isVideoIntent, latentUpscaleSize } from '../../lib/videoIntent';
 
 /** Authoring preview only: native preparation remains the validation/compilation authority. */
 export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{intent:JobIntent|null;pipeline:string;notices:string[];outputRoot?:string;inputNotes?:string[]}){
@@ -20,6 +20,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
  const stage=(id:string,body:ReactNode)=><li data-plan-stage={id}><h3>{t(`studio.plan.${id}`)}</h3><dl className="run-plan-facts">{body}</dl></li>;
  const video=intent&&isVideoIntent(intent)?intent:null;
  const image=intent&&!isVideoIntent(intent)?intent:null;
+ const videoSize=video?.latentUpscale?latentUpscaleSize(video.family,video,video.latentUpscale.scale):video;
  return <section className="feature-panel run-plan" aria-label={t('studio.tab.map')}>
   <div className="panel-heading"><h2>{t('studio.tab.map')}</h2><span>{t(`studio.run.pipe.${pipeline}`)}</span></div>
   <p>{t('studio.plan.notice')}</p>
@@ -65,8 +66,9 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
    </>)}
    {image?.refine&&stage('refine',<>{row('studio.run.resolution.title',size(image.refine))}{row('studio.run.post.denoise',image.refine.denoise)}{row('studio.run.steps',image.refine.sigmas?image.refine.sigmas.length-1:intent.steps)}{row('studio.run.post.model',image.refine.upscaleModel||t('studio.run.post.lanczos'))}
     {image.refine.sigmas&&row('studio.run.opt.sigmas',image.refine.sigmas.join(', '))}{image.refine.tiled&&row('studio.run.post.tiled',`${image.refine.tiled.tileWidth} × ${image.refine.tiled.tileHeight} · ${t('studio.plan.overlap')}: ${image.refine.tiled.overlap} px`)}</>)}
+   {video?.latentUpscale&&stage('latentUpscale',<>{row('studio.run.latent.model',video.latentUpscale.model)}{row('studio.run.upscale',video.latentUpscale.scale)}{row('studio.run.resolution.title',size(latentUpscaleSize(video.family,video,video.latentUpscale.scale)))}{video.family==='minimax-h3'&&<>{row('studio.run.steps',video.latentUpscale.steps)}{row('studio.run.post.denoise',video.latentUpscale.denoise)}</>}<dd>{t('studio.run.latent.hint',{width:String(videoSize!.width),height:String(videoSize!.height)})}</dd></>)}
    {video&&video.family!=='wan'&&stage('audio',<>{row('studio.run.video.audioVae',video.family==='ltx-2'?video.ltx.audioVae:video.h3.audioVae)}<dd>{t('studio.plan.audioPending')}</dd></>)}
-   {stage('output',<>{row('studio.run.resolution.title',size(image?.refine??intent))}{row('settings.output',outputRoot)}{row('studio.run.opt.outputNaming',intent.outputPrefix)}
+   {stage('output',<>{row('studio.run.resolution.title',size(videoSize??image?.refine??intent))}{row('settings.output',outputRoot)}{row('studio.run.opt.outputNaming',intent.outputPrefix)}
     {video?<>{(['codec','container','bitDepth','quality','audioCodec','audioBitrate','saveFirstFrame','saveLastFrame'] as const).map(k=>row(`studio.run.opt.output.${k}`,typeof video.output[k]==='boolean'?yesNo(video.output[k] as boolean):video.output[k]==='Auto'?`${t('studio.run.opt.output.auto')} · ${unknown}`:video.output[k]))}</>:<>{row('studio.run.opt.output.imageFormat',image?.imageFormat??'png')}{row('studio.run.opt.output.imageCompression',image?.imageCompression??44)}</>}
     <dd>{t('studio.plan.outputPending')}</dd>
    </>)}

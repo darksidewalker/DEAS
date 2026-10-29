@@ -1,4 +1,13 @@
 {
+  "studio.plan.latentUpscale": "Örneklemeden sonra gizil büyütme",
+  "studio.run.latent.enabled": "Örneklemeden sonra gizil büyütme",
+  "studio.run.latent.model": "Gizil büyütme modeli",
+  "studio.run.latent.choose": "Eğitilmiş bir model seçin",
+  "studio.run.latent.hint": "Son boyut: {width} × {height}. Son örnekleyiciden sonra; özgün video ve ses korunur.",
+  "studio.run.latent.download": "Gizil büyütme modeli edin…",
+  "studio.run.latent.consent": "Kitaplıkta kaynağı, lisansı ve hedefi inceleyin. Dosyayı seçip Tümünü indir ile onay verin. Etkinleştirmek hiçbir şey indirmez veya çalıştırmaz.",
+  "studio.run.latent.missing": "Uyumlu gizil büyütme modeli eksik: {name}",
+  "studio.run.latent.invalid": "Geçersiz gizil büyütme ayarları.",
   "studio.run.video.trimTotal": "Video ve ses seçimlerinin toplamı ayrı ayrı en fazla 15 sn olabilir.",
   "studio.run.video.pickerHint": "Referans eklemek veya kaldırmak için dosyaya tıklayın; Çalıştır öncesinde yüklenmez.",
   "studio.run.video.preview.unknown": "bilinmiyor",
