@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "Modifier les métadonnées…",
+  "modelMeta.filename": "Nom du fichier",
+  "modelMeta.path": "Chemin exact",
+  "modelMeta.detected": "Famille détectée automatiquement",
+  "modelMeta.declared": "Famille déclarée par l’utilisateur",
+  "modelMeta.none": "Aucune substitution",
+  "modelMeta.unknown": "Inconnue",
+  "modelMeta.family": "Famille du modèle",
+  "modelMeta.save": "Enregistrer",
+  "modelMeta.reset": "Rétablir la détection",
+  "modelMeta.cancel": "Annuler",
+  "modelMeta.unsupported": "La modification de famille n’est pas prise en charge pour cette catégorie de modèle.",
+  "modelMeta.help": "Une déclaration n’est pas une détection vérifiée et n’ajoute aucun chargeur ni pipeline. Seules les métadonnées locales sont enregistrées.",
+  "modelMeta.error": "Impossible d’enregistrer les métadonnées du modèle. Réessayez.",
+  "modelMeta.invalid": "Les métadonnées invalides bloquent la génération. Rétablissez la détection ou enregistrez une famille valide.",
+  "modelMeta.format": "Ce format de fichier n’est pas pris en charge par le chargeur actuel."
+}

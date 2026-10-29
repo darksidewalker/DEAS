@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "メタデータを編集…",
+  "modelMeta.filename": "ファイル名",
+  "modelMeta.path": "正確なパス",
+  "modelMeta.detected": "自動検出されたファミリー",
+  "modelMeta.declared": "ユーザーが指定したファミリー",
+  "modelMeta.none": "指定なし",
+  "modelMeta.unknown": "不明",
+  "modelMeta.family": "モデルファミリー",
+  "modelMeta.save": "保存",
+  "modelMeta.reset": "自動検出に戻す",
+  "modelMeta.cancel": "キャンセル",
+  "modelMeta.unsupported": "このモデルカテゴリではファミリーの編集はサポートされていません。",
+  "modelMeta.help": "ユーザーの指定は検証済みの検出結果ではなく、ローダーやパイプラインの対応を追加しません。ローカルのメタデータのみを保存します。",
+  "modelMeta.error": "モデルのメタデータを保存できませんでした。再試行してください。",
+  "modelMeta.invalid": "無効なメタデータにより生成がブロックされています。リセットするか、有効なファミリーを保存してください。",
+  "modelMeta.format": "現在のローダーはこのファイル形式に対応していません。"
+}

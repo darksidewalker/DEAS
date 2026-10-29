@@ -60,6 +60,7 @@
   "downloads.next": "Browse next page",
   "downloads.backendResource": "Backend resource; not downloadable",
   "downloads.identity": "Resource identity",
+  "downloads.platform": "Platform",
   "downloads.source": "Source",
   "downloads.scope.user": "User",
   "downloads.scope.repo": "Repository",

@@ -2,6 +2,64 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn gguf_video_models_load_via_gguf_loader_and_loras_stay_rejected() {
+    for original in [ltx(), wan(), h3()] {
+        let mut i = original.clone();
+        i["model"] = json!("model.gguf");
+        let graph = compile(&i).unwrap();
+        assert_eq!(graph["1"]["class_type"], "UnetLoaderGGUF");
+        assert!(graph["1"]["inputs"].get("weight_dtype").is_none());
+        i["loras"] = json!([{"name":"style.safetensors","strength":0.5}]);
+        assert!(compile(&i).unwrap_err().contains("LoRA on a GGUF base"));
+        i["loras"] = json!([{"name":"style.gguf","strength":0.5}]);
+        assert!(compile(&i).unwrap_err().contains("GGUF LoRA"));
+    }
+    for name in ["model.gguf", "model.GGUF"] {
+        let mut i = ltx();
+        i["model"] = json!(name);
+        assert_eq!(compile(&i).unwrap()["1"]["class_type"], "UnetLoaderGGUF");
+    }
+    let mut i = wan();
+    i["wan"]["lowModel"] = json!("low.gguf");
+    let graph = compile(&i).unwrap();
+    assert_eq!(graph["1L"]["class_type"], "UnetLoaderGGUF");
+    i["loras"] = json!([{"name":"style.safetensors","strength":0.5}]);
+    assert!(compile(&i).unwrap_err().contains("LoRA on a GGUF base"));
+}
+
+#[test]
+fn gguf_video_encoders_and_requirements_follow_the_selected_loader() {
+    for mut i in [ltx(), wan(), h3()] {
+        i["textEncoder"] = json!("encoder.GGUF");
+        let graph = compile(&i).unwrap();
+        let dual = i["family"] == "ltx-2";
+        assert_eq!(
+            graph["C"]["class_type"],
+            if dual {
+                "DualCLIPLoaderGGUF"
+            } else {
+                "CLIPLoaderGGUF"
+            }
+        );
+        let required = requirements(&i);
+        let field = if dual {
+            "ggufDualTextEncoders"
+        } else {
+            "ggufTextEncoders"
+        };
+        assert!(required
+            .iter()
+            .any(|(key, names)| *key == field && names.contains(&"encoder.GGUF")));
+        if dual {
+            assert!(required.iter().any(|(key, names)| *key == field
+                && names.contains(&i["ltx"]["textProjection"].as_str().unwrap())));
+        }
+        i["vae"] = json!("vae.gguf");
+        assert!(compile(&i).unwrap_err().contains("GGUF VAE"));
+    }
+}
+
+#[test]
 fn ref2va_continuation_uses_requested_seconds_without_new_take_frame_roundtrip() {
     let mut intent = h3();
     intent["frames"] = json!(158);

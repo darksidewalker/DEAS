@@ -40,16 +40,20 @@ pub(crate) const VENV_PYTHON: &str = if cfg!(windows) {
 };
 const COMFY: &str = "https://github.com/comfyanonymous/ComfyUI.git";
 const NODEPACK: &str = "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes.git";
+const GGUF: &str = "https://github.com/city96/ComfyUI-GGUF.git";
+const GGUF_REVISION: &str = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a";
 #[path = "install_torch.rs"]
 pub(crate) mod torch_profile;
 // --help exits before imports. Initialize actual core/nodes without binding a
 // listener, then assert the selected package registered its required nodes.
 const COMFY_PROBE: &str = r#"import sys,json
-backend,selected=sys.argv[1:]
-sys.argv=['main.py','--disable-auto-launch'] + (['--cpu'] if backend=='cpu' else ['--cuda-device','0'])
+backend,selected=sys.argv[1:3]
+gguf=len(sys.argv)>3 and sys.argv[3]=='gguf'
+sys.argv=['main.py','--disable-auto-launch','--cpu']
 import main,nodes
 main.start_comfyui()
 required={'MiniMaxH3Director','MiniMaxH3DirectorGuide','DaSiWaH3ContinuityAppend','DaSiWaH3ContinuityPublish'} if selected=='nodes' else set()
+if gguf: required.update({'UnetLoaderGGUF','CLIPLoaderGGUF','DualCLIPLoaderGGUF'})
 missing=required-set(nodes.NODE_CLASS_MAPPINGS)
 assert not missing, 'Missing selected nodes: '+', '.join(sorted(missing))
 print(json.dumps({'coreImported':True,'selectedNodes':sorted(required),'generationReady':False}))
@@ -128,6 +132,8 @@ pub struct Step {
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gguf_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reopen_id: Option<String>,
     pub request: Request,
@@ -337,6 +343,10 @@ impl Engine {
             .approved
             .clone()
             .ok_or("No successful native installation or verified existing environment is open")?;
+        validate_gguf_install(
+            approved.plan(),
+            Path::new(&approved.plan().request.storage_path),
+        )?;
         self.backend.start(approved)
     }
     /// Read-only dependency check for the owned backend; lists every check, launches nothing.
@@ -381,6 +391,10 @@ impl Engine {
         }
         let (_, approved) = g.reopen.take().unwrap();
         approved.validate()?;
+        validate_gguf_install(
+            approved.plan(),
+            Path::new(&approved.plan().request.storage_path),
+        )?;
         g.approved = Some(approved);
         g.status = Status { state: "succeeded".into(), step_id: None, logs: vec!["Existing DEAS environment opened. No installation, downloads or backend start performed.".into()], error: None };
         Ok(g.status.clone())
@@ -420,6 +434,7 @@ impl Engine {
             );
         }
         validate_ref(&plan.request.comfy_ref)?;
+        validate_gguf_install(&plan, &root)?;
         let approved = crate::backend::Approved::capture(&plan)?;
         let id = uuid::Uuid::new_v4().to_string();
         let mut g = lock(&self.inner);
@@ -531,6 +546,11 @@ impl Engine {
         if request.options.ffmpeg {
             steps.push(Step{id:"ffmpeg".into(),label_key:"installer.steps.ffmpeg".into(),detail:"Install imageio-ffmpeg; copy its static FFmpeg binary into the managed venv bin".into()});
         }
+        steps.push(Step {
+            id: "gguf".into(),
+            label_key: "installer.steps.nodes".into(),
+            detail: format!("Fetch ComfyUI-GGUF at {GGUF_REVISION}; install required GGUF loader dependencies in managed venv (no models or LoRAs)"),
+        });
         if request
             .features
             .iter()
@@ -558,6 +578,7 @@ impl Engine {
             steps.last_mut().unwrap().detail = "Verify exact framework trio, CUDA metadata, planned GPU identity and synchronized CUDA matrix multiplication; initialize actual ComfyUI core/selected nodes without a listener (not generation readiness)".into();
         }
         let plan = Plan {
+            gguf_ref: Some(GGUF_REVISION.into()),
             reopen_id: None,
             id: uuid::Uuid::new_v4().to_string(),
             request,
@@ -619,7 +640,7 @@ impl Engine {
         if g.status.state == "running" {
             return Err("A native installation is already running".into());
         }
-        let plan = match &g.approved {
+        let mut plan = match &g.approved {
             Some(approved) => {
                 approved.validate()?;
                 approved.plan().clone()
@@ -630,6 +651,7 @@ impl Engine {
                 .ok_or("No installed DEAS environment is open")?,
         };
         let git = git_path().ok_or("Git is not available; install Git first")?;
+        enable_gguf_upgrade(&mut plan);
         // The user asked to change this environment: stop only our own backend first.
         if self.backend.active() {
             self.backend.stop();
@@ -1113,6 +1135,20 @@ async fn checkout(
     cancel: &Arc<AtomicBool>,
 ) -> Result<String, String> {
     if target.join(".git").is_dir() {
+        let actual = run(
+            git,
+            &["rev-parse", "--show-toplevel"],
+            target,
+            root,
+            inner,
+            cancel,
+        )
+        .await?;
+        if dunce::canonicalize(actual.trim()).map_err(|e| e.to_string())?
+            != dunce::canonicalize(target).map_err(|e| e.to_string())?
+        {
+            return Err("Git worktree redirects outside the approved checkout".into());
+        }
         // Existing owned checkout (upgrade/reinstall): point origin at the canonical URL again.
         run(
             git,
@@ -1150,6 +1186,10 @@ async fn checkout(
         &[
             "-c",
             "advice.detachedHead=false",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.eol=lf",
             "checkout",
             "--force",
             "--detach",
@@ -1168,6 +1208,134 @@ async fn checkout(
             .into(),
     )
 }
+// Reject redirected custom-node/Git directories before touching the owned checkout.
+fn gguf_target(comfy: &Path) -> Result<PathBuf, String> {
+    let node = comfy.join("custom_nodes/ComfyUI-GGUF");
+    for path in [
+        comfy.to_owned(),
+        comfy.join("custom_nodes"),
+        node.clone(),
+        node.join(".git"),
+    ] {
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) => {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes() & 0x400 != 0 {
+                        return Err("ComfyUI-GGUF directories must not be reparse points".into());
+                    }
+                }
+                if !meta.is_dir() || meta.file_type().is_symlink() {
+                    return Err("ComfyUI-GGUF directories must be regular owned directories".into());
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Cannot validate ComfyUI-GGUF directory: {e}")),
+        }
+    }
+    Ok(node)
+}
+
+fn validate_gguf_sources(node: &Path, reference: &str) -> Result<(), String> {
+    // Preserve previous manifests here if a later release adds another supported pin.
+    let source: serde_json::Value =
+        serde_json::from_str(include_str!("../gguf-source.json")).map_err(|e| e.to_string())?;
+    if source["revision"] != reference {
+        return Err("Unsupported ComfyUI-GGUF source revision".into());
+    }
+    for (name, expected) in source["files"]
+        .as_object()
+        .ok_or("Invalid bundled GGUF source manifest")?
+    {
+        let actual = Sha256::digest(crate::backend::read_owned(&node.join(name), 1024 * 1024)?);
+        if Some(format!("{actual:x}").as_str()) != expected.as_str() {
+            return Err(format!(
+                "ComfyUI-GGUF source changed: {name}; re-provision required"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_gguf_install(plan: &Plan, root: &Path) -> Result<(), String> {
+    let result = (|| {
+        let Some(reference) = plan.gguf_ref.as_deref() else {
+            return Ok(());
+        };
+        if reference.len() != 40 || !reference.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Invalid immutable ComfyUI-GGUF revision".into());
+        }
+        let manifest: serde_json::Value = serde_json::from_slice(&crate::backend::read_owned(
+            &root.join("deas-install.json"),
+            1024 * 1024,
+        )?)
+        .map_err(|e| format!("Invalid ComfyUI-GGUF install manifest: {e}"))?;
+        let node = gguf_target(&root.join("ComfyUI"))?;
+        let head = crate::backend::read_owned(&node.join(".git/HEAD"), 1024)?;
+        if manifest["ggufRevision"] != reference
+            || std::str::from_utf8(&head)
+                .map_err(|e| e.to_string())?
+                .trim()
+                != reference
+        {
+            return Err(
+                "ComfyUI-GGUF install does not match its pinned revision; re-provision required"
+                    .into(),
+            );
+        }
+        validate_gguf_sources(&node, reference)?;
+        Ok(())
+    })();
+    result.inspect_err(|error| {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!("ERROR installer.gguf verify: {error}"),
+        );
+    })
+}
+
+// Only explicit Upgrade/Reinstall extends a legacy plan; opening/starting stays read-only.
+fn enable_gguf_upgrade(plan: &mut Plan) {
+    if plan.gguf_ref.is_none() {
+        plan.gguf_ref = Some(GGUF_REVISION.into());
+        let index = plan
+            .steps
+            .iter()
+            .position(|s| s.id == "nodes" || s.id == "verify")
+            .unwrap_or(plan.steps.len());
+        plan.steps.insert(index, Step {
+            id: "gguf".into(), label_key: "installer.steps.nodes".into(),
+            detail: format!("Fetch ComfyUI-GGUF at {GGUF_REVISION}; install required GGUF loaders (no models or LoRAs)"),
+        });
+    }
+}
+
+fn persist_updated_plan(plan: &Plan) -> Result<(), String> {
+    use std::io::Write;
+    let root = Path::new(&plan.request.storage_path);
+    let path = root.join("deas-plan.json");
+    let before = crate::backend::read_owned(&path, 1024 * 1024)?;
+    let mut expected: Plan = serde_json::from_slice(&before).map_err(|e| e.to_string())?;
+    let actual = serde_json::to_value(plan).map_err(|e| e.to_string())?;
+    if serde_json::to_value(&expected).map_err(|e| e.to_string())? == actual {
+        return Ok(());
+    }
+    enable_gguf_upgrade(&mut expected);
+    if serde_json::to_value(&expected).map_err(|e| e.to_string())? != actual {
+        return Err("Owned plan changed during GGUF upgrade; refusing manifest replacement".into());
+    }
+    let mut temp = tempfile::NamedTempFile::new_in(root).map_err(|e| e.to_string())?;
+    temp.write_all(&serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    if crate::backend::read_owned(&path, 1024 * 1024)? != before {
+        return Err("Owned plan changed during GGUF upgrade; refusing manifest replacement".into());
+    }
+    temp.persist(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // uv normally links the venv executable to managed Python. Materialize a regular
 // copy so launch never follows an interpreter symlink or escapes this runtime.
 fn own_interpreter(root: &Path, python: &Path) -> Result<(), String> {
@@ -1346,6 +1514,7 @@ async fn update(
         plan, git, &root, &uv, &comfy, revision, reinstall, inner, cancel,
     )
     .await?;
+    persist_updated_plan(plan)?;
     log(
         inner,
         if reinstall {
@@ -1480,6 +1649,46 @@ async fn packages(
         )
         .await?;
     }
+    let mut gguf_revision = None;
+    // Legacy immutable plans keep their original dependency scope.
+    if let Some(reference) = plan.gguf_ref.as_deref() {
+        if reference.len() != 40 || !reference.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Invalid immutable ComfyUI-GGUF revision".into());
+        }
+        step(inner, "gguf");
+        let node = gguf_target(comfy)?;
+        if node.join(".git").exists() {
+            crate::backend::read_owned(&node.join(".git/config"), 1024 * 1024)?;
+        }
+        std::fs::create_dir_all(comfy.join("custom_nodes")).map_err(|e| e.to_string())?;
+        let fetched = checkout(git, GGUF, reference, &node, root, inner, cancel).await?;
+        if fetched != reference {
+            return Err("ComfyUI-GGUF revision does not match the pinned source".into());
+        }
+        validate_gguf_sources(&node, reference)?;
+        run(
+            uv,
+            &[
+                "pip",
+                "install",
+                "--python",
+                py,
+                "--index",
+                &selected.index_url,
+                "--constraint",
+                constraint.to_str().ok_or("Invalid constraint path")?,
+                "-r",
+                "requirements.txt",
+            ],
+            &node,
+            root,
+            inner,
+            cancel,
+        )
+        .await
+        .map_err(|e| format!("Required ComfyUI-GGUF dependencies failed: {e}"))?;
+        gguf_revision = Some(fetched);
+    }
     let mut node_revision = None;
     if plan
         .request
@@ -1575,6 +1784,11 @@ async fn packages(
             } else {
                 "core"
             },
+            if gguf_revision.is_some() {
+                "gguf"
+            } else {
+                "legacy"
+            },
         ],
         comfy,
         root,
@@ -1584,7 +1798,7 @@ async fn packages(
     )
     .await?;
     cancelled(cancel)?;
-    let manifest = serde_json::json!({"planId":plan.id,"comfyRevision":revision,"nodepackRevision":node_revision,"backend":plan.request.backend,"hardware":plan.hardware,"torchProfile":selected,"python":py,"versions":versions.trim(),"generationReady":false});
+    let manifest = serde_json::json!({"planId":plan.id,"comfyRevision":revision,"nodepackRevision":node_revision,"ggufRevision":gguf_revision,"backend":plan.request.backend,"hardware":plan.hardware,"torchProfile":selected,"python":py,"versions":versions.trim(),"generationReady":false});
     std::fs::write(
         root.join("deas-install.json"),
         serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
@@ -1596,6 +1810,7 @@ async fn packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("install_gguf_tests.rs");
 
     #[test]
     fn git_lookup_skips_unusable_candidates_and_preserves_native_paths() {
@@ -1835,6 +2050,7 @@ mod tests {
         let mut r = request(root);
         r.storage_path = root.to_str().unwrap().into();
         let persisted = Plan {
+            gguf_ref: None,
             reopen_id: None,
             id: uuid::Uuid::new_v4().to_string(),
             request: r.clone(),
@@ -2601,6 +2817,7 @@ mod tests {
             let mut r = request(tmp.path());
             r.storage_path = tmp.path().to_str().unwrap().into();
             let plan = Plan {
+                gguf_ref: None,
                 reopen_id: None,
                 id: uuid::Uuid::new_v4().to_string(),
                 request: r,

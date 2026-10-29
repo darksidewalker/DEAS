@@ -4,16 +4,19 @@
 //! signatures; the cached CivitAI base model is the fallback for other formats.
 use serde::Deserialize;
 use serde_json::Value;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 
 /// Headers of large quantized checkpoints stay well below this; anything bigger is not trusted.
 const MAX_HEADER: u64 = 64 << 20;
+const MAX_STRING: u64 = 1 << 24;
+const MAX_VALUES: u64 = 1 << 20;
 
 #[derive(Deserialize)]
 struct Family {
     id: String,
+    loader: String,
     #[serde(default)]
     forge: Option<String>,
     #[serde(default, rename = "clipType")]
@@ -36,6 +39,24 @@ fn families() -> &'static [Family] {
         serde_json::from_str(include_str!("../../src/families/builtin.json"))
             .expect("bundled family plugin is valid")
     })
+}
+
+/// Declarations select existing recipe families, never companion architectures or new loaders.
+pub(crate) fn validate_override(category: &str, id: &str) -> Result<(), String> {
+    let family = families()
+        .iter()
+        .find(|f| f.id == id)
+        .ok_or("Unknown model family")?;
+    if !["checkpoint", "diffusion"].contains(&family.loader.as_str())
+        || match category {
+            "loras" => family.lora.is_empty(),
+            "checkpoints" | "diffusion_models" | "unet" => false,
+            _ => true,
+        }
+    {
+        return Err("Model category does not support this family declaration".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn prompt_forge_target(name: &str) -> Option<&'static str> {
@@ -151,6 +172,378 @@ fn safetensors(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| ["safetensors", "sft"].contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn gguf_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("gguf"))
+}
+
+struct GgufReader<R> {
+    inner: R,
+    position: u64,
+    end: u64,
+}
+
+impl<R: Read + Seek> GgufReader<R> {
+    fn checked_end(&self, bytes: u64) -> Option<u64> {
+        let end = self.position.checked_add(bytes)?;
+        (end <= self.end).then_some(end)
+    }
+
+    fn read<const N: usize>(&mut self) -> Option<[u8; N]> {
+        let end = self.checked_end(N as u64)?;
+        let mut bytes = [0; N];
+        self.inner.read_exact(&mut bytes).ok()?;
+        self.position = end;
+        Some(bytes)
+    }
+
+    fn u32v(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.read()?))
+    }
+
+    fn u64v(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.read()?))
+    }
+
+    fn skip(&mut self, bytes: u64) -> Option<()> {
+        let end = self.checked_end(bytes)?;
+        self.inner.seek(SeekFrom::Start(end)).ok()?;
+        self.position = end;
+        Some(())
+    }
+
+    fn string(&mut self) -> Option<String> {
+        let len = self.u64v()?;
+        if len > MAX_STRING {
+            return None;
+        }
+        let end = self.checked_end(len)?;
+        let mut bytes = vec![0; usize::try_from(len).ok()?];
+        self.inner.read_exact(&mut bytes).ok()?;
+        self.position = end;
+        String::from_utf8(bytes).ok()
+    }
+}
+
+fn gguf_scalar_width(vtype: u32) -> Option<u64> {
+    match vtype {
+        0 | 1 | 7 => Some(1),
+        2 | 3 => Some(2),
+        4..=6 => Some(4),
+        10..=12 => Some(8),
+        _ => None,
+    }
+}
+
+fn skip_gguf_value<R: Read + Seek>(r: &mut GgufReader<R>, vtype: u32) -> Option<()> {
+    if let Some(width) = gguf_scalar_width(vtype) {
+        r.skip(width)
+    } else if vtype == 8 {
+        r.string().map(|_| ())
+    } else if vtype == 9 {
+        let elem = r.u32v()?;
+        let count = r.u64v()?;
+        if count > MAX_VALUES {
+            return None;
+        }
+        if let Some(width) = gguf_scalar_width(elem) {
+            r.skip(count.checked_mul(width)?)
+        } else if elem == 8 {
+            r.checked_end(count.checked_mul(8)?)?;
+            for _ in 0..count {
+                r.string()?;
+            }
+            Some(())
+        } else {
+            // GGUF arrays cannot contain arrays, even when empty.
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// KV metadata and tensor names of a GGUF, weight bytes never read. Quantizers preserve the
+/// source tensor names, so detection reuses the safetensors key policy; `general.architecture`
+/// is the quantizer's free-form label. Unreadable metadata stays unknown, never a filename guess.
+fn gguf_metadata(path: &Path) -> Option<(String, String)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    // No buffered read-ahead: the last descriptor must not pull in tensor payload bytes.
+    let mut r = GgufReader {
+        inner: file,
+        position: 0,
+        end: meta.len().min(MAX_HEADER),
+    };
+    if &r.read::<4>()? != b"GGUF" || !matches!(r.u32v()?, 2 | 3) {
+        return None;
+    }
+    let tensors = r.u64v()?;
+    let kv = r.u64v()?;
+    if tensors > MAX_VALUES || kv > MAX_VALUES {
+        return None;
+    }
+    let mut arch = String::new();
+    for _ in 0..kv {
+        let key = r.string()?;
+        let vtype = r.u32v()?;
+        if key == "general.architecture" && vtype == 8 {
+            arch = r.string()?.to_ascii_lowercase();
+        } else {
+            skip_gguf_value(&mut r, vtype)?;
+        }
+    }
+    let mut keys = String::new();
+    for index in 0..tensors {
+        let key = r.string()?;
+        let separator = usize::from(index != 0);
+        if keys.len().checked_add(separator)?.checked_add(key.len())? > MAX_HEADER as usize {
+            return None;
+        }
+        if separator != 0 {
+            keys.push('\n');
+        }
+        keys.push_str(&key.replace('_', "."));
+        let dims = r.u32v()?;
+        if !(1..=4).contains(&dims) {
+            return None;
+        }
+        // shortcut: descriptor bytes only; validate types/offsets/payload before claiming load readiness.
+        r.skip(u64::from(dims) * 8 + 12)?;
+    }
+    Some((keys, arch))
+}
+
+#[cfg(test)]
+mod gguf_parser_tests {
+    use super::*;
+
+    // Independent spec-v3.gguf from the GGUF audit, not write_gguf's encoding.
+    const SPEC: &[u8] = &[
+        71, 71, 85, 70, 3, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 0,
+        0, 0, 0, 103, 101, 110, 101, 114, 97, 108, 46, 97, 114, 99, 104, 105, 116, 101, 99, 116,
+        117, 114, 101, 8, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 119, 97, 110, 28, 0, 0, 0, 0, 0, 0, 0,
+        98, 108, 111, 99, 107, 115, 46, 48, 46, 99, 114, 111, 115, 115, 95, 97, 116, 116, 110, 46,
+        107, 46, 119, 101, 105, 103, 104, 116, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63,
+    ];
+
+    fn parse(bytes: &[u8]) -> Option<(String, String)> {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::env::var_os("TMPDIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let path = dir.join(format!(
+            "deas-gguf-{}-{}.gguf",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        let result = gguf_metadata(&path);
+        std::fs::remove_file(path).unwrap();
+        result
+    }
+
+    fn string(bytes: &mut Vec<u8>, value: &str) {
+        bytes.extend((value.len() as u64).to_le_bytes());
+        bytes.extend(value.as_bytes());
+    }
+
+    fn metadata(value_type: u32, value: &[u8]) -> Vec<u8> {
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(2u64.to_le_bytes());
+        string(&mut bytes, "ignored");
+        bytes.extend(value_type.to_le_bytes());
+        bytes.extend(value);
+        string(&mut bytes, "general.architecture");
+        bytes.extend(8u32.to_le_bytes());
+        string(&mut bytes, "WAN");
+        bytes
+    }
+
+    #[test]
+    fn gguf_scalar_widths_and_flat_arrays() {
+        for (tag, width) in [
+            (0u32, 1),
+            (1, 1),
+            (2, 2),
+            (3, 2),
+            (4, 4),
+            (5, 4),
+            (6, 4),
+            (7, 1),
+            (10, 8),
+            (11, 8),
+            (12, 8),
+        ] {
+            assert_eq!(
+                parse(&metadata(tag, &vec![0; width])),
+                Some((String::new(), "wan".into())),
+                "scalar {tag}"
+            );
+            let mut array = tag.to_le_bytes().to_vec();
+            array.extend(3u64.to_le_bytes());
+            array.extend(vec![0; width * 3]);
+            assert_eq!(
+                parse(&metadata(9, &array)),
+                Some((String::new(), "wan".into())),
+                "array {tag}"
+            );
+        }
+        let mut value = Vec::new();
+        string(&mut value, "abc");
+        assert!(parse(&metadata(8, &value)).is_some());
+        let mut array = 8u32.to_le_bytes().to_vec();
+        array.extend(2u64.to_le_bytes());
+        string(&mut array, "one");
+        string(&mut array, "two");
+        assert!(parse(&metadata(9, &array)).is_some());
+    }
+
+    #[test]
+    fn gguf_rejects_every_truncated_header_prefix() {
+        // This fixture has one alignment byte plus four tensor data bytes after its descriptors.
+        let header_end = SPEC.len() - 5;
+        for end in 0..header_end {
+            assert_eq!(parse(&SPEC[..end]), None, "prefix {end}");
+        }
+        assert!(parse(&SPEC[..header_end]).is_some());
+    }
+
+    #[test]
+    fn gguf_rejects_unsupported_versions_counts_and_value_types() {
+        for version in [0u32, 1, 4, u32::MAX] {
+            let mut bytes = b"GGUF".to_vec();
+            bytes.extend(version.to_le_bytes());
+            bytes.extend([0u8; 16]);
+            assert_eq!(parse(&bytes), None, "version {version}");
+        }
+        for dims in [0u32, 5, u32::MAX] {
+            let mut bytes = SPEC.to_vec();
+            bytes[103..107].copy_from_slice(&dims.to_le_bytes());
+            assert_eq!(parse(&bytes), None, "dims {dims}");
+        }
+        for offset in [8, 16] {
+            for count in [2u64, MAX_VALUES + 1, u64::MAX] {
+                let mut bytes = SPEC.to_vec();
+                bytes[offset..offset + 8].copy_from_slice(&count.to_le_bytes());
+                assert_eq!(parse(&bytes), None, "count {offset}/{count}");
+            }
+        }
+        for tag in [13u32, u32::MAX] {
+            assert_eq!(parse(&metadata(tag, &[])), None);
+        }
+        for elem in [9u32, 13, u32::MAX] {
+            let mut array = elem.to_le_bytes().to_vec();
+            array.extend(0u64.to_le_bytes());
+            assert_eq!(parse(&metadata(9, &array)), None);
+        }
+        for elem in [0u32, 8, 12] {
+            for count in [MAX_VALUES + 1, u64::MAX] {
+                let mut array = elem.to_le_bytes().to_vec();
+                array.extend(count.to_le_bytes());
+                assert_eq!(parse(&metadata(9, &array)), None);
+            }
+        }
+        for length in [MAX_STRING + 1, u64::MAX] {
+            assert_eq!(parse(&metadata(8, &length.to_le_bytes())), None);
+        }
+        let mut invalid_utf8 = 1u64.to_le_bytes().to_vec();
+        invalid_utf8.push(0xff);
+        assert_eq!(parse(&metadata(8, &invalid_utf8)), None);
+    }
+
+    #[test]
+    fn gguf_rejects_cumulative_header_budget() {
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(4u64.to_le_bytes());
+        for key in ["a", "b", "c", "general.architecture"] {
+            string(&mut bytes, key);
+            bytes.extend(8u32.to_le_bytes());
+            bytes.extend(MAX_STRING.to_le_bytes());
+            bytes.resize(bytes.len() + MAX_STRING as usize, b'x');
+        }
+        assert!(bytes.len() as u64 > MAX_HEADER);
+        assert!(parse(&bytes).is_none());
+    }
+
+    #[test]
+    fn gguf_reader_checks_bounds_before_io() {
+        let mut r = GgufReader {
+            inner: std::io::Cursor::new(vec![0u8; 16]),
+            position: 0,
+            end: 3,
+        };
+        assert_eq!(r.u32v(), None);
+        assert_eq!(r.inner.position(), 0);
+        assert_eq!(r.skip(4), None);
+        assert_eq!(r.inner.position(), 0);
+        assert_eq!(r.skip(3), Some(()));
+        assert_eq!(r.read::<1>(), None);
+        assert_eq!(r.inner.position(), 3);
+        r.position = u64::MAX;
+        r.end = u64::MAX;
+        assert_eq!(r.checked_end(1), None);
+
+        let mut bytes = 8u64.to_le_bytes().to_vec();
+        bytes.extend([0u8; 8]);
+        let mut r = GgufReader {
+            inner: std::io::Cursor::new(bytes),
+            position: 0,
+            end: 15,
+        };
+        assert_eq!(r.string(), None);
+        assert_eq!(r.inner.position(), 8);
+    }
+
+    #[test]
+    fn gguf_rejects_nonregular_files() {
+        let dir = std::env::var_os("TMPDIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        assert_eq!(gguf_metadata(&dir), None);
+        #[cfg(target_os = "linux")]
+        {
+            let fifo = dir.join(format!("deas-gguf-fifo-{}", std::process::id()));
+            assert!(std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success());
+            assert_eq!(gguf_metadata(&fifo), None);
+            std::fs::remove_file(fifo).unwrap();
+            assert_eq!(gguf_metadata(Path::new("/dev/null")), None);
+        }
+    }
+
+    #[test]
+    fn gguf_independent_v2_v3_fixture() {
+        for version in [2u32, 3] {
+            let mut bytes = SPEC.to_vec();
+            bytes[4..8].copy_from_slice(&version.to_le_bytes());
+            assert_eq!(
+                parse(&bytes),
+                Some(("blocks.0.cross.attn.k.weight".into(), "wan".into()))
+            );
+        }
+    }
 }
 
 /// Stable companion architecture ID, not a model-family or inference-readiness claim.
@@ -333,25 +726,29 @@ pub fn detect(category: &str, path: &Path, base: Option<&str>) -> Option<String>
             f.file_match.is_empty() || (!lora && f.file_match.iter().any(|s| file.contains(s)))
         })
         .collect();
-    let by_header = safetensors(path)
-        .then(|| header(path))
-        .flatten()
-        .and_then(|(keys, arch)| {
-            let declared = !arch.is_empty();
-            all.iter()
-                .find(|f| declared && f.architectures.iter().any(|a| arch.starts_with(a.as_str())))
-                .or_else(|| {
-                    all.iter().find(|f| {
-                        (if lora { &f.lora } else { &f.model })
-                            .iter()
-                            .any(|signature| {
-                                signature
-                                    .iter()
-                                    .all(|s| keys.contains(&s.replace('_', ".")))
-                            })
-                    })
+    let by_header = (if safetensors(path) {
+        header(path)
+    } else if gguf_file(path) {
+        gguf_metadata(path)
+    } else {
+        None
+    })
+    .and_then(|(keys, arch)| {
+        let declared = !arch.is_empty();
+        all.iter()
+            .find(|f| declared && f.architectures.iter().any(|a| arch.starts_with(a.as_str())))
+            .or_else(|| {
+                all.iter().find(|f| {
+                    (if lora { &f.lora } else { &f.model })
+                        .iter()
+                        .any(|signature| {
+                            signature
+                                .iter()
+                                .all(|s| keys.contains(&s.replace('_', ".")))
+                        })
                 })
-        });
+            })
+    });
     by_header
         .or_else(|| {
             base.and_then(|b| {
@@ -452,6 +849,54 @@ mod tests {
         let huge = dir.path().join("h.safetensors");
         std::fs::write(&huge, (MAX_HEADER + 1).to_le_bytes()).unwrap();
         assert_eq!(detect("checkpoints", &huge, None), None);
+    }
+
+    /// Minimal GGUF v3 writer: a few KV pairs then tensor names, so detection sees preserved keys.
+    fn write_gguf(dir: &Path, name: &str, arch: &str, keys: &[&str]) -> std::path::PathBuf {
+        fn s(bytes: &mut Vec<u8>, v: &str) {
+            bytes.extend((v.len() as u64).to_le_bytes());
+            bytes.extend(v.as_bytes());
+        }
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes()); // version
+        bytes.extend((keys.len() as u64).to_le_bytes()); // tensor count
+        bytes.extend((1u64).to_le_bytes()); // KV count
+        s(&mut bytes, "general.architecture");
+        bytes.extend(8u32.to_le_bytes()); // STRING
+        s(&mut bytes, arch);
+        for key in keys {
+            s(&mut bytes, key);
+            bytes.extend(2u32.to_le_bytes()); // n_dims
+            bytes.extend([2u64, 4].map(|d| d.to_le_bytes()).concat()); // dims
+            bytes.extend(0u32.to_le_bytes()); // GGML F32
+            bytes.extend(0u64.to_le_bytes()); // offset
+        }
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn detects_gguf_by_preserved_tensor_names_and_arch() {
+        let dir = tempfile::tempdir().unwrap();
+        let krea = write_gguf(
+            dir.path(),
+            "k.gguf",
+            "krea",
+            &[
+                "model.diffusion_model.txtfusion.projector.weight",
+                "model.diffusion_model.blocks.0.attn.gate.weight",
+            ],
+        );
+        assert_eq!(
+            detect("diffusion_models", &krea, None).as_deref(),
+            Some("krea-2")
+        );
+        // A GGUF whose tensor names match nothing stays unknown, never a filename guess.
+        let odd = write_gguf(dir.path(), "flux.gguf", "weird", &["a.b.weight"]);
+        assert_eq!(detect("diffusion_models", &odd, None), None);
+        // Non-safetensors companion architectures stay unknown for GGUF inputs.
+        assert_eq!(detect("vae", &krea, None), None);
     }
 
     #[test]

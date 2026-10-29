@@ -16,6 +16,16 @@ The native executable is `$CARGO_TARGET_DIR/debug/deas`. A desktop session, WebK
 
 Tauri CLI development uses `http://localhost:1420` and `npm run dev`. Its build hook runs `npm run build` before embedding assets. Direct `cargo build` does not run that hook.
 
+## Source-bound model family declarations
+
+`invoke('native_model_family_write', {path, family})` explicitly writes a built-in family ID beside a model as `<file>.deas.json`; `family:null` resets it to automatic detection. The existing local-main `allow-download-plugins` permission grants this command; lib and desktop registration use the same command. Only checkpoint/diffusion-model/UNet and supported LoRA families from `src/families/builtin.json` are allowed. Companion folders cannot become runnable model declarations. A declaration is user-supplied compatibility information, not a successful load or verification of a model's architecture or format; GGUF uses supported split diffusion/video recipes and single/dual GGUF text-encoder loaders; self-contained GGUF checkpoints, GGUF VAEs and GGUF projection files are explicitly unsupported. All LoRA files remain Safetensors-only. Manual family assignment does not override the installed loader's architecture support.
+
+Returned/scanned `LocalModel.family` is the effective family, `detectedFamily` is the unchanged header/provider detection, and optional `familyOverride` is the valid explicit declaration. `metadataError` blocks execution when metadata is invalid or a declaration belongs to a replaced/modified file, including the unknown-checkpoint fallback. An explicit write/reset can rebind a structurally valid stale sidecar to the current source, discarding stale provider/hash results; malformed/unsafe sidecars refuse and require external repair, never silent replacement.
+
+Saving/resetting reads no weight payload and performs no hashing, CivitAI request, download or source-file edit. Declaration-only sidecars omit `sha256`, `fetchedAt` and `civitai`, retain a source fingerprint and size, and return `info:null` until explicitly enriched. Existing fetched sidecars retain their public `ModelInfo` shape; hashes/provider data are preserved when source-bound. Legacy sidecars keep their existing policy (parseable, but without trusted source identity their fetched result is not reused). Refresh merges an existing declaration and optimistically refuses a concurrent metadata write instead of overwriting it. The existing bounded, trusted-permission, no-follow/single-link cache reader, exclusive temporary, source recheck and `CACHE_PUBLICATION` atomic commit are reused. Write/reset failures emit redacted fixed-operation shared Logs entries without paths, family input or raw OS errors.
+
+Focused checks: `cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --lib downloads::models::tests` and `npx vitest run src/lib/models.test.tsx`. Fixtures cover sparse 8-GiB no-hash writes/reset/rescan, automatic detection, source replacement, invalid declarations/cache preservation, provider/hash retention, explicit enrichment, concurrent refresh refusal, shared logging and registration. These are filesystem/loopback tests, not real-model or Windows runtime evidence.
+
 ## Read-only IPC
 
 ```ts

@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "Edit meta…",
+  "modelMeta.filename": "Filename",
+  "modelMeta.path": "Exact path",
+  "modelMeta.detected": "Auto-detected family",
+  "modelMeta.declared": "User-declared family",
+  "modelMeta.none": "No override",
+  "modelMeta.unknown": "Unknown",
+  "modelMeta.family": "Model family",
+  "modelMeta.save": "Save",
+  "modelMeta.reset": "Reset to detection",
+  "modelMeta.cancel": "Cancel",
+  "modelMeta.unsupported": "Family editing is unsupported for this model category.",
+  "modelMeta.help": "A declaration is not verified detection and does not add loader or pipeline support. This saves local metadata only.",
+  "modelMeta.error": "Could not save model metadata. Try again.",
+  "modelMeta.invalid": "Invalid model metadata blocks generation. Reset or save a valid family.",
+  "modelMeta.format": "This file format is not supported by the current loader."
+}

@@ -2,6 +2,22 @@
 
 [Documentation index](README.md) · [Current implementation status](IMPLEMENTATION-STATUS.md)
 
+## GGUF models and manual architecture assignment
+
+Use GGUF diffusion weights in `models/diffusion_models` or `models/unet`, and supported GGUF text encoders in `models/text_encoders` or `models/clip`. Select the matching separate VAE and, for LTX, audio VAE and text projection. GGUF does not provide an all-in-one checkpoint loader: files under `checkpoints` are not silently moved or treated as MODEL/CLIP/VAE bundles. VAE and projection files must use the backend's supported non-GGUF formats. LoRA files must be Safetensors; GGUF LoRAs are not supported. Applying a Safetensors LoRA to a GGUF base also remains blocked until that execution path is verified, including either model of a Wan HIGH/LOW pair.
+
+When automatic architecture detection cannot identify a GGUF file, right-click its model tile or installed Library entry and choose **Edit meta…** (keyboard: Shift+F10). Pick the correct existing model family and save. The `.deas.json` sidecar is attached to that exact source file; it does not modify or re-quantize weights. The UI distinguishes your declaration from automatic detection. **Reset to detection** removes the declaration without deleting current provider metadata. Replaced files or malformed sidecars remain blocked until repaired/reassigned. Metadata editing never uploads or runs a model.
+
+The family selects the existing recipe, constraints and companion pickers; it does not add an architecture to ComfyUI-GGUF or make incompatible weights usable. Missing GGUF loader nodes, files or encoder types block Run. H3/LTX audio-in-video connections remain unchanged; this does not add standalone audio generation. Real inference and platform acceptance are recorded separately in [Verification](VERIFICATION.md).
+
+## Session-only pipeline and model drafts (0.1.64 development)
+
+Switching a pipeline or selected model remembers the **last edited** draft, even if you never pressed Run. Returning restores positive/negative prompts, input and last-frame media, ordered prompt images and video/audio references (including trims, stream choices and RefMods), LoRAs, seed/mode, model components, generation options and post-processing. Image editor masks, paint and layer transforms stay with their source. Each pipeline remembers its last selected compatible model; draft identity includes the model category/full path and environment, not just its filename. Project drafts have a separate scope.
+
+This cache exists only in the running app's memory; it does not add localStorage/sessionStorage records or save media/canvases to disk. A full restart clears the per-model cache. The ordinary global last-used preferences below still seed startup, and an unvisited model/pipeline keeps the existing starting-settings behavior. Files must remain available at their original paths; this is not a managed-media backup or a replacement for [Projects](PROJECTS.md).
+
+Explicit project/history/metadata restore takes precedence over cached settings. Its subsequent edits become the next remembered draft. Explicit **Image to Image**/**Inpaint** actions keep the clicked source rather than adopting a cached source. **Reset to defaults…** clears session drafts as well as resetting the editable controls. Switching/restoring does not upload, submit, restart a service or modify queued/running jobs. Recent seed history, Continuity job references, layout and writing-aid preferences remain shared, not per-model drafts.
+
 ## Prompt writing aids (0.1.63 development)
 
 Positive and negative Studio prompts show their current length / 16384 at the right of the heading, matching the enlarged editor. Both editors share the same writing aids and prompt value. Counts use the browser textarea’s UTF-16 length limit, not model tokens.

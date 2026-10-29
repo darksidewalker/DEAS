@@ -60,6 +60,7 @@
   "downloads.next": "次のページを参照",
   "downloads.backendResource": "バックエンド内のリソース — ダウンロード不可",
   "downloads.identity": "リソース識別情報",
+  "downloads.platform": "プラットフォーム",
   "downloads.source": "取得元",
   "downloads.scope.user": "ユーザー",
   "downloads.scope.repo": "リポジトリ",

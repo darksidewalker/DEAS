@@ -1,12 +1,13 @@
-import {useEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
+import {useEffect,useLayoutEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {oneOf,usePref} from '../../lib/preferences';
 import {sourcePoint,zoomAt,stampStroke,maskBounds,floodRegion,flattenImages,hasPaint,uncoveredCells,type ImageLayer,type Point,type View} from './imageEditor';
 import {MEDIA_DRAG,draggedItem,type MediaItem} from '../../lib/media';
 import './imageEditor.css';
-export interface EditorHandle{imagePng:()=>Promise<Uint8Array|null>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
+export interface EditorSnapshot{source:Props['source'];masks:Mask[];base:ImageLayer;baseIndex:number;nextMask:number;active:string}
+export interface EditorHandle{capture:()=>EditorSnapshot;imagePng:()=>Promise<Uint8Array|null>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number}}
 type Mask={id:string;n:number;visible:boolean;canvas:HTMLCanvasElement;content:boolean};
-export type Props={ref?:Ref<EditorHandle>;source:{src:string;name:string;width:number;height:number};layers:ImageLayer[];onLayers:(layers:ImageLayer[])=>void;maskMode:boolean;onMask:(present:boolean)=>void;/** A dock tile dropped onto the picture, with the drop point in source pixels. */onInsert:(item:MediaItem,at:Point)=>void;/** A change (e.g. entering side by side) refits the picture even after zooming. */layout?:string};
+export type Props={ref?:Ref<EditorHandle>;source:{src:string;name:string;width:number;height:number};layers:ImageLayer[];onLayers:(layers:ImageLayer[])=>void;maskMode:boolean;onMask:(present:boolean)=>void;/** A dock tile dropped onto the picture, with the drop point in source pixels. */onInsert:(item:MediaItem,at:Point)=>void;/** A change (e.g. entering side by side) refits the picture even after zooming. */layout?:string;/** In-memory authoring state, only accepted for this exact source. */snapshot?:EditorSnapshot;draftGeneration?:string|number};
 const diameterOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=1&&v<=1024;
 // Mask overlay snaps to common opacities when dragged within 3 % of them; other values stay free.
 const overlayStops=[10,25,50,75];
@@ -21,6 +22,8 @@ const palette=['#000000','#ffffff','#808080','#ff3b30','#ff9500','#ffcc00','#34c
 function Mounted({node}:{node:HTMLCanvasElement}){const ref=useRef<HTMLSpanElement>(null);useEffect(()=>{ref.current?.replaceChildren(node);},[node]);return <span ref={ref} className="sie-paint" aria-hidden="true"/>;}
 const icons={select:'M5 3l13 7-6 1.5L9 18z',brush:'M19 3l2 2-9 9-2-2zM9 13c-3 0-4 2-4 4s-1 3-3 3c3 1 8 1 9-4',erase:'M15 4l5 5-10 10H6l-3-3zM8.5 10.5l5 5M11 19h10',pan:'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3',wand:'M4 20L15 9M17 3v3M15.5 4.5h3M20 8l1 1M12 4l1 1M19 12h2',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',eyeOff:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM4 4l16 16'};
 const Icon=({d}:{d:string})=><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d}/></svg>;
+function copyCanvas(source:HTMLCanvasElement){const canvas=document.createElement('canvas');canvas.width=source.width;canvas.height=source.height;const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');ctx.drawImage(source,0,0);return canvas;}
+export const copyImageLayer=(layer:ImageLayer):ImageLayer=>({...layer,...(layer.paint?{paint:copyCanvas(layer.paint)}:{})});
 function newMask(n:number,width:number,height:number):Mask{
   const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
   return {id:crypto.randomUUID(),n,visible:true,canvas,content:false};
@@ -30,10 +33,12 @@ function Thumbnail({mask,revision}:{mask:Mask;revision:number}){
   useEffect(()=>{const c=ref.current,ctx=c?.getContext('2d');if(c&&ctx){ctx.clearRect(0,0,c.width,c.height);ctx.drawImage(mask.canvas,0,0,c.width,c.height);}},[mask,revision]);
   return <canvas ref={ref} width={44} height={36} aria-hidden="true"/>;
 }
-export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,onInsert,layout}:Props){
+export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,onInsert,layout,snapshot,draftGeneration}:Props){
   const {t}=useI18n(),label=(key:string)=>t(`studio.editor.${key}`);
   const viewport=useRef<HTMLDivElement>(null),world=useRef<HTMLDivElement>(null),overlay=useRef<HTMLCanvasElement>(null);
   const cursor=useRef<HTMLDivElement>(null);
+  const operation=useRef(0);
+  useLayoutEffect(()=>{operation.current++;return()=>{operation.current++;};},[draftGeneration,source.src,source.width,source.height]);
   const [view,setView]=useState<View>({scale:1,x:0,y:0});
   const [tool,setTool]=useState<'select'|'brush'|'erase'|'wand'|'pan'>(maskMode?'brush':'select');
   const [tolerance,setTolerance]=usePref('studio.editor.wandTolerance',32,toleranceOK);
@@ -44,14 +49,15 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   const [opacity,setOpacity]=usePref('studio.editor.overlay',75,opacityOK);
   const [color,setColor]=usePref('studio.editor.color','#ff3b30',hexOK);const [hex,setHex]=useState(color);useEffect(()=>setHex(color),[color]);
   const [gray,setGray]=usePref('studio.editor.maskValue',255,grayOK);
-  const [masks,setMasks]=useState<Mask[]>(()=>[newMask(1,source.width,source.height)]);
-  const nextMask=useRef(2),[active,setActive]=useState('mask:1'),[revision,setRevision]=useState(0),[error,setError]=useState('');
+  const saved=snapshot&&snapshot.source.src===source.src&&snapshot.source.width===source.width&&snapshot.source.height===source.height?snapshot:undefined;
+  const [masks,setMasks]=useState<Mask[]>(()=>saved?.masks.map(m=>({...m,canvas:copyCanvas(m.canvas)}))??[newMask(1,source.width,source.height)]);
+  const nextMask=useRef(saved?.nextMask??2),[active,setActive]=useState(saved?.active??'mask:1'),[revision,setRevision]=useState(0),[error,setError]=useState('');
   const masksRef=useRef(masks);masksRef.current=masks;
   const gesture=useRef<null|{pointer:number;kind:'paint';ctx:CanvasRenderingContext2D;mask?:Mask;map:(p:Point)=>Point;k:number;last:Point;erase:boolean;diameter:number;shape:'round'|'square';color:string}|{pointer:number;kind:'pan';start:Point;view:View}|{pointer:number;kind:'move'|'resize';start:Point;layer:ImageLayer}>(null);
-  const [base,setBase]=useState<ImageLayer>(()=>({id:'base',name:source.name,src:source.src,x:0,y:0,width:source.width,height:source.height,visible:true}));
+  const [base,setBase]=useState<ImageLayer>(()=>saved?copyImageLayer(saved.base):({id:'base',name:source.name,src:source.src,x:0,y:0,width:source.width,height:source.height,visible:true}));
   // A native relocation changes the location, not this source's paint/masks/geometry.
   useEffect(()=>{setBase(value=>value.src===source.src&&value.name===source.name?value:{...value,src:source.src,name:source.name});},[source.src,source.name]);
-  const [baseIndex,setBaseIndex]=useState(0);
+  const [baseIndex,setBaseIndex]=useState(saved?.baseIndex??0);
   const images=[...layers];images.splice(Math.min(baseIndex,images.length),0,base);
   const updateImages=(next:ImageLayer[])=>{const i=next.findIndex(l=>l.id==='base');setBase(next[i]??{...base,visible:false});setBaseIndex(Math.max(0,i));onLayers(next.filter(l=>l.id!=='base'));};
   const imageEdited=()=>!base.visible||base.x!==0||base.y!==0||base.width!==source.width||base.height!==source.height||baseIndex>0||hasPaint(base.paint)||layers.some(l=>l.x<0||l.y<0);
@@ -96,15 +102,16 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   async function wand(p:Point,remove:boolean){
     const mask=activeMask;if(!mask||!mask.visible)return;
     const x=Math.floor(p.x),y=Math.floor(p.y);if(x<0||y<0||x>=source.width||y>=source.height)return;
+    const version=operation.current;
     try{
-      const img=await sourcePixels();const region=floodRegion(img.data,img.width,img.height,x,y,tolerance);
+      const img=await sourcePixels();if(operation.current!==version)return;const region=floodRegion(img.data,img.width,img.height,x,y,tolerance);
       const fill=new ImageData(img.width,img.height);
       for(let i=0;i<region.length;i++)if(region[i]){const o=i*4;fill.data[o]=fill.data[o+1]=fill.data[o+2]=gray;fill.data[o+3]=255;}
       const stamp=document.createElement('canvas');stamp.width=img.width;stamp.height=img.height;stamp.getContext('2d')!.putImageData(fill,0,0);
       const ctx=mask.canvas.getContext('2d');if(!ctx)throw Error('canvas');
       ctx.save();ctx.globalCompositeOperation=remove?'destination-out':'source-over';ctx.drawImage(stamp,0,0);ctx.restore();
       settle(mask);
-    }catch{pixels.current=null;fail();}
+    }catch{if(operation.current===version){pixels.current=null;fail();}}
   }
   // Stays fitted across viewport resizes (e.g. entering side-by-side compare) until the user zooms or pans.
   const auto=useRef(true);
@@ -139,7 +146,7 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     for(const m of masksRef.current)if(m.visible)ctx.drawImage(m.canvas,0,0);
     return c;
   }
-  useImperativeHandle(ref,()=>({imageEdited,imagePng:()=>{finish();// Outpaint area starts neutral grey (like ImagePadForOutpaint) so denoise below 1 does not pull it to black.
+  useImperativeHandle(ref,()=>({capture:()=>{finish();return {source:{...source},masks:masks.map(m=>({...m,canvas:copyCanvas(m.canvas)})),base:copyImageLayer(base),baseIndex,nextMask:nextMask.current,active};},imageEdited,imagePng:()=>{finish();// Outpaint area starts neutral grey (like ImagePadForOutpaint) so denoise below 1 does not pull it to black.
     return imageEdited()?flattenImages(images,source.width,source.height,outpaint.length?'#808080':undefined):Promise.resolve(null);},maskBounds:(padding)=>{
     const c=maskCanvas(),bounds=maskBounds(c.getContext('2d')!.getImageData(0,0,c.width,c.height).data,c.width,c.height,padding);
     if(!bounds)throw new Error(label('emptyMask'));

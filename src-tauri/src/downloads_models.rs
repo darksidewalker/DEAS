@@ -20,6 +20,8 @@ const MAX_CACHE_BYTES: u64 = 128 * 1024;
 // Only the short filesystem commit is serialized, on a blocking worker. Network
 // requests/hash work remain concurrent. An optimistic snapshot rejects late replies.
 static CACHE_PUBLICATION: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+thread_local! { static HASH_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -149,7 +151,7 @@ impl CacheDir {
         Ok(file)
     }
 
-    fn cache(&self, name: &str) -> Result<Option<(SourceFingerprint, ModelInfo)>, String> {
+    fn cache(&self, name: &str) -> Result<Option<(SourceFingerprint, CachedMetadata)>, String> {
         self.verify()?;
         if self.anchor.absent(name).is_ok() {
             return Ok(None);
@@ -173,8 +175,8 @@ impl CacheDir {
             return Err("Model cache changed while reading".into());
         }
         checked_cache_file(&file)?;
-        let info: ModelInfo = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        validate_info(&info)?;
+        let info: CachedMetadata = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        info.validate()?;
         Ok(Some((before, info)))
     }
 
@@ -290,6 +292,8 @@ impl Source {
 
     fn hash_checked(&mut self, after_read: impl FnOnce()) -> Result<String, String> {
         self.verify()?;
+        #[cfg(test)]
+        HASH_READS.with(|n| n.set(n.get() + 1));
         let mut hasher = Sha256::new();
         let copied = std::io::copy(
             &mut Read::by_ref(&mut self.file).take(self.stamp.size.saturating_add(1)),
@@ -355,6 +359,72 @@ pub struct ModelInfo {
     source: Option<SourceFingerprint>,
 }
 
+// Declaration-only sidecars carry no hash/provider result. Public ModelInfo stays fetched-only.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sha256: Option<String>,
+    size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fetched_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    civitai: Option<CivitaiInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<SourceFingerprint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    family_override: Option<String>,
+}
+
+impl CachedMetadata {
+    fn from_info(info: &ModelInfo) -> Self {
+        Self {
+            sha256: Some(info.sha256.clone()),
+            size: info.size,
+            fetched_at: Some(info.fetched_at),
+            civitai: info.civitai.clone(),
+            source: info.source.clone(),
+            family_override: None,
+        }
+    }
+
+    fn model_info(&self) -> Option<ModelInfo> {
+        Some(ModelInfo {
+            sha256: self.sha256.clone()?,
+            size: self.size,
+            fetched_at: self.fetched_at?,
+            civitai: self.civitai.clone(),
+            source: self.source.clone(),
+        })
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if let Some(info) = self.model_info() {
+            validate_info(&info)?;
+        } else if self.sha256.is_some()
+            || self.fetched_at.is_some()
+            || self.civitai.is_some()
+            || self.source.is_none()
+        {
+            return Err("Invalid incomplete model metadata".into());
+        }
+        if self.source.as_ref().is_some_and(|s| {
+            s.size != self.size
+                || s.modified_nanos >= 1_000_000_000
+                || !matches!(s.platform.as_str(), "linux" | "windows")
+        }) || self.family_override.as_ref().is_some_and(|f| {
+            f.is_empty()
+                || f.len() > 64
+                || !f
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        }) {
+            return Err("Invalid model declaration/fingerprint".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalModel {
@@ -367,6 +437,12 @@ pub struct LocalModel {
     /// Architecture family from `crate::model_families` (header or CivitAI base); absent = unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_override: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_error: Option<String>,
     /// Header-verified companion architecture ID; omitted for unknown/unsupported formats.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
@@ -385,6 +461,7 @@ fn sidecar(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+#[cfg(test)]
 fn read_info(path: &Path) -> Option<ModelInfo> {
     let source = Source::open(path).ok()?;
     let (_, info) = source
@@ -392,7 +469,9 @@ fn read_info(path: &Path) -> Option<ModelInfo> {
         .cache(&format!("{}{SIDECAR}", source.name))
         .ok()??;
     source.verify().ok()?;
-    (info.source.as_ref() == Some(&source.stamp)).then_some(info)
+    (info.source.as_ref() == Some(&source.stamp))
+        .then(|| info.model_info())
+        .flatten()
 }
 
 fn validate_info(info: &ModelInfo) -> Result<(), String> {
@@ -458,24 +537,89 @@ fn validate_info(info: &ModelInfo) -> Result<(), String> {
     Ok(())
 }
 
+fn checked_metadata(category: &str, path: &Path) -> Result<Option<CachedMetadata>, String> {
+    let source = Source::open(path)?;
+    let cache = source.dir.cache(&format!("{}{SIDECAR}", source.name))?;
+    source.verify()?;
+    if let Some((_, cache)) = &cache {
+        if let Some(family) = &cache.family_override {
+            crate::model_families::validate_override(category, family)?;
+            if cache.source.as_ref() != Some(&source.stamp) {
+                return Err("Family declaration belongs to a replaced or modified model".into());
+            }
+        }
+    }
+    Ok(cache
+        .filter(|(_, c)| c.source.as_ref() == Some(&source.stamp))
+        .map(|(_, c)| c))
+}
+
+/// Resolve only the owned backend's registered namespace, in backend search order.
+/// No headers, hashes, provider requests or machine-wide path search.
+pub(crate) fn validate_selected(roots: &[PathBuf], field: &str, name: &str) -> Result<(), String> {
+    let categories: &[&str] = match field {
+        "checkpoints" => &["checkpoints"],
+        "diffusionModels" | "ggufDiffusionModels" => &["diffusion_models", "unet"],
+        "loras" => &["loras"],
+        _ => return Ok(()),
+    };
+    // Backend names can contain either separator, never absolute paths/traversal/ADS.
+    let parts: Vec<_> = name.split(['/', '\\']).collect();
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains(':'))
+    {
+        return Err("Invalid backend model name".into());
+    }
+    for root in roots {
+        for category in categories {
+            let path = parts
+                .iter()
+                .fold(root.join(category), |p, part| p.join(part));
+            match std::fs::symlink_metadata(&path) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(format!("MODEL_METADATA_INVALID: {e}")),
+                Ok(_) => {}
+            }
+            checked_metadata(category, &path)
+                .map_err(|e| format!("MODEL_METADATA_INVALID: {name}: {e}"))?;
+            return Ok(());
+        }
+    }
+    // A backend may register other paths; absence is not local declaration authority.
+    Ok(())
+}
+
 fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, String> {
     let shown = path
         .to_str()
         .ok_or("Model path is not valid UTF-8")?
         .to_owned();
     let meta = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?;
-    let info = read_info(path);
-    let family = crate::model_families::detect(
+    let metadata = checked_metadata(category, path);
+    let metadata_error = metadata
+        .as_ref()
+        .err()
+        .map(|_| "Invalid or stale model metadata; repair the sidecar before execution".to_owned());
+    let cache = metadata.ok().flatten();
+    let info = cache.as_ref().and_then(CachedMetadata::model_info);
+    let family_override = cache.as_ref().and_then(|c| c.family_override.clone());
+    let detected_family = crate::model_families::detect(
         category,
         path,
         info.as_ref()
             .and_then(|i| i.civitai.as_ref()?.base.as_deref()),
     );
+    let family = if metadata_error.is_some() {
+        None
+    } else {
+        family_override.clone().or_else(|| detected_family.clone())
+    };
     let component = crate::model_families::detect_component(category, path).map(str::to_owned);
-    if let Some(info) = &info {
+    if let Some(cache) = &cache {
         let current = Source::open(path)?;
         current.verify()?;
-        if info.source.as_ref() != Some(&current.stamp) || info.size != meta.len() {
+        if cache.source.as_ref() != Some(&current.stamp) || cache.size != meta.len() {
             return Err("Model changed during scan".into());
         }
     }
@@ -490,6 +634,9 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         info,
         component,
         family,
+        detected_family,
+        family_override,
+        metadata_error,
         path: shown,
     })
 }
@@ -617,13 +764,28 @@ pub(super) fn civitai_info(v: &Value) -> Result<CivitaiInfo, String> {
     })
 }
 
+#[cfg(test)]
 fn publish_info(
     source: &Source,
     expected: &Option<SourceFingerprint>,
     info: &ModelInfo,
     before_publish: impl FnOnce(),
 ) -> Result<(), String> {
-    validate_info(info)?;
+    publish_cache(
+        source,
+        expected,
+        &CachedMetadata::from_info(info),
+        before_publish,
+    )
+}
+
+fn publish_cache(
+    source: &Source,
+    expected: &Option<SourceFingerprint>,
+    info: &CachedMetadata,
+    before_publish: impl FnOnce(),
+) -> Result<(), String> {
+    info.validate()?;
     let bytes = serde_json::to_vec_pretty(info).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_CACHE_BYTES || info.source.as_ref() != Some(&source.stamp) {
         return Err("Invalid metadata publication".into());
@@ -668,15 +830,31 @@ pub async fn fetch(
         return Err("Not an absolute path to a model file".into());
     }
     let model_path = path.clone();
-    let (source, expected, sha256) = tokio::task::spawn_blocking(move || {
+    let (source, expected, sha256, family_override) = tokio::task::spawn_blocking(move || {
         let mut source = Source::open(&model_path)?;
         let cache = source.dir.cache(&format!("{}{SIDECAR}", source.name))?;
+        let family_override = cache.as_ref().and_then(|(_, c)| c.family_override.clone());
+        if let Some(family) = &family_override {
+            crate::model_families::validate_override(model_category(&model_path)?.0, family)?;
+            if cache.as_ref().and_then(|(_, c)| c.source.as_ref()) != Some(&source.stamp) {
+                return Err("Stale family declaration; sidecar repair required".into());
+            }
+        }
         let sha256 = match cache.as_ref() {
-            Some((_, info)) if info.source.as_ref() == Some(&source.stamp) => info.sha256.clone(),
+            Some((_, info))
+                if info.source.as_ref() == Some(&source.stamp) && info.sha256.is_some() =>
+            {
+                info.sha256.clone().unwrap()
+            }
             _ => source.hash()?,
         };
         source.verify()?;
-        Ok::<_, String>((source, cache.map(|(stamp, _)| stamp), sha256))
+        Ok::<_, String>((
+            source,
+            cache.map(|(stamp, _)| stamp),
+            sha256,
+            family_override,
+        ))
     })
     .await
     .map_err(|_| "Hashing task failed")??;
@@ -702,7 +880,9 @@ pub async fn fetch(
     tokio::task::spawn_blocking(move || {
         // Includes the first check after the network await, before any cache write.
         source.verify()?;
-        publish_info(&source, &expected, &info, || {})?;
+        let mut cache = CachedMetadata::from_info(&info);
+        cache.family_override = family_override;
+        publish_cache(&source, &expected, &cache, || {})?;
         let base = path.ancestors().skip(1).find(|a| {
             a.file_name()
                 .and_then(|n| n.to_str())
@@ -720,6 +900,81 @@ pub async fn fetch(
     })
     .await
     .map_err(|_| "Cache publication task failed")?
+}
+
+fn model_category(path: &Path) -> Result<(&str, &Path), String> {
+    let base = path
+        .ancestors()
+        .skip(1)
+        .find(|a| {
+            a.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| crate::settings::MODEL_FOLDERS.contains(&n))
+        })
+        .ok_or("Model is not under a supported category folder")?;
+    Ok((base.file_name().and_then(|n| n.to_str()).unwrap(), base))
+}
+
+fn write_family(path: &Path, family: Option<&str>) -> Result<LocalModel, String> {
+    if !path.is_absolute() || !is_model(path) {
+        return Err("Not an absolute path to a model file".into());
+    }
+    let (category, base) = model_category(path)?;
+    if !["checkpoints", "diffusion_models", "unet", "loras"].contains(&category) {
+        return Err("Family declarations require a model or LoRA".into());
+    }
+    if let Some(family) = family {
+        crate::model_families::validate_override(category, family)?;
+    }
+    let source = Source::open(path)?;
+    let old = source.dir.cache(&format!("{}{SIDECAR}", source.name))?;
+    if family.is_some() {
+        if let Some((_, cache)) = &old {
+            if let Some(id) = &cache.family_override {
+                crate::model_families::validate_override(category, id)?;
+            }
+        }
+    }
+    let mut cache = old
+        .as_ref()
+        .filter(|(_, c)| c.source.as_ref() == Some(&source.stamp))
+        .map(|(_, c)| c.clone())
+        .unwrap_or(CachedMetadata {
+            sha256: None,
+            size: source.stamp.size,
+            fetched_at: None,
+            civitai: None,
+            source: Some(source.stamp.clone()),
+            family_override: None,
+        });
+    cache.family_override = family.map(str::to_owned);
+    publish_cache(&source, &old.map(|(stamp, _)| stamp), &cache, || {})?;
+    let model = describe(category, base, path)?;
+    source.verify()?;
+    if model.family_override.as_deref() != family || model.metadata_error.is_some() {
+        return Err("Metadata changed before returning".into());
+    }
+    Ok(model)
+}
+
+#[tauri::command]
+pub async fn native_model_family_write(
+    path: String,
+    family: Option<String>,
+) -> Result<LocalModel, String> {
+    let operation = if family.is_some() { "write" } else { "reset" };
+    let result =
+        tokio::task::spawn_blocking(move || write_family(Path::new(&path), family.as_deref()))
+            .await
+            .map_err(|_| "Model family task failed".to_owned())
+            .and_then(|r| r);
+    if result.is_err() {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!("ERROR: models operation=family-{operation} outcome=failed"),
+        );
+    }
+    result
 }
 
 #[tauri::command]
@@ -753,6 +1008,233 @@ pub async fn native_model_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn family_fixture(category: &str) -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(category);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("unknown.safetensors");
+        let header = br#"{"__metadata__":{"modelspec.architecture":"stable-diffusion-xl"}}"#;
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        std::fs::write(&path, bytes).unwrap();
+        (root, path)
+    }
+
+    #[test]
+    fn family_write_reset_rescan_never_hashes_and_keeps_detection() {
+        let (root, path) = family_fixture("checkpoints");
+        // Sparse weights prove declaration-only publication never traverses the payload.
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(8 << 30)
+            .unwrap();
+        let hashes = HASH_READS.with(|n| n.get());
+        let before = Source::open(&path).unwrap().stamp;
+        let model = write_family(&path, Some("anima")).unwrap();
+        assert_eq!(model.family.as_deref(), Some("anima"));
+        assert_eq!(model.detected_family.as_deref(), Some("sdxl"));
+        assert_eq!(model.family_override.as_deref(), Some("anima"));
+        assert!(model.info.is_none());
+        assert_eq!(scan(root.path()).unwrap()[0], model);
+        let json: Value = serde_json::from_slice(&std::fs::read(sidecar(&path)).unwrap()).unwrap();
+        assert!(json.get("sha256").is_none());
+        assert!(json.get("fetchedAt").is_none());
+        assert!(json.get("civitai").is_none());
+        let reset = write_family(&path, None).unwrap();
+        assert_eq!(reset.family.as_deref(), Some("sdxl"));
+        assert!(reset.family_override.is_none());
+        assert!(reset.info.is_none());
+        assert_eq!(scan(root.path()).unwrap()[0], reset);
+        assert_eq!(HASH_READS.with(|n| n.get()), hashes);
+        assert_eq!(Source::open(&path).unwrap().stamp, before);
+    }
+
+    #[test]
+    fn family_validation_rejects_ids_categories_and_unsupported_loras_without_writes() {
+        for category in ["checkpoints", "loras", "vae", "text_encoders"] {
+            let (_root, path) = family_fixture(category);
+            for id in ["unknown", "SDXL", "../sdxl", "", "sdxl\n"] {
+                assert!(write_family(&path, Some(id)).is_err());
+            }
+            if category == "loras" {
+                assert!(write_family(&path, Some("moss-image")).is_err());
+                assert!(write_family(&path, Some("qwen-image-2.1-turbo")).is_err());
+            }
+            if ["vae", "text_encoders"].contains(&category) {
+                assert!(write_family(&path, Some("sdxl")).is_err());
+                assert!(write_family(&path, None).is_err());
+            }
+            assert!(!sidecar(&path).exists());
+        }
+    }
+
+    #[test]
+    fn stale_or_invalid_family_sidecar_blocks_even_detected_models() {
+        let (root, path) = family_fixture("checkpoints");
+        write_family(&path, Some("anima")).unwrap();
+        let old = std::fs::read(sidecar(&path)).unwrap();
+        let replacement = path.with_extension("new");
+        std::fs::copy(&path, &replacement).unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        let model = scan(root.path()).unwrap().remove(0);
+        assert!(model.metadata_error.is_some());
+        assert!(model.family.is_none());
+        assert!(model.family_override.is_none());
+        assert_eq!(model.detected_family.as_deref(), Some("sdxl"));
+        assert_eq!(std::fs::read(sidecar(&path)).unwrap(), old);
+        // Explicit reset can remove a structurally valid stale declaration, without reusing its hash.
+        assert!(write_family(&path, None).unwrap().metadata_error.is_none());
+        let mut json: Value = serde_json::from_slice(&old).unwrap();
+        for value in [
+            serde_json::json!("not-a-family"),
+            serde_json::json!(7),
+            serde_json::json!("x".repeat(1000)),
+        ] {
+            json["familyOverride"] = value.clone();
+            let bytes = serde_json::to_vec(&json).unwrap();
+            write_cache_bytes(&sidecar(&path), &bytes);
+            let model = scan(root.path()).unwrap().remove(0);
+            assert!(model.metadata_error.is_some());
+            assert!(model.family.is_none());
+            assert!(write_family(&path, Some("sdxl")).is_err());
+            if value == serde_json::json!("not-a-family") {
+                assert!(write_family(&path, None).unwrap().metadata_error.is_none());
+            } else {
+                assert!(write_family(&path, None).is_err());
+                assert_eq!(std::fs::read(sidecar(&path)).unwrap(), bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn selected_declarations_use_exact_namespace_root_order_and_no_hashes() {
+        let (primary, path) = family_fixture("diffusion_models");
+        let (extra, extra_path) = family_fixture("unet");
+        write_family(&path, Some("anima")).unwrap();
+        write_family(&extra_path, Some("anima")).unwrap();
+        let roots = vec![primary.path().into(), extra.path().into()];
+        let hashes = HASH_READS.with(|n| n.get());
+        // A corrupt same-name extra does not shadow the first backend match.
+        write_cache_bytes(&sidecar(&extra_path), b"{broken");
+        assert!(validate_selected(&roots, "diffusionModels", "unknown.safetensors").is_ok());
+        // Nor can a different category's broken sidecar invalidate a checkpoint.
+        assert!(validate_selected(&roots, "checkpoints", "unknown.safetensors").is_ok());
+        std::fs::remove_file(&path).unwrap();
+        assert!(validate_selected(&roots, "diffusionModels", "unknown.safetensors").is_err());
+        assert!(validate_selected(&roots, "diffusionModels", "../unknown.safetensors").is_err());
+        assert_eq!(HASH_READS.with(|n| n.get()), hashes);
+    }
+
+    #[tokio::test]
+    async fn reset_unknown_family_retains_current_provider_metadata_without_hashing() {
+        let (root, path) = family_fixture("checkpoints");
+        let fetched = fetch_fixture_reply(&path, || {}, Some(r#"{"id":1,"modelId":2,"name":"v1","model":{"name":"Fixture","type":"Checkpoint"},"baseModel":"SDXL 1.0"}"#)).await.unwrap();
+        assert!(fetched.info.as_ref().unwrap().civitai.is_some());
+        let mut json: Value =
+            serde_json::from_slice(&std::fs::read(sidecar(&path)).unwrap()).unwrap();
+        let original = json.clone();
+        json["familyOverride"] = serde_json::json!("retired-family");
+        write_cache_bytes(&sidecar(&path), &serde_json::to_vec(&json).unwrap());
+        let hashes = HASH_READS.with(|n| n.get());
+        let reset = write_family(&path, None).unwrap();
+        assert_eq!(reset.info, fetched.info);
+        let persisted: Value =
+            serde_json::from_slice(&std::fs::read(sidecar(&path)).unwrap()).unwrap();
+        assert_eq!(persisted, original);
+        assert_eq!(scan_roots(&[root.path().into()]).unwrap()[0], reset);
+        assert!(reset.family_override.is_none());
+        assert!(reset.metadata_error.is_none());
+        assert_eq!(HASH_READS.with(|n| n.get()), hashes);
+    }
+
+    #[tokio::test]
+    async fn family_refresh_retains_provider_hash_and_override() {
+        let (_root, path) = family_fixture("checkpoints");
+        let fetched = fetch_fixture_reply(&path, || {}, Some(r#"{"id":1,"modelId":2,"name":"v1","model":{"name":"Fixture","type":"Checkpoint"},"baseModel":"SDXL 1.0"}"#)).await.unwrap();
+        let declared = write_family(&path, Some("anima")).unwrap();
+        assert_eq!(declared.info, fetched.info);
+        assert_eq!(write_family(&path, None).unwrap().info, fetched.info);
+        write_family(&path, Some("anima")).unwrap();
+        let refreshed = fetch_fixture(&path, || {}).await.unwrap();
+        assert_eq!(refreshed.family_override.as_deref(), Some("anima"));
+        assert_eq!(refreshed.family.as_deref(), Some("anima"));
+        assert_eq!(refreshed.info.unwrap().sha256, fetched.info.unwrap().sha256);
+    }
+
+    #[tokio::test]
+    async fn family_declaration_only_cache_can_be_enriched_and_concurrent_write_wins() {
+        let (_root, path) = family_fixture("checkpoints");
+        write_family(&path, Some("anima")).unwrap();
+        let enriched = fetch_fixture(&path, || {}).await.unwrap();
+        assert!(enriched.info.is_some());
+        assert_eq!(enriched.family_override.as_deref(), Some("anima"));
+        let changed = path.clone();
+        let error = fetch_fixture(&path, move || {
+            write_family(&changed, Some("sdxl")).unwrap();
+        })
+        .await
+        .unwrap_err();
+        assert!(error.contains("cache changed"));
+        let (category, base) = model_category(&path).unwrap();
+        let current = describe(category, base, &path).unwrap();
+        assert_eq!(current.family_override.as_deref(), Some("sdxl"));
+        assert!(current.info.is_some());
+    }
+
+    #[test]
+    fn family_write_preserves_invalid_sidecar_and_optimistic_snapshot() {
+        let (_root, path) = family_fixture("checkpoints");
+        write_cache_bytes(&sidecar(&path), b"{broken");
+        assert!(write_family(&path, Some("sdxl")).is_err());
+        assert_eq!(std::fs::read(sidecar(&path)).unwrap(), b"{broken");
+        std::fs::remove_file(sidecar(&path)).unwrap();
+        let source = Source::open(&path).unwrap();
+        write_family(&path, Some("sdxl")).unwrap();
+        let cache = source
+            .dir
+            .cache(&format!("{}{SIDECAR}", source.name))
+            .unwrap()
+            .unwrap()
+            .1;
+        assert!(publish_cache(&source, &None, &cache, || {}).is_err());
+        assert_eq!(
+            describe("checkpoints", path.parent().unwrap(), &path)
+                .unwrap()
+                .family_override
+                .as_deref(),
+            Some("sdxl")
+        );
+    }
+
+    #[tokio::test]
+    async fn family_errors_are_redacted_in_shared_logs_and_command_is_registered() {
+        let secret = "hf_do_not_log_this_path";
+        assert!(
+            native_model_family_write(secret.into(), Some("secret-family".into()))
+                .await
+                .is_err()
+        );
+        assert!(native_model_family_write(secret.into(), None)
+            .await
+            .is_err());
+        let logs = crate::logs::native_logs(0);
+        for operation in ["write", "reset"] {
+            let expected = format!("models operation=family-{operation} outcome=failed");
+            let entry = logs.iter().find(|e| e.text.contains(&expected)).unwrap();
+            assert_eq!(entry.source, crate::logs::Source::Deas);
+            assert!(!entry.text.contains(secret));
+        }
+        for source in [
+            include_str!("lib.rs"),
+            include_str!("main.rs"),
+            include_str!("../permissions/downloads.toml"),
+        ] {
+            assert!(source.contains("native_model_family_write"));
+        }
+    }
 
     fn fixture_info(path: &Path) -> ModelInfo {
         ModelInfo {

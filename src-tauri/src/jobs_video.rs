@@ -733,7 +733,31 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         "wan" => validate_wan(&i["wan"], steps)?,
         _ => validate_h3(&i["h3"])?,
     }
+    for name in [&i["vae"], &i["ltx"]["audioVae"], &i["h3"]["audioVae"]] {
+        if crate::jobs::is_gguf(name.as_str().unwrap_or_default()) {
+            return Err("MODEL_FORMAT_UNSUPPORTED: GGUF VAE is unsupported".into());
+        }
+    }
+    if crate::jobs::is_gguf(i["ltx"]["textProjection"].as_str().unwrap_or_default()) {
+        return Err("MODEL_FORMAT_UNSUPPORTED: GGUF text projection is unsupported".into());
+    }
     validate_latent_upscale(i, family)?;
+    for lora in i["loras"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l["name"].as_str())
+    {
+        crate::jobs::validate_lora_format(lora)?;
+    }
+    // LoRA on a quantized base needs execution proof per pipeline; not advertised yet.
+    if i["loras"].as_array().is_some_and(|l| !l.is_empty())
+        && [&i["model"], &i["wan"]["lowModel"]]
+            .iter()
+            .any(|name| crate::jobs::is_gguf(name.as_str().unwrap_or_default()))
+    {
+        return Err("MODEL_FORMAT_UNSUPPORTED: LoRA on a GGUF base is not proven".into());
+    }
     Ok(family)
 }
 
@@ -915,8 +939,8 @@ fn ltx(i: &Value) -> Value {
     // Multipass samples the first pass at half canvas (OmniForge), then upsamples the latent 2×.
     let (w1, h1) = if passes > 1 { (w / 2, h / 2) } else { (w, h) };
     let mut g = json!({
-        "1":{"class_type":"UNETLoader","inputs":{"unet_name":i["model"],"weight_dtype":"default"}},
-        "C":{"class_type":"DualCLIPLoader","inputs":{"clip_name1":i["textEncoder"],"clip_name2":l["textProjection"],"type":"ltxv"}},
+        "1":unet_loader(&i["model"]),
+        "C":crate::jobs::dual_clip_loader(&i["textEncoder"], &l["textProjection"], "ltxv"),
         "V":{"class_type":"VAELoader","inputs":{"vae_name":i["vae"]}},
         "AV":{"class_type":"VAELoader","inputs":{"vae_name":l["audioVae"]}},
         "N":{"class_type":"RandomNoise","inputs":{"noise_seed":i["seed"]}},
@@ -1042,9 +1066,9 @@ fn wan(i: &Value) -> Result<Value, String> {
         return Err("Wan 2.2 image-to-video needs a first frame".into());
     }
     let mut g = json!({
-        "1":{"class_type":"UNETLoader","inputs":{"unet_name":i["model"],"weight_dtype":"default"}},
-        "1L":{"class_type":"UNETLoader","inputs":{"unet_name":w["lowModel"],"weight_dtype":"default"}},
-        "C":{"class_type":"CLIPLoader","inputs":{"clip_name":i["textEncoder"],"type":"wan"}},
+        "1":unet_loader(&i["model"]),
+        "1L":unet_loader(&w["lowModel"]),
+        "C":crate::jobs::clip_loader(&i["textEncoder"], &json!("wan")),
         "V":{"class_type":"VAELoader","inputs":{"vae_name":i["vae"]}},
         "2":{"class_type":"CLIPTextEncode","inputs":{"text":i["positivePrompt"],"clip":["C",0]}},
         "3":{"class_type":"CLIPTextEncode","inputs":{"text":i["negativePrompt"],"clip":["C",0]}},
@@ -1153,8 +1177,8 @@ fn h3(i: &Value) -> Value {
             .collect();
     }
     let mut g = json!({
-        "1":{"class_type":"UNETLoader","inputs":{"unet_name":i["model"],"weight_dtype":"default"}},
-        "C":{"class_type":"CLIPLoader","inputs":{"clip_name":i["textEncoder"],"type":"minimax"}},
+        "1":unet_loader(&i["model"]),
+        "C":crate::jobs::clip_loader(&i["textEncoder"], &json!("minimax")),
         "V":{"class_type":"VAELoader","inputs":{"vae_name":i["vae"]}},
         "AV":{"class_type":"VAELoader","inputs":{"vae_name":h["audioVae"]}},
         "N":{"class_type":"RandomNoise","inputs":{"noise_seed":i["seed"]}},
@@ -1232,19 +1256,35 @@ fn strs<'a>(v: &[&'a Value]) -> Vec<&'a str> {
     v.iter().filter_map(|x| x.as_str()).collect()
 }
 
+/// GGUF files load through the ComfyUI-GGUF node, which takes no weight_dtype.
+pub(crate) fn unet_loader(name: &Value) -> Value {
+    if crate::jobs::is_gguf(name.as_str().unwrap_or_default()) {
+        json!({"class_type":"UnetLoaderGGUF","inputs":{"unet_name":name}})
+    } else {
+        json!({"class_type":"UNETLoader","inputs":{"unet_name":name,"weight_dtype":"default"}})
+    }
+}
+
 /// Model/encoder/VAE/image/upscaler names prepare() must find in object_info, per allowlist field.
 pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
     let family = i["family"].as_str().unwrap_or_default();
     let b = &i[block(family)];
+    let (gguf, plain): (Vec<&str>, Vec<&str>) = strs(&[&i["model"], &b["lowModel"]])
+        .into_iter()
+        .partition(|name| crate::jobs::is_gguf(name));
+    let quantized_clip = crate::jobs::is_gguf(i["textEncoder"].as_str().unwrap_or_default());
+    let (encoders, types) = match (quantized_clip, family == "ltx-2") {
+        (true, true) => ("ggufDualTextEncoders", "ggufDualClipTypes"),
+        (true, false) => ("ggufTextEncoders", "ggufClipTypes"),
+        _ => ("textEncoders", "clipTypes"),
+    };
     vec![
-        ("diffusionModels", strs(&[&i["model"], &b["lowModel"]])),
-        (
-            "textEncoders",
-            strs(&[&i["textEncoder"], &b["textProjection"]]),
-        ),
+        ("diffusionModels", plain),
+        ("ggufDiffusionModels", gguf),
+        (encoders, strs(&[&i["textEncoder"], &b["textProjection"]])),
         ("vaes", strs(&[&i["vae"], &b["audioVae"]])),
         (
-            "clipTypes",
+            types,
             vec![match family {
                 "ltx-2" => "ltxv",
                 "wan" => "wan",

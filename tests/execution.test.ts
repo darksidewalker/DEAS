@@ -352,7 +352,7 @@ test('inputResize builds scale/pad chains and requires only the used optional no
     assert.deepEqual(graph.S, { class_type: 'ImageScale', inputs: { image: ['8', 0], upscale_method: 'lanczos', ...resize } });
     assert.deepEqual(graph['9'].inputs.pixels, ['S', 0]);
     assert.equal(graph.P, undefined);
-    const split = compileRecipe({ ...image, inputResize: resize, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, loras: [{ name: 'lora', strength: 1 }] }, { ...lists, nodes: [...lists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoraLoader'], diffusionModels: [intent.checkpoint], textEncoders: ['clip'], clipTypes: ['sdxl'], vaes: ['vae'], loras: ['lora'] }).graph;
+    const split = compileRecipe({ ...image, inputResize: resize, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, loras: [{ name: 'lora.safetensors', strength: 1 }] }, { ...lists, nodes: [...lists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoraLoader'], diffusionModels: [intent.checkpoint], textEncoders: ['clip'], clipTypes: ['sdxl'], vaes: ['vae'], loras: ['lora.safetensors'] }).graph;
     assert.deepEqual(split['9'].inputs.vae, ['V', 0]);
     assert.deepEqual(split['5'].inputs.model, ['L1', 0]);
     const pad = { left: 8, right: 16, top: 24, bottom: 32 };

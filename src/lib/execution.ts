@@ -78,6 +78,8 @@ export interface RunOptions {
 }
 
 /** Supply fresh, verified backend identities. This pure compiler performs no discovery. */
+export const isGguf = (name: string) => /\.gguf$/i.test(name);
+export const clipLoaderName = (name: string, dual = false) => `${dual ? 'DualCLIPLoader' : 'CLIPLoader'}${isGguf(name) ? 'GGUF' : ''}`;
 export interface RecipeAllowlist {
   readonly nodes: readonly string[];
   readonly checkpoints: readonly string[];
@@ -86,6 +88,11 @@ export interface RecipeAllowlist {
   readonly samplers: readonly string[];
   readonly schedulers: readonly string[];
   readonly diffusionModels?: readonly string[];
+  readonly ggufDiffusionModels?: readonly string[];
+  readonly ggufTextEncoders?: readonly string[];
+  readonly ggufClipTypes?: readonly string[];
+  readonly ggufDualTextEncoders?: readonly string[];
+  readonly ggufDualClipTypes?: readonly string[];
   readonly textEncoders?: readonly string[];
   readonly clipTypes?: readonly string[];
   readonly visionModels?: readonly string[];
@@ -295,6 +302,10 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   if (intent.wildcard&&!allowlist.nodes.includes(wildcardNode)) throw new RecipeCompileError('MISSING_CAPABILITY',wildcardNode,'Wildcard plugin is unavailable.','Install the DaSiWa node pack or disable wildcards.');
   const d = intent.diffusion;
   const loras = intent.loras ?? [];
+  if (isGguf(intent.checkpoint) && !d) throw new RecipeCompileError('INVALID_INTENT','checkpoint','GGUF requires a diffusion recipe with separate text encoder and VAE.','Select a compatible split-model family.');
+  if (d && isGguf(d.vae)) throw new RecipeCompileError('INVALID_INTENT','diffusion.vae','GGUF VAE is unsupported.','Select a supported VAE file.');
+  if (loras.some(l => !/\.safetensors$/i.test(l.name))) throw new RecipeCompileError('INVALID_INTENT','loras','LoRA files must be safetensors; GGUF LoRA is unsupported.','Select a safetensors LoRA.');
+  if (isGguf(intent.checkpoint) && loras.length) throw new RecipeCompileError('INVALID_INTENT','loras','LoRA on a GGUF base is not proven.','Remove the LoRA or select a non-GGUF base.');
   const o = intent.options ?? {};
   const tiled = o.vaeTile !== undefined;
   const patches: (readonly [id: string, node: string, inputs: Record<string, string | number | boolean>])[] = [
@@ -312,7 +323,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   // LoraLoaders chain after the loaders; the last one feeds the sampler and both encoders.
   const chain: Record<string, ApiNode> = d ? {
-    C: { class_type: 'CLIPLoader', inputs: { clip_name: d.textEncoder, type: d.clipType } },
+    C: { class_type: clipLoaderName(d.textEncoder), inputs: { clip_name: d.textEncoder, type: d.clipType } },
     V: { class_type: 'VAELoader', inputs: { vae_name: d.vae } },
   } : {};
   let model: ApiLink = ['1', 0], clip: ApiLink = d ? ['C', 0] : ['1', 1];
@@ -334,7 +345,7 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     requiredNodes: [],
     requiredModels: d ? [{ kind: 'diffusionModel', identifier: intent.checkpoint }, { kind: 'textEncoder', identifier: d.textEncoder }, { kind: 'vae', identifier: d.vae }] : [{ kind: 'checkpoint', identifier: intent.checkpoint }],
     graph: {
-      '1': d ? { class_type: 'UNETLoader', inputs: { unet_name: intent.checkpoint, weight_dtype: 'default' } } : { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: intent.checkpoint } },
+      '1': d ? { class_type: isGguf(intent.checkpoint) ? 'UnetLoaderGGUF' : 'UNETLoader', inputs: { unet_name: intent.checkpoint, ...(!isGguf(intent.checkpoint) ? { weight_dtype: 'default' } : {}) } } : { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: intent.checkpoint } },
       '2': { class_type: 'CLIPTextEncode', inputs: { text: intent.positivePrompt, clip } },
       '3': { class_type: 'CLIPTextEncode', inputs: { text: intent.negativePrompt, clip } },
       '4': { class_type: d?.clipType === 'moss_image' ? 'EmptyFlux2LatentImage' : 'EmptyLatentImage', inputs: { width: intent.width, height: intent.height, batch_size: 1 } },
@@ -503,8 +514,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   for (const node of emitted) {
     if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
-  if (!(d ? allowlist.diffusionModels ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
-  if (d && !(allowlist.textEncoders?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && allowlist.clipTypes?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
+  if (!(d ? (isGguf(intent.checkpoint) ? allowlist.ggufDiffusionModels : allowlist.diffusionModels) ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
+  if (d && !((isGguf(d.textEncoder) ? allowlist.ggufTextEncoders : allowlist.textEncoders)?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && (isGguf(d.textEncoder) ? allowlist.ggufClipTypes : allowlist.clipTypes)?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   // object_info lists only the input folder; ComfyUI resolves an `[output]` file itself (containment + existence in LoadImage).
   for (const image of [intent.inputImage, ...(intent.imageReference?.images.map(e => e.image) ?? []), ...(intent.nativeImageReference?.images ?? []), ...(intent.inputLayers ?? []).map(l => l.image)]) if (image !== undefined && !image.endsWith(' [output]') && !isUploadedMask(image) && !allowlist.images?.includes(image)) throw new RecipeCompileError('MISSING_MODEL', 'inputImage', 'Input image is not in the backend input folder list.', 'Pick a file the backend lists in its input folder.');
   if (intent.imageReference && !allowlist.visionModels?.includes(intent.imageReference.visionModel)) throw new RecipeCompileError('MISSING_MODEL', 'visionModel', 'CLIP-vision model is not in the verified vision model list.', 'Install the model in the backend vision folder and reload prerequisites.');

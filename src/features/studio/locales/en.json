@@ -1,4 +1,5 @@
 {
+  "studio.run.gguf.checkpoint": "GGUF requires a diffusion model with separate text encoder and VAE, not a full checkpoint.",
   "studio.plan.latentUpscale": "Latent upscale after sampling",
   "studio.run.latent.enabled": "Latent upscale after sampling",
   "studio.run.latent.model": "Latent upscale model",
@@ -382,6 +383,7 @@
   "studio.run.family.diffusionFolder": "This recipe needs a diffusion model in diffusion_models (or unet), not checkpoints. Move the file and refresh the model list.",
   "studio.run.family.checkpointFolder": "This recipe needs a checkpoint in checkpoints, not diffusion_models or unet. Move the file and refresh the model list.",
   "studio.run.family.unknown": "Unknown architecture — no recipe can load it.",
+  "studio.run.gguf.lora": "LoRA on a GGUF base is not supported yet.",
   "studio.run.family.noEncoder": "Needs a matching text encoder and VAE in the models folder.",
   "studio.run.resolution.aspect": "Aspect ratio",
   "studio.run.resolution.title": "Resolution",

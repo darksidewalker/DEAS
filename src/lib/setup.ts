@@ -131,7 +131,7 @@ export function setupSuggestions(_state: SetupState): {id:string;fromId:string;t
 export interface NativeInstallDefaults {storagePath:string;backend:'cpu'|'nvidia';hardware:Record<string,unknown>|null;warnings:string[]}
 export interface NativeHardwareDetection {backend: 'nvidia'|null; hardware?:Record<string,unknown>|null; warnings?:string[]}
 export interface NativeInstallRequest {storagePath:string;backend:Backend;features:FeatureId[];options:InstallOptions;comfyRef:string;folders?:import('./settings').Folders;takeover?:boolean}
-export interface NativeInstallPlan {id:string;reopenId?:string;request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:{vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string}|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
+export interface NativeInstallPlan {id:string;ggufRef?:string;reopenId?:string;request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:{vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string}|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
 export interface NativeInstallStatus {state:'idle'|'running'|'succeeded'|'failed'|'cancelled';stepId:string|null;logs:string[];error:string|null}
 export interface NativeBackendStatus {state:'starting'|'running'|'failed'|'stopped';endpoint:string|null;error:string|null;generationReady:false}
 export interface DependencyCheck {id:string;ok:boolean}

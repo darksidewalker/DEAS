@@ -31,6 +31,7 @@
 .download-card { position: relative; }
 .download-auth { position: absolute; top: .55rem; left: .55rem; padding: .15rem .45rem; border-radius: .4rem; background: rgb(var(--shadow-rgb) / 0.702); color: var(--copper); font-size: .65rem; font-style: normal; }
 .download-resource .download-auth { position: static; justify-self: start; display: inline-block; margin-bottom: .3rem; }
+.download-platform { top: auto; bottom: .55rem; left: auto; right: .55rem; }
 .download-media-filter button[aria-pressed="true"] { background: var(--surface); color: var(--chalk); border-color: var(--blue); }
 .download-nsfw-tag { top: auto; bottom: 2.4rem; left: auto; right: .55rem; color: var(--danger); }
 .download-resource .download-nsfw-tag { margin-left: .4rem; }

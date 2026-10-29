@@ -1,0 +1,16 @@
+.model-meta-target { display: contents; }
+.model-meta-menu { max-width: min(15rem, 100vw); overflow-wrap: anywhere; position: fixed; z-index: 1000; padding: .3rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); box-shadow: 0 .4rem 1.4rem #0008; }
+.model-meta-menu button, .model-meta-actions button { color: inherit; background: var(--field); border: 1px solid var(--line); border-radius: .35rem; padding: .45rem .7rem; cursor: pointer; }
+.model-meta-menu button:focus-visible, .model-meta-actions button:focus-visible { outline: 2px solid var(--ok); }
+.model-meta-dialog { color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: .7rem; padding: 1.2rem; width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.model-meta-dialog::backdrop { background: #0009; }
+.model-meta-dialog h2 { margin-top: 0; font-size: 1.1rem; }
+.model-meta-dialog dl { display: grid; gap: .3rem; }
+.model-meta-dialog dt { font-weight: 600; }
+.model-meta-dialog dd { margin: 0 0 .5rem; overflow-wrap: anywhere; }
+.model-meta-dialog label { display: grid; gap: .4rem; }
+.model-meta-dialog select { width: 100%; min-width: 0; color: inherit; background: var(--field); padding: .5rem; border: 1px solid var(--line); border-radius: .35rem; }
+.model-meta-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.model-meta-actions button:disabled { opacity: .5; cursor: default; }
+.model-declared { display: block; font-size: .7rem; color: var(--ok); overflow-wrap: anywhere; }
+.wb-tiles button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }

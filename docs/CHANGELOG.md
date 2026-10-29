@@ -1,6 +1,14 @@
 # Changelog
 
+## Unreleased — 0.1.65
+
+- **Model-family metadata:** Studio and installed Library models share **Edit meta…**, including keyboard access on blocked models. Family declarations use the existing source-bound sidecar and stay distinct from detection. Native preparation/submission now reject stale or malformed selected model/LoRA metadata, including changes during the observer handshake. Reset removes a structurally valid unknown family without losing current cached hashes or provider metadata; malformed sidecars are preserved and remain blocked. No automatic download, preparation or submission is triggered by editing.
+
+- **GGUF integration:** supported split diffusion/video models use `UnetLoaderGGUF`; GGUF text encoders use `CLIPLoaderGGUF` or LTX's `DualCLIPLoaderGGUF`, with independent backend model/type catalogs and missing-loader/file Run gates. Unknown models use the existing source-bound **Edit meta…** family sidecar, never filename-based architecture guessing. Unsupported self-contained GGUF checkpoints, GGUF VAEs/projections and all non-Safetensors LoRA files fail explicitly; LoRA-on-GGUF-base remains conservatively blocked, including Wan's LOW model. The bounded v2/v3 header parser uses standard metadata types and independent malformed/format fixtures. New managed installation plans provision and CPU-import-check a pinned ComfyUI-GGUF pack; legacy manifests remain reopenable without silent dependency migration, while explicit Upgrade/Reinstall adds the pinned dependency and atomically updates the plan after successful checks. Remaining acceptance is tracked in the [resume checklist](IMPLEMENTATION-STATUS.md#gguf-loader-variants-for-every-pipeline-and-checkpoint-variant). Real model generation and Windows runtime remain separate acceptance gates.
+
 ## Unreleased — 0.1.64
+
+- Studio remembers last-edited drafts per pipeline and exact selected model for the app session, including prompts, input/reference media, editor masks/paint/layers, LoRAs, seed, components, Options and post-processing. Returning to a pipeline restores its last compatible model. The cache is memory-only, clears on restart/default reset and never overrides an explicit project/history/metadata restore or changes submitted jobs.
 
 - Windows: **Update** no longer fails with "self-update is unsupported" when only ComfyUI or DaSiWa-nodes are behind. The application step reads the latest release first and, when this build is current, lets the backend upgrade run; a newer DEAS release still stops it with a manual-download message naming the version. Missing or invalid release versions fail closed rather than being treated as current.
 

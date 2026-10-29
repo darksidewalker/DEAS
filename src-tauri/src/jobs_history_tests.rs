@@ -12,6 +12,7 @@ fn job(intent: Value) -> Job {
             intent,
             consumed: true,
             media_root: None,
+            local_models: LocalModels::default(),
         },
         client_id: uuid::Uuid::new_v4().to_string(),
         prompt_id: None,

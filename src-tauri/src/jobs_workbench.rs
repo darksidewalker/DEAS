@@ -194,9 +194,12 @@ impl Jobs {
                 .ok()
                 .and_then(|base| job_outputs::MediaRoot::owned(engine, base.as_str()))
         });
+        let model_roots = engine
+            .map(|engine| LocalModels::owned(engine, &base_url))
+            .unwrap_or_default();
         // Admission owns preparation/submission even when its IPC waiter is cancelled.
         tokio::spawn(async move {
-            jobs.workbench_execute(held, base_url, intent, media_root)
+            jobs.workbench_execute(held, base_url, intent, media_root, model_roots)
                 .await
         })
         .await
@@ -209,8 +212,12 @@ impl Jobs {
         base_url: String,
         intent: Value,
         media_root: Option<job_outputs::MediaRoot>,
+        model_roots: Vec<std::path::PathBuf>,
     ) -> Result<Value, String> {
-        let plan = match held.prepare(base_url, intent).await {
+        let plan = match held
+            .prepare_with_models(base_url, intent, model_roots)
+            .await
+        {
             Ok(plan) => plan,
             Err(error) => {
                 self.lock()?

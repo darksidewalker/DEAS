@@ -60,6 +60,7 @@
   "downloads.next": "Nächste Seite durchsuchen",
   "downloads.backendResource": "Backend-Ressource; nicht herunterladbar",
   "downloads.identity": "Ressourcenkennung",
+  "downloads.platform": "Plattform",
   "downloads.source": "Quelle",
   "downloads.scope.user": "Benutzer",
   "downloads.scope.repo": "Repository",

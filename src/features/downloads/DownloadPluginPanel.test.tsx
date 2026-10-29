@@ -30,6 +30,7 @@ it('embedded targeted offer browses once, filters exact filename and waits for L
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_download_browse'?{resources:[selected,{...resource,id:'other',label:'other.pth',locator:'other.pth'}],warnings:[],nextCursor:null}:c==='native_files_present'?[false]:c==='native_download_plan'?{id:'p',target:'/configured/latent_upscale_models',resources:[selected],canExecute:true,warnings:[],totalKnownBytes:23,unknownSizeCount:0}:{state:c==='native_download_status'?'idle':'running',completed:0,total:1,bytesDownloaded:0,error:null});
  render(<I18nProvider><DownloadPanel embedded modelsDir="/configured" installTarget="/env" initialEntryId="curated" filenameFilter="wanted.safetensors"/></I18nProvider>);
  await screen.findByLabelText('wanted.safetensors');
+ expect(screen.getByText('Fixture provider',{selector:'em.download-auth'})).not.toBeNull();
  expect(screen.queryByLabelText('other.pth')).toBeNull();
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_download_browse')).toHaveLength(1);
  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_download_plan'||c==='native_download_start')).toBe(false);
@@ -213,7 +214,7 @@ it('sorts catalog cards and files newest first, then by name, with missing dates
  const entries=[{...catalog.entries[0],id:'old',label:'Alpha',publishedAt:'2025-01-01T00:00:00Z'},{...catalog.entries[0],id:'new',label:'Zulu',publishedAt:'2026-01-01T00:00:00Z'},{...catalog.entries[0],id:'unknown',label:'Beta',publishedAt:undefined}];
  vi.mocked(invoke).mockImplementation(async c=>c==='native_auth_status'?[]:c==='native_download_catalog'?{...catalog,entries}:{resources:entries.map(e=>({...resource,id:e.id,label:e.label,publishedAt:e.publishedAt})),nextCursor:null,warnings:[]});
  mount();click('Library');await screen.findByRole('button',{name:'Zulu'});
- const cards=()=>[...document.querySelectorAll('.download-card')].map(e=>e.textContent);
+ const cards=()=>[...document.querySelectorAll('.download-card')].map(e=>e.querySelector('span:last-of-type')!.textContent);
  expect(cards()).toEqual(['Zulu','Alpha','Beta']);
  click('Zulu');await screen.findByLabelText('Zulu');
  const rows=()=>[...document.querySelectorAll('.download-resource label')].map(e=>e.textContent);
@@ -279,6 +280,32 @@ it('returns from Installed VAE to a valid catalog tab and preserves valid rememb
  fireEvent.click(screen.getByRole('tab',{name:'LoRAs'}));tab('Installed');await screen.findByRole('button',{name:'a.pt'});tab('Catalog');
  expect(screen.getByRole('tab',{name:'LoRAs'}).getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('button',{name:'Catalog LoRA'})).toBeTruthy();
+});
+it('offers Edit meta on installed cards without fetching or downloading and disables companion family editing',async()=>{
+ Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(){this.open=true;}});
+ const model={category:'vae',name:'companion.safetensors',path:'/models/vae/companion.safetensors',size:1,info:null};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_models_scan'?[model]:c==='native_model_scan_status'?{state:'idle',id:''}:[]);
+ render(<I18nProvider><DownloadPanel embedded installTarget="/env" modelsDir="/models"/></I18nProvider>);await screen.findByRole('tab',{name:'Models'});tab('Installed');
+ fireEvent.contextMenu(await screen.findByRole('button',{name:model.name}));fireEvent.click(screen.getByRole('menuitem',{name:'Edit meta…'}));
+ expect(screen.getByRole('dialog').textContent).toContain(model.path);expect(screen.getByLabelText('Model family')).toHaveProperty('disabled',true);
+ expect(screen.getByText('Family editing is unsupported for this model category.')).toBeTruthy();
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>['native_model_info','native_download_start','native_model_family_write'].includes(c))).toBe(false);
+});
+it('saves and resets installed family metadata locally, showing declaration on card and details',async()=>{
+ Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(){this.open=true;}});
+ const model={category:'checkpoints',name:'base.safetensors',path:'/models/checkpoints/base.safetensors',size:1,info:null,detectedFamily:'sdxl',family:'sdxl'};
+ vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_download_catalog'?catalog:c==='native_models_scan'?[model]:c==='native_model_scan_status'?{state:'idle',id:''}:c==='native_model_family_write'?{...model,...((a as {family:string|null}).family?{familyOverride:'sdxl'}:{})}:[]);
+ render(<I18nProvider><DownloadPanel embedded installTarget="/env" modelsDir="/models"/></I18nProvider>);await screen.findByRole('tab',{name:'Models'});tab('Installed');
+ const card=await screen.findByRole('button',{name:model.name});fireEvent.click(card);fireEvent.keyDown(card,{key:'ContextMenu'});fireEvent.click(screen.getByRole('menuitem',{name:'Edit meta…'}));
+ expect(screen.getByLabelText('Model family')).toHaveProperty('value','sdxl');fireEvent.click(screen.getByRole('button',{name:'Save'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+ expect(invoke).toHaveBeenCalledWith('native_model_family_write',{path:model.path,family:'sdxl'});
+ expect(card.textContent).toContain('User-declared family');expect(document.querySelector('.download-picker .model-declared')).toBeTruthy();
+ fireEvent.contextMenu(card);fireEvent.click(screen.getByRole('menuitem',{name:'Edit meta…'}));fireEvent.click(screen.getByRole('button',{name:'Reset to detection'}));await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+ expect(invoke).toHaveBeenCalledWith('native_model_family_write',{path:model.path,family:null});expect(document.querySelector('.model-declared')).toBeNull();
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>['native_model_info','native_download_start','native_model_scan_start'].includes(c))).toBe(false);
+ // A save from another mounted view refreshes this exact installed path without rescanning.
+ act(()=>window.dispatchEvent(new CustomEvent('deas:model-family-changed',{detail:{...model,familyOverride:'sdxl'}})));
+ expect(card.textContent).toContain('User-declared family');expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_models_scan')).toHaveLength(1);
 });
 it('lists installed models per folder and fetches CivitAI metadata by hash on request',async()=>{
  const local={category:'loras',name:'Krea2/slime.safetensors',path:'/env/ComfyUI/models/loras/Krea2/slime.safetensors',size:2147483648,info:null};

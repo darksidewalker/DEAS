@@ -1,6 +1,8 @@
 use super::*;
 #[path = "jobs_cancel_tests.rs"]
 mod cancel_tests;
+#[path = "jobs_model_tests.rs"]
+mod model_tests;
 #[path = "jobs_observer_tests.rs"]
 mod observer_tests;
 
@@ -2700,6 +2702,7 @@ async fn prepare_latent_upscale_requires_exact_catalog_id_without_changing_legac
             for (field, names) in crate::jobs_video::requirements(&intent) {
                 let (node, input) = match field {
                     "diffusionModels" => ("UNETLoader", "unet_name"),
+                    "ggufDiffusionModels" => ("UnetLoaderGGUF", "unet_name"),
                     "textEncoders" => ("CLIPLoader", "clip_name"),
                     "clipTypes" => ("CLIPLoader", "type"),
                     "vaes" => ("VAELoader", "vae_name"),
@@ -3113,7 +3116,7 @@ fn resize_graph_and_validation() {
         assert!(graph.get("P").is_none());
         let mut split = image.clone();
         split["diffusion"] = json!({"textEncoder":"clip","clipType":"sdxl","vae":"vae"});
-        split["loras"] = json!([{"name":"lora","strength":1}]);
+        split["loras"] = json!([{"name":"lora.safetensors","strength":1}]);
         let split = compile(&split).unwrap();
         assert_eq!(split["9"]["inputs"]["vae"], json!(["V", 0]));
         assert_eq!(split["5"]["inputs"]["model"], json!(["L1", 0]));

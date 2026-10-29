@@ -28,6 +28,7 @@ fn completed(base: &str) -> Jobs {
             intent,
             consumed: true,
             media_root: None,
+            local_models: LocalModels::default(),
         },
         client_id: "client".into(),
         prompt_id: None,

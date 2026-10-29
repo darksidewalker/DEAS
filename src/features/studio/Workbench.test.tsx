@@ -3,18 +3,19 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
 import { defaultOptions } from './OptionsPanel';
+import { applyStudioSettings, captureStudioSettings } from '../../lib/preferences';
 import type { HistoryRecord } from './history';
 import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
-import { scanModels } from '../../lib/models';
+import { scanModels, writeModelFamily } from '../../lib/models';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobStatus } from '../../lib/jobs';
 import { readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:async()=>()=>{}})}));
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
-vi.mock('../../lib/models',()=>({scanModels:vi.fn()}));
+vi.mock('../../lib/models',()=>({scanModels:vi.fn(),writeModelFamily:vi.fn()}));
 vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn(async()=>[] as [string,string][])}));
 vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn()}));
 const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
@@ -33,6 +34,84 @@ beforeEach(()=>{
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({save:vi.fn(),restore:vi.fn(),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([0,0,0,0])}))} as unknown as CanvasRenderingContext2D);
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');vi.clearAllMocks();vi.unstubAllGlobals();});
+test('model metadata action enables an unknown supported file while GGUF stays usable',async()=>{
+ const unknown={category:'diffusion_models',name:'unknown.safetensors',path:'/m/unknown.safetensors',size:1,info:null};
+ const bad={...unknown,name:'bad.safetensors',path:'/m/bad.safetensors',family:'anima',metadataError:'invalid sidecar'};
+ const gguf={...unknown,name:'declared.gguf',path:'/m/declared.gguf',family:'anima',familyOverride:'anima'};
+ vi.mocked(scanModels).mockResolvedValue([unknown,bad,gguf]);
+ vi.mocked(writeModelFamily).mockResolvedValue({...unknown,family:'anima',familyOverride:'anima'});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Models'}));
+ const tile=await screen.findByRole('button',{name:unknown.name});
+ expect(tile.getAttribute('aria-disabled')).toBe('true');
+ expect(tile).toHaveProperty('disabled',false);tile.focus();expect(document.activeElement).toBe(tile);
+ fireEvent.keyDown(tile,{key:'F10',shiftKey:true});fireEvent.click(screen.getByRole('menuitem',{name:'Edit meta…'}));
+ fireEvent.change(screen.getByLabelText('Model family'),{target:{value:'anima'}});fireEvent.click(screen.getByRole('button',{name:'Save'}));
+ await waitFor(()=>expect(tile.getAttribute('aria-disabled')).toBe('false'));
+ const picker=document.querySelector('[data-model-picker]') as HTMLSelectElement;
+ expect(picker.value).toBe(gguf.name);
+ expect([...document.querySelector<HTMLSelectElement>('[data-pipeline]')!.options].find(o=>o.value==='t2v')).toHaveProperty('disabled',true);
+ expect([...picker.options].find(o=>o.value===bad.name)?.disabled).toBe(true);
+ expect([...picker.options].find(o=>o.value===gguf.name)?.disabled).toBe(false);
+ expect(tile.textContent).toContain('User-declared family');
+ fireEvent.contextMenu(tile);fireEvent.click(screen.getByRole('menuitem',{name:'Edit meta…'}));
+ vi.mocked(writeModelFamily).mockResolvedValue(unknown);fireEvent.click(screen.getByRole('button',{name:'Reset to detection'}));
+ await waitFor(()=>expect(tile.getAttribute('aria-disabled')).toBe('true'));
+ expect([...picker.options].find(o=>o.value===unknown.name)).toHaveProperty('disabled',true);
+ // The usable declared GGUF stays selected; Run stays gated by the offline backend, not by the unknown file.
+ expect(picker.value).toBe(gguf.name);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('declared GGUF runs through the GGUF loader while invalid metadata fails closed',async()=>{
+ const file={category:'diffusion_models',name:'declared.gguf',path:'/m/declared.gguf',size:1,info:null,family:'anima',familyOverride:'anima'};
+ const companions=[{category:'text_encoders',name:'qwen_3_600m.gguf',path:'/m/text_encoders/qwen_3_600m.gguf',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/vae/wan_2.1_vae.safetensors',size:1,info:null}];
+ vi.mocked(scanModels).mockResolvedValue([file,...companions]);vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UnetLoaderGGUF','CLIPLoaderGGUF','VAELoader'],ggufDiffusionModels:[file.name],ggufTextEncoders:[companions[0].name],ggufClipTypes:['stable_diffusion'],vaes:[companions[1].name]}});
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(file.name));
+ expect([...document.querySelector<HTMLSelectElement>('[data-model-picker]')!.options].find(o=>o.value===file.name)).toHaveProperty('disabled',false);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false);
+ view.unmount();
+ vi.mocked(scanModels).mockResolvedValue([{...file,category:'checkpoints'},...companions]);
+ const second=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(file.name));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ second.unmount();
+ vi.mocked(scanModels).mockResolvedValue([{...file,name:'invalid.safetensors',path:'/m/invalid.safetensors',metadataError:'invalid metadata'}]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('invalid.safetensors'));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['node','file','encoder','vae','plain-base'])('GGUF Run stays blocked when quantized backend %s evidence is missing',async missing=>{
+ const file={category:'diffusion_models',name:missing==='plain-base'?'base.safetensors':'base.gguf',path:'/m/base',size:1,info:null,family:'anima'};
+ const encoder=missing==='plain-base'?'qwen_3_600m.gguf':'qwen_3_600m.safetensors';
+ vi.mocked(scanModels).mockResolvedValue([file,{category:'text_encoders',name:encoder,path:'/m/'+encoder,size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/wan_2.1_vae.safetensors',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','CLIPLoaderGGUF','VAELoader',...(missing==='node'?[]:['UnetLoaderGGUF'])],ggufDiffusionModels:missing==='file'?[]:[file.name],diffusionModels:[],textEncoders:missing==='encoder'?[]:[encoder],ggufTextEncoders:[encoder],clipTypes:['stable_diffusion'],ggufClipTypes:['stable_diffusion'],vaes:missing==='vae'?[]:['wan_2.1_vae.safetensors']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(file.name));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('Wan LOW metadata errors remain visible dependencies of the selected HIGH model',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"i2v"');
+ const file={category:'diffusion_models',name:'wan_high.gguf',path:'/m/wan_high.gguf',size:1,info:null,family:'wan'};
+ vi.mocked(scanModels).mockResolvedValue([file,{...file,name:'wan_low.gguf',path:'/m/wan_low.gguf',metadataError:'stale LOW sidecar'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UnetLoaderGGUF'],ggufDiffusionModels:['wan_high.gguf','wan_low.gguf']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-model-picker]')?.value).toBe(file.name));
+ expect(screen.getByText(/Invalid model metadata blocks generation/)).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['metadata','gguf'])('selected LoRA %s errors block Run rather than silently dropping the adapter' ,async issue=>{
+ const name=issue==='gguf'?'bad.gguf':'bad.safetensors';
+ localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name,strength:1}]));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null},{category:'loras',name,path:'/m/'+name,size:1,info:null,...(issue==='metadata'?{metadataError:'invalid metadata'}:{family:'sdxl',familyOverride:'sdxl'})}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);expect(screen.getByRole('alert').textContent).toContain(name);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
 const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
 test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, family scoped, and held in Run Plan and Run (%s)',async family=>{
  const h3=family==='minimax-h3';
@@ -725,6 +804,34 @@ test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('nati
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'qwen.safetensors',width,height:width,nativeImageReference:{method,images:['deas-inputs/captured.png']}});
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('imageReference');
 });
+test('vision offer card shows the hosting platform and downloads via the Library flow',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
+ let installed=false,started=false;
+ const file={id:'cv',label:'clip_vision_g.safetensors',locator:'clip_vision_g.safetensors',downloadable:true,kind:'file',url:'https://huggingface.co/file',size:1};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],visionModels:installed?['clip_vision_g.safetensors']:[]}});
+ vi.mocked(invoke).mockImplementation(async c=>{
+  if(c==='native_download_catalog')return {version:1,providers:[{id:'huggingface',kind:'huggingface',label:'Hugging Face',origin:'https://huggingface.co',scopes:['repo'],anonymousNotice:''},{id:'civitai',kind:'civitai',label:'CivitAI',origin:'https://civitai.com',scopes:['model','search'],anonymousNotice:''}],entries:[{id:'clip-vision-revision',label:'SDXL ReVision vision tower',providerId:'huggingface',scope:'repo',locator:'models:comfyanonymous/clip_vision_g',kind:'repo',target:'clip_vision'},{id:'clip-vision-revision-civitai',label:'ReVision CivitAI mirror',providerId:'civitai',scope:'search',locator:'clip vision bigG',kind:'model',target:'clip_vision'}]};
+  if(c==='native_auth_status')return [];
+  if(c==='native_download_browse')return {resources:[file],warnings:[],nextCursor:null};
+  if(c==='native_files_present')return [installed];
+  if(c==='native_download_plan')return {id:'cvplan',target:'/configured/clip_vision',resources:[file],canExecute:true,warnings:[],totalKnownBytes:1,unknownSizeCount:0};
+  if(c==='native_download_start'){started=true;return {state:'running',completed:0,total:1,bytesDownloaded:0,error:null};}
+  if(c==='native_download_status'){if(!started)return {state:'idle',completed:0,total:0,bytesDownloaded:0,error:null};installed=true;return {state:'succeeded',completed:1,total:1,bytesDownloaded:1,error:null};}
+  return {path:'/input',parent:'/',entries:[],truncated:false};
+ });
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} root="/env" roots={{models:'/configured'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
+ expect(promptDrop().dropEffect).toBe('copy');
+ const dialog=await screen.findByRole('dialog',{name:/No CLIP vision model installed/});
+ expect(document.querySelector('[data-vision-download]')).not.toBeNull();
+ for(const [text,tag] of [['SDXL ReVision vision tower','span'],['ReVision CivitAI mirror','span'],['Hugging Face','em.download-auth'],['CivitAI','em.download-auth']] as const)expect(within(dialog).getByText(text,{selector:tag})).not.toBeNull();
+ const before=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ fireEvent.click(within(dialog).getByLabelText('clip_vision_g.safetensors'));
+ fireEvent.click(within(dialog).getByRole('button',{name:'Download all (1)'}));
+ await within(dialog).findByText('Succeeded');
+ expect(invoke).toHaveBeenCalledWith('native_download_plan',{request:{providerId:'huggingface',resources:[file],parentPath:'/configured',folderName:'clip_vision',authenticated:false}});
+ await waitFor(()=>expect(checkRecipePrerequisites).toHaveBeenCalledTimes(before+1));
+});
 function reorderReferences(from:number,to:number){
  const cards=document.querySelectorAll('[data-reference-controls]'),data=new Map<string,string>();
  const transfer={clearData:()=>data.clear(),setData:(key:string,value:string)=>data.set(key,value),getData:(key:string)=>data.get(key)??'',get types(){return [...data.keys()];},effectAllowed:'uninitialized',dropEffect:'none'};
@@ -1278,6 +1385,143 @@ test('an explicit Run replaces a browsed preview with the accepted job',async()=
  expect(document.querySelector('[data-browsed-preview]')).toBeNull();
  expect(document.querySelector('.wb-current-preview')?.hasAttribute('hidden')).toBe(false);
 });
+const sessionModels=['folder/a.safetensors','other/a.safetensors','c.safetensors'].map(name=>({category:'checkpoints',name,family:'sdxl',path:'/m/'+name,size:1,info:null}));
+const sessionModel=(name:string)=>fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:name}});
+const sessionSettings=(settings:Record<string,unknown>)=>act(()=>{expect(applyStudioSettings(Object.fromEntries(Object.entries(settings).map(([key,value])=>['studio.run.'+key,value])))).toBe(true);});
+test('session drafts restore last edited controls and prompts per full model path and pipeline without Run',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('folder/a.safetensors'));
+ sessionModel('folder/a.safetensors');
+ const a={positive:'A edited, never run',negative:'A negative',steps:37,cfg:4.5,seed:123,seedMode:'fixed',loras:[{name:'style.safetensors',strength:0.35}],options:{...defaultOptions,outputNaming:'a/%seed%'},post:true,upscale:2,textEncoder:'a-encoder',vae:'a-vae',componentOverrides:{textEncoders:true,vaes:true,audioVaes:false,textProjections:false}};
+ sessionSettings(a);sessionModel('other/a.safetensors');
+ expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('28'); // first visit retains family defaults
+ sessionSettings({positive:'B draft',negative:'B negative',steps:41,seed:456,post:false});
+ sessionModel('folder/a.safetensors');
+ expect(captureStudioSettings()).toMatchObject(Object.fromEntries(Object.entries(a).map(([key,value])=>['studio.run.'+key,value])));
+ choosePipe('Image → Image');sessionSettings({positive:'i2i draft',steps:53});
+ sessionModel('other/a.safetensors');sessionSettings({positive:'i2i B',steps:55});
+ choosePipe('Text → Image');
+ expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','folder/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value',a.positive);
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','37');
+ choosePipe('Image → Image');
+ expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','other/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i B');
+ sessionModel('folder/a.safetensors');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i draft');
+ sessionModel('other/a.safetensors');choosePipe('Text → Image');sessionModel('other/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','B draft');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('session draft cache resets on a fresh Workbench session without adding storage records',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const mount=()=>render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ let view=mount();await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('folder/a.safetensors'));
+ sessionSettings({positive:'old A',steps:39});sessionModel('other/a.safetensors');sessionSettings({positive:'last global',steps:42});
+ const keys=Object.keys(localStorage);expect(keys.some(k=>/cache|draft|session/i.test(k))).toBe(false);expect(sessionStorage.length).toBe(0);
+ view.unmount();view=mount();await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('folder/a.safetensors'));
+ sessionModel('folder/a.safetensors');expect(screen.getByLabelText('Steps')).toHaveProperty('value','28');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','last global');expect(runWorkbenchJob).not.toHaveBeenCalled();view.unmount();
+});
+test('session drafts restore prompt image ordering, removals and input sources rather than another models media',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,visionModels:['clip_vision_g.safetensors']}});
+ vi.mocked(invoke).mockResolvedValue({path:'/out',parent:'/',entries:['one.png','two.png'].map(name=>({name,path:'/out/'+name,kind:'file',symlink:false,media:'image',size:1,modified:1})),truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ await screen.findByRole('button',{name:'one.png'});sessionModel('folder/a.safetensors');
+ promptDrop('image','/out/one.png');promptDrop('image','/out/two.png');reorderReferences(0,1);
+ fireEvent.click(screen.getByRole('button',{name:'one.png'}));adopt();
+ const img=document.querySelector<HTMLImageElement>('.wb-current-preview img')!;Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
+ fireEvent.keyDown(document.querySelector('[data-layer="base"]')!,{key:'ArrowLeft'});
+ let finish=()=>{};vi.stubGlobal('Image',class{naturalWidth=64;naturalHeight=64;onload=()=>{};onerror=()=>{};set src(_:string){finish=()=>this.onload();}});
+ dropTile('two.png');act(()=>finish());dropTile('two.png');
+ sessionModel('other/a.safetensors');act(()=>finish());expect(document.querySelectorAll('[data-layer]')).toHaveLength(2);
+ fireEvent.click(document.querySelector('[data-reference-remove]')!);
+ fireEvent.click(screen.getByRole('button',{name:'two.png'}));adopt();
+ const second=document.querySelector<HTMLImageElement>('.wb-current-preview img')!;Object.defineProperties(second,{naturalWidth:{value:1024},naturalHeight:{value:1024}});fireEvent.load(second);
+ sessionModel('folder/a.safetensors');
+ expect(Array.from(document.querySelectorAll<HTMLImageElement>('[data-reference-controls] img')).map(img=>img.alt)).toEqual(['two.png','one.png']);
+ expect(document.querySelector('[data-layer="base"] img')?.getAttribute('src')).toContain('/out/one.png');
+ expect(document.querySelector<HTMLElement>('[data-layer="base"]')?.style.left).toBe('-8px');expect(document.querySelectorAll('[data-layer]')).toHaveLength(2);
+ sessionModel('other/a.safetensors');
+ expect(Array.from(document.querySelectorAll<HTMLImageElement>('[data-reference-controls] img')).map(img=>img.alt)).toEqual(['one.png']);
+ expect(document.querySelector('[data-layer="base"] img')?.getAttribute('src')).toContain('/out/two.png');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('session video drafts restore video/audio references and trims without uploading',async()=>{
+ const files=['h3-a.safetensors','h3-b.safetensors'].map(name=>({category:'diffusion_models',name,family:'minimax-h3',path:'/m/'+name,size:1,info:null}));
+ vi.mocked(scanModels).mockResolvedValue(files);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockResolvedValue({path:'/out',parent:'/',entries:[],truncated:false});
+ vi.spyOn(HTMLMediaElement.prototype,'pause').mockImplementation(()=>{});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Multi-reference → Video').disabled).toBe(false));choosePipe('Multi-reference → Video');
+ const add=(name:string,media:string)=>fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify({name,media,path:'/input/'+name,src:'asset://localhost/'+name})}});
+ add('clip.mp4','video');add('voice.wav','audio');add('picture.png','image');
+ fireEvent.click(document.querySelector('[data-open-references]')!);fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
+ fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
+ fireEvent.change(screen.getByLabelText('Start of clip.mp4'),{target:{value:'2'}});
+ fireEvent.change(screen.getByLabelText('End of clip.mp4'),{target:{value:'6'}});
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Edit clip.mp4'})).getByRole('button',{name:'Close'}));dock('Media');
+ sessionSettings({positive:'video A',video:{seconds:7,fps:24,passes:1,upscaler:'',shiftHigh:5,shiftLow:5,refinerStep:2,shiftVideo:11,shiftAudio:4,audioVae:'a-vae',textProjection:''}});
+ sessionModel('h3-b.safetensors');sessionSettings({positive:'video B'});
+ fireEvent.click(document.querySelector('[data-open-references]')!);fireEvent.click(screen.getByRole('button',{name:'Remove reference clip.mp4'}));dock('Media');
+ sessionModel('h3-a.safetensors');
+ expect(document.querySelector('[data-open-references]')?.textContent).toContain('3');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','video A');
+ fireEvent.click(document.querySelector('[data-open-references]')!);fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
+ expect(screen.getByLabelText('Use of clip.mp4')).toHaveProperty('value','audio');expect(screen.getByLabelText('Start of clip.mp4')).toHaveProperty('value','2');expect(screen.getByLabelText('End of clip.mp4')).toHaveProperty('value','6');
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Edit clip.mp4'})).getByRole('button',{name:'Close'}));dock('Media');
+ choosePipe('Text → Video');sessionSettings({positive:'text video'});choosePipe('Multi-reference → Video');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','video A');sessionModel('h3-b.safetensors');expect(document.querySelector('[data-open-references]')?.textContent).toContain('2');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();view.unmount();
+});
+
+test('session cache is environment scoped and never substitutes a disappeared exact model path',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const ui=(root:string)=><I18nProvider><Workbench endpoint={evidence.baseUrl} root={root} roots={{models:root+'/models'}}/></I18nProvider>;
+ const view=render(ui('/first'));await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('folder/a.safetensors'));
+ sessionModel('folder/a.safetensors');sessionSettings({positive:'first environment A'});sessionModel('other/a.safetensors');
+ const second=sessionModels.map(m=>({...m,path:'/second/'+m.name}));vi.mocked(scanModels).mockResolvedValue(second);view.rerender(ui('/second'));
+ await waitFor(()=>expect(scanModels).toHaveBeenCalledWith('/second/models',[]));
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('other/a.safetensors'));
+ sessionModel('folder/a.safetensors');sessionSettings({positive:'second environment A'});sessionModel('other/a.safetensors');sessionModel('folder/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','second environment A');
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);view.rerender(ui('/first'));
+ await waitFor(()=>expect(scanModels).toHaveBeenCalledWith('/first/models',[]));
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','other/a.safetensors'));
+ sessionModel('folder/a.safetensors');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','first environment A');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each([false,true])('environment transition saves the active last edit under its outgoing scope (same paths=%s)',async samePaths=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const ui=(root:string)=><I18nProvider><Workbench endpoint={evidence.baseUrl} root={root} roots={{models:root+'/models'}}/></I18nProvider>;
+ const view=render(ui('/first'));await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('folder/a.safetensors'));
+ sessionModel('folder/a.safetensors');sessionSettings({positive:'first original',steps:31});
+ sessionModel('other/a.safetensors');sessionModel('folder/a.safetensors');sessionSettings({positive:'first last unsaved edit',steps:47});
+ vi.mocked(scanModels).mockResolvedValue(samePaths?sessionModels:sessionModels.map(m=>({...m,path:'/second/'+m.name})));
+ view.rerender(ui('/second'));await waitFor(()=>expect(scanModels).toHaveBeenLastCalledWith('/second/models',[]));
+ await act(async()=>{});sessionModel('folder/a.safetensors');sessionSettings({positive:'second own draft',steps:52});
+ sessionModel('other/a.safetensors');sessionModel('folder/a.safetensors');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','second own draft');
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);view.rerender(ui('/first'));
+ await waitFor(()=>expect(screen.getByLabelText('Prompt')).toHaveProperty('value','first last unsaved edit'));
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','47');
+ view.rerender(ui('/second'));await waitFor(()=>expect(screen.getByLabelText('Prompt')).toHaveProperty('value','second own draft'));
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','52');expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('session cache distinguishes same names in separate categories and absolute model roots',async()=>{
+ const files=[{...sessionModels[0],name:'same.safetensors',path:'/one/same.safetensors'},{...sessionModels[0],name:'same.safetensors',category:'diffusion_models',family:'qwen-image-2.1',path:'/two/same.safetensors'},{...sessionModels[0],name:'same.safetensors',path:'/three/same.safetensors'}];
+ vi.mocked(scanModels).mockResolvedValue(files);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelectorAll('[data-model-picker] option')).toHaveLength(3));
+ const ids=files.map(m=>JSON.stringify([m.category,m.path,m.name]));
+ sessionSettings({positive:'first'});sessionModel(ids[1]);sessionSettings({positive:'second'});sessionModel(ids[2]);sessionSettings({positive:'third'});
+ sessionModel(ids[0]);expect(screen.getByLabelText('Prompt')).toHaveProperty('value','first');
+ sessionModel(ids[1]);expect(screen.getByLabelText('Prompt')).toHaveProperty('value','second');
+ sessionModel(ids[2]);expect(screen.getByLabelText('Prompt')).toHaveProperty('value','third');
+});
+
 const projectFixture={id:'project-1',root:'/projects/one',revision:1,draft:{positivePrompt:'saved project prompt',negativePrompt:'saved negative',checkpoint:'missing.safetensors',width:1024,height:1024,steps:24,cfg:6,sampler:'euler',scheduler:'normal',seed:42,denoise:0.5,pipeline:'i2i' as const},input:null};
 test('opening a project restores its draft without substituting a missing checkpoint or overwriting global defaults',async()=>{
  localStorage.setItem('deas.pref.studio.run.positive',JSON.stringify('global prompt'));
@@ -1653,6 +1897,26 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  expect(compare.dataset.zoom).toBe('1.00');
 });
 
+test('queue edit-job adoption restores i2i settings without losing t2i edits or its explicit source',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({...heldJob('edit-job','succeeded'),baseUrl:evidence.baseUrl,outputRoot:'/out',outputs:[{filename:'result.png',subfolder:'',type:'output'}],intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'source.png'}));adopt();
+ const img=document.querySelector<HTMLImageElement>('.wb-current-preview img')!;Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ choosePipe('Image → Image');sessionModel('folder/a.safetensors');sessionSettings({positive:'remembered i2i',steps:36});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await screen.findByRole('img',{name:'result.png'});fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ choosePipe('Text → Image');sessionSettings({positive:'outgoing t2i',steps:49});fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ fireEvent.click(document.querySelector('[data-job-id="edit-job"] .wb-queue-select')!);
+ expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','i2i');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','remembered i2i');
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','36');
+ const back=await screen.findByRole('img',{name:'source.png'});Object.defineProperties(back,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(back);
+ expect(document.querySelector('[data-layer="base"] img')?.getAttribute('src')).toContain('/out/source.png');
+ choosePipe('Text → Image');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','outgoing t2i');expect(screen.getByLabelText('Steps')).toHaveProperty('value','49');
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+});
+
 test.each(['click','Enter',' '] as const)('retained original opens and stars source A, not edited draft B (%s)',async activation=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
@@ -1695,6 +1959,7 @@ test.each(['click','Enter',' '] as const)('retained original opens and stars sou
 });
 
 test('IPC fixture: Post-process upscales the shown image alone, then the render; the opt-in tab adds a refine pass to Run',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  let n=0;
@@ -1904,9 +2169,9 @@ test('known models in the wrong loader folder remain visible but disabled, inclu
  expect((within(select).getByRole('option',{name:'unknown.safetensors'}) as HTMLOptionElement).disabled).toBe(false);
  dock('Models');
  const tiles=screen.getAllByRole('button',{name:anima}) as HTMLButtonElement[];
- expect(tiles.filter(b=>b.disabled)).toHaveLength(1);
- expect(tiles.find(b=>!b.disabled)?.getAttribute('aria-pressed')).toBe('true');
- expect(screen.getByRole('button',{name:'misplaced-sdxl.safetensors'}).hasAttribute('disabled')).toBe(true);
+ expect(tiles.filter(b=>b.getAttribute('aria-disabled')==='true')).toHaveLength(1);
+ expect(tiles.find(b=>b.getAttribute('aria-disabled')==='false')?.getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('button',{name:'misplaced-sdxl.safetensors'}).getAttribute('aria-disabled')).toBe('true');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
@@ -2018,8 +2283,8 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-3',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');
- expect((await screen.findByRole('button',{name:/h3\.safetensors/})).hasAttribute('disabled')).toBe(true); // video family: no image recipe
- expect(screen.getByRole('button',{name:/odd\.safetensors/}).hasAttribute('disabled')).toBe(true); // unknown diffusion model
+ expect((await screen.findByRole('button',{name:/h3\.safetensors/})).getAttribute('aria-disabled')).toBe('true'); // video family: no image recipe
+ expect(screen.getByRole('button',{name:/odd\.safetensors/}).getAttribute('aria-disabled')).toBe('true'); // unknown diffusion model
  fireEvent.click(screen.getByRole('button',{name:/k2\.safetensors/}));
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
  expect((screen.getByLabelText('CFG') as HTMLInputElement).value).toBe('1');
@@ -3256,6 +3521,35 @@ const openHistoryRecord=async()=>{
  fireEvent.click(document.querySelector('[data-history-id]')!);
  fireEvent.click(screen.getByRole('button',{name:'Use settings'}));
 };
+test('session cached targets never override explicit metadata, history or project restore and later edits win',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const intent={...historicalImage,checkpoint:'folder/a.safetensors'};
+ const record=recentHistoryRecord(intent),before=JSON.stringify(record);
+ const saved={...projectFixture,draft:{...projectFixture.draft,checkpoint:'folder/a.safetensors'}};
+ vi.mocked(invoke).mockImplementation(async(command,args)=>{
+  if(command==='native_jobs_history')return {schemaVersion:1,records:[record],readOnly:false,error:null};
+  if(command==='native_project_open')return saved;
+  if(command==='native_project_save')return {...saved,revision:2,draft:(args as {draft:typeof saved.draft}).draft};
+  return {path:'/out',parent:'/',entries:[{name:'meta.png',path:'/out/meta.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false};
+ });
+ vi.mocked(readImageMetadata).mockResolvedValue([['parameters','metadata wins\nSteps: 7, Sampler: Euler, CFG scale: 3, Seed: 11, Size: 512x512, Model: folder/a.safetensors']]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ await screen.findByRole('button',{name:'meta.png'});sessionModel('folder/a.safetensors');
+ sessionSettings({positive:'cached t2i',steps:39});choosePipe('Image → Image');sessionSettings({positive:'cached i2i',steps:40});choosePipe('Text → Image');sessionModel('other/a.safetensors');
+ fireEvent.click(screen.getByRole('button',{name:'meta.png'}));fireEvent.click(document.querySelector('[data-more]')!);fireEvent.click(document.querySelector('[data-more-apply]')!);
+ await waitFor(()=>expect(screen.getByLabelText('Prompt')).toHaveProperty('value','metadata wins'));
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','7');sessionModel('other/a.safetensors');sessionModel('folder/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','metadata wins');
+ sessionModel('other/a.safetensors');await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value',intent.positivePrompt);expect(screen.getByLabelText('Steps')).toHaveProperty('value','17');
+ sessionSettings({positive:'edited after history'});sessionModel('other/a.safetensors');sessionModel('folder/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','edited after history');
+ fireEvent.click(screen.getByRole('button',{name:'Open project'}));
+ await waitFor(()=>expect(screen.getByLabelText('Prompt')).toHaveProperty('value',saved.draft.positivePrompt));
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','24');
+ expect(JSON.stringify(record)).toBe(before);expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
 test('history restores independent latent post settings without submitting or changing the record',async()=>{
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-remembered.safetensors',scale:3,steps:2,denoise:0.3}));
  const original=recentHistoryRecord({recipeId:'video-generation',version:1,family:'ltx-2',positivePrompt:'historic video',negativePrompt:'',model:ltxModels[0].name,textEncoder:ltxModels[1].name,vae:ltxModels[3].name,seed:19,width:768,height:512,frames:121,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},ltx:{passes:1,audioVae:ltxModels[4].name,textProjection:ltxModels[2].name},latentUpscale:{model:'ltx-held.safetensors',scale:2}});

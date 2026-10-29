@@ -1,4 +1,5 @@
 {
+  "studio.run.gguf.checkpoint": "GGUFには個別のテキストエンコーダーとVAEを使う拡散モデルが必要です。完全なチェックポイントとしては読み込めません。",
   "studio.plan.latentUpscale": "サンプリング後に潜在アップスケール",
   "studio.run.latent.enabled": "サンプリング後に潜在アップスケール",
   "studio.run.latent.model": "潜在アップスケールモデル",
@@ -382,6 +383,7 @@
   "studio.run.family.diffusionFolder": "このレシピには checkpoints ではなく diffusion_models（または unet）内の拡散モデルが必要です。ファイルを移動してモデル一覧を更新してください。",
   "studio.run.family.checkpointFolder": "このレシピには diffusion_models や unet ではなく checkpoints 内のチェックポイントが必要です。ファイルを移動してモデル一覧を更新してください。",
   "studio.run.family.unknown": "不明なアーキテクチャ — 読み込めるレシピがありません。",
+  "studio.run.gguf.lora": "GGUF ベースに対する LoRA はまだサポートされていません。",
   "studio.run.family.noEncoder": "モデルフォルダーに対応するテキストエンコーダーとVAEが必要です。",
   "studio.run.resolution.aspect": "アスペクト比",
   "studio.run.resolution.title": "解像度",

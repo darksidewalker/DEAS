@@ -1,4 +1,5 @@
 {
+  "studio.run.gguf.checkpoint": "GGUF, tam checkpoint yerine ayrı metin kodlayıcı ve VAE kullanan bir difüzyon modeli gerektirir.",
   "studio.plan.latentUpscale": "Örneklemeden sonra gizil büyütme",
   "studio.run.latent.enabled": "Örneklemeden sonra gizil büyütme",
   "studio.run.latent.model": "Gizil büyütme modeli",
@@ -382,6 +383,7 @@
   "studio.run.family.diffusionFolder": "Bu tarif checkpoints yerine diffusion_models (veya unet) içinde bir difüzyon modeli gerektirir. Dosyayı taşıyıp model listesini yenileyin.",
   "studio.run.family.checkpointFolder": "Bu tarif diffusion_models veya unet yerine checkpoints içinde bir checkpoint gerektirir. Dosyayı taşıyıp model listesini yenileyin.",
   "studio.run.family.unknown": "Bilinmeyen mimari — hiçbir tarif yükleyemez.",
+  "studio.run.gguf.lora": "GGUF tabanı üzerinde LoRA henüz desteklenmiyor.",
   "studio.run.family.noEncoder": "Modeller klasöründe uyumlu bir metin kodlayıcı ve VAE gerekir.",
   "studio.run.resolution.aspect": "En boy oranı",
   "studio.run.resolution.title": "Çözünürlük",

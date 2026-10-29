@@ -1,4 +1,5 @@
 {
+  "studio.run.gguf.checkpoint": "GGUF nécessite un modèle de diffusion avec encodeur de texte et VAE séparés, pas un checkpoint complet.",
   "studio.plan.latentUpscale": "Agrandissement latent après échantillonnage",
   "studio.run.latent.enabled": "Agrandissement latent après échantillonnage",
   "studio.run.latent.model": "Modèle d’agrandissement latent",
@@ -382,6 +383,7 @@
   "studio.run.family.diffusionFolder": "Cette recette exige un modèle dans diffusion_models (ou unet), pas checkpoints. Déplacez le fichier et actualisez la liste.",
   "studio.run.family.checkpointFolder": "Cette recette exige un checkpoint dans checkpoints, pas diffusion_models ou unet. Déplacez le fichier et actualisez la liste.",
   "studio.run.family.unknown": "Architecture inconnue — aucune recette ne peut la charger.",
+  "studio.run.gguf.lora": "La LoRA sur une base GGUF n'est pas encore prise en charge.",
   "studio.run.family.noEncoder": "Nécessite un encodeur de texte et un VAE compatibles dans le dossier des modèles.",
   "studio.run.resolution.aspect": "Format",
   "studio.run.resolution.title": "Résolution",

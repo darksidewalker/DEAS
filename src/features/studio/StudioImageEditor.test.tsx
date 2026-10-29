@@ -2,7 +2,7 @@ import {createRef} from 'react';
 import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {I18nProvider} from '../../i18n/I18nProvider';
-import {StudioImageEditor,type EditorHandle} from './StudioImageEditor';
+import {StudioImageEditor,copyImageLayer,type EditorHandle} from './StudioImageEditor';
 // Behavioral canvas double: coverage is counted from rasterized stamps, not real PNG/browser pixels.
 type MockContext={pixels:Set<number>;opaque:boolean;globalCompositeOperation:string;fillStyle:string;canvas:HTMLCanvasElement;save:()=>void;restore:()=>void;beginPath:()=>void;arc:(x:number,y:number,r:number)=>void;fill:()=>void;fillRect:(x:number,y:number,w:number,h:number)=>void;clearRect:()=>void;drawImage:(c:HTMLCanvasElement)=>void;getImageData:()=>{data:Uint8ClampedArray};putImageData:(d:{data:Uint8ClampedArray})=>void};
 let contexts:WeakMap<HTMLCanvasElement,MockContext>;
@@ -77,6 +77,55 @@ test('Inpaint: moving the base off the source frame outpaints the uncovered part
  expect(ref.current!.maskBounds(0)).toEqual({x:1016,y:0,width:8,height:640});
  fireEvent.keyDown(base,{key:'ArrowRight'});
  expect(onMask).toHaveBeenLastCalledWith(false);
+});
+
+test('session snapshot retains masks, base paint and transforms, isolated from later edits and other sources',()=>{
+ const {ref}=mount();paint(document.querySelector('[data-editor-viewport]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Base image'}));fireEvent.click(screen.getByRole('button',{name:'Brush'}));paint(document.querySelector('[data-editor-viewport]')!);
+ fireEvent.keyDown(screen.getByRole('group',{name:'Base image'}),{key:'ArrowRight'});
+ const saved=ref.current!.capture();const pixels=context(saved.masks[0].canvas).pixels.size;
+ expect(pixels).toBeGreaterThan(0);expect(context(saved.base.paint!).pixels.size).toBeGreaterThan(0);
+ fireEvent.click(screen.getByRole('button',{name:'Mask 1'}));fireEvent.click(screen.getByRole('button',{name:'Clear'}));
+ expect(context(saved.masks[0].canvas).pixels.size).toBe(pixels);
+ cleanup();const onMask=vi.fn();
+ const view=render(<I18nProvider><StudioImageEditor key="restored" ref={ref} source={source} layers={[]} onLayers={vi.fn()} maskMode onMask={onMask} onInsert={vi.fn()} snapshot={saved}/></I18nProvider>);
+ expect(onMask).toHaveBeenLastCalledWith(true);expect(document.querySelector('[data-layer="base"] .sie-paint canvas')).not.toBeNull();
+ expect(ref.current!.imageEdited()).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Base image'}));fireEvent.click(screen.getByRole('button',{name:'Clear'}));
+ expect(context(saved.base.paint!).pixels.size).toBeGreaterThan(0);
+ fireEvent.click(screen.getByRole('button',{name:'Mask 1'}));fireEvent.click(screen.getByRole('button',{name:'Clear'}));
+ expect(context(saved.masks[0].canvas).pixels.size).toBe(pixels);expect(saved.masks[0].content).toBe(true);
+ view.rerender(<I18nProvider><StudioImageEditor key="other" ref={ref} source={{...source,src:'other.png'}} layers={[]} onLayers={vi.fn()} maskMode onMask={onMask} onInsert={vi.fn()} snapshot={saved}/></I18nProvider>);
+ expect(onMask).toHaveBeenLastCalledWith(false);expect(ref.current!.imageEdited()).toBe(false);
+});
+
+test('restored layer paint is cloned into live ownership',()=>{
+ const paint=document.createElement('canvas');paint.width=16;paint.height=16;context(paint).pixels.add(10);
+ const cached={...a,paint},live=copyImageLayer(cached);
+ expect(live.paint).not.toBe(cached.paint);expect([...context(live.paint!).pixels]).toEqual([10]);
+ context(live.paint!).clearRect();expect([...context(cached.paint).pixels]).toEqual([10]);
+});
+
+test.each(['draft','source','unmount','unchanged'] as const)('pending wand is fenced by %s changes',async change=>{
+ let resolve!:(value:{blob:()=>Promise<Blob>})=>void;
+ vi.stubGlobal('fetch',vi.fn(()=>new Promise(done=>{resolve=done;})));
+ vi.stubGlobal('createImageBitmap',async()=>({close:vi.fn()}));
+ vi.stubGlobal('ImageData',class{data:Uint8ClampedArray;constructor(public width:number,public height:number){this.data=new Uint8ClampedArray(width*height*4);}});
+ const getData=vi.spyOn(HTMLCanvasElement.prototype,'getContext');
+ getData.mockImplementation(function(this:HTMLCanvasElement){const c=context(this);return {...c,getImageData:()=>({...c.getImageData(),width:this.width,height:this.height})} as unknown as CanvasRenderingContext2D;});
+ const ref=createRef<EditorHandle>(),onMask=vi.fn();
+ const ui=(generation:number,src=source.src)=><I18nProvider><StudioImageEditor ref={ref} draftGeneration={generation} source={{...source,src}} layers={[]} onLayers={vi.fn()} maskMode onMask={onMask} onInsert={vi.fn()}/></I18nProvider>;
+ const view=render(ui(1));fireEvent.click(screen.getByRole('button',{name:'Magic wand'}));
+ pointer(document.querySelector('[data-editor-viewport]')!,'pointerdown',10,10);
+ expect(fetch).toHaveBeenCalledTimes(1);
+ if(change==='draft')view.rerender(ui(2));
+ if(change==='source')view.rerender(ui(1,'other.png'));
+ if(change==='unmount')view.unmount();
+ const calls=onMask.mock.calls.length;
+ await act(async()=>{resolve({blob:async()=>new Blob()});});
+ if(change==='unchanged')expect(ref.current!.capture().masks[0].content).toBe(true);
+ else{expect(onMask).toHaveBeenCalledTimes(calls);if(ref.current)expect(ref.current.capture().masks[0].content).toBe(false);}
+ vi.unstubAllGlobals();
 });
 
 test('restore frame resets the transformed base without clearing its painted mask',()=>{

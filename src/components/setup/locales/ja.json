@@ -1,4 +1,5 @@
 {
+  "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
   "setup.comfy.title": "ComfyUI ワークフローエディター",
   "setup.backendStarting": "起動中…",

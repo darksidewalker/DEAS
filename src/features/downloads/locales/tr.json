@@ -60,6 +60,7 @@
   "downloads.next": "Sonraki sayfaya göz at",
   "downloads.backendResource": "Backend kaynağı; indirilemez",
   "downloads.identity": "Kaynak kimliği",
+  "downloads.platform": "Platform",
   "downloads.source": "Kaynak",
   "downloads.scope.user": "Kullanıcı",
   "downloads.scope.repo": "Depo",

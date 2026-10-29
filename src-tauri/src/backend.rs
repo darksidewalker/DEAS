@@ -54,6 +54,8 @@ pub struct Status {
     pub generation_ready: bool,
     #[serde(skip)]
     pub(crate) output_root: Option<PathBuf>,
+    #[serde(skip)]
+    pub(crate) model_roots: Vec<PathBuf>,
 }
 impl Default for Status {
     fn default() -> Self {
@@ -63,6 +65,7 @@ impl Default for Status {
             error: None,
             generation_ready: false,
             output_root: None,
+            model_roots: vec![],
         }
     }
 }
@@ -228,6 +231,10 @@ impl Approved {
         {
             return Err("Approved backend is not executable".into());
         }
+        crate::install::validate_gguf_install(
+            &self.plan,
+            Path::new(&self.plan.request.storage_path),
+        )?;
         for (path, expected) in &self.identities {
             if identity(path)? != *expected {
                 return Err("Owned environment identity changed; re-provision required".into());
@@ -436,6 +443,7 @@ fn terminate(inner: &mut Inner) {
     inner.environment_lock = None;
     inner.status.endpoint = None;
     inner.status.output_root = None;
+    inner.status.model_roots.clear();
 }
 fn fail(inner: &mut Inner, error: String) {
     terminate(inner);
@@ -602,7 +610,7 @@ impl Lifecycle {
             }
             _ => return Err("Unsupported backend".into()),
         }
-        let folder_args = crate::settings::backend_args(root)?;
+        let (folder_args, model_roots) = crate::settings::backend_configuration(root)?;
         // Snapshot the exact argv, not settings that can change while this child runs.
         let output_root = folder_args
             .windows(2)
@@ -721,6 +729,7 @@ impl Lifecycle {
         inner.status = Status {
             state: "starting".into(),
             output_root: Some(output_root),
+            model_roots,
             ..Status::default()
         };
         log(&format!(

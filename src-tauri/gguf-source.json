@@ -1,0 +1,16 @@
+{
+  "revision": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+  "files": {
+    "__init__.py": "7ba473d8254a2867534565bb0b2ae194f1c55d5c2c00e30b6dbaf76be7d7a6b7",
+    "dequant.py": "215369438d96c372c09eb8701eec3c3b0348084c96dd3ea83872601ebed42017",
+    "loader.py": "ffff39d209ce22654e67378b80c6a3ca3d349cf8f00ec267085bd16e194730c2",
+    "nodes.py": "16be3b08b13de6279fc432addc628320019fcb24963cbc6b52b248de8f06316e",
+    "ops.py": "b927e24a7b00c181e9511900fb5afde45464793cf460e1d39a5e736ba093ce64",
+    "pyproject.toml": "05df17550e375d558e28f099f8ebf7b833835a97d47bf1a071b49a37a7a5b3fa",
+    "requirements.txt": "7f044de2d008cd7a4db54c27efc206327517bca4eb3e0f0835cf769b98d9de6c",
+    "tools/convert.py": "a55249b9eadd1f92ff32583784e31d52eafbdf059410a8abe0495e5e8cf6140d",
+    "tools/fix_5d_tensors.py": "a9368a0a5695903e48c53ed7f817384a86493347d602daa62a773483396a8d49",
+    "tools/fix_lines_ending.py": "67bce5c00f119694835b5feb4931ccb90eba972590aca77206752fcd6e2a397b",
+    "tools/read_tensors.py": "8edead4f867f3573518b9620157129f086a824c9a941f26adcf52db9b589098a"
+  }
+}

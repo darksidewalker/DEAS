@@ -68,6 +68,71 @@ struct Plan {
     graph: Value,
     consumed: bool,
     media_root: Option<job_outputs::MediaRoot>,
+    local_models: LocalModels,
+}
+
+#[derive(Clone, Default)]
+struct LocalModels {
+    roots: Vec<std::path::PathBuf>,
+    selected: Vec<(String, String)>,
+}
+
+pub(crate) fn is_gguf(name: &str) -> bool {
+    name.rsplit('.')
+        .next()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
+}
+
+pub(crate) fn validate_lora_format(name: &str) -> Result<(), String> {
+    // LoRA on quantized bases needs an execution-proven loader; not advertised yet.
+    if !name
+        .rsplit('.')
+        .next()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("safetensors"))
+    {
+        return Err(
+            "MODEL_FORMAT_UNSUPPORTED: LoRA files must be safetensors; GGUF LoRA is unsupported"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn clip_loader(name: &Value, kind: &Value) -> Value {
+    json!({"class_type":if is_gguf(name.as_str().unwrap_or_default()) {"CLIPLoaderGGUF"} else {"CLIPLoader"},"inputs":{"clip_name":name,"type":kind}})
+}
+
+pub(crate) fn dual_clip_loader(first: &Value, second: &Value, kind: &str) -> Value {
+    let gguf = [first, second]
+        .iter()
+        .any(|name| is_gguf(name.as_str().unwrap_or_default()));
+    json!({"class_type":if gguf {"DualCLIPLoaderGGUF"} else {"DualCLIPLoader"},"inputs":{"clip_name1":first,"clip_name2":second,"type":kind}})
+}
+
+impl LocalModels {
+    fn owned(engine: &crate::install::Engine, base: &str) -> Vec<std::path::PathBuf> {
+        let status = engine.backend.status();
+        if status.state == "running"
+            && status
+                .endpoint
+                .as_deref()
+                .and_then(|u| crate::validate_base_url(u).ok())
+                == crate::validate_base_url(base).ok()
+        {
+            status.model_roots
+        } else {
+            vec![]
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !self.roots.is_empty() {
+            for (field, name) in &self.selected {
+                crate::downloads::models::validate_selected(&self.roots, field, name)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Plan {
@@ -458,6 +523,12 @@ fn compile(i: &Value) -> Result<Value, String> {
     if !i["checkpoint"].as_str().is_some_and(comfy_model_name) {
         return Err("Unsafe checkpoint identifier".into());
     }
+    if is_gguf(i["checkpoint"].as_str().unwrap()) && diffusion.is_none() {
+        return Err("MODEL_FORMAT_UNSUPPORTED: GGUF requires a diffusion recipe with separate text encoder and VAE, not a self-contained checkpoint".into());
+    }
+    if diffusion.is_some_and(|d| is_gguf(d["vae"].as_str().unwrap_or_default())) {
+        return Err("MODEL_FORMAT_UNSUPPORTED: GGUF VAE is unsupported".into());
+    }
     if let Some(image) = image {
         if !image.as_str().is_some_and(model_name) {
             return Err("Unsafe input image identifier".into());
@@ -480,6 +551,13 @@ fn compile(i: &Value) -> Result<Value, String> {
         })
     {
         return Err("Invalid loras: at most 8 of {name, strength in [-10, 10]}".into());
+    }
+    for lora in loras {
+        validate_lora_format(lora["name"].as_str().unwrap())?;
+    }
+    // LoRA on a quantized base needs execution proof per pipeline; not advertised yet.
+    if !loras.is_empty() && is_gguf(i["checkpoint"].as_str().unwrap()) {
+        return Err("MODEL_FORMAT_UNSUPPORTED: LoRA on a GGUF base is not proven".into());
     }
     if reference.is_some_and(|r| {
         diffusion.is_some()
@@ -592,6 +670,7 @@ fn compile(i: &Value) -> Result<Value, String> {
     }) {
         return Err("Unsafe output prefix".into());
     }
+    let gguf = is_gguf(i["checkpoint"].as_str().unwrap());
     let mut graph = json!({
         "1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":i["checkpoint"]}},
         "2":{"class_type":"CLIPTextEncode","inputs":{"text":i["positivePrompt"],"clip":["1",1]}},
@@ -612,8 +691,12 @@ fn compile(i: &Value) -> Result<Value, String> {
         graph["3"]["inputs"]["text"] = json!(["WP", 1]);
     }
     if let Some(d) = diffusion {
-        graph["1"] = json!({"class_type":"UNETLoader","inputs":{"unet_name":i["checkpoint"],"weight_dtype":"default"}});
-        graph["C"] = json!({"class_type":"CLIPLoader","inputs":{"clip_name":d["textEncoder"],"type":d["clipType"]}});
+        graph["1"] = if gguf {
+            json!({"class_type":"UnetLoaderGGUF","inputs":{"unet_name":i["checkpoint"]}})
+        } else {
+            json!({"class_type":"UNETLoader","inputs":{"unet_name":i["checkpoint"],"weight_dtype":"default"}})
+        };
+        graph["C"] = clip_loader(&d["textEncoder"], &d["clipType"]);
         graph["V"] = json!({"class_type":"VAELoader","inputs":{"vae_name":d["vae"]}});
         (clip, vae) = (json!(["C", 0]), json!(["V", 0]));
     }
@@ -1192,7 +1275,17 @@ impl Jobs {
             .map_err(|_| "Native job state unavailable".into())
     }
 
-    async fn prepare(&self, base_url: String, mut intent: Value) -> Result<Value, String> {
+    #[cfg(test)]
+    async fn prepare(&self, base_url: String, intent: Value) -> Result<Value, String> {
+        self.prepare_with_models(base_url, intent, vec![]).await
+    }
+
+    async fn prepare_with_models(
+        &self,
+        base_url: String,
+        mut intent: Value,
+        roots: Vec<std::path::PathBuf>,
+    ) -> Result<Value, String> {
         let base = crate::validate_base_url(&base_url)?;
         // The segment-capture graph needs the pinned clip's frame count for its crop plan: read it
         // from the read-only session list before compiling; missing counts fail closed in compile.
@@ -1235,21 +1328,26 @@ impl Jobs {
             let mut required: Vec<(&str, Vec<&str>)> = if video {
                 crate::jobs_video::requirements(&intent)
             } else {
+                let gguf = is_gguf(intent["checkpoint"].as_str().unwrap());
                 vec![
                     (
                         if split {
-                            "diffusionModels"
+                            if gguf {
+                                "ggufDiffusionModels"
+                            } else {
+                                "diffusionModels"
+                            }
                         } else {
                             "checkpoints"
                         },
                         vec![intent["checkpoint"].as_str().unwrap()],
                     ),
                     (
-                        "textEncoders",
+                        if is_gguf(diffusion["textEncoder"].as_str().unwrap_or_default()) {"ggufTextEncoders"} else {"textEncoders"},
                         diffusion["textEncoder"].as_str().into_iter().collect(),
                     ),
                     (
-                        "clipTypes",
+                        if is_gguf(diffusion["textEncoder"].as_str().unwrap_or_default()) {"ggufClipTypes"} else {"clipTypes"},
                         diffusion["clipType"].as_str().into_iter().collect(),
                     ),
                     ("vaes", diffusion["vae"].as_str().into_iter().collect()),
@@ -1345,7 +1443,14 @@ impl Jobs {
                     return Err(format!("Diagnostic {field} are not available on this backend: {model}"));
                 }
             }
+            let mut local_models = LocalModels { roots, selected: vec![] };
             for (field, required) in required {
+                if matches!(
+                    field,
+                    "checkpoints" | "diffusionModels" | "ggufDiffusionModels" | "loras"
+                ) {
+                    local_models.selected.extend(required.iter().map(|name| (field.to_owned(), (*name).to_owned())));
+                }
                 let available = allow[field]
                     .as_array()
                     .ok_or("Malformed native prerequisites")?;
@@ -1360,7 +1465,7 @@ impl Jobs {
                             "models/checkpoints",
                             "models/diffusion_models",
                         )),
-                        "diffusionModels" => Some((
+                        "diffusionModels" | "ggufDiffusionModels" => Some((
                             "checkpoints",
                             "models/diffusion_models",
                             "models/checkpoints",
@@ -1382,6 +1487,7 @@ impl Jobs {
                     ));
                 }
             }
+            local_models.validate()?;
             let plan = Plan {
                 id: id.clone(),
                 base,
@@ -1389,6 +1495,7 @@ impl Jobs {
                 graph,
                 consumed: false,
                 media_root: None,
+                local_models,
             };
             let mut session = self.lock()?;
             if session.preparing.as_deref() != Some(id.as_str()) {
@@ -1448,6 +1555,7 @@ impl Jobs {
             if plan.consumed {
                 return Err("This native plan was already submitted; retries are forbidden".into());
             }
+            plan.local_models.validate()?;
             plan.consumed = true;
             let job = Job {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -1477,6 +1585,16 @@ impl Jobs {
         };
         // Connect before POST so this client's progress/preview frames are not missed.
         watch(&job.plan.base, &job.client_id, job.live.clone()).await;
+        // The observer connection yields: never submit a declaration invalidated during that gap.
+        if let Err(error) = job.plan.local_models.validate() {
+            job.state = "failed";
+            job.error = Some(error.clone());
+            job.submitting = false;
+            job.stop_observer_if_terminal();
+            self.3.observe(&job);
+            self.lock()?.job = Some(job);
+            return Err(error);
+        }
         let result = request(
             &client,
             &job.plan.base,
@@ -1886,10 +2004,12 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
 #[tauri::command]
 pub async fn native_job_prepare(
     state: tauri::State<'_, Jobs>,
+    engine: tauri::State<'_, crate::install::Engine>,
     base_url: String,
     intent: Value,
 ) -> Result<Value, String> {
-    state.prepare(base_url, intent).await
+    let roots = LocalModels::owned(&engine, &base_url);
+    state.prepare_with_models(base_url, intent, roots).await
 }
 #[tauri::command]
 pub async fn native_job_submit(

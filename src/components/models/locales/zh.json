@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "编辑元数据…",
+  "modelMeta.filename": "文件名",
+  "modelMeta.path": "完整路径",
+  "modelMeta.detected": "自动检测的模型系列",
+  "modelMeta.declared": "用户声明的模型系列",
+  "modelMeta.none": "未覆盖",
+  "modelMeta.unknown": "未知",
+  "modelMeta.family": "模型系列",
+  "modelMeta.save": "保存",
+  "modelMeta.reset": "重置为自动检测",
+  "modelMeta.cancel": "取消",
+  "modelMeta.unsupported": "此模型类别不支持编辑模型系列。",
+  "modelMeta.help": "用户声明不代表已验证的检测结果，也不会添加加载器或管线支持。仅保存本地元数据。",
+  "modelMeta.error": "无法保存模型元数据，请重试。",
+  "modelMeta.invalid": "无效的模型元数据会阻止生成。请重置或保存有效的模型系列。",
+  "modelMeta.format": "当前加载器不支持此文件格式。"
+}

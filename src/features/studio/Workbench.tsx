@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { backendErrorText } from '../../lib/backendErrors';
-import { browseDownloads, planDownloads, startDownloads, type DownloadStatus } from '../../lib/downloads';
+import { type DownloadStatus } from '../../lib/downloads';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
+import { isGguf, clipLoaderName, nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, latentUpscaleSize, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { RunPlan } from './RunPlan';
@@ -13,13 +13,14 @@ import { ReferencesOverlay } from './ReferencesOverlay';
 import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource, type ContinuityPlan } from '../../lib/continuity';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
+import { ModelMetadataTarget, ModelDeclaredBadge, useModelMetadataUpdates } from '../../components/models/ModelMetadataEditor';
 import { componentFiles, defaultComponentOverrides, isComponentOverrides, type ComponentFamily, type ComponentSlot } from '../../lib/modelComponents';
 import { ComponentPicker } from './ComponentPicker';
 import { ReferencePeople, type FramePeople, directorTags, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
 import { dragItem, draggedItem, MEDIA_DRAG, MEDIA_IMAGE_DRAG, relativeMediaPath, relocatedJob, relocatedMediaItem, type MediaItem, type MediaRelocation } from '../../lib/media';
-import { isBoolean, isString, oneOf, readPref, usePref, PreferencePersistenceContext, resetStudioPreferences } from '../../lib/preferences';
+import { isBoolean, isString, oneOf, readPref, usePref, PreferencePersistenceContext, resetStudioPreferences, captureStudioSettings, applyStudioSettings } from '../../lib/preferences';
 import { ProjectBar } from '../projects/ProjectBar';
 import type { ImageDraft, ProjectSnapshot } from '../../lib/projects';
 import { JobOutputPreview } from './JobOutputPreview';
@@ -33,7 +34,7 @@ import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
-import { StudioImageEditor, type EditorHandle } from './StudioImageEditor';
+import { StudioImageEditor, copyImageLayer, type EditorHandle, type EditorSnapshot } from './StudioImageEditor';
 import { ImageViewer } from './ImageViewer';
 import { StarMediaButton } from '../media/StarMediaButton';
 import { CompareView } from './CompareView';
@@ -64,6 +65,9 @@ const defaultVideo:VideoPref={seconds:5,fps:24,passes:1,upscaler:'',shiftHigh:5,
 const isVideoPref=(v:unknown):v is VideoPref=>{const o=v as VideoPref;return !!o&&typeof o==='object'&&Object.keys(defaultVideo).every(k=>typeof (o as unknown as Record<string,unknown>)[k]===typeof (defaultVideo as unknown as Record<string,unknown>)[k])&&[1,2,3].includes(o.passes);};
 const families=new Map((builtinFamilies as Family[]).map(f=>[f.id,f]));
 const modelCategories=['checkpoints','diffusion_models','unet'];
+const supportedModelFormat=(m:LocalModel)=>/\.(safetensors|sft|ckpt|pt|pth|gguf)$/i.test(m.name);
+// LoRAs stay safetensors-only: a GGUF LoRA needs a proven LoRA loader first.
+const supportedLoraFormat=(m:LocalModel)=>/\.safetensors$/i.test(m.name);
 type Lora={name:string;strength:number};
 const isLoras=(v:unknown):v is Lora[]=>Array.isArray(v)&&v.every(l=>l&&typeof l.name==='string'&&typeof l.strength==='number');
 const isNumber=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
@@ -123,12 +127,15 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [dockType,setDockType]=usePref<MediaType>('studio.dock.type','all',oneOf(...mediaTypes));
  const [query,setQuery]=useState('');
  const [models,setModels]=useState<LocalModel[]|null>(null);
+ useModelMetadataUpdates(setModels);
  const [working,setBusy]=useState(false);const [scanning,setScanning]=useState(false);const busy=working||scanning;const [error,setError]=useState('');
  const [positive,setPositive]=usePref('studio.run.positive','',isString);
  const [negative,setNegative]=usePref('studio.run.negative','',isString);
  const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
  const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
  const [checkpointPref,setCheckpoint]=usePref('studio.run.checkpoint','',isString);
+ const [modelIdentity,setModelIdentity]=useState('');
+ const identity=(m:LocalModel)=>JSON.stringify([m.category,m.path,m.name]);
  const [loras,setLoras]=usePref<Lora[]>('studio.run.loras',[],isLoras);
  // Prompt pictures share attachment UI; only ReVision uses a strength and vision model.
  const [imageRefs,setImageRefs]=useState<{item:MediaItem;strength:number}[]>([]);
@@ -177,6 +184,13 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [ltxLatent,setLtxLatent]=usePref('studio.run.latent.ltx',defaultLatent,isLatentPref);
  const [latentDownload,setLatentDownload]=useState<VideoFamily|null>(null);
  const latentDialog=useRef<HTMLDialogElement>(null);
+ const [visionDownload,setVisionDownload]=useState(false);
+ const visionDialog=useRef<HTMLDialogElement>(null);
+ const latentIds=useMemo(()=>latentDownload==='minimax-h3'?['h3-latent-upscaler','h3-latent-upscaler-civitai']:latentDownload?['ltx-latent-upscaler','ltx-latent-upscaler-civitai']:[],[latentDownload]);
+ const visionIds=useMemo(()=>['clip-vision-revision','clip-vision-revision-civitai'],[]);
+ const visionDownloadStatus=(status:DownloadStatus)=>{if(status.state==='succeeded')void refreshChoices();};
+ const closeVisionDownload=()=>{setVisionDownload(false);void refreshChoices();};
+ useEffect(()=>{if(!visionDownload)return;const dialog=visionDialog.current!;dialog.showModal();return()=>{if(dialog.open)dialog.close();};},[visionDownload]);
  const capabilityEpoch=useRef(0);
  const refreshChoices=useCallback(async(report=true)=>{const revision=++capabilityEpoch.current;try{const value=await checkRecipePrerequisites(endpoint);if(live.current&&revision===capabilityEpoch.current)setChoices(value.allowlist);}catch(e){if(report&&live.current&&revision===capabilityEpoch.current)setError(backendErrorText(e,t));}},[endpoint,t]);
  const latentDownloadStatus=useCallback((status:DownloadStatus)=>{if(status.state==='succeeded')void refreshChoices();},[refreshChoices]);
@@ -214,7 +228,7 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [maskBlur,setMaskBlur]=usePref('studio.run.maskBlur',4,isMaskBlur);
  const [masked,setMasked]=useState(false);
  const editorRef=useRef<EditorHandle>(null);
- const sourceEpoch=useRef(0);
+ const sourceEpoch=useRef(0);const draftEpoch=useRef(0);
  const [strength,setStrength]=edit==='inpaint'?[inpaintDenoise,setInpaintDenoise]:[denoise,setDenoise];
  // Source image of each edit job, for the original/edited split view.
  const [sources,setSources]=useState<Record<string,MediaItem>>({});const [slider,setSlider]=useState(false);
@@ -227,7 +241,6 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
 // shortcut: webkit-injected File.path only exists in Tauri; upgrade when Tauri's onDragDropEvent lands.
 const droppedImage=(dt:DataTransfer):MediaItem|null=>{const f=dt.files?.[0] as (File&{path?:string})|undefined;return f?.path&&MEDIA_IMAGE_RE.test(f.name)?{name:f.name,path:f.path,media:'image',src:convertFileSrc(f.path)}:null;};
 const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(false);};
- const dlVision=async():Promise<boolean>=>{if(!native||!modelsDir||!endpoint.trim())return false;try{const l=await browseDownloads({providerId:'huggingface',scope:'repo',locator:'models:comfyanonymous/clip_vision_g',authenticated:false});const res=l.resources.find(r=>r.downloadable&&/clip_vision_g\.safetensors/.test(r.label));if(!res)return false;const p=await planDownloads({providerId:'huggingface',resources:[res],parentPath:modelsDir,folderName:'clip_vision',authenticated:false});if(!p.canExecute)return false;await startDownloads(p.id);if(live.current){const e=await checkRecipePrerequisites(endpoint);if(live.current)setChoices(e.allowlist);}return true;}catch(e){window.alert(backendErrorText(e,t));return false;}};
  useEffect(()=>{live.current=true;return()=>{live.current=false;preparationGeneration.current++;};},[]);
  // A native <select> opens synchronously on the first click; a list fetched on that click only shows on the second one.
  useEffect(()=>{setChoices(null);setLatentDownload(null);if(native&&endpoint.trim())void refreshChoices(false);return()=>{capabilityEpoch.current++;};},[native,endpoint,modelsDir,root]);
@@ -256,7 +269,12 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const lowOf=(m:LocalModel,f?:Family)=>{const [hi,lo]=f?.video?.lowModel??[];if(!hi||!lo)return '';const low=m.name.replace(new RegExp(hi,'i'),x=>x===x.toUpperCase()?lo.toUpperCase():lo);return low!==m.name&&(models??[]).some(x=>x.name===low&&x.category===m.category)?low:'';};
  // Unknown checkpoints stay usable (self-contained loader, like SwarmUI); everything else must be a known family with a recipe for the pipeline.
  const blocked=(m:LocalModel,p:Pipeline):string=>{
+ if(m.metadataError)return 'modelMeta.invalid';
+ if(!supportedModelFormat(m))return 'modelMeta.format';
+ // LoRA on a quantized base needs execution proof per pipeline; not advertised.
+ if(/\.gguf$/i.test(m.name)&&loras.length)return 'studio.run.gguf.lora';
  const f=familyOf(m);
+ if(isGguf(m.name)&&(!f||f.loader!=='diffusion'))return f?'studio.run.gguf.checkpoint':'studio.run.family.unknown';
  if(!f)return m.category==='checkpoints'&&(p==='t2i'||p==='i2i')?'':'studio.run.family.unknown';
  if(f.loader==='diffusion'&&m.category==='checkpoints')return 'studio.run.family.diffusionFolder';
  if(f.loader==='checkpoint'&&m.category!=='checkpoints')return 'studio.run.family.checkpointFolder';
@@ -288,12 +306,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const inputImage=comfyName(media)||(projectInput?projectInput.id+'.png':'');
  // Extra images pasted onto the source (SwarmUI editor image layers), in source pixels; they belong to one source.
  const [layers,setLayers]=useState<ImageLayer[]>([]);
+ const [editorSnapshot,setEditorSnapshot]=useState<EditorSnapshot>();
  // Explicit selections belong to the currently selected backend namespace and
  // input root. A context change invalidates them; returning does not rebind them.
  useLayoutEffect(()=>{
   if(!historyDraft||historySelectionContext===historyInputContext)return;
   setHistorySelectionContext(historyInputContext);setHistorySourceSelected(false);
-  sourceEpoch.current++;setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);setLastFrame(null);
+  sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);setLastFrame(null);
   setImageRefs(values=>values.map(ref=>({...ref,item:{name:ref.item.name,media:'image',src:''}})));
  },[historyDraft,historySelectionContext,historyInputContext]);
  // Image pipelines stay clickable without an input; the missing picture only greys Run and names what to pick.
@@ -308,7 +327,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const aspect=aspectPref==='auto'&&!mediaPipeline?'1:1':aspectPref;
  // Remembered picks are only valid while the folder still holds them and they fit the pipeline.
  const usable=allModels.filter(m=>!blocked(m,pipeline));
- const model=checkpointPref?usable.find(m=>m.name===checkpointPref):usable[0];
+ const model=checkpointPref?(modelIdentity?usable.find(m=>m.name===checkpointPref&&identity(m)===modelIdentity):usable.find(m=>m.name===checkpointPref)):usable[0];
  const checkpoint=model?.name??'';
  const family=familyOf(model);
  const resolution=resolutionPref==='model'&&!family?.defaults?'fixed':resolutionPref;
@@ -379,6 +398,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(imageRefs.length&&!referenceMethod?[t('studio.run.reference.inactive')]:[]),
   ...(imageRefs.length&&referenceMethod?(!choices?[t('studio.run.opt.unread')]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:[promptEncoder,'LoadImage',...(qwenRefs?['ImageScale']:[])]).filter(n=>!choices.nodes.includes(n))):[]),
   ...(models?loras.filter(l=>!loraNames.includes(l.name)).map(l=>`LoRA: ${l.name}`):[]),
+ ...loraModels.filter(m=>(m.metadataError||!supportedLoraFormat(m))&&loras.some(l=>l.name===m.name)).map(m=>`${t(m.metadataError?'modelMeta.invalid':'modelMeta.format')} LoRA: ${m.name}`),
   ...(split&&!split.encoders.includes(textEncoder)?[textEncoder||t('studio.run.textEncoder')]:[]),
   ...(split&&!split.vaes.includes(vae)?[vae||t('studio.run.vae')]:[]),
   ...(split&&isVideo&&family?.audioVaes&&!split.audioVaes.includes(audioVae)?[audioVae||t('studio.run.video.audioVae')]:[]),
@@ -391,6 +411,28 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    ...(optionsPref.cache&&!options?.cache?[optionsPref.cache]:[]),...(optionsPref.compile&&!options?.compile?[optionsPref.compile]:[]),
    ...(optionsPref.vae==='tiled'&&!options?.vaeTile?['VAEDecodeTiled']:[])]:[])
  ];
+ const lowModel=isVideo&&model?lowOf(model,family):'';
+ const lowMetadata=lowModel&&(models??[]).find(m=>m.name===lowModel&&m.category===model?.category)?.metadataError;
+ if(lowMetadata)unavailable.push(`${t('modelMeta.invalid')} ${lowModel}`);
+ if([checkpoint,textEncoder,lowModel].some(isGguf)){
+  if(!choices)unavailable.push(t('studio.run.opt.unread'));
+  else {
+   const dual=videoFamily==='ltx-2'&&isVideo;
+   const quantizedEncoder=isGguf(textEncoder);
+   const loader=clipLoaderName(textEncoder,dual);
+   const encoders=quantizedEncoder?(dual?choices.ggufDualTextEncoders:choices.ggufTextEncoders):choices.textEncoders;
+   const types=quantizedEncoder?(dual?choices.ggufDualClipTypes:choices.ggufClipTypes):choices.clipTypes;
+   for(const name of [checkpoint,lowModel].filter(Boolean)){
+    const node=isGguf(name)?'UnetLoaderGGUF':'UNETLoader';
+    if(!choices.nodes.includes(node))unavailable.push(node);
+    if(!(isGguf(name)?choices.ggufDiffusionModels:choices.diffusionModels)?.includes(name))unavailable.push(name);
+   }
+   for(const node of [loader,'VAELoader'])if(!choices.nodes.includes(node))unavailable.push(node);
+   for(const name of [textEncoder,...(dual?[textProjection]:[])].filter(Boolean))if(!encoders?.includes(name))unavailable.push(name);
+   for(const name of [vae,...(isVideo&&family?.audioVaes?[audioVae]:[])].filter(Boolean))if(!choices.vaes?.includes(name))unavailable.push(name);
+   if(family?.clipType&&!types?.includes(family.clipType))unavailable.push(`${loader}: ${family.clipType}`);
+  }
+ }
  const source=mediaSize&&mediaSize.src===media?.src?mediaSize:undefined;
  const modelSize=family?.defaults??{width:1024,height:1024};
  // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
@@ -409,8 +451,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  if(moss){
   // Check this variant's emitted nodes, not the checkpoint diagnostic's missingNodes.
   const saver=['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig'].every(n=>choices?.nodes.includes(n))?['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']:['SaveImage'];
-  const required=['UNETLoader','CLIPLoader','VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
-  unavailable.push(...(!choices?[t('studio.run.opt.unread')]:[...required.filter(n=>!choices.nodes.includes(n)),...(!choices.clipTypes?.includes('moss_image')?['CLIPLoader: moss_image']:[])]));
+  const required=[isGguf(checkpoint)?'UnetLoaderGGUF':'UNETLoader',clipLoaderName(textEncoder),'VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
+  unavailable.push(...(!choices?[t('studio.run.opt.unread')]:[...required.filter(n=>!choices.nodes.includes(n)),...(!(isGguf(textEncoder)?choices.ggufClipTypes:choices.clipTypes)?.includes('moss_image')?[`${clipLoaderName(textEncoder)}: moss_image`]:[])]));
  }
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
@@ -680,16 +722,17 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   finally{stopLock.current=false;if(live.current)setStopping(false);}
  }
  // Picking media on the strip takes over the preview until the next job is selected.
- const select=(item:MediaItem)=>{if(historyDraft)setHistorySourceSelected(true);setBrowsed(null);setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setMedia(item);setLayers([]);setMasked(false);};
+ const select=(item:MediaItem)=>{if(historyDraft)setHistorySourceSelected(true);setBrowsed(null);setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(item);setLayers([]);setMasked(false);};
  // A dock tile dropped on the editor becomes a layer at its original size, centred on the drop point (image-to-image only).
  const insertLayer=(item:MediaItem,at:{x:number;y:number})=>{
   if(!source||!media)return;
   const name=comfyName(item),version=sourceEpoch.current;
   if(!name||item.media!=='image'||layers.length>=4){setError(t('studio.run.edit.insertHint'));return;}
-  if(pipeline!=='i2i'){setEdit('resample');setPipeline('i2i');}
+  if(pipeline!=='i2i'){pickPipeline('i2i',true);setEdit('resample');}
+  const draftVersion=draftEpoch.current;
   const probe=new Image();
   probe.onload=()=>{
-   if(!live.current||sourceEpoch.current!==version)return;
+   if(!live.current||sourceEpoch.current!==version||draftEpoch.current!==draftVersion)return;
    if(!(probe.naturalWidth>0&&probe.naturalHeight>0)){setError(t('studio.editor.insertFailed'));return;}
    const scale=Math.min(1,8192/probe.naturalWidth,8192/probe.naturalHeight); // original pixel size, capped at the 8192 px layer limit
    const width=Math.max(8,Math.round(probe.naturalWidth*scale)),height=Math.max(8,Math.round(probe.naturalHeight*scale));
@@ -697,7 +740,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const layer:ImageLayer={id:crypto.randomUUID(),name,src:item.src,visible:true,width,height,x:Math.max(1-width,Math.min(source.width-1,Math.round(cx-width/2))),y:Math.max(1-height,Math.min(source.height-1,Math.round(cy-height/2)))};
    setLayers(list=>list.length>=4?list:[...list,layer]);
   };
-  probe.onerror=()=>{if(live.current&&sourceEpoch.current===version)setError(t('studio.editor.insertFailed'));};
+  probe.onerror=()=>{if(live.current&&sourceEpoch.current===version&&draftEpoch.current===draftVersion)setError(t('studio.editor.insertFailed'));};
   probe.src=item.src;
  };
  // The shared shell owns viewport sizing; observe this pane only to bound dock resizing.
@@ -746,10 +789,10 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   setBrowsed(null);
   setSelectedJob(j.id);const from=sources[j.id];
   if(!from||media?.src===from.src||(media&&(masked||layers.length>0||editorRef.current?.imageEdited())))return;
-  sourceEpoch.current++;setMedia(from);setLayers([]);setMasked(false);
-  if(j.intent&&!isVideoIntent(j.intent)&&j.intent.inputImage){setPipeline('i2i');setEdit(j.intent.inputMask?'inpaint':'resample');}
+  if(j.intent&&!isVideoIntent(j.intent)&&j.intent.inputImage){pickPipeline('i2i',true);setEdit(j.intent.inputMask?'inpaint':'resample');}else rememberDraft();
+  sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(from);setLayers([]);setMasked(false);setSelectedJob(j.id);
  };
- const closePreview=()=>{if(browsed){setBrowsed(null);return;}setSelectedJob('');sourceEpoch.current++;setMedia(null);setLayers([]);setMasked(false);};
+ const closePreview=()=>{if(browsed){setBrowsed(null);return;}setSelectedJob('');sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(null);setLayers([]);setMasked(false);};
  const pairedOriginal=shown?.outputs.find(o=>o.role==='original');
  const pairedProcessed=shown?.outputs.find(o=>o.role==='processed');
  const originalItem=shown?sources[shown.id]:undefined;
@@ -822,7 +865,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
  const togglePromptRef=(item:MediaItem&{path:string})=>{const at=imageRefs.findIndex(r=>r.item.path===item.path);if(at>=0){setImageRefs(v=>v.filter((_,j)=>j!==at));return;}
   setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);
-  if(revisionOk&&native&&!(choices?.visionModels?.length??0)&&window.confirm(t('studio.run.reference.dlAsk')))void dlVision();};
+  if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);};
  const mediaActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
   :referenceMethod&&item.media==='image'&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=4&&t('studio.run.reference.max',{count:imageRefs.length,max:4}))||undefined}]
   :pipeline==='i2v'&&item.media==='image'?[{label:t('studio.run.useInput'),onClick:()=>select(item)}]
@@ -846,7 +889,7 @@ const promptTools=forgeContext&&<>
  {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
  const tools=(item:MediaItem,showStar=true)=><div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
   <button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>
-  {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{select(item);setEdit(m);setPipeline('i2i');}}>{t(`studio.run.edit.${m}`)}</button>)}
+  {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);setEdit(m);}}>{t(`studio.run.edit.${m}`)}</button>)}
  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
   {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;const metaOff=off||!item.path;return only&&<details ref={moreRef} className="wb-more" open={moreOpen} onToggle={e=>{if(e.currentTarget.open!==moreOpen)setMoreOpen(e.currentTarget.open);}}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreOpen(!moreOpen);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
    <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>selectMoreAction(true,()=>void run(only))}>{t('studio.run.post.refine')}</button>
@@ -860,12 +903,62 @@ const promptTools=forgeContext&&<>
   {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
   {showStar&&<StarMediaButton item={item}/>}
  </div>;
+ const modelValue=(m:LocalModel)=>allModels.filter(other=>other.name===m.name).length>1?identity(m):m.name;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
- // Picking a model applies its family's starting settings (SwarmUI: per-class defaults).
- const pickModel=(m:LocalModel)=>{setCheckpoint(m.name);setResolution('model');const d=familyOf(m)?.defaults;if(d){setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);}};
+ // Session drafts are independent of persisted global defaults and immutable submitted jobs.
+ const scope=JSON.stringify([root,modelsDir,extraModelsKey,endpoint,roots.input,outputDir,project?.id]);
+ const captureDraft=()=>{
+  const settings=captureStudioSettings();
+  for(const key of ['studio.run.checkpoint','studio.run.pipeline','studio.run.brush'])delete settings[key];
+  return {settings,media,mediaSize,layers:layers.map(copyImageLayer),editor:editorRef.current?.capture()??editorSnapshot,masked,lastFrame,imageRefs,refs,refmods,framePeople,historyDraft,historySelectionContext,historySourceSelected};
+ };
+ const drafts=useRef(new Map<string,ReturnType<typeof captureDraft>>());
+ const pipelineModels=useRef(new Map<string,string>());
+ const draftKey=(p:Pipeline,m:LocalModel)=>JSON.stringify([scope,p,identity(m)]);
+ const outgoingDraft=useRef<{scope:string;pipeline:Pipeline;model:LocalModel;capture:typeof captureDraft}|null>(null);
+ const activeScope=useRef(scope),explicitScopeRestore=useRef(false);
+ const rememberDraft=()=>{const outgoing=outgoingDraft.current;if(outgoing){drafts.current.set(JSON.stringify([outgoing.scope,outgoing.pipeline,identity(outgoing.model)]),outgoing.capture());pipelineModels.current.set(JSON.stringify([outgoing.scope,outgoing.pipeline]),identity(outgoing.model));}};
+ useLayoutEffect(()=>{
+  if(activeScope.current!==scope){
+   rememberDraft();draftEpoch.current++;outgoingDraft.current=null;activeScope.current=scope;
+   if(!explicitScopeRestore.current){
+    const previous=pipelineModels.current.get(JSON.stringify([scope,pipeline]));
+    setModelIdentity(previous??modelIdentity);
+    if(previous){
+     setCheckpoint((JSON.parse(previous) as string[])[2]);
+     const saved=drafts.current.get(JSON.stringify([scope,pipeline,previous]));
+     if(saved){applyDraft(saved);if(saved.historyDraft)setHistorySelectionContext('');} // Returning never rebinds explicit history sources.
+    }
+   }
+   explicitScopeRestore.current=false;return;
+  }
+  explicitScopeRestore.current=false;
+  if(model)outgoingDraft.current={scope,pipeline,model,capture:captureDraft};
+  else if(outgoingDraft.current?.scope===scope)outgoingDraft.current.capture=captureDraft;
+ });
+ const startingSettings=(m:LocalModel)=>{setResolution('model');const d=familyOf(m)?.defaults;if(d){setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);}};
+ const switchDraft=(p:Pipeline,m:LocalModel,defaults=false,keepSource=false)=>{
+  if(p===pipeline&&model&&identity(m)===identity(model)){setCheckpoint(m.name);setModelIdentity(identity(m));if(!checkpointPref&&defaults)startingSettings(m);return;}
+  rememberDraft();draftEpoch.current++;setPipeline(p);setCheckpoint(m.name);setModelIdentity(identity(m));
+  const saved=drafts.current.get(draftKey(p,m));
+  if(saved)applyDraft(saved,keepSource);else if(defaults)startingSettings(m);
+ };
+ const applyDraft=(saved:ReturnType<typeof captureDraft>,keepSource=false)=>{
+  if(!applyStudioSettings(saved.settings))return;
+  if(!keepSource){sourceEpoch.current++;setMedia(saved.media);setMediaSize(saved.mediaSize);setLayers(saved.layers.map(copyImageLayer));setEditorSnapshot(saved.editor);setMasked(saved.masked);}
+  setLastFrame(saved.lastFrame);setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setFramePeople(saved.framePeople);
+  setHistoryDraft(saved.historyDraft);setHistorySelectionContext(saved.historySelectionContext);setHistorySourceSelected(saved.historySourceSelected);
+  setBrowsed(null);setSelectedJob('');
+ };
+ const pickModel=(m:LocalModel)=>switchDraft(pipeline,m,true);
+ const pickPipeline=(p:Pipeline,keepSource=false)=>{
+  const previous=pipelineModels.current.get(JSON.stringify([scope,p]));
+  const next=allModels.find(m=>identity(m)===previous&&!blocked(m,p))??(model&&!blocked(model,p)?model:allModels.find(m=>!blocked(m,p)));
+  if(next)switchDraft(p,next,!model||identity(next)!==identity(model),keepSource);else setPipeline(p);
+ };
  useEffect(()=>{
   const layout=()=>{dragCleanup.current();setSettingsWidth(defaultLayout.settings);setQueueWidth(defaultLayout.queue);setDockHeight(defaultLayout.dock);};
-  const defaults=()=>{if(!window.confirm(t(project?'studio.quick.confirmProject':'studio.quick.confirm')))return;resetStudioPreferences();setResolution('model');const first=allModels.find(m=>!blocked(m,'t2i'));if(first)pickModel(first);};
+  const defaults=()=>{if(!window.confirm(t(project?'studio.quick.confirmProject':'studio.quick.confirm')))return;drafts.current.clear();pipelineModels.current.clear();draftEpoch.current++;resetStudioPreferences();setResolution('model');const first=allModels.find(m=>!blocked(m,'t2i'));if(first){setCheckpoint(first.name);setModelIdentity(identity(first));startingSettings(first);}};
   window.addEventListener('deas:reset-studio-layout',layout);window.addEventListener('deas:request-studio-defaults',defaults);
   return()=>{window.removeEventListener('deas:reset-studio-layout',layout);window.removeEventListener('deas:request-studio-defaults',defaults);};
  });
@@ -876,6 +969,7 @@ const promptTools=forgeContext&&<>
  // Explicit "use these settings": only values the metadata carries; a model/LoRA is picked only if this folder holds it (by full name, else by basename). Returns what was skipped.
  const base=(n:string)=>shortName(n).toLowerCase();
  const applySettings=(s:GenerationSettings):string[]=>{
+  rememberDraft();
   const skipped=[...(s.skipped??[])];
   setWildcardEnabled(!!s.wildcard&&isWildcardRules(s.wildcard));
   if(s.wildcard&&isWildcardRules(s.wildcard))setWildcard(structuredClone(s.wildcard));
@@ -886,7 +980,7 @@ const promptTools=forgeContext&&<>
    if(!value)continue;if(list&&!list.includes(value))skipped.push(`${t(key==='sampler'?'studio.recipe.sampler':'studio.recipe.scheduler')}: ${value}`);else set(value);
   }
   if(s.width&&s.height){setWidth(s.width);setHeight(s.height);setResolution('fixed');}
-  if(s.checkpoint){const found=allModels.find(m=>m.name===s.checkpoint)??allModels.find(m=>base(m.name)===base(s.checkpoint!));if(found)setCheckpoint(found.name);else skipped.push(`${t('studio.run.checkpoint')}: ${s.checkpoint}`);}
+  if(s.checkpoint){const found=allModels.find(m=>m.name===s.checkpoint)??allModels.find(m=>base(m.name)===base(s.checkpoint!));if(found){draftEpoch.current++;setCheckpoint(found.name);setModelIdentity(identity(found));}else skipped.push(`${t('studio.run.checkpoint')}: ${s.checkpoint}`);}
   if(s.loras)setLoras(s.loras.flatMap(l=>{const m=loraModels.find(x=>x.name===l.name)??loraModels.find(x=>base(x.name)===base(l.name));if(!m)skipped.push(`LoRA: ${l.name}`);return m?[{name:m.name,strength:l.strength}]:[];}));
   return skipped;
  };
@@ -902,6 +996,7 @@ const promptTools=forgeContext&&<>
   setMoreResult(skipped.length?t('studio.run.metadata.skipped',{items:skipped.join(' · ')}):t('studio.run.metadata.applied'));
  };
  const restoreHistory=(value:HistoryRestore)=>{
+  rememberDraft();draftEpoch.current++;setModelIdentity('');setEditorSnapshot(undefined);
   const intent=value.intent;
   // Use the same setters as ordinary authoring: an open project keeps its normal
   // autosave and unsaved-close protection. Native jobs and the queue are untouched.
@@ -935,7 +1030,7 @@ const promptTools=forgeContext&&<>
    if(intent.refine){setPost(true);setPostTiled(!!intent.refine.tiled);setUpscale(intent.refine.width/intent.width);setRefineDenoise(intent.refine.denoise);setUpscaleModel(intent.refine.upscaleModel??'');}
   }
  };
- const tile=(m:LocalModel,pressed:boolean,onClick:()=>void,extra?:React.ReactNode,reason='')=><li key={`${m.category}/${m.name}`}><button type="button" aria-label={m.name} aria-pressed={pressed} disabled={!!reason} title={reason?t(reason):m.name} onClick={onClick}>{m.info?.civitai?.preview?<img src={m.info.civitai.preview} alt="" loading="lazy"/>:<span className="wb-thumb" aria-hidden="true">◆</span>}<span className="wb-tile-name">{shortName(m.name)}</span>{familyOf(m)&&<small className="wb-family">{familyOf(m)!.name}</small>}</button>{extra}</li>;
+ const tile=(m:LocalModel,pressed:boolean,onClick:()=>void,extra?:React.ReactNode,reason='')=><li key={identity(m)}><ModelMetadataTarget model={m}><button type="button" aria-label={m.name} aria-haspopup="menu" aria-keyshortcuts="Shift+F10" aria-pressed={pressed} aria-disabled={!!reason} title={reason?t(reason):m.name} onClick={()=>{if(!reason)onClick();}}>{m.info?.civitai?.preview?<img src={m.info.civitai.preview} alt="" loading="lazy"/>:<span className="wb-thumb" aria-hidden="true">◆</span>}<span className="wb-tile-name">{shortName(m.name)}</span>{familyOf(m)&&<small className="wb-family">{familyOf(m)!.name}</small>}<ModelDeclaredBadge model={m}/></button></ModelMetadataTarget>{extra}</li>;
  const pick=(id:string,value:string,list:readonly string[],set:(v:string)=>void,onFocus?:()=>void)=><label key={id} className="wb-field"><span>{t(id)}</span><select value={value} onFocus={onFocus} onPointerDown={onFocus} onChange={e=>set(e.target.value)}>{(list.includes(value)?list:[value,...list]).map(v=><option key={v} value={v}>{v}</option>)}</select></label>;
  const componentPick=(id:string,slot:ComponentSlot,value:string,list:readonly string[],set:(value:string)=>void)=><ComponentPicker key={slot} label={t(id)} value={value} automatic={recommended?.[slot][0]??''} files={list} all={componentOverrides[slot]} onAll={all=>setComponentOverrides({...componentOverrides,[slot]:all})} onChange={set}/>;
  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isVideo?'video':'image',seed,model:checkpoint});
@@ -944,6 +1039,7 @@ const promptTools=forgeContext&&<>
  const inputNotes=[...(inpaint?[t('studio.plan.mask',{blur:String(maskBlur),grow:String(maskGrow),crop:t(inpaintOnlyMasked?'studio.plan.yes':'studio.plan.no')})]:[]),...(pipeline==='i2i'&&layers.some(l=>l.visible)?[t('studio.plan.layersPending')]:[]),...(isVideo||imageRefs.length?[t('studio.plan.uploadPending')]:[])];
  const projectDraft:ImageDraft={positivePrompt:positive,negativePrompt:negative,checkpoint:project?checkpointPref:checkpoint,width:project&&!model?width:outputSize.width,height:project&&!model?height:outputSize.height,steps,cfg,sampler,scheduler,seed,denoise,pipeline:pipeline==='i2i'?'i2i':'t2i'};
  const restoreProject=(next:ProjectSnapshot|null)=>{
+  rememberDraft();outgoingDraft.current=null;explicitScopeRestore.current=true;draftEpoch.current++;setModelIdentity('');setEditorSnapshot(undefined);
   setHistoryDraft(null);
   const d=next?.draft??{positivePrompt:readPref('studio.run.positive','',isString),negativePrompt:readPref('studio.run.negative','',isString),checkpoint:readPref('studio.run.checkpoint','',isString),width:readPref('studio.run.width',1024,isNumber),height:readPref('studio.run.height',1024,isNumber),steps:readPref('studio.run.steps',20,isNumber),cfg:readPref('studio.run.cfg',5,isNumber),sampler:readPref('studio.run.sampler','euler',isString),scheduler:readPref('studio.run.scheduler','normal',isString),seed:readPref('studio.run.seed',0,isSeed),denoise:readPref('studio.run.denoise',0.6,isNumber),pipeline:readPref('studio.run.pipeline','t2i',oneOf(...pipelines))};
   onProject(next);setPositive(d.positivePrompt);setNegative(d.negativePrompt);setCheckpoint(d.checkpoint);setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);setSeed(d.seed);setDenoise(d.denoise);setPipeline(d.pipeline);
@@ -978,11 +1074,11 @@ const promptTools=forgeContext&&<>
   <div className="wb-body">
    <aside id="studio-settings" className="wb-side" style={{flexBasis:sideSize}}>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
-     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={pipeline} onChange={e=>{const id=e.target.value as Pipeline;setPipeline(id);if(!allModels.some(m=>m.name===checkpointPref&&!blocked(m,id))){const first=allModels.find(m=>!blocked(m,id));if(first)pickModel(first);}}}>{pipelines.map(id=>{const reason=why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
-     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={checkpointPref||checkpoint} value={checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>m.name===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
+     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={pipeline} onChange={e=>{pickPipeline(e.target.value as Pipeline);}}>{pipelines.map(id=>{const reason=why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
+     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
       {!checkpointPref&&!checkpoint&&<option value="" disabled>{t('studio.run.noModels')}</option>}
       {checkpointPref&&!allModels.some(m=>m.name===checkpointPref)&&<option value={checkpointPref} disabled>{checkpointPref}</option>}
-      {allModels.map(m=>{const reason=blocked(m,pipeline);return <option key={`${m.category}/${m.name}`} value={reason&&usable.some(other=>other.name===m.name)?'':m.name} disabled={!!reason} title={reason?t(reason):m.name}>{m.name}</option>;})}
+      {allModels.map(m=>{const reason=blocked(m,pipeline);return <option key={identity(m)} value={modelValue(m)} disabled={!!reason} title={reason?t(reason):m.name}>{m.name}</option>;})}
      </select></label><small>{t('studio.run.loras')} {activeLoras.length}</small></div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
     {pipeline==='i2v'&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
@@ -1056,7 +1152,7 @@ const promptTools=forgeContext&&<>
      {browsed&&<figure className="media-preview" data-browsed-preview>{browsed.media==='image'?<img className="wb-zoomable" src={browsed.src} alt={browsed.name} role="button" tabIndex={0} aria-label={t('studio.run.viewer.open')} title={t('studio.run.viewer.open')} onClick={e=>openImage(e,browsed)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setViewer({src:browsed.src,alt:browsed.name,item:browsed});}}}/>:browsed.media==='video'?linuxVideo?<NativeVideo source={{path:browsed.path??''}} label={browsed.name}/>:<video src={native?browsedBlob.url:browsed.src} controls/>:<audio src={native?browsedBlob.url:browsed.src} controls/>}<figcaption>{browsed.name}{browsedBlob.error&&<span className="error-message"> · {browsedBlob.error}</span>}</figcaption></figure>}
      <div className="wb-current-preview" hidden={!!browsed}>
      {editableSource&&media&&<div className="wb-editor-host" hidden={!!shown&&!editorLeft}>
-      <StudioImageEditor key={sourceEpoch.current} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked} onInsert={insertLayer} layout={sideBySide?'split':'full'}/>
+      <StudioImageEditor key={sourceEpoch.current} draftGeneration={scope+draftEpoch.current} snapshot={editorSnapshot} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked} onInsert={insertLayer} layout={sideBySide?'split':'full'}/>
       {inputImage&&tools(media)}<button type="button" className="wb-editor-caption" data-editor-caption onClick={()=>setViewer({src:media.src,alt:media.name,item:media})}>{media.name} · {t('studio.run.edit.insertHint')}</button>
      </div>}
      {sideBySide&&!editorLeft&&originalItem&&<figure className="media-preview"><img className="wb-zoomable" data-original-preview src={original} alt={t('studio.run.edit.original')} role="button" tabIndex={0} aria-label={t('studio.run.viewer.open')} title={t('studio.run.viewer.open')} onClick={e=>openImage(e,originalItem)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setViewer({src:originalItem.src,alt:originalItem.name,item:originalItem});}}}/></figure>}
@@ -1074,7 +1170,7 @@ const promptTools=forgeContext&&<>
      {viewer&&<ImageViewer src={viewer.src} alt={viewer.alt} item={viewer.item} onClose={()=>setViewer(null)}/>}
     </section>
     <div className="wb-prompts">
-     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0)&&window.confirm(t('studio.run.reference.dlAsk')))void dlVision();}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/></div>
+     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/></div>
      <div className="wb-prompt wb-negative"><div className="wb-prompt-label"><label htmlFor="run-negative">{t('studio.run.negative')}</label><small data-prompt-count="negative">{negative.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button>{promptActions('negative',negative,setNegative)}</div>
      {imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:4})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
      {imageRefs.length>0&&<div className="wb-reference-strip wb-wide">
@@ -1133,7 +1229,8 @@ const promptTools=forgeContext&&<>
    </section>}
   </div>
  </div>
- {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryId={latentDownload==='minimax-h3'?'h3-latent-upscaler':'ltx-latent-upscaler'} filenameFilter={latentDownload==='minimax-h3'?'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors':'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'} onStatus={latentDownloadStatus}/></div></dialog>}
+ {visionDownload&&<dialog ref={visionDialog} data-vision-download className="continuity-overlay" aria-label={t("studio.run.reference.dlAsk")} onCancel={e=>{e.preventDefault();closeVisionDownload();}}><header className="continuity-overlay-header"><h2>{t("studio.run.reference.dlAsk")}</h2><button type="button" onClick={closeVisionDownload}>{t("studio.close")}</button></header><div className="wb-dock-panel"><p>{t("studio.run.latent.consent")}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={visionIds} filenameFilter={["clip_vision_g.safetensors"]} onStatus={visionDownloadStatus}/></div></dialog>}
+ {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={latentIds} filenameFilter={latentDownload==='minimax-h3'?['minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors','MiniMax H3 Latent Upscaler.safetensors','minimax h3 latent upscaler.safetensors','minimax_h3_latent_upscaler.safetensors']:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors','LTX-2.3-Latent-Upscaler.safetensors']} onStatus={latentDownloadStatus}/></div></dialog>}
  {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay endpoint={endpoint} root={root} refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={toggleRef} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}/> }
  {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError||unavailable.length>0} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
  </div></>;

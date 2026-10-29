@@ -26,7 +26,7 @@ pub mod downloads;
 pub use downloads::models::background::{
     native_model_scan_start, native_model_scan_status, ModelScanEngine,
 };
-pub use downloads::models::{native_model_info, native_models_scan};
+pub use downloads::models::{native_model_family_write, native_model_info, native_models_scan};
 pub use downloads::{
     native_download_browse, native_download_cancel, native_download_catalog,
     native_download_import_catalog, native_download_plan, native_download_start,

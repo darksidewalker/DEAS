@@ -87,7 +87,15 @@ pub fn write(root: &Path, folders: Folders) -> Result<Folders, String> {
 
 /// Extra ComfyUI launch arguments honouring the saved folders; empty when nothing is set.
 pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
+    backend_configuration(root).map(|(args, _)| args)
+}
+
+pub(crate) fn backend_configuration(root: &Path) -> Result<(Vec<String>, Vec<PathBuf>), String> {
     let folders = read(root)?;
+    // ComfyUI keeps its built-in root first, then appends our configured roots.
+    let mut model_roots = vec![root.join("ComfyUI/models")];
+    model_roots.extend(folders.models.iter().map(PathBuf::from));
+    model_roots.extend(folders.extra_models.iter().map(PathBuf::from));
     for value in [&folders.models, &folders.input, &folders.output] {
         existing_dir(value)?; // a folder removed since saving must fail the start, not silently fall back
     }
@@ -132,7 +140,7 @@ pub fn backend_args(root: &Path) -> Result<Vec<String>, String> {
             file.to_str().ok_or("Non-UTF-8 root")?.to_owned(),
         ]);
     }
-    Ok(args)
+    Ok((args, model_roots))
 }
 
 #[tauri::command]
@@ -219,7 +227,14 @@ mod tests {
         };
         validate(&folders).unwrap();
         write(tmp.path(), folders.clone()).unwrap();
-        let args = backend_args(tmp.path()).unwrap();
+        let (args, roots) = backend_configuration(tmp.path()).unwrap();
+        assert_eq!(
+            roots,
+            vec![
+                tmp.path().join("ComfyUI/models"),
+                dunce::canonicalize(&extra).unwrap()
+            ]
+        );
         let yaml = std::fs::read_to_string(&args[1]).unwrap();
         assert!(yaml.contains("deas-extra-1:\n"));
         // Saved folders are canonical (Windows temp may be an 8.3 short path), so compare that form.

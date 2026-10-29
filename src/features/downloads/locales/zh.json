@@ -60,6 +60,7 @@
   "downloads.next": "浏览下一页",
   "downloads.backendResource": "后端资源；不可下载",
   "downloads.identity": "资源标识",
+  "downloads.platform": "平台",
   "downloads.source": "来源",
   "downloads.scope.user": "用户",
   "downloads.scope.repo": "仓库",

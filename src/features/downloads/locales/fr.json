@@ -60,6 +60,7 @@
   "downloads.next": "Parcourir la page suivante",
   "downloads.backendResource": "Ressource du moteur d’exécution ; non téléchargeable",
   "downloads.identity": "Identité de la ressource",
+  "downloads.platform": "Plateforme",
   "downloads.source": "Source",
   "downloads.scope.user": "Utilisateur",
   "downloads.scope.repo": "Dépôt",

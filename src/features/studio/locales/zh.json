@@ -1,4 +1,5 @@
 {
+  "studio.run.gguf.checkpoint": "GGUF 需要使用独立文本编码器和 VAE 的扩散模型，不能作为完整检查点加载。",
   "studio.plan.latentUpscale": "采样后进行潜空间放大",
   "studio.run.latent.enabled": "采样后进行潜空间放大",
   "studio.run.latent.model": "潜空间放大模型",
@@ -382,6 +383,7 @@
   "studio.run.family.diffusionFolder": "此配方需要 diffusion_models（或 unet）中的扩散模型，而不是 checkpoints 中的文件。请移动文件并刷新模型列表。",
   "studio.run.family.checkpointFolder": "此配方需要 checkpoints 中的检查点，而不是 diffusion_models 或 unet 中的文件。请移动文件并刷新模型列表。",
   "studio.run.family.unknown": "未知架构 — 没有可加载它的配方。",
+  "studio.run.gguf.lora": "GGUF 基座上的 LoRA 尚不受支持。",
   "studio.run.family.noEncoder": "模型文件夹中需要匹配的文本编码器和 VAE。",
   "studio.run.resolution.aspect": "宽高比",
   "studio.run.resolution.title": "分辨率",

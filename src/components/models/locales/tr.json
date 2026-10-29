@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "Meta veriyi düzenle…",
+  "modelMeta.filename": "Dosya adı",
+  "modelMeta.path": "Tam yol",
+  "modelMeta.detected": "Otomatik algılanan aile",
+  "modelMeta.declared": "Kullanıcının belirttiği aile",
+  "modelMeta.none": "Geçersiz kılma yok",
+  "modelMeta.unknown": "Bilinmiyor",
+  "modelMeta.family": "Model ailesi",
+  "modelMeta.save": "Kaydet",
+  "modelMeta.reset": "Algılamaya sıfırla",
+  "modelMeta.cancel": "İptal",
+  "modelMeta.unsupported": "Bu model kategorisi için aile düzenleme desteklenmiyor.",
+  "modelMeta.help": "Bir beyan doğrulanmış algılama değildir ve yükleyici veya işlem hattı desteği eklemez. Yalnızca yerel meta veriler kaydedilir.",
+  "modelMeta.error": "Model meta verileri kaydedilemedi. Tekrar deneyin.",
+  "modelMeta.invalid": "Geçersiz model meta verileri üretimi engeller. Sıfırlayın veya geçerli bir aile kaydedin.",
+  "modelMeta.format": "Bu dosya biçimi mevcut yükleyici tarafından desteklenmiyor."
+}

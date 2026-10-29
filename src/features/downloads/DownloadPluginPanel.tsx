@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { NeuralBlob } from '../../components/neural/NeuralBlob';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -9,6 +9,7 @@ import { isString, oneOf, usePref } from '../../lib/preferences';
 import { fetchModelInfo, readModelScanStatus, scanModels, startModelScan } from '../../lib/models';
 import type { LocalModel, ModelScanScope, ModelScanStatus } from '../../lib/models';
 import './downloads.css';
+import { ModelMetadataTarget, ModelDeclaredBadge, useModelMetadataUpdates } from '../../components/models/ModelMetadataEditor';
 const validSort=(v:unknown):v is {by:'newest'|'name';dir:1|-1}=>typeof v==='object'&&v!==null&&['newest','name'].includes((v as {by:unknown}).by as string)&&[1,-1].includes((v as {dir:unknown}).dir as number);
 
 /** One operation at a time; generation changes and unmount discard late responses. */
@@ -86,7 +87,7 @@ const tabOf=(target:string)=>modelFolders.includes(target)?'models':target;
 /** Files already inside the ComfyUI models folder; CivitAI metadata is fetched per file on request and cached natively. */
 function InstalledModels({root,locked,category,setCategory}:{root:string;locked:boolean;category:string;setCategory:(c:string)=>void}) {
  const {t}=useI18n();const io=useNativeRequest();
- const [models,setModels]=useState<LocalModel[]|null>(null);const [scanError,setScanError]=useState(false);const [selected,setSelected]=useState('');
+ const [models,setModels]=useState<LocalModel[]|null>(null);useModelMetadataUpdates(setModels);const [scanError,setScanError]=useState(false);const [selected,setSelected]=useState('');
  useEffect(()=>{if(!io.native)return;let alive=true;setModels(null);setScanError(false);setSelected('');scanModels(root).then(v=>{if(alive)setModels(v);},()=>{if(alive)setScanError(true);});return()=>{alive=false;};},[root,io.native]);
  const tabs=sortCategories([...new Set((models??[]).map(m=>tabOf(m.category)))]);
  const tab=tabs.includes(category)?category:tabs[0]??'';
@@ -107,7 +108,7 @@ function InstalledModels({root,locked,category,setCategory}:{root:string;locked:
  },[root,io.native]);
  const startScan=()=>{scanEpoch.current++;void io.request(async()=>startModelScan(root,scanScope,(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured)),value=>{scanEpoch.current++;setScanStatus(value);});};
  const detail=(m:LocalModel)=>{const c=m.info?.civitai;const s=c?.settings;const settings=s?[s.sampler,s.scheduler,s.steps!==undefined&&t('downloads.installed.steps',{n:s.steps}),s.cfgScale!==undefined&&t('downloads.installed.cfg',{n:s.cfgScale}),s.size,s.clipSkip!==undefined&&t('downloads.installed.clipSkip',{n:s.clipSkip})].filter(Boolean).join(' · '):'';
-  return <div className="download-picker"><dl className="download-identity">
+  return <div className="download-picker"><ModelDeclaredBadge model={m}/><dl className="download-identity">
    <dt>{t('downloads.installed.path')}</dt><dd>{m.path}</dd><dt>{t('downloads.size')}</dt><dd>{t('downloads.installed.sizeGib',{n:(m.size/1073741824).toFixed(2)})}</dd><dt>{t('downloads.digest')}</dt><dd>{m.info?.sha256??t('downloads.installed.unhashed')}</dd>
    {m.info&&<><dt>{t('downloads.installed.civitai')}</dt><dd>{c?[c.name,c.version,c.base].filter(Boolean).join(' · '):t('downloads.installed.none')}</dd></>}
    {c&&c.trainedWords.length>0&&<><dt>{t('downloads.installed.words')}</dt><dd>{c.trainedWords.join(', ')}</dd></>}
@@ -125,10 +126,10 @@ function InstalledModels({root,locked,category,setCategory}:{root:string;locked:
   {(statusError||(io.error&&!selected))&&<p role="alert">{t('downloads.installed.fetchError')}</p>}
   {tabs.length>0&&<div className="download-categories" role="tablist" aria-label={t('downloads.category')}>{tabs.map(c=><button key={c} role="tab" type="button" aria-selected={tab===c} disabled={locked} onClick={()=>{setSelected('');setCategory(c);}}>{t(`downloads.folder.${c}`)}</button>)}</div>}
   {models===null&&!scanError&&<p role="status">{t('downloads.pending')}</p>}{scanError&&<p role="alert">{t('downloads.installed.scanError')}</p>}{models&&!models.length&&<p className="field-help">{t('downloads.installed.empty',{root})}</p>}
-  <div className="download-cards">{shown.map(m=><Fragment key={m.path}><button type="button" className="download-card" aria-pressed={selected===m.path} disabled={locked} onClick={()=>setSelected(v=>v===m.path?'':m.path)}><Preview src={m.info?.civitai?.preview} alt=""/>{m.info?.civitai?.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<span>{m.name}</span></button>{selected===m.path&&detail(m)}</Fragment>)}</div>
+  <div className="download-cards">{shown.map(m=><Fragment key={m.path}><ModelMetadataTarget model={m}><button type="button" aria-label={m.name} aria-haspopup="menu" aria-keyshortcuts="Shift+F10" className="download-card" aria-pressed={selected===m.path} disabled={locked} onClick={()=>setSelected(v=>v===m.path?'':m.path)}><Preview src={m.info?.civitai?.preview} alt=""/>{m.info?.civitai?.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<span>{m.name}</span><ModelDeclaredBadge model={m}/></button></ModelMetadataTarget>{selected===m.path&&detail(m)}</Fragment>)}</div>
  </>;
 }
-export interface DownloadPanelProps { installTarget?:string; modelsDir?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean; initialEntryId?:string; filenameFilter?:string }
+export interface DownloadPanelProps { installTarget?:string; modelsDir?:string; authRevision?:number; onStatus?:(status:DownloadStatus)=>void; embedded?:boolean; initialEntryId?:string; initialEntryIds?:string[]; filenameFilter?:string|string[] }
 // Undated sources stay last; never infer publication dates from filenames or IDs.
 const published=(r:{publishedAt?:string})=>Date.parse(r.publishedAt??'')||0;
 const key=(r:DownloadResource)=>JSON.stringify([r.id,r.url,r.locator]);
@@ -138,8 +139,9 @@ const catalogSources=['DaSiWa'];
 /** A ticked file keeps the browse context it was picked in, so selections from many cards download together. */
 interface Picked {resource:DownloadResource;providerId:string;authenticated:boolean;folder:string}
 interface Group {request:PlanRequest;keys:string[]}
-export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,embedded=false,initialEntryId,filenameFilter}:DownloadPanelProps={}) {
+export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,embedded=false,initialEntryId,initialEntryIds,filenameFilter}:DownloadPanelProps={}) {
  const {t}=useI18n();const io=useNativeRequest();const [opened,setOpened]=useState(false);const open=embedded||opened;
+ const suggested=useMemo(()=>initialEntryIds??(initialEntryId?[initialEntryId]:undefined),[initialEntryIds,initialEntryId]);
  const [catalogText,setCatalogText]=useState('');const [sort,setSort]=usePref<{by:'newest'|'name';dir:1|-1}>('library.sort',{by:'newest',dir:-1},validSort);
  // Undated items stay last in both directions; name breaks date ties.
  const compare=(a:{label:string;publishedAt?:string},b:{label:string;publishedAt?:string})=>sort.by==='newest'?(+!published(a)-+!published(b))||sort.dir*(published(a)-published(b))||a.label.localeCompare(b.label):sort.dir*a.label.localeCompare(b.label);
@@ -152,7 +154,7 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  const [parentPath,setParentPath]=useState('');const [folderName,setFolderName]=useState('');const [blocked,setBlocked]=useState<DownloadPlan|null>(null);const [queue,setQueue]=useState<Group[]>([]);const [status,setStatus]=useState<DownloadStatus|null>(null);
  const [view,setView]=useState<'catalog'|'installed'>('catalog');const modelsRoot=installTarget?modelsDir??`${installTarget}/ComfyUI/models`:'';
  const selectView=(next:'catalog'|'installed')=>{if(next==='catalog'&&catalog){const tabs=categories(catalog);setCategory(c=>tabs.includes(c)?c:tabs[0]??'');}setView(next);};
- const running=status?.state==='running';const executionLock=useRef(false);const locked=running||executionLock.current||!!initialEntryId&&!status;
+ const running=status?.state==='running';const executionLock=useRef(false);const locked=running||executionLock.current||!!suggested&&!status;
  const edit=()=>{io.invalidate();setBlocked(null);};
  const sourceEdit=()=>{edit();setListing(null);setVersion('');};
  useEffect(()=>{if(!executionLock.current)io.invalidate();setBlocked(null);setListing(null);},[authRevision,io.invalidate]);
@@ -167,12 +169,12 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
  const load=()=>void io.request(readDownloadCatalog,applyCatalog);
  const publishStatus=useCallback((value:DownloadStatus)=>{executionLock.current=value.state==='running';setStatus(value);onStatus?.(value);},[onStatus]);
  useEffect(()=>{
-  if(!initialEntryId||!io.native)return;
+  if(!suggested||!io.native)return;
   let alive=true;
   // Catalog browsing invalidates io.request; recovery must survive that independent read.
   readDownloadStatus().then(value=>{if(alive)publishStatus(value);},error=>{if(alive)void io.request(()=>Promise.reject(error),()=>{});});
   return()=>{alive=false;};
- },[initialEntryId,io.native]);
+ },[suggested,io.native]);
  useEffect(()=>{
   if(!io.native||!running)return;
   let alive=true;let timer:ReturnType<typeof setTimeout>;
@@ -180,25 +182,25 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
   timer=setTimeout(()=>void poll(),1000);
   return()=>{alive=false;clearTimeout(timer);};
  },[io.native,io.request,running,publishStatus]);
- const browse=(request:{providerId:string;scope:DownloadScope;locator:string},cursor?:string)=>{edit();void io.request(async()=>{
+ const browse=(request:{providerId:string;scope:DownloadScope;locator:string},cursor?:string)=>{edit();console.log('DBG browse',request);void io.request(async()=>{console.log('DBG factory');
   const authenticated=authChoices.current.get(request.providerId)??(await readAuthStatus()).some(p=>p.providerId===request.providerId&&p.configured);
   return {authenticated,listing:await browseDownloads({...request,authenticated,nsfw:true,...(cursor?{cursor}:{})})};
- },value=>{setAuthenticated(value.authenticated);setListing(previous=>({...value.listing,resources:cursor?[...new Map([...(previous?.resources??[]),...value.listing.resources].map(r=>[key(r),r])).values()]:value.listing.resources}));});};
+ },value=>{console.log('DBG browse-ok');setAuthenticated(value.authenticated);setListing(previous=>({...value.listing,resources:cursor?[...new Map([...(previous?.resources??[]),...value.listing.resources].map(r=>[key(r),r])).values()]:value.listing.resources}));});};
  const current={providerId,scope,locator};
  const openEntry=(entry:CatalogEntry)=>{sourceEdit();setProviderId(entry.providerId);setScope(entry.scope);setLocator(entry.locator);setEntryId(entry.id);setFolder(entry.target);browse({providerId:entry.providerId,scope:entry.scope,locator:entry.locator});};
  const initialOpened=useRef(false);
- useEffect(()=>{if(!catalog||!initialEntryId||initialOpened.current)return;const entry=catalog.entries.find(e=>e.id===initialEntryId);if(entry){initialOpened.current=true;setCategory(tabOf(entry.target));setBase(entry.base??'');openEntry(entry);}},[catalog,initialEntryId]);
+ useEffect(()=>{if(!catalog||!suggested||initialOpened.current)return;const entry=catalog.entries.find(e=>e.id===suggested[0]);console.log('DBG initial-open',suggested,entry?.id);if(entry){initialOpened.current=true;setCategory(tabOf(entry.target));setBase(entry.base??'');openEntry(entry);}},[catalog,suggested]);
  const openResource=(r:DownloadResource,nextScope:DownloadScope)=>{sourceEdit();setEntryId('');setScope(nextScope);setLocator(r.locator!);if(r.category)setFolder(r.category);browse({providerId,scope:nextScope,locator:r.locator!});};
  const runSearch=()=>{const civitai=catalog?.providers.find(p=>p.kind==='civitai'&&p.scopes.includes('search'));if(!civitai||!search.trim())return;sourceEdit();setEntryId('');setProviderId(civitai.id);setScope('search');setLocator(search.trim());browse({providerId:civitai.id,scope:'search',locator:search.trim()});};
  const resourceDetails=(r:DownloadResource)=><dl className="download-identity"><dt>{t('downloads.identity')}</dt><dd>{r.id}</dd><dt>{t('downloads.category')}</dt><dd>{r.category??r.kind}</dd><dt>{t('downloads.source')}</dt><dd>{r.url??r.locator??t('downloads.unknown')}</dd><dt>{t('downloads.size')}</dt><dd>{r.size??t('downloads.unknown')}</dd><dt>{t('downloads.digest')}</dt><dd>{r.sha256??t('downloads.unknown')}</dd><dt>{t('downloads.license')}</dt><dd>{r.license??t('downloads.unknown')}</dd></dl>;
- const visibleEntries=catalog?.entries.filter(e=>tabOf(e.target)===category)??[];
+ const visibleEntries=(catalog?.entries.filter(e=>tabOf(e.target)===category)??[]).filter(e=>!suggested||suggested.includes(e.id));
  const bases=[...new Set(visibleEntries.map(e=>e.base).filter((b):b is string=>!!b))].sort();
  // A remembered family that this tab no longer offers falls back to All.
  const base=bases.includes(savedBase)?savedBase:'';
  // Typing narrows the catalog cards live; Enter additionally searches CivitAI.
  const needle=search.trim().toLowerCase();
  const entries=visibleEntries.filter(e=>(!needle||e.label.toLowerCase().includes(needle))&&(!base||e.base===base)&&(category!=='models'||mediaFilter==='all'||e.media===mediaFilter)).sort(compare);
- const allResources=listing?.resources.filter(r=>(!filenameFilter||(r.locator??r.label).split('/').pop()===filenameFilter)&&(!base||!r.base||r.base===base)).sort(compare)??[];
+ const allResources=listing?.resources.filter(r=>(!filenameFilter||(filenameFilter as string[]).includes((r.locator??r.label).split('/').pop()!))&&(!base||!r.base||r.base===base)).sort(compare)??[];
  // Files of one model version (quants/formats) are picked together; the first (newest by default) version is preselected.
  const versions=[...new Set(allResources.map(r=>r.version).filter((v):v is string=>!!v))];
  const activeVersion=versions.includes(version)?version:versions[0]??'';
@@ -255,7 +257,7 @@ export function DownloadPanel({installTarget,modelsDir,authRevision=0,onStatus,e
     {category==='models'&&<div className="download-categories download-media-filter" role="group" aria-label={t('downloads.media')}>{(['all','image','video'] as const).map(m=><button key={m} type="button" aria-pressed={mediaFilter===m} disabled={locked} onClick={()=>setMediaFilter(m)}>{t(`downloads.media.${m}`)}</button>)}</div>}
     <div className="download-categories download-media-filter download-sort" role="group" aria-label={t('downloads.sort')}><span aria-hidden="true">{t('downloads.sort')}</span>{(['newest','name'] as const).map(by=><button key={by} type="button" aria-pressed={sort.by===by} disabled={locked} onClick={()=>sortBy(by)}>{t(`downloads.sort.${by}`)} <span aria-hidden="true">{(sort.by===by?sort.dir:by==='newest'?-1:1)===-1?'↓':'↑'}</span></button>)}</div>
     </div><section className="download-basket" aria-label={t('downloads.basket')}><h3>{t('downloads.basket')} · {basket.length}</h3><ul>{basket.map(b=><li key={key(b.resource)}><span>{b.resource.label}</span><small>{where(b)}</small><button type="button" className="download-link" aria-label={t('downloads.remove',{name:b.resource.label})} disabled={locked||queue.length>0} onClick={()=>{edit();setBasket(old=>old.filter(x=>x!==b));}}>×</button></li>)}</ul></section></div>
-    <div className="download-cards">{entries.map(e=><Fragment key={e.id}><button type="button" className="download-card" aria-pressed={entryId===e.id} disabled={locked||io.busy} onClick={()=>openEntry(e)}><Preview src={e.preview} alt=""/>{needsLogin(e.auth,e.providerId)&&<em className="download-auth">{t('downloads.authNeeded')}</em>}{e.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<span>{e.label}</span></button>{entryId===e.id&&picker}</Fragment>)}</div>
+    <div className="download-cards">{entries.map(e=>{const platform=catalog.providers.find(p=>p.id===e.providerId)?.label??e.providerId;return <Fragment key={e.id}><button type="button" className="download-card" aria-pressed={entryId===e.id} disabled={locked||io.busy} onClick={()=>openEntry(e)}><Preview src={e.preview} alt=""/>{needsLogin(e.auth,e.providerId)&&<em className="download-auth">{t('downloads.authNeeded')}</em>}{e.nsfw&&<em className="download-auth download-nsfw-tag" title={t('downloads.nsfwHelp')}>{t('downloads.nsfwTag')}</em>}<em className="download-auth download-platform" aria-hidden="true" title={platform}>{platform}</em><span>{e.label}</span></button>{entryId===e.id&&picker}</Fragment>;})}</div>
     {!entries.length&&<p className="field-help">{t('downloads.emptyCategory')}</p>}
     <details><summary>{t('downloads.advanced')}</summary><div className="download-controls">
      <p className="field-help">{t('downloads.safety')}</p>

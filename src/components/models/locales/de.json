@@ -1,0 +1,18 @@
+{
+  "modelMeta.title": "Meta bearbeiten…",
+  "modelMeta.filename": "Dateiname",
+  "modelMeta.path": "Exakter Pfad",
+  "modelMeta.detected": "Automatisch erkannte Familie",
+  "modelMeta.declared": "Vom Nutzer deklarierte Familie",
+  "modelMeta.none": "Keine Überschreibung",
+  "modelMeta.unknown": "Unbekannt",
+  "modelMeta.family": "Modellfamilie",
+  "modelMeta.save": "Speichern",
+  "modelMeta.reset": "Auf Erkennung zurücksetzen",
+  "modelMeta.cancel": "Abbrechen",
+  "modelMeta.unsupported": "Für diese Modellkategorie wird die Familienbearbeitung nicht unterstützt.",
+  "modelMeta.help": "Eine Deklaration ist keine bestätigte Erkennung und ergänzt keine Loader- oder Pipeline-Unterstützung. Es werden nur lokale Metadaten gespeichert.",
+  "modelMeta.error": "Modellmetadaten konnten nicht gespeichert werden. Erneut versuchen.",
+  "modelMeta.invalid": "Ungültige Modellmetadaten blockieren die Generierung. Zurücksetzen oder eine gültige Familie speichern.",
+  "modelMeta.format": "Dieses Dateiformat wird vom aktuellen Loader nicht unterstützt."
+}

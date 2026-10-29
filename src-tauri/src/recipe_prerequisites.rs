@@ -13,7 +13,7 @@ const REQUIRED_NODES: [&str; 6] = [
 ];
 /// Image-to-image (`LoadImage`, `VAEEncode`), split diffusion-model loading and the DaSiWa
 /// Civitai-metadata saver; their absence blocks only the recipe variant that needs them.
-const OPTIONAL_NODES: [&str; 27] = [
+const OPTIONAL_NODES: [&str; 30] = [
     "TextEncodeQwenImage21",
     "DEAS_ImagePromptEncode",
     "EmptyFlux2LatentImage",
@@ -39,6 +39,9 @@ const OPTIONAL_NODES: [&str; 27] = [
     "UpscaleModelLoader",
     "ImageUpscaleWithModel",
     "UNETLoader",
+    "UnetLoaderGGUF",
+    "CLIPLoaderGGUF",
+    "DualCLIPLoaderGGUF",
     "CLIPLoader",
     "VAELoader",
     "DaSiWa_MetadataImageSaver",
@@ -164,7 +167,12 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "samplers":combo(nodes, "KSampler", "sampler_name")?,
             "schedulers":combo(nodes, "KSampler", "scheduler")?,
             "diffusionModels":combo(nodes, "UNETLoader", "unet_name")?,
+            "ggufDiffusionModels":combo(nodes, "UnetLoaderGGUF", "unet_name")?,
             "textEncoders":combo(nodes, "CLIPLoader", "clip_name")?,
+            "ggufTextEncoders":combo(nodes, "CLIPLoaderGGUF", "clip_name")?,
+            "ggufClipTypes":combo(nodes, "CLIPLoaderGGUF", "type")?,
+            "ggufDualTextEncoders":combo(nodes, "DualCLIPLoaderGGUF", "clip_name1")?,
+            "ggufDualClipTypes":combo(nodes, "DualCLIPLoaderGGUF", "type")?,
             "clipTypes":combo(nodes, "CLIPLoader", "type")?,
             "vaes":combo(nodes, "VAELoader", "vae_name")?,
             "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
@@ -588,6 +596,35 @@ mod tests {
             .contains(&json!("allow-native-recipe-prerequisites")));
     }
 
+    #[test]
+    fn gguf_encoder_catalogs_are_independent_and_optional() {
+        let base = crate::validate_base_url("http://127.0.0.1:8199").unwrap();
+        let mut info = nodes();
+        let empty = parse(&base, &info).unwrap();
+        assert_eq!(empty["allowlist"]["ggufTextEncoders"], json!([]));
+        info["CLIPLoaderGGUF"] = json!({"input":{"required":{"clip_name":[["encoder.gguf","plain.safetensors"]],"type":[["wan"]]}}});
+        info["DualCLIPLoaderGGUF"] = json!({"input":{"required":{"clip_name1":[["gemma.gguf","projection.safetensors"]],"clip_name2":[["gemma.gguf","projection.safetensors"]],"type":[["ltxv"]]}}});
+        let allow = parse(&base, &info).unwrap()["allowlist"].clone();
+        assert_eq!(
+            allow["ggufTextEncoders"],
+            json!(["encoder.gguf", "plain.safetensors"])
+        );
+        assert_eq!(
+            allow["ggufDualTextEncoders"],
+            json!(["gemma.gguf", "projection.safetensors"])
+        );
+        assert_eq!(allow["ggufClipTypes"], json!(["wan"]));
+        assert_eq!(allow["ggufDualClipTypes"], json!(["ltxv"]));
+        assert!(allow["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("CLIPLoaderGGUF")));
+        assert!(allow["nodes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("DualCLIPLoaderGGUF")));
+    }
+
     /// Real object_info shapes: core v3 combo (with spaces), KJNodes v1 combo (with `++`, `disabled`).
     #[tokio::test]
     async fn lists_option_nodes_and_choices_in_both_combo_forms() {
@@ -648,7 +685,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[]
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[]
                 }, "missingNodes":[], "generationReady":false
             })
         );
