@@ -111,3 +111,17 @@ test('history facade is one arg-free metadata IPC and reports malformed response
  vi.mocked(invoke).mockResolvedValueOnce({schemaVersion:99});await expect(readHistory()).rejects.toThrow('Invalid native history response');
  expect(invoke).toHaveBeenLastCalledWith('native_logs_history_error');
 });
+
+const music={recipeId:'music-generation',version:1,family:'yue2',mode:'cover',planning:'melody',checkpoint:'yue2.safetensors',style:'style',lyrics:'',seed:1,maxDuration:360,steps:32,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform',generation:{temperature:1,topP:0.95,topK:100,repetitionPenalty:1.2,cfgScale:1},outputPrefix:'raw/audio/x',sourceAudio:'deas-input-old.wav',audioEncoder:'sheetsage2_bf16.safetensors'} as const;
+test('music history restores to its own pipeline, names the unresolved source and discloses missing nodes/encoder/family by name',()=>{
+ const musicContext:RestoreContext={...context,models:[{name:'yue2.safetensors',family:'yue2'}],allow:{...context.allow!,nodes:['YuE2GenerateMusic','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced','LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC'],samplers:['dpm_2'],schedulers:['sgm_uniform'],audioEncoders:['sheetsage2_bf16.safetensors']}};
+ const ok=historyRestore(record(music),musicContext);
+ expect(ok.pipeline).toBe('cover');expect(ok.source).toEqual({name:'deas-input-old.wav',strength:1});
+ expect(ok.unsupported).toEqual([]);expect(ok.unavailable).toEqual(['input: deas-input-old.wav']);
+ expect(ok.options.sigmas).toBe('');expect(ok.options.output?.imageFormat).toBe('png');expect(ok.references).toEqual([]);
+ const t2m=historyRestore(record({...music,mode:'t2m',planning:'off',sourceAudio:undefined,audioEncoder:undefined} as unknown as JobIntent),musicContext);
+ expect(t2m.pipeline).toBe('t2m');expect(t2m.source).toBeUndefined();expect(t2m.unavailable).toEqual([]);
+ const missing=historyRestore(record(music),{...musicContext,models:[{name:'yue2.safetensors',family:'sdxl'}],allow:{...musicContext.allow!,nodes:['YuE2GenerateMusic'],audioEncoders:[]}});
+ expect(missing.unavailable).toEqual(expect.arrayContaining(['EmptyYuE2LatentAudio','SheetSage2AudioToABC','audioEncoder: sheetsage2_bf16.safetensors','family: yue2','input: deas-input-old.wav']));
+ expect(missing.unavailable).not.toContain('YuE2GenerateMusic');expect(missing.unavailable).not.toContain('YuE2GenerateABC');
+});

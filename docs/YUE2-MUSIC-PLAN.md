@@ -746,7 +746,7 @@ Expected: exit 0 for each, all intended tests discovered; no unexplained skips. 
 ## 6. Handoff checklist
 
 - [x] Reinspect baseline dirty edits before implementation; preserve other-session changes.
-- [ ] A6 schema/LoadAudio/history/list gate passed and evidence recorded. *(Live-backend SheetSage2 list/multiplicity not yet observed.)*
+- [x] A6 schema/LoadAudio/history/list gate passed and evidence recorded (CPU-only in-process probe, see [VERIFICATION.md](VERIFICATION.md#yue2-music-generation-and-covers-0166-development)). *(Live-backend SheetSage2 list multiplicity with real weights not yet observed.)*
 - [x] Native compiler tests and strict validation green.
 - [x] Music optional prerequisites scoped, no image fallback.
 - [ ] Source preflight bounds and no-stream error verified. *(Actionable no-source/no-encoder blocking is in; decoded-PCM memory bounds probe remains open.)*
@@ -755,7 +755,7 @@ Expected: exit 0 for each, all intended tests discovered; no unexplained skips. 
 - [x] Run snapshot is immutable across awaited uploads and UI edits.
 - [ ] Audio history/output transfer/cache/export including external backend verified. *(Native FLAC retention/history correlation is in; external-backend export fallback open.)*
 - [x] Plan, metadata, recent-history restore and image-project guards verified.
-- [x] All six locales, docs and layout gates updated.
+- [x] All six locales, docs ([MUSIC.md](MUSIC.md), STUDIO, CHANGELOG, NEWS, CREDITS, status) and layout gates updated.
 - [ ] Linux/Windows native playback evidence separated from browser fixtures.
 - [ ] Real model/cover quality and scoped cancellation tested, or explicitly blocked.
 - [x] Final review confirms no unrelated changes, no secret/private host data in docs, no unauthorized publication.

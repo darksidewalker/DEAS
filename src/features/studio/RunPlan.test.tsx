@@ -62,3 +62,19 @@ test('removing refinement removes its stage and unresolved outputs are not readi
  expect(screen.getByRole('status').textContent).toBe('Unresolved / not selected');
  expect(view.container.querySelector('[data-plan-stage]')).toBeNull();
 });
+
+test('music plans show input/ABC/generate stages from the music intent and no image or video rows',()=>{
+ const cover={recipeId:'music-generation',version:1,family:'yue2',mode:'cover',planning:'melody',checkpoint:'yue2.safetensors',style:'bossa nova',lyrics:'',seed:7,maxDuration:360,steps:32,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform',generation:{temperature:1,topP:0.95,topK:100,repetitionPenalty:1.2,cfgScale:1},outputPrefix:'raw/audio/c',sourceAudio:'song.wav',audioEncoder:'sheetsage2_bf16.safetensors'} as const;
+ const {rerender}=render(<I18nProvider><RunPlan intent={cover} pipeline="cover" notices={[]} outputRoot="/out"/></I18nProvider>);
+ const stages=()=>[...document.querySelectorAll('[data-plan-stage]')].map(el=>el.getAttribute('data-plan-stage'));
+ expect(stages()).toEqual(['input','model','prompt','abc','generate','output']);
+ expect(screen.getByText('song.wav')).toBeTruthy();expect(screen.getByText('sheetsage2_bf16.safetensors')).toBeTruthy();expect(screen.getByText('bossa nova')).toBeTruthy();
+ expect(screen.getByText('FLAC')).toBeTruthy();expect(screen.queryByText(/×/)).toBeNull();expect(screen.queryByText('Negative prompt')).toBeNull();
+ const off={...cover,mode:'t2m',planning:'off',sourceAudio:undefined,audioEncoder:undefined} as unknown as typeof cover;
+ rerender(<I18nProvider><RunPlan intent={off} pipeline="t2m" notices={[]} outputRoot="/out"/></I18nProvider>);
+ expect(stages()).toEqual(['model','prompt','generate','output']);
+ rerender(<I18nProvider><GenerationMetadata job={{id:'j',baseUrl:'http://x/',promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false,intent:cover}}/></I18nProvider>);
+ const meta=document.querySelector('[data-music-metadata]')!;
+ expect(meta.textContent).toContain('bossa nova');expect(meta.textContent).toContain('song.wav');expect(meta.textContent).toContain('Melody');
+ expect(document.querySelector('[data-metadata-apply]')).toBeNull();
+});

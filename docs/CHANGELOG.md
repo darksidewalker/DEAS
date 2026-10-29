@@ -6,7 +6,7 @@
 
 - **Covers:** an explicitly selected audio file or a video with audio feeds core `LoadAudio` → SheetSage2 melody ABC → melody-conditioned YuE2; cover generation always uses the selected encoder offered by the running backend. Silent/no-audio sources fail actionably; there is no transcription, voice cloning or silent text-only fallback.
 
-- **Results and history:** decoded FLAC results are retained with correlated audio history, music-aware Run Plan stages and GenerationMetadata rows, full settings restore from Recent history (source re-selection stays explicit), and the model-family catalog recognizes YuE2 checkpoints by header keys so pickers list them for the music pipelines. Real-model generation quality, native playback and Windows runtime acceptance remain open.
+- **Results and history:** decoded FLAC results are retained with correlated audio history, music-aware Run Plan stages and GenerationMetadata rows, full settings restore from Recent history (source re-selection stays explicit), and the model-family catalog recognizes YuE2 checkpoints by header keys so pickers list them for the music pipelines. Music usage, graph shapes, tested revisions and the license notice live in the new [MUSIC.md](MUSIC.md); music UI regressions cover the editors, settings, Workbench flows, plan, metadata and history restore. Real-model generation quality, native playback and Windows runtime acceptance remain open.
 
 - Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
 

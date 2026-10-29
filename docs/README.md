@@ -18,6 +18,7 @@ Studio settings: [Presets — save, load and update](PROMPTING.md#presets) · [W
 | Studio → Prompt Forge, hammer, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) |
 | Studio → Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |
 | Studio → Run Plan (Ablaufplan) and legacy Engine diagnostics | [Run Plan](STUDIO.md#run-plan-and-engine-diagnostics) |
+| Studio → Music: YuE2 text-to-music, ABC planning and melody covers | [Music](MUSIC.md) |
 | Media dock, navigation, preview and embedded metadata | [Media](MEDIA.md) |
 | Library → Catalog / Installed and provider authorization | [Library and authorization](LIBRARY.md) |
 | Original Comfy editor and workflow import | [Comfy tab](COMFY.md) |

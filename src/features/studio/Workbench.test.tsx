@@ -3853,3 +3853,176 @@ test('history video first and last frames remain unresolved until each explicit 
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(original)).toBe(before);
 });
+
+// ── YuE2 music ────────────────────────────────────────────────────────────────
+const yue2Models=[
+ {category:'checkpoints',name:'yue2_3b.safetensors',path:'/m/checkpoints/yue2_3b.safetensors',size:1,info:null,family:'yue2'},
+ {category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null}] as const;
+const musicNodes=['YuE2GenerateABC','YuE2GenerateMusic','ConditioningZeroOut','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced','LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC'];
+const musicEvidence=(extra:Partial<typeof evidence.allowlist&{audioEncoders:string[]}>={})=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...musicNodes],checkpoints:['yue2_3b.safetensors','a.safetensors'],samplers:[...evidence.allowlist.samplers,'dpm_2'],schedulers:[...evidence.allowlist.schedulers,'sgm_uniform'],audioEncoders:['sheetsage2_bf16.safetensors'],...extra}});
+const musicJob=(id:string):JobStatus=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
+async function mountMusic(pipeline:'Music (Text to Music)'|'Music (Cover Music)',planVisible=false,allow=musicEvidence()){
+ vi.mocked(scanModels).mockResolvedValue([...yue2Models]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow);
+ if(planVisible)localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(pipeline==='Music (Cover Music)'?'cover':'t2m'));
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_star_status'?{starred:false,unavailable:null}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:(args as {path?:string})?.path??'/env/ComfyUI/input',parent:'/env',entries:mediaEntries,truncated:false});
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>musicJob('job-m'));
+ const view=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" planVisible={planVisible} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ if(planVisible){await waitFor(()=>expect(document.querySelector('[data-plan-intent]')?.textContent).toContain('music-generation'));return view;}
+ await waitFor(()=>expect(pipe(pipeline).disabled).toBe(false));choosePipe(pipeline);
+ await waitFor(()=>expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe('yue2_3b.safetensors'));
+ return view;
+}
+const music=()=>({style:screen.getByRole('textbox',{name:'Style'}) as HTMLTextAreaElement,lyrics:screen.getByRole('textbox',{name:'Lyrics'}) as HTMLTextAreaElement});
+
+test('text-to-music lists only YuE2 checkpoints, two music editors, no canvas/negative, and submits the music intent without uploads',async()=>{
+ await mountMusic('Music (Text to Music)');
+ const picker=screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement;
+ expect([...picker.options].filter(o=>!o.disabled).map(o=>o.value)).toEqual(['yue2_3b.safetensors']);
+ expect(screen.queryByRole('textbox',{name:'Prompt'})).toBeNull();expect(screen.queryByRole('textbox',{name:'Negative prompt'})).toBeNull();
+ expect(screen.queryByLabelText('Width')).toBeNull();expect(screen.queryByLabelText('Aspect ratio')).toBeNull();
+ expect(screen.getByLabelText('ABC Planning')).toHaveProperty('value','full');
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','120');
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run.title).toContain('Enter a song style.'));
+ fireEvent.change(music().style,{target:{value:'English, indie pop'}});fireEvent.change(music().lyrics,{target:{value:'[Verse]\nHello world'}});
+ fireEvent.change(screen.getByLabelText('Seed'),{target:{value:'42'}});
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+ const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as Record<string,unknown>;
+ expect(intent).toMatchObject({recipeId:'music-generation',version:1,family:'yue2',mode:'t2m',planning:'full',checkpoint:'yue2_3b.safetensors',style:'English, indie pop',lyrics:'[Verse]\nHello world',seed:42,maxDuration:120,steps:32,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform',abc:{maxTokens:8192,temperature:0.7,topP:0.9,topK:30,repetitionPenalty:1.005,penaltyWindow:100},generation:{temperature:1,topP:0.95,topK:100,repetitionPenalty:1.2,cfgScale:1}});
+ expect(intent.outputPrefix).toMatch(/^raw\/audio\//);
+ for(const key of ['positivePrompt','negativePrompt','width','height','loras','options','sourceAudio','audioEncoder','imageFormat','refine'])expect(intent).not.toHaveProperty(key);
+});
+
+test('ABC Off drops the planner, switches AR guidance to 1.01 once, and keeps ABC values for returning to Full',async()=>{
+ await mountMusic('Music (Text to Music)');
+ fireEvent.change(music().style,{target:{value:'lofi'}});
+ fireEvent.change(screen.getAllByLabelText('Maximum ABC tokens')[0],{target:{value:'2048'}});
+ fireEvent.change(screen.getByLabelText('ABC Planning'),{target:{value:'off'}});
+ expect(screen.queryByLabelText('Maximum ABC tokens')).toBeNull();
+ const arCfg=screen.getByLabelText('Autoregressive guidance') as HTMLInputElement;
+ expect(arCfg.value).toBe('1.01');
+ fireEvent.change(arCfg,{target:{value:'2'}});
+ fireEvent.change(screen.getByLabelText('ABC Planning'),{target:{value:'melody'}});
+ fireEvent.change(screen.getByLabelText('ABC Planning'),{target:{value:'off'}});
+ expect((screen.getByLabelText('Autoregressive guidance') as HTMLInputElement).value).toBe('2');
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const off=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as Record<string,unknown>;
+ expect(off).toMatchObject({mode:'t2m',planning:'off',generation:{cfgScale:2}});expect(off).not.toHaveProperty('abc');
+ fireEvent.change(screen.getByLabelText('ABC Planning'),{target:{value:'full'}});
+ expect((screen.getAllByLabelText('Maximum ABC tokens')[0] as HTMLInputElement).value).toBe('2048');
+});
+
+test('cover needs an explicitly selected audio or video source, uploads it once on Run, and is immutable to later edits',async()=>{
+ vi.mocked(uploadInput).mockImplementation(async(_b,path)=>`deas-input-${path.split('/').pop()}`);
+ await mountMusic('Music (Cover Music)');
+ fireEvent.change(music().style,{target:{value:'bossa nova'}});
+ expect(screen.queryByLabelText('ABC Planning')).toBeNull();
+ expect(screen.getByLabelText('SheetSage2 audio encoder')).toHaveProperty('value','sheetsage2_bf16.safetensors');
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','360');
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run.title).toBe('Select an audio file or a video with an audio track.'));
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'voice.wav'});
+ expect(menuOf('ref.png').queryByRole('menuitem',{name:'Use for music cover'})).toBeNull();fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
+ expect(markOf('clip.mp4')).toBe('Cover source (audio or video)');
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ expect(markOf('clip.mp4')).toBeUndefined();expect(document.querySelector('[data-music-source]')!.textContent).toContain('voice.wav');
+ expect(uploadInput).not.toHaveBeenCalled();
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ fireEvent.click(run);
+ // Edits during the awaited upload belong to the next job.
+ fireEvent.change(music().style,{target:{value:'changed after run'}});fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:7801','/env/ComfyUI/input/voice.wav');
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({recipeId:'music-generation',mode:'cover',planning:'melody',style:'bossa nova',sourceAudio:'deas-input-voice.wav',audioEncoder:'sheetsage2_bf16.safetensors',maxDuration:360});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('abc');
+ expect(Object.isFrozen(vi.mocked(runWorkbenchJob).mock.calls[0][1])).toBe(true);
+});
+
+test('music without the cover nodes still offers text-to-music, and a missing encoder blocks only covers',async()=>{
+ await mountMusic('Music (Text to Music)',false,musicEvidence({nodes:[...evidence.allowlist.nodes,...musicNodes.filter(n=>!['LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC'].includes(n))],audioEncoders:[]}));
+ fireEvent.change(music().style,{target:{value:'jazz'}});
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false));
+ choosePipe('Music (Cover Music)');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'voice.wav'});
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run.title).toContain('SheetSage2AudioToABC'));
+ expect(run.disabled).toBe(true);expect(run.title).toContain('LoadAudio');expect(run.title).toContain('Select an installed SheetSage2 audio encoder.');
+});
+
+test('switching t2i → music → t2i keeps image prompts and music texts as separate drafts and blocks Forge handoff while authoring music',async()=>{
+ const view=await mountMusic('Music (Text to Music)');
+ fireEvent.change(music().style,{target:{value:'synthwave'}});fireEvent.change(music().lyrics,{target:{value:'[Chorus]\nneon'}});
+ choosePipe('Text → Image');
+ await waitFor(()=>expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe('a.safetensors'));
+ expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','');
+ fireEvent.change(screen.getByRole('textbox',{name:'Prompt'}),{target:{value:'a cat'}});fireEvent.change(screen.getByRole('textbox',{name:'Negative prompt'}),{target:{value:'blurry'}});
+ choosePipe('Music (Text to Music)');
+ await waitFor(()=>expect(screen.getByRole('textbox',{name:'Style'})).toHaveProperty('value','synthwave'));
+ expect(music().lyrics.value).toBe('[Chorus]\nneon');
+ expect(screen.queryByRole('textbox',{name:'Negative prompt'})).toBeNull();
+ view.rerender(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}} incoming={{positive:'from forge',negative:'forge negative',n:1}}/></I18nProvider>);
+ expect(music().style.value).toBe('synthwave');expect(music().lyrics.value).toBe('[Chorus]\nneon');
+ expect(screen.getByRole('alert').textContent).toContain('Prompt Forge sends image prompts');
+ choosePipe('Text → Image');
+ await waitFor(()=>expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','a cat'));
+ expect(screen.getByRole('textbox',{name:'Negative prompt'})).toHaveProperty('value','blurry');
+ choosePipe('Music (Text to Music)');
+ await waitFor(()=>expect(screen.getByRole('textbox',{name:'Style'})).toHaveProperty('value','synthwave'));
+});
+
+test('Run Plan in music mode shows the music stages from the captured intent and never uploads or submits',async()=>{
+ await mountMusic('Music (Cover Music)',true);
+ const plan=screen.getByRole('region',{name:'Run Plan'});
+ expect(within(plan).getByText('Music (Cover Music)')).toBeTruthy();
+ for(const stage of ['input','model','prompt','abc','generate','output'])expect(plan.querySelector(`[data-plan-stage="${stage}"]`)).not.toBeNull();
+ expect(plan.querySelector('[data-plan-stage="refine"]')).toBeNull();
+ const intent=JSON.parse(plan.querySelector('[data-plan-intent]')!.textContent!);
+ expect(intent).toMatchObject({recipeId:'music-generation',mode:'cover',planning:'melody',sourceAudio:''});
+ expect(intent).not.toHaveProperty('positivePrompt');expect(intent).not.toHaveProperty('width');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('a retained music job renders a controls-only audio player, audio queue glyph, and music metadata',async()=>{
+ const job:JobStatus={...musicJob('job-m'),state:'succeeded',outputRoot:'/env/ComfyUI/output',outputs:[{filename:'YuE2_00001.flac',subfolder:'raw/audio',type:'output'}],intent:{recipeId:'music-generation',version:1,family:'yue2',mode:'t2m',planning:'off',checkpoint:'yue2_3b.safetensors',style:'retained style',lyrics:'',seed:1,maxDuration:30,steps:32,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform',generation:{temperature:1,topP:0.95,topK:100,repetitionPenalty:1.2,cfgScale:1.01},outputPrefix:'raw/audio/x'}};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ await mountMusic('Music (Text to Music)');
+ await waitFor(()=>expect(document.querySelector('[data-job-id="job-m"]')).not.toBeNull());
+ fireEvent.click(document.querySelector('[data-job-id="job-m"] .wb-queue-select')!);
+ const player=await waitFor(()=>{const el=document.querySelector<HTMLAudioElement>('.wb-shown [data-output-audio]');expect(el).not.toBeNull();return el!;});
+ expect(player.getAttribute('src')).toBe('asset://localhost//env/ComfyUI/output/raw/audio/YuE2_00001.flac');
+ expect(player.hasAttribute('controls')).toBe(true);expect(player.hasAttribute('autoplay')).toBe(false);
+ expect(document.querySelector('.wb-shown img')).toBeNull();
+ expect(document.querySelector('[data-job-id="job-m"] .wb-thumb')!.textContent).toBe('♪');
+ fireEvent.click(document.querySelector('[data-metadata-toggle]')!);
+ const meta=document.querySelector('[data-music-metadata]')!;
+ expect(meta.textContent).toContain('retained style');expect(meta.textContent).toContain('Off');expect(meta.textContent).not.toContain('Negative');
+});
+
+test('Recent history restores a music record into the cover pipeline with every setting and an unresolved source',async()=>{
+ const record=recentHistoryRecord({recipeId:'music-generation',version:1,family:'yue2',mode:'cover',planning:'melody',checkpoint:'yue2_3b.safetensors',style:'historic style',lyrics:'[Verse]\nold words',seed:777,maxDuration:200.04,steps:20,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform',generation:{temperature:0.8,topP:0.9,topK:50,repetitionPenalty:1.1,cfgScale:1.5},outputPrefix:'raw/audio/old',sourceAudio:'deas-input-old.wav',audioEncoder:'sheetsage2_bf16.safetensors'});
+ await mountMusic('Music (Text to Music)');
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_jobs_history'?{schemaVersion:1,records:[record],readOnly:false,error:null}:command==='native_media_star_status'?{starred:false,unavailable:null}:{path:(args as {path?:string})?.path??'/env/ComfyUI/input',parent:'/env',entries:mediaEntries,truncated:false});
+ fireEvent.change(music().style,{target:{value:'current draft'}});
+ await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ await waitFor(()=>expect((screen.getByRole('combobox',{name:'Pipeline'}) as HTMLSelectElement).value).toBe('cover'));
+ expect(music().style.value).toBe('historic style');expect(music().lyrics.value).toBe('[Verse]\nold words');
+ expect(screen.getByLabelText('Seed')).toHaveProperty('value','777');expect(screen.getByLabelText('Steps')).toHaveProperty('value','20');
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','200.04');
+ expect((screen.getByLabelText('Autoregressive guidance') as HTMLInputElement).value).toBe('1.5');
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ expect(run.disabled).toBe(true);expect(run.title).toContain('deas-input-old.wav');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'voice.wav'});
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
