@@ -213,6 +213,52 @@ fn ltx_latent_model(name: &str) -> bool {
         && file.contains("upscal")
 }
 
+/// Optional `DaSiWaH3TiledUpscale` inputs (intent key, node input); omitted keys keep the node defaults.
+const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 14] = [
+    ("cfg", "cfg"),
+    ("scheduler", "scheduler"),
+    ("precision", "upscale_precision"),
+    ("memoryBudgetMb", "memory_budget_mb"),
+    ("spatialTiling", "spatial_tiling"),
+    ("temporalChunking", "temporal_chunking"),
+    ("spikeGuard", "spike_guard"),
+    ("guardSensitivity", "guard_sensitivity"),
+    ("guardStrength", "guard_strength"),
+    ("guardMode", "guard_mode"),
+    ("memoryPlanning", "enforce_memory_budget"),
+    ("memoryReservePct", "memory_reserve_pct"),
+    ("continuitySoftRefine", "continuity_soft_refine"),
+    ("continuityMaskStrength", "continuity_mask_strength"),
+];
+
+fn valid_h3_latent_advanced(a: &Value) -> bool {
+    let Some(o) = a.as_object() else {
+        return false;
+    };
+    o.iter().all(|(k, v)| match k.as_str() {
+        "cfg" => finite(v, 0.0, 20.0),
+        // Exact backend scheduler names are lowercase identifiers; the backend rejects unknown ones.
+        "scheduler" => v.as_str().is_some_and(|s| {
+            !s.is_empty()
+                && s.len() <= 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        }),
+        "precision" => matches!(v.as_str(), Some("auto" | "bf16" | "fp16" | "fp32")),
+        "memoryBudgetMb" => v.as_u64().is_some_and(|n| n <= 131_072),
+        "spatialTiling"
+        | "temporalChunking"
+        | "spikeGuard"
+        | "memoryPlanning"
+        | "continuitySoftRefine" => v.is_boolean(),
+        "guardSensitivity" => finite(v, 1.5, 12.0),
+        "guardStrength" | "continuityMaskStrength" => finite(v, 0.0, 1.0),
+        "guardMode" => matches!(v.as_str(), Some("burn_direction" | "both")),
+        "memoryReservePct" => finite(v, 0.0, 100.0),
+        _ => false,
+    })
+}
+
 fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
     let Some(u) = i.get("latentUpscale") else {
         return Ok(());
@@ -220,10 +266,11 @@ fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
     let settings = match family {
         "ltx-2" => keys_in(u, &["model", "scale"]) && u["scale"].as_f64() == Some(2.0),
         "minimax-h3" => {
-            keys_in(u, &["model", "scale", "steps", "denoise"])
+            keys_in(u, &["model", "scale", "steps", "denoise", "advanced"])
                 && finite(&u["scale"], 1.0, 8.0)
                 && u["steps"].as_u64().is_some_and(|n| (1..=100).contains(&n))
                 && finite(&u["denoise"], 0.0, 1.0)
+                && u.get("advanced").is_none_or(valid_h3_latent_advanced)
         }
         _ => false,
     };
@@ -1234,6 +1281,13 @@ fn h3(i: &Value) -> Value {
             "guard_sensitivity":4.3,"guard_strength":1.0,"guard_mode":"burn_direction",
             "enforce_memory_budget":true,"memory_reserve_pct":5.0
         }});
+        if let Some(a) = u.get("advanced") {
+            for (key, input) in H3_LATENT_ADVANCED_INPUTS {
+                if let Some(v) = a.get(key) {
+                    g["U"]["inputs"][input] = v.clone();
+                }
+            }
+        }
         g["SD"]["inputs"]["latent"] = json!(["U", 0]);
         if segment_capture {
             // The render plan is derived at runtime from the prepared latent tensor and context;

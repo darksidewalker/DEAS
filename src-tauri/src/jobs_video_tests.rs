@@ -219,6 +219,42 @@ fn latent_post_upscale_rejects_untrusted_intent() {
             json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":1.01}),
         ),
         (h3(), json!({"model":"x.safetensors","scale":2,"steps":1})),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"cfg":20.5}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"precision":"int8"}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"scheduler":"Simple; rm"}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"memoryBudgetMb":131073}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"guardSensitivity":1.4}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"guardMode":"any"}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"spikeGuard":"yes"}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":{"unknown":1}}),
+        ),
+        (
+            h3(),
+            json!({"model":"x.safetensors","scale":2,"steps":1,"denoise":0.2,"advanced":[]}),
+        ),
     ] {
         let mut options = options;
         if options["model"] == "x.safetensors" {
@@ -239,6 +275,48 @@ fn latent_post_upscale_rejects_untrusted_intent() {
         };
         assert!(compile(&i).is_ok());
     }
+}
+
+#[test]
+fn h3_latent_advanced_options_override_only_the_given_node_inputs() {
+    let mut i = h3();
+    i["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":3,"denoise":0.3});
+    let plain = compile(&i).unwrap();
+    i["latentUpscale"]["advanced"] = json!({
+        "cfg":1.5,"scheduler":"beta","precision":"bf16","memoryBudgetMb":24000,
+        "spatialTiling":false,"temporalChunking":false,"spikeGuard":true,"guardSensitivity":3.5,
+        "guardStrength":0.5,"guardMode":"both","memoryPlanning":false,"memoryReservePct":10.0,
+        "continuitySoftRefine":true,"continuityMaskStrength":0.25
+    });
+    let g = compile(&i).unwrap();
+    let u = &g["U"]["inputs"];
+    for (input, value) in [
+        ("cfg", json!(1.5)),
+        ("scheduler", json!("beta")),
+        ("upscale_precision", json!("bf16")),
+        ("memory_budget_mb", json!(24000)),
+        ("spatial_tiling", json!(false)),
+        ("temporal_chunking", json!(false)),
+        ("spike_guard", json!(true)),
+        ("guard_sensitivity", json!(3.5)),
+        ("guard_strength", json!(0.5)),
+        ("guard_mode", json!("both")),
+        ("enforce_memory_budget", json!(false)),
+        ("memory_reserve_pct", json!(10.0)),
+        ("continuity_soft_refine", json!(true)),
+        ("continuity_mask_strength", json!(0.25)),
+    ] {
+        assert_eq!(u[input], value, "{input}");
+    }
+    // Refine steps/denoise stay the upscaler's own values, never the generation steps.
+    assert_eq!(u["steps"], json!(3));
+    assert_eq!(u["denoise"], json!(0.3));
+    // Omitted advanced options keep the node defaults: an empty object compiles like none.
+    i["latentUpscale"]["advanced"] = json!({});
+    assert_eq!(compile(&i).unwrap(), plain);
+    assert_eq!(plain["U"]["inputs"]["scheduler"], json!("simple"));
+    assert_eq!(plain["U"]["inputs"]["memory_reserve_pct"], json!(5.0));
 }
 
 #[test]

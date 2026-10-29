@@ -5,7 +5,7 @@ import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isGguf, clipLoaderName, nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
 import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
-import { chunkCount, defaultVideoOutput, h3Scalings, isVideoIntent, latentUpscaleSize, videoFrames, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3Scalings, isVideoIntent, latentUpscaleSize, videoFrames, type H3LatentAdvanced, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, musicBounds, musicMaxDuration, type AbcSettings, type MusicGenerationSettings, type MusicIntentV1, type MusicPlanning } from '../../lib/musicIntent';
 import { MusicPrompts, type MusicField } from './MusicPrompts';
 import { MusicSettings } from './MusicSettings';
@@ -56,7 +56,7 @@ import { NativeVideo, nativeVideo } from './NativeVideo';
 interface Family extends ComponentFamily { id:string; name:string; multiple?:number; imagePrompting?:'revision'|'qwen-image-2.1'|'krea-2'|'moss-image'; loader:string; pipelines:string[]; clipType?:string; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]} }
 /** Remembered video controls; family rows read only their own keys. */
 interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string; shiftHigh:number; shiftLow:number; refinerStep:number; shiftVideo:number; shiftAudio:number; audioVae:string; textProjection:string }
-interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number}
+interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number;advanced?:H3LatentAdvanced}
 const defaultLatent:LatentPref={enabled:false,model:'',scale:2,steps:1,denoise:0.2};
 const isLatentPref=(v:unknown):v is LatentPref=>{const p=v as LatentPref;return !!p&&typeof p.enabled==='boolean'&&typeof p.model==='string'&&[p.scale,p.steps,p.denoise].every(Number.isFinite);};
 const latentModels=(family:VideoFamily|undefined,allow:RecipeAllowlist|null)=>(family==='minimax-h3'?allow?.h3LatentUpscaleModels:allow?.latentUpscaleModels)?.filter(m=>{
@@ -678,7 +678,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
-   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise}};
+   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(h3LatentChanged(latentPref.advanced)?{advanced:h3LatentChanged(latentPref.advanced)}:{})}};
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){
@@ -1278,7 +1278,19 @@ const promptTools=forgeContext&&<>
      <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
      <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
      <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
-     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.steps')}</span><input type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/></label><label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
+     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label>
+      {(()=>{const a={...h3LatentDefaults,...latentPref.advanced};const set=(patch:H3LatentAdvanced)=>setLatentPref({...latentPref,advanced:{...latentPref.advanced,...patch}});
+       const num=(k:'cfg'|'memoryBudgetMb'|'guardSensitivity'|'guardStrength'|'memoryReservePct'|'continuityMaskStrength',min:number,max:number,step:number,hint?:string)=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><input data-latent-advanced={k} type="number" min={min} max={max} step={step} value={a[k]} onChange={e=>set({[k]:Number(e.target.value)})}/>{hint&&<small>{t(hint)}</small>}</label>;
+       const flag=(k:'spatialTiling'|'temporalChunking'|'spikeGuard'|'memoryPlanning'|'continuitySoftRefine',hint?:string)=><div className="wb-option" key={k}><label className="wb-option-row"><input data-latent-advanced={k} type="checkbox" checked={a[k]} onChange={e=>set({[k]:e.target.checked})}/>{t(`studio.run.latent.${k}`)}</label>{hint&&<small>{t(hint)}</small>}</div>;
+       const choose=(k:'scheduler'|'precision'|'guardMode',options:readonly string[])=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><select data-latent-advanced={k} value={a[k]} onChange={e=>set({[k]:e.target.value} as H3LatentAdvanced)}>{(options.includes(a[k])?options:[a[k],...options]).map(o=><option key={o} value={o}>{o}</option>)}</select></label>;
+       return <details className="wb-model-files" data-latent-upscale-more><summary aria-label={t('studio.run.latent.more')}>☰ {t('studio.run.latent.more')}</summary>
+        {num('cfg',0,20,0.1)}{choose('scheduler',choices?.schedulers??[h3LatentDefaults.scheduler])}{choose('precision',['auto','bf16','fp16','fp32'])}
+        {flag('spatialTiling')}{flag('temporalChunking')}
+        {flag('memoryPlanning','studio.run.latent.memoryPlanningHint')}{a.memoryPlanning&&num('memoryReservePct',0,100,5)}{num('memoryBudgetMb',0,131072,256,'studio.run.latent.memoryBudgetHint')}
+        {flag('spikeGuard','studio.run.latent.spikeGuardHint')}{a.spikeGuard&&<>{num('guardSensitivity',1.5,12,0.1)}{num('guardStrength',0,1,0.05)}{choose('guardMode',['burn_direction','both'])}</>}
+        {flag('continuitySoftRefine','studio.run.latent.continuityHint')}{a.continuitySoftRefine&&num('continuityMaskStrength',0,1,0.05)}
+        <button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
+       </details>;})()}</>}
      <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
      {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
     </>}

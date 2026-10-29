@@ -1,5 +1,6 @@
 {
   "downloads.folder.latent_upscale_models": "Agrandisseurs latents",
+  "downloads.folder.audio_encoders": "Encodeurs audio",
   "downloads.installed.sizeGib": "{n} Gio",
   "downloads.authCheck.checking": "Vérification du token…",
   "downloads.authCheck.verified": "Token vérifié",

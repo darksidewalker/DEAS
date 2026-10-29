@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "deas-settings.json";
-pub(crate) const MODEL_FOLDERS: [&str; 15] = [
+pub(crate) const MODEL_FOLDERS: [&str; 16] = [
     "checkpoints",
     "diffusion_models",
     "loras",
@@ -15,6 +15,7 @@ pub(crate) const MODEL_FOLDERS: [&str; 15] = [
     "controlnet",
     "upscale_models",
     "latent_upscale_models",
+    "audio_encoders",
     "embeddings",
     "unet",
     "style_models",
@@ -209,6 +210,8 @@ mod tests {
                 .next()
                 .unwrap();
             assert!(block.contains("  latent_upscale_models: latent_upscale_models\n"));
+            // YuE2 covers load SheetSage2 from the configured models root.
+            assert!(block.contains("  audio_encoders: audio_encoders\n"));
         }
         let models = crate::downloads::models::scan_roots(&[primary, extra]).unwrap();
         assert_eq!(models.len(), 2);

@@ -1,5 +1,6 @@
 {
   "downloads.folder.latent_upscale_models": "Gizil büyütücüler",
+  "downloads.folder.audio_encoders": "Ses kodlayıcıları",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "Token denetleniyor…",
   "downloads.authCheck.verified": "Token doğrulandı",

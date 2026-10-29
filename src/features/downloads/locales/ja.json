@@ -1,5 +1,6 @@
 {
   "downloads.folder.latent_upscale_models": "潜在アップスケーラー",
+  "downloads.folder.audio_encoders": "オーディオエンコーダー",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "トークンを確認中…",
   "downloads.authCheck.verified": "トークンを確認済み",

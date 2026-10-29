@@ -1,5 +1,6 @@
 {
   "downloads.folder.latent_upscale_models": "Latente Upscaler",
+  "downloads.folder.audio_encoders": "Audio-Encoder",
   "downloads.installed.sizeGib": "{n} GiB",
   "downloads.authCheck.checking": "Token wird geprüft…",
   "downloads.authCheck.verified": "Token bestätigt",

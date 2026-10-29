@@ -1,5 +1,15 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## H3 latent upscaler options and audio encoders folder (0.1.67, unreleased)
+
+Scope: `src-tauri/src/{jobs_video,jobs,settings}.rs`, `src/lib/videoIntent.ts`, `src/features/studio/{Workbench,RunPlan}.tsx`, studio/downloads locales (six languages), `tests/video-intent.test.ts`, `jobs_video_tests.rs`, `Workbench.test.tsx`.
+
+- Optional `latentUpscale.advanced` maps 14 `DaSiWaH3TiledUpscale` inputs (checked against the node source in ComfyUI-DaSiWa-Nodes `ab364c5`); native validation rejects unknown keys, out-of-range numbers, wrong types and unknown enum values, and native preparation checks the scheduler against the backend's schedulers. An empty or omitted object compiles to the identical graph (regression asserted). Refine steps/denoise stay the upscaler's own values.
+- `audio_encoders` is written into `deas-models.yaml` for the primary and extra model roots and scanned by the Library (settings test extended).
+- Gates on Linux: `npm run typecheck`; `npm test` 122 core and 1338 UI tests; `npm run test:layout`; `cargo fmt --check`; strict Clippy (all targets); `cargo test --locked` 680 library tests passed, 43 ignored.
+
+Not verified: a real H3 run with changed options (quality, memory behaviour), the regenerated model-paths file on the owner's live backend, native WebKitGTK/WebView2 interaction with the new menu, Windows runtime.
+
 ## Release 0.1.66 (published)
 
 Published as GitHub release `v0.1.66` (rollup of 0.1.63–0.1.66) from source commit `a5414f5` built in a clean tagged worktree; tag pushed to gitea and github. Fresh gates on the release tree: `npm run typecheck` clean; `test:core` 121/121; `test:ui` 1320/1320 across 66 files; `test:layout` Chromium 381 checks PASS with 9 tabs and negative controls; Rust `cargo fmt --check`, `cargo clippy --locked --release --lib --bins -- -D warnings`, `cargo test --locked -- --test-threads=1` (679 library + 3 binary pass, 43 deliberately ignored) and `cargo xwin check --all-targets` green. Assets: `deas-linux-amd64` SHA-256 `8dc9bff04b63c1054f1953f3b057f96cd230778f7b794de96b77451fa39ffdb0` (derived glibc floor 2.39, `ldd` reports zero 'not found'), `deas.exe` SHA-256 `f92e2277e974ecb29833201b66d6e9b233c37c9393d1addc55f7394144ccb060` (MSVC cross-build, benign `LNK4099` missing-debug-info linker warnings, WebView2 runtime required; first real Windows launch is the acceptance test), `BUILD-MANIFEST.json` SHA-256 `6725d83bbc80f5d07266d81e44d0e6b19cb321738b8093d4fa9476fa9c987f09`, `SHA256SUMS` SHA-256 `e9e6754ed1b0d7e576826d2fc0680700073eb353dd74a23c0f95013242331212`. Toolchain rustc 1.97.0, node v26.12.1. NSIS installer and portable zip skipped (native Windows runner required).

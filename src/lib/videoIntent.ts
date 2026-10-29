@@ -25,7 +25,15 @@ export type H3OverlapFrames=typeof h3OverlapFrames[number];
 export const isH3OverlapFrames=(v:unknown):v is H3OverlapFrames=>h3OverlapFrames.some(n=>n===v);
 export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; durationSeconds?:number }
 interface VideoBase { readonly recipeId:'video-generation'; readonly version:1; readonly positivePrompt:string; readonly negativePrompt:string; readonly model:string; readonly textEncoder:string; readonly vae:string; readonly seed:number; readonly width:number; readonly height:number; readonly frames:number; readonly frameRate:number; readonly steps:number; readonly cfg:number; readonly sampler:string; readonly scheduler:string; readonly outputPrefix:string; readonly output:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly firstFrame?:string; readonly lastFrame?:string; readonly sourceVideo?:string; readonly loras?:readonly {name:string;strength:number}[]; readonly options?:RunOptions; readonly chunks?:number }
-export interface H3LatentUpscale { model:string; scale:number; steps:number; denoise:number }
+/** Optional `DaSiWaH3TiledUpscale` inputs; omitted keys keep the node defaults in `h3LatentDefaults`. */
+export interface H3LatentAdvanced { cfg?:number; scheduler?:string; precision?:'auto'|'bf16'|'fp16'|'fp32'; memoryBudgetMb?:number; spatialTiling?:boolean; temporalChunking?:boolean; spikeGuard?:boolean; guardSensitivity?:number; guardStrength?:number; guardMode?:'burn_direction'|'both'; memoryPlanning?:boolean; memoryReservePct?:number; continuitySoftRefine?:boolean; continuityMaskStrength?:number }
+export const h3LatentDefaults:Required<H3LatentAdvanced>={cfg:1,scheduler:'simple',precision:'auto',memoryBudgetMb:0,spatialTiling:true,temporalChunking:true,spikeGuard:false,guardSensitivity:4.3,guardStrength:1,guardMode:'burn_direction',memoryPlanning:true,memoryReservePct:5,continuitySoftRefine:false,continuityMaskStrength:1};
+/** Only values that differ from the node defaults, so untouched options leave intents and graphs unchanged. */
+export const h3LatentChanged=(a:H3LatentAdvanced|undefined):H3LatentAdvanced|undefined=>{
+ const changed=Object.fromEntries(Object.entries(a??{}).filter(([k,v])=>k in h3LatentDefaults&&v!==h3LatentDefaults[k as keyof H3LatentAdvanced]));
+ return Object.keys(changed).length?changed as H3LatentAdvanced:undefined;
+};
+export interface H3LatentUpscale { model:string; scale:number; steps:number; denoise:number; advanced?:H3LatentAdvanced }
 export interface LtxLatentUpscale { model:string; scale:2 }
 /** Matches Python round, not JavaScript's half-up rounding. */
 export function latentUpscaleSize(family:VideoFamily,size:{width:number;height:number},scale:number){

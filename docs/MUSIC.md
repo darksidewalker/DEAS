@@ -8,7 +8,7 @@ Studio → Generate offers two music pipelines for YuE2 checkpoints. Both compil
 
 - **Music (Text to Music)** and **Music (Cover Music)** sit in the Pipeline picker next to the image and video modes.
 - The checkpoint picker lists only files whose safetensors header carries both YuE2 keys (`model.diffusion_model.llm2vae.weight` and `text_encoders.model.embed_tokens.weight`). Put the checkpoint under `models/checkpoints`. A file that only has the YuE2 name is not listed; a renamed file with the keys is.
-- Covers need a SheetSage2 audio encoder under `models/audio_encoders`. The picker shows the names the running backend reports for `AudioEncoderLoader`; nothing is downloaded automatically.
+- Covers need a SheetSage2 audio encoder under `audio_encoders` in your configured models folder (or the backend's own `models/audio_encoders`). The picker shows the names the running backend reports for `AudioEncoderLoader`; nothing is downloaded automatically.
 - Missing YuE2 or SheetSage2 nodes on the backend disable only the dependent pipeline. Run names the missing node or encoder in its tooltip and the Run Plan notices.
 
 ## Style and Lyrics

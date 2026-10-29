@@ -1422,7 +1422,13 @@ impl Jobs {
                     "compile",
                     intent["options"]["compile"].as_str().into_iter().collect(),
                 ),
-                ("schedulers", vec![intent["scheduler"].as_str().unwrap()]),
+                (
+                    "schedulers",
+                    [&intent["scheduler"], &intent["latentUpscale"]["advanced"]["scheduler"]]
+                        .into_iter()
+                        .filter_map(Value::as_str)
+                        .collect(),
+                ),
                 (
                     "visionModels",
                     intent["imageReference"]["visionModel"]

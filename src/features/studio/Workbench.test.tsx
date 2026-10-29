@@ -149,6 +149,40 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({latentUpscale:plan.latentUpscale,width:plan.width,height:plan.height,frames:plan.frames,output:plan.output});
 });
 
+test('H3 latent upscaler options sit in their own menu, keep separate refine steps and reach Run Plan only when changed',async()=>{
+ const files=[
+  {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
+ ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null}));
+ vi.mocked(scanModels).mockResolvedValue(files);
+ const h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,schedulers:['simple','beta'],nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:h3Model,scale:2,steps:1,denoise:0.2}));
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(document.querySelector('[data-latent-upscale-more]')).not.toBeNull());
+ const more=document.querySelector('[data-latent-upscale-more]') as HTMLDetailsElement;
+ expect(more.open).toBe(false);
+ fireEvent.change(document.querySelector('[data-latent-upscale-steps]')!,{target:{value:'4'}});
+ expect(screen.getByText('Upscale refine steps')).toBeTruthy();
+ more.open=true;
+ fireEvent.change(more.querySelector('[data-latent-advanced="cfg"]')!,{target:{value:'1.5'}});
+ fireEvent.change(more.querySelector('[data-latent-advanced="scheduler"]')!,{target:{value:'beta'}});
+ expect(more.querySelector('[data-latent-advanced="guardSensitivity"]')).toBeNull();
+ fireEvent.click(more.querySelector('[data-latent-advanced="spikeGuard"]')!);
+ expect(more.querySelector('[data-latent-advanced="guardSensitivity"]')).not.toBeNull();
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:h3Model,scale:2,steps:4,denoise:0.2,advanced:{cfg:1.5,scheduler:'beta',spikeGuard:true}}));
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-latent-advanced-reset]')).not.toBeNull());
+ fireEvent.click(document.querySelector('[data-latent-advanced-reset]')!);
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:h3Model,scale:2,steps:4,denoise:0.2}));
+});
 test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
