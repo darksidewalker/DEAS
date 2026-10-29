@@ -1,5 +1,9 @@
 # DEAS consolidated implementation status and plan
 
+## Local PR integration #7–#10 (0.1.64 development)
+
+Windows backend-update gating, cross-platform test fixtures/log isolation, unsupported spellcheck warning severity, and failed/cancelled installer recovery are locally integrated onto the newer 0.1.64 state. Review follow-ups reject malformed release versions and cover polled recovery with a fresh target. Linux frontend/native/layout gates pass; Windows runtime and real installation/download acceptance remain open. No GitHub merge/publication is implied. [Evidence](VERIFICATION.md#local-pr-integration-710-0164-development).
+
 ## Prompt writing aids (0.1.63 development)
 
 Studio inline/enlarged prompts share right-aligned length counts, independent remembered native spellcheck language (actual system language/script/region by default) and default-off local Forge tag suggestions. Backend language controls and Quick Settings stay synchronized without changing jobs/project drafts. Frontend, Rust and Chromium gates pass; the Linux artifact is rebuilt. Missing Linux dictionaries and unsupported Windows native dictionary selection are explicit unavailable states, not claimed parity. Native spelling-underlines acceptance remains open without a display. [Usage](STUDIO.md#prompt-writing-aids-0163-development) · [Evidence and limits](VERIFICATION.md#prompt-counts-and-writing-aids-0163-development).

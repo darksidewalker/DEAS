@@ -38,19 +38,6 @@ pub struct Updates {
     nodepack: bool,
 }
 
-fn semver(tag: &str) -> Option<(u64, u64, u64)> {
-    let mut it = tag
-        .trim_start_matches('v')
-        .split('.')
-        .map(|p| p.parse().ok());
-    Some((it.next()??, it.next()??, it.next()??))
-}
-
-/// `Some(tag)` when `tag` is a newer semver than this build.
-fn newer(tag: &str) -> Option<String> {
-    (semver(tag)? > semver(env!("CARGO_PKG_VERSION"))?).then(|| tag.to_string())
-}
-
 async fn git(git: &Path, dir: &Path, args: &[&str]) -> Option<String> {
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(8),
@@ -89,25 +76,41 @@ async fn behind(exe: &Path, dir: &Path, reference: &str) -> bool {
     }
 }
 
+/// Tag of the latest GitHub release when it is newer than this build. Unlike the hint below,
+/// an unreadable release is an error: platforms without self-update gate the backend on it.
+pub(crate) async fn newer_release(auth: &AuthState) -> Result<Option<String>, String> {
+    let (response, _) = call(auth, Method::GET, &format!("/repos/{REPO}/releases/latest")).await?;
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::NOT_FOUND => return Err("Cannot read the latest DEAS release (GitHub answered 404): while the repository is private, add a GitHub token in Provider authorization".into()),
+        status => return Err(format!("Cannot read the latest DEAS release (GitHub answered {status})")),
+    }
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| "Unexpected GitHub response".to_string())?;
+    release_update(&value)
+}
+
+fn release_update(value: &serde_json::Value) -> Result<Option<String>, String> {
+    let tag = value["tag_name"]
+        .as_str()
+        .ok_or("Invalid release version")?;
+    let latest = crate::app_update::version(tag).ok_or("Invalid release version")?;
+    let current = crate::app_update::version(env!("CARGO_PKG_VERSION"))
+        .ok_or("Invalid application version")?;
+    Ok((latest > current).then(|| tag.to_owned()))
+}
+
 #[tauri::command]
 pub async fn native_update_check(
     auth: tauri::State<'_, AuthState>,
     engine: tauri::State<'_, crate::install::Engine>,
 ) -> Result<Updates, String> {
-    let mut updates = Updates::default();
-    if let Ok((response, _)) = call(
-        &auth,
-        Method::GET,
-        &format!("/repos/{REPO}/releases/latest"),
-    )
-    .await
-    {
-        if response.status() == StatusCode::OK {
-            if let Ok(value) = response.json::<serde_json::Value>().await {
-                updates.app = value["tag_name"].as_str().and_then(newer);
-            }
-        }
-    }
+    let mut updates = Updates {
+        app: newer_release(&auth).await.ok().flatten(),
+        ..Updates::default()
+    };
     if let (Some(plan), Some(exe)) = (engine.approved_plan(), crate::install::git_path()) {
         let comfy = Path::new(&plan.request.storage_path).join("ComfyUI");
         updates.comfy = behind(&exe, &comfy, &plan.request.comfy_ref).await;
@@ -126,10 +129,28 @@ mod tests {
     use super::*;
     #[test]
     fn only_strictly_newer_release_tags_count() {
-        assert_eq!(newer("v999.0.0"), Some("v999.0.0".into()));
-        assert_eq!(newer(&format!("v{}", env!("CARGO_PKG_VERSION"))), None);
-        assert_eq!(newer("v0.0.1"), None);
-        assert_eq!(newer("nightly"), None);
+        use serde_json::json;
+        assert_eq!(
+            release_update(&json!({"tag_name":"v999.0.0"})),
+            Ok(Some("v999.0.0".into()))
+        );
+        assert_eq!(
+            release_update(&json!({"tag_name":env!("CARGO_PKG_VERSION")})),
+            Ok(None)
+        );
+        assert_eq!(release_update(&json!({"tag_name":"v0.0.1"})), Ok(None));
+        for value in [
+            json!({}),
+            json!({"tag_name":42}),
+            json!({"tag_name":"nightly"}),
+            json!({"tag_name":"release-0.1.65"}),
+            json!({"tag_name":"v1.2.3.4"}),
+        ] {
+            assert_eq!(
+                release_update(&value),
+                Err("Invalid release version".into())
+            );
+        }
     }
 }
 

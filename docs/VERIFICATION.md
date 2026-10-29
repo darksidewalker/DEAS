@@ -1,5 +1,29 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Local PR integration #7–#10 (0.1.64 development)
+
+Reviewed and applied the merge-base deltas of PRs #7 (`2317300`), #8 (`e76df3b`), #9 (`216d56f`) and #10 (`56b4a2b`) onto `57b4228`, preserving the newer latent-upscale work and documentation. This is local, uncommitted integration, not a GitHub merge or publication. Release classification additionally rejects absent/non-string/invalid tags using the existing strict application-updater parser; malformed metadata cannot authorize a Windows backend upgrade. Recovery fixtures additionally cover running → polled failure/cancellation → same-folder rejection → explicit new-folder retry, preserving logs without automatically starting another install. Corrected the troubleshooting text to match that sequence.
+
+Linux gates: full core/UI suites, TypeScript check, frontend build and shared Chromium layout gate passed on the integrated PR tree. After review adjustments, both setup component suites passed (77 tests), the native library suite passed again, and Rust formatting/strict Clippy passed. The first focused Vitest invocation was rewritten by the command wrapper to the Hermes installation's test runner and failed before test bodies on unavailable localStorage; rerunning the repository's own `node_modules/vitest/vitest.mjs` passed. This was a tool invocation error, not an application fix.
+
+Not exercised here: Windows runtime/cross-build, real installation or uv network downloads, native UI interaction, or model inference. Earlier Windows results below are contributor evidence on their stated revisions, not fresh verification of this integrated tree. Existing user services and installations were not stopped or modified.
+
+## Windows Rust library suite (Unreleased)
+
+Contributor-run on Windows 10 (user profile with a space, so `%TEMP%` is an 8.3 short path; Python 3.13 from python.org). Before, on 0.1.63 (`3671426`): `cargo test --lib` 505 passed / 6 failed — `llm` python_worker fixtures, `projects` single_writer, `settings` extra_model_roots, `media::star` nested move, and the two `jobs` shared-log tests (these two pass alone). After: 512 passed / 0 failed / 30 ignored on three consecutive full runs; `cargo fmt --check` and `cargo clippy --lib --tests` clean apart from the existing `video_upscale.rs` `chunks_exact` warnings. Root cause of the jobs pair, confirmed by three green runs with only `incremental_reads_and_byte_cap` skipped: its 12 MiB of pushes overflowed the 10 MiB shared store mid-run. Linux behaviour of the changed tests is unchanged by construction (`python3` kept off Windows; canonicalizing a long path is a no-op), not re-run on Linux.
+
+## Windows runtime: 0.1.63 checks (release build of `3671426`)
+
+Contributor-run on Windows 10 / WebView2, RTX 5080, existing owned environment, driven through the WebView2 DevTools port; screenshots inspected.
+
+- **Model loader-folder mismatch:** an Anima file present in both `checkpoints/` and `diffusion_models/` shows twice in the Checkpoint dropdown and the Models tiles; the `checkpoints/` entry is disabled with the folder guidance as its tooltip, the `diffusion_models/` entry selects normally. Observation: both entries carry the same visible name, and the guidance is only reachable by hovering the disabled entry.
+- **Chat model-exact routing** (Qwen3.8 27B over an OpenAI-compatible server): MiniMax H3, LTX and Illustrious requests each answer with the exact `Studio → Prompt Forge → Write for → <mode>` referral; no four-image-model substitution was offered.
+- **Video preview on Windows** (non-libmpv path, WebView2 `<video controls>`): a generated 20 s 1280×720 H.264/AAC test pattern with a burned-in timestamp plays with Chromium's native controls (play/pause, time, seek, volume, fullscreen). Clicking the middle of the seek bar lands on `currentTime` 10.000 and the displayed frame reads `00:00:10.000`, frame 300; playing 2 s advances to ≈12.1 s; pause holds. The Linux-only seek/volume track fixes of 0.1.62 do not apply on this path and no inaccuracy was found; the controls are the stock Chromium style, not the themed Linux controls.
+- **Logs:** `SPELLCHECK_UNSUPPORTED` is written at ERROR level on every launch (an expected Windows state); otherwise only the usual startup `object_info` warnings while ComfyUI loads.
+
+Not checked: audible A/V sync beyond the tone playing, H3 reference-editor playback on Windows, model inference.
+
+
 ## Learned video latent upscale (0.1.64 development)
 
 ### Segment capture with latent upscale (0.1.64 development)

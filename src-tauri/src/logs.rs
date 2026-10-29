@@ -41,24 +41,29 @@ fn store() -> std::sync::MutexGuard<'static, Store> {
 }
 
 pub fn push(source: Source, text: &str) {
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    let mut s = store();
-    s.next += 1;
-    let entry = Entry {
-        seq: s.next,
-        time,
-        source,
-        text: text.to_owned(),
-    };
-    s.bytes += entry.text.len();
-    s.entries.push_back(entry);
-    while s.bytes > MAX_BYTES {
-        let Some(old) = s.entries.pop_front() else {
-            break;
+    store().push(source, text);
+}
+
+impl Store {
+    fn push(&mut self, source: Source, text: &str) {
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        self.next += 1;
+        let entry = Entry {
+            seq: self.next,
+            time,
+            source,
+            text: text.to_owned(),
         };
-        s.bytes -= old.text.len();
+        self.bytes += entry.text.len();
+        self.entries.push_back(entry);
+        while self.bytes > MAX_BYTES {
+            let Some(old) = self.entries.pop_front() else {
+                break;
+            };
+            self.bytes -= old.text.len();
+        }
     }
 }
 
@@ -166,16 +171,22 @@ mod tests {
             .iter()
             .any(|e| e.text == "second" && e.source == Source::Comfyui));
         assert!(after(seq).iter().all(|e| e.text != "first"));
+    }
+
+    #[test]
+    fn byte_cap_evicts_oldest_entries() {
+        // A private store: overflowing the shared one would evict entries other tests are reading.
+        let mut s = Store::default();
+        s.push(Source::Deas, "first");
         let line = "x".repeat(1024 * 1024);
         for _ in 0..12 {
-            push(Source::Cli, &line);
+            s.push(Source::Cli, &line);
         }
-        let s = store();
         assert!(s.bytes <= MAX_BYTES);
         assert_eq!(
             s.bytes,
             s.entries.iter().map(|e| e.text.len()).sum::<usize>()
         );
-        assert!(s.entries.iter().all(|e| e.seq > seq));
+        assert!(s.entries.iter().all(|e| e.seq > 1));
     }
 }

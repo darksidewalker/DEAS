@@ -38,7 +38,6 @@ struct Asset {
     browser_download_url: String,
 }
 
-#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn version(tag: &str) -> Option<(u64, u64, u64)> {
     let parts: Vec<_> = tag.strip_prefix('v').unwrap_or(tag).split('.').collect();
     if parts.len() != 3
@@ -481,7 +480,16 @@ async fn run(confirmed: bool, _auth: &crate::auth::AuthState) -> Result<bool, St
     }
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     {
-        Err("Application self-update is unsupported on this platform (including Windows locked executables); download the latest release and replace it after quitting DEAS".into())
+        unsupported(crate::repo::newer_release(_auth).await?)
+    }
+}
+
+/// No replacement here, but an up-to-date build must not block ComfyUI/node-pack updates.
+#[cfg(any(test, not(all(target_os = "linux", target_arch = "x86_64"))))]
+fn unsupported(newer: Option<String>) -> Result<bool, String> {
+    match newer {
+        None => Ok(false),
+        Some(tag) => Err(format!("DEAS {tag} is available, but application self-update is unsupported on this platform (including Windows locked executables); download the latest release and replace it after quitting DEAS")),
     }
 }
 

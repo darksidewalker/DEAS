@@ -198,13 +198,12 @@ async fn denied_consent_is_logged_without_execution() {
             && entry.source == crate::logs::Source::Deas));
 }
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-#[tokio::test]
-async fn unsupported_platform_is_explicit_before_execution() {
-    assert!(execute(true, &crate::auth::AuthState::default())
-        .await
-        .unwrap_err()
-        .contains("unsupported"));
+#[test]
+fn unsupported_platform_blocks_only_a_newer_release() {
+    // Up to date: nothing to replace, so backend updates may proceed.
+    assert_eq!(unsupported(None), Ok(false));
+    let error = unsupported(Some("v9.9.9".into())).unwrap_err();
+    assert!(error.contains("v9.9.9") && error.contains("unsupported"));
 }
 
 #[tokio::test]
@@ -292,6 +291,17 @@ async fn credentials_are_rejected_before_any_foreign_request() {
     let error = result.unwrap_err();
     assert!(error.contains("exact GitHub API origin"));
     assert!(!error.contains("fixture-secret"));
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[tokio::test]
+#[ignore = "Reads the actual latest release; never downloads or installs"]
+async fn live_unsupported_platform_reads_latest_release() {
+    let auth = crate::auth::AuthState::default();
+    if let Ok(token) = std::env::var("DEAS_LIVE_GITHUB_TOKEN") {
+        auth.set("github", token, false).unwrap();
+    }
+    eprintln!("native_app_update -> {:?}", execute(true, &auth).await);
 }
 
 #[tokio::test]

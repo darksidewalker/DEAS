@@ -243,6 +243,55 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   mount(vi.fn(),installed);open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('not succeeded');
   expect(installed).not.toHaveBeenCalled();
  });
+ it.each(['failed','cancelled'] as const)('re-plans after a %s install instead of reusing its consumed plan',async state=>{
+  nativeFixture();let id=0;const started:string[]=[];
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')return {...plan((args as {request:NativeInstallRequest}).request),id:`plan-${++id}`};
+   if(command==='native_install_start'){started.push((args as {planId:string}).planId);return {state,stepId:null,logs:['attempt ended'],error:state==='failed'?'uv download stalled':null};}
+   return {state,stepId:null,logs:[],error:null};
+  });
+  mount();open();await screen.findByText('CPU fallback fixture');await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('attempt ended');
+  await waitFor(()=>expect(id).toBe(2));expect(screen.getByText('attempt ended')).toBeTruthy();
+  await waitFor(()=>expect((screen.getByRole('button',{name:'Start install'}) as HTMLButtonElement).disabled).toBe(false));
+  click('Start install');await waitFor(()=>expect(started).toEqual(['plan-1','plan-2']));
+ });
+ it.each(['failed','cancelled'] as const)('recovers from a polled %s install only after choosing a new target',async state=>{
+  nativeFixture();let id=0;let usedRoot='';const started:string[]=[];const completion=deferred<unknown>();
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_llm_read')return defaultLlmConfig;
+   if(command==='native_llm_models')return {models:[],warnings:[]};
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan'){
+    const request=(args as {request:NativeInstallRequest}).request;
+    if(request.storagePath===usedRoot)throw new Error('unfinished installation fixture');
+    return {...plan(request),id:`plan-${++id}`};
+   }
+   if(command==='native_install_start'){started.push((args as {planId:string}).planId);usedRoot=defaults.storagePath;return {state:'running',stepId:null,logs:['attempt running'],error:null};}
+   if(command==='native_install_status')return completion.promise;
+   return {state:'idle',stepId:null,logs:[],error:null};
+  });
+  mount();open();await screen.findByRole('button',{name:'Start install'});click('Start install');await screen.findByText('attempt running');
+  await act(async()=>completion.resolve({state,stepId:null,logs:['attempt ended'],error:state==='failed'?'uv download stalled':null}));
+  await screen.findByText(/unfinished installation fixture/);expect(screen.getByText('attempt ended')).toBeTruthy();
+  expect(started).toEqual(['plan-1']);expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
+  change('Storage directory','/fresh/environment');await screen.findByRole('button',{name:'Start install'});
+  expect(screen.getByText('attempt ended')).toBeTruthy();expect(started).toEqual(['plan-1']);
+  click('Start install');await waitFor(()=>expect(started).toEqual(['plan-1','plan-2']));
+ });
+ it('shows a planning error in the review panel where Start would be',async()=>{
+  nativeFixture();
+  vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
+   if(command==='native_install_defaults')return defaults;
+   if(command==='native_install_plan')throw new Error('unfinished installation fixture');
+   return {state:'idle',stepId:null,logs:[],error:null};
+  });
+  mount();open();
+  const alert=await screen.findByText(/unfinished installation fixture/);
+  expect(alert.closest('.aio-right')).not.toBeNull();
+  expect(screen.getAllByText(/unfinished installation fixture/)).toHaveLength(1);
+  expect(screen.queryByRole('button',{name:'Start install'})).toBeNull();
+ });
  it('hands off only when a running actual install polls succeeded',async()=>{
   nativeFixture();const installed=vi.fn();const completion=deferred<unknown>();
   vi.mocked(invoke).mockImplementation(async(command,args)=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};

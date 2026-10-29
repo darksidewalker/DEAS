@@ -2,6 +2,14 @@
 
 ## Unreleased — 0.1.64
 
+- Windows: **Update** no longer fails with "self-update is unsupported" when only ComfyUI or DaSiWa-nodes are behind. The application step reads the latest release first and, when this build is current, lets the backend upgrade run; a newer DEAS release still stops it with a manual-download message naming the version. Missing or invalid release versions fail closed rather than being treated as current.
+
+- Windows: the Rust library suite passes on Windows. Five tests assumed Linux: `python3` (a Microsoft Store placeholder on Windows), uncanonicalized 8.3 temp paths (projects, extra model roots), a `jpg`/`JPG` name collision on a case-insensitive filesystem (starred media), and a log byte-cap test that overflowed the shared log and evicted entries other parallel tests were reading (both jobs log tests). Test-only, except that the log store's push/trim moved onto `Store` so the cap test can use a private store.
+
+- Windows: the expected "spellchecking configuration unsupported" state is logged as a warning instead of an error on every launch; missing dictionaries and invalid languages stay errors.
+
+- Setup recovery after a failed or cancelled install: Setup plans again instead of retrying the consumed plan ("Unknown or already consumed plan ID"), keeping the failed run's logs visible. A folder left by an interrupted install (`deas-plan.json` without `deas-install.json`) now says so for new installs, reopening and takeover, instead of pointing at a reopen that cannot work. The uv download fails only after 60 s without data (15-minute ceiling) with a "uv download stalled" message, instead of a fixed 180 s total surfacing as "error decoding response body".
+
 - Add optional learned H3 and LTX latent upscale under Generate → Post-Processing, using family-specific safetensors in `latent_upscale_models`. Missing-model activation offers the existing Library flow in a popup; downloads remain explicitly authorized. The final generation latent is upscaled before decoding, without a lossy video round trip; existing LTX multipass controls stay separate. Paired Original/Processed video outputs retain their roles. H3 segment-capture pairing now compiles with exactly one Segment Decode: the Processed video comes from the upscaled decode, and the Original baseline is assembled on core nodes (core VAE decode of the prepared window plus an `ImageFromBatch` crop mirroring the nodepack's continuation timing, with audio reused from the Segment Decode), with the pinned checkpoint clip's frame count resolved from the session list at prepare time; first takes, imported-video pins and clip lists stay fail closed. Strict baseline-first failure preservation remains unverified.
 
 ## Unreleased — 0.1.63

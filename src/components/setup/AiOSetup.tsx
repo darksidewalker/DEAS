@@ -107,6 +107,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const [installedRoot,setInstalledRoot]=useState('');const installed=succeeded||!!installedRoot;
  useEffect(()=>{onEnvironment?.(installedRoot?{root:installedRoot,folders}:null);},[installedRoot,folders,onEnvironment]);
  const review=state.opened&&!installed;const side=inBackend&&(review||installed);
+ // A plan that could not be made replaces Start in the review panel; at the column end it sat below the fold.
+ const planError=inBackend&&review&&!nativePlan&&!running&&!!technicalError;
  const connect=(baseUrl:string)=>{setView('studio');onConnectExisting(baseUrl,true);};
  const studioVisited=useRef(false);if(view==='studio')studioVisited.current=true;
  // One read-only defaults request per mounted setup, also reused by StrictMode effect replay.
@@ -126,6 +128,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   return ()=>{alive=false;};
  },[native,state.opened,t]);
  useEffect(()=>{generation.current++;setNativePlan(null);setTechnicalError('');},[signature]);
+ // A started plan is consumed natively: after a failed/cancelled run, plan again instead of retrying a dead ID.
+ useEffect(()=>{if((status?.state==='failed'||status?.state==='cancelled')&&nativePlan&&startedPlan.current===nativePlan){startedPlan.current=null;setNativePlan(null);}},[status?.state,nativePlan]);
  useEffect(()=>{
   if(!native||status?.state!=='succeeded'||(!planMatches&&!reopening)||!nativePlan||startedPlan.current!==nativePlan||notifiedPlans.current.has(nativePlan.id))return;
   notifiedPlans.current.add(nativePlan.id);
@@ -188,7 +192,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   if(!native||operationLock.current||busy||running||pickerBusy||folderPickerBusy||error||plan?.route!=='managed')return;
   operationLock.current=true;
   const version=generation.current;
-  setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(null);
+  // Keep a failed/cancelled run's logs and error visible while planning the retry.
+  setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(s=>s?.state==='failed'||s?.state==='cancelled'?s:null);
   const {storagePath,backend,features,options,comfyRef}=plan;
   try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath:takeoverOn&&takeoverPath?takeoverPath:storagePath,backend,features,options,comfyRef,...(takeoverOn?{takeover:true}:{}),...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
   catch(e){if(version===generation.current)setTechnicalError(String(e));}
@@ -272,7 +277,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {inBackend&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}{installedRoot&&<FoldersPanel root={installedRoot} disabled={running||busy||folderPickerBusy} onChange={setFolders}/>}</>}
   <div hidden={!inBackend}><BackendPanels llmSetupRequest={llmSetupRequest} root={installedRoot} modelsDir={folders.models} onRestart={()=>setRestartSignal(n=>n+1)} onAuthChange={()=>{setConfigured([]);setVerified([]);setAuthRevision(n=>n+1);}}/></div>
   <DownloadWorkspace view={view==='downloads'?'downloads':null} authRevision={authRevision} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
-  {view!=='comfy'&&<>{error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}</>}
+  {view!=='comfy'&&<>{error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&!planError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}</>}
   </div>
   {/* Kept mounted (hidden) after success so backend polling and the Studio handoff continue on other tabs. */}
   {(side||installed)&&<aside className="aio-right" hidden={!side}>
@@ -300,6 +305,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
     {!nativePlan.canExecute&&<p role="alert">{t('setup.blocked')}</p>}
     <button className="aio-confirm-button" title={t(reopening?'setup.reuseHelp':'setup.autoConsent')} disabled={(!planMatches&&!reopening)||running||busy||folderPickerBusy||!nativePlan.canExecute||nativePlan.unsupportedOptions.length>0} onClick={()=>{if(takeoverOn&&takeoverPath&&planMatches&&nativePlan.canExecute)setConfirmTakeover(true);else void start();}}>{t(reopening?'setup.useExisting':takeoverOn&&takeoverPath?'setup.takeover.start':'setup.autoStart')}</button>
    </div>}
+   {planError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
     {!reopening&&<details className="aio-advanced"><summary>{t('setup.advanced')}</summary>
      <label htmlFor="auto-backend">{t('setup.request.backend')}</label><select id="auto-backend" value={state.values.acceleration??''} onChange={e=>edit({type:'select',step:'acceleration',value:e.target.value},'acceleration')}><option value="">{t('setup.manualBackend')}</option>{['cpu','nvidia','amd','intel'].map(id=><option key={id} value={id}>{t(`setup.backend.${id}.label`)}</option>)}</select>
