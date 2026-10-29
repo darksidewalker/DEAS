@@ -688,7 +688,8 @@ fn create_cancel_save_close_reopen_and_single_writer() {
     let projects = Projects::default();
     assert!(projects.create(None).unwrap().is_none());
     let first = projects.create(Some(folder.path())).unwrap().unwrap();
-    assert!(Path::new(&first.root).starts_with(folder.path()));
+    // Roots are canonical; Windows temp may be an 8.3 short path.
+    assert!(Path::new(&first.root).starts_with(dunce::canonicalize(folder.path()).unwrap()));
     assert_ne!(Path::new(&first.root), folder.path());
     assert_eq!(first.draft, ImageDraft::default());
     let other = Projects::default();

@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Windows: the Rust library suite passes on Windows. Five tests assumed Linux: `python3` (a Microsoft Store placeholder on Windows), uncanonicalized 8.3 temp paths (projects, extra model roots), a `jpg`/`JPG` name collision on a case-insensitive filesystem (starred media), and a log byte-cap test that overflowed the shared log and evicted entries other parallel tests were reading (both jobs log tests). Test-only, except that the log store's push/trim moved onto `Store` so the cap test can use a private store.
+
 - Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
 
 - Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.

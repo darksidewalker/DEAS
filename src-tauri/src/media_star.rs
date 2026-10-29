@@ -793,12 +793,16 @@ mod tests {
         // Arbitrary byte-preservation fixtures, not decoded media samples.
         let bytes = b"\0arbitrary media bytes\xff\x01";
         let jobs = crate::jobs::Jobs::default();
-        for extension in [
+        for (index, extension) in [
             "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif", "svg", "mp4", "mkv",
             "webm", "mov", "avi", "m4v", "mpg", "mpeg", "wav", "mp3", "flac", "ogg", "m4a", "aac",
             "opus", "JPG",
-        ] {
-            let relative = format!("2026-10-21/model/file_00001.{extension}");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // One stem per case: `JPG` must not land on the earlier `jpg` on case-insensitive filesystems.
+            let relative = format!("2026-10-21/model/file_{index:05}.{extension}");
             let source = root.join(&relative);
             std::fs::create_dir_all(source.parent().unwrap()).unwrap();
             std::fs::write(&source, bytes).unwrap();

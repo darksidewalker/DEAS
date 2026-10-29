@@ -1,5 +1,9 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Windows Rust library suite (Unreleased)
+
+Contributor-run on Windows 10 (user profile with a space, so `%TEMP%` is an 8.3 short path; Python 3.13 from python.org). Before, on 0.1.63 (`3671426`): `cargo test --lib` 505 passed / 6 failed — `llm` python_worker fixtures, `projects` single_writer, `settings` extra_model_roots, `media::star` nested move, and the two `jobs` shared-log tests (these two pass alone). After: 512 passed / 0 failed / 30 ignored on three consecutive full runs; `cargo fmt --check` and `cargo clippy --lib --tests` clean apart from the existing `video_upscale.rs` `chunks_exact` warnings. Root cause of the jobs pair, confirmed by three green runs with only `incremental_reads_and_byte_cap` skipped: its 12 MiB of pushes overflowed the 10 MiB shared store mid-run. Linux behaviour of the changed tests is unchanged by construction (`python3` kept off Windows; canonicalizing a long path is a no-op), not re-run on Linux.
+
 ## Prompt counts and writing aids (0.1.63 development)
 
 Studio’s positive/negative labels now retain their accessible names while showing right-aligned UTF-16 length / 16384. Inline and enlarged editors share persisted writing settings, separate from UI language and project/Studio defaults. Autocomplete defaults off and reuses the native Forge tag database and its existing shared error logging; selecting a suggestion never submits a prompt.

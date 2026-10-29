@@ -181,9 +181,11 @@ mod tests {
         let args = backend_args(tmp.path()).unwrap();
         let yaml = std::fs::read_to_string(&args[1]).unwrap();
         assert!(yaml.contains("deas-extra-1:\n"));
+        // Saved folders are canonical (Windows temp may be an 8.3 short path), so compare that form.
+        let saved = dunce::canonicalize(&extra).unwrap();
         assert!(yaml.contains(&format!(
             "base_path: {}",
-            serde_json::to_string(&extra.to_str().unwrap()).unwrap()
+            serde_json::to_string(&saved.to_str().unwrap()).unwrap()
         )));
         assert!(yaml.contains("  diffusion_models: diffusion_models\n"));
         let missing = Folders {

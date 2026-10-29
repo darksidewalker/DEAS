@@ -398,7 +398,8 @@ print('mocked llama_cpp fixtures passed')
 "#,
         worker = include_str!("llm_worker.py")
     );
-    let output = std::process::Command::new("python3")
+    // Windows `python3` is usually the Microsoft Store placeholder; the installer provides `python`.
+    let output = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
         .args(["-I", "-c", &code])
         .output()
         .unwrap();
