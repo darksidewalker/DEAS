@@ -1,0 +1,24 @@
+{
+ "recipeId": "music-generation",
+ "version": 1,
+ "family": "yue2",
+ "mode": "t2m",
+ "planning": "off",
+ "checkpoint": "yue2.safetensors",
+ "style": "English, indie pop",
+ "lyrics": "[Verse]\nHello world",
+ "seed": 42,
+ "maxDuration": 120.0,
+ "steps": 32,
+ "cfg": 1.0,
+ "sampler": "dpm_2",
+ "scheduler": "sgm_uniform",
+ "outputPrefix": "raw/YuE2",
+ "generation": {
+  "temperature": 1.0,
+  "topP": 0.95,
+  "topK": 100,
+  "repetitionPenalty": 1.2,
+  "cfgScale": 1.01
+ }
+}

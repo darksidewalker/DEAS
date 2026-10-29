@@ -1,0 +1,120 @@
+{
+ "1": {
+  "class_type": "CheckpointLoaderSimple",
+  "inputs": {
+   "ckpt_name": "yue2.safetensors"
+  }
+ },
+ "M": {
+  "class_type": "YuE2GenerateMusic",
+  "inputs": {
+   "clip": [
+    "1",
+    1
+   ],
+   "style": "English, indie pop",
+   "lyrics": "[Verse]\nHello world",
+   "abc": [
+    "A",
+    0
+   ],
+   "seed": 42,
+   "mode": "full",
+   "max_duration": 120.0,
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 100,
+   "repetition_penalty": 1.2,
+   "cfg_scale": 1.0
+  }
+ },
+ "Z": {
+  "class_type": "ConditioningZeroOut",
+  "inputs": {
+   "conditioning": [
+    "M",
+    0
+   ]
+  }
+ },
+ "L": {
+  "class_type": "EmptyYuE2LatentAudio",
+  "inputs": {
+   "seconds": [
+    "M",
+    1
+   ],
+   "batch_size": 1
+  }
+ },
+ "S": {
+  "class_type": "KSampler",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "positive": [
+    "M",
+    0
+   ],
+   "negative": [
+    "Z",
+    0
+   ],
+   "latent_image": [
+    "L",
+    0
+   ],
+   "seed": 42,
+   "steps": 32,
+   "cfg": 1.0,
+   "sampler_name": "dpm_2",
+   "scheduler": "sgm_uniform",
+   "denoise": 1.0
+  }
+ },
+ "D": {
+  "class_type": "VAEDecodeAudio",
+  "inputs": {
+   "samples": [
+    "S",
+    0
+   ],
+   "vae": [
+    "1",
+    2
+   ]
+  }
+ },
+ "7": {
+  "class_type": "SaveAudioAdvanced",
+  "inputs": {
+   "audio": [
+    "D",
+    0
+   ],
+   "filename_prefix": "raw/YuE2",
+   "format": "flac"
+  }
+ },
+ "A": {
+  "class_type": "YuE2GenerateABC",
+  "inputs": {
+   "clip": [
+    "1",
+    1
+   ],
+   "style": "English, indie pop",
+   "lyrics": "[Verse]\nHello world",
+   "seed": 42,
+   "mode": "full",
+   "max_abc_tokens": 8192,
+   "temperature": 0.7,
+   "top_p": 0.9,
+   "top_k": 30,
+   "repetition_penalty": 1.005,
+   "penalty_window": 100
+  }
+ }
+}

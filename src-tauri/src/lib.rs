@@ -35,6 +35,7 @@ pub use downloads::{
 pub mod api;
 pub use api::native_negotiate_api;
 pub mod jobs;
+pub mod jobs_music;
 pub mod jobs_video;
 pub use jobs::{
     native_h3_refmods, native_h3_session, native_h3_video_prepare, native_h3_video_upload,
