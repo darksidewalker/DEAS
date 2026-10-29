@@ -89,25 +89,31 @@ async fn behind(exe: &Path, dir: &Path, reference: &str) -> bool {
     }
 }
 
+/// Tag of the latest GitHub release when it is newer than this build. Unlike the hint below,
+/// an unreadable release is an error: platforms without self-update gate the backend on it.
+pub(crate) async fn newer_release(auth: &AuthState) -> Result<Option<String>, String> {
+    let (response, _) = call(auth, Method::GET, &format!("/repos/{REPO}/releases/latest")).await?;
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::NOT_FOUND => return Err("Cannot read the latest DEAS release (GitHub answered 404): while the repository is private, add a GitHub token in Provider authorization".into()),
+        status => return Err(format!("Cannot read the latest DEAS release (GitHub answered {status})")),
+    }
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| "Unexpected GitHub response".to_string())?;
+    Ok(value["tag_name"].as_str().and_then(newer))
+}
+
 #[tauri::command]
 pub async fn native_update_check(
     auth: tauri::State<'_, AuthState>,
     engine: tauri::State<'_, crate::install::Engine>,
 ) -> Result<Updates, String> {
-    let mut updates = Updates::default();
-    if let Ok((response, _)) = call(
-        &auth,
-        Method::GET,
-        &format!("/repos/{REPO}/releases/latest"),
-    )
-    .await
-    {
-        if response.status() == StatusCode::OK {
-            if let Ok(value) = response.json::<serde_json::Value>().await {
-                updates.app = value["tag_name"].as_str().and_then(newer);
-            }
-        }
-    }
+    let mut updates = Updates {
+        app: newer_release(&auth).await.ok().flatten(),
+        ..Updates::default()
+    };
     if let (Some(plan), Some(exe)) = (engine.approved_plan(), crate::install::git_path()) {
         let comfy = Path::new(&plan.request.storage_path).join("ComfyUI");
         updates.comfy = behind(&exe, &comfy, &plan.request.comfy_ref).await;

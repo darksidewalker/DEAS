@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Windows: **Update** no longer fails with "self-update is unsupported" when only ComfyUI or DaSiWa-nodes are behind. The application step reads the latest release first and, when this build is current, lets the backend upgrade run; a newer DEAS release still stops it with a manual-download message naming the version.
+
 - Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
 
 - Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.
