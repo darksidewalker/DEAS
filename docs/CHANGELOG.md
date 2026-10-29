@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Windows: the expected "spellchecking configuration unsupported" state is logged as a warning instead of an error on every launch; missing dictionaries and invalid languages stay errors.
+
 - Chat prompt writing now routes by requested model: refer to its Prompt Forge mode first, otherwise use a compatible registered simple writer, otherwise refuse. Remove the four-image-model replacement choice; guides remain available for explanations and never imply writer support.
 
 - Keep known models in the wrong loader folder visible but disabled in Studio, with localized folder guidance. Native preparation distinguishes a model found only in the other loader list from an absent model. No automatic moves, loader fallback or unknown-checkpoint filtering.

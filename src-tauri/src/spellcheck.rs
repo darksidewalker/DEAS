@@ -28,6 +28,16 @@ fn valid_language(language: &str) -> bool {
     parts.next().is_none()
 }
 
+/// An unsupported platform/runtime is a known, UI-explained limit (e.g. WebView2 keeps the
+/// OS spelling language), logged on every launch there; only real configuration failures are errors.
+fn severity(code: &str) -> &'static str {
+    if code == "SPELLCHECK_UNSUPPORTED" {
+        "WARN"
+    } else {
+        "ERROR"
+    }
+}
+
 fn failure(code: &str) -> String {
     let message = match code {
         "SPELLCHECK_DICTIONARY_MISSING" => {
@@ -39,12 +49,13 @@ fn failure(code: &str) -> String {
         }
         _ => "Could not configure native spellchecking",
     };
+    let level = severity(code);
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|error| error.into_inner());
     if last.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
         crate::logs::push(
             crate::logs::Source::Deas,
-            &format!("ERROR: PromptSpellcheck operation=configure: {code}: {message} (repeats limited to once per minute)"),
+            &format!("{level}: PromptSpellcheck operation=configure: {code}: {message} (repeats limited to once per minute)"),
         );
         *last = Some(Instant::now());
     }
@@ -262,6 +273,19 @@ mod tests {
             .text
             .contains("Install an Enchant-compatible dictionary"));
         assert!(!matching[0].text.contains("<script>"));
+        assert!(matching[0].text.starts_with("ERROR: "));
+    }
+
+    #[test]
+    fn unsupported_platform_is_a_warning_not_an_error() {
+        assert_eq!(severity("SPELLCHECK_UNSUPPORTED"), "WARN");
+        for code in [
+            "SPELLCHECK_DICTIONARY_MISSING",
+            "SPELLCHECK_INVALID_LANGUAGE",
+            "OTHER",
+        ] {
+            assert_eq!(severity(code), "ERROR");
+        }
     }
 
     #[test]
