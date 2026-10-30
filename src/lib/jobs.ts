@@ -68,6 +68,12 @@ export function stopWorkbench(): Promise<WorkbenchStopResult> {
   if (!pendingWorkbenchStop) pendingWorkbenchStop = native<WorkbenchStopResult>('native_workbench_stop', {confirmed:true}).finally(() => { pendingWorkbenchStop = undefined; });
   return pendingWorkbenchStop;
 }
+/** True while a diagnostic or Workbench generation is queued/running: a backend restart would kill it. */
+export async function generationActive(): Promise<boolean> {
+  const busy = (state?: string) => state === 'queued' || state === 'running';
+  const [job, bench] = await Promise.all([invoke<{ state?: string } | null>('native_job_current'), invoke<WorkbenchSnapshot | null>('native_workbench_current')]);
+  return busy(job?.state) || !!bench?.jobs?.some(j => busy(j.state));
+}
 /** Stops one generation: deletes it from the backend queue or interrupts it while running. */
 export async function stopWorkbenchJob(job: JobStatus): Promise<JobStatus> {
   const command = job.state === 'running' ? 'native_workbench_interrupt_running' : 'native_workbench_cancel_pending';

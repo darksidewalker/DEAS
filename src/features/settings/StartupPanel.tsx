@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
+import { generationActive } from '../../lib/jobs';
 
 /** Native `deas-startup.json`: allowlisted ComfyUI launch flags (validated again natively). */
 export interface Startup { preset?:Preset; flags:string[]; fast:string[]; reserveVram?:number; cacheLru?:number }
@@ -38,8 +39,7 @@ export function StartupPanel({root,onRestart}:{root:string;onRestart:()=>void}){
   try{
    const next=await invoke<Startup>('native_startup_write',{root,startup:value});if(!live.current)return;
    setValue(next);setSaved(JSON.stringify(next));
-   const job=await invoke<{state?:string}|null>('native_job_current');
-   if(job&&(job.state==='queued'||job.state==='running'))setMessage(t('startup.jobRunning'));
+   if(await generationActive())setMessage(t('startup.jobRunning'));
    else{onRestart();setMessage(t('startup.applied'));}
   }catch(e){if(live.current)setError(String(e));}finally{if(live.current)setBusy(false);}
  };

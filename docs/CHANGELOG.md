@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 BETA
+
+- **Saving folders restarts a running backend.** ComfyUI reads its model/input/output folders only at start, so changing folders after the backend was running left it on the old paths: the Library listed models (e.g. a MOSS diffusion model) that the backend then rejected as "not available on this backend". **Save folders** now restarts a running owned backend with the new folders (a stopped one keeps them for its next start), never over a queued/running generation — then it says so and leaves Restart to you.
+- Startup options' Apply had the same running-job guard but only checked the legacy diagnostic job; both panels now also check the Studio queue before restarting, so a running Studio generation is never killed.
+
 ## 0.2.1 BETA
 
 - README: the front screenshot is replaced by the DEAS promo video (silent animated preview linking to the MP4 with sound).

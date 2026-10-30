@@ -1,5 +1,9 @@
 # News
 
+## 0.2.2 BETA
+
+- Changing folders in Backend → Settings now restarts a running backend, so newly pointed model folders (e.g. MOSS) are found right away. A running generation is never interrupted; you get a note to restart afterwards.
+
 ## 0.2.1 BETA
 
 - **Startup splash** with the real startup phase; the main window appears once your workspace is restored. The owner's Catgirl artwork slot is ready but still empty.

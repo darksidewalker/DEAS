@@ -4,10 +4,10 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { StartupPanel } from './StartupPanel';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
-let job:unknown=null;
+let job:unknown=null;let bench:unknown={jobs:[]};
 const presets={speed:{flags:['--use-ck-attention'],fast:['fp16_accumulation','autotune']},compatibility:{flags:[],fast:['autotune']},off:{flags:[],fast:[]}};
-beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);job=null;
- vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_startup_read'?{startup:{preset:'speed',flags:[],fast:[]},packages:[],presets}:c==='native_job_current'?job:(a as {startup:unknown}).startup);});
+beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);job=null;bench={jobs:[]};
+ vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_startup_read'?{startup:{preset:'speed',flags:[],fast:[]},packages:[],presets}:c==='native_job_current'?job:c==='native_workbench_current'?bench:(a as {startup:unknown}).startup);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const mount=(onRestart=vi.fn())=>{render(<I18nProvider><StartupPanel root="/env" onRestart={onRestart}/></I18nProvider>);return onRestart;};
 
@@ -43,4 +43,14 @@ it('turns an edited preset into custom flags and restarts only without a running
  expect(onRestart).not.toHaveBeenCalled();
  fireEvent.change(attention,{target:{value:'--use-ck-attention'}});
  await waitFor(()=>expect((attention as HTMLSelectElement).value).toBe('--use-ck-attention'));
-});
+ });
+
+ it('does not restart over a running Workbench generation', async()=>{
+ const onRestart=mount();
+ await screen.findByRole('combobox',{name:'Attention backend'});
+ bench={jobs:[{id:'w',state:'running'}]};
+ fireEvent.click(screen.getByRole('button',{name:'Optimizations off'}));
+ fireEvent.click(screen.getByRole('button',{name:'Apply (restarts backend)'}));
+ await screen.findByText(/A job is running/);
+ expect(onRestart).not.toHaveBeenCalled();
+ });

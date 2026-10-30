@@ -4,7 +4,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { FoldersPanel, FolderFields } from './FoldersPanel';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
-beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_settings_read'?{}:c==='native_pick_directory'?'/new/models':c==='native_settings_move'?{folders:(a as {folders:unknown}).folders,movedFiles:2,warnings:[]}:(a as {folders:unknown}).folders);});
+let bench:unknown={jobs:[]};
+beforeEach(()=>{bench={jobs:[]};localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockImplementation(async(c,a)=>c==='native_settings_read'?{}:c==='native_job_current'?null:c==='native_workbench_current'?bench:c==='native_pick_directory'?'/new/models':c==='native_settings_move'?{folders:(a as {folders:unknown}).folders,movedFiles:2,warnings:[]}:(a as {folders:unknown}).folders);});
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const mount=()=>render(<I18nProvider><FoldersPanel root="/env"/></I18nProvider>);
 async function choose(){await waitFor(()=>expect((screen.getByRole('button',{name:'Choose Models folder'}) as HTMLButtonElement).disabled).toBe(false));fireEvent.click(screen.getByRole('button',{name:'Choose Models folder'}));await screen.findByText('/new/models');}
@@ -33,6 +34,13 @@ it('adds extra model roots to the payload only when chosen and drops them on res
 it('keeps failed moves editable without claiming success',async()=>{
  mount();await choose();vi.mocked(invoke).mockRejectedValueOnce('Filename collision: existing.safetensors');fireEvent.click(screen.getByLabelText('Move existing files to the selected folders'));fireEvent.click(screen.getByRole('button',{name:'Move files & save folders'}));
  await screen.findByRole('alert');expect(screen.queryByText('2 files moved')).toBeNull();expect(screen.getByText('/new/models')).toBeTruthy();
+});
+it('restarts a running backend after saving, but never over a running generation',async()=>{
+ const onRestart=vi.fn();render(<I18nProvider><FoldersPanel root="/env" onRestart={onRestart}/></I18nProvider>);await choose();
+ fireEvent.click(screen.getByRole('button',{name:'Save folders'}));
+ await screen.findByText(/^Saved\. A running backend restarts with the new folders/);expect(onRestart).toHaveBeenCalledOnce();
+ bench={jobs:[{id:'w',state:'running'}]};fireEvent.click(screen.getByRole('button',{name:'Reset Models folder'}));
+ fireEvent.click(screen.getByRole('button',{name:'Save folders'}));await screen.findByText(/A job is running/);expect(onRestart).toHaveBeenCalledOnce();
 });
 it('draft folders update installation intent without any settings read or write',async()=>{
  const changed=vi.fn();render(<I18nProvider><FoldersPanel root="/not-created-yet" draft={{}} onChange={changed}/></I18nProvider>);
