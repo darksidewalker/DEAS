@@ -2,7 +2,7 @@
 
 A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model-aware prompting, model/resource browsing and image editing in one interface. Studio, Library, Prompt Forge, Chat, TVE, Run Plan and the original Comfy editor share the same owned backend; installation, provider authorization and settings live in the Backend tab, diagnostics in Logs.
 
-**Early alpha.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Image, video and YuE2 music recipes exist; Linux video plays through embedded libmpv, but real-model quality and native playback acceptance are still open. TVE offers a bounded native spatial upscale on Linux; full video enhancement, synchronized comparison, assembly and training are planned integrations, not completed ports. See [current status and limitations](docs/PLAN.md).
+**0.2.0 BETA.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Image, video and YuE2 music recipes exist; Linux video plays through embedded libmpv, but real-model quality and native playback acceptance are still open. TVE enhances videos through the owned ComfyUI backend (upscale model, NVIDIA RTX refine, frame generation); synchronized comparison, assembly and training are planned integrations, not completed ports. See [current status and limitations](docs/PLAN.md).
 
 [Documentation](docs/README.md) · [Getting started](docs/GETTING-STARTED.md) · [News](docs/NEWS.md) · [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
@@ -10,7 +10,7 @@ A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model
 
 ## Install and start
 
-Check [official releases](https://github.com/darksidewalker/DEAS/releases) for platform-specific downloads and instructions. GitHub's **Download ZIP** is source, not an installed application. The alpha is not a signed universal portable release.
+Check [official releases](https://github.com/darksidewalker/DEAS/releases) for platform-specific downloads and instructions. GitHub's **Download ZIP** is source, not an installed application. The beta is not a signed universal portable release.
 
 To build from source, first install Git, Node.js 22/npm, Rust and the [Windows/Linux prerequisites](docs/GETTING-STARTED.md#before-you-start).
 
@@ -61,3 +61,7 @@ Detailed contracts, screenshots, verification records and planning are indexed i
 ## License
 
 DEAS is free software under [GNU GPL version 3 or later](LICENSE), without warranty. Third-party code, bundled data and model/runtime resources retain their own terms; see [Credits](docs/CREDITS.md) and [Forge data provenance](src-tauri/forge-data/README.md).
+
+## AI-assisted development
+
+DEAS is vibe-coded with help from various local and cloud AI models, guided by human direction and planning.

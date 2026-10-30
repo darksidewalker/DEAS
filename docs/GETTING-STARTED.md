@@ -4,7 +4,7 @@
 
 ## Getting started — Windows and Linux
 
-**DEAS is early-alpha software.** Linux CPU/NVIDIA installation has been tested; Windows builds exist, but running the app and its installer on Windows has not yet been verified. AMD/Intel GPU installation remains blocked. Video recipes exist, with a recorded successful H3 job, but native playback has a bounded Linux Matroska crash repair, with full playback/audio/platform acceptance still open; see [video limitations](STUDIO.md#video-generation). Use a separate folder, not an existing ComfyUI installation.
+**DEAS 0.2.0 is BETA software.** Linux CPU/NVIDIA installation has been tested; Windows builds exist, but running the app and its installer on Windows has not yet been verified. AMD/Intel GPU installation remains blocked. Video recipes exist, with a recorded successful H3 job, but native playback has a bounded Linux Matroska crash repair, with full playback/audio/platform acceptance still open; see [video limitations](STUDIO.md#video-generation). Use a separate folder, not an existing ComfyUI installation.
 
 **Start here:** [Windows](#windows-step-by-step) · [Linux](#linux-step-by-step) · [First setup inside DEAS](#first-setup-inside-deas) · [Help](#if-something-goes-wrong)
 
@@ -53,7 +53,7 @@ The first build downloads dependencies and can take a while. It has finished suc
 
 #### 3. Open the app
 
-In File Explorer, open `DEAS-work → DEAS → artifacts` and double-click **`deas-windows-x86_64.exe`**. Keep it in that writable folder for initial setup. If Windows blocks the file, check its source and the warning; do not disable antivirus or Windows security globally. This alpha is not a signed production release.
+In File Explorer, open `DEAS-work → DEAS → artifacts` and double-click **`deas-windows-x86_64.exe`**. Keep it in that writable folder for initial setup. If Windows blocks the file, check its source and the warning; do not disable antivirus or Windows security globally. This beta is not a signed production release.
 
 Continue with [First setup inside DEAS](#first-setup-inside-deas).
 

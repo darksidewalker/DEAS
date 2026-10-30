@@ -184,3 +184,11 @@
  .backend-panels { grid-template-columns: minmax(0, 1fr); }
  .backend-panel-menu { position: static; }
 }
+/* Update scope choice: one row per scope, hint under the title. */
+.aio-update-scopes { display: grid; gap: .45rem; margin: 0 0 .5rem; padding: 0; border: 0; }
+.aio-update-scopes legend { margin-bottom: .4rem; font-size: .85rem; }
+.aio-update-scope { display: flex; gap: .55rem; align-items: flex-start; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: .55rem; cursor: pointer; }
+.aio-update-scope input { width: auto; flex: none; margin-top: .2rem; }
+.aio-update-scope span { display: grid; gap: .15rem; min-width: 0; }
+.aio-update-scope small { color: var(--muted); font-size: .78rem; line-height: 1.4; overflow-wrap: anywhere; }
+.aio-update-scope:has(input:disabled) { cursor: default; opacity: .7; }

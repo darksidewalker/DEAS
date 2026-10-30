@@ -101,7 +101,7 @@
   "downloads.sort.name": "Name",
   "downloads.nsfwHelp": "The provider marks this model as adult content; the preview may be SFW.",
   "downloads.version": "Version",
-  "downloads.browseError": "Could not load the files of this model. Check the access mode (some files need an API key) and try again.",
+  "downloads.browseError": "Could not load the files of this model. Check the connection and retry. Public Hugging Face models do not need an API key; private or gated models require authorized access.",
   "downloads.auth.set": "Token saved",
   "downloads.auth.none": "No token",
   "downloads.view": "Library view",

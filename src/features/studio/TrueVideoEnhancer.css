@@ -13,8 +13,6 @@
 .tve-draft dl { display: grid; gap: 10px; margin-bottom: 0; }
 .tve-draft dt { color: var(--muted); font-size: 12px; }
 .tve-draft dd { margin: 3px 0 0; }
-.tve-runtime { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--muted); }
-.tve-runtime dd { margin: 3px 0 10px; }
-.tve-runtime dt { color: var(--muted); font-size: 12px; }
 .tve-limit { margin-bottom: 0; line-height: 1.6; }
+.tve-media { margin-top: 12px; display: grid; gap: 8px; }
 @media (max-width: 760px) { .tve { padding: 8px; } .tve-columns { grid-template-columns: minmax(0, 1fr); } .tve-panel { padding: 12px; } }

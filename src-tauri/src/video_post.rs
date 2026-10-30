@@ -71,7 +71,7 @@ pub(crate) fn validate_title(title: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The sole frontend seam: no caller-provided file path, program or probe arguments.
+/// OS-chooser seam: no caller-provided file path, program or probe arguments.
 #[tauri::command]
 pub async fn native_video_post_inspect(
     title: String,
@@ -80,15 +80,8 @@ pub async fn native_video_post_inspect(
     if let Err(error) = validate_title(&title) {
         return finish(id, Err(error));
     }
-    let permit = match INSPECTING.try_acquire() {
-        Ok(permit) => permit,
-        Err(_) => return finish(
-            id,
-            Err(
-                "VIDEO_BUSY: A video inspection is already open; finish it before trying again."
-                    .into(),
-            ),
-        ),
+    let Some(permit) = acquire() else {
+        return busy(id);
     };
     let selected = rfd::AsyncFileDialog::new()
         .set_title(title)
@@ -98,14 +91,55 @@ pub async fn native_video_post_inspect(
     let Some(selected) = selected else {
         return finish(id, Ok(None));
     };
-    let path = selected.path().to_owned();
+    inspect_owned(id, permit, selected.path().to_owned()).await
+}
+
+/// Media-panel seam: an absolute path of a file DEAS already lists (input/output roots); the same
+/// source checks, admission and retention as the chooser, so a listed tile can become the TVE source.
+#[tauri::command]
+pub async fn native_video_post_inspect_path(
+    path: String,
+) -> Result<Option<VideoSourceInspection>, String> {
+    let id = uuid::Uuid::new_v4();
+    let path = std::path::PathBuf::from(&path);
+    if !path.is_absolute() || path.as_os_str().is_empty() {
+        return finish(
+            id,
+            Err(format!(
+                "{SOURCE}: Media selection must be an absolute path."
+            )),
+        );
+    }
+    let Some(permit) = acquire() else {
+        return busy(id);
+    };
+    inspect_owned(id, permit, path).await
+}
+
+fn acquire() -> Option<tokio::sync::SemaphorePermit<'static>> {
+    INSPECTING.try_acquire().ok()
+}
+fn busy(id: uuid::Uuid) -> Result<Option<VideoSourceInspection>, String> {
+    finish(
+        id,
+        Err(
+            "VIDEO_BUSY: A video inspection is already open; finish it before trying again.".into(),
+        ),
+    )
+}
+
+async fn inspect_owned(
+    id: uuid::Uuid,
+    permit: tokio::sync::SemaphorePermit<'static>,
+    path: std::path::PathBuf,
+) -> Result<Option<VideoSourceInspection>, String> {
     // The owner keeps admission, cleanup and diagnostic delivery if its IPC waiter disappears.
     match tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
         finish(
             id,
             inspect_retained(&path)
-                .and_then(crate::video_post_prepare::retain_source)
+                .and_then(crate::video_post_source::retain_source)
                 .map(Some),
         )
     })
@@ -214,7 +248,6 @@ pub(crate) struct RetainedSource {
     identity: Identity,
 }
 impl RetainedSource {
-    #[cfg(target_os = "linux")]
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
@@ -720,7 +753,7 @@ fn parse_metadata(name: String, bytes: &[u8]) -> Result<VideoSourceInspection, S
     })
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 pub(crate) fn test_retained(path: &Path, metadata: VideoSourceInspection) -> RetainedSource {
     let file = open_source(path).unwrap();
     let identity = identity(&file).unwrap();

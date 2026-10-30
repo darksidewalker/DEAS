@@ -1,5 +1,7 @@
 # DEAS documentation
 
+**Current version: 0.2.0 BETA**, previously ALPHA. Existing platform/model limitations and open acceptance gates still apply; see [the plan](PLAN.md).
+
 [Documentation index](README.md) · [Plan](PLAN.md)
 
 ## Start and use DEAS
@@ -19,7 +21,6 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Run Plan · 
 | Quick Settings, layout reset and colour schemes | [Layout and Quick Settings](STUDIO.md#layout-last-used-state-and-quick-settings) |
 | Music (Text to Music / Cover Music) with YuE2 | [Music](MUSIC.md) |
 | TVE tab: video source inspection, output drafts and bounded native spatial rendering (Linux) | [TVE workspace](STUDIO.md#tve-workspace) |
-| Native Rust ONNX spatial upscaling engine and developer examples | [Native upscaling](NATIVE-UPSCALING.md) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
 | Prompt Forge, hammer, MOSS Layout Studio, presets/wildcards and shared LLM settings | [Prompting](PROMPTING.md) · [Presets](PROMPTING.md#presets) · [Wildcards](PROMPTING.md#wildcards) |
 | Chat: conversation, prompt writing, model guides, tag lookups and optional web search | [Chat](CHAT.md) |

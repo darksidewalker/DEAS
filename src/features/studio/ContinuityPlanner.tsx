@@ -15,12 +15,15 @@ export function ContinuityPlanner({endpoint,root,forgeContext,allowReferences=fa
  useEffect(()=>setSessionDraft(plan.session),[plan.session]);
  const validSession=isContinuitySession(sessionDraft);
  const [forging,setForging]=useState(false);const locked=running||forging;
+ const enabled=plan.enabled===true;
  const useReferences=allowReferences&&plan.useReferences===true;
  const sourceChanged=!!plan.source&&plan.source.endpoint!==endpoint;
  const next=nextStep(plan);
  const step=(id:string,patch:Partial<ContinuityPlan['steps'][number]>)=>onChange({...plan,steps:plan.steps.map(s=>s.id===id?{...s,...patch}:s)});
  return <div className="wb-continuity" data-continuity>
   <div className="wb-options">
+   {/* Locked while a step runs: switching off never cancels or alters a submitted job. */}
+   <label className="wb-option"><span className="wb-option-row"><input type="checkbox" data-cont-enabled aria-label={t('studio.run.cont.enabled')} checked={enabled} disabled={locked} onChange={e=>{if(!locked)onChange({...plan,enabled:e.target.checked});}}/>{t('studio.run.cont.enabled')}</span><small>{t('studio.run.cont.enabledHint')}</small></label>
    <div className="wb-option"><span>{t('studio.run.cont.session')}</span><span className="wb-option-row"><code>{plan.session}</code><button type="button" className="wb-dock-action" disabled={locked} onClick={()=>onChange({...defaultPlanKeep(plan),session:newSession()})}>{t('studio.run.cont.newSession')}</button></span>
     <form data-cont-session-form onSubmit={e=>{e.preventDefault();if(!locked&&validSession&&sessionDraft!==plan.session)onChange({...defaultPlanKeep(plan),session:sessionDraft});}}>
      <label><span>{t('studio.run.cont.sessionName')}</span><input data-cont-session aria-label={t('studio.run.cont.sessionName')} aria-describedby={sessionHintId} aria-invalid={!validSession} maxLength={80} value={sessionDraft} disabled={locked} onChange={e=>setSessionDraft(e.target.value)}/></label>
@@ -47,8 +50,8 @@ export function ContinuityPlanner({endpoint,root,forgeContext,allowReferences=fa
   </li>)}</ol>
   <div className="wb-cont-actions">
    <button type="button" className="wb-dock-action" disabled={locked||plan.steps.length>=50} onClick={()=>onChange({...plan,steps:[...plan.steps,newStep()]})}>{t('studio.run.cont.add')}</button>
-   <button type="button" className="wb-dock-action" data-cont-run disabled={disabled||locked||sourceChanged||!next} onClick={()=>onRun(false)}>{t('studio.run.cont.runNext')}</button>
-   <button type="button" className="wb-dock-action" data-cont-run-all disabled={disabled||locked||sourceChanged||!next} onClick={()=>onRun(true)}>{t('studio.run.cont.runAll')}</button>
+   <button type="button" className="wb-dock-action" data-cont-run disabled={!enabled||disabled||locked||sourceChanged||!next} onClick={()=>onRun(false)}>{t('studio.run.cont.runNext')}</button>
+   <button type="button" className="wb-dock-action" data-cont-run-all disabled={!enabled||disabled||locked||sourceChanged||!next} onClick={()=>onRun(true)}>{t('studio.run.cont.runAll')}</button>
    <button type="button" className="wb-dock-action" disabled={locked||!plan.steps.some(s=>s.clipId)} onClick={()=>onChange({...plan,steps:plan.steps.map(s=>({id:s.id,seconds:s.seconds,action:s.action}))})}>{t('studio.run.cont.reset')}</button>
   </div>
   <p className="media-help">{t('studio.run.cont.hint')}</p>

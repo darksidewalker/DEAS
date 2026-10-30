@@ -1,4 +1,5 @@
-import { isVideoIntent, latentUpscaleSize } from '../../lib/videoIntent';
+import { isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, videoPostFrameRate } from '../../lib/videoIntent';
+import { describeVideoPost } from './TvePostControls';
 import { isMusicIntent } from '../../lib/musicIntent';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
@@ -43,13 +44,14 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
  const {t,locale}=useI18n();
  const duration=generationDuration(job,locale);
  // Image intents list every field; video intents share the sampling rows plus frames/fps and the family block.
- const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&isImageIntent(intent)?intent:undefined;const m=intent&&isMusicIntent(intent)?intent:undefined;
+ const intent=job?.intent;const v=intent&&isVideoIntent(intent)?intent:undefined;const i=intent&&isImageIntent(intent)?intent:undefined;const m=intent&&isMusicIntent(intent)?intent:undefined;const e=intent&&isVideoEnhanceIntent(intent)?intent:undefined;
  const extensionSeconds=v?.family==='minimax-h3'?v.h3.continuity?.durationSeconds:undefined;
  const row=(key:string,value:ReactNode)=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>;
  const timing=<>{job?.metadata&&Number.isFinite(new Date(job.metadata.startedAt).getTime())&&row('studio.run.metadata.date',new Date(job.metadata.startedAt).toLocaleString(locale))}{duration!==null&&row('studio.run.metadata.time',duration)}</>;
  return <section className="wb-metadata" aria-label={t('studio.run.metadata')}>
   <h3>{t('studio.run.metadata')}</h3>
-  {m?<dl data-music-metadata>{/* Music has no image "use these settings"; Recent history restores the whole record. */}
+  {e?<dl data-tve-metadata>{row('studio.tve.source',e.sourceVideo)}{row('studio.tve.post.title',describeVideoPost(e.videoPost))}{row('studio.tve.fps',`${e.frameRate} → ${videoPostFrameRate(e.frameRate,e.videoPost)}`)}{row('studio.run.seed',e.seed)}{timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}</dl>
+  :m?<dl data-music-metadata>{/* Music has no image "use these settings"; Recent history restores the whole record. */}
    {row('studio.music.style',m.style)}{m.lyrics&&row('studio.music.lyrics',m.lyrics)}{row('studio.run.checkpoint',m.checkpoint)}
    {row('studio.music.planning',t(`studio.music.${m.planning}`))}{row('studio.music.maxDuration',`${m.maxDuration} · ${t('studio.music.durationHint')}`)}
    {m.mode==='cover'&&<>{row('studio.music.source',m.sourceAudio)}{row('studio.music.audioEncoder',m.audioEncoder)}</>}
@@ -62,6 +64,7 @@ export function GenerationMetadata({job,media=null,onApply}:{job:JobStatus|null;
    {!!v.loras?.length&&row('studio.run.loras',v.loras.map(l=>`${l.name} (${l.strength})`).join(', '))}{(v.firstFrame||v.lastFrame)&&row('studio.run.pipe.input',[v.firstFrame,v.lastFrame].filter(Boolean).join(' → '))}
    {row('studio.run.video.settings',JSON.stringify(v.family==='ltx-2'?v.ltx:v.family==='wan'?v.wan:{...v.h3,references:v.h3.references.map(r=>r.image)}))}
    {v.latentUpscale&&<>{row('studio.run.latent.model',v.latentUpscale.model)}{row('studio.run.dock.post',JSON.stringify(v.latentUpscale))}{row('studio.run.latent.enabled',`${latentUpscaleSize(v.family,v,v.latentUpscale.scale).width} × ${latentUpscaleSize(v.family,v,v.latentUpscale.scale).height}`)}</>}
+   {v.videoPost&&row('studio.tve.post.title',`${describeVideoPost(v.videoPost)} · ${videoPostFrameRate(v.frameRate,v.videoPost)} fps`)}
    {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}
   </dl></>:i?<>{onApply&&<Apply key={job?.id} settings={{positive:i.positivePrompt,negative:i.negativePrompt,checkpoint:i.checkpoint,seed:i.seed,steps:i.steps,cfg:i.cfg,sampler:i.sampler,scheduler:i.scheduler,width:i.width,height:i.height,...(i.wildcard?{wildcard:i.wildcard}:{}),loras:i.loras?.map(l=>({...l}))}} onApply={onApply}/>}<dl>
    {row('studio.run.positive',i.positivePrompt)}

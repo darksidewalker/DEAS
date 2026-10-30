@@ -1,9 +1,4 @@
 [[permission]]
 identifier = "allow-native-video-post-inspect"
-description = "Explicit native video source/output selection and read-only availability, output drafts and preparation rechecks; no rendering, output writes or native SDK execution."
-commands.allow = ["native_video_post_inspect", "native_video_post_draft", "native_video_post_prepare", "native_video_post_prepared_status", "native_video_post_capabilities"]
-
-[[permission]]
-identifier = "allow-native-video-post-render"
-description = "Explicit trusted runtime/model binding and one feature-gated owned Rust render, status and Stop; only native-chooser-authorized new output, no caller paths, downloads or shell commands."
-commands.allow = ["native_video_post_bind", "native_video_post_run", "native_video_post_status", "native_video_post_stop"]
+description = "Explicit native video source inspection (OS chooser or a Media-panel path) and copying the retained source into the bound backend's input folder for a backend enhance job; no rendering, output writes or native SDK execution."
+commands.allow = ["native_video_post_inspect", "native_video_post_inspect_path", "native_video_post_upload"]

@@ -2,20 +2,9 @@ pub mod auth;
 pub mod spellcheck;
 pub mod video;
 pub mod video_post;
-pub mod video_post_draft;
-pub mod video_post_job;
-pub mod video_post_prepare;
-pub use video_post_draft::native_video_post_draft;
-pub use video_post_job::{
-    native_video_post_bind, native_video_post_capabilities, native_video_post_run,
-    native_video_post_status, native_video_post_stop,
-};
-pub use video_post_prepare::{native_video_post_prepare, native_video_post_prepared_status};
-#[cfg(feature = "video-upscale")]
-pub mod video_stream;
-#[cfg(feature = "video-upscale")]
-pub mod video_upscale;
-pub use video_post::native_video_post_inspect;
+pub mod video_post_source;
+pub use video_post::{native_video_post_inspect, native_video_post_inspect_path};
+pub use video_post_source::native_video_post_upload;
 #[cfg(windows)]
 pub(crate) mod win;
 pub use auth::{
@@ -37,6 +26,7 @@ pub use api::native_negotiate_api;
 pub mod jobs;
 pub mod jobs_music;
 pub mod jobs_video;
+pub mod jobs_video_post;
 pub use jobs::{
     native_h3_refmods, native_h3_session, native_h3_video_prepare, native_h3_video_upload,
     native_input_upload, native_job_current, native_job_export, native_job_output,
@@ -102,7 +92,7 @@ pub mod install;
 pub mod logs;
 pub use install::{
     native_install_cancel, native_install_open, native_install_plan, native_install_start,
-    native_install_status, native_install_update,
+    native_install_status, native_install_update, native_torch_update_check,
 };
 pub use logs::{
     native_logs, native_logs_export, native_logs_people_image_error,

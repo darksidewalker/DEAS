@@ -24,8 +24,9 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 9] = [
+const OPTIONAL: [&str; 10] = [
     "latentUpscale",
+    "videoPost",
     "outputPrefix",
     "sourceVideo",
     "output",
@@ -108,7 +109,7 @@ pub(crate) const H3_CONTINUITY_NODES: [&str; 3] = [
 ];
 
 pub(crate) fn is_video(intent: &Value) -> bool {
-    intent["recipeId"] == "video-generation"
+    intent["recipeId"] == "video-generation" || crate::jobs_video_post::is_enhance(intent)
 }
 
 /// Canvas multiple, frame step and frame offset: EmptyLTXVLatentVideo /32 & 8k+1, Wan /16 & 4k+1, H3 /32 & 17k+5.
@@ -136,7 +137,7 @@ fn keys_in(v: &Value, allowed: &[&str]) -> bool {
         .is_some_and(|o| o.keys().all(|k| allowed.contains(&k.as_str())))
 }
 
-fn valid_output(o: &Value) -> bool {
+pub(crate) fn valid_output(o: &Value) -> bool {
     keys_in(
         o,
         &[
@@ -755,6 +756,9 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
     if i.get("output").is_some_and(|o| !valid_output(o)) {
         return Err("Invalid output settings".into());
     }
+    if let Some(p) = i.get("videoPost") {
+        crate::jobs_video_post::validate(p)?;
+    }
     if i.get("loras").is_some_and(|l| {
         !l.as_array().is_some_and(|a| {
             a.len() <= 8
@@ -809,6 +813,9 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
 }
 
 pub(crate) fn compile(i: &Value) -> Result<Value, String> {
+    if crate::jobs_video_post::is_enhance(i) {
+        return crate::jobs_video_post::compile_enhance(i);
+    }
     match validate(i)? {
         "ltx-2" => Ok(ltx(i)),
         "wan" => wan(i),
@@ -902,13 +909,23 @@ pub(crate) fn effective_output(i: &Value) -> Value {
 }
 
 pub(crate) fn effective_output_prefix(i: &Value) -> Value {
-    i.get("outputPrefix")
-        .cloned()
-        .unwrap_or_else(|| json!("raw/video/DEAS"))
+    i.get("outputPrefix").cloned().unwrap_or_else(|| {
+        json!(if crate::jobs_video_post::is_enhance(i) {
+            "raw/tve/DEAS"
+        } else {
+            "raw/video/DEAS"
+        })
+    })
 }
 
 /// DaSiWa Enhanced Video Combine as node "7": the history reader looks there.
-fn combine(g: &mut Value, images: Value, audio: Option<Value>, frame_rate: Value, i: &Value) {
+pub(crate) fn combine(
+    g: &mut Value,
+    images: Value,
+    audio: Option<Value>,
+    frame_rate: Value,
+    i: &Value,
+) {
     let o = effective_output(i);
     let mut inputs = json!({
         "images":images,"frame_rate":frame_rate,
@@ -925,15 +942,50 @@ fn combine(g: &mut Value, images: Value, audio: Option<Value>, frame_rate: Value
     g["7"] = json!({"class_type":"DaSiWa_EnhancedVideoCombine","inputs":inputs});
 }
 
-fn baseline_combine(g: &mut Value, images: Value, audio: Value, i: &Value) {
+/// Unprocessed baseline as "B7" at the pre-chain frame rate.
+fn baseline_combine(
+    g: &mut Value,
+    images: Value,
+    audio: Option<Value>,
+    frame_rate: Value,
+    i: &Value,
+) {
     let mut saver = g["7"].clone();
     saver["inputs"]["images"] = images;
-    saver["inputs"]["audio"] = audio;
+    match audio {
+        Some(a) => saver["inputs"]["audio"] = a,
+        None => {
+            saver["inputs"].as_object_mut().unwrap().remove("audio");
+        }
+    }
+    saver["inputs"]["frame_rate"] = frame_rate;
     saver["inputs"]["filename_prefix"] = json!(format!(
         "{}_original",
         effective_output_prefix(i).as_str().unwrap()
     ));
     g["B7"] = saver;
+}
+
+/// Optional TVE chain after the decode: returns (combine images, combine frame rate).
+fn post(g: &mut Value, images: Value, frame_rate: Value, i: &Value) -> (Value, Value) {
+    match i.get("videoPost") {
+        Some(p) => {
+            let out = crate::jobs_video_post::chain(g, images, p);
+            let m = crate::jobs_video_post::multiplier(p);
+            let fps = if m > 1 {
+                json!(i["frameRate"].as_f64().unwrap() * m as f64)
+            } else {
+                frame_rate
+            };
+            (out, fps)
+        }
+        None => (images, frame_rate),
+    }
+}
+
+/// The baseline is the first decode: before the latent upscale when there is one, else before the TVE chain.
+fn needs_post_baseline(i: &Value) -> bool {
+    i.get("videoPost").is_some() && i.get("latentUpscale").is_none()
 }
 
 /// One LTX sampling pass. `suffix` "" is the first pass; guides are re-added on the given video latent,
@@ -1094,15 +1146,24 @@ fn ltx(i: &Value) -> Value {
     decode(&mut g, "6", video, json!(["V", 0]), i);
     g["AD"] =
         json!({"class_type":"LTXVAudioVAEDecode","inputs":{"samples":audio,"audio_vae":["AV",0]}});
-    combine(
-        &mut g,
-        json!(["6", 0]),
-        Some(json!(["AD", 0])),
-        i["frameRate"].clone(),
-        i,
-    );
+    let (images, fps) = post(&mut g, json!(["6", 0]), i["frameRate"].clone(), i);
+    combine(&mut g, images, Some(json!(["AD", 0])), fps, i);
     if i.get("latentUpscale").is_some() {
-        baseline_combine(&mut g, json!(["B6", 0]), json!(["AD", 0]), i);
+        baseline_combine(
+            &mut g,
+            json!(["B6", 0]),
+            Some(json!(["AD", 0])),
+            i["frameRate"].clone(),
+            i,
+        );
+    } else if needs_post_baseline(i) {
+        baseline_combine(
+            &mut g,
+            json!(["6", 0]),
+            Some(json!(["AD", 0])),
+            i["frameRate"].clone(),
+            i,
+        );
     }
     g
 }
@@ -1162,7 +1223,11 @@ fn wan(i: &Value) -> Result<Value, String> {
     g["KH"] = sampler(json!(["SH", 0]), json!(["W", 2]), true);
     g["KL"] = sampler(json!(["SL", 0]), json!(["KH", 0]), false);
     decode(&mut g, "6", json!(["KL", 0]), json!(["V", 0]), i);
-    combine(&mut g, json!(["6", 0]), None, i["frameRate"].clone(), i);
+    let (images, fps) = post(&mut g, json!(["6", 0]), i["frameRate"].clone(), i);
+    combine(&mut g, images, None, fps, i);
+    if needs_post_baseline(i) {
+        baseline_combine(&mut g, json!(["6", 0]), None, i["frameRate"].clone(), i);
+    }
     Ok(g)
 }
 
@@ -1257,13 +1322,17 @@ fn h3(i: &Value) -> Value {
     // Segment Prepare/Decode serve both Director output modes and are plain decode without capture.
     g["SP"] = json!({"class_type":"DaSiWaH3ContinuitySegmentPrepare","inputs":{"sampled":["5",0],"context":["G",2]}});
     g["SD"] = json!({"class_type":"DaSiWaH3ContinuitySegmentDecode","inputs":{"latent":["SP",0],"vae":["V",0],"audio_vae":["AV",0],"context":["SP",1]}});
-    combine(
-        &mut g,
-        json!(["SD", 0]),
-        Some(json!(["SD", 1])),
-        json!(["D", 8]),
-        i,
-    );
+    let (images, fps) = post(&mut g, json!(["SD", 0]), json!(["D", 8]), i);
+    combine(&mut g, images, Some(json!(["SD", 1])), fps, i);
+    if needs_post_baseline(i) {
+        baseline_combine(
+            &mut g,
+            json!(["SD", 0]),
+            Some(json!(["SD", 1])),
+            json!(["D", 8]),
+            i,
+        );
+    }
     if let Some(u) = i.get("latentUpscale") {
         // Capture mode allows exactly one SegmentDecode (node pack validation): in segment mode the
         // baseline side decodes the prepared window on core nodes, cropped to the new segment.
@@ -1297,9 +1366,21 @@ fn h3(i: &Value) -> Value {
                 segment_crop_plan(i).expect("validated in validate_latent_upscale");
             decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
             g["CB"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["BA",0],"batch_index":crop_start,"length":crop_frames}});
-            baseline_combine(&mut g, json!(["CB", 0]), json!(["SD", 1]), i);
+            baseline_combine(
+                &mut g,
+                json!(["CB", 0]),
+                Some(json!(["SD", 1])),
+                json!(["D", 8]),
+                i,
+            );
         } else {
-            baseline_combine(&mut g, json!(["BSD", 0]), json!(["BSD", 1]), i);
+            baseline_combine(
+                &mut g,
+                json!(["BSD", 0]),
+                Some(json!(["BSD", 1])),
+                json!(["D", 8]),
+                i,
+            );
         }
     }
     g["P"] = json!({"class_type":"DaSiWaH3ContinuityPublish","inputs":{"filename":["7",1],"ticket":["SP",2]}});
@@ -1321,6 +1402,9 @@ pub(crate) fn unet_loader(name: &Value) -> Value {
 
 /// Model/encoder/VAE/image/upscaler names prepare() must find in object_info, per allowlist field.
 pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
+    if crate::jobs_video_post::is_enhance(i) {
+        return crate::jobs_video_post::requirements(&i["videoPost"]);
+    }
     let family = i["family"].as_str().unwrap_or_default();
     let b = &i[block(family)];
     let (gguf, plain): (Vec<&str>, Vec<&str>) = strs(&[&i["model"], &b["lowModel"]])
@@ -1332,7 +1416,7 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
         (true, false) => ("ggufTextEncoders", "ggufClipTypes"),
         _ => ("textEncoders", "clipTypes"),
     };
-    vec![
+    let mut required = vec![
         ("diffusionModels", plain),
         ("ggufDiffusionModels", gguf),
         (encoders, strs(&[&i["textEncoder"], &b["textProjection"]])),
@@ -1400,7 +1484,9 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
                 )
                 .collect(),
         ),
-    ]
+    ];
+    required.extend(crate::jobs_video_post::requirements(&i["videoPost"]));
+    required
 }
 
 #[cfg(test)]

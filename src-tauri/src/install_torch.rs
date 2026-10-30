@@ -83,6 +83,25 @@ pub fn select(h: &Hardware) -> Result<Torch, String> {
         Some("13.0"),
     ))
 }
+fn version(spec: &str) -> Vec<u32> {
+    let number = spec.split_once("==").map_or("", |(_, v)| v);
+    number.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+}
+/// The profile this build would install instead of `current`, only when it is a newer Torch on
+/// the same device class (CPU stays CPU, CUDA stays CUDA). `probed` is required for CUDA and must
+/// pass the same hardware/driver gates as a fresh install.
+pub fn newer(current: &Torch, probed: Option<&Hardware>) -> Result<Option<Torch>, String> {
+    let target = match (&current.cuda, probed) {
+        (None, _) => cpu(),
+        (Some(_), Some(hardware)) => select(hardware)?,
+        (Some(_), None) => return Err("NVIDIA_GPU: hardware probe required".into()),
+    };
+    let same_class = target.cuda.is_some() == current.cuda.is_some();
+    Ok(
+        (same_class && version(&target.packages[0]) > version(&current.packages[0]))
+            .then_some(target),
+    )
+}
 pub fn parse(output: &str) -> Result<Hardware, String> {
     let lines: Vec<_> = output.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.len() != 1 {
@@ -197,6 +216,27 @@ mod tests {
     use super::*;
     fn fixture(name: &str, driver: &str, cc: &str) -> Hardware {
         parse(&format!("GPU-test, {name}, {driver}, {cc}")).unwrap()
+    }
+    #[test]
+    fn newer_profile_only_upgrades_within_the_device_class() {
+        let gpu = fixture("NVIDIA GeForce RTX 5090", "615.71.09", "12.0");
+        let old = profile(["2.9.0", "0.24.0", "2.9.0"], "cu128", Some("12.8"));
+        assert_eq!(
+            newer(&old, Some(&gpu)).unwrap().unwrap().packages[0],
+            "torch==2.14.1"
+        );
+        assert!(newer(&select(&gpu).unwrap(), Some(&gpu)).unwrap().is_none());
+        // Never a downgrade: a legacy GPU profile is older than an existing newer pin.
+        let pascal = fixture("GTX 1080", "580.1.0", "6.1");
+        assert!(newer(&old, Some(&pascal)).unwrap().is_none());
+        assert!(newer(&old, Some(&fixture("GPU", "570.1.0", "12.0"))).is_err());
+        assert!(newer(&old, None).is_err());
+        let old_cpu = profile(["2.7.0", "0.22.0", "2.7.0"], "cpu", None);
+        assert_eq!(
+            newer(&old_cpu, None).unwrap().unwrap().packages,
+            cpu().packages
+        );
+        assert!(newer(&cpu(), Some(&gpu)).unwrap().is_none());
     }
     #[test]
     fn exact_go_profiles_and_failure_gates() {

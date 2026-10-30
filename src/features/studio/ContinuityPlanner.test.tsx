@@ -6,12 +6,24 @@ import type { ContinuityPlan } from '../../lib/continuity';
 import { invoke } from '@tauri-apps/api/core';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:()=>true}));
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
-const plan:ContinuityPlan={session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]};
+const plan:ContinuityPlan={enabled:true,session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]};
 const mount=(value=plan,running=false,allowReferences=false)=>{
  localStorage.setItem('deas.locale.v1','en');const onChange=vi.fn();
  render(<I18nProvider><ContinuityPlanner allowReferences={allowReferences} plan={value} running={running} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>);
  return onChange;
 };
+test('switching Continuity off keeps the draft and blocks Run; on restores it; locked while running',()=>{
+ const done:ContinuityPlan={...plan,source:{clipId:'root',endpoint:'http://127.0.0.1:7801'},steps:[{id:'one',seconds:5,action:'a',clipId:'c1',jobId:'j1'},{id:'two',seconds:6,action:'b'}]};
+ const onChange=mount(done);const toggle=screen.getByRole('checkbox',{name:'Continuity active'}) as HTMLInputElement;
+ expect(toggle.checked).toBe(true);
+ fireEvent.click(toggle);expect(onChange).toHaveBeenLastCalledWith({...done,enabled:false});
+ cleanup();const {enabled:_,...fresh}=done;mount(fresh,false); // Off unless explicitly enabled, including plans saved before the switch.
+ expect((screen.getByRole('checkbox',{name:'Continuity active'}) as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole('button',{name:'Run next'}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole('button',{name:'Run all'}) as HTMLButtonElement).disabled).toBe(true);
+ cleanup();const locked=mount(done,true);const busy=screen.getByRole('checkbox',{name:'Continuity active'}) as HTMLInputElement;
+ expect(busy.disabled).toBe(true);fireEvent.click(busy);expect(locked).not.toHaveBeenCalled();
+});
 test('reference opt-in is hidden for unsupported pipelines',()=>{
  mount({...plan,useReferences:true});
  expect(screen.queryByRole('checkbox',{name:'Use current references for continuations'})).toBeNull();

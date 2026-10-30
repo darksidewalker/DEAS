@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { isImageIntent, type JobIntent, type JobStatus } from '../../lib/jobs';
 import type { RecipeAllowlist } from '../../lib/execution';
-import { defaultVideoOutput, isVideoIntent, videoFrames } from '../../lib/videoIntent';
+import { defaultVideoOutput, isVideoEnhanceIntent, isVideoIntent, videoFrames } from '../../lib/videoIntent';
 import { isMusicIntent } from '../../lib/musicIntent';
 import { defaultOptions, type OptionsPref } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
@@ -57,6 +57,8 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
  const intent=structuredClone(record.intent),video=isVideoIntent(intent),image=isImageIntent(intent);
  const unsupported:string[]=[],unavailable:string[]=[];
  const environmentMismatch=origin(context.endpoint)!==record.backendOrigin;
+ // TVE enhance jobs have no authoring controls in Studio; the record stays readable, not restorable.
+ if(isVideoEnhanceIntent(intent))return {intent,pipeline:'v2v',options:structuredClone(defaultOptions),references:[],unsupported:['video-enhance'],unavailable,environmentMismatch,backendOrigin:record.backendOrigin};
  // This schema records no original input-root identity or backend namespace.
  // A currently listed name, matching origin, or output root cannot supply it.
  // Keep every historical input unresolved until the user explicitly reselects.

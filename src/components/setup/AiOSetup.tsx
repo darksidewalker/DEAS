@@ -19,6 +19,10 @@ import { readAuthStatus, verifyAuthToken } from '../../lib/downloads';
 import { forgetPref, isBoolean, isString, readPref, usePref, writePref } from '../../lib/preferences';
 // Root of the last successful install; restored on start only while its deas-install.json still exists.
 const installedKey='install.root';
+const updateScopes=['all','app','comfy','torch'] as const;
+type UpdateScope=typeof updateScopes[number];
+/** `native_torch_update_check`: exact from → to Torch packages, or why the PyTorch-only update is unavailable. */
+type TorchUpdate={from:string[];to:string[]|null;blocked:string|null};
 /** Keeps the studio/backend alive while top-level views change. */
 export interface AiOSetupProps { /** `inspect` is true for the explicit Connect button, false for the owned backend's automatic handoff. */ onConnectExisting: (baseUrl: string, inspect?: boolean) => void; onInstalled?: (features: readonly FeatureId[]) => void; /** Installed environment root plus its saved folder settings, for the Studio media roots. */ onEnvironment?: (environment: { root: string; folders: Folders } | null) => void; studio?: ReactNode; footer?: ReactNode; studioTab?: 'generate'|'forge'|'chat'|'tve'|'map'; onStudioTab?: (tab:'generate'|'forge'|'chat'|'tve'|'map')=>void; onStudioActiveChange?: (active:boolean)=>void }
 /** Automatic-only setup: folder + Director, the rest recommended; Start install is the single authorization. */
@@ -91,6 +95,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const updating=useRef(false);const [updates,setUpdates]=useState(0);
  const [available,setAvailable]=useState<{app:string|null;comfy:boolean;nodepack:boolean}|null>(null);
  const [confirmUpgrade,setConfirmUpgrade]=useState(false);
+ // What the confirmed Update changes; the PyTorch choice is checked natively each time the dialog opens.
+ const [upgradeScope,setUpgradeScope]=useState<UpdateScope>('all');const [torchUpdate,setTorchUpdate]=useState<TorchUpdate|'checking'|null>(null);
  const [appReplaced,setAppReplaced]=useState(false);
  useEffect(()=>{if(!native)return;let alive=true;invoke<typeof available>('native_update_check').then(value=>{if(alive)setAvailable(value);},()=>{});return()=>{alive=false;};},[native]);
  const pending=available?[available.app&&`DEAS ${available.app}`,available.comfy&&'ComfyUI',available.nodepack&&t('app.updateNodes')].filter(Boolean):[];
@@ -214,13 +220,19 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   catch(e){startedPlan.current=null;setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
- const update=async(reinstall:boolean)=>{
+ useEffect(()=>{
+  if(!confirmUpgrade||!native||!installed)return;
+  let alive=true;setUpgradeScope('all');setTorchUpdate('checking');
+  invoke<TorchUpdate>('native_torch_update_check').then(v=>{if(alive)setTorchUpdate(v);},e=>{if(alive)setTorchUpdate({from:[],to:null,blocked:String(e)});});
+  return()=>{alive=false;};
+ },[confirmUpgrade,native,installed]);
+ const update=async(reinstall:boolean,scope:UpdateScope='all')=>{
   setConfirmReinstall(false);setConfirmUpgrade(false);
   if(!native||operationLock.current||busy||running)return;
   operationLock.current=true;setBusy(true);setTechnicalError('');
   try{
-   if(!reinstall){const replaced=await invoke<boolean>('native_app_update',{confirmed:true});if(replaced){setAppReplaced(true);setAvailable(old=>old?{...old,app:null}:old);}}
-   if(reinstall||installed){const next=await invoke<NativeInstallStatus>('native_install_update',{reinstall,confirmed:true});updating.current=true;setStatus(next);}
+   if(!reinstall&&(scope==='all'||scope==='app')){const replaced=await invoke<boolean>('native_app_update',{confirmed:true});if(replaced){setAppReplaced(true);setAvailable(old=>old?{...old,app:null}:old);}}
+   if(reinstall||(installed&&scope!=='app')){const next=await invoke<NativeInstallStatus>('native_install_update',{reinstall,confirmed:true,...(scope==='torch'?{scope:'torch'}:{})});updating.current=true;setStatus(next);}
   }
   catch(e){setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
@@ -318,14 +330,20 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
   </section>}
   {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} onStatusChange={setBackendStatus} locked={running} restartSignal={restartSignal} actions={<>
-   <button type="button" title={t('setup.updateWarning')} disabled={running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>
+   <button type="button" title={t('setup.upgradeHint')} disabled={running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
   </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}
   {confirmReinstall&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reinstall-title"><div className="download-dialog-card"><h3 id="reinstall-title">{t('setup.reinstallTitle')}</h3><p>{t('setup.reinstallWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmReinstall(false)}>{t('setup.reinstallCancel')}</button><button type="button" className="aio-danger" onClick={()=>void update(true)}>{t('setup.reinstallConfirm')}</button></div></div></div>}
   {confirmTakeover&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="takeover-title"><div className="download-dialog-card"><h3 id="takeover-title">{t('setup.takeover.title')}</h3><p>{t('setup.takeover.warning')}</p><p><code>{takeoverPath}</code></p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmTakeover(false)}>{t('setup.takeover.cancel')}</button><button type="button" className="aio-danger" onClick={()=>{setConfirmTakeover(false);void start();}}>{t('setup.takeover.confirm')}</button></div></div></div>}
   </aside>}
   </div>
-  {confirmUpgrade&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="upgrade-title" onKeyDown={e=>{if(e.key==='Escape')setConfirmUpgrade(false);}}><div className="download-dialog-card"><h3 id="upgrade-title">{t('setup.updateTitle')}</h3><p>{t(installed?'setup.updateWarning':'setup.updateAppWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmUpgrade(false)}>{t('setup.reinstallCancel')}</button><button type="button" disabled={!native||running||busy} onClick={()=>void update(false)}>{t('setup.updateConfirm')}</button></div></div></div>}
+  {confirmUpgrade&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="upgrade-title" onKeyDown={e=>{if(e.key==='Escape')setConfirmUpgrade(false);}}><div className="download-dialog-card"><h3 id="upgrade-title">{t('setup.updateTitle')}</h3>
+   {!installed?<p>{t('setup.updateAppWarning')}</p>:<fieldset className="aio-update-scopes"><legend>{t('setup.update.choose')}</legend>
+    {updateScopes.map(scope=>{const torch=scope==='torch'?torchUpdate:null;const blocked=scope==='torch'&&(torch==='checking'||!torch?.to||!!torch.blocked);
+     const hint=scope!=='torch'?t(`setup.update.${scope}Hint`):torch==='checking'||!torch?t('setup.update.torchChecking'):torch.blocked?torch.blocked:torch.to?`${torch.from.join(', ')} → ${torch.to.join(', ')}. ${t('setup.update.torchHint')}`:t('setup.update.torchCurrent',{from:torch.from.join(', ')});
+     return <label key={scope} className="aio-update-scope"><input type="radio" name="update-scope" value={scope} checked={upgradeScope===scope} disabled={blocked} onChange={()=>setUpgradeScope(scope)}/><span><strong>{t(`setup.update.${scope}`)}</strong><small>{hint}</small></span></label>;})}
+   </fieldset>}
+   <div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmUpgrade(false)}>{t('setup.reinstallCancel')}</button><button type="button" disabled={!native||running||busy||(upgradeScope==='torch'&&(torchUpdate==='checking'||!torchUpdate?.to||!!torchUpdate.blocked))} onClick={()=>void update(false,installed?upgradeScope:'all')}>{t('setup.updateConfirm')}</button></div></div></div>}
   <footer className="footer">
    {(backendStatus?.state==='starting'||(backendStartedNotice&&backendStatus?.state==='running'))&&<span data-backend-notice role="status" className={`footer-backend${backendStatus.state==='running'?' is-ready':''}`}>
     {backendStatus.state==='starting'?t('setup.footer.starting'):<><span aria-hidden="true">✓ </span><span>{t('setup.footer.started')}</span></>}

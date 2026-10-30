@@ -101,7 +101,7 @@
   "downloads.sort.name": "Name",
   "downloads.nsfwHelp": "Der Anbieter kennzeichnet dieses Modell als Erwachseneninhalt; die Vorschau kann SFW sein.",
   "downloads.version": "Version",
-  "downloads.browseError": "Die Dateien dieses Modells konnten nicht geladen werden. Zugriffsmodus prüfen (manche Dateien brauchen einen API-Schlüssel) und erneut versuchen.",
+  "downloads.browseError": "Die Dateien dieses Modells konnten nicht geladen werden. Verbindung prüfen und erneut versuchen. Öffentliche Hugging-Face-Modelle brauchen keinen API-Schlüssel; private oder zugriffsbeschränkte Modelle erfordern eine Zugriffsberechtigung.",
   "downloads.auth.set": "Token gespeichert",
   "downloads.auth.none": "Kein Token",
   "downloads.view": "Bibliotheksansicht",

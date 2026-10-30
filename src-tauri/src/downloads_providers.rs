@@ -438,6 +438,11 @@ pub(super) async fn list(
                 } else if item.get("type").and_then(Value::as_str) == Some("file") {
                     let name = text(item, "path")?;
                     path(name)?;
+                    let filename = name.rsplit('/').next().unwrap_or(name);
+                    // Hidden repository metadata is not a model download; safe_name rejects it.
+                    if filename.starts_with('.') {
+                        continue;
+                    }
                     let (_, repo) = hf_locator(&r.locator)?;
                     let prefix = if kind == "datasets" { "datasets/" } else { "" };
                     let url = format!("{}/{prefix}{repo}/resolve/main/{name}", p.origin);

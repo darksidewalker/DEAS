@@ -1,6 +1,10 @@
 # News
 
-## 0.1.67 (unreleased)
+## 0.2.0 BETA
+
+DEAS moves from ALPHA to **BETA**. Version `0.2.0` includes the `0.1.67` development work below. BETA is not a production-readiness claim: platform, model and playback acceptance remain as recorded in [the plan](PLAN.md) and [verification](VERIFICATION.md).
+
+## 0.1.67 (untagged; shipped in 0.2.0)
 
 H3 latent upscale has a **☰ More upscaler options** menu in Post-Processing with all remaining node settings (refine CFG/scheduler, precision, tiling/chunking, memory planning, Spike Guard, Continuity soft refine), starting at the node defaults. Cover Music now finds SheetSage2 encoders in your models folder's `audio_encoders`. See [Studio](STUDIO.md#learned-video-latent-upscale-0164-shipped-in-0166) and [Music](MUSIC.md).
 
@@ -39,7 +43,7 @@ H3 Continuity is now available for Video → Video and Multi-reference → Video
 
 ## 0.1.54 (untagged; shipped in 0.1.55)
 
-TVE adds native file-authority preparation and an optional Linux rendering engine. Explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#validate-and-render-with-the-optional-native-engine). Shipped in 0.1.55; since 0.1.56 every build includes the engine (still an explicit runtime opt-in).
+TVE adds native file-authority preparation and an optional Linux rendering engine. Explicitly bind trusted runtime/model files, validate and render a short SDR clip, or Stop its owned Rust worker. A real four-frame CUDA video passed the managed parent/worker/publication path with audio and source preservation; this is not full-resolution/general-model or Windows-render acceptance. See [workflow and limits](STUDIO.md#tve-workspace). Shipped in 0.1.55; since 0.1.56 every build includes the engine (still an explicit runtime opt-in).
 
 ## 0.1.53
 
@@ -47,7 +51,7 @@ TVE now has its own main tab. Inspect a video source, choose a scale/export-prof
 
 ## 0.1.52
 
-Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#video-source-inspection-0152) and [video plan](PLAN.md#42-video-post-processing-tve-and-paired-products).
+Post-Processing can inspect a local video source without uploading or processing it. The native Rust check shows dimensions, exact frame-rate fractions and source limitations; cancel retains the last inspected result. This is a preparation feature, not video upscaling/interpolation/HDR rendering. The standalone video pipeline is required to use Rust without Go/Python workers. See [usage and dependencies](STUDIO.md#tve-workspace) and [video plan](PLAN.md#42-video-post-processing-tve-and-paired-products).
 
 ## 0.1.51 (untagged; shipped in 0.1.52)
 

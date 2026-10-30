@@ -1,11 +1,12 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { CompiledRecipe, DiagnosticImageIntentV1 } from './execution';
 import { isMusicIntent, type MusicIntentV1 } from './musicIntent';
-import { isVideoIntent, type VideoIntentV1 } from './videoIntent';
+import { isVideoEnhanceIntent, isVideoIntent, type VideoEnhanceIntentV1, type VideoIntentV1 } from './videoIntent';
 
-/** Image recipe, one of the video family recipes or a YuE2 music recipe; all compile natively. */
+/** Image recipe, one of the video family recipes or a YuE2 music recipe; all compile natively.
+ * TVE enhance jobs (`VideoEnhanceIntentV1`) share the native session: readers check `isVideoEnhanceIntent` before narrowing. */
 export type JobIntent = DiagnosticImageIntentV1 | VideoIntentV1 | MusicIntentV1;
-export const isImageIntent = (i: JobIntent): i is DiagnosticImageIntentV1 => !isVideoIntent(i) && !isMusicIntent(i);
+export const isImageIntent = (i: JobIntent | VideoEnhanceIntentV1): i is DiagnosticImageIntentV1 => !isVideoIntent(i) && !isVideoEnhanceIntent(i) && !isMusicIntent(i);
 
 export interface DiagnosticJobPlan {
   id: string;
@@ -23,8 +24,8 @@ export interface JobStatus {
   outputs: { filename: string; subfolder: string; type: 'output'; format?: string; role?: 'original' | 'processed' }[];
   error: string | null;
   generationReady: false;
-  /** Immutable native-held intent, never the workbench's current controls. */
-  intent?: JobIntent;
+  /** Immutable native-held intent, never the workbench's current controls; TVE tab jobs carry the enhance recipe. */
+  intent?: JobIntent | VideoEnhanceIntentV1;
   /** Native-captured output directory, omitted if its filesystem identity is no longer valid. */
   outputRoot?: string;
   appVersion?: string;
@@ -54,9 +55,10 @@ export interface WorkbenchStopResult extends WorkbenchSnapshot { outcome: 'empty
 const pendingWorkbenchRuns = new Map<number, number>();
 let pendingWorkbenchStop: Promise<WorkbenchStopResult> | undefined;
 export function runWorkbenchJob(baseUrl: string, intent: VideoIntentV1, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: VideoEnhanceIntentV1, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: JobIntent, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: DiagnosticImageIntentV1, admissionEpoch: number): Promise<JobStatus>;
-export function runWorkbenchJob(baseUrl: string, intent: JobIntent, admissionEpoch: number): Promise<JobStatus> {
+export function runWorkbenchJob(baseUrl: string, intent: JobIntent | VideoEnhanceIntentV1, admissionEpoch: number): Promise<JobStatus> {
   if (!baseUrl.trim()) return Promise.reject(new Error('An explicit backend endpoint is required.'));
   if (pendingWorkbenchStop) return Promise.reject(new Error('Workbench Stop is in progress.'));
   pendingWorkbenchRuns.set(admissionEpoch, (pendingWorkbenchRuns.get(admissionEpoch) ?? 0) + 1);

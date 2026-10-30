@@ -30,6 +30,10 @@ impl Session {
 }
 
 impl Jobs {
+    /// True while a held Workbench job is not terminal or a Stop is settling; updates must wait.
+    pub(crate) fn workbench_busy(&self) -> Result<bool, String> {
+        self.lock()?.workbench_busy()
+    }
     pub(super) fn workbench_job(&self, id: &str) -> Result<Option<Arc<Jobs>>, String> {
         for held in &self.lock()?.workbench {
             if held.lock()?.job.as_ref().is_some_and(|job| job.id == id) {

@@ -102,33 +102,30 @@ test('TVE mounts only on first visit, preserves source/output and image Post dra
  const forgeOpen=vi.fn(); window.addEventListener('deas:forge-open',forgeOpen);
  try{
   vi.mocked(invoke).mockClear();
+  // Mounting TVE does no TVE native work even in the desktop app; only the explicit inspect/enhance actions do.
+  vi.mocked(isTauri).mockReturnValue(true);
+  const source={name:'kept.mp4',width:1920,height:1080,fpsNumerator:24000,fpsDenominator:1001,durationSeconds:12.5,pixelFormat:'yuv420p',fieldOrder:'progressive',colorTransfer:'bt709',audioStreams:1,subtitleStreams:0,blockers:[],timingVerified:false,processingReady:false};
+  vi.mocked(invoke).mockImplementation(async command=>{
+   if(command==='native_video_post_inspect')return source;
+   if(command==='native_recipe_prerequisites')return {baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic',version:1,allowlist:{nodes:[],checkpoints:[],loras:[],images:[],samplers:[],schedulers:[]},missingNodes:[],generationReady:false};
+   return null; // App-level IPC on the desktop flag (update check, repo stars) is not TVE work.
+  });
   fireEvent.click(screen.getByRole('button',{name:'Open TVE video workspace'}));
-  expect(invoke).not.toHaveBeenCalled();
+  expect(vi.mocked(invoke).mock.calls.map(c=>String(c[0])).filter(c=>c.startsWith('native_video_post')||c.startsWith('native_workbench')||c==='native_recipe_prerequisites')).toEqual([]);
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(forgeOpen).not.toHaveBeenCalled();
   expect(screen.getByRole('tab',{name:'TVE',selected:true})).toHaveProperty('title','TrueVideoEnhancer — video post-processing');
   expect(workbench?.closest('[hidden]')).toBeTruthy();
   expect(document.querySelectorAll('[data-video-post]')).toHaveLength(1);
-  // Browser mounting has no native work; enable only for the explicit metadata operations.
-  vi.mocked(isTauri).mockReturnValue(true);
-  const source={name:'kept.mp4',width:1920,height:1080,fpsNumerator:24000,fpsDenominator:1001,durationSeconds:12.5,pixelFormat:'yuv420p',fieldOrder:'progressive',colorTransfer:'bt709',audioStreams:1,subtitleStreams:0,blockers:[],timingVerified:false,processingReady:false};
-  vi.mocked(invoke).mockImplementation(async command=>{
-   if(command==='native_video_post_inspect')return source;
-   if(command==='native_video_post_draft')return {kind:'deas-video-post-draft',version:1,source,settings:{scale:2,profile:'mp4-h264'},output:{filename:'processed.mp4',width:3840,height:2160,fpsNumerator:24000,fpsDenominator:1001,container:'mp4',videoEncoder:'libx264',pixelFormat:'yuv420p',audioEncoder:'aac',audioBitrate:192000},blockers:[],processingReady:false,timingVerified:false,encoderVerified:false};
-   throw Error('Unexpected navigation IPC '+command);
-  });
-  // Re-render TVE locally without changing the Workbench native lifecycle.
-  fireEvent.change(document.querySelector('[data-tve-scale]')!,{target:{value:'1'}});
-  fireEvent.change(document.querySelector('[data-tve-scale]')!,{target:{value:'2'}});
   await act(async()=>fireEvent.click(document.querySelector('[data-video-post-inspect]')!));
-  await act(async()=>fireEvent.click(document.querySelector('[data-tve-check]')!));
-  const tve=document.querySelector('[data-tve]'),sourceCard=document.querySelector('[data-video-post-source]'),draft=document.querySelector('[data-tve-draft]');
+  fireEvent.click(document.querySelector('[data-tve-post="denoise"]')!);
+  const tve=document.querySelector('[data-tve]'),sourceCard=document.querySelector('[data-video-post-source]'),draft=document.querySelector('[data-tve-backend]');
   expect(sourceCard).toBeTruthy();expect(draft).toBeTruthy();
   vi.mocked(isTauri).mockReturnValue(false); vi.mocked(invoke).mockClear();
   for(const name of ['Library','Backend','Studio','Run Plan','TVE'])fireEvent.click(screen.getByRole('tab',{name}));
   expect(document.querySelector('[data-tve]')).toBe(tve);
   expect(document.querySelector('[data-video-post-source]')).toBe(sourceCard);
-  expect(document.querySelector('[data-tve-draft]')).toBe(draft);
+  expect(document.querySelector('[data-tve-backend]')).toBe(draft);expect((document.querySelector('[data-tve-post="denoise"]') as HTMLInputElement).checked).toBe(true);
   expect(document.querySelector('[data-workbench]')).toBe(workbench);
   expect(invoke).not.toHaveBeenCalled();expect(forgeOpen).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab',{name:'Studio'}));

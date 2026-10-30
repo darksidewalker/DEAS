@@ -394,7 +394,10 @@ impl Jobs {
         let mut reader = decoder.read_info().map_err(|_| "Invalid PNG header")?;
         let (width, height) = (reader.info().width, reader.info().height);
         let (expected_width, expected_height) =
-            if job.plan.graph.get("B7").is_some() && image["role"] == "processed" {
+            if job.plan.intent.get("videoPost").is_some() && image["role"] != "original" {
+                // shortcut: a model/RTX upscale scale is only known at run time, accept the decoded size within the caps below; upgrade when the chain reports its geometry.
+                (Some(u64::from(width)), Some(u64::from(height)))
+            } else if job.plan.graph.get("B7").is_some() && image["role"] == "processed" {
                 if crate::jobs_video::is_video(&job.plan.intent) {
                     let (w, h) = crate::jobs_video::latent_upscale_size(&job.plan.intent);
                     (Some(w), Some(h))

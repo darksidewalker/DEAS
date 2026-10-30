@@ -19,6 +19,7 @@ import { scanModels, type LocalModel } from '../../lib/models';
 import { ModelMetadataTarget, ModelDeclaredBadge, useModelMetadataUpdates } from '../../components/models/ModelMetadataEditor';
 import { componentFiles, defaultComponentOverrides, isComponentOverrides, type ComponentFamily, type ComponentSlot } from '../../lib/modelComponents';
 import { ComponentPicker } from './ComponentPicker';
+import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
 import { ReferencePeople, type FramePeople, directorTags, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -196,6 +197,7 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [denoise,setDenoise]=usePref('studio.run.denoise',0.6,isNumber);
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
+ const [tve,setTve]=usePref('studio.run.tve',defaultTve,isTvePref);
  const [h3Latent,setH3Latent]=usePref('studio.run.latent.h3',defaultLatent,isLatentPref);
  const [ltxLatent,setLtxLatent]=usePref('studio.run.latent.ltx',defaultLatent,isLatentPref);
  const [latentDownload,setLatentDownload]=useState<VideoFamily|null>(null);
@@ -379,6 +381,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{if(latent&&dockTab==='post'&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
  const latentProblems=!latentEnabled?[]:[...(!choices?[t('studio.run.opt.unread')]:latentNodes.filter(n=>!choices.nodes.includes(n))),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=videoFamily==='minimax-h3'&&isVideo;
+ const continuityOn=continuityAvailable&&plan.enabled===true;
  const continuityReferences=pipeline==='v2v'||pipeline==='ref2v';
  const continuationWithoutReferences=continuityAvailable&&continuityReferences&&!!nextStep(plan)?.continuity.sourceId&&!plan.useReferences;
  useEffect(()=>{if(!continuityAvailable||planVisible)setContinuityOpen(false);},[continuityAvailable,planVisible]);
@@ -400,6 +403,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const sigmas=schedule&&(pipeline==='i2i'?tail(strength):schedule);
  // Unread lists keep the remembered model; native preparation rejects one the backend no longer lists.
  const upscaleModel=!choices||choices.upscaleModels?.includes(upscaleModelPref)?upscaleModelPref:'';
+ // TVE post stages ride on every video pipeline; the chain is omitted when nothing is enabled.
+ const videoPost=isVideo?toVideoPost(tve):undefined;
  const loraNames=loraModels.map(m=>m.name);
  const activeLoras=loras.filter(l=>loraNames.includes(l.name));
  const options=runOptions(optionsPref,choices);
@@ -433,6 +438,11 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(split&&!split.vaes.includes(vae)?[vae||t('studio.run.vae')]:[]),
   ...(split&&isVideo&&family?.audioVaes&&!split.audioVaes.includes(audioVae)?[audioVae||t('studio.run.video.audioVae')]:[]),
   ...(split&&isVideo&&family?.textProjections&&!split.projections.includes(textProjection)?[textProjection||t('studio.run.video.textProjection')]:[]),
+  ...(isVideo&&tve.frameGen&&tve.engine==='rife'&&!tve.rifeModel?[t('studio.tve.post.needsRifeModel')]:[]),
+  ...(isVideo&&videoPost&&choices?[...(videoPost.upscaleModel&&!choices.upscaleModels?.includes(videoPost.upscaleModel)?[videoPost.upscaleModel]:[]),
+   ...(videoPost.rtx&&!choices.nodes.includes('DaSiWa_RTX_UpscalerRefiner')?['DaSiWa_RTX_UpscalerRefiner']:[]),
+   ...(videoPost.frameGeneration?.engine==='rtx'&&!choices.nodes.includes('DaSiWa_RTX_FrameGeneration')?['DaSiWa_RTX_FrameGeneration']:[]),
+   ...(videoPost.frameGeneration?.engine==='rife'&&!choices.frameInterpolationModels?.includes(videoPost.frameGeneration.model)?[videoPost.frameGeneration.model]:[])]:[]),
   ...(choices?[...(!isVideo&&wildcardEnabled&&!choices.nodes.includes(wildcardNode)?[wildcardNode]:[]),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
   ...(imageRefs.length>0&&revisionOk&&(!refVision||!choices.visionModels?.includes(refVision))?[refVision||t('studio.run.reference.vision')]:[]),
    ...(!isVideo&&post&&upscaleModelPref&&!choices.upscaleModels?.includes(upscaleModelPref)?[upscaleModelPref]:[]),
@@ -560,7 +570,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
  async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean}){
   if(!native||stopLock.current||admissionBlocked||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
-  if(step&&!continuityAvailable)return;
+  if(step&&!continuityOn)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   if(unavailable.length||musicNeedsStyle||historyProblems.length)return; // The overlay derives dependency warnings from the current selections.
   const editing=!only&&inpaint;
@@ -648,7 +658,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const chunks=optionsPref.chunkHeadroom?chunkCount(count,outputSize.width,outputSize.height,optionsPref.chunkHeadroom):undefined;
   const {imageFormat,imageCompression,...output}=out;void imageFormat;void imageCompression;
   const base={recipeId:'video-generation',version:1,positivePrompt:positive,negativePrompt:negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
-   ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{})} as const;
+   ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{}),...(videoPost?{videoPost}:{})} as const;
    let intent:VideoIntentV1;
    // The Director's default canvas fit for DEAS stays implicit, so unchanged intents stay byte-identical.
    const scaling=h3Scaling!=='Fill and crop'?{inputScaling:h3Scaling}:{};
@@ -758,10 +768,10 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{
   if(!autoPlan||stopLock.current||current||admissionBlocked||serialBlocked||resolving)return;
   const next=nextStep(plan);
-  if(!next||!continuityAvailable){setAutoPlan(false);return;}
+  if(!next||!continuityOn){setAutoPlan(false);return;}
   void run(undefined,{index:next.index,all:true});
- },[autoPlan,current,admissionBlocked,serialBlocked,busy,resolving,plan,continuityAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
- const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length||unavailable.length)return;const next=nextStep(plan);if(!next||!continuityAvailable)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
+ },[autoPlan,current,admissionBlocked,serialBlocked,busy,resolving,plan,continuityOn]); // eslint-disable-line react-hooks/exhaustive-deps
+ const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length||unavailable.length)return;const next=nextStep(plan);if(!next||!continuityOn)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  async function stop(){
   if(stopLock.current)return;
   stopLock.current=true;setStopping(true);setAutoPlan(false);planRun.current=null;
@@ -950,9 +960,10 @@ const promptTools=forgeContext&&<>
    :<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);setEdit(m);}}>{t(`studio.run.edit.${m}`)}</button>)}
  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
-  {item.media==='image'&&!isVideo&&!h3Image&&!moss&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;const metaOff=off||!item.path;return only&&<details ref={moreRef} className="wb-more" open={moreOpen} onToggle={e=>{if(e.currentTarget.open!==moreOpen)setMoreOpen(e.currentTarget.open);}}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreOpen(!moreOpen);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
-   <button type="button" data-run-post disabled={off} title={t('studio.run.post.refineHint')} onClick={()=>selectMoreAction(true,()=>void run(only))}>{t('studio.run.post.refine')}</button>
-   <button type="button" data-run-upscale disabled={off} title={t('studio.run.post.upscaleHint')} onClick={()=>selectMoreAction(true,()=>void run({...only,upscaleOnly:true}))}>{t('studio.run.post.upscale')}</button>
+  {/* More stays on every image; Refine/Upscale are disabled with a reason outside the image-model pipelines. */}
+  {item.media==='image'&&(()=>{const only=postFor(item);const off=!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||historyProblems.length>0;const metaOff=off||!item.path;const postOff=isVideo||h3Image||moss||!only;return <details ref={moreRef} className="wb-more" open={moreOpen} onToggle={e=>{if(e.currentTarget.open!==moreOpen)setMoreOpen(e.currentTarget.open);}}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreOpen(!moreOpen);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
+   <button type="button" data-run-post disabled={off||postOff} title={t(postOff?'studio.run.post.imageOnly':'studio.run.post.refineHint')} onClick={()=>{if(only)selectMoreAction(true,()=>void run(only));}}>{t('studio.run.post.refine')}</button>
+   <button type="button" data-run-upscale disabled={off||postOff} title={t(postOff?'studio.run.post.imageOnly':'studio.run.post.upscaleHint')} onClick={()=>{if(only)selectMoreAction(true,()=>void run({...only,upscaleOnly:true}));}}>{t('studio.run.post.upscale')}</button>
    <button type="button" data-more-apply disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.applyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
    <button type="button" data-more-reuse disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.reuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button></div></details>;})()}
   {moreResult&&<p className="wb-more-feedback" role="status">{moreResult}</p>}
@@ -1079,6 +1090,7 @@ const promptTools=forgeContext&&<>
   setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
   setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setInputScaling('off');setEdit('resample');
   if(isVideoIntent(intent)){
+   setTve(fromVideoPost(intent.videoPost));
    if(intent.family==='minimax-h3')setH3Latent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...h3Latent,enabled:false});
    if(intent.family==='ltx-2')setLtxLatent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...ltxLatent,enabled:false});
   }
@@ -1180,7 +1192,7 @@ const promptTools=forgeContext&&<>
         <p className="wb-resolution-hint">{t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · {item.name}</p>
         <ReferencePeople key={item.src} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
        </div>)}
-       {continuityAvailable&&<button ref={continuityButton} type="button" className="wb-dock-action wb-wide" data-continuity-open aria-haspopup="dialog" aria-expanded={continuityOpen} onClick={()=>setContinuityOpen(true)}>{t('studio.run.dock.continuity')}</button>}
+       {continuityAvailable&&<button ref={continuityButton} type="button" className="wb-dock-action wb-wide" data-continuity-open aria-haspopup="dialog" aria-expanded={continuityOpen} data-continuity-enabled={continuityOn} onClick={()=>setContinuityOpen(true)}>{t(continuityOn?'studio.run.dock.continuity':'studio.run.dock.continuityOff')}</button>}
        {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} title={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
       </>}
       {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{!h3Image&&num('denoise',denoise,setDenoise,0,1,0.05,undefined,true)}{h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}</>}
@@ -1296,8 +1308,9 @@ const promptTools=forgeContext&&<>
        </details>;})()}</>}
      <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
      {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
-    </>}
-    {!isVideo&&<><div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+     </>}
+     {isVideo&&<TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps}/>}
+     {!isVideo&&<><div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>

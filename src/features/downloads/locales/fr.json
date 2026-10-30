@@ -101,7 +101,7 @@
   "downloads.sort.name": "Nom",
   "downloads.nsfwHelp": "Le fournisseur classe ce modèle comme contenu adulte ; l’aperçu peut être tout public.",
   "downloads.version": "Version",
-  "downloads.browseError": "Impossible de charger les fichiers de ce modèle. Vérifiez le mode d’accès (certains fichiers exigent une clé API) et réessayez.",
+  "downloads.browseError": "Impossible de charger les fichiers de ce modèle. Vérifiez la connexion et réessayez. Les modèles Hugging Face publics ne nécessitent pas de clé API ; les modèles privés ou à accès restreint nécessitent une autorisation.",
   "downloads.auth.set": "Token enregistré",
   "downloads.auth.none": "Aucun token",
   "downloads.view": "Vue de la bibliothèque",

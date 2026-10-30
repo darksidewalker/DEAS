@@ -28,7 +28,7 @@ afterEach(() => {
 
 function props(): ContinuityPlannerProps & { onClose: () => void } {
   return {
-    plan: { session: 'test-session', outputMode: 'segment', steps: [
+    plan: { enabled: true, session: 'test-session', outputMode: 'segment', steps: [
       { id: 'first', seconds: 5, action: '' },
       { id: 'next', seconds: 3, action: 'Turn around' },
     ] },

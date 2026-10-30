@@ -17,6 +17,18 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('a Media-panel video pick is inspected natively by path without opening a chooser; non-video or pathless picks do nothing', async () => {
+  const onInspected = vi.fn();
+  vi.mocked(invoke).mockResolvedValue(source);
+  const { rerender } = render(<I18nProvider><VideoPostProcessing onInspected={onInspected} picked={{ name: 'a.png', media: 'image', src: '', path: '/out/a.png' }}/></I18nProvider>);
+  await act(async () => Promise.resolve());
+  expect(invoke).not.toHaveBeenCalled();
+  await act(async () => { rerender(<I18nProvider><VideoPostProcessing onInspected={onInspected} picked={{ name: 'clip.mp4', media: 'video', src: '', path: '/out/clip.mp4' }}/></I18nProvider>); });
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('native_video_post_inspect_path', { path: '/out/clip.mp4' });
+  expect(onInspected).toHaveBeenCalledWith(source);
+  expect(screen.getByText('source.mp4')).toBeTruthy();
+});
+
 test('inspection callback emits only successful metadata, never cancellation or failed reads', async () => {
   const onInspected = vi.fn();
   vi.mocked(invoke).mockResolvedValueOnce(source).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('failed'));

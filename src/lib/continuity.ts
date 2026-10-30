@@ -2,7 +2,8 @@ import type { H3Clip, H3ImportedVideo } from './jobs';
 import { isH3OverlapFrames, type H3Continuity, type H3OverlapFrames } from './videoIntent.ts';
 /** DEAS-owned MiniMax H3 continuity plan: step 0 is a captured first take, later steps extend the clip the previous step produced. */
 export interface ContinuityStep { id:string; seconds:number; action:string; clipId?:string; jobId?:string }
-export interface ContinuityPlan { session:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; source?:{clipId:string;endpoint:string;kind?:'video'}; steps:ContinuityStep[] }
+/** Continuity is off unless `enabled:true`; switching it never touches session, source, steps or clips. */
+export interface ContinuityPlan { enabled?:boolean; session:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; source?:{clipId:string;endpoint:string;kind?:'video'}; steps:ContinuityStep[] }
 const idOk=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(s);
 export const isContinuitySession=(s:unknown):s is string=>idOk(s)&&s!=='_imports';
 export const newSession=()=>`deas-${crypto.randomUUID().slice(0,8)}`;
@@ -12,6 +13,7 @@ export const isContinuityPlan=(v:unknown):v is ContinuityPlan=>{
  const p=v as ContinuityPlan;
  return !!p&&typeof p==='object'&&isContinuitySession(p.session)&&(p.outputMode==='full'||p.outputMode==='segment')&&Array.isArray(p.steps)&&p.steps.length<=50
   &&(p.overlapFrames===undefined||isH3OverlapFrames(p.overlapFrames))
+  &&(p.enabled===undefined||typeof p.enabled==='boolean')
   &&(p.useReferences===undefined||typeof p.useReferences==='boolean')
   &&(p.source===undefined||!!p.source&&typeof p.source==='object'&&idOk(p.source.clipId)&&(p.source.kind===undefined||p.source.kind==='video'&&/^[a-f0-9]{64}$/.test(p.source.clipId))&&typeof p.source.endpoint==='string'&&p.source.endpoint.length>0&&p.source.endpoint.length<=2048)
   &&p.steps.every(s=>!!s&&typeof s.id==='string'&&typeof s.seconds==='number'&&s.seconds>0&&s.seconds<=15&&typeof s.action==='string'&&(s.clipId===undefined||idOk(s.clipId))&&(s.jobId===undefined||typeof s.jobId==='string'));

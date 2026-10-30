@@ -612,8 +612,23 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
             "huggingface",
             "repo",
             "datasets:alice/tiny",
-            serde_json::json!([{"type":"file","path":"sub/tiny.bin","size":3,"lfs":{"oid":"0".repeat(64),"size":3}}]),
+            serde_json::json!([
+                {"type":"file","path":".gitattributes","size":100},
+                {"type":"file","path":"sub/.metadata","size":100},
+                {"type":"file","path":"sub/tiny.bin","size":3,"lfs":{"oid":"0".repeat(64),"size":3}}
+            ]),
             "/api/datasets/alice/tiny/tree/main?recursive=true&limit=50",
+            true,
+        ),
+        (
+            "huggingface",
+            "repo",
+            "models:alice/upscaler",
+            serde_json::json!([
+                {"type":"file","path":".gitattributes","size":100},
+                {"type":"file","path":"weights/upscaler.safetensors","size":3,"lfs":{"oid":"0".repeat(64),"size":3}}
+            ]),
+            "/api/models/alice/upscaler/tree/main?recursive=true&limit=50",
             true,
         ),
         (

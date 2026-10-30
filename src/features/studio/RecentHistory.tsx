@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { isVideoIntent } from '../../lib/videoIntent';
+import { isVideoEnhanceIntent, isVideoIntent } from '../../lib/videoIntent';
 import { isMusicIntent } from '../../lib/musicIntent';
 import { generationDuration } from './generationDuration';
 import { checkHistoryOutputs, historicalRows, historyRestore, readHistory, type HistoryOutputAvailability, type HistoryRecord, type HistoryRestore, type HistorySnapshot, type RestoreContext } from './history';

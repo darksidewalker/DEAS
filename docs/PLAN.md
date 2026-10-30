@@ -8,7 +8,7 @@ This is the **single current plan** for DEAS: what is in place, what is still op
 - [PROJECT-RULES.md](PROJECT-RULES.md), [COMFYUI-RULES.md](COMFYUI-RULES.md) and [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md) govern how work is done; [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) governs scope.
 - An open row here is **not** authorization to start it. New integrations and large slices need an explicit owner priority.
 
-Baseline: source version **0.1.66** (tag `v0.1.66`), reviewed 2026-10-29.
+Current source: **0.2.0 BETA** (unreleased), previously ALPHA. The label does not close any acceptance gates below. Last published baseline: **0.1.66** (tag `v0.1.66`), reviewed 2026-10-29.
 
 ## 1. Evidence levels
 
@@ -46,7 +46,7 @@ An item is only as accepted as its strongest evidence. Keep the levels separate 
 | Media and playback | Partial. Media dock, star/unstar raw↔starred, metadata, Linux video via embedded libmpv, WebKit `<audio>` with bundled GStreamer plugins | §4.1 playback acceptance |
 | Output and export | Partial. PNG/FLAC bounded retrieval, cache, no-clobber export; paired image products | Strict baseline-before-refine ordering; paired video products (§4.2) |
 | Projects | Partial. Image-draft projects, single-writer lock, managed PNG import, draft ZIP | Full persistence is deferred by owner scope (§4.6) |
-| TVE video post-processing | Partial. TVE tab, Rust FFprobe inspection, native source/output authority, managed Rust worker, ONNX spatial upscale (`video-upscale` default feature since 0.1.56; rendering available on Linux only) | §4.2 |
+| TVE video post-processing | Partial. TVE tab (Rust FFprobe inspection, chooser or Media-panel source, native source retention), TVE stages (upscale model, RTX denoise/deblur/VSR, RTX/RIFE frame generation) in every video pipeline as paired Original/Processed products, and the TVE tab's backend enhance recipe (0.1.67). The standalone Rust ONNX engine was retired in 0.1.67 | §4.2 |
 | Video comparison | Missing dedicated integration (image compare exists) | §4.9 |
 | Video assembly | Missing | §4.9 |
 | Training / datasets | Missing | §4.9 |
@@ -63,6 +63,8 @@ Current scope (see [product decisions](PRODUCT-DECISIONS.md)): the lightweight g
 
 ### 4.1 Video, H3 Director and playback
 
+- **Continuity enable/disable: native acceptance.** The **Continuity active** switch landed in 0.1.67 (frontend-only; intents unchanged, see [Studio](STUDIO.md)). Open: native Linux WebKitGTK and Windows WebView2 click-through.
+
 - **Paste and replace-on-paste for references (W2b′).** Clipboard files have no path; this needs a new native byte-upload command (sniffed, size-capped, written to `deas-inputs/`), which is a trust-boundary change of its own.
 - **Trim editor remainder.** Whole-crop move: needs two finite endpoints, preserves the 2–15 s span, clamps to `[-start, 3600-end]` and updates both ends atomically (3600 is a safety bound, not source duration). The Director's keys move the playhead (Left/Right ±1 s, Shift ±0.1 s); do not call trim nudges Director parity. Waveforms and thumbnail strips.
 - **Create RefMod (W2e3).** Offer the Director's *Create RefMod*: encode selected references via the node pack's `DaSiWaH3RefModExport` into `models/refmods` so they appear in `/dasiwa/refmods`.
@@ -78,12 +80,11 @@ Current scope (see [product decisions](PRODUCT-DECISIONS.md)): the lightweight g
 
 ### 4.2 Video post-processing (TVE) and paired products
 
-Rules: the standalone pipeline is Rust (no Go/Python workers); ComfyUI keeps model-dependent latent work. When optional post-processing is enabled the user gets **two real encoded products** (unprocessed baseline and processed result), both selectable/exportable and kept after failure/cancellation; the imported original is preserved. No extra lossy round trip just to save the baseline. Process separation alone is not a memory optimization.
+Rules: ComfyUI keeps model-dependent work; Rust owns inspection, source retention, recipe compilation and validation. When optional post-processing is enabled the user gets **two real encoded products** (unprocessed baseline and processed result), both selectable/exportable and kept after failure/cancellation; the imported original is preserved. No extra lossy round trip just to save the baseline.
+
+Owner decisions 2026-10-30: (1) the TVE tab compiles the same ComfyUI post recipe the pipelines use (`video-enhance`: LoadVideo → upscale model / `DaSiWa_RTX_UpscalerRefiner` / `DaSiWa_RTX_FrameGeneration` or core RIFE → `DaSiWa_EnhancedVideoCombine`) on the owned backend; (2) the standalone Rust ONNX engine (`video-upscale` feature, `ort`, worker process, output draft/preparation/binding) is retired — it duplicated a strict subset of the backend chain under ≤512 px/≤10 s limits. Shipped in 0.1.67 (see STUDIO.md "TVE post-processing on the backend"): pipeline `videoPost` with B7/7 paired products, all combine codecs/containers/bit depths, model selectors from `upscale_models`/`frame_interpolation`, queue/preview/export through the shared session. Open: real GPU acceptance of each stage on the owned backend (RTX nodes need the installed `nvidia_vfx` SDK), HDR, restoration beyond SDK denoise/deblur, baseline-before-processed ordering (PP1 applies to the video savers too), and exact processed geometry in the first/last-frame PNG check (accepted at decoded size).
 
 - [ ] **PP1 strict ordering.** Paired image refine products ship (0.1.51), but sibling savers do not enforce baseline-before-refinement; a failure before the baseline saver runs can leave no baseline.
-- [ ] **W8a2 — Rust inference/model plan.** Supported native runtime/model contract and dependency/platform checks; bind source identity, exact geometry and output choices before Run.
-- [ ] **W8b remainder / PP2b2 — streaming spatial path.** A bounded short-clip Linux path exists (≤512 px edges, 2–600 frames, ≤10 s, BT.709 SDR, one audio stream, no subtitles). Open: model-aware tiling for larger inputs, real encoder preflight, Windows rendering, native-dialog/live-WebView acceptance.
-- [ ] **W8c — generated video and more effects.** A lossless intermediate or bounded producer handoff before generated-video support; then individually proven restoration/interpolation/HDR in the order restore → spatial → temporal → HDR. No full-clip tensor batch or PNG sequence.
 - [ ] **Paired-video acceptance.** Baseline boundary per chain; both products in results/library/compare/export with six-language role labels; decoded readback (dimensions, frame count/timing, audio, colour/bit depth); measured RAM/VRAM/throughput per platform.
 
 Reference: TrueVideoEnhancer `67ddb2508fdb6da7f1897bbd964f316592f762d0` (`backend/custom_pipeline.py`, `streaming_pipeline.py`, `render_contract.py`, `nvidia_vfx_pipeline.py`) is a behavioural reference only. Its rawvideo path loses source PTS, its host budgets exclude GPU tensors and its final publication lacks a cancellation check. GPL code reuse does not clear model, NVIDIA SDK or FFmpeg terms.
@@ -183,7 +184,7 @@ Constraints kept from the implementation plan: signatures from one checkpoint do
 - Interrupted-install repair/resume; staged environment upgrade with rollback (reinstall replaces the venv, which is not rollback).
 - Pin the DaSiWa node-pack ref. It is cloned from `main` with the revision recorded but not user-selected, which falls short of the explicit-updates decision.
 - Settings relocation on Windows (`settings_move.rs` rejects non-Linux).
-- **Selective backend updates (planned).** Today the confirmed **Update** does everything in one run: the DEAS binary (where supported), then the owned backend via `install.rs::update` — ComfyUI checkout to the planned ref, venv, Torch (re-installed from the plan's pinned profile, never upgraded), requirements, ComfyUI-GGUF, DaSiWa nodes, verify. Add two independent, separately confirmed actions so one part can be updated without updating DEAS itself:
+- **Selective backend updates: native acceptance.** Implemented in 0.1.67: Update asks Everything / DEAS app only / ComfyUI and node packs / PyTorch only (see [Studio](STUDIO.md)). Open: a real Linux run of each action (a PyTorch update needs an environment with an older profile) and Windows separately. The compatibility blockers named below need no extra gate today: owned environments cannot carry attention extensions (sage/flash/radial plans are refused), ComfyUI-GGUF is pure Python and is reinstalled under the new constraints, and TVE's ONNX runtime is a user-chosen native library outside the venv. Node packs DEAS did not install block the update. Original spec:
   - **Update ComfyUI**: ComfyUI checkout, installed node packs and their Python dependencies, under the existing Torch constraints so a node-pack requirement cannot silently replace Torch. No DEAS binary download.
   - **Update PyTorch**: only to a newer profile this DEAS build knows (`install_torch.rs`), never an arbitrary latest wheel. Offer it only when the new profile's hardware/driver gate passes, and block it when ComfyUI, the installed node packs or DEAS features are not known to work with it (e.g. attention/CUDA-extension pins, GGUF, the CUDA ONNX runtime used by TVE). Show the exact from → to versions before confirmation.
   - Both: stop the owned backend first, block while a job runs, reuse the existing plan/consent/cancellation/log paths, persist the updated plan only after the verify step passes, and report the previous state on failure (no rollback is claimed until staged updates exist). The full **Update** stays available.
@@ -200,17 +201,17 @@ Constraints kept from the implementation plan: signatures from one checkpoint do
 
 These are the local reference repositories; their functionality does not count as implemented in DEAS. Each port needs an explicit owner priority, a Rust-first native boundary and its own Linux/Windows acceptance.
 
-- **Video comparison:** `/data/GitHub/DaSiWa-simple-video-compare` (Rust/Tauri/libmpv: `src-tauri/src/native.rs`, `embedded.rs`, `embedded_windows.rs`, `runtime.rs`, `desktop/src/model.ts`).
+- **Video comparison:** `<workspace>/DaSiWa-simple-video-compare` (Rust/Tauri/libmpv: `src-tauri/src/native.rs`, `embedded.rs`, `embedded_windows.rs`, `runtime.rs`, `desktop/src/model.ts`).
   - Share the player/probe/runtime boundary with DEAS's libmpv player.
   - One/two-source side-by-side, wipe, blend and difference; seek, frame-step and source audio.
   - Test mismatched dimensions/fps/duration, short-source EOF and missing audio.
   - Filters normalize to `yuv420p`, so this is not bit-exact HDR analysis.
   - Assess GPL/libmpv/FFmpeg redistribution first.
-- **Video assembly:** `/data/GitHub/DaSiWa-simple-rtx-video-assambler` (`vid_tool.py`; spelling retained).
+- **Video assembly:** `<workspace>/DaSiWa-simple-rtx-video-assambler` (`vid_tool.py`; spelling retained).
   - A Rust FFmpeg plugin: ordered sources, labels, grid layouts (contain/cover/stretch), audio selection/mixing, NVENC AV1/SVT-AV1.
   - Do not port its defects: the preview only computes resolution, the audio mix assumes every input has audio, the `p8`/`p9` presets are not universal, and `-y` plus timestamp names can overwrite files.
   - Spatial grid and temporal montage are separate contracts.
-- **LoRA training:** `/data/GitHub/DaSiWa-TrainFlow` (`internal/trainer/profiles.go`, `config.go`, `defaults.go`, `musubi.go`, `manager.go`, `normalizer.go`).
+- **LoRA training:** `<workspace>/DaSiWa-TrainFlow` (`internal/trainer/profiles.go`, `config.go`, `defaults.go`, `musubi.go`, `manager.go`, `normalizer.go`).
   - Profiles: Anima, SDXL/Pony/Illustrious, LTX 2.3, Wan 2.2, Krea 2.
   - Rust owns datasets, typed config/argv, process groups, progress, cancel/resume and result indexing. Python stays the sd-scripts/Musubi engine, in an isolated environment.
   - The runtime uses cu130 (not the README's CUDA 12.4); ROCm is experimental; Musubi is single-process. Replace whitespace-split extra args with typed argv.

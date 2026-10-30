@@ -1249,14 +1249,6 @@ impl Drop for StatusPolling<'_> {
 }
 
 impl Jobs {
-    // Called only after TVE's lock-free reservation; never acquire a TVE mutex here.
-    pub(crate) fn admit_video_post(&self) -> Result<(), String> {
-        let session = self.lock()?;
-        if session.job.as_ref().is_some_and(|j| !j.terminal()) || session.workbench_busy()? {
-            return Err("VIDEO_BUSY: DEAS-managed ComfyUI work is active or unknown.".into());
-        }
-        Ok(())
-    }
     /// Bind optional persistence once to the app's own data directory (never an environment/project).
     pub fn initialize_history(&self, path: &std::path::Path) {
         self.3.initialize(path);
@@ -1406,7 +1398,8 @@ impl Jobs {
                         .map(|l| l.iter().filter_map(|x| x["name"].as_str()).collect())
                         .unwrap_or_default(),
                 ),
-                ("samplers", vec![intent["sampler"].as_str().unwrap()]),
+                // video-enhance has no sampler.
+                ("samplers", intent["sampler"].as_str().into_iter().collect()),
                 (
                     "attention",
                     intent["options"]["attention"]
@@ -1438,7 +1431,7 @@ impl Jobs {
                 ),
                 (
                     "upscaleModels",
-                    [&intent["upscaleModel"], &intent["refine"]["upscaleModel"]]
+                    [&intent["upscaleModel"], &intent["refine"]["upscaleModel"], &intent["videoPost"]["upscaleModel"]]
                         .into_iter()
                         .filter_map(Value::as_str)
                         .collect(),
@@ -1544,12 +1537,6 @@ impl Jobs {
         // Consume before the first await: a lost response must never authorize a retry.
         let mut job = {
             let mut session = self.lock()?;
-            if crate::video_post_job::gpu_reserved() {
-                return Err(
-                    "A DEAS-managed video render is active; wait or stop it before submitting."
-                        .into(),
-                );
-            }
             if session.stop_requested {
                 return Err("Workbench preparation discarded by Stop".into());
             }
@@ -2140,7 +2127,11 @@ async fn selected_video_upload(
     result.inspect_err(|_| h3_session_failure("", H3SessionFailure::InputUpload))
 }
 
-async fn upload_input(base_url: &str, path: &str, video_only: bool) -> Result<String, String> {
+pub(crate) async fn upload_input(
+    base_url: &str,
+    path: &str,
+    video_only: bool,
+) -> Result<String, String> {
     crate::validate_base_url(base_url)?;
     let mut file = std::fs::File::open(path).map_err(|_| "Reference file unreadable")?;
     let meta = file.metadata().map_err(|_| "Reference file not found")?;
@@ -2444,24 +2435,6 @@ fn refmod_entries(v: &Value) -> Value {
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-mod video_post_admission_tests {
-    use super::*;
-    #[test]
-    fn preparing_workbench_blocks_tve_without_consuming_state() {
-        let jobs = Jobs::default();
-        jobs.admit_video_post().unwrap();
-        jobs.lock()
-            .unwrap()
-            .workbench
-            .push(Arc::new(Jobs::default()));
-        assert!(jobs.admit_video_post().is_err());
-        assert_eq!(jobs.lock().unwrap().workbench.len(), 1);
-        jobs.lock().unwrap().workbench.clear();
-        jobs.admit_video_post().unwrap();
-    }
 }
 
 #[cfg(test)]

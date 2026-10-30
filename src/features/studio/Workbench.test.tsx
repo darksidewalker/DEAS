@@ -149,6 +149,36 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({latentUpscale:plan.latentUpscale,width:plan.width,height:plan.height,frames:plan.frames,output:plan.output});
 });
 
+test('TVE post stages are opt-in on video pipelines, badge-marked, and travel as videoPost into Run Plan and Run',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWa_RTX_UpscalerRefiner','DaSiWa_RTX_FrameGeneration','FrameInterpolate'],upscaleModels:['2x-AnimeSharpV4_RCAN.safetensors'],frameInterpolationModels:['rife_v4.26.safetensors'],rtxUpscaleModes:['Off','VSR','High Bitrate']}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('tve','failed'),error:'fixture'});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ const view=render(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-plan-intent]')?.textContent).toContain('video-generation'));
+ expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!)).not.toHaveProperty('videoPost');
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ expect(document.querySelectorAll('[data-tve-post] .tve-badge').length).toBeGreaterThan(0);
+ fireEvent.change(document.querySelector('[data-tve-post="upscaleModel"]')!,{target:{value:'2x-AnimeSharpV4_RCAN.safetensors'}});
+ fireEvent.click(document.querySelector('[data-tve-post="rtxUpscale"]')!);
+ const modes=[...(document.querySelector('[data-tve-post="rtxMode"]') as HTMLSelectElement).options].map(o=>o.value);
+ expect(modes).toEqual(['VSR','High Bitrate']);
+ fireEvent.click(document.querySelector('[data-tve-post="frameGenEnabled"]')!);
+ fireEvent.change(document.querySelector('[data-tve-post="engine"]')!,{target:{value:'rife'}});
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ fireEvent.change(document.querySelector('[data-tve-post="rifeModel"]')!,{target:{value:'rife_v4.26.safetensors'}});
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ const plan=JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!);
+ expect(plan.videoPost).toEqual({upscaleModel:'2x-AnimeSharpV4_RCAN.safetensors',rtx:{upscale:{mode:'VSR',quality:'Ultra',scale:2}},frameGeneration:{engine:'rife',multiplier:2,model:'rife_v4.26.safetensors'}});
+ expect(document.querySelector('[data-plan-stage="tve"]')?.textContent).toContain('48');
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({videoPost:plan.videoPost});
+});
+
 test('H3 latent upscaler options sit in their own menu, keep separate refine steps and reach Run Plan only when changed',async()=>{
  const files=[
   {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},
@@ -226,7 +256,7 @@ test('latent family preferences persist independently and never replace an expli
 test('latent H3 segment capture is allowed in Continuity with the core baseline decode',async()=>{
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-post.safetensors',scale:2,steps:1,denoise:0.2}));
- localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]}));
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]}));
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -237,6 +267,31 @@ test('latent H3 segment capture is allowed in Continuity with the core baseline 
  expect(dialog.querySelector('[data-cont-run]')).toHaveProperty('disabled',false);
  expect(dialog.querySelector('[data-cont-run-all]')).toHaveProperty('disabled',false);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('Continuity is off by default: planner runs are blocked, ordinary Run stays unconditioned and enabling submits nothing',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ const stored={session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]};
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify(stored));
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('button',{name:'Continuity · off'}));
+ const dialog=screen.getByRole('dialog',{name:'Continuity'});
+ expect(dialog.querySelector('[data-cont-run]')).toHaveProperty('disabled',true);
+ expect(dialog.querySelector('[data-cont-run-all]')).toHaveProperty('disabled',true);
+ fireEvent.click(within(dialog).getByRole('checkbox',{name:'Continuity active'}));
+ expect(dialog.querySelector('[data-cont-run]')).toHaveProperty('disabled',false);
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!)).toEqual({...stored,enabled:true});
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ fireEvent.click(within(dialog).getByRole('checkbox',{name:'Continuity active'}));
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('plain','failed'),error:'fixture'});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'minimax-h3'});
+ expect((vi.mocked(runWorkbenchJob).mock.lastCall![1] as unknown as {h3:object}).h3).not.toHaveProperty('continuity');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!)).toEqual({...stored,enabled:false});
 });
 
 test('late latent capability replies from an old endpoint cannot enable the new backend',async()=>{
@@ -461,6 +516,22 @@ test.each(['/new-env/output','/old-env/output'])('recovered image Post-process t
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/old-env/output/raw/result.png');
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/original.png'});
+});
+test('More stays on a selected image in a video pipeline, between Inpaint and the star, with only its passes disabled',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ vi.mocked(invoke).mockResolvedValue({path:'/out',parent:'/',entries:[{name:'still.png',path:'/out/still.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('button',{name:'still.png'}));
+ const bar=await waitFor(()=>{const el=document.querySelector<HTMLElement>('[data-media-tools]');expect(el?.querySelector('summary[data-more]')).not.toBeNull();return el!;});
+ const order=[...bar.querySelectorAll('[data-edit="inpaint"], details.wb-more, .media-star')].map(el=>el.matches('.media-star')?'star':el.matches('details')?'more':'inpaint');
+ expect(order.indexOf('more')).toBe(order.indexOf('inpaint')+1);
+ if(order.includes('star'))expect(order.indexOf('star')).toBeGreaterThan(order.indexOf('more'));
+ fireEvent.click(bar.querySelector('summary[data-more]')!);
+ expect(bar.querySelector<HTMLButtonElement>('[data-run-post]')).toMatchObject({disabled:true});
+ expect(bar.querySelector<HTMLButtonElement>('[data-run-post]')!.title).toContain('image pipeline');
+ expect(bar.querySelector<HTMLButtonElement>('[data-more-apply]')!.disabled).toBe(false);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('More offers Refine and Upscale; Upscale runs the pass alone (denoise 0, no sigmas)',async()=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
@@ -749,18 +820,19 @@ test('separate Presets saves live settings, reloads across remounts and updates 
  expect(stored).toEqual([{name:'My settings',settings:expect.objectContaining({'studio.run.positive':'saved prompt','studio.run.steps':31})}]);
  expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.recentSeeds');
  expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.continuity');
+ // Only differences from the defaults are stored, so later default changes reach the rest.
+ expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.negative');
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'changed'}});
  view.unmount();view=mount();
- await screen.findByRole('option',{name:'My settings'});
- fireEvent.change(screen.getByLabelText('Saved preset'),{target:{value:'My settings'}});
- fireEvent.click(screen.getByRole('button',{name:'Load preset'}));
+ const menu=async()=>{fireEvent.contextMenu(await screen.findByRole('button',{name:/My settings/}));return within(screen.getByRole('menu',{name:'My settings'}));};
+ fireEvent.click((await menu()).getByRole('menuitem',{name:'Apply'}));
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('saved prompt');
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('31');
  fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'27'}});
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
- fireEvent.click(screen.getByRole('button',{name:'Update selected preset'}));
+ fireEvent.click((await menu()).getByRole('menuitem',{name:'Overwrite with current settings'}));
  expect((stored[0] as {settings:Record<string,unknown>}).settings['studio.run.steps']).toBe(31);
- confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Update selected preset'}));
+ confirm.mockReturnValue(true);fireEvent.click((await menu()).getByRole('menuitem',{name:'Overwrite with current settings'}));
  await screen.findByText('Preset saved.');
  expect((stored[0] as {settings:Record<string,unknown>}).settings['studio.run.steps']).toBe(27);
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
@@ -2557,7 +2629,7 @@ test.each(['ltx-2','wan','sdxl','minimax-h3'])('Continuity is absent from non-H3
 
 test('H3 continuity opens outside the dock, preserves edits and restores focus when closed',async()=>{
  localStorage.setItem('deas.pref.studio.dock.tab',JSON.stringify('continuity'));
- localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''},{id:'two',seconds:6,action:'turn'}]}));
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''},{id:'two',seconds:6,action:'turn'}]}));
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -2672,7 +2744,7 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'fixed'}});
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1024'}});
  fireEvent.change(screen.getByLabelText('Height'),{target:{value:'768'}});
- expect(screen.getByRole('button',{name:'Continuity'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Continuity · off'})).toBeTruthy();
  expect((screen.getByLabelText('FPS') as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
@@ -2691,7 +2763,8 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
   expect(document.querySelector('[data-editor-viewport]')).toBeNull();
   expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  }
- fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
+ fireEvent.click(screen.getByRole('button',{name:'Continuity · off'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'Continuity active'}));
  fireEvent.change(screen.getByRole('textbox',{name:'Session name'}),{target:{value:'Named_session-1'}});
  fireEvent.click(screen.getByRole('button',{name:'Use session'}));
  if(video){
@@ -3052,7 +3125,8 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  const img=await screen.findByRole('img',{name:'ref.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
  expect(screen.queryByLabelText('Denoise')).toBeNull();
- expect(screen.queryByRole('button',{name:'Refine'})).toBeNull();
+ // H3 has no refine pass: More keeps the Refine entry, disabled with its reason.
+ expect(screen.getByRole('button',{name:'Refine'})).toMatchObject({disabled:true,title:expect.stringContaining('MiniMax H3')});
  fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -3268,7 +3342,9 @@ test.each(['inpaint','pad'])('MOSS retains unsupported %s until a visible reset'
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:`Restore ${mode==='inpaint'?'Inpaint':'Input scaling'} defaults`}));
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
- expect(document.querySelector('[data-run-post]')).toBeNull();
+ // More stays visible on MOSS images; only its Refine/Upscale passes are unavailable.
+ expect(document.querySelector('summary[data-more]')).not.toBeNull();
+ for(const pass of ['[data-run-post]','[data-run-upscale]'])expect(document.querySelector<HTMLButtonElement>(pass)).toMatchObject({disabled:true,title:expect.stringContaining('MOSS')});
 });
 test('MOSS disables inserted layers explicitly without deleting the editor draft',async()=>{
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
@@ -3469,7 +3545,8 @@ test('Stop disables serial Continuity before a pending clip read can continue Ru
  vi.mocked(readH3Session).mockReturnValue(new Promise(resolve=>{finish=resolve;}));
  vi.mocked(stopWorkbench).mockResolvedValue({...collection([{...job,state:'succeeded'}]),admissionEpoch:1,outcome:'empty',discarded:0,issues:[]});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
- fireEvent.click(await screen.findByRole('button',{name:'Continuity'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Continuity · off'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'Continuity active'}));
  fireEvent.click(screen.getByRole('button',{name:'Add step'}));fireEvent.click(screen.getByRole('button',{name:'Add step'}));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run all'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run all'}));

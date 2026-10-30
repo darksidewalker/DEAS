@@ -96,7 +96,7 @@ export default function App(){
     <div className="studio-columns">
     <div className="studio-main">
     <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onCanvasContext={setForgeCanvasContext} onOpenVideoPost={()=>setTab('tve')}/></div>
-    {tveOpened.current&&<div className="studio-generate-host" hidden={tab!=='tve'}><TrueVideoEnhancer/></div>}
+    {tveOpened.current&&<div className="studio-generate-host" hidden={tab!=='tve'}><TrueVideoEnhancer endpoint={endpoint} roots={roots}/></div>}
     {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}>{canvasSendError&&<p className="error-message" role="alert">{t(canvasSendError)}</p>}<PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate} canvasContext={forgeCanvasContext}/></div>}
     {chatOpened.current&&<div className="studio-generate-host" hidden={tab!=='chat'}><Chat active={studioActive&&tab==='chat'} endpoint={endpoint} root={environment?.root} onSend={sendToGenerate}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>

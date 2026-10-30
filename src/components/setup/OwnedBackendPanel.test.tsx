@@ -219,6 +219,38 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_app_update',{confirmed:true}));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_install_update',{reinstall:false,confirmed:true}));
  });
+ it('asks what to update and runs only the chosen part',async()=>{
+  await installFixture('succeeded');
+  const base=vi.mocked(invoke).getMockImplementation()!;
+  let torch:{from:string[];to:string[]|null;blocked:string|null}={from:['torch==2.9.0'],to:['torch==2.14.1'],blocked:null};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_app_update'?false:command==='native_torch_update_check'?torch:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:command==='native_install_update'?{state:'succeeded',stepId:null,logs:[],error:null}:base(command,args));
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
+  const choose=async(name:string)=>{
+   await waitFor(()=>expect((screen.getByRole('button',{name:'Upgrade'}) as HTMLButtonElement).disabled).toBe(false));
+   vi.mocked(invoke).mockClear();
+   fireEvent.click(screen.getByRole('button',{name:'Upgrade'}));
+   const radio=await screen.findByRole('radio',{name:new RegExp(`^${name}`)});
+   await waitFor(()=>expect((screen.getByRole('radio',{name:/^PyTorch only/}) as HTMLInputElement).disabled).toBe(torch.to===null||!!torch.blocked));
+   return radio as HTMLInputElement;
+  };
+  const updates=()=>vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_app_update'||c==='native_install_update');
+  fireEvent.click(await choose('ComfyUI and node packs'));fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  await waitFor(()=>expect(updates()).toEqual([['native_install_update',{reinstall:false,confirmed:true}]]));
+  fireEvent.click(await choose('DEAS app only'));fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  await waitFor(()=>expect(updates()).toEqual([['native_app_update',{confirmed:true}]]));
+  const pytorch=await choose('PyTorch only');
+  expect(pytorch.closest('label')!.textContent).toContain('torch==2.9.0 → torch==2.14.1');
+  fireEvent.click(pytorch);fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  await waitFor(()=>expect(updates()).toEqual([['native_install_update',{reinstall:false,confirmed:true,scope:'torch'}]]));
+  torch={from:['torch==2.9.0'],to:['torch==2.14.1'],blocked:'Node packs not installed by DEAS (Foreign) are not known to work'};
+  const blocked=await choose('PyTorch only');
+  expect(blocked.disabled).toBe(true);expect(blocked.closest('label')!.textContent).toContain('Foreign');
+  expect((screen.getByRole('radio',{name:/^Everything/}) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  torch={from:['torch==2.14.1'],to:null,blocked:null};
+  expect((await choose('PyTorch only')).closest('label')!.textContent).toContain('Already on the newest');
+  expect(updates()).toEqual([]);
+ });
  it.each([true,'download failed'] as const)('checks the app binary before touching the backend (%s)',async result=>{
   await installFixture('succeeded');
   const base=vi.mocked(invoke).getMockImplementation()!;

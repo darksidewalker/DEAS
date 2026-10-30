@@ -101,7 +101,7 @@
   "downloads.sort.name": "Ad",
   "downloads.nsfwHelp": "Sağlayıcı bu modeli yetişkin içeriği olarak işaretlemiştir; önizleme SFW olabilir.",
   "downloads.version": "Sürüm",
-  "downloads.browseError": "Bu modelin dosyaları yüklenemedi. Erişim modunu kontrol edin (bazı dosyalar API anahtarı gerektirir) ve tekrar deneyin.",
+  "downloads.browseError": "Bu modelin dosyaları yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin. Herkese açık Hugging Face modelleri API anahtarı gerektirmez; özel veya erişimi kısıtlı modeller için erişim izni gerekir.",
   "downloads.auth.set": "Token kayıtlı",
   "downloads.auth.none": "Token yok",
   "downloads.view": "Kitaplık görünümü",

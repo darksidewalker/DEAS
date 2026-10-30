@@ -24,7 +24,7 @@ export function forgetPref(key:string){try{localStorage.removeItem(prefix+key);}
 export const STUDIO_RESET_EVENT='deas:reset-studio-preferences';
 const preservedStudioPreferenceKeys=['studio.run.recentSeeds','studio.run.continuity','studio.run.metadataOpen'];
 const STUDIO_SETTINGS_EVENT='deas:studio-settings';
-type SettingsTransfer={mode:'capture'|'validate'|'apply';settings:Record<string,unknown>;keys:Set<string>;invalid:string[]};
+type SettingsTransfer={mode:'capture'|'defaults'|'validate'|'apply';settings:Record<string,unknown>;keys:Set<string>;invalid:string[]};
 /** Capture live controls, including an unsaved project draft, not stale localStorage. */
 export function captureStudioSettings(){
  const detail:SettingsTransfer={mode:'capture',settings:{},keys:new Set(),invalid:[]};
@@ -35,6 +35,17 @@ export function applyStudioSettings(settings:Record<string,unknown>){
  window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));
  if(detail.invalid.length||Object.keys(settings).some(key=>!detail.keys.has(key)))return false;
  detail.mode='apply';window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));return true;
+}
+/** Canonical defaults of every live transferable control (what Reset to defaults restores). */
+export function studioDefaults(){
+ const detail:SettingsTransfer={mode:'defaults',settings:{},keys:new Set(),invalid:[]};
+ window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));return detail.settings;
+}
+/** Keys of `settings` the live controls do not know, and keys whose value they reject; nothing is applied. */
+export function checkStudioSettings(settings:Record<string,unknown>){
+ const detail:SettingsTransfer={mode:'validate',settings,keys:new Set(),invalid:[]};
+ window.dispatchEvent(new CustomEvent(STUDIO_SETTINGS_EVENT,{detail}));
+ return {unknown:Object.keys(settings).filter(key=>!detail.keys.has(key)),invalid:[...new Set(detail.invalid)]};
 }
 /** Reset live editable controls; persistence still follows the active project scope. */
 export function resetStudioPreferences(){window.dispatchEvent(new Event(STUDIO_RESET_EVENT));}
@@ -49,6 +60,7 @@ export function usePref<T>(key:string,fallback:T,valid:Valid<T>) {
   const transfer=(event:Event)=>{
    const detail=(event as CustomEvent<SettingsTransfer>).detail;detail.keys.add(key);
    if(detail.mode==='capture')detail.settings[key]=structuredClone(value);
+   else if(detail.mode==='defaults')detail.settings[key]=structuredClone(canonicalDefault.current);
    else if(Object.hasOwn(detail.settings,key)){
     if(!valid(detail.settings[key]))detail.invalid.push(key);
     else if(detail.mode==='apply')setValue(structuredClone(detail.settings[key]));

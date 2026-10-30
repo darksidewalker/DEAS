@@ -101,7 +101,7 @@
   "downloads.sort.name": "名称",
   "downloads.nsfwHelp": "提供方将此模型标记为成人内容；预览图可能适合公开查看。",
   "downloads.version": "版本",
-  "downloads.browseError": "无法加载此模型的文件。请检查访问模式（部分文件需要 API 密钥）后重试。",
+  "downloads.browseError": "无法加载此模型的文件。请检查连接并重试。公开的 Hugging Face 模型不需要 API 密钥；私有或受限模型需要访问授权。",
   "downloads.auth.set": "已保存令牌",
   "downloads.auth.none": "无令牌",
   "downloads.view": "资料库视图",

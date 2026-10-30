@@ -102,6 +102,9 @@ export interface RecipeAllowlist {
   readonly compile?: readonly string[];
   readonly upscaleModels?: readonly string[];
   readonly latentUpscaleModels?: readonly string[];
+  /** Core `FrameInterpolationModelLoader` files (RIFE) and the installed RTX node's upscale modes, for TVE post-processing. */
+  readonly frameInterpolationModels?: readonly string[];
+  readonly rtxUpscaleModes?: readonly string[];
   readonly h3LatentUpscaleModels?: readonly string[];
   /** `AudioEncoderLoader` choices (SheetSage2 for YuE2 covers); absent on older backends. */
   readonly audioEncoders?: readonly string[];

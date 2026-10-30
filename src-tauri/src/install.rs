@@ -162,6 +162,22 @@ impl Default for Status {
         }
     }
 }
+/// What a confirmed backend update changes: ComfyUI with its node packs and Python
+/// dependencies under the pinned Torch, or only Torch to a newer profile this build knows.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateScope {
+    #[default]
+    Comfy,
+    Torch,
+}
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TorchUpdate {
+    pub from: Vec<String>,
+    pub to: Option<Vec<String>>,
+    pub blocked: Option<String>,
+}
 #[derive(Default)]
 pub struct Engine {
     pub(crate) inner: Arc<Mutex<Inner>>,
@@ -631,8 +647,28 @@ impl Engine {
         launch(self.inner.clone(), g.cancel.clone(), plan, git, None);
         Ok(g.status.clone())
     }
+    /// Read-only: the newer Torch profile this build would install for the open environment.
+    fn torch_check(&self) -> Result<TorchUpdate, String> {
+        let plan = current_plan(&lock(&self.inner))?;
+        let from = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
+        let (to, blocked) = match torch_target(&plan) {
+            Err(error) => (None, Some(error)),
+            Ok(None) => (None, None),
+            Ok(Some((torch, _))) => (Some(torch.packages.to_vec()), foreign_nodes(&plan)),
+        };
+        Ok(TorchUpdate {
+            from: from.packages.to_vec(),
+            to,
+            blocked,
+        })
+    }
     /// Update (`reinstall=false`) or rebuild the venv of (`reinstall=true`) the open environment.
-    fn update(&self, reinstall: bool, confirmed: bool) -> Result<Status, String> {
+    fn update(
+        &self,
+        reinstall: bool,
+        confirmed: bool,
+        scope: UpdateScope,
+    ) -> Result<Status, String> {
         if !confirmed {
             return Err("Explicit confirmation is required".into());
         }
@@ -640,23 +676,36 @@ impl Engine {
         if g.status.state == "running" {
             return Err("A native installation is already running".into());
         }
-        let mut plan = match &g.approved {
-            Some(approved) => {
-                approved.validate()?;
-                approved.plan().clone()
-            }
-            None => g
-                .repair
-                .clone()
-                .ok_or("No installed DEAS environment is open")?,
-        };
+        let mut plan = current_plan(&g)?;
+        let original = plan.clone();
         let git = git_path().ok_or("Git is not available; install Git first")?;
-        enable_gguf_upgrade(&mut plan);
+        if scope == UpdateScope::Torch {
+            if reinstall {
+                return Err("A PyTorch update cannot be combined with reinstallation".into());
+            }
+            // Re-check the gates at execution time; the dialog's earlier answer is not trusted.
+            let (torch, hardware) = torch_target(&plan)?
+                .ok_or("No newer PyTorch profile is known for this environment")?;
+            if let Some(reason) = foreign_nodes(&plan) {
+                return Err(reason);
+            }
+            plan.torch = Some(torch);
+            if hardware.is_some() {
+                plan.hardware = hardware;
+            }
+        } else {
+            enable_gguf_upgrade(&mut plan);
+        }
         // The user asked to change this environment: stop only our own backend first.
         if self.backend.active() {
             self.backend.stop();
         }
-        g.repair = Some(plan.clone());
+        // A Torch change is recorded only after its verify step passes (in `launch`).
+        g.repair = Some(if scope == UpdateScope::Torch {
+            original
+        } else {
+            plan.clone()
+        });
         g.approved = None;
         g.cancel = Arc::new(AtomicBool::new(false));
         g.status = Status {
@@ -668,7 +717,7 @@ impl Engine {
             g.cancel.clone(),
             plan,
             git,
-            Some(reinstall),
+            Some((reinstall, scope)),
         );
         Ok(g.status.clone())
     }
@@ -679,18 +728,29 @@ fn launch(
     cancel: Arc<AtomicBool>,
     plan: Plan,
     git: PathBuf,
-    refresh: Option<bool>,
+    refresh: Option<(bool, UpdateScope)>,
 ) {
     tauri::async_runtime::spawn(async move {
         let result = match refresh {
             None => provision(&plan, &git, &inner, &cancel).await,
-            Some(reinstall) => update(&plan, &git, &inner, &cancel, reinstall).await,
+            Some((reinstall, scope)) => {
+                update(&plan, &git, &inner, &cancel, reinstall, scope).await
+            }
         };
         let result = result.and_then(|()| crate::backend::Approved::capture(&plan));
+        let torch = matches!(refresh, Some((_, UpdateScope::Torch)));
+        let previous = torch.then(|| current_plan(&lock(&inner)).ok()).flatten();
+        let result = result.map_err(|e| match previous.as_ref().and_then(|p| p.torch.as_ref()) {
+            Some(old) => format!("PyTorch update failed; deas-plan.json still records {}. The venv may be partially changed: Update ComfyUI reinstalls the recorded profile. {e}", old.packages.join(", ")),
+            None => e,
+        });
         let mut g = lock(&inner);
         if !cancel.load(Ordering::SeqCst) {
             if let Ok(approved) = &result {
                 g.approved = Some(approved.clone());
+                if torch {
+                    g.repair = Some(plan.clone());
+                }
             }
         }
         g.status.state = if cancel.load(Ordering::SeqCst) {
@@ -742,12 +802,15 @@ pub fn native_install_open(
     engine.open_existing(&plan_id, confirmed)
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn native_install_update(
     reinstall: bool,
     confirmed: bool,
+    scope: Option<UpdateScope>,
     engine: tauri::State<'_, Engine>,
     operations: tauri::State<'_, crate::FolderOperations>,
     downloads: tauri::State<'_, crate::downloads::DownloadEngine>,
+    jobs: tauri::State<'_, crate::jobs::Jobs>,
 ) -> Result<Status, String> {
     let _guard = operations.enter()?;
     if downloads.status()?.state == "running" {
@@ -755,7 +818,15 @@ pub fn native_install_update(
             "Wait for downloads before updating the environment; no download was stopped".into(),
         );
     }
-    engine.update(reinstall, confirmed)
+    if jobs.workbench_busy()? {
+        return Err("Wait for running Studio jobs before updating; no job was stopped".into());
+    }
+    engine.update(reinstall, confirmed, scope.unwrap_or_default())
+}
+/// Read-only check for the PyTorch-only update: from → to and why it is blocked, if it is.
+#[tauri::command]
+pub fn native_torch_update_check(engine: tauri::State<'_, Engine>) -> Result<TorchUpdate, String> {
+    engine.torch_check()
 }
 #[tauri::command]
 pub fn native_install_status(engine: tauri::State<'_, Engine>) -> Status {
@@ -1208,6 +1279,41 @@ async fn checkout(
             .into(),
     )
 }
+/// Revision of an existing owned checkout, without fetching; rejects redirected worktrees.
+async fn head(
+    git: &Path,
+    target: &Path,
+    root: &Path,
+    inner: &Arc<Mutex<Inner>>,
+    cancel: &Arc<AtomicBool>,
+) -> Result<String, String> {
+    if !target.join(".git").is_dir() {
+        return Err(format!(
+            "{} is not an owned checkout; run Update ComfyUI first",
+            target.display()
+        ));
+    }
+    let actual = run(
+        git,
+        &["rev-parse", "--show-toplevel"],
+        target,
+        root,
+        inner,
+        cancel,
+    )
+    .await?;
+    if dunce::canonicalize(actual.trim()).map_err(|e| e.to_string())?
+        != dunce::canonicalize(target).map_err(|e| e.to_string())?
+    {
+        return Err("Git worktree redirects outside the approved checkout".into());
+    }
+    Ok(
+        run(git, &["rev-parse", "HEAD"], target, root, inner, cancel)
+            .await?
+            .trim()
+            .into(),
+    )
+}
 // Reject redirected custom-node/Git directories before touching the owned checkout.
 fn gguf_target(comfy: &Path) -> Result<PathBuf, String> {
     let node = comfy.join("custom_nodes/ComfyUI-GGUF");
@@ -1311,6 +1417,49 @@ fn enable_gguf_upgrade(plan: &mut Plan) {
     }
 }
 
+/// The environment an update acts on: the checked open environment, else the last update's plan.
+fn current_plan(g: &Inner) -> Result<Plan, String> {
+    match &g.approved {
+        Some(approved) => {
+            approved.validate()?;
+            Ok(approved.plan().clone())
+        }
+        None => g
+            .repair
+            .clone()
+            .ok_or_else(|| "No installed DEAS environment is open".into()),
+    }
+}
+/// Newer Torch for `plan` plus the hardware it was gated on (CUDA probes the GPU read-only).
+fn torch_target(
+    plan: &Plan,
+) -> Result<Option<(torch_profile::Torch, Option<torch_profile::Hardware>)>, String> {
+    let current = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
+    let hardware = match current.cuda {
+        Some(_) => Some(torch_profile::probe()?),
+        None => None,
+    };
+    Ok(torch_profile::newer(current, hardware.as_ref())?.map(|torch| (torch, hardware)))
+}
+/// Node packs DEAS does not install have unknown compatibility with another Torch.
+fn foreign_nodes(plan: &Plan) -> Option<String> {
+    let dir = Path::new(&plan.request.storage_path).join("ComfyUI/custom_nodes");
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_dir() || kind.is_symlink())
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            !["ComfyUI-GGUF", "ComfyUI-DaSiWa-Nodes", "__pycache__"].contains(&name.as_str())
+        })
+        .collect();
+    names.sort();
+    (!names.is_empty()).then(|| format!("Node packs not installed by DEAS ({}) are not known to work with another PyTorch; remove them or keep the current profile", names.join(", ")))
+}
 fn persist_updated_plan(plan: &Plan) -> Result<(), String> {
     use std::io::Write;
     let root = Path::new(&plan.request.storage_path);
@@ -1321,7 +1470,12 @@ fn persist_updated_plan(plan: &Plan) -> Result<(), String> {
     if serde_json::to_value(&expected).map_err(|e| e.to_string())? == actual {
         return Ok(());
     }
-    enable_gguf_upgrade(&mut expected);
+    // Allowed differences: the GGUF upgrade and a verified PyTorch update.
+    if plan.gguf_ref.is_some() {
+        enable_gguf_upgrade(&mut expected);
+    }
+    expected.torch = plan.torch.clone();
+    expected.hardware = plan.hardware.clone();
     if serde_json::to_value(&expected).map_err(|e| e.to_string())? != actual {
         return Err("Owned plan changed during GGUF upgrade; refusing manifest replacement".into());
     }
@@ -1474,7 +1628,10 @@ async fn provision(
         cancel,
     )
     .await?;
-    packages(plan, git, &root, &uv, &comfy, revision, true, inner, cancel).await?;
+    packages(
+        plan, git, &root, &uv, &comfy, revision, true, true, inner, cancel,
+    )
+    .await?;
     log(inner,"Provisioning checks succeeded; backend is not launched and generation readiness is not verified".into());
     Ok(())
 }
@@ -1487,6 +1644,7 @@ async fn update(
     inner: &Arc<Mutex<Inner>>,
     cancel: &Arc<AtomicBool>,
     reinstall: bool,
+    scope: UpdateScope,
 ) -> Result<(), String> {
     let root = dunce::canonicalize(&plan.request.storage_path).map_err(|e| e.to_string())?;
     let uv = root.join(if cfg!(windows) {
@@ -1498,20 +1656,26 @@ async fn update(
         return Err("Environment is missing its managed uv or ComfyUI checkout".into());
     }
     cancelled(cancel)?;
-    step(inner, "comfy");
     let comfy = root.join("ComfyUI");
-    let revision = checkout(
-        git,
-        COMFY,
-        &plan.request.comfy_ref,
-        &comfy,
-        &root,
-        inner,
-        cancel,
-    )
-    .await?;
+    let sources = scope == UpdateScope::Comfy;
+    // A PyTorch update keeps the current ComfyUI and node-pack checkouts.
+    let revision = if sources {
+        step(inner, "comfy");
+        checkout(
+            git,
+            COMFY,
+            &plan.request.comfy_ref,
+            &comfy,
+            &root,
+            inner,
+            cancel,
+        )
+        .await?
+    } else {
+        head(git, &comfy, &root, inner, cancel).await?
+    };
     packages(
-        plan, git, &root, &uv, &comfy, revision, reinstall, inner, cancel,
+        plan, git, &root, &uv, &comfy, revision, reinstall, sources, inner, cancel,
     )
     .await?;
     persist_updated_plan(plan)?;
@@ -1535,6 +1699,8 @@ async fn packages(
     comfy: &Path,
     revision: String,
     fresh_venv: bool,
+    // false: install against the existing checkouts without upgrading other packages.
+    upgrade: bool,
     inner: &Arc<Mutex<Inner>>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -1607,27 +1773,21 @@ async fn packages(
     )
     .await?;
     step(inner, "requirements");
-    run(
-        uv,
-        &[
-            "pip",
-            "install",
-            "--python",
-            py,
-            "--index",
-            &selected.index_url,
-            "--constraint",
-            constraint.to_str().ok_or("Constraint path must be UTF-8")?,
-            "--upgrade",
-            "-r",
-            "requirements.txt",
-        ],
-        comfy,
-        root,
-        inner,
-        cancel,
-    )
-    .await?;
+    let mut args = vec![
+        "pip",
+        "install",
+        "--python",
+        py,
+        "--index",
+        &selected.index_url,
+        "--constraint",
+        constraint.to_str().ok_or("Constraint path must be UTF-8")?,
+    ];
+    if upgrade {
+        args.push("--upgrade");
+    }
+    args.extend(["-r", "requirements.txt"]);
+    run(uv, &args, comfy, root, inner, cancel).await?;
     if plan.request.options.ffmpeg {
         step(inner, "ffmpeg");
         run(
@@ -1661,7 +1821,11 @@ async fn packages(
             crate::backend::read_owned(&node.join(".git/config"), 1024 * 1024)?;
         }
         std::fs::create_dir_all(comfy.join("custom_nodes")).map_err(|e| e.to_string())?;
-        let fetched = checkout(git, GGUF, reference, &node, root, inner, cancel).await?;
+        let fetched = if upgrade {
+            checkout(git, GGUF, reference, &node, root, inner, cancel).await?
+        } else {
+            head(git, &node, root, inner, cancel).await?
+        };
         if fetched != reference {
             return Err("ComfyUI-GGUF revision does not match the pinned source".into());
         }
@@ -1702,7 +1866,11 @@ async fn packages(
             std::fs::create_dir(&nodes).map_err(|e| e.to_string())?;
         }
         let node = nodes.join("ComfyUI-DaSiWa-Nodes");
-        node_revision = Some(checkout(git, NODEPACK, "main", &node, root, inner, cancel).await?);
+        node_revision = Some(if upgrade {
+            checkout(git, NODEPACK, "main", &node, root, inner, cancel).await?
+        } else {
+            head(git, &node, root, inner, cancel).await?
+        });
         if node.join("requirements.txt").is_file() {
             let requirements = std::fs::read_to_string(node.join("requirements.txt"))
                 .map_err(|e| format!("Cannot read required node dependencies: {e}"))?;
@@ -1742,7 +1910,10 @@ async fn packages(
                 constraint.to_str().ok_or("Invalid constraint path")?,
             ];
             args.extend(wheel_args.iter().map(String::as_str));
-            args.extend(["--upgrade", "-r", "requirements.txt"]);
+            if upgrade {
+                args.push("--upgrade");
+            }
+            args.extend(["-r", "requirements.txt"]);
             run(uv, &args, &node, root, inner, cancel)
                 .await
                 .map_err(|e| format!("Required node dependencies failed (llama-cpp-python requires a matching backend wheel; no source/CPU fallback): {e}"))?;
@@ -1811,6 +1982,7 @@ async fn packages(
 mod tests {
     use super::*;
     include!("install_gguf_tests.rs");
+    include!("install_update_tests.rs");
 
     #[test]
     fn git_lookup_skips_unusable_candidates_and_preserves_native_paths() {

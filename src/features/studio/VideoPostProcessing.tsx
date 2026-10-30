@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { inspectVideoPost, type VideoPostInspection } from '../../lib/videoPost';
+import { inspectVideoPost, inspectVideoPostPath, type VideoPostInspection } from '../../lib/videoPost';
+import type { MediaItem } from '../../lib/media';
 
 const blockerCodes = ['cadenceUnknown', 'cadenceMismatch', 'interlaced', 'rotation', 'alpha', 'hdr', 'colorUnknown', 'unsupportedPixelFormat', 'multipleVideoStreams', 'unsupportedDimensions', 'fieldOrderUnknown', 'nonSquarePixels', 'pixelAspectUnknown'];
 
 /** Only a successful inspection replaces the workspace source; cancellation retains it. */
-export function VideoPostProcessing({ onInspected, disabled = false, acquire, release }: { onInspected?: (source: VideoPostInspection) => void; disabled?: boolean; acquire?: () => boolean; release?: () => void }) {
+export function VideoPostProcessing({ onInspected, disabled = false, acquire, release, picked }: { onInspected?: (source: VideoPostInspection) => void; disabled?: boolean; acquire?: () => boolean; release?: () => void; /** A Media-panel tile (video with a path): inspected natively like a chooser pick. */ picked?: MediaItem | null }) {
   const { t } = useI18n();
   const [source, setSource] = useState<VideoPostInspection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,15 +15,16 @@ export function VideoPostProcessing({ onInspected, disabled = false, acquire, re
   const pending = useRef(false);
   const epoch = useRef(0);
   useEffect(() => () => { epoch.current++; }, []);
+  useEffect(() => { if (picked?.path && picked.media === 'video') void choose(picked.path); }, [picked]);
 
-  async function choose() {
+  async function choose(path?: string) {
     if (pending.current || disabled || !isTauri() || (acquire && !acquire())) return;
     pending.current = true;
     const current = epoch.current;
     setError(null);
     setBusy(true);
     try {
-      const selected = await inspectVideoPost(t('studio.videoPost.dialog'));
+      const selected = path ? await inspectVideoPostPath(path) : await inspectVideoPost(t('studio.videoPost.dialog'));
       if (epoch.current === current && selected) { setSource(selected); onInspected?.(selected); }
     } catch (failure) {
       if (epoch.current === current) {

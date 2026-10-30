@@ -526,6 +526,64 @@ fn latent_post_upscale_rejects_cross_family_models_even_when_core_lists_them() {
     }
 }
 
+#[test]
+fn tve_post_chain_runs_after_the_decode_with_a_source_rate_baseline() {
+    let post = json!({"rtx":{"upscale":{"mode":"VSR","quality":"Ultra","scale":2}},"frameGeneration":{"engine":"rtx","multiplier":2,"mode":"HIGH"}});
+    for (mut i, decoded, audio) in [
+        (ltx(), json!(["6", 0]), Some(json!(["AD", 0]))),
+        (wan(), json!(["6", 0]), None),
+        (h3(), json!(["SD", 0]), Some(json!(["SD", 1]))),
+    ] {
+        i["videoPost"] = post.clone();
+        let g = compile(&i).unwrap();
+        assert_eq!(g["PR"]["inputs"]["images"], decoded);
+        assert_eq!(g["PF"]["inputs"]["images"], json!(["PR", 0]));
+        assert_eq!(g["7"]["inputs"]["images"], json!(["PF", 0]));
+        assert_eq!(
+            g["7"]["inputs"]["frame_rate"],
+            i["frameRate"].as_f64().unwrap() * 2.0
+        );
+        assert_eq!(g["B7"]["inputs"]["images"], decoded);
+        assert_eq!(
+            g["B7"]["inputs"]["audio"],
+            audio.clone().unwrap_or(Value::Null)
+        );
+        assert_eq!(
+            g["B7"]["inputs"]["filename_prefix"],
+            "video/2026-10-18/x_original"
+        );
+        assert_eq!(
+            g["B7"]["inputs"]["frame_rate"],
+            if i["family"] == "minimax-h3" {
+                json!(["D", 8])
+            } else {
+                i["frameRate"].clone()
+            }
+        );
+        assert!(requirements(&i)
+            .iter()
+            .all(|(k, _)| *k != "frameInterpolationModels"));
+        i["videoPost"] = json!({"upscaleModel":"2x.safetensors","frameGeneration":{"engine":"rife","multiplier":3,"model":"rife_v4.26.safetensors"}});
+        let g = compile(&i).unwrap();
+        assert_eq!(g["PM"]["inputs"]["image"], decoded);
+        assert_eq!(g["PF"]["inputs"]["interp_model"], json!(["PFL", 0]));
+        assert!(requirements(&i)
+            .contains(&("frameInterpolationModels", vec!["rife_v4.26.safetensors"])));
+        assert!(requirements(&i).contains(&("upscaleModels", vec!["2x.safetensors"])));
+        i["videoPost"] = json!({});
+        assert!(compile(&i).unwrap_err().contains("videoPost"));
+    }
+    // With a latent upscale the baseline stays the pre-upscale decode and the chain follows the upscale.
+    let mut i = ltx();
+    i["latentUpscale"] = json!({"model":"ltx-2.3-spatial-upscaler-x2-1.1.safetensors","scale":2});
+    i["videoPost"] = json!({"rtx":{"denoise":"High"}});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["B6", 0]));
+    assert_eq!(g["PR"]["inputs"]["images"], json!(["6", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["PR", 0]));
+    assert_eq!(g["7"]["inputs"]["frame_rate"], 24);
+}
+
 pub(crate) fn ltx() -> Value {
     json!({
         "recipeId":"video-generation","version":1,"family":"ltx-2",
@@ -1362,6 +1420,27 @@ fn dump_video_graphs() {
         "{}",
         json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap()})
     );
+}
+
+#[test]
+#[ignore]
+fn dump_tve_graphs() {
+    // Real file names of the owner's ComfyUI checkout, so validate_video_graphs.py checks the combos too.
+    let post = json!({"upscaleModel":"2x-AnimeSharpV4_RCAN.safetensors",
+        "rtx":{"denoise":"High","deblur":"Low","upscale":{"mode":"VSR","quality":"Ultra","scale":2}},
+        "frameGeneration":{"engine":"rife","multiplier":2,"model":"rife_v4.26.safetensors"}});
+    let mut rtx_fg = post.clone();
+    rtx_fg["frameGeneration"] = json!({"engine":"rtx","multiplier":3,"mode":"HIGH"});
+    let mut graphs = json!({});
+    for (name, mut i) in [("ltx", ltx()), ("wan", wan()), ("h3", h3())] {
+        i["videoPost"] = post.clone();
+        graphs[format!("{name}_tve_rife")] = compile(&i).unwrap();
+        i["videoPost"] = rtx_fg.clone();
+        graphs[format!("{name}_tve_rtx")] = compile(&i).unwrap();
+    }
+    let enhance = json!({"recipeId":"video-enhance","version":1,"sourceVideo":"source.mp4","frameRate":24,"seed":7,"videoPost":post});
+    graphs["enhance"] = compile(&enhance).unwrap();
+    println!("{graphs}");
 }
 
 #[test]

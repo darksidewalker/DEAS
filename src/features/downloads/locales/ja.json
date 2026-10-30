@@ -101,7 +101,7 @@
   "downloads.sort.name": "名前",
   "downloads.nsfwHelp": "提供元が成人向けと分類したモデルです。プレビューは一般向けの場合があります。",
   "downloads.version": "バージョン",
-  "downloads.browseError": "このモデルのファイルを読み込めませんでした。アクセスモード（API キーが必要なファイルがあります）を確認して再試行してください。",
+  "downloads.browseError": "このモデルのファイルを読み込めませんでした。接続を確認して再試行してください。公開されている Hugging Face モデルに API キーは不要です。非公開またはアクセス制限付きモデルにはアクセス権が必要です。",
   "downloads.auth.set": "トークン保存済み",
   "downloads.auth.none": "トークンなし",
   "downloads.view": "ライブラリ表示",
