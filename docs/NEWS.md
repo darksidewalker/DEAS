@@ -1,5 +1,14 @@
 # News
 
+## 0.2.1 BETA
+
+- **Startup splash** with the real startup phase; the main window appears once your workspace is restored. The owner's Catgirl artwork slot is ready but still empty.
+- **Backend not ready?** Studio says so in one calm line and disables Run, instead of a red list of "incompatible" dependencies.
+- **Stop** is quiet and frees the queue; right-click a queue entry to stop just that generation.
+- The preview toolbar always sits top right; Linux audio previews (YuE2 FLAC) play through the native player with controls at the bottom.
+
+See the [changelog](CHANGELOG.md#021-beta) for details.
+
 ## 0.2.0 BETA
 
 DEAS moves from ALPHA to **BETA**. Version `0.2.0` includes the `0.1.67` development work below. BETA is not a production-readiness claim: platform, model and playback acceptance remain as recorded in [the plan](PLAN.md) and [verification](VERIFICATION.md).

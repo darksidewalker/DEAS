@@ -9,7 +9,7 @@ import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, writeModelFamily } from '../../lib/models';
-import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobStatus } from '../../lib/jobs';
+import { stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, prepareH3Video, readRefMods, loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobStatus } from '../../lib/jobs';
 import { readImageMetadata } from '../../lib/imageMetadata';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:vi.fn(()=>true),convertFileSrc:(p:string)=>`asset://localhost/${p}`,invoke:vi.fn(async()=>({path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[],truncated:false}))}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/api/webview',()=>({getCurrentWebview:()=>({onDragDropEvent:
 vi.mock('../../lib/recipePrerequisites',()=>({checkRecipePrerequisites:vi.fn(async()=>{throw new Error('offline');})}));
 vi.mock('../../lib/models',()=>({scanModels:vi.fn(),writeModelFamily:vi.fn()}));
 vi.mock('../../lib/imageMetadata',async importOriginal=>({...await importOriginal<typeof import('../../lib/imageMetadata')>(),readImageMetadata:vi.fn(async()=>[] as [string,string][])}));
-vi.mock('../../lib/jobs',()=>({uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn(),isImageIntent:(i:{recipeId?:string})=>!!i&&i.recipeId!=='video-generation'&&i.recipeId!=='music-generation'}));
+vi.mock('../../lib/jobs',()=>({stopWorkbenchJob:vi.fn(),uploadMask:vi.fn(),uploadInput:vi.fn(),readH3Session:vi.fn(),prepareH3Video:vi.fn(),readRefMods:vi.fn(),stopWorkbench:vi.fn(),runWorkbenchJob:vi.fn(),readCurrentWorkbench:vi.fn(),pollWorkbench:vi.fn(),loadDiagnosticJobOutput:vi.fn(),exportDiagnosticJobOutput:vi.fn(),isImageIntent:(i:{recipeId?:string})=>!!i&&i.recipeId!=='video-generation'&&i.recipeId!=='music-generation'}));
 const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler','euler_ancestral','euler_cfg_pp','er_sde'],schedulers:['normal','simple','linear_quadratic']}};
@@ -430,7 +430,7 @@ test('paired products select their own actions and compare the encoded baseline,
  fireEvent.click(queue.querySelectorAll('.wb-queue-select')[0]);
  expect(document.querySelector('.wb-compare')).toBeNull();
  expect(document.querySelector('.wb-shown img')?.getAttribute('src')).toContain('/old/output/raw/one.png');
- expect(document.querySelector('.wb-shown [data-use-input]')).toBeTruthy();
+ expect(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')).toBeTruthy();
  expect(JSON.stringify(intent)).toBe(captured);expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test.each(['failed','cancelled'] as const)('%s keeps a retained baseline accessible without inventing a processed result',async state=>{
@@ -441,7 +441,7 @@ test.each(['failed','cancelled'] as const)('%s keeps a retained baseline accessi
  expect(document.querySelector('[data-job-id="partial"]')?.textContent).toContain('Original (before processing)');
  expect(document.querySelector('[data-output-role="processed"]')).toBeNull();
  expect(document.querySelector('[data-edit-compare]')).toBeNull();
- expect(document.querySelector('.wb-shown [data-use-input]')).toBeTruthy();
+ expect(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')).toBeTruthy();
  expect(document.querySelector('.wb-shown .media-star')).toBeTruthy();
 });
 test.each(['succeeded','failed','cancelled'] as const)('rootless %s baseline uses its native index for preview and export',async state=>{
@@ -735,11 +735,12 @@ test('late recovery after unmount cannot replace a new Workbench collection',asy
  expect(screen.queryByRole('button',{name:/Running/})).toBeNull();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('unresolved recovery blocks admission; recovered preparation keeps Run and Stop reachable',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  let resolve!:(value:ReturnType<typeof collection>)=>void;
  vi.mocked(readCurrentWorkbench).mockReturnValueOnce(new Promise(yes=>{resolve=yes;}));
  vi.mocked(pollWorkbench).mockResolvedValue(collection());
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'a.safetensors'});
  const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
  expect(run.disabled).toBe(true);fireEvent.click(run);expect(runWorkbenchJob).not.toHaveBeenCalled();
@@ -1297,6 +1298,7 @@ test('starring an adopted preview repairs its location without remounting or los
 });
 
 test('stars every queued result and repairs output locations without changing its submitted intent',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async(command,args)=>{
   if(command==='native_media_star_status')return {starred:(args as {path:string}).path.includes('/starred/'),unavailable:null};
@@ -1307,7 +1309,7 @@ test('stars every queued result and repairs output locations without changing it
  let intent:JobStatus['intent'];
  const outputs:JobStatus['outputs']=[{filename:'one.png',subfolder:'',type:'output'},{filename:'two.png',subfolder:'',type:'output'}];
  vi.mocked(runWorkbenchJob).mockImplementation(async(_baseUrl,value)=>{intent=value;return ({id:'star-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputRoot:'/out',outputs,intent,error:null,generationReady:false});});
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  const queue=screen.getByRole('region',{name:'Queue'});
@@ -1351,7 +1353,7 @@ test.each([['de','Abgebrochen'],['en','Cancelled'],['fr','Annulé'],['ja','キ�
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'cancelled-job',baseUrl:evidence.baseUrl,promptId:'p',state:'cancelled',outputs:[],error:null,generationReady:false});
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
  await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
  const tile=await waitFor(()=>{const tile=document.querySelector<HTMLButtonElement>('.wb-queue-select');expect(tile).not.toBeNull();return tile!;});
@@ -1373,7 +1375,7 @@ test.each([
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/out',parent:'/',entries:[],truncated:false});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'timing-job',baseUrl:evidence.baseUrl,promptId:'p',state,outputRoot:'/out',outputs:[{filename,subfolder:'',type:'output'}],error:null,generationReady:false,metadata:{startedAt:1700000000000,generationMs}});
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  const run=document.querySelector<HTMLButtonElement>('[data-run]')!;
  await waitFor(()=>expect(run.disabled).toBe(false));fireEvent.click(run);
  await waitFor(()=>expect(document.querySelector('.wb-queue-select')).not.toBeNull());
@@ -1402,11 +1404,12 @@ test('missing remembered model and LoRAs are explicit blockers, never silently s
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('dependency warnings follow corrected selections after a blocked post-process and reopen',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','k2.safetensors','krea-2'),m('text_encoders','qwen3vl_4b.safetensors'),m('vae','qwen_image_vae.safetensors')]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  for(const [key,value] of Object.entries({checkpoint:'missing.safetensors',vae:'minimax_h3_video_vae.safetensors'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
- const mount=()=>render(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ const mount=()=>render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
  const view=mount();
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  expect(screen.getByRole('alert').textContent).toContain('missing.safetensors');
@@ -1437,10 +1440,11 @@ test('dependency warnings follow corrected selections after a blocked post-proce
 });
 
 test('pending model refresh validates the latest selection, not the selection at scan start',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  const models=[{category:'diffusion_models',name:'k2.safetensors',family:'krea-2',path:'/m/k2',size:1,info:null},{category:'text_encoders',name:'qwen3vl_4b.safetensors',path:'/m/encoder',size:1,info:null},{category:'vae',name:'qwen_image_vae.safetensors',path:'/m/vae',size:1,info:null}];
  vi.mocked(scanModels).mockResolvedValue(models);
  localStorage.setItem('deas.pref.studio.run.vae','"minimax_h3_video_vae.safetensors"');
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await screen.findByRole('combobox',{name:'VAE'});
  let finish!:(value:typeof models)=>void;
  vi.mocked(scanModels).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
@@ -1453,9 +1457,10 @@ test('pending model refresh validates the latest selection, not the selection at
 });
 
 test('selection changes do not erase an unrelated preparation error',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'base.safetensors',path:'/m/base',size:1,info:null}]);
  vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('Backend connection failed'));
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByText('Backend connection failed');
@@ -1495,6 +1500,7 @@ test('dock clicks preview only and preserve the adopted editor until explicit re
  expect(editor?.closest('[hidden]')).toBeNull();
 });
 test('an explicit Run replaces a browsed preview with the accepted job',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:[{name:'browse.png',path:'/out/browse.png',kind:'file',media:'image',symlink:false,size:1,modified:1}],truncated:false}));
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'browse-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
@@ -2017,7 +2023,7 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  await waitFor(()=>expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false));
  expect(screen.queryByText('Pick an image from the Input or Output folder in the Media dock.')).toBeNull();
  // Slider compare zooms with the wheel at the cursor; double-click resets.
- fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Slider'}));
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Slider'}));
  const compare=document.querySelector<HTMLElement>('.wb-compare')!;
  act(()=>{compare.dispatchEvent(new WheelEvent('wheel',{deltaY:-500,clientX:10,clientY:10,cancelable:true}));});
  expect(Number(compare.dataset.zoom)).toBeGreaterThan(1);
@@ -2121,7 +2127,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
  // Instant again on the shown render: transfer its actual file, never infer the backend root.
  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/shown.png');
- fireEvent.click(within(document.querySelector<HTMLElement>('.wb-shown')!).getByRole('button',{name:'Refine'}));
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Refine'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({inputImage:'deas-inputs/shown.png',width:3968,height:2432});
  // Opt-in: every Run gets the refine pass at the upscaled grid size.
@@ -2328,10 +2334,11 @@ test('companion files are collapsed below the other settings and preserve their 
 });
 
 test('Anima recommends renamed header-detected companions and ignores misleading known-incompatible names',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  const m=(category:string,name:string,family?:string,component?:string)=>({category,name,family,component,path:'/m/'+name,size:1,info:null});
  const encoder='dasiwaAnima_luminousLabyrinthV1_txt.safetensors',vae='provider-renamed-vae.safetensors';
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',encoder,undefined,'qwen3-0.6b'),m('vae',vae,undefined,'wan-2.1-vae'),m('text_encoders','qwen_3_600m-impostor.safetensors',undefined,'qwen3-vl-8b')]);
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await screen.findByRole('combobox',{name:'Text encoder'});
  for(const [label,name] of [['Text encoder',encoder],['VAE',vae]]){
   const select=screen.getByRole('combobox',{name:label}) as HTMLSelectElement;
@@ -3441,7 +3448,7 @@ test('Stop drops delayed video preparation and the next press uses the new nativ
 
 
 const imageModels=[{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}];
-test.each(['empty','settled','partial'] as const)('Stop reports %s truthfully, preserves native products/unknowns and can repeat',async outcome=>{
+test.each(['empty','settled','partial'] as const)('Stop %s preserves native products, stays quiet on partial and frees the queue',async outcome=>{
  vi.mocked(scanModels).mockResolvedValue(imageModels);
  const product={...heldJob('product','succeeded'),outputs:[{filename:'keep.png',subfolder:'',type:'output' as const}],outputRoot:'/old/output'};
  const unknown=heldJob('foreign','unknown');
@@ -3452,14 +3459,42 @@ test.each(['empty','settled','partial'] as const)('Stop reports %s truthfully, p
  fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1'}});
  expect(document.querySelector<HTMLButtonElement>('[data-run-stop]')!.disabled).toBe(false);
  fireEvent.click(document.querySelector('[data-run-stop]')!);
- await waitFor(()=>expect(document.querySelector('[data-run-stop-status]')).not.toBeNull());
- expect(document.querySelector('[data-run-stop-status]')!.textContent).toContain(outcome==='empty'?'No native work':outcome==='settled'?'Stop finished':'Stop was partial');
- if(outcome==='partial')expect(screen.getByRole('alert').textContent).toContain('Foreign backend: scoped interruption unsupported');
+ await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledTimes(1));
+ if(outcome==='partial'){await waitFor(()=>expect(document.querySelector('[data-run-stop]')).toBeNull());expect(document.querySelector('[data-run-stop-status]')).toBeNull();expect(screen.queryByRole('alert')).toBeNull();}
+ else await waitFor(()=>expect(document.querySelector('[data-run-stop-status]')!.textContent).toContain(outcome==='empty'?'No native work':'Stop finished'));
  expect(document.querySelector('[data-job-id="foreign"] [data-state]')!.getAttribute('data-state')).toBe('unknown');
  expect(document.querySelector('[data-job-id="product"] img')!.getAttribute('src')).toContain('/old/output/keep.png');
  expect(screen.queryByRole('button',{name:/Running/})).toBeNull();
- fireEvent.click(document.querySelector('[data-run-stop]')!);await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledTimes(2));
+ // The stopped unknown job no longer holds the Workbench: Stop is gone until new work starts.
+ expect(document.querySelector('[data-run-stop]')).toBeNull();
  expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('without backend capabilities Studio shows one calm notice and disables Run, never dependency warnings',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({attention:'sage'}));
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ const run=await screen.findByRole('button',{name:'Run'});
+ await waitFor(()=>expect(run.title).toBe('Backend not ready – backend features unavailable.'));
+ expect(run.hasAttribute('disabled')).toBe(true);
+ expect(screen.getByText('Backend not ready – backend features unavailable.')).toBeTruthy();
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(document.body.textContent).not.toContain('Unavailable or incompatible');
+});
+test('right-click on an active queue entry stops only that generation',async()=>{
+ vi.mocked(scanModels).mockResolvedValue(imageModels);
+ const running=heldJob('running','running'),done=heldJob('done','succeeded');
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([done,running]));
+ vi.mocked(pollWorkbench).mockImplementation(async()=>collection([done,vi.mocked(stopWorkbenchJob).mock.calls.length?{...running,state:'cancelled'}:running]));
+ vi.mocked(stopWorkbenchJob).mockResolvedValue({...running,state:'cancelled'});
+ render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="running"]')).not.toBeNull());
+ fireEvent.contextMenu(document.querySelector('[data-job-id="done"] .wb-queue-select')!);
+ expect(screen.queryByRole('menuitem',{name:'Stop this generation'})).toBeNull();
+ fireEvent.contextMenu(document.querySelector('[data-job-id="running"] .wb-queue-select')!);
+ fireEvent.click(screen.getByRole('menuitem',{name:'Stop this generation'}));
+ await waitFor(()=>expect(stopWorkbenchJob).toHaveBeenCalledWith(expect.objectContaining({id:'running'})));
+ expect(stopWorkbench).not.toHaveBeenCalled();
+ await waitFor(()=>expect(document.querySelector('[data-job-id="running"] [data-state]')!.getAttribute('data-state')).toBe('cancelled'));
 });
 test.each(['unreachable','unsupported'])('Stop %s leaves held states intact and gives a localized standard alert',async failure=>{
  const job=heldJob('retained','running');
@@ -3503,11 +3538,12 @@ test('poll reply already in flight cannot overwrite Stop',async()=>{
  expect(document.querySelector('[data-job-id="held"] [data-state]')!.getAttribute('data-state')).toBe('cancelled');
 });
 test('native capacity rejection retains all active and unknown peers without frontend truncation',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue(imageModels);
  const jobs=Array.from({length:20},(_,i)=>heldJob('capacity-'+i,i%2?'queued':'unknown'));
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(jobs));
  vi.mocked(runWorkbenchJob).mockRejectedValue(new Error('Workbench capacity reached'));
- render(<I18nProvider><Workbench endpoint="" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
  fireEvent.click(document.querySelector('[data-run]')!);
  await screen.findByText('Workbench capacity reached');
@@ -3958,7 +3994,7 @@ test('history video first and last frames remain unresolved until each explicit 
  const chosen=screen.getByRole('img',{name:'same.png'});Object.defineProperties(chosen,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(chosen);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
  fireEvent.click(document.querySelector('[data-job-id="old-frame-result"] .wb-queue-select')!);
- fireEvent.click(document.querySelector('.wb-shown [data-edit-last]')!);
+ fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit-last]')!);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // This LTX builder cannot resolve an old environment's frame handle.
  fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit-last]')!);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);

@@ -43,7 +43,15 @@ fn main() {
                 });
                 bridge.push_str(&std::fs::read_to_string(path)?);
             }
+            deas::splash::open(app);
+            // Main stays hidden until the UI reports its state restored (or the splash deadline passes).
             tauri::WebviewWindowBuilder::from_config(app, &config)?
+                .visible(false)
+                .on_page_load(|webview, payload| {
+                    if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                        deas::splash::phase(webview.app_handle(), "interface");
+                    }
+                })
                 .initialization_script_for_all_frames(bridge)
                 .build()?;
             Ok(())
@@ -181,7 +189,9 @@ fn main() {
             deas::native_backend_start,
             deas::native_backend_status,
             deas::native_backend_stop,
-            deas::native_backend_test
+            deas::native_backend_test,
+            deas::splash::native_startup_phase,
+            deas::splash::native_startup_ready
         ])
         .build(tauri::generate_context!())
         .expect("failed to build DEAS")

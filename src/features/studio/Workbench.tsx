@@ -4,7 +4,7 @@ import { type DownloadStatus } from '../../lib/downloads';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isGguf, clipLoaderName, nativeImageReferenceEncoders, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
-import { stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
+import { stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3Scalings, isVideoIntent, latentUpscaleSize, videoFrames, type H3LatentAdvanced, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, musicBounds, musicMaxDuration, type AbcSettings, type MusicGenerationSettings, type MusicIntentV1, type MusicPlanning } from '../../lib/musicIntent';
 import { MusicPrompts, type MusicField } from './MusicPrompts';
@@ -118,8 +118,8 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const {t,locale}=useI18n();const native=isTauri();const linuxVideo=nativeVideo();const modelsDir=roots.models;const outputDir=roots.output;const extraModelsKey=(roots.extraModels??[]).join('\n');
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [browsed,setBrowsed]=useState<MediaItem|null>(null);
- const browsedBlob=useBlobSrc(browsed?.src,native&&browsed?.media!=='image'&&!(linuxVideo&&browsed?.media==='video'));
- const mediaBlob=useBlobSrc(media?.src,native&&media?.media!=='image'&&!(linuxVideo&&media?.media==='video'));const [mediaFault,setMediaFault]=useState('');
+ const browsedBlob=useBlobSrc(browsed?.src,native&&browsed?.media!=='image'&&!linuxVideo);
+ const mediaBlob=useBlobSrc(media?.src,native&&media?.media!=='image'&&!linuxVideo);const [mediaFault,setMediaFault]=useState('');
  useEffect(()=>setMediaFault(''),[media?.src]);
  const [outputRevision,setOutputRevision]=useState(0);
  const [dockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
@@ -252,12 +252,14 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [sources,setSources]=useState<Record<string,MediaItem>>({});const [slider,setSlider]=useState(false);
  const [jobs,setJobs]=useState<JobStatus[]>([]);const [selectedJob,setSelectedJob]=useState('');const [selectedOutput,setSelectedOutput]=useState(0);
  const live=useRef(false);const lock=useRef(false);const epoch=useRef(0);
- const preparationGeneration=useRef(0);const localPreparations=useRef(0);const stopLock=useRef(false);const admissionEpoch=useRef(0);
+ const preparationGeneration=useRef(0);const localPreparations=useRef(0);const stopLock=useRef(false);const stopped=useRef(new Set<string>());const admissionEpoch=useRef(0);
  const [stopping,setStopping]=useState(false);const [stopAvailable,setStopAvailable]=useState(false);const [stopStatus,setStopStatus]=useState('');
  const observation=useRef(0);const [recovered,setRecovered]=useState(!native);const [preparing,setPreparing]=useState(0);const [frontendAdmitting,setFrontendAdmitting]=useState(false);
  const MEDIA_IMAGE_RE=/\.(png|jpe?g|webp|bmp|avif|gif)$/i;
 // shortcut: webkit-injected File.path only exists in Tauri; upgrade when Tauri's onDragDropEvent lands.
 const droppedImage=(dt:DataTransfer):MediaItem|null=>{const f=dt.files?.[0] as (File&{path?:string})|undefined;return f?.path&&MEDIA_IMAGE_RE.test(f.name)?{name:f.name,path:f.path,media:'image',src:convertFileSrc(f.path)}:null;};
+// A backend that was still warming up when first read is re-read until its capabilities arrive.
+ useEffect(()=>{if(!native||!endpoint.trim()||choices)return;const timer=window.setInterval(()=>void refreshChoices(false),3000);return()=>window.clearInterval(timer);},[native,endpoint,choices,refreshChoices]);
 const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(false);};
  useEffect(()=>{live.current=true;return()=>{live.current=false;preparationGeneration.current++;};},[]);
  // A native <select> opens synchronously on the first click; a list fetched on that click only shows on the second one.
@@ -379,7 +381,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The owned backend may still be booting at mount, or models were added since the last probe: re-read when the latent options are shown.
  useEffect(()=>{if(latent&&dockTab==='post'&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
- const latentProblems=!latentEnabled?[]:[...(!choices?[t('studio.run.opt.unread')]:latentNodes.filter(n=>!choices.nodes.includes(n))),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
+ const latentProblems=!latentEnabled?[]:[...(!choices?[]:latentNodes.filter(n=>!choices.nodes.includes(n))),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=videoFamily==='minimax-h3'&&isVideo;
  const continuityOn=continuityAvailable&&plan.enabled===true;
  const continuityReferences=pipeline==='v2v'||pipeline==='ref2v';
@@ -423,15 +425,17 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const musicNodes=['YuE2GenerateMusic','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced','ConditioningZeroOut',...(pipeline==='cover'?['LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC']:musicPlanning==='off'?[]:['YuE2GenerateABC'])];
  // An empty Style is an unfinished draft, not an incompatible dependency: it blocks Run without the dependency warning.
  const musicNeedsStyle=isMusic&&!musicStyle.trim();
+ // No backend capabilities yet (starting, stopped, unreachable): one calm notice and a disabled Run, never dependency warnings.
+ const backendPending=native&&!choices;
  const unavailable=isMusic?[
-  ...(!choices?[t('studio.run.opt.unread')]:[...musicNodes.filter(n=>!choices.nodes.includes(n)),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
+  ...(!choices?[]:[...musicNodes.filter(n=>!choices.nodes.includes(n)),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
    ...(pipeline==='cover'&&!musicEncoders.includes(musicEncoder)?[musicEncoder||t('studio.music.needsEncoder')]:[])]),
  ]:[
   ...latentProblems,
   ...imageRefs.filter(r=>!r.item.path).map(r=>t('studio.history.missingInput',{name:r.item.name})),
   ...mossIssues.map(i=>t('studio.run.moss.plain',{name:i.name})),
   ...(imageRefs.length&&!referenceMethod?[t('studio.run.reference.inactive')]:[]),
-  ...(imageRefs.length&&referenceMethod?(!choices?[t('studio.run.opt.unread')]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:[promptEncoder,'LoadImage',...(qwenRefs?['ImageScale']:[])]).filter(n=>!choices.nodes.includes(n))):[]),
+  ...(imageRefs.length&&referenceMethod?(!choices?[]:(revisionOk?['CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning']:[promptEncoder,'LoadImage',...(qwenRefs?['ImageScale']:[])]).filter(n=>!choices.nodes.includes(n))):[]),
   ...(models?loras.filter(l=>!loraNames.includes(l.name)).map(l=>`LoRA: ${l.name}`):[]),
  ...loraModels.filter(m=>(m.metadataError||!supportedLoraFormat(m))&&loras.some(l=>l.name===m.name)).map(m=>`${t(m.metadataError?'modelMeta.invalid':'modelMeta.format')} LoRA: ${m.name}`),
   ...(split&&!split.encoders.includes(textEncoder)?[textEncoder||t('studio.run.textEncoder')]:[]),
@@ -455,8 +459,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const lowMetadata=lowModel&&(models??[]).find(m=>m.name===lowModel&&m.category===model?.category)?.metadataError;
  if(lowMetadata)unavailable.push(`${t('modelMeta.invalid')} ${lowModel}`);
  if(!isMusic&&[checkpoint,textEncoder,lowModel].some(isGguf)){
-  if(!choices)unavailable.push(t('studio.run.opt.unread'));
-  else {
+  if(choices){
    const dual=videoFamily==='ltx-2'&&isVideo;
    const quantizedEncoder=isGguf(textEncoder);
    const loader=clipLoaderName(textEncoder,dual);
@@ -492,7 +495,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   // Check this variant's emitted nodes, not the checkpoint diagnostic's missingNodes.
   const saver=['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig'].every(n=>choices?.nodes.includes(n))?['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']:['SaveImage'];
   const required=[isGguf(checkpoint)?'UnetLoaderGGUF':'UNETLoader',clipLoaderName(textEncoder),'VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
-  unavailable.push(...(!choices?[t('studio.run.opt.unread')]:[...required.filter(n=>!choices.nodes.includes(n)),...(!(isGguf(textEncoder)?choices.ggufClipTypes:choices.clipTypes)?.includes('moss_image')?[`${clipLoaderName(textEncoder)}: moss_image`]:[])]));
+  unavailable.push(...(!choices?[]:[...required.filter(n=>!choices.nodes.includes(n)),...(!(isGguf(textEncoder)?choices.ggufClipTypes:choices.clipTypes)?.includes('moss_image')?[`${clipLoaderName(textEncoder)}: moss_image`]:[])]));
  }
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.
  const editableSource=media?.media==='image'&&source&&validCanvas(source)?source:null;
@@ -547,7 +550,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const ratio=aspect==='auto'?(source?source.width/source.height:1):aspect==='custom'?aspectWidth/aspectHeight:Number(aspect.split(':')[0])/Number(aspect.split(':')[1]);
  const swatchRatio=Number.isFinite(ratio)&&ratio>0?ratio:1;
  const readMediaSize=(width:number,height:number)=>{if(media&&width>0&&height>0)setMediaSize({src:media.src,width,height});};
- const current=jobs.find(j=>j.state==='queued'||j.state==='running'||j.state==='unknown');
+ // Unknown jobs the user already stopped must not hold the next generation back.
+ const current=jobs.find(j=>j.state==='queued'||j.state==='running'||(j.state==='unknown'&&!stopped.current.has(j.id)));
  const admissionBlocked=stopping||(!recovered&&!localPreparations.current)||(frontendAdmitting&&!localPreparations.current);
  const serialBlocked=!!current||busy||preparing>0||frontendAdmitting||!!planRun.current;
  const beginRun=()=>{localPreparations.current++;lock.current=true;setBusy(true);setError('');return {generation:preparationGeneration.current,admissionEpoch:admissionEpoch.current};};
@@ -572,7 +576,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(!native||stopLock.current||admissionBlocked||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(step&&!continuityOn)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
-  if(unavailable.length||musicNeedsStyle||historyProblems.length)return; // The overlay derives dependency warnings from the current selections.
+  if(backendPending||unavailable.length||musicNeedsStyle||historyProblems.length)return; // The overlay derives dependency warnings from the current selections.
   const editing=!only&&inpaint;
   if(!only&&(step?continuitySizeError:sizeError)){setError(t(step?continuitySizeError:sizeError,{multiple:String(grid)}));return;}
   if(editing&&!masked){setError(t('studio.run.edit.needsMask'));return;}
@@ -781,10 +785,20 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const next=await stopWorkbench();
    if(!live.current)return;
    admissionEpoch.current=next.admissionEpoch;setJobs([...next.jobs].reverse());setPreparing(next.preparing);setFrontendAdmitting(!!next.frontendAdmitting);setRecovered(true);
-   setStopStatus(t(`studio.run.stop.${next.outcome}`));
-   if(next.issues.length)setError(`${t('studio.run.stop.partial')} ${next.issues.map(issue=>`${issue.jobId}: ${issue.error}`).join('; ')}`);
+   for(const job of next.jobs)stopped.current.add(job.id);
+   // Unresolved jobs settle via polling or stay dismissed; details go to the native log only.
+   if(next.outcome!=='partial')setStopStatus(t(`studio.run.stop.${next.outcome}`));
   }catch(e){if(live.current){setError(`${t('studio.run.stop.failed')} ${e instanceof Error?e.message:String(e)}`);setRecovered(false);}}
   finally{stopLock.current=false;if(live.current)setStopping(false);}
+ }
+ // Right-click on an active queue entry offers stopping just that generation.
+ const [jobMenu,setJobMenu]=useState<{x:number;y:number;job:JobStatus}|null>(null);
+ useEffect(()=>{if(!jobMenu)return;const close=()=>setJobMenu(null);const key=(e:KeyboardEvent)=>{if(e.key==='Escape')close();};
+  window.addEventListener('click',close);window.addEventListener('keydown',key);window.addEventListener('resize',close);
+  return()=>{window.removeEventListener('click',close);window.removeEventListener('keydown',key);window.removeEventListener('resize',close);};},[jobMenu]);
+ async function stopJob(job:JobStatus){
+  try{const next=await stopWorkbenchJob(job);if(!live.current)return;stopped.current.add(job.id);setJobs(list=>list.map(j=>j.id===next.id?next:j));}
+  catch(e){if(live.current)setError(`${t('studio.run.stop.failed')} ${e instanceof Error?e.message:String(e)}`);}
  }
  // Picking media on the strip takes over the preview until the next job is selected.
  const select=(item:MediaItem)=>{if(historyDraft)setHistorySourceSelected(true);setBrowsed(null);setSelectedJob('');if(media?.src===item.src)return;sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(item);setLayers([]);setMasked(false);};
@@ -867,7 +881,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const sideBySide=!paired&&!!shown&&(!!original||(pipeline==='i2i'&&!!editableSource))&&!(slider&&original);
  const editorLeft=sideBySide&&!!editableSource&&(!original||original===media?.src);
  // What still blocks Run is shown on the preview, where the missing pick or mask belongs (the mask only while the editor is visible).
- const hint=sizeError||(inpaint&&!masked&&(!shown||editorLeft)?'studio.run.edit.needsMask':'');
+ const hint=backendPending?'studio.run.backendPending':sizeError||(inpaint&&!masked&&(!shown||editorLeft)?'studio.run.edit.needsMask':'');
  // Click a render (or a browsed picture) for a full-window, zoomable view.
  const [viewer,setViewer]=useState<{src:string;alt:string;item?:MediaItem}|null>(null); const fileSrc=(job:JobStatus,o:JobStatus['outputs'][number])=>job.outputRoot?convertFileSrc([job.outputRoot,o.subfolder,o.filename].filter(Boolean).join('/')):null;
  const openImage=(event:React.MouseEvent<HTMLImageElement>,item:MediaItem)=>{
@@ -875,6 +889,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(containedImageHit({x:event.clientX,y:event.clientY},{width:image.naturalWidth,height:image.naturalHeight},image.getBoundingClientRect()))setViewer({src:item.src,alt:item.name,item});
  };
  // Local outputs retain their captured root; rootless playback stays bound to the job endpoint (Linux uses NativeVideo).
+ // Linux plays audio through libmpv like video: WebKitGTK has no FLAC decoder and never plays asset:// media.
+ const audioPlayer=(item:MediaItem,src:string|undefined,active=true,output=false)=>linuxVideo&&item.path?<NativeVideo key={item.path} source={{path:item.path}} label={item.name} active={active} audioOnly/>
+  :<audio key={item.src} data-output-audio={output||undefined} src={src} controls aria-label={item.name} onError={e=>setMediaFault(mediaError(e))}/>;
  const videoSrc=(job:JobStatus,o:JobStatus['outputs'][number])=>fileSrc(job,o)??`${job.baseUrl}view?${new URLSearchParams({filename:o.filename,subfolder:o.subfolder,type:o.type})}`;
  const num=(id:string,value:number,set:(n:number)=>void,min:number,max:number,step:number,fixed?:string,slider=false)=><label key={id} className="wb-field"><span>{t(`studio.run.${id}`)}</span><input type="number" inputMode="numeric" value={value} min={min} max={max} step={step} disabled={!!fixed} title={fixed} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set(n);}}/>
   {/* Pointer shortcut for the number field above, which stays the labelled, keyboard-reachable control. */}
@@ -973,6 +990,13 @@ const promptTools=forgeContext&&<>
   {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
   {showStar&&<StarMediaButton item={item}/>}
  </div>;
+ // Canonical preview toolbar: one stage slot (top right, beside Metadata/Close) fed by whatever the stage shows.
+ // Only the split view keeps a second, per-pane row for the draft editor.
+ const stageOutput=shown&&terminalOutput(shown)&&shown.outputRoot&&!isVideoOut(shown.outputs[outputIndex])?shown.outputs[outputIndex]:null;
+ const stageTools=()=>browsed?tools(browsed)
+  :shown?(stageOutput?tools(outputItem(shown,stageOutput),false):null)
+  :media?(inputImage||(!editableSource&&pipeline==='ref2v'&&media.path)?tools(media):editableSource?null:<div className="wb-media-tools" data-media-tools><StarMediaButton item={media}/></div>)
+  :null;
  const modelValue=(m:LocalModel)=>allModels.filter(other=>other.name===m.name).length>1?identity(m):m.name;
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
  // Session drafts are independent of persisted global defaults and immutable submitted jobs.
@@ -1116,7 +1140,7 @@ const promptTools=forgeContext&&<>
  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isMusic?'audio':isVideo?'video':'image',seed,model:checkpoint});
  // The plan shows the cover source by its dock name only; the upload handle exists after Run.
  const preview=planVisible&&naming!==null?(isMusic?buildMusicIntent(naming,seed,musicSource?.name??''):isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
- const planNotices=[t('studio.plan.validation'),...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(musicNeedsStyle?[t('studio.music.needsStyle')]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[t('studio.run.opt.unread')]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[]),...(isMusic&&(post||wildcardEnabled||optionsPref.sigmas?.trim()||activeLoras.length)?[t('studio.plan.imageOnly')]:[])];
+ const planNotices=[t('studio.plan.validation'),...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),...(backendPending?[t('studio.run.backendPending')]:[]),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(musicNeedsStyle?[t('studio.music.needsStyle')]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[]),...(isMusic&&(post||wildcardEnabled||optionsPref.sigmas?.trim()||activeLoras.length)?[t('studio.plan.imageOnly')]:[])];
  const inputNotes=[...(inpaint?[t('studio.plan.mask',{blur:String(maskBlur),grow:String(maskGrow),crop:t(inpaintOnlyMasked?'studio.plan.yes':'studio.plan.no')})]:[]),...(pipeline==='i2i'&&layers.some(l=>l.visible)?[t('studio.plan.layersPending')]:[]),...(isVideo||imageRefs.length||pipeline==='cover'?[t('studio.plan.uploadPending')]:[])];
  const projectDraft:ImageDraft={positivePrompt:positive,negativePrompt:negative,checkpoint:project?checkpointPref:checkpoint,width:project&&!model?width:outputSize.width,height:project&&!model?height:outputSize.height,steps,cfg,sampler,scheduler,seed,denoise,pipeline:pipeline==='i2i'?'i2i':'t2i'};
  const restoreProject=(next:ProjectSnapshot|null)=>{
@@ -1141,7 +1165,7 @@ const promptTools=forgeContext&&<>
  const stageWarnings=[...new Set([
   ...(historyDraft?.source&&!media?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
   ...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),
-  ...(checkpointPref&&!model?[t('studio.quick.unavailable',{names:checkpointPref}),...allModels.filter(m=>m.name===checkpointPref).map(m=>blocked(m,pipeline)).filter(Boolean).map(reason=>t(reason))]:[]),
+  ...(checkpointPref&&models&&!model?[t('studio.quick.unavailable',{names:checkpointPref}),...allModels.filter(m=>m.name===checkpointPref).map(m=>blocked(m,pipeline)).filter(Boolean).map(reason=>t(reason))]:[]),
   ...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
   ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
  ])];
@@ -1229,24 +1253,24 @@ const promptTools=forgeContext&&<>
      {stageWarnings.length>0&&<div className="wb-stage-warning" role="alert">{stageWarnings.map(message=><p key={message}>{message}</p>)}{mossIssues.map(issue=><button type="button" key={issue.name} onClick={issue.reset}>{t('studio.run.opt.reset',{name:issue.name})}</button>)}</div>}
      {(browsed||media||shown)&&<button type="button" className="wb-stage-close" data-preview-close aria-label={t('studio.run.close')} title={t('studio.run.close')} onClick={closePreview}>✕</button>}
      {(browsed||media||shown)&&<button type="button" className="wb-stage-meta" data-metadata-toggle aria-pressed={metaOpen} onClick={()=>setMetaOpen(!metaOpen)}>{t('studio.run.metadata.button')}</button>}
-     {browsed?tools(browsed):!shown&&media&&!editableSource&&((inputImage||(pipeline==='ref2v'&&media.path))?tools(media):<div className="wb-media-tools" data-media-tools><StarMediaButton item={media}/></div>)}
+     {stageTools()}
      {!browsed&&(media||shown)&&(hint||(!shown&&stageMark))&&<div className="wb-stage-notes">{!shown&&stageMark&&<span className="media-mark wb-stage-mark">{stageMark}</span>}{hint&&<p className="wb-stage-hint" role="status">{t(hint,{multiple:String(grid)})}</p>}</div>}
      {(browsed||media||shown)&&metaOpen&&<GenerationMetadata job={browsed?null:shown} media={browsed??(shown?null:media)} onApply={applySettings}/>}
-     {browsed&&<figure className="media-preview" data-browsed-preview>{browsed.media==='image'?<img className="wb-zoomable" src={browsed.src} alt={browsed.name} role="button" tabIndex={0} aria-label={t('studio.run.viewer.open')} title={t('studio.run.viewer.open')} onClick={e=>openImage(e,browsed)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setViewer({src:browsed.src,alt:browsed.name,item:browsed});}}}/>:browsed.media==='video'?linuxVideo?<NativeVideo source={{path:browsed.path??''}} label={browsed.name}/>:<video src={native?browsedBlob.url:browsed.src} controls/>:<audio src={native?browsedBlob.url:browsed.src} controls/>}<figcaption>{browsed.name}{browsedBlob.error&&<span className="error-message"> · {browsedBlob.error}</span>}</figcaption></figure>}
+     {browsed&&<figure className="media-preview" data-browsed-preview>{browsed.media==='image'?<img className="wb-zoomable" src={browsed.src} alt={browsed.name} role="button" tabIndex={0} aria-label={t('studio.run.viewer.open')} title={t('studio.run.viewer.open')} onClick={e=>openImage(e,browsed)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setViewer({src:browsed.src,alt:browsed.name,item:browsed});}}}/>:browsed.media==='video'?linuxVideo?<NativeVideo source={{path:browsed.path??''}} label={browsed.name}/>:<video src={native?browsedBlob.url:browsed.src} controls/>:audioPlayer(browsed,native?browsedBlob.url:browsed.src)}<figcaption>{browsed.name}{browsedBlob.error&&<span className="error-message"> · {browsedBlob.error}</span>}</figcaption></figure>}
      <div className="wb-current-preview" hidden={!!browsed}>
      {editableSource&&media&&<div className="wb-editor-host" hidden={!!shown&&!editorLeft}>
       <StudioImageEditor key={sourceEpoch.current} draftGeneration={scope+draftEpoch.current} snapshot={editorSnapshot} ref={editorRef} source={{src:media.src,name:media.name,width:editableSource.width,height:editableSource.height}} layers={layers} onLayers={setLayers} maskMode={inpaint} onMask={setMasked} onInsert={insertLayer} layout={sideBySide?'split':'full'}/>
-      {inputImage&&tools(media)}<button type="button" className="wb-editor-caption" data-editor-caption onClick={()=>setViewer({src:media.src,alt:media.name,item:media})}>{media.name} · {t('studio.run.edit.insertHint')}</button>
+      {sideBySide&&inputImage&&tools(media)}<button type="button" className="wb-editor-caption" data-editor-caption onClick={()=>setViewer({src:media.src,alt:media.name,item:media})}>{media.name} · {t('studio.run.edit.insertHint')}</button>
      </div>}
      {sideBySide&&!editorLeft&&originalItem&&<figure className="media-preview"><img className="wb-zoomable" data-original-preview src={original} alt={t('studio.run.edit.original')} role="button" tabIndex={0} aria-label={t('studio.run.viewer.open')} title={t('studio.run.viewer.open')} onClick={e=>openImage(e,originalItem)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setViewer({src:originalItem.src,alt:originalItem.name,item:originalItem});}}}/></figure>}
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{duration(shown)}</p>
       {paired&&terminalOutput(shown)&&<div className="wb-output-choices" role="group" aria-label={t('studio.jobs.outputs')}>{shown.outputs.map((o,index)=><button type="button" key={index} data-output-role={o.role} aria-pressed={index===outputIndex} onClick={()=>{setSelectedOutput(index);setSlider(false);}}>{o.role?t(`studio.jobs.role.${o.role}`):o.filename}</button>)}</div>}
       {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview"><div className="wb-media-content" data-media-content>{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
-        :visibleOutputs.map(o=>outputItem(shown,o).media==='audio'?<audio key={o.filename} data-output-audio src={fileSrc(shown,o)!} controls aria-label={o.filename} onError={e=>setMediaFault(mediaError(e))}/>:isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div>{!isVideoOut(shown.outputs[outputIndex])&&tools(outputItem(shown,shown.outputs[outputIndex]),false)}<figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[outputIndex])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{visibleOutputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
+        :visibleOutputs.map(o=>outputItem(shown,o).media==='audio'?audioPlayer(outputItem(shown,o),fileSrc(shown,o)!,!browsed,true):isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[outputIndex])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{visibleOutputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&(shown.preview?<figure className="media-preview" aria-busy="true"><img src={shown.preview} alt={t('studio.run.working')}/>{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}</>}</p>)}</div>
-     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:<audio src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))}/>}
+     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:audioPlayer(media,native?mediaBlob.url:media.src,!browsed)}
  <figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
      :!media?<p className="empty-note" role={hint?'status':undefined}>{t(hint||'studio.run.empty')}</p>:null}
      </div>
@@ -1272,11 +1296,12 @@ const promptTools=forgeContext&&<>
    <section id="studio-queue" style={{flexBasis:queueSize}} className="wb-queue" aria-label={t('studio.run.queue')}>
     <RecentHistory liveIds={jobs.map(j=>j.id)} context={{endpoint,inputRoot:roots.input,allow:choices,models:models??[]}} outputRoot={outputDir} projectOpen={!!project} authoringBusy={working||autoPlan||resolving||!!planRun.current} onRestore={restoreHistory} onOpenChange={setHistoryOpen}/>
     <h3>{t('studio.run.queue')}</h3>
-    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul hidden={historyOpen}>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(terminalOutput(j)?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob&&(!j.outputs.some(o=>o.role)||index===outputIndex)} data-state={j.state} onClick={()=>pickJob(j,index)}>
+    {jobs.length===0?<p className="media-help">{t('studio.run.queueEmpty')}</p>:<ul hidden={historyOpen}>{jobs.map(j=><li key={j.id} data-job-id={j.id}>{(terminalOutput(j)?j.outputs:[null]).map((o,index)=><div className="wb-queue-output" key={index}><button className="wb-queue-select" type="button" aria-current={j.id===selectedJob&&(!j.outputs.some(o=>o.role)||index===outputIndex)} data-state={j.state} onClick={()=>pickJob(j,index)} onContextMenu={e=>{if(!native||!stopAvailable||(j.state!=='queued'&&j.state!=='running'))return;e.preventDefault();setJobMenu({x:e.clientX,y:e.clientY,job:j});}}>
      {o&&outputItem(j,o).media==='audio'?<span className="wb-thumb" aria-hidden="true">♪</span>:j.outputRoot&&o&&!isVideoOut(o)?<img src={fileSrc(j,o)!} alt="" draggable onDragStart={e=>dragItem(e.dataTransfer,outputItem(j,o))}/>:o&&isVideoOut(o)?<span className="wb-thumb" aria-hidden="true">▶</span>:j.preview?<img src={j.preview} alt=""/>:<span className="wb-thumb" aria-hidden="true">{j.state==='cancelled'?'×':j.state==='failed'||j.state==='unknown'?'!':j.state==='succeeded'?'✓':'…'}</span>}
      <span className="wb-queue-text"><strong>{t(`studio.jobs.${j.state}`)} · {j.id.slice(0,8)}{duration(j)}{j.progress&&<> {j.progress.value}/{j.progress.max}</>}</strong><small>{o?.role&&<strong>{t(`studio.jobs.role.${o.role}`)} · </strong>}{o?.filename??j.outputs[0]?.filename??j.id.slice(0,8)}</small></span></button>{o&&j.outputRoot&&<StarMediaButton item={outputItem(j,o)}/>}</div>)}</li>)}</ul>}
+    {jobMenu&&<div className="media-menu" role="menu" aria-label={jobMenu.job.id.slice(0,8)} style={{left:Math.min(jobMenu.x,window.innerWidth-200),top:Math.min(jobMenu.y,window.innerHeight-48)}}><button type="button" role="menuitem" autoFocus data-job-stop onClick={()=>{const job=jobMenu.job;setJobMenu(null);void stopJob(job);}}>{t('studio.run.stop.job')}</button></div>}
      <div className="wb-run-actions">
-     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={!native?t('studio.backendHelp'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" className="wb-run-stop" data-run-stop disabled={stopping} aria-label={t('studio.run.stop.label')} title={t('studio.run.stop.hint')} onClick={()=>void stop()}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}<span id="project-actions-slot"/></div>
+     <button type="button" className="aio-confirm-button wb-run" data-run disabled={!native||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||backendPending||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={!native?t('studio.backendHelp'):backendPending?t('studio.run.backendPending'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t('studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" className="wb-run-stop" data-run-stop disabled={stopping} aria-label={t('studio.run.stop.label')} title={t('studio.run.stop.hint')} onClick={()=>void stop()}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}<span id="project-actions-slot"/></div>
      <div id="project-status-slot"/>{stopStatus&&<p role="status" data-run-stop-status>{stopStatus}</p>}
    </section>
   </div>

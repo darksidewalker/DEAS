@@ -3,6 +3,7 @@ import { StarMediaButton } from '../media/StarMediaButton';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import type { MediaItem } from '../../lib/media';
 import { useI18n } from '../../i18n/I18nProvider';
+import { NativeVideo, nativeVideo } from './NativeVideo';
 import { loadDiagnosticJobOutput, exportDiagnosticJobOutput, type JobExport, type JobStatus } from '../../lib/jobs';
 
 /** `auto` loads the selected retained terminal output; diagnostics stay click-only. */
@@ -76,7 +77,7 @@ export function JobOutputPreview({ job, auto = false, outputRoot, outputIndex = 
       <span>{output.role && <strong>{t(`studio.jobs.role.${output.role}`)} · </strong>}{output.filename}</span>{' '}<StarMediaButton item={outputItem(index)} onMoved={item=>setLocations(locations=>({...locations,[index]:item}))}/>
       <button type="button" data-job-output-load={index} disabled={!isTauri() || pending || !terminal} onClick={() => void load(index)}>{t('studio.jobs.loadPreview')}</button>
     </li>)}</ul>}
-    {selected && terminal && job.outputs[selected.index] && <>{job.outputs[selected.index].role && <p>{t(`studio.jobs.role.${job.outputs[selected.index].role}`)}</p>}{selected.mimeType==='audio/flac'?<audio data-job-output-preview controls src={selected.url} aria-label={job.outputs[selected.index].filename} style={{ width: '100%' }}/>:<img data-job-output-preview src={selected.url} alt={t('studio.jobs.previewAlt')} style={{ maxWidth: '100%', height: 'auto' }} />}{!auto && <p>{selected.sha256}</p>}
+    {selected && terminal && job.outputs[selected.index] && <>{job.outputs[selected.index].role && <p>{t(`studio.jobs.role.${job.outputs[selected.index].role}`)}</p>}{selected.mimeType==='audio/flac'&&nativeVideo()?<NativeVideo source={{baseUrl:job.baseUrl,filename:job.outputs[selected.index].filename,subfolder:job.outputs[selected.index].subfolder,type:job.outputs[selected.index].type}} label={job.outputs[selected.index].filename} audioOnly/>:selected.mimeType==='audio/flac'?<audio data-job-output-preview controls src={selected.url} aria-label={job.outputs[selected.index].filename} style={{ width: '100%' }}/>:<img data-job-output-preview src={selected.url} alt={t('studio.jobs.previewAlt')} style={{ maxWidth: '100%', height: 'auto' }} />}{!auto && <p>{selected.sha256}</p>}
       <StarMediaButton item={outputItem(selected.index)} onMoved={item=>setLocations(locations=>({...locations,[selected.index]:item}))}/>
       <button type="button" data-job-output-export disabled={!isTauri() || pending} onClick={() => void save()}>{t('studio.jobs.saveAs')}</button>
       {exported && <p role="status" data-job-output-exported>{t('studio.jobs.exported', { path: exported.path, sha256: exported.sha256 })}</p>}

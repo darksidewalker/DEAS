@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { startupPhase, startupReady } from '../../lib/startup';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, setupPresentation, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults, type NativeBackendStatus } from '../../lib/setup';
@@ -146,7 +147,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  // Reuse one native validation/open operation across StrictMode effect replay; never reinstall on restore.
  const restoreRequest=useRef<Promise<{plan:NativeInstallPlan;status:NativeInstallStatus;folders:Folders}|null>|null>(null);
  useEffect(()=>{
-  const root=readPref(installedKey,'',isString);if(!native||!root)return;let alive=true;operationLock.current=true;setBusy(true);
+  // The splash hands off once this restore settles (or right away when nothing is remembered).
+  const root=readPref(installedKey,'',isString);if(!native)return;if(!root){startupReady();return;}let alive=true;operationLock.current=true;setBusy(true);startupPhase('restore');
   restoreRequest.current??=(async()=>{
    const [found]=await filesPresent([`${root}/deas-install.json`]);if(!found){forgetPref(installedKey);return null;}
    const plan=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath:root,backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'}});
@@ -161,7 +163,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
    setState(s=>{const next=transitionSetup(s,{type:'automatic'});return {...next,opened:s.opened,values:{...next.values,storage:result.plan.request.storagePath,acceleration:result.plan.request.backend},features:result.plan.request.features,options:result.plan.request.options,comfyRef:result.plan.request.comfyRef};});
    setInstalledRoot(result.plan.request.storagePath);setStatus(result.status);setFolders(result.folders);setView(v=>v==='backend'?'studio':v);
    if(!notifiedPlans.current.has(result.plan.id)){notifiedPlans.current.add(result.plan.id);onInstalled?.(result.plan.request.features);}
-  },e=>{if(alive)setTechnicalError(String(e));}).finally(()=>{operationLock.current=false;if(alive)setBusy(false);});
+  },e=>{if(alive)setTechnicalError(String(e));}).finally(()=>{operationLock.current=false;if(alive)setBusy(false);startupReady();});
   return()=>{alive=false;};
  },[native]);
  useEffect(()=>{

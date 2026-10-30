@@ -118,8 +118,8 @@ fn output_url(
 #[cfg(any(target_os = "linux", test))]
 fn local_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::Path::new(path);
-    if !p.is_absolute() || crate::media::media_kind(path) != Some("video") {
-        return Err("Select an absolute video file path".into());
+    if !p.is_absolute() || !matches!(crate::media::media_kind(path), Some("video" | "audio")) {
+        return Err("Select an absolute video or audio file path".into());
     }
     let p = p
         .canonicalize()
@@ -363,10 +363,16 @@ fn check_signature(path: &std::path::Path) -> Result<(), String> {
     let n = std::fs::File::open(path)
         .and_then(|mut f| f.read(&mut header))
         .map_err(|_| "Cannot read video".to_string())?;
-    if crate::jobs::sniff_media(&header[..n]).is_some_and(|(kind, _)| kind == "video") {
+    // Audio files (YuE2 FLAC, references) play audio-only: WebKitGTK may lack their GStreamer decoders.
+    if crate::jobs::sniff_media(&header[..n])
+        .is_some_and(|(kind, _)| kind == "video" || kind == "audio")
+    {
         Ok(())
     } else {
-        Err("Preview requires an MP4, MOV, WebM or Matroska video, not a playlist".into())
+        Err(
+            "Preview requires a video (MP4, MOV, WebM, Matroska) or audio file, not a playlist"
+                .into(),
+        )
     }
 }
 pub(super) fn notice(id: &str, operation: &str, error: bool) {
@@ -428,6 +434,8 @@ mod tests {
         std::fs::write(file.path(), b"#EXTM3U\nhttps://secret.invalid/media").unwrap();
         assert!(check_signature(file.path()).is_err());
         std::fs::write(file.path(), b"\x1a\x45\xdf\xa3webm").unwrap();
+        assert!(check_signature(file.path()).is_ok());
+        std::fs::write(file.path(), b"fLaC\0\0\0\x22").unwrap();
         assert!(check_signature(file.path()).is_ok());
         assert!(local_path(file.path().to_str().unwrap()).is_ok());
     }

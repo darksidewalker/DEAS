@@ -68,6 +68,15 @@ export function stopWorkbench(): Promise<WorkbenchStopResult> {
   if (!pendingWorkbenchStop) pendingWorkbenchStop = native<WorkbenchStopResult>('native_workbench_stop', {confirmed:true}).finally(() => { pendingWorkbenchStop = undefined; });
   return pendingWorkbenchStop;
 }
+/** Stops one generation: deletes it from the backend queue or interrupts it while running. */
+export async function stopWorkbenchJob(job: JobStatus): Promise<JobStatus> {
+  const command = job.state === 'running' ? 'native_workbench_interrupt_running' : 'native_workbench_cancel_pending';
+  for (let attempt = 0; ; attempt++) {
+    try { return await native<JobStatus>(command, { jobId: job.id, confirmed: true }); }
+    // shortcut: native refuses (without mutating) while a status poll holds the job; retry ~5 s, move the wait native if polls get slower.
+    catch (e) { if (attempt >= 20 || !String(e instanceof Error ? e.message : e).includes('busy; no cancellation sent')) throw e; await new Promise(r => setTimeout(r, 250)); }
+  }
+}
 async function observeWorkbench(command: string): Promise<WorkbenchSnapshot> {
   const admitting = [...pendingWorkbenchRuns.keys()];
   const stopping = !!pendingWorkbenchStop;

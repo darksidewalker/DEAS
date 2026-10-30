@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 BETA
+
+- README: the front screenshot is replaced by the DEAS promo video (silent animated preview linking to the MP4 with sound).
+
+- **Startup splash.** DEAS opens a small splash with the wordmark and the real startup phase (starting, loading the interface, restoring your workspace) while the main window initializes hidden. It hands off as soon as the UI state is restored, with no minimum duration and no Backend flash; a 30-second deadline reveals the main window if the UI never reports ready. The splash never starts or probes the backend. The owner's Catgirl animation drops into `public/splash/` (`catgirl.apng`, else `catgirl.webp`, else `catgirl.png`; reduced motion uses the PNG); until then the slot stays empty.
+- **No backend, no dependency warnings.** While no backend capabilities are available (starting, stopped, unreachable), Studio shows one calm line, "Backend not ready – backend features unavailable.", and disables Run with the same tooltip, instead of the red "Unavailable or incompatible selections: Attention backends and patches are read from the running backend…" box. A backend that was still warming up when first read is re-read every 3 s until its capabilities arrive.
+- **Stop** is quiet: a partial stop no longer shows a status line or alert (details go to the DEAS log), and jobs left unknown after a Stop no longer block the next Run.
+- Right-click a queued or running queue entry → **Stop this generation** stops only that job (pending deletion or scoped interrupt).
+- The preview toolbar sits top right for every preview (media pick, queue result, browsed file, draft editor); only the side-by-side view keeps a per-pane row for the draft editor.
+- Linux audio previews (YuE2 FLAC results, media, browsed files, references) play through the native libmpv player in audio-only mode, with controls at the bottom like videos. WebKitGTK often lacks GStreamer FLAC decoders and never plays `asset://` media.
+
 ## 0.2.0 BETA
 
 - Move DEAS from ALPHA to **BETA** and synchronize the application manifests and lockfiles at `0.2.0`. This maturity label does not establish production readiness or new platform/model acceptance; existing limitations and open gates remain in [the plan](PLAN.md).

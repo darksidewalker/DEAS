@@ -144,7 +144,7 @@ impl Jobs {
         snapshot["issues"] = json!(issues);
         crate::logs::push(crate::logs::Source::Deas, &format!(
             "{}: Workbench stop: outcome={outcome} discarded={discarded} issues={}; no global interrupt",
-            if outcome == "partial" { "WARN" } else { "INFO" }, issues.len()
+            if outcome == "partial" { "WARN" } else { "INFO" }, json!(issues)
         ));
         Ok(snapshot)
     }

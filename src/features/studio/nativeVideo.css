@@ -1,4 +1,5 @@
 .native-video{display:flex;flex-direction:column;align-items:center;width:100%;min-height:0;max-height:100%;gap:.25rem}
+.native-video[data-audio-only]{height:100%;justify-content:flex-end}
 .native-video-surface{background:rgb(var(--shadow-rgb));max-width:100%;width:100%;min-height:40px;flex:1;max-height:55vh}
 .native-video-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;width:100%;padding:.25rem;flex:none}
 .native-video-controls input[type="range"]{appearance:none;-webkit-appearance:none;height:32px;padding:0;margin:0;border:0;border-radius:0;box-shadow:none;cursor:pointer;background:linear-gradient(to right,var(--accent) 0 var(--progress),var(--line) var(--progress) 100%) center / calc(100% - 12px) 4px no-repeat}

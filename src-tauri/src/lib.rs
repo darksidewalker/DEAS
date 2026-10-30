@@ -79,6 +79,7 @@ pub mod settings;
 pub use folder_operations::{native_settings_move, FolderOperations};
 pub use presets::{native_presets_invalid, native_presets_read, native_presets_write};
 pub use settings::{native_files_present, native_settings_read, native_settings_write};
+pub mod splash;
 pub mod startup;
 pub use startup::{native_startup_read, native_startup_write};
 pub mod forge;

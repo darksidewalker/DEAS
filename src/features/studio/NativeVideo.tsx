@@ -63,7 +63,7 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  const time=`${clock(position)} / ${clock(status.duration)}`;
  const fill=(percent:number)=>({'--progress':`${percent}%`} as CSSProperties);
  const silent=muted===true||status.muted;
- return <div className="native-video" data-native-video role="group" aria-label={label}>
+ return <div className="native-video" data-native-video data-audio-only={audioOnly||undefined} role="group" aria-label={label}>
   <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}}/>
   {error&&<p role="alert" className="error-message">{t('studio.video.error')} {error}</p>}
   <div className="native-video-controls">

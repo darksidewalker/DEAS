@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DEAS</title>
+<style>
+ html,body{margin:0;height:100%;background:#171b1e;color:#e4e4de;font-family:"DM Sans",system-ui,sans-serif;overflow:hidden;user-select:none;cursor:default}
+ body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;border:1px solid #435256;box-sizing:border-box}
+ #art{display:block;max-width:220px;max-height:150px}
+ #art[hidden]{display:none}
+ .wordmark{display:flex;align-items:baseline;gap:10px;font-family:Manrope,system-ui,sans-serif;font-size:30px;font-weight:800;letter-spacing:.06em}
+ .caption{font-size:12px;font-weight:400;color:#929d9e;letter-spacing:0}
+ #phase{min-height:1.3em;margin:0;font-size:13px;color:#c0c8c9}
+ .bar{width:160px;height:2px;overflow:hidden;background:#26363c;border-radius:1px}
+ .bar::after{content:"";display:block;width:40%;height:100%;background:#7c9cac;animation:slide 1.4s ease-in-out infinite}
+ @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+ @media (prefers-reduced-motion:reduce){.bar::after{animation:none;width:100%;opacity:.5}}
+</style>
+</head>
+<body>
+ <img id="art" alt="" hidden>
+ <div class="wordmark">DEAS <span class="caption">Dark Engine AI Studio</span></div>
+ <p id="phase" role="status" aria-live="polite"></p>
+ <div class="bar" aria-hidden="true"></div>
+ <script src="splash.js"></script>
+</body>
+</html>

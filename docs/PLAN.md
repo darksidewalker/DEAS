@@ -136,11 +136,9 @@ Constraints kept from the implementation plan: signatures from one checkpoint do
 
 ### 4.6 Studio UX
 
-- **Startup splash (planned).** Owner-provided Catgirl idle animation. The asset is pending: transparent looping APNG preferred, animated WebP as an alternative, static PNG fallback; do not substitute artwork. Requirements:
-  - Show early while the main window initializes hidden; hand off once UI state is restored, without an artificial minimum duration or a Backend flash.
-  - Show real startup phases (no invented percentages), with bounded waits and retry or a route to Backend.
-  - Reduced-motion fallback; no duplicate backend starts.
-  - Accept cold/warm start, configured/unconfigured environments, slow/failed backend and disabled autostart, natively on Linux and Windows.
+- **Startup splash (artwork and acceptance open).** The splash (`public/splash.html`, `src-tauri/src/splash.rs`) shows the wordmark and real phases, keeps main hidden until the restore settles, has a 30 s hand-off deadline and a reduced-motion bar. Open:
+  - Owner-provided Catgirl idle animation into `public/splash/` (`catgirl.apng` preferred, `catgirl.webp`, static `catgirl.png` also used for reduced motion); do not substitute artwork.
+  - Acceptance beyond the Linux XWayland probe (fresh environment): warm start with a remembered environment, slow/failed restore, disabled autostart, Wayland-native and Windows.
 - **Global search (planned).**
   - Magnifier entry on every tab, keyboard-openable, six locales.
   - A static index derived from the existing tab/control/localization data (aliases kept as data).

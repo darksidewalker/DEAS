@@ -2,11 +2,13 @@
 
 A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model-aware prompting, model/resource browsing and image editing in one interface. Studio, Library, Prompt Forge, Chat, TVE, Run Plan and the original Comfy editor share the same owned backend; installation, provider authorization and settings live in the Backend tab, diagnostics in Logs.
 
-**0.2.0 BETA.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Image, video and YuE2 music recipes exist; Linux video plays through embedded libmpv, but real-model quality and native playback acceptance are still open. TVE enhances videos through the owned ComfyUI backend (upscale model, NVIDIA RTX refine, frame generation); synchronized comparison, assembly and training are planned integrations, not completed ports. See [current status and limitations](docs/PLAN.md).
+**0.2.1 BETA.** Linux CPU/NVIDIA provisioning and individual model runs are recorded; Windows builds do not establish Windows runtime acceptance. Image, video and YuE2 music recipes exist; Linux video plays through embedded libmpv, but real-model quality and native playback acceptance are still open. TVE enhances videos through the owned ComfyUI backend (upscale model, NVIDIA RTX refine, frame generation); synchronized comparison, assembly and training are planned integrations, not completed ports. See [current status and limitations](docs/PLAN.md).
 
 [Documentation](docs/README.md) · [Getting started](docs/GETTING-STARTED.md) · [News](docs/NEWS.md) · [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
-![DEAS Studio — Text → Image with a MOSS-Image model: generation settings on the left, the shown output with its image toolbar, prompt fields, queue, and the Media dock with the Output folder](assets/deas-studio.png)
+[![DEAS — Infinite Creation: a 27-second tour of Studio, Prompt Forge, Library, Media, TVE and every pipeline (click for the MP4 with sound)](assets/deas-ad-readme.webp)](assets/deas-ad-readme.mp4)
+
+*Silent preview — click it for the [MP4 with sound](assets/deas-ad-readme.mp4).*
 
 ## Install and start
 

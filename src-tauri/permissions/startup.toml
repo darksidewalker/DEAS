@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-startup"
+description = "Report fixed startup phases to the splash and hand off to the main window."
+commands.allow = ["native_startup_phase", "native_startup_ready"]

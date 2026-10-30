@@ -88,10 +88,10 @@
    existing per-output Star controls remain associated with their filenames. */
 .wb-stage .wb-media-content { display: grid; grid-auto-rows: minmax(5rem, 1fr); min-height: 0; min-width: 0; overflow: auto; }
 .wb-stage .media-preview > .native-video { min-width: 0; overflow: auto; }
+/* Audio has no picture: its controls sit at the bottom like a video's, clear of the stage toolbar. */
+.wb-stage .media-preview audio { align-self: end; width: 100%; }
 .wb-stage .media-preview > figcaption { min-height: 0; min-width: 0; overflow: auto; }
 /* Stage tools share the Metadata top offset without requiring CSS anchor support. */
-.wb-stage .media-preview:has(> .wb-media-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
-.wb-stage .media-preview > .wb-media-tools { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 0; min-width: 0; }
 .wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: 5px; left: 8px; right: 112px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
 .wb-stage > .wb-media-tools > *, .wb-stage > .wb-edit-tools > * { pointer-events: auto; min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
@@ -118,7 +118,7 @@
 .wb-more-caret { margin-left: 6px; font-size: 10px; opacity: .75; }
 .wb-more-feedback { position: absolute; top: 26px; right: 0; margin: 0; max-width: 100%; text-align: right; font-size: 11px; }
 .wb-more[open] > .wb-more-menu { display: flex; flex-direction: column; gap: 4px; position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; box-sizing: border-box; width: max-content; max-width: 100%; max-height: min(16rem, 40vh); overflow: auto; padding: 4px; border-radius: 8px; border: 1px solid rgb(var(--ink-rgb) / 0.165); background: rgb(var(--shadow-rgb) / 0.85); }
-.wb-editor-host .wb-more[open] > .wb-more-menu, .media-preview .wb-more[open] > .wb-more-menu { top: auto; bottom: calc(100% + 4px); }
+.wb-editor-host .wb-more[open] > .wb-more-menu { top: auto; bottom: calc(100% + 4px); }
 /* Keep labels intact; oversized options scroll inside the bounded menu. */
 .wb-edit-tools .wb-more[open] > .wb-more-menu > button { display: block; width: max-content; min-width: 100%; max-width: none; text-align: left; white-space: nowrap; overflow-wrap: normal; }
 .wb-edit-tools button { max-width: 100%; min-width: 0; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
@@ -212,9 +212,6 @@
 @media (max-width: 900px) {
  .wb-stage-warning { position: relative; inset: auto; flex: none; max-height: 12rem; }
  .wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: relative; inset: auto; flex: none; justify-content: flex-start; padding: 4px 0; }
- .wb-stage .media-preview:has(> .wb-edit-tools), .wb-stage .media-preview:has(> .wb-media-tools) { grid-template-rows: minmax(0, 1fr) auto auto; }
- .wb-stage .media-preview > .wb-edit-tools, .wb-stage .media-preview > .wb-media-tools { position: relative; inset: auto; justify-content: flex-start; padding: 4px 0; overflow: visible; }
- .wb-stage .media-preview > .wb-media-tools > *, .wb-stage .media-preview > .wb-edit-tools > * { pointer-events: auto; }
 }
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }
 
