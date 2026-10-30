@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.2 (published)
+
+- GitHub release `v0.2.2` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.2), tag on source commit `5b9dbee8bf1af4a52e71b18e292f870ba7f8f708` (tree `262e9e551d101e73f5c4c6780ba51f417cc9f99a`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); no CI evidence.
+- Gates on that tree: typecheck; frontend suite 1250/1250 (new FoldersPanel restart and StartupPanel Workbench-guard tests); `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -D warnings`; `cargo xwin clippy --all-targets -D warnings`. Rust sources unchanged since 0.2.1 except the version, so `cargo test` was not re-run (650 passed for 0.2.1).
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+351cd074f2ec38545af7b0f84966813baa7d2de537315274f4ca73ab6487ab95  BUILD-MANIFEST.json
+ab8b7d49d8081301fd42cf2b756216916563d0c2a0e5fa2261c534acf0cb65f9  deas.exe
+e5e353fa75545fad25fe1098e81a23cefbda8fbba6a0d33bca609b9d55c49915  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-BysIU8Z0.js`. Root cause of the fixed bug from the owner's fresh 0.2.1 install log: backend autostarted 14:33:05, folders saved 14:34:23 without restart, so ComfyUI never received `deas-models.yaml` and rejected `MOSS/mossImage_sft_bf16.safetensors`. Not verified: the restart-on-save against a real running backend (IPC fixtures only).
+
 ## Release 0.2.1 (published)
 
 - GitHub release `v0.2.1` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.1), tag on source commit `f677e70e1369633fd3532cb0d66994faeb556a24` (tree `646a37b68c9f94f6a904432433bb8cda01e65e12`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); hosted CI runners are unavailable, so no CI evidence.
