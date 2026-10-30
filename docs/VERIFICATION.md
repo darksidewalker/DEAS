@@ -1,5 +1,18 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.1 (published)
+
+- GitHub release `v0.2.1` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.1), tag on source commit `f677e70e1369633fd3532cb0d66994faeb556a24` (tree `646a37b68c9f94f6a904432433bb8cda01e65e12`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); hosted CI runners are unavailable, so no CI evidence.
+- Gates on that tree: typecheck; frontend suite 1248 tests (one run hit a timing failure in the untouched `Forge.test.tsx` H3 group-card test under load; the file re-ran 79/79 green in isolation and the suite was green earlier on the same code); `cargo test --locked -- --test-threads=1` (650 lib tests); `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -D warnings`; `cargo xwin check --all-targets` and `cargo xwin clippy --all-targets -D warnings` for `x86_64-pc-windows-msvc`.
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+24f20096a9b8f5bdabbd823793d9cfa957df0fa99478ac505f1c2bd54103a99e  BUILD-MANIFEST.json
+4bac6b0f69f97f8e332228506cb666d832d3aec3167e067825f864ae3ecd539a  deas.exe
+0702c56374d5532a0e66341dc414bb8a1a83e760fded7eaae3cc49fe9e20fadc  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39; `ldd` reports no missing libraries. Both binaries embed the frontend chunk `index-CuOUItJn.js`; the Linux binary embeds `splash.js`. `deas.exe` is a cargo-xwin MSVC cross-build (benign LNK4099 warnings); no NSIS installer.
+- Startup splash: probed natively on Linux in a headless `kwin_wayland --virtual` XWayland session with fresh XDG directories — dark splash with the localized interface phase, then the 1440×960 main window rendered after ~0.3 s. Not verified: warm start with a remembered environment, slow/failed restore, disabled autostart, Wayland-native, Windows; native audio-only libmpv playback of the YuE2 FLAC in the app (standalone `mpv` decodes it); per-job Stop against a real running job.
+
 ## Release 0.2.0 (published)
 
 - GitHub release `v0.2.0` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.0), annotated tag on source commit `ba64814bf60a41e2368aedd7ac989dd747b2f62e` (tree `66aa4053cbb71082f4f800f865acea1e3c79d8e3`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); hosted CI runners are unavailable, so no CI evidence.
