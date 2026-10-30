@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4 BETA (unreleased)
+
+- **Graceful backend maintenance.** Update/reinstall and environment moves stop a running owned ComfyUI gracefully (five-second timeout before logged forced cleanup), then restart it when the resulting environment validates. Previously stopped stays stopped, independently of Auto-start. Active Studio jobs and downloads remain protected. Updated Linux DEAS binaries reopen automatically after maintenance and project saves; the backend’s prior running/stopped state is carried through that restart. Windows application self-replacement still requires manual installation.
+
+- **Move environment.** Backend → Environment folder has **Move environment…**: pick a parent folder and confirm, and the whole DEAS environment (ComfyUI, Python, node packs) moves there without reinstalling, on Linux and Windows. On the same drive it is one rename; to another drive it is copied and the original is deleted only after the moved copy passed its check. DEAS rewrites the absolute paths the venv and its manifests store (`pyvenv.cfg`, script launchers including uv's Windows `.exe` launchers, `deas-*.json`, uv cache links), then starts the moved Python and imports PyTorch before switching over; if that fails, the move is undone. Active downloads and Studio jobs block maintenance. A running owned backend is stopped gracefully and restarted after the move; a stopped backend stays stopped.
+
+- **H3 Prompt Forge in the existing tab.** A Prompt Forge button beside Continuity opens the current H3 run in the retained Prompt Forge tab. First/last-frame **People & order** moved out of pipeline settings into that tab, alongside reference people/order, the Director's Detail/Creativity/Shots, Cast/scene/pose cards, helpers, draft history, Apply/Undo and Cancel. References remain shared with Generate; tab navigation keeps drafts and cards.
+
+- **First/last frame from the Media menu.** In Image → Video, right-clicking an image offers **Use as first frame**, **Use as last frame** and **Use as first and last frame** (same image for both, as in the Director); Text → Video offers the last frame. A frame already set as last frame shows **Remove last frame**. MiniMax H3 can now run Image → Video on a last frame alone (L2VA): **Use as last frame** on the input image, or with no first frame set, moves the role instead of adding it. Media tiles carry **First frame** / **Last frame** badges.
+
 ## 0.2.3 BETA
 
 - Backend now shows the installed environment’s full path with an **Open environment folder** button after installation or checked reopening.

@@ -146,6 +146,7 @@ fn main() {
             deas::native_presets_invalid,
             deas::native_settings_write,
             deas::native_settings_move,
+            deas::native_environment_move,
             deas::native_startup_read,
             deas::native_startup_write,
             deas::native_llm_read,

@@ -3,30 +3,79 @@ use std::io::Write;
 
 #[cfg(target_os = "linux")]
 #[test]
-fn tauri_restart_reopens_a_scratch_probe_process() {
+fn tauri_restart_launches_atomically_replaced_scratch_executable() {
+    use std::{
+        io::{Read, Seek, SeekFrom},
+        os::unix::fs::MetadataExt,
+    };
     const PHASE: &str = "DEAS_RESTART_TEST_PHASE";
     const MARKER: &str = "DEAS_RESTART_TEST_MARKER";
+    const REPLACEMENT: &[u8] = b"DEAS replacement executable regression probe\n";
     match std::env::var(PHASE).as_deref() {
         Ok("restarted") => {
+            let mut running = std::fs::File::open("/proc/self/exe").unwrap();
+            let installed = std::fs::metadata(std::env::current_exe().unwrap()).unwrap();
+            let metadata = running.metadata().unwrap();
+            assert_eq!(
+                (metadata.dev(), metadata.ino()),
+                (installed.dev(), installed.ino())
+            );
+            assert_eq!(metadata.nlink(), 1);
+            running
+                .seek(SeekFrom::End(-(REPLACEMENT.len() as i64)))
+                .unwrap();
+            let mut suffix = Vec::new();
+            running.read_to_end(&mut suffix).unwrap();
+            assert_eq!(
+                suffix, REPLACEMENT,
+                "restart must run the new executable bytes"
+            );
             std::fs::write(
                 std::env::var_os(MARKER).unwrap(),
-                std::process::id().to_string(),
+                format!("{} {}", std::process::id(), metadata.ino()),
             )
             .unwrap();
         }
         Ok("initial") => {
             let env = tauri::Env::default();
-            tauri::process::current_binary(&env).unwrap();
+            let cached = tauri::process::current_binary(&env).unwrap();
+            assert_eq!(cached, std::env::current_exe().unwrap());
+            let old = std::fs::File::open("/proc/self/exe").unwrap();
+            std::fs::rename(cached.with_extension("new"), &cached).unwrap();
+            assert_eq!(old.metadata().unwrap().nlink(), 0);
+            assert_ne!(
+                old.metadata().unwrap().ino(),
+                std::fs::metadata(&cached).unwrap().ino()
+            );
+            assert!(std::env::current_exe()
+                .unwrap()
+                .as_os_str()
+                .as_encoded_bytes()
+                .ends_with(b" (deleted)"));
+            assert_eq!(tauri::process::current_binary(&env).unwrap(), cached);
             std::env::set_var(PHASE, "restarted");
             tauri::process::restart(&env);
         }
         _ => {
             let dir = tempfile::tempdir().unwrap();
+            let executable = dir.path().join("DEAS ü executable");
+            let replacement = executable.with_extension("new");
             let marker = dir.path().join("restarted");
-            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+            std::fs::copy(&executable, &replacement).unwrap();
+            // Appended bytes keep the ELF runnable while distinguishing the replacement image.
+            let mut staged = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&replacement)
+                .unwrap();
+            staged.write_all(REPLACEMENT).unwrap();
+            staged.sync_all().unwrap();
+            drop(staged);
+            let expected_inode = std::fs::metadata(&replacement).unwrap().ino();
+            let mut child = std::process::Command::new(&executable)
                 .args([
                     "--exact",
-                    "app_update::tests::tauri_restart_reopens_a_scratch_probe_process",
+                    "app_update::tests::tauri_restart_launches_atomically_replaced_scratch_executable",
                 ])
                 .env(PHASE, "initial")
                 .env(MARKER, &marker)
@@ -43,8 +92,10 @@ fn tauri_restart_reopens_a_scratch_probe_process() {
                 let _ = child.kill();
             }
             assert!(child.wait().unwrap().success());
-            let restarted: u32 = std::fs::read_to_string(marker).unwrap().parse().unwrap();
-            assert_ne!(first, restarted);
+            let result = std::fs::read_to_string(marker).unwrap();
+            let (pid, inode) = result.split_once(' ').unwrap();
+            assert_ne!(first, pid.parse::<u32>().unwrap());
+            assert_eq!(expected_inode, inode.parse::<u64>().unwrap());
         }
     }
 }

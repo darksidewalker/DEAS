@@ -629,6 +629,124 @@ fn foreign_listener_is_never_adopted_or_stopped() {
     assert!(std::net::TcpStream::connect(foreign.local_addr().unwrap()).is_ok());
 }
 #[test]
+fn stop_allows_python_finally_and_drains_shutdown_output_before_restarting() {
+    let script = SERVER.replace(
+        "with socketserver.TCPServer(('127.0.0.1',port),Handler) as server: server.serve_forever()",
+        "try:\n with socketserver.TCPServer(('127.0.0.1',port),Handler) as server: server.serve_forever()\nfinally:\n print('cleanup output\\n' * 20000, flush=True)\n time.sleep(0.1)\n open('clean-stop','w').write('finished')",
+    );
+    let (tmp, approved) = fixture(&script);
+    let lifecycle = Lifecycle::default();
+    for _ in 0..2 {
+        lifecycle
+            .launch(approved.clone(), Duration::from_secs(5))
+            .unwrap();
+        await_state(&lifecycle, "running");
+        let before = crate::logs::native_logs(0).last().map_or(0, |e| e.seq);
+        let started = Instant::now();
+        assert_eq!(lifecycle.stop().state, "stopped");
+        assert!(started.elapsed() < STOP_GRACE);
+        let shutdown_logs = crate::logs::native_logs(before);
+        assert!(shutdown_logs
+            .iter()
+            .any(|e| e.text == "Owned backend shut down gracefully"));
+        assert!(!shutdown_logs.iter().any(|e| e.text.contains("escalating")));
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("ComfyUI/clean-stop")).unwrap(),
+            "finished"
+        );
+        fs::remove_file(tmp.path().join("ComfyUI/clean-stop")).unwrap();
+    }
+}
+
+#[test]
+fn stop_escalates_only_after_grace_when_descendant_ignores_interrupt() {
+    let script = SERVER.replace(
+        "args=sys.argv[1:]",
+        "import subprocess\np=subprocess.Popen([sys.executable,'-c',\"import signal,time; signal.signal(signal.SIGINT,signal.SIG_IGN); open('stubborn-ready','w').write('ready'); time.sleep(60)\"])\nopen('descendant.pid','w').write(str(p.pid))\nargs=sys.argv[1:]",
+    );
+    let (tmp, approved) = fixture(&script);
+    let lifecycle = Lifecycle::default();
+    lifecycle.launch(approved, Duration::from_secs(5)).unwrap();
+    await_state(&lifecycle, "running");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !tmp.path().join("ComfyUI/stubborn-ready").exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let pid: u32 = fs::read_to_string(tmp.path().join("ComfyUI/descendant.pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let before = crate::logs::native_logs(0).last().map_or(0, |e| e.seq);
+    let started = Instant::now();
+    lifecycle.stop();
+    assert!(started.elapsed() >= STOP_GRACE);
+    assert!(started.elapsed() < STOP_GRACE + Duration::from_secs(2));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while fs::read_to_string(format!("/proc/{pid}/stat"))
+        .is_ok_and(|s| s.split_whitespace().nth(2) != Some("Z"))
+    {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(crate::logs::native_logs(before)
+        .iter()
+        .any(|e| e.text.contains("escalating to forced owned-group cleanup")));
+}
+
+#[test]
+fn no_console_python_shutdown_pipe_wakes_asyncio_and_runs_finally() {
+    use std::io::Write;
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("main.py"),
+        r#"
+import asyncio, sys
+assert sys.argv == ['main.py', 'fixture-arg']
+event_loop = asyncio.new_event_loop()
+async def wait():
+    open('ready', 'w').write('ready')
+    await asyncio.Event().wait()
+try:
+    event_loop.run_until_complete(wait())
+except KeyboardInterrupt:
+    pass
+finally:
+    open('clean-stop', 'w').write('finished')
+"#,
+    )
+    .unwrap();
+    let mut child = Command::new("/usr/bin/python3")
+        .args(["-u", "-c", WINDOWS_BOOTSTRAP, "main.py", "fixture-arg"])
+        .current_dir(tmp.path())
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !tmp.path().join("ready").exists() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("bootstrap did not start");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child.stdin.take().unwrap().write_all(b"stop\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("bootstrap did not stop");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(child.wait().unwrap().success());
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("clean-stop")).unwrap(),
+        "finished"
+    );
+}
+
+#[test]
 fn clean_log_line_strips_terminal_control_sequences() {
     assert_eq!(
         clean_log_line(b"\x1b[32m[INFO]\x1b[0m Starting server\n"),

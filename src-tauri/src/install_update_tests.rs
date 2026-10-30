@@ -1,4 +1,83 @@
 // Include inside install.rs's existing #[cfg(test)] mod tests.
+#[cfg(target_os = "linux")]
+#[test]
+fn update_maintenance_preserves_active_and_stopped_on_recoverable_failure() {
+    for active in [false, true] {
+        let (_tmp, approved) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+        let engine = Engine::default();
+        lock(&engine.inner).approved = Some(approved);
+        if active {
+            engine.backend_start().unwrap();
+            crate::backend::tests::await_state(&engine.backend, "running");
+        }
+        // This scratch environment deliberately has no uv or Git checkout: no network or packages.
+        assert_eq!(
+            engine
+                .update(false, true, UpdateScope::Comfy)
+                .unwrap()
+                .state,
+            "running"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !engine.installation_idle() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let status = lock(&engine.inner).status.clone();
+        assert_eq!(status.state, "failed");
+        assert!(status.error.unwrap().contains("managed uv"));
+        assert_eq!(engine.backend.active(), active);
+        assert!(lock(&engine.inner).approved.is_some());
+        if active {
+            crate::backend::tests::await_state(&engine.backend, "running");
+        }
+        engine.shutdown_backend();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn update_maintenance_refusals_do_not_stop_the_owned_backend() {
+    let (_tmp, approved) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+    let engine = Engine::default();
+    lock(&engine.inner).approved = Some(approved);
+    engine.backend_start().unwrap();
+    let before = crate::backend::tests::await_state(&engine.backend, "running");
+    assert!(engine.update(false, false, UpdateScope::Comfy).is_err());
+    assert!(engine.update(true, true, UpdateScope::Torch).is_err());
+    lock(&engine.inner).status.state = "running".into();
+    assert!(engine.update(false, true, UpdateScope::Comfy).is_err());
+    let after = engine.backend.status();
+    assert_eq!(after.state, "running");
+    assert_eq!(after.endpoint, before.endpoint);
+    engine.shutdown_backend();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn maintenance_resume_rejects_changed_launch_proof_and_logs_error() {
+    let (tmp, approved) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+    let engine = Engine::default();
+    lock(&engine.inner).approved = Some(approved);
+    std::fs::write(tmp.path().join("ComfyUI/main.py"), "# replaced").unwrap();
+    let cursor = crate::logs::after(0).last().map_or(0, |entry| entry.seq);
+    let error = engine
+        .resume_after_maintenance(true, &lock(&engine.inner))
+        .unwrap_err();
+    assert!(error.contains("could not restart after maintenance"));
+    assert!(crate::logs::after(cursor)
+        .iter()
+        .any(|entry| entry.source == crate::logs::Source::Deas
+            && entry.text == format!("ERROR: {error}")));
+    lock(&engine.inner).approved = None;
+    assert!(engine
+        .resume_after_maintenance(true, &lock(&engine.inner))
+        .is_err());
+    assert!(!engine.backend.active());
+    assert!(engine
+        .resume_after_maintenance(false, &lock(&engine.inner))
+        .is_ok());
+}
 fn old_cpu() -> torch_profile::Torch {
     torch_profile::Torch {
         packages: [

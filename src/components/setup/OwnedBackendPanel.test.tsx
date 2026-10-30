@@ -28,6 +28,15 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   await waitFor(()=>expect(endpoint).toHaveBeenLastCalledWith(state==='ipc-error'?null:expect.objectContaining({state:'failed'})));
   endpoint.mockClear();view.unmount();expect(endpoint).toHaveBeenCalledWith(null);
  });
+ it('refreshes native maintenance status without starting or stopping the backend',async()=>{
+  const view=render(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={vi.fn()} refreshSignal={0}/></I18nProvider>);
+  expect(invoke).not.toHaveBeenCalled();vi.mocked(invoke).mockResolvedValue(fixture('running','http://127.0.0.1:49312'));
+  view.rerender(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={vi.fn()} refreshSignal={1} locked/></I18nProvider>);
+  await screen.findByRole('button',{name:'Stop'});
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('native_backend_status');
+  expect(screen.getByRole('button',{name:'Stop'})).toHaveProperty('disabled',true);
+  expect(screen.getByRole('button',{name:'Test'})).toHaveProperty('disabled',true);
+ });
  it('autostarts once after checking native status and never restarts after explicit stop',async()=>{
   vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_test'?DEPS:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':'stopped'));
   const view=render(<StrictMode><I18nProvider><OwnedBackendPanel installSucceeded autoStart onConnectExisting={vi.fn()}/></I18nProvider></StrictMode>);
@@ -194,6 +203,45 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_reveal',{path:'/data/mock-DEAS'}));
   if(fail)expect((await screen.findByRole('alert')).textContent).toContain('fixture file manager unavailable');
  });
+ it('moves a stopped environment without remounting or starting the backend',async()=>{
+  await installFixture('succeeded');
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
+  const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_pick_directory')return '/mnt/fast';
+   if(command==='native_environment_move')return {root:'/mnt/fast/mock-DEAS',warnings:[]};
+   return base(command,args);
+  });
+  // Same element after the move = the backend panel was not remounted (a remount would rerun autostart).
+  const startBefore=screen.getByRole('button',{name:'Start'});
+  fireEvent.click(screen.getByRole('button',{name:'Move environment…'}));
+  const dialog=await screen.findByRole('alertdialog',{name:'Move the environment?'});
+  expect(dialog.textContent).toContain('/mnt/fast/mock-DEAS');
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_environment_move')).toBe(false);
+  fireEvent.click(screen.getByRole('button',{name:'Move'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_environment_move',{target:'/mnt/fast/mock-DEAS',confirmed:true}));
+  await screen.findByText('Environment moved to /mnt/fast/mock-DEAS.');
+  expect(screen.getByLabelText('Environment folder').textContent).toContain('/mnt/fast/mock-DEAS');
+  expect(screen.getByRole('button',{name:'Start'})).toBe(startBefore);
+  expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_backend_start')).toBe(false);
+ });
+ it('allows moving a running backend and refreshes native state after maintenance',async()=>{
+  await installFixture('succeeded');fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
+  const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_backend_test')return DEPS;
+   if(command==='native_backend_status')return fixture('running','http://127.0.0.1:49312');
+   if(command==='native_pick_directory')return '/mnt/fast';
+   if(command==='native_environment_move')return {root:'/mnt/fast/mock-DEAS',warnings:[]};
+   return base(command,args);
+  });
+  fireEvent.click(screen.getByRole('button',{name:'Test'}));await screen.findByRole('button',{name:'Stop'});
+  fireEvent.click(screen.getByRole('button',{name:'Move environment…'}));await screen.findByRole('alertdialog');
+  vi.mocked(invoke).mockClear();fireEvent.click(screen.getByRole('button',{name:'Move'}));
+  await screen.findByText('Environment moved to /mnt/fast/mock-DEAS.');
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_status'));
+  expect(invoke).not.toHaveBeenCalledWith('native_backend_start');
+ });
  it('does not offer an environment folder before successful installation',async()=>{
   await installFixture('failed');
   expect(screen.queryByLabelText('Environment folder')).toBeNull();
@@ -293,6 +341,28 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
    await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_app_restart'));
    expect(screen.getByText('DEAS binary updated. Restarting automatically when updates and project saves are complete…')).toBeTruthy();
   }
+ });
+ it('shows a failed backend resume even when updating the environment succeeded',async()=>{
+  await installFixture('succeeded');const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_install_update')return {state:'succeeded',stepId:null,logs:[],error:'fixture owned backend could not restart'};
+   if(command==='native_torch_update_check')return {from:[],to:null,blocked:null};
+   return base(command,args);
+  });
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));fireEvent.click(screen.getByRole('button',{name:'Upgrade'}));
+  fireEvent.click(await screen.findByRole('radio',{name:/^ComfyUI and node packs/}));fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('fixture owned backend could not restart');
+ });
+ it('does not restart the replaced app over a failed backend update',async()=>{
+  await installFixture('succeeded');const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_app_update')return true;
+   if(command==='native_install_update')throw Error('fixture backend update rejected');
+   return base(command,args);
+  });
+  fireEvent.click(document.querySelector('.footer-version')!);fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('fixture backend update rejected');
+  await act(async()=>{});expect(invoke).not.toHaveBeenCalledWith('native_app_restart');
  });
  it('waits for backend completion and the project guard before restarting once',async()=>{
   await installFixture('succeeded');

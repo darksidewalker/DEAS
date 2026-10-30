@@ -73,6 +73,8 @@ pub use repo::{
     native_open_releases, native_open_repo, native_repo_star, native_repo_stars,
     native_update_check,
 };
+pub mod environment_move;
+pub use environment_move::native_environment_move;
 pub mod folder_operations;
 pub mod presets;
 pub mod settings;

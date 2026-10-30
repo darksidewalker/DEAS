@@ -35,6 +35,32 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
+it('retained inline H3 editor waits for its tab and keeps shots, cards, drafts and Apply/Undo', async () => {
+  const apply=vi.fn();
+  const h3:H3Context={mode:'I2VA',duration:5,canvas:{width:768,height:512},references:[{kind:'image',role:'keyframe',path:'first.png',who:[2]}],easy:false};
+  const view=(active:boolean)=><I18nProvider><ForgeButton inline active={active} endpoint="http://127.0.0.1:8188" root="/env" dialect="MiniMax H3" value="original" onApply={apply} h3={h3}/></I18nProvider>;
+  const {rerender}=render(view(false));
+  expect(forgeCalls()).toEqual([]);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  rerender(view(true));
+  await screen.findByRole('option',{name:'qwen'});
+  fireEvent.change(screen.getByRole('combobox',{name:'Shots'}),{target:{value:'2'}});
+  fireEvent.change(document.querySelector('[data-forge-shot="2"]')!,{target:{value:'turn left'}});
+  fireEvent.change(screen.getByRole('textbox',{name:'Card of Character 2'}),{target:{value:'blue coat'}});
+  fireEvent.change(screen.getByRole('slider',{name:'Detail 5'}),{target:{value:'7'}});
+  fireEvent.click(screen.getByRole('button',{name:'Write'}));
+  await screen.findByRole('button',{name:'Apply'});
+  expect(forgeCalls().find(c=>c.route==='h3')!.body).toMatchObject({detail:7,shots:2,shot_briefs:['','turn left'],cast:{2:'blue coat'}});
+  rerender(view(false));rerender(view(true));
+  expect(screen.getByRole('textbox',{name:'Card of Character 2'})).toHaveProperty('value','blue coat');
+  expect(document.querySelector('[data-forge-shot="2"]')).toHaveProperty('value','turn left');
+  expect(document.querySelector('[data-forge-draft="1"]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Apply'}));
+  expect(apply).toHaveBeenLastCalledWith('H3 structured prompt');
+  fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  expect(apply).toHaveBeenLastCalledWith('original');
+});
+
 it('open hammer switches from native discovery to node-pack discovery with its dialect', async () => {
   const view = (dialect: string) => <I18nProvider><ForgeButton endpoint="http://127.0.0.1:8188" root="/env" dialect={dialect} value="idea" onApply={vi.fn()}/></I18nProvider>;
   const { rerender } = render(view('Anima'));

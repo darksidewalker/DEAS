@@ -20,7 +20,7 @@ import { ModelMetadataTarget, ModelDeclaredBadge, useModelMetadataUpdates } from
 import { componentFiles, defaultComponentOverrides, isComponentOverrides, type ComponentFamily, type ComponentSlot } from '../../lib/modelComponents';
 import { ComponentPicker } from './ComponentPicker';
 import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
-import { ReferencePeople, type FramePeople, directorTags, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
+import { ReferencePeople, type FramePeople, directorTags, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
 import { dragItem, draggedItem, MEDIA_DRAG, MEDIA_IMAGE_DRAG, relativeMediaPath, relocatedJob, relocatedMediaItem, type MediaItem, type MediaRelocation } from '../../lib/media';
@@ -44,9 +44,10 @@ import { StarMediaButton } from '../media/StarMediaButton';
 import { CompareView } from './CompareView';
 import { PromptOverlay } from './PromptOverlay';
 import { PromptTextarea } from './PromptTextarea';
+import { createPortal } from 'react-dom';
 import { ForgeButton } from '../forge/ForgeButton';
 import { applyRefPrefill, nextShot, promptStructure, refPrefill } from '../../lib/h3Prompt';
-import { dialectOf, nativeTarget } from '../../lib/forge';
+import { dialectOf, labelCharacters, nativeTarget } from '../../lib/forge';
 import { PresetPanel } from '../presets/PresetPanel';
 import { WildcardPanel } from '../wildcards/WildcardPanel';
 import { defaultWildcard, isWildcardRules, wildcardNode } from '../../lib/wildcard';
@@ -108,13 +109,13 @@ const isMusicGeneration=inBounds<MusicGenerationSettings>(musicBounds.generation
 const isMusicDuration=(v:unknown):v is {t2m:number;cover:number}=>!!v&&typeof v==='object'&&(['t2m','cover'] as const).every(k=>{const n=(v as Record<string,unknown>)[k];return typeof n==='number'&&n>=musicMaxDuration.step&&n<=musicMaxDuration.limit;});
 /** Edits of the shown image: plain image-to-image (`resample`) or inpaint; refine/upscale live in the Post-Processing tab. */
 const editModes=['resample','inpaint'] as const;
-export interface WorkbenchProps { endpoint:string; planVisible?:boolean; onOpenVideoPost?:()=>void; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. `extraModels` are additional model roots on other drives. */ roots?:MediaRoots&{models?:string;extraModels?:string[]}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number;canvas?:ForgeSendCanvas}; onCanvasContext?:(context:ForgeCanvasContext|undefined)=>void }
+export interface WorkbenchProps { endpoint:string; planVisible?:boolean; forgeHost?:HTMLElement|null; forgeActive?:boolean; onOpenPromptForge?:()=>void; onH3ForgeAvailable?:(available:boolean)=>void; onOpenVideoPost?:()=>void; /** Environment folders: models are listed directly from disk (without it the running backend is asked), output enables direct previews of finished files. `extraModels` are additional model roots on other drives. */ roots?:MediaRoots&{models?:string;extraModels?:string[]}; /** Environment root for Prompt Forge (its saved LLM endpoint). */ root?:string; /** Prompts sent from the Prompt Forge tab; `n` changes per send. */ incoming?:{positive:string;negative:string;n:number;canvas?:ForgeSendCanvas}; onCanvasContext?:(context:ForgeCanvasContext|undefined)=>void }
 /** Text-to-image workbench: settings left, preview over the prompts, queue right, bottom dock with Media · Models · LoRAs tabs. */
 export function Workbench(props:WorkbenchProps){
  const [project,setProject]=useState<ProjectSnapshot|null>(null);
  return <PreferencePersistenceContext.Provider value={!project}><WorkbenchContent {...props} project={project} onProject={setProject}/></PreferencePersistenceContext.Provider>;
 }
-function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpenVideoPost,planVisible=false,project,onProject}:WorkbenchProps&{project:ProjectSnapshot|null;onProject:(project:ProjectSnapshot|null)=>void}){
+function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpenVideoPost,forgeHost,forgeActive=true,onOpenPromptForge,onH3ForgeAvailable,planVisible=false,project,onProject}:WorkbenchProps&{project:ProjectSnapshot|null;onProject:(project:ProjectSnapshot|null)=>void}){
  const {t,locale}=useI18n();const native=isTauri();const linuxVideo=nativeVideo();const modelsDir=roots.models;const outputDir=roots.output;const extraModelsKey=(roots.extraModels??[]).join('\n');
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [browsed,setBrowsed]=useState<MediaItem|null>(null);
@@ -402,6 +403,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const audioVae=video.audioVae||recommended?.audioVaes[0]||'';
  const textProjection=video.textProjection||recommended?.textProjections[0]||'';
  const lastFrameName=comfyName(lastFrame);
+ const lastOnly=videoFamily==='minimax-h3'&&pipeline==='i2v'&&!!media&&lastOnlySrc===media.src&&lastFrame?.src===media.src;
+ const firstFrame=pipeline==='i2v'&&!lastOnly&&media?.media==='image'?media:null;
  // LoRAs of another known family are hidden; unknown ones stay (their target cannot be checked).
  const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
  // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
@@ -693,7 +696,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    else{
     // The Director owns H3 references; they must live in the backend input folder, so dock files are copied there explicitly.
     const refs:{slot:0|1;image:string}[]=[];
-    if(pipeline==='i2v'&&media?.path)refs.push({slot:0,image:nameOf(media,true)});
+    if(pipeline==='i2v'&&!lastOnly&&media?.path)refs.push({slot:0,image:nameOf(media,true)});
     if(lastFrame?.path)refs.push({slot:1,image:nameOf(lastFrame,true)});
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:'minimax-h3',h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
@@ -949,7 +952,10 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const refLabel=(r:VideoRef,i:number)=>videoFamily==='ltx-2'?t('studio.run.video.mark.at',{second:String(r.second)}):refTags[i];
  const refsTab=pipeline==='ref2v'&&(videoFamily==='ltx-2'||videoFamily==='minimax-h3');
  useEffect(()=>{if(!refsTab||planVisible)setReferencesOpen(false);},[refsTab,planVisible]);
- const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:pipeline==='cover'?(musicSource?.path?[[musicSource.path,t('studio.music.source')] as const]:[]):imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
+ // First/last-frame badges; one image in both roles gets both labels.
+ const frameMarks=new Map<string,string>();
+ for(const [item,key] of [[firstFrame,'forge.role.first-frame'],[lastFrame,'forge.role.last-frame']] as const)if(item?.path)frameMarks.set(item.path,frameMarks.has(item.path)?`${frameMarks.get(item.path)} + ${t(key)}`:t(key));
+ const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:pipeline==='cover'?(musicSource?.path?[[musicSource.path,t('studio.music.source')] as const]:[]):frameVideo?[...frameMarks]:imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
  const togglePromptRef=(item:MediaItem&{path:string})=>{const at=imageRefs.findIndex(r=>r.item.path===item.path);if(at>=0){setImageRefs(v=>v.filter((_,j)=>j!==at));return;}
   setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);
   if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);};
@@ -957,11 +963,18 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   // Cover sources are audio files or videos with an audio track (core LoadAudio reads the first stream); images cannot be covered.
   :pipeline==='cover'&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),onClick:()=>{setMusicSource(null);if(historyDraft)setHistorySourceSelected(false);}}:{label:t('studio.music.useSource'),onClick:()=>{setMusicSource(item);if(historyDraft)setHistorySourceSelected(true);}}]
   :referenceMethod&&item.media==='image'&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=4&&t('studio.run.reference.max',{count:imageRefs.length,max:4}))||undefined}]
-  :pipeline==='i2v'&&item.media==='image'?[{label:t('studio.run.useInput'),onClick:()=>select(item)}]
+  // Frame roles like the Director: first (i2v input), last, or the same image as both; t2v takes a last frame only.
+  // H3 can run on a last frame alone (L2VA), so there "last frame" moves the role off the input instead of adding it.
+  :frameVideo&&item.media==='image'?[
+   ...(pipeline==='i2v'?[{label:t('studio.run.video.useFirst'),onClick:()=>{select(item);setLastOnlySrc(null);if(lastFrame?.src===item.src)setLastFrame(null);}}]:[]),
+   lastFrame?.src===item.src?{label:t('studio.run.video.removeLast'),onClick:()=>{setLastFrame(null);setLastOnlySrc(null);}}
+    :{label:t('studio.run.video.useLast'),onClick:()=>{if(pipeline==='i2v'&&videoFamily==='minimax-h3'&&(lastOnly||!firstFrame||media?.src===item.src)){select(item);setLastOnlySrc(item.src);}setLastFrame(item);}},
+   ...(pipeline==='i2v'?[{label:t('studio.run.video.useBoth'),onClick:()=>{select(item);setLastOnlySrc(null);setLastFrame(item);}}]:[])]
   :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),onClick:()=>select(item)}]:[];
  const stageMark=media?.path&&marks.get(media.path);
  // MiniMax H3 video: the hammer is the Director's Prompt Forge for this run (same mode/references the intent gets).
- const forgeContext=videoFamily==='minimax-h3'&&isVideo?h3ForgeContext({pipeline,media,lastFrame,refs,framePeople,sourceAudio,seconds:video.seconds,canvas:outputSize,inputRoot:roots.input}):undefined;
+ const forgeContext=videoFamily==='minimax-h3'&&isVideo?h3ForgeContext({pipeline,media:lastOnly?null:media,lastFrame,refs,framePeople,sourceAudio,seconds:video.seconds,canvas:outputSize,inputRoot:roots.input}):undefined;
+ useEffect(()=>{onH3ForgeAvailable?.(!!forgeContext);},[!!forgeContext,onH3ForgeAvailable]);
  // Insert at the cursor of the positive prompt (else append), like the node's toolbar.
  const insertPrompt=(text:string)=>{const el=document.getElementById('run-positive') as HTMLTextAreaElement|null;const at=el&&document.activeElement===el?el.selectionStart:positive.length;setPositive(positive.slice(0,at)+text+positive.slice(at));};
  const prefill=()=>{
@@ -1009,7 +1022,7 @@ const promptTools=forgeContext&&<>
  const captureDraft=()=>{
   const settings=captureStudioSettings();
   for(const key of ['studio.run.checkpoint','studio.run.pipeline','studio.run.brush'])delete settings[key];
-  return {settings,media,mediaSize,layers:layers.map(copyImageLayer),editor:editorRef.current?.capture()??editorSnapshot,masked,lastFrame,imageRefs,refs,refmods,framePeople,musicSource,historyDraft,historySelectionContext,historySourceSelected};
+  return {settings,media,mediaSize,layers:layers.map(copyImageLayer),editor:editorRef.current?.capture()??editorSnapshot,masked,lastFrame,lastOnlySrc,imageRefs,refs,refmods,framePeople,musicSource,historyDraft,historySelectionContext,historySourceSelected};
  };
  const drafts=useRef(new Map<string,ReturnType<typeof captureDraft>>());
  const pipelineModels=useRef(new Map<string,string>());
@@ -1045,7 +1058,7 @@ const promptTools=forgeContext&&<>
  const applyDraft=(saved:ReturnType<typeof captureDraft>,keepSource=false)=>{
   if(!applyStudioSettings(saved.settings))return;
   if(!keepSource){sourceEpoch.current++;setMedia(saved.media);setMediaSize(saved.mediaSize);setLayers(saved.layers.map(copyImageLayer));setEditorSnapshot(saved.editor);setMasked(saved.masked);}
-  setLastFrame(saved.lastFrame);setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setFramePeople(saved.framePeople);setMusicSource(saved.musicSource);
+  setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setFramePeople(saved.framePeople);setMusicSource(saved.musicSource);
   setHistoryDraft(saved.historyDraft);setHistorySelectionContext(saved.historySelectionContext);setHistorySourceSelected(saved.historySourceSelected);
   setBrowsed(null);setSelectedJob('');
  };
@@ -1191,7 +1204,7 @@ const promptTools=forgeContext&&<>
       {allModels.map(m=>{const reason=blocked(m,pipeline);return <option key={identity(m)} value={modelValue(m)} disabled={!!reason} title={reason?t(reason):m.name}>{m.name}</option>;})}
      </select></label><small>{t('studio.run.loras')} {activeLoras.length}</small></div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
-    {pipeline==='i2v'&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
+    {pipeline==='i2v'&&!lastOnly&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
     {pipeline==='v2v'&&<p className="wb-active"><span>{t('studio.run.video.source')}</span><strong title={media?.path}>{media?.media==='video'?media.name:''}</strong></p>}
     {pipeline==='cover'&&<p className="wb-active" data-music-source><span>{t('studio.music.source')}</span><strong title={musicSource?.path}>{musicSource?.name??''}</strong>{musicSource&&<button type="button" aria-label={t('studio.music.removeSource')} title={t('studio.music.removeSource')} onClick={()=>setMusicSource(null)}>✕</button>}</p>}
      <div className="wb-controls">
@@ -1217,10 +1230,7 @@ const promptTools=forgeContext&&<>
         :<label className="wb-field wb-wide"><span><input type="checkbox" style={{width:'auto'}} checked={sourceAudio} onChange={e=>setSourceAudio(e.target.checked)}/>{t('studio.run.video.sourceAudio')}</span></label>)}
        {refsTab&&<button ref={referencesButton} type="button" className="wb-dock-action wb-wide" data-open-references aria-haspopup="dialog" aria-expanded={referencesOpen} onClick={()=>setReferencesOpen(true)} onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();}} onDrop={e=>{const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();addRefs([{item}]);setReferencesOpen(true);}}}>{t('studio.run.dock.references')} · {refs.length}</button>}
        {videoFamily==='minimax-h3'&&(pipeline==='v2v'||pipeline==='ref2v')&&!/ref2va/i.test(checkpoint)&&<p className="wb-resolution-hint wb-wide">{t('studio.run.video.ref2vaHint')}</p>}
-       {frameVideo&&videoFamily==='minimax-h3'&&[pipeline==='i2v'&&media?.media==='image'?media:null,lastFrame].map((item,i)=>item&&<div className="wb-wide" key={`${i}:${item.src}`} data-frame-people={i===0?'first':'last'}>
-        <p className="wb-resolution-hint">{t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · {item.name}</p>
-        <ReferencePeople key={item.src} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
-       </div>)}
+       {forgeContext&&onOpenPromptForge&&<button type="button" className="wb-dock-action wb-wide" data-open-prompt-forge onClick={onOpenPromptForge}>{t('studio.tab.forge')}</button>}
        {continuityAvailable&&<button ref={continuityButton} type="button" className="wb-dock-action wb-wide" data-continuity-open aria-haspopup="dialog" aria-expanded={continuityOpen} data-continuity-enabled={continuityOn} onClick={()=>setContinuityOpen(true)}>{t(continuityOn?'studio.run.dock.continuity':'studio.run.dock.continuityOff')}</button>}
        {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} title={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
       </>}
@@ -1283,7 +1293,7 @@ const promptTools=forgeContext&&<>
     </section>
     <div className="wb-prompts">
      {isMusic?<MusicPrompts endpoint={endpoint} root={root} style={musicStyle} lyrics={musicLyrics} onStyle={setMusicStyle} onLyrics={setMusicLyrics} actions={promptActions}/>:<>
-     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/></div>
+     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}{forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}>↗</button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>}</div>
      <div className="wb-prompt wb-negative"><div className="wb-prompt-label"><label htmlFor="run-negative">{t('studio.run.negative')}</label><small data-prompt-count="negative">{negative.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button>{promptActions('negative',negative,setNegative)}</div></>}
      {!isMusic&&imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:4})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
      {!isMusic&&imageRefs.length>0&&<div className="wb-reference-strip wb-wide">
@@ -1293,7 +1303,7 @@ const promptTools=forgeContext&&<>
        {revisionOk&&num('reference.strength',r.strength,n=>setImageRefs(v=>v.map((e,j)=>j===i?{...e,strength:clamp(n,0,1)}:e)),0,1,0.05,undefined,true)}
       </div>)}
      </div>}
-     {!isMusic&&detached&&<PromptOverlay root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>}</PromptOverlay>}
+     {!isMusic&&detached&&<PromptOverlay root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&(forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}>↗</button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>)}</PromptOverlay>}
     </div>
     {wildcardEnabled&&<div className="wildcard-prompt-status"><button type="button" className="wildcard-badge" title={t('wildcards.baseNotice')} onClick={()=>setDockTab('wildcards')}>{t(wildcard.auto_reroll?'wildcards.activeAuto':'wildcards.active')}</button><button type="button" className="wildcard-badge" onClick={()=>setWildcardEnabled(false)}>{t('wildcards.disable')}</button></div>}
    </div>
@@ -1359,6 +1369,20 @@ const promptTools=forgeContext&&<>
  {visionDownload&&<dialog ref={visionDialog} data-vision-download className="continuity-overlay" aria-label={t("studio.run.reference.dlAsk")} onCancel={e=>{e.preventDefault();closeVisionDownload();}}><header className="continuity-overlay-header"><h2>{t("studio.run.reference.dlAsk")}</h2><button type="button" onClick={closeVisionDownload}>{t("studio.close")}</button></header><div className="wb-dock-panel"><p>{t("studio.run.latent.consent")}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={visionIds} filenameFilter={["clip_vision_g.safetensors"]} onStatus={visionDownloadStatus}/></div></dialog>}
  {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={latentIds} filenameFilter={latentDownload==='minimax-h3'?['minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors','MiniMax H3 Latent Upscaler.safetensors','minimax h3 latent upscaler.safetensors','minimax_h3_latent_upscaler.safetensors']:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors','LTX-2.3-Latent-Upscaler.safetensors']} onStatus={latentDownloadStatus}/></div></dialog>}
  {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay endpoint={endpoint} root={root} refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} onInsert={tag=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag)} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={toggleRef} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}/> }
+ {/* Keep H3 editors with their Workbench state; only their DOM lives in the retained Forge tab. */}
+ {forgeHost&&forgeContext&&createPortal(<section className="forge-tab" aria-label={t('studio.tab.forge')} data-h3-forge-tab>
+  <ForgeButton inline active={forgeActive} endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} onApply={setPositive} h3={forgeContext} tools={promptTools}/>
+  <div className="forge-output">
+   {frameVideo&&[firstFrame,lastFrame].map((item,i)=>item&&<div className="wb-wide" key={`${i}:${item.src}`} data-frame-people={i===0?'first':'last'}>
+       <p className="wb-resolution-hint">{t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · {item.name}</p>
+       <ReferencePeople key={item.src} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
+      </div>)}
+   {pipeline==='ref2v'&&refs.map((r,i)=>r.item.media==='image'&&labelCharacters(forgeLabels(refs)[i]).length>0&&<div key={r.item.src}>
+    <p className="forge-dialect">{r.item.name}</p>
+    <ReferencePeople r={r} label={forgeLabels(refs)[i]} endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setRefs(current=>current.map((pick,j)=>j===i?{...pick,...x}:pick))}/>
+   </div>)}
+  </div>
+ </section>,forgeHost)}
  {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError||unavailable.length>0} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
  </div></>;
 }

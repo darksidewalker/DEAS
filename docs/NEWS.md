@@ -1,5 +1,10 @@
 # News
 
+## 0.2.4 BETA (unreleased)
+
+- **Move environment…** in Backend moves your whole DEAS environment to another folder or drive without reinstalling; DEAS fixes the paths inside the venv and checks the moved Python before switching. A running owned backend is stopped gracefully and restarted afterwards; a stopped backend stays stopped.
+- H3's **Prompt Forge** button beside Continuity opens the existing tab with the current run's references, people/order and full Director prompt controls. First/last-frame people editing moved out of pipeline settings; drafts and cards stay when switching tabs.
+
 ## 0.2.3 BETA
 
 - MiniMax H3: the new Sol VAE (`minimax_h3_sol_vae_fp16.safetensors`) shows up in the VAE picker. Update ComfyUI first — it needs the upstream Sol-H3-VAE support.

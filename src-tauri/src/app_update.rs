@@ -529,12 +529,17 @@ pub fn native_app_restart(
     downloads: tauri::State<'_, crate::downloads::DownloadEngine>,
     scans: tauri::State<'_, crate::ModelScanEngine>,
     jobs: tauri::State<'_, crate::jobs::Jobs>,
+    operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<bool, String> {
     if !RESTART_READY.load(Ordering::Acquire) {
         return Err("No confirmed application update is awaiting restart".into());
     }
+    let _guard = match operations.enter() {
+        Ok(guard) => guard,
+        Err(_) => return Ok(false),
+    };
     if UPDATING.load(Ordering::Acquire)
-        || crate::install::native_install_status(engine).state == "running"
+        || crate::install::native_install_status(engine.clone()).state == "running"
         || downloads.status()?.state == "running"
         || scans.status().state == "running"
         || jobs.media_move_idle().is_err()
@@ -543,6 +548,8 @@ pub fn native_app_restart(
     }
     if RESTART_READY.swap(false, Ordering::AcqRel) {
         log("INFO", "Restarting DEAS to load the updated executable");
+        // Tauri can restart directly if posting its exit event fails.
+        engine.shutdown_backend();
         app.request_restart();
     }
     Ok(true)

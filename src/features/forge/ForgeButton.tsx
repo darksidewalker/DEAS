@@ -85,7 +85,7 @@ const isShots = (v: unknown): v is string | number => v === 'Auto' || isNumber(v
 
 /** Hammer in a prompt field: write or enhance that prompt in the selected model's dialect, review, then apply (undoable).
  * With `h3`, it is the Director's Prompt Forge for the current run: Shots, Detail, Creativity, Cancel, the last three drafts and the `tools` prompt helpers. */
-export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools, onBusyChange }: { endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onBusyChange?: (busy: boolean) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
+export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools, onBusyChange, inline = false, active = true }: { active?: boolean; inline?: boolean; endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onBusyChange?: (busy: boolean) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
   const { t } = useI18n();
   const forge = useForgeModels(endpoint, root, true, !!h3 || !nativeTarget(dialect));
   const opener = useRef<HTMLButtonElement>(null);
@@ -131,9 +131,10 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const fit = h3 ? JSON.stringify([endpoint, root, h3, forge.model, seeing, cast]) : '';
   const [drafts, setDrafts] = useState<{ text: string; fit: string }[]>([]);
   const [draftFit, setDraftFit] = useState('');
-  const [open, setOpen] = useState(false);
+  const [expanded, setOpen] = useState(false);
+  const open = inline || expanded;
   const [choosing, setChoosing] = useState(false);
-  const [brief, setBrief] = useState('');
+  const [brief, setBrief] = useState(inline ? value : '');
   const [result, setResult] = useState('');
   const [busy, setBusy] = useState(false);
   const changeBusy = (next: boolean) => {
@@ -145,7 +146,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const [blind, setBlind] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const disabled = !dialect;
-  useEffect(() => { if (open && !choosing) forge.load(); }, [open, choosing, endpoint, root, forge.rev, dialect, !!h3]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active && open && !choosing) forge.load(); }, [active, open, choosing, endpoint, root, forge.rev, dialect, !!h3]); // eslint-disable-line react-hooks/exhaustive-deps
   const wildcardResolved = useRef(false);
   useEffect(() => {
     if (!open || choosing || !forge.model || !wildcard || wildcardResolved.current) return;
@@ -201,13 +202,13 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const cancel = () => { const current = request.current; if (!current) return; current.cancelled = true; changeBusy(false); cancelForge(current.endpoint, current.root, current.id).catch(e => { if (request.current === current) setError(forgeError(e)); }); };
   const stale = !!h3 && !!result && draftFit !== fit;
   const level = (key: string, v: number, set: (n: number) => void) => <label className="forge-field"><span>{t(key)} {v}</span><input type="range" min={1} max={10} value={v} onChange={e => set(Number(e.target.value))}/></label>;
-  return <div className="forge-anchor">
-    <button ref={opener} type="button" className="forge-hammer" data-forge-open aria-expanded={open} disabled={disabled && !onWildcards} aria-label={t('forge.button')} title={t(onWildcards ? 'wildcards.choose' : !root ? 'forge.noBackend' : !dialect ? 'forge.noDialect' : 'forge.button')} onClick={toggle}>
+  return <div className={inline ? 'forge-controls' : 'forge-anchor'}>
+    {!inline && <button ref={opener} type="button" className="forge-hammer" data-forge-open aria-expanded={open} disabled={disabled && !onWildcards} aria-label={t('forge.button')} title={t(onWildcards ? 'wildcards.choose' : !root ? 'forge.noBackend' : !dialect ? 'forge.noDialect' : 'forge.button')} onClick={toggle}>
       {/* Lucide "hammer" (ISC). */}
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/></svg>
-    </button>
-    {undo !== null && !open && <button type="button" className="forge-undo" data-forge-undo onClick={() => { onApply(undo); setUndo(null); }}>{t('forge.undo')}</button>}
-    {open && <div className={`forge-pop${result && !h3 ? ' comparing' : ''}`} role="dialog" aria-label={t('forge.button')} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); opener.current?.focus(); } }}>
+    </button>}
+    {undo !== null && (!open || inline) && <button type="button" className="forge-undo" data-forge-undo onClick={() => { onApply(undo); setUndo(null); }}>{t('forge.undo')}</button>}
+    {open && <div className={inline ? 'forge-controls' : `forge-pop${result && !h3 ? ' comparing' : ''}`} role={inline ? 'region' : 'dialog'} aria-label={t('forge.button')} onKeyDown={e => { if (!inline && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); opener.current?.focus(); } }}>
       {h3 && tools && <div className="forge-row" role="group" aria-label={t('forge.tools')}>{tools}</div>}
       {choosing ? <>
         <button type="button" disabled={disabled} title={disabled ? t(!root ? 'forge.noBackend' : 'forge.noDialect') : undefined} onClick={() => setChoosing(false)}>{t('wildcards.llm')}</button>

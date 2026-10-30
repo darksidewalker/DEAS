@@ -1,5 +1,20 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 0.2.4 graceful backend maintenance (unreleased)
+
+- Native maintenance uses the existing owned lifecycle and shared folder-operation gate. Linux sends SIGINT to the owned process group, retaining its unreaped leader anchor; Windows keeps CREATE_NO_WINDOW and uses a private stdin shutdown request to raise Python KeyboardInterrupt and wake the ComfyUI event loop. Both allow five seconds before logged forced owned-group cleanup. Scratch fixtures cover cleanup/finally, output draining, stubborn descendants, foreign-process preservation, update restart issuance, stopped-state preservation, move rollback and checked approval recapture.
+- `cargo test --locked --lib -- --test-threads=1`: **664 passed, 39 ignored**, zero failures. This includes a scratch executable replacement/restart regression with spaces/Unicode paths, distinct binary bytes and inode evidence; no user executable or service was replaced or stopped.
+- `npm run typecheck`, Core **125 passed**, full UI **1264 passed** across 70 files (including the final maintenance-error visibility regression), focused setup **91 passed** before that last regression, and layout **381 checks passed** (strict Chromium IPC fixtures); `cargo clippy --lib -- -D warnings`, Windows MSVC `cargo xwin check --locked --target x86_64-pc-windows-msvc --all-targets`, and `git diff --check` passed.
+- No real package update, live environment move, GPU generation or native Windows runtime acceptance performed. Windows app self-replacement remains explicitly unsupported. Final `CARGO_TARGET_DIR=/data/GitHub/DEAS/.target bash build-linux.sh` passed and atomically staged `artifacts/deas-linux-amd64` (SHA-256 `3b6f4efe41331803471a95e026ac658a1190adcb967ea479af2ce5024e56ad4b`); `ldd` has no missing dependencies, and the ELF embeds the current `index-BMr8k8G8.js`. This is a local dirty-tree build including the pre-existing concurrent changes, not a published release. Review fixes make update IPC and lifecycle-status polling asynchronous, and cross-drive copy failure cleans only a destination actually created by that copy; the collision regression preserves foreign contents.
+
+## 0.2.4 H3 Prompt Forge tab integration (unreleased)
+
+- Reused the Director Forge editor inline in the existing retained Prompt Forge tab, with Workbench-owned references/frame people and direct edit callbacks. Regression fixtures cover H3-only entry visibility, settings removal, first-frame and REF2VA people/order reaching the native Forge payload, shared References readback, tab routing, retained brief/cards/shots/drafts and Apply/Undo. Existing Forge tests retain cancellation, pose/card reading and stale-result checks.
+- `npm run typecheck`, `npm run build` and `git diff --check`: passed. Production build reports its existing mixed static/dynamic Tauri import and large-chunk warnings.
+- `NODE_OPTIONS=--no-experimental-webstorage node node_modules/vitest/vitest.mjs run src/features/studio/Workbench.test.tsx src/features/forge/Forge.test.tsx src/App.test.tsx src/AppForgeNavigation.test.tsx`: **404/404 passed**, four files. jsdom emits nine non-failing unimplemented media `pause` warnings; this is not playback evidence.
+- `npm run test:layout`: **381 checks passed**, nine discovered tabs, six locales/seven window sizes, Chromium 156.0.8078.4 with strict simulated IPC; negative control included. This shared shell gate uses its ordinary empty-model fixture, not real H3 inference or native WebView interaction.
+- Not exercised: real H3/vision inference, GTK/WebKitGTK or Windows/WebView2 click-through, native packaging and resource/performance acceptance. No services restarted, no model downloads, no commit or push.
+
 ## Release 0.2.3 (published)
 
 - GitHub release `v0.2.3` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.3), tag on source commit `7678d4645806f58e1ae8566d510c2062b924cb05` (tree `b2647a97277e67141f9f12feaed248d8424cbf88`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` in a clean worktree at that commit (rustc 1.97.0, Node v26.12.1); no CI evidence.

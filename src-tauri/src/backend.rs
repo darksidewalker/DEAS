@@ -423,17 +423,122 @@ fn lock_environment(root: &Path) -> Result<fs::File, String> {
     }
     Ok(file)
 }
-fn terminate(inner: &mut Inner) {
+const STOP_GRACE: Duration = Duration::from_secs(5);
+// CREATE_NO_WINDOW has no console for GenerateConsoleCtrlEvent. The private pipe
+// asks Python to run its normal SIGINT handler, waking ComfyUI's asyncio loop.
+#[cfg(any(windows, test))]
+const WINDOWS_BOOTSTRAP: &str = r#"
+import sys, runpy, threading, _thread
+sys.argv = sys.argv[1:]
+def deas_stop():
+    if sys.stdin.buffer.readline(6) == b'stop\n':
+        loop = getattr(sys.modules.get('__main__'), 'event_loop', None)
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(_thread.interrupt_main)
+        else:
+            _thread.interrupt_main()
+threading.Thread(target=deas_stop, daemon=True).start()
+runpy.run_path(sys.argv[0], run_name='__main__')
+"#;
+
+#[cfg(target_os = "linux")]
+fn group_exited(child: &Child) -> Result<bool, String> {
+    // Keep the zombie leader as the group identity anchor while descendants exit.
+    for entry in fs::read_dir("/proc").map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_name().to_string_lossy().parse::<u32>().is_err() {
+            continue;
+        }
+        if let Ok(stat) = fs::read_to_string(entry.path().join("stat")) {
+            if let Some((_, fields)) = stat.rsplit_once(") ") {
+                let fields: Vec<_> = fields.split_whitespace().take(3).collect();
+                if fields.len() == 3
+                    && fields[2].parse::<u32>().ok() == Some(child.id())
+                    && fields[0] != "Z"
+                    && fields[0] != "X"
+                {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    exited(child)
+}
+#[cfg(windows)]
+fn group_exited(inner: &Inner, child: &Child) -> Result<bool, String> {
+    match &inner.job {
+        Some(job) => job.empty(),
+        None => exited(child),
+    }
+}
+fn terminate(inner: &mut Inner, grace: Duration) {
     if let Some(mut child) = inner.child.take() {
-        #[cfg(target_os = "linux")]
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        let mut graceful = false;
+        if !grace.is_zero() {
+            log(&format!(
+                "Requesting graceful owned backend shutdown (PID {})",
+                child.id()
+            ));
+            #[cfg(target_os = "linux")]
+            if unsafe { libc::kill(-(child.id() as i32), libc::SIGINT) } != 0 {
+                log(&format!(
+                    "Owned shutdown signal failed: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            #[cfg(windows)]
+            {
+                use std::io::Write;
+                if let Some(mut stdin) = child.stdin.take() {
+                    if let Err(error) = stdin.write_all(b"stop\n") {
+                        log(&format!("Owned shutdown request failed: {error}"));
+                    }
+                }
+            }
+            let deadline = Instant::now() + grace;
+            loop {
+                #[cfg(target_os = "linux")]
+                let done = group_exited(&child);
+                #[cfg(windows)]
+                let done = group_exited(inner, &child);
+                #[cfg(not(any(target_os = "linux", windows)))]
+                let done = exited(&child);
+                match done {
+                    Ok(true) => {
+                        graceful = true;
+                        break;
+                    }
+                    Err(error) => {
+                        log(&error);
+                    }
+                    Ok(false) => {}
+                }
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            if graceful {
+                log("Owned backend shut down gracefully");
+            } else {
+                log("Owned backend graceful shutdown timed out; escalating to forced owned-group cleanup");
+            }
+        }
+        if !graceful {
+            #[cfg(target_os = "linux")]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL);
+            }
+            #[cfg(windows)]
+            if let Some(job) = inner.job.take() {
+                job.kill();
+            }
+            let _ = child.kill();
         }
         #[cfg(windows)]
-        if let Some(job) = inner.job.take() {
-            job.kill();
+        {
+            inner.job = None;
         }
-        let _ = child.kill();
         match child.wait() {
             Ok(status) => log(&format!("Owned child exited: {status}")),
             Err(error) => log(&format!("Owned child reap failed: {error}")),
@@ -446,7 +551,7 @@ fn terminate(inner: &mut Inner) {
     inner.status.model_roots.clear();
 }
 fn fail(inner: &mut Inner, error: String) {
-    terminate(inner);
+    terminate(inner, Duration::ZERO);
     inner.status.state = "failed".into();
     log(&error);
     inner.status.error = Some(error);
@@ -589,8 +694,10 @@ impl Lifecycle {
             Some(proof)
         });
         let mut command = Command::new(root.join(VENV_PYTHON));
+        command.arg("-u");
+        #[cfg(windows)]
+        command.args(["-c", WINDOWS_BOOTSTRAP]);
         command.args([
-            "-u",
             "main.py",
             "--listen",
             "127.0.0.1",
@@ -675,6 +782,8 @@ impl Lifecycle {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(windows)]
+        command.stdin(Stdio::piped());
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -826,7 +935,7 @@ impl Lifecycle {
     pub fn stop(&self) -> Status {
         let mut inner = locked(&self.inner);
         inner.serial += 1;
-        terminate(&mut inner);
+        terminate(&mut inner, STOP_GRACE);
         inner.status.state = "stopped".into();
         inner.status.error = None;
         inner.status.clone()
@@ -852,9 +961,11 @@ fn capture<R: std::io::Read + Send + 'static>(reader: R, inner: Arc<Mutex<Inner>
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
-            let guard = locked(&inner);
-            if guard.serial != serial {
-                break;
+            // Drain during stop too: cleanup can fill stdout while holding the lifecycle lock.
+            if let Ok(guard) = inner.try_lock() {
+                if guard.serial != serial {
+                    break;
+                }
             }
             let text = clean_log_line(&line);
             if !text.is_empty() {
@@ -1013,8 +1124,13 @@ pub struct DependencyCheck {
     pub ok: bool,
 }
 #[tauri::command]
-pub fn native_backend_status(engine: tauri::State<'_, crate::install::Engine>) -> Status {
-    engine.backend.status()
+pub async fn native_backend_status(
+    engine: tauri::State<'_, crate::install::Engine>,
+) -> Result<Status, String> {
+    let backend = engine.backend.clone();
+    tauri::async_runtime::spawn_blocking(move || backend.status())
+        .await
+        .map_err(|error| format!("Backend status worker failed: {error}"))
 }
 #[tauri::command]
 pub fn native_backend_test(

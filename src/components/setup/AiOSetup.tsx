@@ -33,6 +33,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const [verified,setVerified]=useState<string[]>([]);
  const [configured,setConfigured]=useState<string[]>([]);const [authRevision,setAuthRevision]=useState(0);
  const [autoStart,setAutoStart]=usePref('backend.autostart',true,isBoolean);
+ const [resumeAfterUpdate,setResumeAfterUpdate]=useState(()=>readPref('backend.resumeAfterUpdate','',isString));
+ useEffect(()=>forgetPref('backend.resumeAfterUpdate'),[]);
  const [state,setState]=useState(()=>transitionSetup(initialSetupState(),{type:'automatic'}));
  const [error,setError]=useState('');
  const [pickerBusy,setPickerBusy]=useState(false);const [folderPickerBusy,setFolderPickerBusy]=useState(false);
@@ -92,13 +94,14 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const comfyVisited=useRef(false);if(view==='comfy')comfyVisited.current=true;
  // After success the review hides; Upgrade / Re-run installation live in Backend.
  const succeeded=status?.state==='succeeded';const [confirmReinstall,setConfirmReinstall]=useState(false);
- // A finished upgrade/reinstall remounts the backend panel so autostart applies to the new environment.
+ // Native maintenance restores the previous lifecycle state; refresh without rerunning autostart.
  const updating=useRef(false);const [updates,setUpdates]=useState(0);
  const [available,setAvailable]=useState<{app:string|null;comfy:boolean;nodepack:boolean}|null>(null);
  const [confirmUpgrade,setConfirmUpgrade]=useState(false);
  // What the confirmed Update changes; the PyTorch choice is checked natively each time the dialog opens.
  const [upgradeScope,setUpgradeScope]=useState<UpdateScope>('all');const [torchUpdate,setTorchUpdate]=useState<TorchUpdate|'checking'|null>(null);
  const [appReplaced,setAppReplaced]=useState(false);
+ const [updateBlocked,setUpdateBlocked]=useState(false);
  useEffect(()=>{if(!native)return;let alive=true;invoke<typeof available>('native_update_check').then(value=>{if(alive)setAvailable(value);},()=>{});return()=>{alive=false;};},[native]);
  const pending=available?[available.app&&`DEAS ${available.app}`,available.comfy&&'ComfyUI',available.nodepack&&t('app.updateNodes')].filter(Boolean):[];
  const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
@@ -112,6 +115,9 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   return()=>{alive=false;};},[native,inBackend,authRevision]);
  const [restartSignal,setRestartSignal]=useState(0);
  const [installedRoot,setInstalledRoot]=useState('');const installed=succeeded||!!installedRoot;
+ const [moveTarget,setMoveTarget]=useState('');const [moving,setMoving]=useState(false);const [moveNotice,setMoveNotice]=useState('');
+ // A moved environment keeps its backend panel mounted: a remount would autostart a backend the user stopped to move it.
+ const panelRoots=useRef<Record<string,string>>({});
  useEffect(()=>{onEnvironment?.(installedRoot?{root:installedRoot,folders}:null);},[installedRoot,folders,onEnvironment]);
  const review=state.opened&&!installed;const side=inBackend&&(review||installed);
  // A plan that could not be made replaces Start in the review panel; at the column end it sat below the fold.
@@ -187,6 +193,27 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   }catch(e){setTechnicalError(String(e));}
   finally{pickerLock.current=false;setPickerBusy(false);}
  };
+ const pickMoveTarget=async()=>{
+  if(!native||running||busy||pickerLock.current)return;
+  pickerLock.current=true;setPickerBusy(true);setTechnicalError('');setMoveNotice('');
+  try {
+   const parent=await invoke<string|null>('native_pick_directory',{title:t('setup.moveEnvironmentPick')});
+   if(parent!==null){const target=storageTarget(parent,installedRoot.split(/[\\/]/).filter(Boolean).pop()||'deas-environment');if(target)setMoveTarget(target);else setError('setup.error.child');}
+  }catch(e){setTechnicalError(String(e));}
+  finally{pickerLock.current=false;setPickerBusy(false);}
+ };
+ const moveEnvironment=async()=>{
+  const target=moveTarget;setMoveTarget('');
+  if(!native||!target||operationLock.current||running||busy)return;
+  operationLock.current=true;setBusy(true);setMoving(true);setTechnicalError('');
+  try{
+   const moved=await invoke<{root:string;warnings:string[]}>('native_environment_move',{target,confirmed:true});
+   panelRoots.current[moved.root]=panelRoots.current[installedRoot]??installedRoot;
+   setInstalledRoot(moved.root);writePref(installedKey,moved.root);
+   setMoveNotice([t('setup.moveEnvironmentDone',{path:moved.root}),...moved.warnings].join(' '));
+  }catch(e){setTechnicalError(String(e));}
+  finally{operationLock.current=false;setBusy(false);setMoving(false);setUpdates(n=>n+1);}
+ };
  const pickTakeover=async()=>{
   if(!native||running||busy||folderPickerBusy||pickerLock.current)return;
   pickerLock.current=true;setPickerBusy(true);setTechnicalError('');
@@ -231,7 +258,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const update=async(reinstall:boolean,scope:UpdateScope='all')=>{
   setConfirmReinstall(false);setConfirmUpgrade(false);
   if(!native||operationLock.current||busy||running)return;
-  operationLock.current=true;setBusy(true);setTechnicalError('');
+  operationLock.current=true;setBusy(true);setTechnicalError('');setUpdateBlocked(reinstall||(installed&&scope!=='app'));
   try{
    if(!reinstall&&(scope==='all'||scope==='app')){const replaced=await invoke<boolean>('native_app_update',{confirmed:true});if(replaced){setAppReplaced(true);setAvailable(old=>old?{...old,app:null}:old);}}
    if(reinstall||(installed&&scope!=='app')){const next=await invoke<NativeInstallStatus>('native_install_update',{reinstall,confirmed:true,...(scope==='torch'?{scope:'torch'}:{})});updating.current=true;setStatus(next);}
@@ -239,20 +266,25 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   catch(e){setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
- useEffect(()=>{if(updating.current&&status&&status.state!=='running'){updating.current=false;if(status.state==='succeeded'&&!appReplaced)setUpdates(n=>n+1);}},[status,appReplaced]);
+ useEffect(()=>{if(updating.current&&status&&status.state!=='running'){updating.current=false;setUpdateBlocked(status.state!=='succeeded');setUpdates(n=>n+1);}},[status,appReplaced]);
  useEffect(()=>{
-  if(!appReplaced||busy||running||(installed&&status?.state!=='succeeded'))return;
+  if(!appReplaced||busy||running||updateBlocked)return;
   let active=true,inflight=false,requested=false;
   const restart=async()=>{
    if(inflight||requested||!window.dispatchEvent(new Event('deas:before-update-restart',{cancelable:true})))return;
    inflight=true;
-   try{requested=await invoke<boolean>('native_app_restart');}
-   catch(e){if(active){setTechnicalError(String(e));requested=true;}}
+   try{
+    const current=await invoke<NativeBackendStatus>('native_backend_status');
+    writePref('backend.resumeAfterUpdate',current.state==='running'||current.state==='starting'?'running':'stopped');
+    requested=await invoke<boolean>('native_app_restart');
+    if(!requested)forgetPref('backend.resumeAfterUpdate');
+   }
+   catch(e){if(active){forgetPref('backend.resumeAfterUpdate');setTechnicalError(String(e));requested=true;}}
    finally{inflight=false;}
   };
   void restart();const timer=window.setInterval(()=>void restart(),1000);
   return()=>{active=false;window.clearInterval(timer);};
- },[appReplaced,busy,running,installed,status?.state]);
+ },[appReplaced,busy,running,updateBlocked]);
  const cancel=async()=>{
   if(!native||!running||busy)return;setBusy(true);
   try{await invoke('native_install_cancel');setStatus(await invoke<NativeInstallStatus>('native_install_status'));}
@@ -279,16 +311,16 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   <div className={`aio-decision-area${side?'':' is-single'}`}>
   <div className="aio-left">
   {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe ref={comfyFrame} title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
-  {status&&status.state!=='succeeded'&&view!=='comfy'&&(running||inBackend)&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
+  {status&&(status.state!=='succeeded'||status.error)&&view!=='comfy'&&(running||inBackend)&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
   {/* Once opened, the Studio stays mounted (hidden) so its panels keep their state across tab switches. */}
   {studioVisited.current&&<div className="aio-studio-host" hidden={view!=='studio'}><OpenComfyWorkflow.Provider value={comfyEndpoint?openWorkflow:null}>{studio}</OpenComfyWorkflow.Provider></div>}
-  {inBackend&&installedRoot&&<section className="aio-detail" aria-label={t('setup.environmentFolder')}><h3>{t('setup.environmentFolder')}</h3><p style={{overflowWrap:'anywhere'}}><code>{installedRoot}</code></p><button type="button" disabled={!native||running||busy} onClick={()=>{setTechnicalError('');void invoke('native_media_reveal',{path:installedRoot}).catch(e=>setTechnicalError(String(e)));}}>{t('setup.openEnvironmentFolder')}</button></section>}
+  {inBackend&&installedRoot&&<section className="aio-detail" aria-label={t('setup.environmentFolder')}><h3>{t('setup.environmentFolder')}</h3><p style={{overflowWrap:'anywhere'}}><code>{installedRoot}</code></p><button type="button" disabled={!native||running||busy} onClick={()=>{setTechnicalError('');void invoke('native_media_reveal',{path:installedRoot}).catch(e=>setTechnicalError(String(e)));}}>{t('setup.openEnvironmentFolder')}</button> <button type="button" disabled={!native||running||busy||pickerBusy} title={t('setup.moveEnvironmentHelp')} onClick={()=>void pickMoveTarget()}>{t('setup.moveEnvironment')}</button>{moving&&<p role="status"><span className="aio-spinner" aria-hidden="true"/>{t('setup.moveEnvironmentBusy')}</p>}{moveNotice&&<p role="status">{moveNotice}</p>}</section>}
   {inBackend&&review&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {view==='logs'&&<LogsPanel/>}
   {inBackend&&<LanguageSetting/>}
   {inBackend&&!installed&&<button type="button" disabled={!native||running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>}
   {appReplaced&&<p role="status">{t('setup.updateRestart')}</p>}
-  {inBackend&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}{installedRoot&&<FoldersPanel root={installedRoot} disabled={running||busy||folderPickerBusy} onChange={setFolders} onRestart={()=>setRestartSignal(n=>n+1)}/>}</>}
+  {inBackend&&<>{!installed&&<section className="aio-detail"><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>{setResumeAfterUpdate('');setAutoStart(v=>!v);}}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></section>}{installedRoot&&<FoldersPanel root={installedRoot} disabled={running||busy||folderPickerBusy} onChange={setFolders} onRestart={()=>setRestartSignal(n=>n+1)}/>}</>}
   <div hidden={!inBackend}><BackendPanels llmSetupRequest={llmSetupRequest} root={installedRoot} modelsDir={folders.models} onRestart={()=>setRestartSignal(n=>n+1)} onAuthChange={()=>{setConfigured([]);setVerified([]);setAuthRevision(n=>n+1);}}/></div>
   <DownloadWorkspace view={view==='downloads'?'downloads':null} authRevision={authRevision} installTarget={installedRoot||(plan?.route==='managed'?plan.storagePath:undefined)} modelsDir={installed?folders.models:folderDraft.models}/>
   {view!=='comfy'&&<>{error&&<p className="aio-error" role="alert">{t(error)}</p>}{technicalError&&!planError&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError}</p>}</>}
@@ -331,11 +363,12 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
     </details>}
    </fieldset>{busy&&<p className="aio-help" role="status">{t('setup.busy')}</p>}
   </section>}
-  {installed&&<OwnedBackendPanel key={`${installedRoot||startedPlan.current?.request.storagePath}:${updates}`} installSucceeded autoStart={autoStart} onConnectExisting={onConnectExisting} onStatusChange={setBackendStatus} locked={running} restartSignal={restartSignal} actions={<>
+  {installed&&<OwnedBackendPanel key={`${panelRoots.current[installedRoot]??(installedRoot||startedPlan.current?.request.storagePath)}`} installSucceeded autoStart={resumeAfterUpdate?resumeAfterUpdate==='running':autoStart} refreshSignal={updates} onConnectExisting={onConnectExisting} onStatusChange={setBackendStatus} locked={running||busy} restartSignal={restartSignal} actions={<>
    <button type="button" title={t('setup.upgradeHint')} disabled={running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>
    <button type="button" className="aio-danger" disabled={running||busy} onClick={()=>setConfirmReinstall(true)}>{t('setup.reinstall')}</button>
-  </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>setAutoStart(v=>!v)}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}
+  </>}><button type="button" className="download-switch backend-autostart" role="switch" aria-label={t('setup.backendAutostart')} aria-checked={autoStart} onClick={()=>{setResumeAfterUpdate('');setAutoStart(v=>!v);}}><span>{t('setup.backendAutostart')}</span><span className="download-switch-knob" aria-hidden="true"/><span>{t(autoStart?'setup.autostartOn':'setup.autostartOff')}</span></button></OwnedBackendPanel>}
   {confirmReinstall&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reinstall-title"><div className="download-dialog-card"><h3 id="reinstall-title">{t('setup.reinstallTitle')}</h3><p>{t('setup.reinstallWarning')}</p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmReinstall(false)}>{t('setup.reinstallCancel')}</button><button type="button" className="aio-danger" onClick={()=>void update(true)}>{t('setup.reinstallConfirm')}</button></div></div></div>}
+  {moveTarget&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="move-env-title"><div className="download-dialog-card"><h3 id="move-env-title">{t('setup.moveEnvironmentTitle')}</h3><p>{t('setup.moveEnvironmentWarning')}</p><p><code>{moveTarget}</code></p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setMoveTarget('')}>{t('setup.takeover.cancel')}</button><button type="button" onClick={()=>void moveEnvironment()}>{t('setup.moveEnvironmentConfirm')}</button></div></div></div>}
   {confirmTakeover&&<div className="download-dialog" role="alertdialog" aria-modal="true" aria-labelledby="takeover-title"><div className="download-dialog-card"><h3 id="takeover-title">{t('setup.takeover.title')}</h3><p>{t('setup.takeover.warning')}</p><p><code>{takeoverPath}</code></p><div className="aio-actions"><button type="button" autoFocus onClick={()=>setConfirmTakeover(false)}>{t('setup.takeover.cancel')}</button><button type="button" className="aio-danger" onClick={()=>{setConfirmTakeover(false);void start();}}>{t('setup.takeover.confirm')}</button></div></div></div>}
   </aside>}
   </div>

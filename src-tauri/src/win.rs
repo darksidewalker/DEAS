@@ -130,6 +130,29 @@ impl Job {
         }
         Ok(())
     }
+    pub fn empty(&self) -> Result<bool, String> {
+        use windows_sys::Win32::System::JobObjects::{
+            JobObjectBasicAccountingInformation, QueryInformationJobObject,
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        };
+        let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe {
+            QueryInformationJobObject(
+                self.0,
+                JobObjectBasicAccountingInformation,
+                (&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                std::mem::size_of_val(&info) as u32,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(format!(
+                "Cannot inspect owned job: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(info.ActiveProcesses == 0)
+    }
     pub fn kill(&self) {
         unsafe { TerminateJobObject(self.0, 1) };
     }

@@ -178,10 +178,10 @@ pub struct TorchUpdate {
     pub to: Option<Vec<String>>,
     pub blocked: Option<String>,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Engine {
     pub(crate) inner: Arc<Mutex<Inner>>,
-    pub(crate) backend: crate::backend::Lifecycle,
+    pub(crate) backend: Arc<crate::backend::Lifecycle>,
 }
 #[derive(Default)]
 pub(crate) struct Inner {
@@ -189,7 +189,7 @@ pub(crate) struct Inner {
     pub(crate) approved: Option<crate::backend::Approved>,
     reopen: Option<(String, crate::backend::Approved)>,
     // Environment of the last upgrade/reinstall, so a failed or cancelled run can be repaired.
-    repair: Option<Plan>,
+    pub(crate) repair: Option<Plan>,
     status: Status,
     cancel: Arc<AtomicBool>,
 }
@@ -211,7 +211,7 @@ fn keep(engine: &Arc<Mutex<Inner>>, text: String) {
 
 /// Require a new directory directly inside an existing, non-symlink parent.
 /// Reject lexical traversal before any filesystem writes, even if it resolves safely.
-fn validate_target(input: &str) -> Result<PathBuf, String> {
+pub(crate) fn validate_target(input: &str) -> Result<PathBuf, String> {
     let path = Path::new(input);
     if !path.is_absolute()
         || path
@@ -347,8 +347,35 @@ impl Engine {
     pub fn shutdown_backend(&self) {
         self.backend.stop();
     }
+    pub(crate) fn installation_idle(&self) -> bool {
+        lock(&self.inner).status.state != "running"
+    }
     pub(crate) fn folders_idle(&self) -> bool {
-        lock(&self.inner).status.state != "running" && !self.backend.active()
+        self.installation_idle() && !self.backend.active()
+    }
+    pub(crate) fn stop_for_maintenance(&self) -> bool {
+        let active = self.backend.active();
+        if active {
+            self.backend.stop();
+        }
+        active
+    }
+    /// Start only the current checked environment; a failed mutation must never authorize it.
+    pub(crate) fn resume_after_maintenance(&self, active: bool, g: &Inner) -> Result<(), String> {
+        if active {
+            g.approved
+                .clone()
+                .ok_or_else(|| {
+                    "No checked environment remains; repair it before restarting".to_string()
+                })
+                .and_then(|approved| self.backend.start(approved).map(|_| ()))
+                .map_err(|e| {
+                    let error = format!("Owned backend could not restart after maintenance: {e}");
+                    crate::logs::push(crate::logs::Source::Deas, &format!("ERROR: {error}"));
+                    error
+                })?;
+        }
+        Ok(())
     }
     pub(crate) fn backend_start(&self) -> Result<crate::backend::Status, String> {
         let g = lock(&self.inner);
@@ -644,12 +671,23 @@ impl Engine {
             state: "running".into(),
             ..Status::default()
         };
-        launch(self.inner.clone(), g.cancel.clone(), plan, git, None);
+        launch(self.clone(), g.cancel.clone(), plan, git, None, None);
         Ok(g.status.clone())
+    }
+    // Windows locks the running manifest exclusively; mutation revalidates after owned shutdown.
+    fn maintenance_plan(&self, g: &Inner) -> Result<Plan, String> {
+        if self.backend.active() {
+            g.approved
+                .as_ref()
+                .map(|approved| approved.plan().clone())
+                .ok_or_else(|| "No checked owned environment is open".into())
+        } else {
+            current_plan(g)
+        }
     }
     /// Read-only: the newer Torch profile this build would install for the open environment.
     fn torch_check(&self) -> Result<TorchUpdate, String> {
-        let plan = current_plan(&lock(&self.inner))?;
+        let plan = self.maintenance_plan(&lock(&self.inner))?;
         let from = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
         let (to, blocked) = match torch_target(&plan) {
             Err(error) => (None, Some(error)),
@@ -676,7 +714,7 @@ impl Engine {
         if g.status.state == "running" {
             return Err("A native installation is already running".into());
         }
-        let mut plan = current_plan(&g)?;
+        let mut plan = self.maintenance_plan(&g)?;
         let original = plan.clone();
         let git = git_path().ok_or("Git is not available; install Git first")?;
         if scope == UpdateScope::Torch {
@@ -696,9 +734,16 @@ impl Engine {
         } else {
             enable_gguf_upgrade(&mut plan);
         }
-        // The user asked to change this environment: stop only our own backend first.
-        if self.backend.active() {
-            self.backend.stop();
+        let previous = g.approved.clone();
+        let active = self.stop_for_maintenance();
+        if let Some(previous) = &previous {
+            if let Err(error) = previous.validate() {
+                crate::logs::push(
+                    crate::logs::Source::Deas,
+                    &format!("ERROR: Update refused after owned shutdown: {error}"),
+                );
+                return Err(error);
+            }
         }
         // A Torch change is recorded only after its verify step passes (in `launch`).
         g.repair = Some(if scope == UpdateScope::Torch {
@@ -713,24 +758,27 @@ impl Engine {
             ..Status::default()
         };
         launch(
-            self.inner.clone(),
+            self.clone(),
             g.cancel.clone(),
             plan,
             git,
             Some((reinstall, scope)),
+            Some((active, previous)),
         );
         Ok(g.status.clone())
     }
 }
 /// Run provisioning (`refresh=None`) or an update of the existing environment in the background.
 fn launch(
-    inner: Arc<Mutex<Inner>>,
+    engine: Engine,
     cancel: Arc<AtomicBool>,
     plan: Plan,
     git: PathBuf,
     refresh: Option<(bool, UpdateScope)>,
+    resume: Option<(bool, Option<crate::backend::Approved>)>,
 ) {
     tauri::async_runtime::spawn(async move {
+        let inner = engine.inner.clone();
         let result = match refresh {
             None => provision(&plan, &git, &inner, &cancel).await,
             Some((reinstall, scope)) => {
@@ -766,6 +814,19 @@ fn launch(
         }
         g.status.error = result.err();
         g.status.step_id = None;
+        if let Some((active, previous)) = resume {
+            // Failed/cancelled updates may resume only when the original launch proof still holds.
+            if g.approved.is_none() {
+                g.approved = previous.filter(|approved| approved.validate().is_ok());
+            }
+            // Keep the engine locked until startup is issued: no terminal-status/start race.
+            if let Err(error) = engine.resume_after_maintenance(active, &g) {
+                g.status.error = Some(match g.status.error.take() {
+                    Some(original) => format!("{original}. {error}"),
+                    None => error,
+                });
+            }
+        }
     });
 }
 #[tauri::command]
@@ -802,26 +863,54 @@ pub fn native_install_open(
     engine.open_existing(&plan_id, confirmed)
 }
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub fn native_install_update(
+pub async fn native_install_update(
     reinstall: bool,
     confirmed: bool,
     scope: Option<UpdateScope>,
-    engine: tauri::State<'_, Engine>,
-    operations: tauri::State<'_, crate::FolderOperations>,
-    downloads: tauri::State<'_, crate::downloads::DownloadEngine>,
-    jobs: tauri::State<'_, crate::jobs::Jobs>,
+    app: tauri::AppHandle,
 ) -> Result<Status, String> {
-    let _guard = operations.enter()?;
-    if downloads.status()?.state == "running" {
-        return Err(
-            "Wait for downloads before updating the environment; no download was stopped".into(),
-        );
-    }
-    if jobs.workbench_busy()? {
-        return Err("Wait for running Studio jobs before updating; no job was stopped".into());
-    }
-    engine.update(reinstall, confirmed, scope.unwrap_or_default())
+    use tauri::Manager;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    // The worker owns the folder gate until asynchronous mutation and resume have finished.
+    tauri::async_runtime::spawn_blocking(move || {
+        let operations = app.state::<crate::FolderOperations>();
+        let engine = app.state::<Engine>();
+        let result = (|| {
+            let guard = operations.enter()?;
+            if app
+                .state::<crate::downloads::DownloadEngine>()
+                .status()?
+                .state
+                == "running"
+            {
+                return Err(
+                    "Wait for downloads before updating the environment; no download was stopped"
+                        .into(),
+                );
+            }
+            if app.state::<crate::jobs::Jobs>().workbench_busy()? {
+                return Err(
+                    "Wait for running Studio jobs before updating; no job was stopped".into(),
+                );
+            }
+            let status = engine.update(reinstall, confirmed, scope.unwrap_or_default())?;
+            Ok((guard, status))
+        })();
+        match result {
+            Ok((_guard, status)) => {
+                let _ = sender.send(Ok(status));
+                while !engine.installation_idle() {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+            Err(error) => {
+                let _ = sender.send(Err(error));
+            }
+        }
+    });
+    receiver
+        .await
+        .map_err(|e| format!("Update worker failed: {e}"))?
 }
 /// Read-only check for the PyTorch-only update: from → to and why it is blocked, if it is.
 #[tauri::command]

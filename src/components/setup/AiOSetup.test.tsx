@@ -165,8 +165,9 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_backend_start')).toHaveLength(1);
   fireEvent.click(screen.getByRole('tab',{name:'Backend'}));await waitFor(()=>expect(document.querySelector('[data-backend-state]')?.textContent).toContain('Starting…'));
  });
- it('restores and autostarts a checked remembered environment by default',async()=>{
-  nativeFixture();localStorage.removeItem('deas.pref.backend.autostart');localStorage.setItem('deas.pref.install.root','"/custom/env"');
+ it.each(['default','running','stopped'])('restores the checked environment respecting one-shot update state: %s',async resume=>{
+  nativeFixture();localStorage.setItem('deas.pref.backend.autostart',resume==='running'?'false':'true');localStorage.setItem('deas.pref.install.root','"/custom/env"');
+  if(resume!=='default')localStorage.setItem('deas.pref.backend.resumeAfterUpdate',JSON.stringify(resume));
   vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_llm_read')return defaultLlmConfig;if(c==='native_llm_models')return {models:[],warnings:[]};
    if(c==='native_files_present')return [true];
    if(c==='native_install_defaults')return defaults;
@@ -175,8 +176,10 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
    if(c==='native_install_open')return {state:'succeeded',stepId:null,logs:[],error:null};
    return {state:c==='native_backend_start'?'starting':'stopped',endpoint:null,logs:[],error:null,generationReady:false};
   });
-  mount();await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
-  expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true});
+  mount();await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_install_open',{planId:'reopen',confirmed:true}));
+  if(resume==='stopped'){await screen.findByRole('tab',{name:'Studio',selected:true});await act(async()=>{await new Promise(r=>setTimeout(r,20));});expect(invoke).not.toHaveBeenCalledWith('native_backend_start');}
+  else await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
+  expect(localStorage.getItem('deas.pref.backend.resumeAfterUpdate')).toBeNull();
   expect(vi.mocked(invoke).mock.calls.some(([c])=>c==='native_install_start')).toBe(false);
  });
  it('defaults backend autostart on and remembers the Settings switch being disabled',async()=>{

@@ -60,6 +60,8 @@ export default function App(){
  const forgeOpened=useRef(false);if(tab==='forge')forgeOpened.current=true;
  const chatOpened=useRef(false);if(tab==='chat')chatOpened.current=true;
  const tveOpened=useRef(false);if(tab==='tve')tveOpened.current=true;
+ const [forgeHost,setForgeHost]=useState<HTMLDivElement|null>(null);
+ const [h3ForgeAvailable,setH3ForgeAvailable]=useState(false);
  const [forgeCanvasContext,setForgeCanvasContext]=useState<ForgeCanvasContext>();
  const [canvasSendError,setCanvasSendError]=useState('');
  const sendToGenerate=(positive:string,negative:string,canvas?:ForgeSendCanvas)=>{
@@ -95,9 +97,9 @@ export default function App(){
    <AiOSetup studioTab={tab} onStudioTab={setTab} onStudioActiveChange={setStudioActive} onConnectExisting={connectExisting} onEnvironment={setEnvironment} studio={<div id="studio-workspace" className="studio-workspace">
     <div className="studio-columns">
     <div className="studio-main">
-    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onCanvasContext={setForgeCanvasContext} onOpenVideoPost={()=>setTab('tve')}/></div>
+    <div className="studio-generate-host" hidden={tab==='forge'||tab==='chat'||tab==='tve'}><Workbench planVisible={tab==='map'} endpoint={endpoint} roots={roots} root={environment?.root} incoming={sent} onCanvasContext={setForgeCanvasContext} onOpenVideoPost={()=>setTab('tve')} forgeHost={forgeHost} forgeActive={studioActive&&tab==='forge'} onOpenPromptForge={()=>setTab('forge')} onH3ForgeAvailable={setH3ForgeAvailable}/></div>
     {tveOpened.current&&<div className="studio-generate-host" hidden={tab!=='tve'}><TrueVideoEnhancer endpoint={endpoint} roots={roots}/></div>}
-    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}>{canvasSendError&&<p className="error-message" role="alert">{t(canvasSendError)}</p>}<PromptForge active={studioActive&&tab==='forge'} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate} canvasContext={forgeCanvasContext}/></div>}
+    {forgeOpened.current&&<div className="studio-generate-host" hidden={tab!=='forge'}>{canvasSendError&&<p className="error-message" role="alert">{t(canvasSendError)}</p>}<div ref={setForgeHost} hidden={!h3ForgeAvailable}/><div hidden={h3ForgeAvailable}><PromptForge active={studioActive&&tab==='forge'&&!h3ForgeAvailable} endpoint={endpoint} root={environment?.root} inputDir={roots?.input} outputDir={roots?.output} onSend={sendToGenerate} canvasContext={forgeCanvasContext}/></div></div>}
     {chatOpened.current&&<div className="studio-generate-host" hidden={tab!=='chat'}><Chat active={studioActive&&tab==='chat'} endpoint={endpoint} root={environment?.root} onSend={sendToGenerate}/></div>}
     {tab==='map'&&<details className="run-plan-diagnostics" open={active!==null}><summary>{t('studio.plan.diagnostics')}</summary>
     <section className="neural-field" aria-label={t('studio.features')}><div className="field-caption"><span className="crosshair" aria-hidden="true">+</span>{t('studio.map')} <span>{t('studio.select')}</span></div>

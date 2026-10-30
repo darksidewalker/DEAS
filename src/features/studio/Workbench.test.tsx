@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -2624,12 +2625,13 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
 test.each(['ltx-2','wan','sdxl','minimax-h3'])('Continuity is absent from non-H3-video pipelines (%s)',async family=>{
  const model={category:'diffusion_models',name:'model.safetensors',path:'/m/model.safetensors',size:1,info:null,family};
  vi.mocked(scanModels).mockResolvedValue(family==='ltx-2'?[...ltxModels]:[model]);
- render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
+ render(<I18nProvider><Workbench onOpenPromptForge={vi.fn()} endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  await screen.findByRole('option',{name:family==='ltx-2'?'LTX2/ltx.safetensors':'model.safetensors'});
  for(const pipeline of family==='ltx-2'||family==='wan'?['t2v','i2v','v2v','ref2v']:['t2i','i2i']){
   fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipeline}});
   expect(screen.queryByRole('button',{name:'Continuity'})).toBeNull();
   expect(screen.queryByRole('dialog',{name:'Continuity'})).toBeNull();
+  expect(document.querySelector('[data-open-prompt-forge]')).toBeNull();
  }
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
@@ -2671,10 +2673,21 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
   if(c==='native_forge'){const x=a as {route:string;body:Record<string,unknown>};calls.push(x);return x.route==='models'?{models:[{id:'m',label:'M'}],errors:{},creativity:['balanced'],shot_counts:['Auto'],default_shots:'Auto'}:{simple_prompt:'a scene',warnings:[]};}
   return {path:(a as {path:string})?.path,parent:'/env',entries:['first.png','other.png'].map(name=>({name,path:`/env/ComfyUI/input/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1})),truncated:false};
  });
- render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ function Workspace(){
+  const [host,setHost]=useState<HTMLDivElement|null>(null),[tab,setTab]=useState('generate');
+  return <><button onClick={()=>setTab('generate')}>Return to Generate</button><button onClick={()=>setTab('forge')}>Return to Forge</button>
+   <div hidden={tab!=='generate'}><Workbench forgeHost={host} onOpenPromptForge={()=>setTab('forge')} endpoint="http://127.0.0.1:7801" root="/env" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></div>
+   <div ref={setHost} hidden={tab!=='forge'}/></>;
+ }
+ render(<I18nProvider><Workspace/></I18nProvider>);
+ expect(document.querySelector('[data-open-prompt-forge]')).toBeNull();
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'first.png'}));adopt();
  await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
+ expect(document.querySelector('.wb-settings [data-ref-people]')).toBeNull();
+ fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
+ expect(document.querySelector('[data-h3-forge-tab]')).toBeTruthy();
+ expect(screen.queryByRole('dialog',{name:'Prompt Forge'})).toBeNull();
  fireEvent.click(screen.getByText('People & order'));
  const people=screen.getByRole('button',{name:'Character 2 in first.png'});
  expect(people.getAttribute('aria-pressed')).toBe('false');
@@ -2683,7 +2696,6 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  expect(people.getAttribute('aria-pressed')).toBe('true');
  fireEvent.click(people);expect(people.getAttribute('aria-pressed')).toBe('false');
  fireEvent.click(people);
- fireEvent.click(screen.getByRole('button',{name:'Prompt Forge'}));fireEvent.click(screen.getByRole('button',{name:'LLM · Prompt Forge'}));
  await screen.findByRole('option',{name:'M'});
  fireEvent.change(screen.getByRole('textbox',{name:'Card of Character 2'}),{target:{value:'adult traveller, blue coat'}});
  fireEvent.change(screen.getByRole('textbox',{name:'Idea or prompt to enhance'}),{target:{value:'a walk'}});
@@ -2691,9 +2703,30 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  await screen.findByRole('textbox',{name:'Result'});
  expect(calls.find(c=>c.route==='h3')!.body).toMatchObject({mode:'I2VA',easy:false,references:[{path:'first.png',who:[2],who_axis:'y'}],cast:{2:'adult traveller, blue coat'}});
  fireEvent.click(screen.getByRole('button',{name:'Apply'}));
+ fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
+ expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','a scene');
+ fireEvent.click(screen.getByRole('button',{name:'Return to Forge'}));
+ expect(screen.getByRole('textbox',{name:'Card of Character 2'})).toHaveProperty('value','adult traveller, blue coat');
+ expect(screen.getByRole('textbox',{name:'Result'})).toHaveProperty('value','a scene');
+ expect(document.querySelector('[data-forge-draft="1"]')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
  fireEvent.click(screen.getByRole('button',{name:'other.png'}));adopt();
+ fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
  fireEvent.click(screen.getByText('People & order'));
  expect(screen.getByRole('button',{name:'Character 2 in other.png'}).getAttribute('aria-pressed')).toBe('false');
+ fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
+ choosePipe('Multi-reference → Video');
+ fireEvent.click(menuOf('first.png').getByRole('menuitem',{name:'Add as reference'}));
+ fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Character 2 in first.png'}));
+ fireEvent.change(screen.getByRole('combobox',{name:'Character order in first.png'}),{target:{value:'z'}});
+ fireEvent.click(screen.getByRole('button',{name:'Regenerate'}));
+ await waitFor(()=>expect(calls.filter(c=>c.route==='h3')).toHaveLength(2));
+ expect(calls.filter(c=>c.route==='h3')[1].body).toMatchObject({mode:'REF2VA',references:[{path:'first.png',who:[1,2],who_axis:'z'}]});
+ fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Edit first.png'}));
+ expect(within(screen.getByRole('dialog',{name:'Edit first.png'})).getByRole('combobox',{name:'Character order in first.png'})).toHaveProperty('value','z');
 });
 
 test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','video'].flatMap(sourceMode=>
@@ -2933,7 +2966,7 @@ test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s re
 });
 
 test.each([
- ['Image → Video','ref.png','clip.mp4','Use as input'],
+ ['Image → Video','ref.png','clip.mp4','Use as first frame'],
  ['Video → Video','clip.mp4','ref.png','Use as source video'],
 ])('Media context menu selects the clicked %s input without preview adoption or execution',async(pipeline,name,other,label)=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
@@ -2950,6 +2983,56 @@ test.each([
  expect(document.querySelector('[data-browsed-preview]')).toBeNull();
  expect([...document.querySelectorAll('.wb-active')].some(el=>el.textContent?.includes(name))).toBe(true);
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('Image → Video media menu assigns first, last or both frame roles',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
+ await screen.findByRole('button',{name:'ref.png'});
+ const last=()=>[...document.querySelectorAll('.wb-resolution-hint')].find(el=>el.textContent?.startsWith('Last frame:'))?.textContent??'';
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first and last frame'}));
+ expect([...document.querySelectorAll('.wb-active')].some(el=>el.textContent?.includes('ref.png'))).toBe(true);
+ expect(last()).toContain('ref.png');
+ // The image is now the last frame, so the menu offers removal; "first frame" alone drops the last role.
+ expect(menuOf('ref.png').getByRole('menuitem',{name:'Remove last frame'})).toBeTruthy();
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first frame'}));
+ expect(last()).toBe('');
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as last frame'}));
+ expect(last()).toContain('ref.png');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('MiniMax H3 Image → Video runs a last frame alone (L2VA) and badges frame roles in Media',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/u1.png');
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('plain','failed'),error:'fixture'});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'ref.png'});
+ await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
+ const badge=()=>screen.getByRole('button',{name:'ref.png'}).closest('li')!.getAttribute('data-mark');
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as last frame'}));
+ expect(badge()).toBe('Last frame');
+ expect(document.querySelector('[data-frame-people="first"]')).toBeNull();
+ const img=screen.getByRole('img',{name:'ref.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
+ fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'fixed'}});
+ fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1024'}});
+ fireEvent.change(screen.getByLabelText('Height'),{target:{value:'768'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'minimax-h3',h3:{mode:'L2VA',references:[{slot:1,image:'deas-inputs/u1.png'}]}});
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first frame'}));
+ expect(badge()).toBe('First frame');
+ fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first and last frame'}));
+ expect(badge()).toBe('First frame + Last frame');
 });
 
 test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference → Video sends image keyframes at their seconds',async()=>{
