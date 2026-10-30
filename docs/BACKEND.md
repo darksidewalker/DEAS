@@ -8,20 +8,15 @@ Setup is one automatic path in the **Backend** tab, which sits in the top tab ba
 
 Shared `NeuralBlob`, `NeuralPath`, `NeuralGraph` and reusable `NeuralIncludedFeatures` components serve both setup and studio features. Historical animated-road settings are not the current setup contract; preserve reduced-motion behavior and avoid continuous repaints. See [primitive ownership and references](NEURAL-PRIMITIVES.md).
 
-![Install-to-studio handoff with the owned backend running — browser fixture](../assets/deas-studio-handoff-fixture-1440.png)
-
-
 ## Folder selection and relocation
 
 Native folder selection resolves symlink aliases to their real existing directories before planning; installation execution still refuses symlink substitutions. The first installation review offers optional existing models, input and output folders. They remain an in-memory draft until Start install authorizes the immutable plan; no folder settings or data are written by selection alone. After success, those paths are handed directly to Studio; selecting them again in Settings is not required. Studio rescans a changed model root even if an earlier scan is still pending and ignores results/errors from the old root. Choose the models root containing category folders such as `checkpoints`, `diffusion_models` and `loras`, not an individual category folder.
 
 Relocation currently supports Linux; other platforms reject movement without changing files. After installation, the Backend tab separates saving paths from the explicitly selected **Move files & save folders** action. Moving checks all changed trees for conflicting filenames before copying; it never overwrites a destination file. Close other applications using these folders, stop the owned backend and finish downloads first. Copies are verified before settings are switched and originals removed. Errors preserve original data; cleanup warnings identify retained duplicates. Symlinks inside relocated trees and overlapping trees are rejected rather than followed.
 
-
 ## Language plugins
 
 German, English, Turkish, French, Simplified Chinese and Japanese menus/texts live in decentralized module-owned `locales/*.json` files. Data-only manifests under `src/languages/<id>/manifest.json` register bundled UX languages. Switching language preserves IDs and choices; key parity and source-reference checks run in tests. Raw technical logs/errors remain original. See [localization contract](LOCALIZATION.md).
-
 
 ## Native installer coverage
 
@@ -30,7 +25,6 @@ Rust directly implements verified uv bootstrap, managed Python, isolated venv, C
 Successful native provisioning or checked reopening authorizes the owned backend. It auto-starts by default after installation/open and on app restart; disable **Auto-start backend** in **Backend** for explicit manual startup. Manual Stop is not automatically undone. Native manifests and launch files are checked before reuse, and an OS-held environment lock prevents another DEAS instance from starting the same environment. Lifecycle commands verify exact child/listener ownership and real bounded ComfyUI API responses, expose status/logs and stop only the owned process group. They do not adopt arbitrary running listeners or imply generation readiness. Linux local-process/HTTP fixtures and full newly installed CPU/NVIDIA ComfyUI stacks are verified, including an RTX 5090 CUDA computation and owned service launch.
 
 Read [the port ledger](INSTALLER-INTEGRATION.md) and [native IPC details](../src-tauri/README.md) for unsupported options and verification limits. Node requirements explicitly resolve NVIDIA VFX wheels and select backend-specific llama-cpp-python binary wheels, following the reference installer; unavailable wheels fail without a source build or silent CPU fallback. Complete selected nodepack installation, required Director/Continuity registration and owned API lifecycle are verified on the RTX 5090; model generation and every included feature recipe remain separate acceptance work. Full Go-installer parity is unfinished.
-
 
 ## Adopting a foreign installation
 

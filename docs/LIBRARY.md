@@ -8,10 +8,7 @@ Library is a main tab and Provider authorization is a pane in **Backend**'s left
 
 Provider tokens are optional and origin-bound. The UI defaults to the OS credential store with an explicit session-only opt-out; persistence/restoration never falls back to plaintext. Ticked files from any card collect in a **Selected for download** overview; **Download all** builds one immutable native plan per provider and folder and runs them in sequence. Files go to their managed ComfyUI folder, or to a chosen parent with an optional new subfolder. Staged files are inert data, not installed models or executed workflows. Linux scratch HTTP transfers and UI/IPC fixtures are tested; Windows write paths exist in code but are not runtime-verified. Live authenticated providers, real OS-store operation and large-download resume remain unverified/unsupported. See [catalog examples, contracts and limits](DOWNLOAD-PLUGINS.md).
 
-![Provider authorization pane — browser fixture](../assets/deas-downloads-fixture-1440.png)
-
 The Library sorts catalog cards and loaded file rows by version publication date (newest first), or by name (A–Z). Undated entries come last. Bundled dates are a catalog snapshot; live CivitAI user/search requests ask for newest results. Name sorting covers loaded results, not unseen pages. All entries are always listed, and a base-model filter narrows model lists. The 18+ badge reflects the provider's model classification, not the preview image rating. Opening a CivitAI model lists individual files across its versions (up to 50); quantizations are selected explicitly, never downloaded together automatically. Conflicting destination filenames block the plan instead of overwriting files.
-
 
 ## Catalog and Installed views
 

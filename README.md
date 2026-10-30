@@ -6,7 +6,7 @@ A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model
 
 [Documentation](docs/README.md) · [Getting started](docs/GETTING-STARTED.md) · [News](docs/NEWS.md) · [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
-![DEAS first start — Setup screen with detected GPU defaults, provider authorization and the installation review; native Linux render, no installation run](assets/deas-first-start-0.1.38.png)
+![DEAS Studio — Text → Image with a MOSS-Image model: generation settings on the left, the shown output with its image toolbar, prompt fields, queue, and the Media dock with the Output folder](assets/deas-studio.png)
 
 ## Install and start
 

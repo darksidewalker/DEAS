@@ -10,9 +10,6 @@ Local language GGUFs are discovered recursively in the existing **Models folder 
 
 **Test model** lists discovered local and remote models together and chooses a model only for that test request, without saving a default. A failed request never silently switches to another model. Opening settings reads model lists but never generates text. No server, package or model is installed or downloaded by this panel. API-key authentication remains separate work.
 
-![Shared LLM backend settings — browser IPC fixture, not a live server reply](../assets/deas-llm-fixture-1440.png)
-
-
 If an LLM entry point (including Prompt Forge, inline writers and Director/Continuity helpers) is clicked without a configured endpoint or discoverable local language model, DEAS opens **Backend → LLM backend** with setup guidance instead of an empty writer. The source draft stays mounted. This navigation does not download, start a model or submit text/media. A configured service's connection failure remains an error, not evidence that configuration is missing. Before an environment has been installed/opened, Backend explains that prerequisite; runtime LLM settings cannot be used without one.
 
 ## Prompt Forge
@@ -46,7 +43,6 @@ Prompt Forge writes or enhances prompts in the dialect of the selected model. It
 
 Baseline writers need DaSiWa node pack 0.5.30 or newer on the backend (**Backend → Upgrade**); Director features additionally need their corresponding Forge/Cast/people routes. The **Generate hammer** supports bounded H3 Cast/scene/pose cards, people boxes, explicit Cancel and run-context references; see [Studio controls and limitations](STUDIO.md#prompt-controls). These additions do not extend the separate Prompt Forge tab. The Generate hammer also accepts manually assigned first/last-frame character cards for I2VA/FL2VA/L2VA; generation graphs remain unchanged. Streaming, automatic card reading and continuity drafts remain planned.
 
-
 For a conversation about prompts (workshopping one, asking how a model is prompted), see [Chat](CHAT.md).
 
 ## Continuity Next action (checkpoint sources)
@@ -70,7 +66,6 @@ Generate's **Wildcards** dock tab sits beside LoRAs and also opens from the hamm
 Activation is opt-in and remembered with the rules. Manual or Forge-written prompts remain the base text; the original `DaSiWa_WildcardPresetPromptBuilder` runs before both text encoders and appends the selected fragments. **New picks** rerolls alternatives; **Random select** explicitly replaces the selection with 1–10 available entries. **New picks on every generation** rerolls alternatives only, never the selected subjects. The original node handles weighting, category order and budget pruning; DEAS has no second prompt-expansion engine.
 
 An active badge beside the prompts opens the rules; **Disable wildcards** stops applying them without clearing the selection or base text. Job metadata records the submitted rules independently of later edits; **Use these settings** restores a job's rules, while applying ordinary image metadata disables augmentation to avoid adding it twice to an already resolved prompt. With the DaSiWa metadata saver installed, output PNG metadata receives the exact evaluated positive/negative strings. The text fields and job intent show base text, not a prediction of a future random pick. Missing library/node support reports an error instead of silently dropping active rules. Custom libraries remain managed by the node pack; after changing its file, restart that backend as documented by the node.
-
 
 ## Troubleshooting and boundaries
 

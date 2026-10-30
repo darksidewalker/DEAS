@@ -30,8 +30,6 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Run Plan · 
 | Original Comfy editor and workflow import | [Comfy tab](COMFY.md) |
 | Logs, source/level/search filters, copy/export | [Logs](LOGS.md) |
 
-![Setup review — browser IPC fixture](../assets/deas-automatic-fixture-1440.png)
-
 ## News, history and attribution
 
 [News](NEWS.md) · [Changelog](CHANGELOG.md) · [Credits and upstream notices](CREDITS.md)

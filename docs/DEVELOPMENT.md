@@ -23,7 +23,6 @@ npm run tauri build
 
 The frontend development server uses port 1420. Engine discovery is an explicit read-only action; the initial local endpoint is `http://127.0.0.1:7801`. Connect to a compatible ComfyUI API, not an authenticated HTML login page. Browser mode may require backend CORS configuration; the native shell uses bounded Rust HTTP requests.
 
-
 ## Local Linux executable
 
 The locally built executable is `artifacts/deas-linux-amd64`. Launch it directly:
@@ -49,7 +48,6 @@ python tools/verify_downloads.py http://127.0.0.1:1420
 python tools/verify_languages.py http://127.0.0.1:1420
 ```
 
-
 ## Cross-platform paths
 
 See [Windows/Linux path compatibility](PATH-COMPATIBILITY.md) for native paths versus exact ComfyUI identifiers, `CARGO_TARGET_DIR`, portable script arguments and Linux-only diagnostic exceptions.
@@ -62,7 +60,6 @@ See [Windows/Linux path compatibility](PATH-COMPATIBILITY.md) for native paths v
 - **ComfyUI + DaSiWa nodes:** model execution and media processing.
 
 Feature discovery does not guarantee a workflow is ready: recipe prerequisite discovery (nodes, models, loaders) is implemented, but GPU execution and model compatibility are separate acceptance checks. Built-in manifests are trusted code, not a sandbox for downloaded plugins.
-
 
 ## Execution-only backend
 
@@ -82,13 +79,9 @@ The Engine panel offers a separate read-only execution-API check. It probes the 
 
 Studio jobs have scoped cancellation (see [native IPC](../src-tauri/README.md)); this diagnostic panel keeps its own one-shot flow. Broad model/native-webview acceptance remains open; individual real runs are recorded in the verification journal.
 
-![Diagnostic job preview — test fixture, not model-generated](../assets/deas-jobs-fixture-1440.png)
-
-
 ## Safety
 
 Development does not install models, alter existing ComfyUI environments or stop running user services. Managed setup/updates require explicit plan authorization and must preserve projects, models and media. DEAS must only manage backend processes it owns.
-
 
 ## Local development notes
 
