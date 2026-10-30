@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.0 (published)
+
+- GitHub release `v0.2.0` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.0), annotated tag on source commit `ba64814bf60a41e2368aedd7ac989dd747b2f62e` (tree `66aa4053cbb71082f4f800f865acea1e3c79d8e3`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); hosted CI runners are unavailable, so no CI evidence.
+- Gates on that tree: typecheck; 125 core tests; 1246 UI tests (69 files); `cargo test --locked -- --test-threads=1` (650 lib tests); `cargo fmt --check`; `cargo clippy --locked --all-targets -D warnings` for Linux and `cargo xwin clippy` for `x86_64-pc-windows-msvc`; `cargo xwin check --all-targets`. The release work first fixed the Windows target: `RetainedSource::path` was Linux-only yet used by `native_video_post_upload`, and `test_retained` was Linux-only; plus a clippy `result_large_err` and an unused import in the TVE backend files.
+- Assets (server-side digest and size verified against the local files before publishing):
+```
+b1dd4d3b9b2844ed0d2e1b1bbb91f215f246dce27fc4fd43633cee907c9460cf  BUILD-MANIFEST.json
+a6beeee77047f5613842868b9c59a8187657556762ee9fba1757497b769fd69f  deas.exe
+65c467c2a6dd1def7d4309fe1bc884a8ebedb46f68baf3b452c954a8e95da5f8  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39 (host build, not the Ubuntu 22.04 baseline); `ldd` reports no missing libraries. Both binaries embed the built frontend chunk `index-gY58hBGK.js`. `deas.exe` is a cargo-xwin MSVC cross-build (benign LNK4099 missing-PDB linker warnings); no NSIS installer. Not verified: Windows runtime, native click-through of the new 0.2.0 UI.
+
 ## 0.2.0 BETA — version and publication hygiene
 
 - The current source moves from ALPHA to **BETA**; all six application version fields in the npm/Tauri/Cargo manifests and lockfiles agree on `0.2.0`. Existing platform/model acceptance limits remain unchanged. `package.json` keeps `private: true` to prevent accidental npm publishing; this is independent of GitHub repository visibility.
