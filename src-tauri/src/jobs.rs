@@ -1779,11 +1779,13 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
             let subfolder = image["subfolder"]
                 .as_str()
                 .ok_or("Missing output subfolder")?;
+            // ComfyUI on Windows reports `sub\dir`; history and the relocation repair store `/`.
+            let subfolder = subfolder.replace('\\', "/");
             if filename.len() > 255
                 || filename.contains('/')
                 || !safe_path(filename, false)
                 || subfolder.len() > 255
-                || !safe_path(&subfolder.replace('\\', "/"), true)
+                || !safe_path(&subfolder, true)
                 || image["type"] != "output"
             {
                 return Err("Unsafe diagnostic output reference".into());

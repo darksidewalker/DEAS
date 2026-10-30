@@ -578,10 +578,13 @@ fn windows_model_identifiers_survive_compilation_without_relaxing_input_paths() 
 }
 
 #[test]
-fn windows_output_subfolders_are_preserved_and_cannot_escape() {
+fn windows_output_subfolders_are_normalized_and_cannot_escape() {
     let entry = |folder: &str| json!({"outputs":{"7":{"images":[{"filename":"image.png","subfolder":folder,"type":"output"}]}}});
-    let folder = r"raw\image\2026-10-26";
-    assert_eq!(outputs(&entry(folder)).unwrap()[0]["subfolder"], folder);
+    // Stored with `/` like the relocation repair; history validation and availability split on `/` only.
+    assert_eq!(
+        outputs(&entry(r"raw\image\2026-10-26")).unwrap()[0]["subfolder"],
+        "raw/image/2026-10-26"
+    );
     for bad in [
         r"..\secret",
         r"raw/..\secret",
