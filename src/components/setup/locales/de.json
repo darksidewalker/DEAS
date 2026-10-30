@@ -1,4 +1,6 @@
 {
+  "setup.environmentFolder": "Umgebungsordner",
+  "setup.openEnvironmentFolder": "Umgebungsordner öffnen",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
   "setup.comfy.title": "ComfyUI-Workflow-Editor",

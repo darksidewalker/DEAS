@@ -54,7 +54,7 @@
   },
   {
     "id": "minimax-h3", "multiple": 32, "name": "MiniMax H3", "forge": "MiniMax H3", "loader": "diffusion", "pipelines": ["i2i", "t2v", "i2v", "v2v", "ref2v"],
-    "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae"], "audioVaes": ["h3_audio_vae"],
+    "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"],
     "defaults": {"width": 1024, "height": 768, "steps": 4, "cfg": 1, "sampler": "euler", "scheduler": "simple"},
     "video": {"fps": 24, "seconds": 5, "fixedFps": true},
     "architectures": ["minimax-h3"], "bases": ["MiniMax H3"],

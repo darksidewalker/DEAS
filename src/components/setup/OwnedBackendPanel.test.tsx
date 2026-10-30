@@ -181,6 +181,24 @@ async function installFixture(result:'succeeded'|'failed') {
  if(result==='succeeded')await waitFor(()=>expect(screen.getByRole('tab',{name:'Studio'}).getAttribute('aria-selected')).toBe('true'));
 }
 describe('AiO integration — mock installation/IPC fixtures only',()=>{
+ it.each([false,true])('shows the installed environment and opens its exact folder (failure: %s)',async fail=>{
+  await installFixture('succeeded');
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
+  expect(screen.getByLabelText('Environment folder').textContent).toContain('/data/mock-DEAS');
+  const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_media_reveal'){if(fail)throw Error('fixture file manager unavailable');return;}
+   return base(command,args);
+  });
+  fireEvent.click(screen.getByRole('button',{name:'Open environment folder'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_reveal',{path:'/data/mock-DEAS'}));
+  if(fail)expect((await screen.findByRole('alert')).textContent).toContain('fixture file manager unavailable');
+ });
+ it('does not offer an environment folder before successful installation',async()=>{
+  await installFixture('failed');
+  expect(screen.queryByLabelText('Environment folder')).toBeNull();
+  expect(screen.queryByRole('button',{name:'Open environment folder'})).toBeNull();
+ });
  it('exposes a separate explicit backend start only after succeeded install',async()=>{
   await installFixture('succeeded');
   // Success moves to Studio; Backend exposes lifecycle/update actions without an installer submenu.

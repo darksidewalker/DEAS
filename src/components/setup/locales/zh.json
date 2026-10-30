@@ -1,4 +1,6 @@
 {
+  "setup.environmentFolder": "环境文件夹",
+  "setup.openEnvironmentFolder": "打开环境文件夹",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
   "setup.comfy.title": "ComfyUI 工作流编辑器",

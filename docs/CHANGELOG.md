@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3 BETA
+
+- Backend now shows the installed environment’s full path with an **Open environment folder** button after installation or checked reopening.
+
+- **MiniMax Sol-H3-VAE in the H3 VAE picker.** `minimax_h3_sol_vae*` files (the distilled 24-layer non-causal decoder on the stock H3 encoder) are now offered as H3 video VAEs. Loading them needs a ComfyUI backend that includes upstream commit `0df1646a` (Support MiniMax Sol-H3-VAE, #17411); older backends load the file encoder-only and fail to decode.
+- **Backend → Environment folder** shows the installed DEAS environment's full path with an **Open environment folder** button (also while the backend is stopped). An uninstalled draft is never shown as installed.
+- The startup splash stays visible for at least 1.5 s, so a fast fresh start no longer flashes it away unreadably.
+
 ## 0.2.2 BETA
 
 - **Saving folders restarts a running backend.** ComfyUI reads its model/input/output folders only at start, so changing folders after the backend was running left it on the old paths: the Library listed models (e.g. a MOSS diffusion model) that the backend then rejected as "not available on this backend". **Save folders** now restarts a running owned backend with the new folders (a stopped one keeps them for its next start), never over a queued/running generation — then it says so and leaves Restart to you.

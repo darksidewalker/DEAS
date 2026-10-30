@@ -1,5 +1,11 @@
 # News
 
+## 0.2.3 BETA
+
+- MiniMax H3: the new Sol VAE (`minimax_h3_sol_vae_fp16.safetensors`) shows up in the VAE picker. Update ComfyUI first — it needs the upstream Sol-H3-VAE support.
+- Backend shows where your DEAS environment is installed, with a button to open the folder.
+- The startup splash no longer just flashes on fast starts.
+
 ## 0.2.2 BETA
 
 - Changing folders in Backend → Settings now restarts a running backend, so newly pointed model folders (e.g. MOSS) are found right away. A running generation is never interrupted; you get a note to restart afterwards.
