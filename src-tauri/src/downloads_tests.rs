@@ -139,12 +139,12 @@ fn strict_catalog_and_extension() {
             .as_array()
             .unwrap()
             .len(),
-        11 + 35
+        14 + 35
     );
     let bundled = c
         .entries
         .iter()
-        .filter(|e| e.id.starts_with("civitai-") && e.id != "civitai-creator")
+        .filter(|e| e.id.starts_with("civitai-") && !e.id.starts_with("civitai-creator"))
         .collect::<Vec<_>>();
     assert_eq!(bundled.len(), 35);
     assert!(bundled.iter().any(|e| e.auth) && bundled.iter().any(|e| e.media.is_some()));

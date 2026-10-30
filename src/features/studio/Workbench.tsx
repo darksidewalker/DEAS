@@ -45,7 +45,7 @@ import { CompareView } from './CompareView';
 import { PromptOverlay } from './PromptOverlay';
 import { PromptTextarea } from './PromptTextarea';
 import { createPortal } from 'react-dom';
-import { ForgeButton } from '../forge/ForgeButton';
+import { ForgeButton, HammerIcon } from '../forge/ForgeButton';
 import { applyRefPrefill, nextShot, promptStructure, refPrefill } from '../../lib/h3Prompt';
 import { dialectOf, labelCharacters, nativeTarget } from '../../lib/forge';
 import { PresetPanel } from '../presets/PresetPanel';
@@ -130,6 +130,8 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [dockHeight,setDockHeight]=usePref('studio.dock.height',defaultLayout.dock,isNumber);
  const [settingsWidth,setSettingsWidth]=usePref('studio.layout.settingsWidth',defaultLayout.settings,isNumber);
  const [queueWidth,setQueueWidth]=usePref('studio.layout.queueWidth',defaultLayout.queue,isNumber);
+ const [settingsHidden,setSettingsHidden]=usePref('studio.layout.settingsHidden',false,isBoolean);
+ const [dockHidden,setDockHidden]=usePref('studio.dock.hidden',false,isBoolean);
  const [bodyWidth,setBodyWidth]=useState(1000);
  const [sortPref,setSort]=usePref('studio.dock.sort','date',oneOf('date','name','size'));
  const [dockView,setDockView]=usePref<MediaView>('studio.dock.view','tiles',oneOf(...mediaViews));
@@ -860,7 +862,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const delta=(e.key===(vertical?'ArrowUp':'ArrowRight')?1:e.key===(vertical?'ArrowDown':'ArrowLeft')?-1:0)*(reverse?-1:1);
   if(e.key==='Home'||e.key==='End'||delta){e.preventDefault();set(e.key==='Home'?min:e.key==='End'?max:clamp(start+delta*(e.shiftKey?64:16),min,max));}
  };
- const columnHandle=(side:'settings'|'queue')=>{const left=side==='settings',size=left?sideSize:queueSize,min=left?220:128,max=left?sideMax:queueMax,set=left?setSettingsWidth:setQueueWidth;return <div className="wb-column-handle" role="separator" tabIndex={0} aria-orientation="vertical" aria-label={t(`studio.layout.${side}`)} title={t(`studio.layout.${side}`)} aria-controls={`studio-${side}`} aria-valuemin={min} aria-valuemax={max} aria-valuenow={size} onKeyDown={e=>resizeKey(e,size,min,max,set,false,!left)} onPointerDown={e=>dragPane(e,size,min,max,set,false,!left)}/>;};
+ // Arrow on a pane's edge line: fully hides the pane (state stays mounted) and shows it again.
+ const paneToggle=(hidden:boolean,setHidden:(v:boolean)=>void,pane:'settings'|'dock',controls:string,left?:number)=>{const label=t(`studio.layout.${pane}${hidden?'Expand':'Collapse'}`);return <button type="button" className="wb-pane-toggle" data-pane-toggle={pane} data-dir={pane==='settings'?(hidden?'right':'left'):(hidden?'up':'down')} aria-expanded={!hidden} aria-controls={controls} aria-label={label} title={label} style={left===undefined?undefined:{left}} onClick={()=>{dragCleanup.current();setHidden(!hidden);}}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>;};
+ const columnHandle=(side:'settings'|'queue')=>{const left=side==='settings',size=left?sideSize:queueSize,min=left?220:128,max=left?sideMax:queueMax,set=left?setSettingsWidth:setQueueWidth,locked=left&&settingsHidden;return <div className="wb-column-handle" role="separator" tabIndex={0} aria-orientation="vertical" aria-label={t(`studio.layout.${side}`)} title={t(`studio.layout.${side}`)} aria-controls={`studio-${side}`} aria-valuemin={min} aria-valuemax={max} aria-valuenow={size} data-locked={locked||undefined} onKeyDown={e=>{if(!locked)resizeKey(e,size,min,max,set,false,!left);}} onPointerDown={e=>{if(!locked)dragPane(e,size,min,max,set,false,!left);}}/>;};
  const shown=jobs.find(j=>j.id===selectedJob)??null;
  const paired=!!shown?.outputs.some(o=>o.role);
  const outputIndex=paired&&shown?.outputs[selectedOutput]?selectedOutput:0;
@@ -961,16 +965,16 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);};
  const mediaActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
   // Cover sources are audio files or videos with an audio track (core LoadAudio reads the first stream); images cannot be covered.
-  :pipeline==='cover'&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),onClick:()=>{setMusicSource(null);if(historyDraft)setHistorySourceSelected(false);}}:{label:t('studio.music.useSource'),onClick:()=>{setMusicSource(item);if(historyDraft)setHistorySourceSelected(true);}}]
+  :pipeline==='cover'&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),input:true,onClick:()=>{setMusicSource(null);if(historyDraft)setHistorySourceSelected(false);}}:{label:t('studio.music.useSource'),input:true,onClick:()=>{setMusicSource(item);if(historyDraft)setHistorySourceSelected(true);}}]
   :referenceMethod&&item.media==='image'&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=4&&t('studio.run.reference.max',{count:imageRefs.length,max:4}))||undefined}]
   // Frame roles like the Director: first (i2v input), last, or the same image as both; t2v takes a last frame only.
   // H3 can run on a last frame alone (L2VA), so there "last frame" moves the role off the input instead of adding it.
   :frameVideo&&item.media==='image'?[
-   ...(pipeline==='i2v'?[{label:t('studio.run.video.useFirst'),onClick:()=>{select(item);setLastOnlySrc(null);if(lastFrame?.src===item.src)setLastFrame(null);}}]:[]),
+   ...(pipeline==='i2v'?[{label:t('studio.run.video.useFirst'),input:true,onClick:()=>{select(item);setLastOnlySrc(null);if(lastFrame?.src===item.src)setLastFrame(null);}}]:[]),
    lastFrame?.src===item.src?{label:t('studio.run.video.removeLast'),onClick:()=>{setLastFrame(null);setLastOnlySrc(null);}}
     :{label:t('studio.run.video.useLast'),onClick:()=>{if(pipeline==='i2v'&&videoFamily==='minimax-h3'&&(lastOnly||!firstFrame||media?.src===item.src)){select(item);setLastOnlySrc(item.src);}setLastFrame(item);}},
    ...(pipeline==='i2v'?[{label:t('studio.run.video.useBoth'),onClick:()=>{select(item);setLastOnlySrc(null);setLastFrame(item);}}]:[])]
-  :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),onClick:()=>select(item)}]:[];
+  :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),input:true,onClick:()=>select(item)}]:[];
  const stageMark=media?.path&&marks.get(media.path);
  // MiniMax H3 video: the hammer is the Director's Prompt Forge for this run (same mode/references the intent gets).
  const forgeContext=videoFamily==='minimax-h3'&&isVideo?h3ForgeContext({pipeline,media:lastOnly?null:media,lastFrame,refs,framePeople,sourceAudio,seconds:video.seconds,canvas:outputSize,inputRoot:roots.input}):undefined;
@@ -989,10 +993,10 @@ const promptTools=forgeContext&&<>
  <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
  <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
  {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
- const tools=(item:MediaItem,showStar=true)=><div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
-  {/* Cover mode reuses the media-panel action so the button, label and selected source match the right-click menu. */}
-  {pipeline==='cover'?mediaActions(item).map(a=><button key={a.label} type="button" data-use-input data-music-source-action onClick={a.onClick}>{a.label}</button>)
-   :<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
+ const tools=(item:MediaItem,showStar=true)=>{const actions=mediaActions(item);return <div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
+  {/* Every right-click media action is mirrored here (same label, effect and block reason), so new menu options appear in the preview automatically. */}
+  {!actions.some(a=>a.input)&&<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
+  {actions.map(a=><button key={a.label} type="button" data-media-action data-use-input={a.input||undefined} disabled={!!a.blocked} title={a.blocked||undefined} onClick={a.onClick}>{a.label}</button>)}
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);setEdit(m);}}>{t(`studio.run.edit.${m}`)}</button>)}
  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
   {/* More stays on every image; Refine/Upscale are disabled with a reason outside the image-model pipelines. */}
@@ -1002,12 +1006,9 @@ const promptTools=forgeContext&&<>
    <button type="button" data-more-apply disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.applyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
    <button type="button" data-more-reuse disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.reuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button></div></details>;})()}
   {moreResult&&<p className="wb-more-feedback" role="status">{moreResult}</p>}
-  {frameVideo&&item.media==='image'&&<button type="button" data-edit-last aria-pressed={lastFrame?.src===item.src} onClick={()=>setLastFrame(lastFrame?.src===item.src?null:item)}>{t('studio.run.video.lastFrame')}</button>}
-  {/* LTX keyframes are images; H3 REF2VA also takes videos and audio. */}
-  {pipeline==='ref2v'&&item.path&&(item.media==='image'||videoFamily==='minimax-h3')&&<button type="button" data-edit-ref aria-pressed={isRef(item)} disabled={!isRef(item)&&!!refBlock(item)} title={!isRef(item)&&refBlock(item)?t(refBlock(item)):undefined} onClick={()=>toggleRef(item)}>{t('studio.run.video.addRef')}</button>}
   {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
   {showStar&&<StarMediaButton item={item}/>}
- </div>;
+ </div>;};
  // Canonical preview toolbar: one stage slot (top right, beside Metadata/Close) fed by whatever the stage shows.
  // Only the split view keeps a second, per-pane row for the draft editor.
  const stageOutput=shown&&terminalOutput(shown)&&shown.outputRoot&&!isVideoOut(shown.outputs[outputIndex])?shown.outputs[outputIndex]:null;
@@ -1069,7 +1070,7 @@ const promptTools=forgeContext&&<>
   if(next)switchDraft(p,next,!model||identity(next)!==identity(model),keepSource);else setPipeline(p);
  };
  useEffect(()=>{
-  const layout=()=>{dragCleanup.current();setSettingsWidth(defaultLayout.settings);setQueueWidth(defaultLayout.queue);setDockHeight(defaultLayout.dock);};
+  const layout=()=>{dragCleanup.current();setSettingsWidth(defaultLayout.settings);setQueueWidth(defaultLayout.queue);setDockHeight(defaultLayout.dock);setSettingsHidden(false);setDockHidden(false);};
   const defaults=()=>{if(!window.confirm(t(project?'studio.quick.confirmProject':'studio.quick.confirm')))return;drafts.current.clear();pipelineModels.current.clear();draftEpoch.current++;resetStudioPreferences();setResolution('model');const first=allModels.find(m=>!blocked(m,'t2i'));if(first){setCheckpoint(first.name);setModelIdentity(identity(first));startingSettings(first);}};
   window.addEventListener('deas:reset-studio-layout',layout);window.addEventListener('deas:request-studio-defaults',defaults);
   return()=>{window.removeEventListener('deas:reset-studio-layout',layout);window.removeEventListener('deas:request-studio-defaults',defaults);};
@@ -1195,7 +1196,7 @@ const promptTools=forgeContext&&<>
  <div className="workbench" data-workbench ref={shell}>
  {historyDraft&&<div className="wb-history-draft" role="status" data-history-draft>{t('studio.history.draft')}{(historyDraft.source||historyDraft.references.length>0||historyDraft.lastFrame)&&<p>{t('studio.history.inputReselect')}</p>}{historyProblems.length>0&&<><p>{t('studio.history.blocked',{items:historyProblems.join(' · ')})}</p><button type="button" className="wb-dock-action" data-history-new-draft onClick={()=>setHistoryDraft(null)}>{t('studio.history.newDraft')}</button></>}</div>}
   <div className="wb-body">
-   <aside id="studio-settings" className="wb-side" style={{flexBasis:sideSize}}>
+   <aside id="studio-settings" className="wb-side" hidden={settingsHidden} style={{flexBasis:sideSize}}>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
      <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={pipeline} onChange={e=>{pickPipeline(e.target.value as Pipeline);}}>{pipelines.map(id=>{const reason=why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
      <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
@@ -1262,7 +1263,7 @@ const promptTools=forgeContext&&<>
      {!native&&<p className="field-help">{t('studio.jobs.browser')}</p>}
     </section>
    </aside>
-   {columnHandle('settings')}
+   {columnHandle('settings')}{paneToggle(settingsHidden,setSettingsHidden,'settings','studio-settings',settingsHidden?9:sideSize+5)}
    <div className="wb-center">
     <section className={`wb-stage${!browsed&&sideBySide?' wb-split':''}`} aria-label={t('studio.run.preview')}>
      {stageWarnings.length>0&&<div className="wb-stage-warning" role="alert">{stageWarnings.map(message=><p key={message}>{message}</p>)}{mossIssues.map(issue=><button type="button" key={issue.name} onClick={issue.reset}>{t('studio.run.opt.reset',{name:issue.name})}</button>)}</div>}
@@ -1293,7 +1294,7 @@ const promptTools=forgeContext&&<>
     </section>
     <div className="wb-prompts">
      {isMusic?<MusicPrompts endpoint={endpoint} root={root} style={musicStyle} lyrics={musicLyrics} onStyle={setMusicStyle} onLyrics={setMusicLyrics} actions={promptActions}/>:<>
-     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}{forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}>↗</button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>}</div>
+     <div className="wb-prompt" onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();const item=promptImage(e.dataTransfer);e.dataTransfer.dropEffect=referenceMethod&&imageRefs.length<4&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(item))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))e.preventDefault();const item=promptImage(e.dataTransfer);if(referenceMethod&&validReference(item)&&imageRefs.length<4){setImageRefs(v=>v.length>=4?v:[...v,{item:{...item},strength:0.6}]);if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);}}}><div className="wb-prompt-label"><label htmlFor="run-positive">{t('studio.run.positive')}</label><small data-prompt-count="positive">{positive.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-positive" data-run-positive value={positive} maxLength={16384} placeholder={t('studio.run.positiveHint')} onChange={e=>setPositive(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="positive" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} title={t('studio.run.prompt.expand',{name:t('studio.run.positive')})} aria-pressed={detached==='positive'} onClick={()=>setDetached(detached==='positive'?null:'positive')}>⤢</button>{promptActions('positive',positive,setPositive)}{forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer forge-link" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}><HammerIcon/></button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>}</div>
      <div className="wb-prompt wb-negative"><div className="wb-prompt-label"><label htmlFor="run-negative">{t('studio.run.negative')}</label><small data-prompt-count="negative">{negative.length} / {16384}</small></div><PromptTextarea root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} id="run-negative" data-run-negative value={negative} maxLength={16384} placeholder={t('studio.run.negativeHint')} onChange={e=>setNegative(e.target.value)}/><button type="button" className="wb-prompt-expand" data-prompt-expand="negative" aria-label={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} title={t('studio.run.prompt.expand',{name:t('studio.run.negative')})} aria-pressed={detached==='negative'} onClick={()=>setDetached(detached==='negative'?null:'negative')}>⤢</button>{promptActions('negative',negative,setNegative)}</div></>}
      {!isMusic&&imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:4})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
      {!isMusic&&imageRefs.length>0&&<div className="wb-reference-strip wb-wide">
@@ -1303,7 +1304,7 @@ const promptTools=forgeContext&&<>
        {revisionOk&&num('reference.strength',r.strength,n=>setImageRefs(v=>v.map((e,j)=>j===i?{...e,strength:clamp(n,0,1)}:e)),0,1,0.05,undefined,true)}
       </div>)}
      </div>}
-     {!isMusic&&detached&&<PromptOverlay root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&(forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}>↗</button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>)}</PromptOverlay>}
+     {!isMusic&&detached&&<PromptOverlay root={root} target={nativeTarget(dialectOf(model?.family))??'generic'} key={detached} title={t(`studio.run.${detached}`)} value={detached==='positive'?positive:negative} onChange={detached==='positive'?setPositive:setNegative} onClose={()=>setDetached(null)} placeholder={t(detached==='positive'?'studio.run.positiveHint':'studio.run.negativeHint')} maxLength={16384} closeLabel={t('studio.run.prompt.close')}>{detached==='positive'&&(forgeContext&&onOpenPromptForge?<button type="button" className="forge-anchor forge-hammer forge-link" data-forge-open aria-label={t('forge.button')} title={t('studio.tab.forge')} onClick={onOpenPromptForge}><HammerIcon/></button>:<ForgeButton endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} image={pipeline==='i2i'?inputImage||undefined:undefined} onApply={setPositive} onWildcards={openWildcards} wildcard={wildcardEnabled?wildcard:undefined} h3={forgeContext} tools={promptTools}/>)}</PromptOverlay>}
     </div>
     {wildcardEnabled&&<div className="wildcard-prompt-status"><button type="button" className="wildcard-badge" title={t('wildcards.baseNotice')} onClick={()=>setDockTab('wildcards')}>{t(wildcard.auto_reroll?'wildcards.activeAuto':'wildcards.active')}</button><button type="button" className="wildcard-badge" onClick={()=>setWildcardEnabled(false)}>{t('wildcards.disable')}</button></div>}
    </div>
@@ -1320,8 +1321,9 @@ const promptTools=forgeContext&&<>
      <div id="project-status-slot"/>{stopStatus&&<p role="status" data-run-stop-status>{stopStatus}</p>}
    </section>
   </div>
-  <div className="wb-dock" data-view={dockView} style={{height:dockSize}}>
-   <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} title={t('studio.run.dockResize')} tabIndex={0} aria-valuemin={120} aria-valuemax={dockMax} aria-valuenow={dockSize} onKeyDown={e=>resizeKey(e,dockSize,120,dockMax,setDockHeight,true)} onPointerDown={e=>dragPane(e,dockSize,120,dockMax,setDockHeight,true)}/>
+  <div id="studio-dock" className="wb-dock" data-view={dockView} data-collapsed={dockHidden||undefined} style={dockHidden?undefined:{height:dockSize}}>
+   <div className="wb-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('studio.run.dockResize')} title={t('studio.run.dockResize')} tabIndex={0} aria-valuemin={120} aria-valuemax={dockMax} aria-valuenow={dockSize} data-locked={dockHidden||undefined} onKeyDown={e=>{if(!dockHidden)resizeKey(e,dockSize,120,dockMax,setDockHeight,true);}} onPointerDown={e=>{if(!dockHidden)dragPane(e,dockSize,120,dockMax,setDockHeight,true);}}/>
+   {paneToggle(dockHidden,setDockHidden,'dock','studio-dock')}
    {dockTab==='media'?<MediaPanel selected={browsed??media} onSelect={setBrowsed} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} toolbar={dockNavigation} marks={marks} actions={mediaActions}/>:<div className="media-toolbar">{dockNavigation}
     {(dockTab==='models'||dockTab==='loras')&&<><MediaControls query={query} onQuery={setQuery} sort={sort} onSort={setSort} view={dockView} onView={setDockView} sorts={sorts}/><button type="button" className="wb-dock-action" data-run-load disabled={!native||busy||(!modelsDir&&!endpoint.trim())} onClick={()=>void load()}>{t(models?'studio.run.reload':'studio.run.load')}</button></>}
    </div>}
@@ -1374,12 +1376,10 @@ const promptTools=forgeContext&&<>
   <ForgeButton inline active={forgeActive} endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} onApply={setPositive} h3={forgeContext} tools={promptTools}/>
   <div className="forge-output">
    {frameVideo&&[firstFrame,lastFrame].map((item,i)=>item&&<div className="wb-wide" key={`${i}:${item.src}`} data-frame-people={i===0?'first':'last'}>
-       <p className="wb-resolution-hint">{t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · {item.name}</p>
-       <ReferencePeople key={item.src} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
+       <ReferencePeople key={item.src} prominent title={`${t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · ${item.name}`} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
       </div>)}
    {pipeline==='ref2v'&&refs.map((r,i)=>r.item.media==='image'&&labelCharacters(forgeLabels(refs)[i]).length>0&&<div key={r.item.src}>
-    <p className="forge-dialect">{r.item.name}</p>
-    <ReferencePeople r={r} label={forgeLabels(refs)[i]} endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setRefs(current=>current.map((pick,j)=>j===i?{...pick,...x}:pick))}/>
+    <ReferencePeople prominent title={r.item.name} r={r} label={forgeLabels(refs)[i]} endpoint={endpoint} root={root} inputRoot={roots.input} onChange={x=>setRefs(current=>current.map((pick,j)=>j===i?{...pick,...x}:pick))}/>
    </div>)}
   </div>
  </section>,forgeHost)}

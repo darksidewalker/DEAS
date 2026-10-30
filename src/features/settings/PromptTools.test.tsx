@@ -42,6 +42,9 @@ test('native dictionary failure is localized under Backend and retries after a s
  vi.mocked(invoke).mockRejectedValueOnce('SPELLCHECK_DICTIONARY_MISSING').mockResolvedValue(null);
  render(<I18nProvider><LanguageSetting/><QuickSettings/></I18nProvider>);
  expect(await screen.findByRole('alert')).toHaveProperty('textContent','No dictionary for the selected language is installed. Install its system spelling dictionary, then toggle spellcheck off/on.');
+ fireEvent.click(screen.getByRole('button',{name:'Quick Settings'}));
+ expect(screen.getAllByRole('alert')).toHaveLength(1);
+ expect((screen.getByRole('button',{name:'Prompt spellcheck'}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.change(screen.getByLabelText('Spellcheck language'),{target:{value:'fr'}});
  expect(invoke).toHaveBeenLastCalledWith('native_prompt_spellcheck',{enabled:true,language:'fr'});
  expect(screen.queryByRole('alert')).toBeNull();

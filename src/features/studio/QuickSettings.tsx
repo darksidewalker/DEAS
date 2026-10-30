@@ -30,9 +30,9 @@ export function QuickSettings(){
    {!ready&&<p id="studio-quick-unavailable">{t('studio.quick.openStudioFirst')}</p>}
    <button type="button" disabled={!ready} aria-describedby={!ready?'studio-quick-unavailable':undefined} onClick={()=>request('deas:reset-studio-layout')}>{t('studio.quick.layout')}</button>
    <button type="button" disabled={!ready} aria-describedby={!ready?'studio-quick-unavailable':undefined} onClick={()=>request('deas:request-studio-defaults')}>{t('studio.quick.defaults')}</button>
-   <button type="button" aria-pressed={tools.spellcheck} onClick={()=>tools.update({spellcheck:!tools.spellcheck})}>{t('settings.prompt.spellcheck')}</button>
+   {/* Unavailable spellcheck is only greyed here; the explanation lives under Backend. */}
+   <button type="button" aria-pressed={tools.spellcheck} disabled={!!tools.error} title={tools.error?t(tools.error):undefined} onClick={()=>tools.update({spellcheck:!tools.spellcheck})}>{t('settings.prompt.spellcheck')}</button>
    <button type="button" aria-pressed={tools.autocomplete} onClick={()=>tools.update({autocomplete:!tools.autocomplete})}>{t('settings.prompt.autocomplete')}</button>
-   {tools.error&&<p className="error-message" role="alert">{t(tools.error)}</p>}
    <div className="studio-quick-schemes" role="group" aria-label={t('studio.quick.scheme')}>
     <span className="studio-quick-label">{t('studio.quick.scheme')}</span>
     {SCHEMES.map(s=><button key={s.id} type="button" data-scheme={s.id} aria-pressed={scheme===s.id} onClick={()=>setScheme(s.id)}>

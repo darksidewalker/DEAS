@@ -1,5 +1,10 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 0.2.5 Comfy tab NVDEC video freeze (shipped in 0.2.5)
+
+- Owner clip `210149_00001_audio.mp4` (H3 REF2V, AV1 800×480 24 fps + AAC 32 kHz, DaSiWa Enhanced Video Combine) and its H.264 preview built with the node's own `helper_pyav_video.transcode_preview` (the URL the node serves for non-H.264 outputs). Standalone WebKitGTK 2.54.2 window, Wayland GPU, host GStreamer 1.28.8 plus the DEAS plugin cache, `__NV_DISABLE_EXPLICIT_SYNC=1`, `WEBKIT_GST_DMABUF_SINK_DISABLED=1`, Range-capable HTTP: the H.264 preview froze at `currentTime` 0.017 with 0 decoded frames, `readyState` 2 and `stalled`; GStreamer logged `nvh264dec` → `video/x-raw(memory:CUDAMemory)` that `videoscale` could not transform. With `GST_PLUGIN_FEATURE_RANK` set to the new NVDEC demotion, the same preview advanced (97 frames by 4.0 s) and the AV1 original still played to EOF.
+- `linux_startup::tests::defaults_and_explicit_overrides` covers the default on this NVIDIA host and preserves explicit/empty values. The rebuilt `artifacts/deas-linux-amd64`, launched with isolated HOME/XDG directories and `GST_PLUGIN_FEATURE_RANK` unset, passed the demotion string and `WEBKIT_GST_DMABUF_SINK_DISABLED=1` to both WebKitWebProcess children (`/proc/<pid>/environ`). Not exercised: the rebuilt DEAS app with a running backend and the real ComfyUI page, VA-API decoders on AMD/Intel, CPU cost of software decoding on long clips, Windows.
+
 ## Release 0.2.4 (published)
 
 - GitHub release `v0.2.4` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.4), annotated tag on source commit `35e284adfb4e4ffe80d8185467862bd598f813e4` (tree `82eb7c7970d6c44d90132b2885693b8db652d553`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, every asset's server-side digest and size matched before publishing.

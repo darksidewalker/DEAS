@@ -214,3 +214,11 @@
 .forge-ghost.danger:hover:not(:disabled) { border-color: var(--copper); color: var(--copper); }
 .forge-readback pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 11px; }
 @media (max-width: 700px) { .forge-layout-panels, .forge-layout-row { grid-template-columns: 1fr; } }
+/* Opens the Prompt Forge tab: the same hammer, colours inverted. */
+.forge-hammer.forge-link { background: var(--copper); color: var(--surface); border-color: var(--copper); }
+.forge-people { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid rgb(var(--chalk-rgb) / 0.16); border-left: 3px solid var(--copper); border-radius: 8px; background: var(--surface); }
+.forge-people h3 { margin: 0; font-size: 13px; color: var(--chalk); text-transform: none; letter-spacing: 0; }
+.forge-people h3 span { color: var(--muted); font-weight: normal; }
+.forge-people .media-help { margin: 0; }
+.forge-people .wb-ref-actions { flex-wrap: wrap; }
+.forge-people .wb-ref-actions button[aria-pressed="true"] { color: var(--accent, #c8762c); box-shadow: inset 0 -1px currentColor; }

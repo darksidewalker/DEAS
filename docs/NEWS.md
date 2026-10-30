@@ -1,5 +1,14 @@
 # News
 
+## 0.2.5 BETA
+
+- Quick settings grey out the spellcheck button when no dictionary is available instead of showing a long message.
+- Videos in the Comfy tab play again on NVIDIA systems instead of freezing on the first frame.
+- In the Prompt Forge tab, **People & order** is shown openly for each frame/reference picture. The button that opens the Forge tab is the hammer again, with inverted colours.
+- Studio: an arrow on the Settings edge and on the bottom panel's edge collapses that pane fully and brings it back.
+- Everything in a media file's right-click menu (reference, first/last frame, source, cover) is now also a button in the preview toolbar.
+- Library: **Catalog source** now also offers the CivitAI creators TrashAI, LolTurdFerguson and DustyDrab; DaSiWa stays the default.
+
 ## 0.2.4 BETA
 
 - Backend updates, reinstalls and environment moves now stop a running ComfyUI gracefully and start it again afterwards; a stopped backend stays stopped. Updated Linux DEAS binaries reopen by themselves.

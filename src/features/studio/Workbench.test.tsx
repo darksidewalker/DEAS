@@ -1178,6 +1178,31 @@ test('column keyboard resizing persists independently and layout reset leaves au
  expect(left.getAttribute('aria-valuenow')).toBe('272');expect(right.getAttribute('aria-valuenow')).toBe('152');
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('keep');
 });
+test('edge arrows fully hide and show Settings and the bottom dock, persist, and layout reset restores them',()=>{
+ vi.mocked(isTauri).mockReturnValue(false);
+ const view=render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'keep'}});
+ const settings=document.getElementById('studio-settings')!,dock=document.getElementById('studio-dock')!;
+ fireEvent.click(screen.getByRole('button',{name:'Collapse Settings'}));
+ expect(settings.hidden).toBe(true);
+ const expand=screen.getByRole('button',{name:'Expand Settings'});
+ expect(expand.getAttribute('aria-expanded')).toBe('false');
+ // A collapsed pane is not resized by its line.
+ fireEvent.keyDown(screen.getByRole('separator',{name:'Resize Settings'}),{key:'ArrowRight'});
+ expect(screen.getByRole('separator',{name:'Resize Settings'}).getAttribute('aria-valuenow')).toBe('272');
+ fireEvent.click(screen.getByRole('button',{name:'Collapse bottom panel'}));
+ expect(dock.hasAttribute('data-collapsed')).toBe(true);
+ expect(localStorage.getItem('deas.pref.studio.layout.settingsHidden')).toBe('true');
+ expect(localStorage.getItem('deas.pref.studio.dock.hidden')).toBe('true');
+ view.unmount();
+ render(<I18nProvider><Workbench endpoint=""/></I18nProvider>);
+ expect(document.getElementById('studio-settings')!.hidden).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Expand Settings'}));
+ expect(document.getElementById('studio-settings')!.hidden).toBe(false);
+ act(()=>window.dispatchEvent(new Event('deas:reset-studio-layout')));
+ expect(document.getElementById('studio-dock')!.hasAttribute('data-collapsed')).toBe(false);
+ expect(screen.getByRole('button',{name:'Collapse bottom panel'}).getAttribute('aria-expanded')).toBe('true');
+});
 test('unexecuted settings survive layout reset and remount; confirmed defaults survive the next mount',async()=>{
  vi.mocked(scanModels).mockResolvedValue(['base.safetensors','last.safetensors'].map(name=>({category:'checkpoints',name,family:'sdxl',path:'/m/'+name,size:1,info:null})));
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
@@ -2685,10 +2710,14 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  fireEvent.click(await screen.findByRole('button',{name:'first.png'}));adopt();
  await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
  expect(document.querySelector('.wb-settings [data-ref-people]')).toBeNull();
+ // The prompt's Forge link keeps the hammer (colour-inverted), not an arrow.
+ expect(document.querySelector('.forge-hammer.forge-link svg')).toBeTruthy();
  fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
  expect(document.querySelector('[data-h3-forge-tab]')).toBeTruthy();
  expect(screen.queryByRole('dialog',{name:'Prompt Forge'})).toBeNull();
- fireEvent.click(screen.getByText('People & order'));
+ // People & order is an always-open section in the Forge tab, not a collapsed menu.
+ expect(document.querySelector('[data-h3-forge-tab] details[data-ref-people]')).toBeNull();
+ expect(screen.getByRole('region',{name:/^People & order · .*first\.png$/})).toBeTruthy();
  const people=screen.getByRole('button',{name:'Character 2 in first.png'});
  expect(people.getAttribute('aria-pressed')).toBe('false');
  fireEvent.click(people);
@@ -2696,7 +2725,7 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  expect(people.getAttribute('aria-pressed')).toBe('true');
  fireEvent.click(people);expect(people.getAttribute('aria-pressed')).toBe('false');
  fireEvent.click(people);
- await screen.findByRole('option',{name:'M'});
+ await screen.findAllByRole('option',{name:'M'});
  fireEvent.change(screen.getByRole('textbox',{name:'Card of Character 2'}),{target:{value:'adult traveller, blue coat'}});
  fireEvent.change(screen.getByRole('textbox',{name:'Idea or prompt to enhance'}),{target:{value:'a walk'}});
  fireEvent.click(screen.getByRole('button',{name:'Write'}));
@@ -2712,7 +2741,6 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
  fireEvent.click(screen.getByRole('button',{name:'other.png'}));adopt();
  fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
- fireEvent.click(screen.getByText('People & order'));
  expect(screen.getByRole('button',{name:'Character 2 in other.png'}).getAttribute('aria-pressed')).toBe('false');
  fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
  choosePipe('Multi-reference → Video');
@@ -2947,6 +2975,18 @@ const menuOf=(name:string)=>{fireEvent.contextMenu(screen.getByRole('button',{na
 const markOf=(name:string)=>screen.getByRole('button',{name}).closest('li')!.dataset.mark;
 const loadVideo=(name:string)=>{const v=document.querySelector<HTMLVideoElement>(`.wb-stage video`)!;Object.defineProperties(v,{videoWidth:{value:1280},videoHeight:{value:704}});fireEvent.loadedMetadata(v);void name;};
 
+test.each(['Image → Video','Multi-reference → Video'])('every right-click media action is mirrored in the preview toolbar (%s)',async pipeline=>{
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'}]);
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/outside',parent:'/',entries:[{name:'pic.png',path:'/outside/pic.png',kind:'file',media:'image',symlink:false,size:1,modified:1}],truncated:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input',output:'/out'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe(pipeline).disabled).toBe(false));choosePipe(pipeline);
+ fireEvent.click(await screen.findByRole('button',{name:'pic.png'}));
+ const menu=menuOf('pic.png').getAllByRole('menuitem').map(b=>b.firstChild?.textContent??'').filter(label=>label!=="Open in folder");
+ fireEvent.keyDown(document.activeElement??document.body,{key:'Escape'});
+ const toolbar=screen.getByRole('region',{name:'Preview'}).querySelector<HTMLElement>(':scope > [data-media-tools]')!;
+ expect(menu.length).toBeGreaterThan(0);
+ expect([...toolbar.querySelectorAll('[data-media-action]')].map(b=>b.textContent)).toEqual(menu);
+});
 test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s reference preview has one stage toolbar and no figure toolbar',async(media,name)=>{
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'}]);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/outside',parent:'/',entries:[{name,path:'/outside/'+name,kind:'file',media,symlink:false,size:1,modified:1}],truncated:false});
@@ -4077,9 +4117,9 @@ test('history video first and last frames remain unresolved until each explicit 
  const chosen=screen.getByRole('img',{name:'same.png'});Object.defineProperties(chosen,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(chosen);
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
  fireEvent.click(document.querySelector('[data-job-id="old-frame-result"] .wb-queue-select')!);
- fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit-last]')!);
+ fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Use as last frame'}));
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // This LTX builder cannot resolve an old environment's frame handle.
- fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit-last]')!);
+ fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Use as last frame'}));
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(original)).toBe(before);
 });
@@ -4154,7 +4194,7 @@ test('cover mode stage toolbar offers the same "Use for music cover" action as t
  await mountMusic('Music (Cover Music)');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'voice.wav'}));
- const use=await waitFor(()=>{const b=document.querySelector('[data-media-tools] [data-music-source-action]') as HTMLButtonElement|null;expect(b).not.toBeNull();return b!;});
+ const use=await waitFor(()=>{const b=document.querySelector('[data-media-tools] [data-media-action]') as HTMLButtonElement|null;expect(b).not.toBeNull();return b!;});
  expect(use.textContent).toBe('Use for music cover');
  expect(screen.queryByRole('button',{name:'Use as input'})).toBeNull();
  fireEvent.click(use);

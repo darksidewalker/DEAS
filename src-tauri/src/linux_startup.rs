@@ -19,12 +19,21 @@ pub fn configure() {
         }
     }
     // NVIDIA's video DMA-BUF sink can display green frames; keep the rest of GPU rendering.
-    if Path::new("/sys/module/nvidia").exists()
-        && std::env::var_os("WEBKIT_GST_DMABUF_SINK_DISABLED").is_none()
-    {
-        std::env::set_var("WEBKIT_GST_DMABUF_SINK_DISABLED", "1");
+    // NVDEC decoders output CUDA memory WebKit cannot convert: <video> freezes on its first frame.
+    // Rank 0 lets decodebin pick the software (gst-libav) decoders instead.
+    if Path::new("/sys/module/nvidia").exists() {
+        for (name, value) in [
+            ("WEBKIT_GST_DMABUF_SINK_DISABLED", "1"),
+            ("GST_PLUGIN_FEATURE_RANK", NVDEC_DEMOTED),
+        ] {
+            if std::env::var_os(name).is_none() {
+                std::env::set_var(name, value);
+            }
+        }
     }
 }
+
+const NVDEC_DEMOTED: &str = "nvh264dec:0,nvh265dec:0,nvav1dec:0,nvvp8dec:0,nvvp9dec:0,nvjpegdec:0,nvmpeg2videodec:0,nvmpeg4videodec:0,nvmpegvideodec:0";
 
 // Element WebKit needs, plugin file, bytes. See ../gstreamer/README.md for provenance.
 #[cfg(target_arch = "x86_64")]
@@ -201,6 +210,7 @@ mod tests {
             "__NV_DISABLE_EXPLICIT_SYNC",
             "GDK_BACKEND",
             "WEBKIT_GST_DMABUF_SINK_DISABLED",
+            "GST_PLUGIN_FEATURE_RANK",
         ];
         let original = names.map(std::env::var_os);
         for name in names {
@@ -209,19 +219,23 @@ mod tests {
         configure();
         assert_eq!(std::env::var(names[0]).unwrap(), "1");
         assert_eq!(std::env::var(names[1]).unwrap(), "wayland,x11");
+        let nvidia = Path::new("/sys/module/nvidia").exists();
+        assert_eq!(std::env::var_os(names[2]), nvidia.then(|| "1".into()));
         assert_eq!(
-            std::env::var_os(names[2]),
-            Path::new("/sys/module/nvidia").exists().then(|| "1".into())
+            std::env::var_os(names[3]),
+            nvidia.then(|| super::NVDEC_DEMOTED.into())
         );
 
         for backend in ["wayland", "x11", ""] {
             std::env::set_var(names[0], "0");
             std::env::set_var(names[1], backend);
             std::env::set_var(names[2], backend);
+            std::env::set_var(names[3], backend);
             configure();
             assert_eq!(std::env::var(names[0]).unwrap(), "0");
             assert_eq!(std::env::var(names[1]).unwrap(), backend);
             assert_eq!(std::env::var(names[2]).unwrap(), backend);
+            assert_eq!(std::env::var(names[3]).unwrap(), backend);
         }
         #[cfg(target_arch = "x86_64")]
         {

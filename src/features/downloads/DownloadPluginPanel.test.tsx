@@ -75,6 +75,23 @@ it('targeted Library recovers running downloads after close and supports cancell
  view.unmount();
 });
 
+it('Catalog source lists creator entries after the default DaSiWa catalog and browses the chosen creator live',async()=>{
+ const creator={id:'civitai-creator-trashai',label:'Browse CivitAI creator TrashAI',providerId:'fixture',scope:'user',locator:'TrashAI',kind:'model',target:'other'};
+ const withCreator={...catalog,providers:[{...catalog.providers[0],scopes:['index','repo','user']}],entries:[...catalog.entries,creator]};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?withCreator:c==='native_auth_status'?[]:c==='native_download_browse'?{resources:[resource],warnings:[],nextCursor:null}:c==='native_files_present'?[false]:null);
+ await open();
+ const source=screen.getByLabelText('Catalog source') as HTMLSelectElement;
+ expect([...source.options].map(o=>o.textContent)).toEqual(['DaSiWa','TrashAI']);
+ expect(source.value).toBe('');
+ expect(screen.queryByRole('button',{name:/Browse CivitAI creator TrashAI/})).toBeNull();
+ fireEvent.change(source,{target:{value:'civitai-creator-trashai'}});
+ await screen.findByLabelText('Remote file');
+ expect(invoke).toHaveBeenCalledWith('native_download_browse',expect.objectContaining({request:expect.objectContaining({providerId:'fixture',scope:'user',locator:'TrashAI'})}));
+ expect(screen.queryByRole('button',{name:/Curated index/})).toBeNull();
+ fireEvent.change(source,{target:{value:''}});
+ expect(screen.getByRole('button',{name:/Curated index/})).toBeTruthy();
+ expect(screen.queryByLabelText('Remote file')).toBeNull();
+});
 it('uses exact nested IPC and metadata-only auth contracts',async()=>{
  const request={providerId:'fixture',scope:'index' as const,locator:'source',authenticated:false};await browseDownloads(request);expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request});
  const plan={providerId:'fixture',resources:[resource],parentPath:'/parent',folderName:'new',authenticated:false};await planDownloads(plan);expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:plan});

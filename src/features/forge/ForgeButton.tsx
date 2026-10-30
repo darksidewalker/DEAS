@@ -85,6 +85,9 @@ const isShots = (v: unknown): v is string | number => v === 'Auto' || isNumber(v
 
 /** Hammer in a prompt field: write or enhance that prompt in the selected model's dialect, review, then apply (undoable).
  * With `h3`, it is the Director's Prompt Forge for the current run: Shots, Detail, Creativity, Cancel, the last three drafts and the `tools` prompt helpers. */
+/** Lucide "hammer" (ISC). */
+export const HammerIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/></svg>;
+
 export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools, onBusyChange, inline = false, active = true }: { active?: boolean; inline?: boolean; endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onBusyChange?: (busy: boolean) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
   const { t } = useI18n();
   const forge = useForgeModels(endpoint, root, true, !!h3 || !nativeTarget(dialect));
@@ -204,8 +207,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
   const level = (key: string, v: number, set: (n: number) => void) => <label className="forge-field"><span>{t(key)} {v}</span><input type="range" min={1} max={10} value={v} onChange={e => set(Number(e.target.value))}/></label>;
   return <div className={inline ? 'forge-controls' : 'forge-anchor'}>
     {!inline && <button ref={opener} type="button" className="forge-hammer" data-forge-open aria-expanded={open} disabled={disabled && !onWildcards} aria-label={t('forge.button')} title={t(onWildcards ? 'wildcards.choose' : !root ? 'forge.noBackend' : !dialect ? 'forge.noDialect' : 'forge.button')} onClick={toggle}>
-      {/* Lucide "hammer" (ISC). */}
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/></svg>
+      <HammerIcon/>
     </button>}
     {undo !== null && (!open || inline) && <button type="button" className="forge-undo" data-forge-undo onClick={() => { onApply(undo); setUndo(null); }}>{t('forge.undo')}</button>}
     {open && <div className={inline ? 'forge-controls' : `forge-pop${result && !h3 ? ' comparing' : ''}`} role={inline ? 'region' : 'dialog'} aria-label={t('forge.button')} onKeyDown={e => { if (!inline && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); opener.current?.focus(); } }}>

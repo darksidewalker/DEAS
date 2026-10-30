@@ -315,3 +315,17 @@
 .wb-run-actions:has(.wb-run-stop) .wb-run{border-radius:10px 0 0 10px}
 .wb-run-stop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .wb-run-stop:disabled{cursor:wait;opacity:.65}
+/* Collapse/expand arrow sitting on the Settings and bottom-dock edge lines. */
+.wb-body { position: relative; }
+.wb-pane-toggle { position: absolute; z-index: 2; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 1px solid rgb(var(--blue-rgb) / 0.302); border-radius: 50%; background: var(--panel); color: var(--muted); cursor: pointer; }
+.wb-pane-toggle:hover, .wb-pane-toggle:focus-visible { color: var(--ok); border-color: var(--ok); }
+.wb-pane-toggle svg { width: 12px; height: 12px; display: block; }
+.wb-pane-toggle[data-dir="left"] svg { transform: rotate(90deg); }
+.wb-pane-toggle[data-dir="right"] svg { transform: rotate(-90deg); }
+.wb-pane-toggle[data-dir="up"] svg { transform: rotate(180deg); }
+.wb-pane-toggle[data-pane-toggle="settings"] { top: 50%; transform: translate(-50%, -50%); }
+.wb-pane-toggle[data-pane-toggle="dock"] { left: 50%; top: -1px; transform: translate(-50%, -50%); }
+@media (max-width: 900px) { .wb-pane-toggle[data-pane-toggle="settings"] { position: static; transform: none; margin: 4px auto; } }
+.wb-column-handle[data-locked], .wb-dock-handle[data-locked] { cursor: default; }
+.wb-dock[data-collapsed] { min-height: 0; }
+.wb-dock[data-collapsed] > :not(.wb-dock-handle, .wb-pane-toggle) { display: none; }
