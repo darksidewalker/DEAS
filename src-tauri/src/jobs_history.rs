@@ -228,9 +228,9 @@ impl History {
             if history.lock().persisted_revision == revision {
                 continue;
             }
-            if writer.save(&document).is_err() {
+            if let Err(error) = writer.save(&document) {
                 // Freeze writes on any uncertainty rather than overwriting a corrupt/foreign file.
-                history.degrade("publish", document.records.last().map(|record| record.id.as_str()), "Recent history could not be saved safely; the previous file was preserved where publication had not completed");
+                history.degrade("publish", document.records.last().map(|record| record.id.as_str()), &format!("Recent history could not be saved safely ({error}); the previous file was preserved where publication had not completed"));
                 history.lock().sender = None;
                 completed.notify_all();
                 break;
