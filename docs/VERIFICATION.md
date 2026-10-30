@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.5 (published)
+
+- GitHub release `v0.2.5` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.5), annotated tag on source commit `c530c13d6f4ab83c53090a1df7e9423609d9ed09` (tree `15ec19fff04ba2fc205141622e16b53f4b318971`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, every asset's server-side digest and size matched before publishing.
+- Gates on that tree: typecheck; core 125/125 (after replacing the literal `DaSiWa` JSX option text the i18n parity gate rejected with a named constant); UI 1268/1268 across 70 files; `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -D warnings`; `cargo test --locked -- --test-threads=1` (664 lib passed, 39 ignored); `cargo xwin clippy --locked --target x86_64-pc-windows-msvc --all-targets -D warnings`. Chromium checks for this cycle: `tools/verify_media_stars.py` PASS (18 states, mirrored i2v frame actions) and an ad-hoc 1440×900 pane collapse/expand run with `verify_workspace_layout.assert_viewport`.
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+8a94f2fa7e51a2aa740867e17dd66fd35a3a5e590a5827a927d43592a7fc55ce  BUILD-MANIFEST.json
+cfde38375010e19cae59820a8c51c20034626eecd1cb97e3609e2aab0c656a53  deas.exe
+bd3930da728f6b3e79eaaefca9cfc7b19095e2dd925de55a3a65d358c22c14c6  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-CUVSP0y6.js` and the `civitai-creator-*` catalog entries. `deas.exe` is a cargo-xwin cross-build without NSIS installer or Windows runtime acceptance.
+
 ## 0.2.5 Comfy tab NVDEC video freeze (shipped in 0.2.5)
 
 - Owner clip `210149_00001_audio.mp4` (H3 REF2V, AV1 800×480 24 fps + AAC 32 kHz, DaSiWa Enhanced Video Combine) and its H.264 preview built with the node's own `helper_pyav_video.transcode_preview` (the URL the node serves for non-H.264 outputs). Standalone WebKitGTK 2.54.2 window, Wayland GPU, host GStreamer 1.28.8 plus the DEAS plugin cache, `__NV_DISABLE_EXPLICIT_SYNC=1`, `WEBKIT_GST_DMABUF_SINK_DISABLED=1`, Range-capable HTTP: the H.264 preview froze at `currentTime` 0.017 with 0 decoded frames, `readyState` 2 and `stalled`; GStreamer logged `nvh264dec` → `video/x-raw(memory:CUDAMemory)` that `videoscale` could not transform. With `GST_PLUGIN_FEATURE_RANK` set to the new NVDEC demotion, the same preview advanced (97 frames by 4.0 s) and the AV1 original still played to EOF.
