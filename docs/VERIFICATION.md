@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.4 (published)
+
+- GitHub release `v0.2.4` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.4), annotated tag on source commit `35e284adfb4e4ffe80d8185467862bd598f813e4` (tree `82eb7c7970d6c44d90132b2885693b8db652d553`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, every asset's server-side digest and size matched before publishing.
+- Gates on that tree: typecheck; `npm test` (UI 1264/1264 across 70 files); `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -D warnings`; `cargo test --locked -- --test-threads=1` (664 lib passed, 39 ignored); `cargo xwin clippy --locked --target x86_64-pc-windows-msvc --all-targets -D warnings`.
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+ffe399d1ef4b31f7653e9e143a57967689403e04267a2e07771aa2873b33dcfd  BUILD-MANIFEST.json
+ce2228ef7174fcfa5a6cc91537251fe971b7d0a5b6e6d3e3e08eb50cac6f0274  deas.exe
+0d70ae9f9b8d12bd008fb021b1b2d1d075ab5aff3b5d611f45901bc0fa077572  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-BMr8k8G8.js`. `deas.exe` is a cargo-xwin cross-build without NSIS installer or Windows runtime acceptance.
+
 ## 0.2.4 graceful backend maintenance (shipped in 0.2.4)
 
 - Native maintenance uses the existing owned lifecycle and shared folder-operation gate. Linux sends SIGINT to the owned process group, retaining its unreaped leader anchor; Windows keeps CREATE_NO_WINDOW and uses a private stdin shutdown request to raise Python KeyboardInterrupt and wake the ComfyUI event loop. Both allow five seconds before logged forced owned-group cleanup. Scratch fixtures cover cleanup/finally, output draining, stubborn descendants, foreign-process preservation, update restart issuance, stopped-state preservation, move rollback and checked approval recapture.
