@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.4 BETA (unreleased)
+## 0.2.4 BETA
 
 - **Graceful backend maintenance.** Update/reinstall and environment moves stop a running owned ComfyUI gracefully (five-second timeout before logged forced cleanup), then restart it when the resulting environment validates. Previously stopped stays stopped, independently of Auto-start. Active Studio jobs and downloads remain protected. Updated Linux DEAS binaries reopen automatically after maintenance and project saves; the backend’s prior running/stopped state is carried through that restart. Windows application self-replacement still requires manual installation.
 

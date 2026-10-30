@@ -1,9 +1,11 @@
 # News
 
-## 0.2.4 BETA (unreleased)
+## 0.2.4 BETA
 
+- Backend updates, reinstalls and environment moves now stop a running ComfyUI gracefully and start it again afterwards; a stopped backend stays stopped. Updated Linux DEAS binaries reopen by themselves.
 - **Move environment…** in Backend moves your whole DEAS environment to another folder or drive without reinstalling; DEAS fixes the paths inside the venv and checks the moved Python before switching. A running owned backend is stopped gracefully and restarted afterwards; a stopped backend stays stopped.
 - H3's **Prompt Forge** button beside Continuity opens the existing tab with the current run's references, people/order and full Director prompt controls. First/last-frame people editing moved out of pipeline settings; drafts and cards stay when switching tabs.
+- Right-click an image in the Media menu to use it as **first frame**, **last frame** or both. MiniMax H3 can run Image → Video from a last frame alone.
 
 ## 0.2.3 BETA
 

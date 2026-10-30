@@ -1,13 +1,13 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
-## 0.2.4 graceful backend maintenance (unreleased)
+## 0.2.4 graceful backend maintenance (shipped in 0.2.4)
 
 - Native maintenance uses the existing owned lifecycle and shared folder-operation gate. Linux sends SIGINT to the owned process group, retaining its unreaped leader anchor; Windows keeps CREATE_NO_WINDOW and uses a private stdin shutdown request to raise Python KeyboardInterrupt and wake the ComfyUI event loop. Both allow five seconds before logged forced owned-group cleanup. Scratch fixtures cover cleanup/finally, output draining, stubborn descendants, foreign-process preservation, update restart issuance, stopped-state preservation, move rollback and checked approval recapture.
 - `cargo test --locked --lib -- --test-threads=1`: **664 passed, 39 ignored**, zero failures. This includes a scratch executable replacement/restart regression with spaces/Unicode paths, distinct binary bytes and inode evidence; no user executable or service was replaced or stopped.
 - `npm run typecheck`, Core **125 passed**, full UI **1264 passed** across 70 files (including the final maintenance-error visibility regression), focused setup **91 passed** before that last regression, and layout **381 checks passed** (strict Chromium IPC fixtures); `cargo clippy --lib -- -D warnings`, Windows MSVC `cargo xwin check --locked --target x86_64-pc-windows-msvc --all-targets`, and `git diff --check` passed.
 - No real package update, live environment move, GPU generation or native Windows runtime acceptance performed. Windows app self-replacement remains explicitly unsupported. Final `CARGO_TARGET_DIR=/data/GitHub/DEAS/.target bash build-linux.sh` passed and atomically staged `artifacts/deas-linux-amd64` (SHA-256 `3b6f4efe41331803471a95e026ac658a1190adcb967ea479af2ce5024e56ad4b`); `ldd` has no missing dependencies, and the ELF embeds the current `index-BMr8k8G8.js`. This is a local dirty-tree build including the pre-existing concurrent changes, not a published release. Review fixes make update IPC and lifecycle-status polling asynchronous, and cross-drive copy failure cleans only a destination actually created by that copy; the collision regression preserves foreign contents.
 
-## 0.2.4 H3 Prompt Forge tab integration (unreleased)
+## 0.2.4 H3 Prompt Forge tab integration (shipped in 0.2.4)
 
 - Reused the Director Forge editor inline in the existing retained Prompt Forge tab, with Workbench-owned references/frame people and direct edit callbacks. Regression fixtures cover H3-only entry visibility, settings removal, first-frame and REF2VA people/order reaching the native Forge payload, shared References readback, tab routing, retained brief/cards/shots/drafts and Apply/Undo. Existing Forge tests retain cancellation, pose/card reading and stale-result checks.
 - `npm run typecheck`, `npm run build` and `git diff --check`: passed. Production build reports its existing mixed static/dynamic Tauri import and large-chunk warnings.
