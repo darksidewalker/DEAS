@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.3 (published)
+
+- GitHub release `v0.2.3` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.3), tag on source commit `7678d4645806f58e1ae8566d510c2062b924cb05` (tree `b2647a97277e67141f9f12feaed248d8424cbf88`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` in a clean worktree at that commit (rustc 1.97.0, Node v26.12.1); no CI evidence.
+- Gates on that tree: typecheck; frontend suite 1253/1253 (setup/App files re-run 116/116 after the environment-folder edits landed); `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -D warnings`; `cargo test --locked -- --test-threads=1` (650 lib tests); `cargo xwin check --all-targets` and `cargo xwin clippy --all-targets -D warnings` for `x86_64-pc-windows-msvc`.
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+6fbfeb4d865f76cdf4376712a7e8fa03eebcda51073c75ece745400461910a46  BUILD-MANIFEST.json
+d78686cbaa8c39b1373a26c486f299d0e8f28e7b0b4fa4bbb67c1afa2454d4a7  deas.exe
+16621f773e1a5e4d320fb5fc9ca991d476b67d29974f351ef34c75a5c949b3a2  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-COCrf1iz.js` and the `h3_sol_vae` family pattern. Sol-H3-VAE: header-inspected (24 `decoder.blocks.*` layers, stock H3 encoder) and loaded/decoded on CPU through ComfyUI `origin/master` (`0df1646a`, `NonCausalViT3DDecoder`, 2 latents → 5 frames); ComfyUI `b1a247c9` loads it encoder-only. Not verified: full-resolution GPU decode, quality vs. the stock VAE, an end-to-end H3 run through DEAS, the environment-folder reveal against a real install (IPC fixtures only).
+
 ## Release 0.2.2 (published)
 
 - GitHub release `v0.2.2` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.2), tag on source commit `5b9dbee8bf1af4a52e71b18e292f870ba7f8f708` (tree `262e9e551d101e73f5c4c6780ba51f417cc9f99a`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); no CI evidence.
