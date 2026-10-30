@@ -69,12 +69,13 @@ pub(crate) const OPTION_NODES: [&str; 9] = [
     "SpectrumApplyMiniMaxH3",
 ];
 /// File-name combos; names outside the compiler's grammar (traversal, URLs, control characters) are dropped, not fatal.
-const FILE_FIELDS: [&str; 6] = [
+const FILE_FIELDS: [&str; 7] = [
     "ckpt_name",
     "lora_name",
     "image",
     "unet_name",
     "clip_name",
+    "clip_name1",
     "vae_name",
 ];
 
@@ -205,7 +206,12 @@ pub async fn native_recipe_prerequisites(base_url: String) -> Result<Value, Stri
     let nodes = crate::get_json(&client, &base, "object_info", false)
         .await?
         .ok_or("Missing object_info response")?;
-    parse(&base, &nodes)
+    // A reachable backend whose object_info is rejected would otherwise keep Run disabled silently.
+    parse(&base, &nodes).inspect_err(|error| {
+        crate::warn_backend_limited("object_info:PREREQUISITES", || {
+            format!("WARN: backend prerequisites rejected: {error} (repeats limited to once per minute)")
+        })
+    })
 }
 
 #[cfg(test)]
@@ -446,9 +452,15 @@ mod tests {
         let mut info = nodes();
         info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0] =
             json!(["m".repeat(256)]);
+        // GGUF dual text encoders are file combos too: one odd name must not reject the backend.
+        info["DualCLIPLoaderGGUF"] = json!({"input":{"required":{"clip_name1":[[" odd.gguf", "ok.gguf", "ok.gguf"]],"type":[["flux"]]}}});
         let (base, request) = fixture(info.to_string()).await;
         let result = native_recipe_prerequisites(base).await.unwrap();
         assert_eq!(result["allowlist"]["checkpoints"], json!([]));
+        assert_eq!(
+            result["allowlist"]["ggufDualTextEncoders"],
+            json!(["ok.gguf"])
+        );
         request.await.unwrap();
         // ComfyUI lists user files with spaces and non-ASCII letters as they are; they stay usable.
         let mut info = nodes();
@@ -468,6 +480,20 @@ mod tests {
             ])
         );
         request.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejected_object_info_is_logged_for_the_user() {
+        crate::reset_backend_probe_diagnostics();
+        let mut info = nodes();
+        info["KSampler"]["input"]["required"]["scheduler"][0] = json!([" normal"]);
+        let (base, request) = fixture(info.to_string()).await;
+        assert!(native_recipe_prerequisites(base).await.is_err());
+        request.await.unwrap();
+        // Sibling rejection tests share the once-per-minute limiter; only presence is stable.
+        assert!(crate::logs::after(0)
+            .iter()
+            .any(|e| e.text.contains("prerequisites rejected: object_info ")));
     }
 
     #[tokio::test]

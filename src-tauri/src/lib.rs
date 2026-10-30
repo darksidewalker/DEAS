@@ -212,6 +212,18 @@ pub fn reset_backend_probe_diagnostics() {
         .clear();
 }
 
+/// Log a repeating backend diagnostic at most once per minute per key.
+pub(crate) fn warn_backend_limited(key: &str, text: impl FnOnce() -> String) {
+    let mut last = BACKEND_PROBE_LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if !last
+        .get(key)
+        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60))
+    {
+        last.insert(key.to_owned(), std::time::Instant::now());
+        logs::push(logs::Source::Deas, &text());
+    }
+}
+
 fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
     let (code, message) = if error.is_timeout() {
         ("BACKEND_TIMEOUT", "The backend did not respond in time. It may still be starting or busy. Wait briefly and retry; check Backend and Logs if this continues.")
@@ -224,15 +236,9 @@ fn backend_request_error(endpoint: &str, error: reqwest::Error) -> String {
         )
     };
     // Only the fixed discovery endpoints call this helper; repeated readiness probes share diagnostics.
-    let mut last = BACKEND_PROBE_LAST.lock().unwrap_or_else(|e| e.into_inner());
-    let key = format!("{endpoint}:{code}");
-    if !last
-        .get(&key)
-        .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60))
-    {
-        last.insert(key, std::time::Instant::now());
-        logs::push(logs::Source::Deas, &format!("WARN: backend operation=GET endpoint={endpoint} code={code}: {} (repeats limited to once per minute)", error.without_url()));
-    }
+    warn_backend_limited(&format!("{endpoint}:{code}"), || {
+        format!("WARN: backend operation=GET endpoint={endpoint} code={code}: {} (repeats limited to once per minute)", error.without_url())
+    });
     format!("{code}: {message}")
 }
 

@@ -210,11 +210,16 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const closeVisionDownload=()=>{setVisionDownload(false);void refreshChoices();};
  useEffect(()=>{if(!visionDownload)return;const dialog=visionDialog.current!;dialog.showModal();return()=>{if(dialog.open)dialog.close();};},[visionDownload]);
  const capabilityEpoch=useRef(0);
- const refreshChoices=useCallback(async(report=true)=>{const revision=++capabilityEpoch.current;try{const value=await checkRecipePrerequisites(endpoint);if(live.current&&revision===capabilityEpoch.current)setChoices(value.allowlist);}catch(e){if(report&&live.current&&revision===capabilityEpoch.current)setError(backendErrorText(e,t));}},[endpoint,t]);
+ const refreshChoices=useCallback(async(report=true)=>{const revision=++capabilityEpoch.current;try{const value=await checkRecipePrerequisites(endpoint);if(live.current&&revision===capabilityEpoch.current)setChoices(value.allowlist);}catch(e){
+  // A reachable backend whose object_info is rejected is not "pending": show the rejection even from the silent re-read.
+  const rejected=!/^BACKEND_(UNAVAILABLE|TIMEOUT|REQUEST_FAILED):/.test(String(e instanceof Error?e.message:e));
+  if((report||rejected)&&live.current&&revision===capabilityEpoch.current)setError(backendErrorText(e,t));}},[endpoint,t]);
  const latentDownloadStatus=useCallback((status:DownloadStatus)=>{if(status.state==='succeeded')void refreshChoices();},[refreshChoices]);
  const closeLatentDownload=()=>{setLatentDownload(null);void refreshChoices();};
  useEffect(()=>{if(!latentDownload)return;const dialog=latentDialog.current!;dialog.showModal();return()=>{if(dialog.open)dialog.close();};},[latentDownload]);
  const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
+ // H3 Image → Video with the picked image as last frame only (L2VA): holds that image's src while it is both input and last frame.
+ const [lastOnlySrc,setLastOnlySrc]=useState<string|null>(null);
  // shortcut: source URLs identify frame pictures; use asset revisions when same-path edits are supported.
  const [framePeople,setFramePeople]=useState<Record<string,FramePeople>>({});
  useEffect(()=>{setFramePeople(p=>Object.fromEntries(Object.entries(p).filter(([src])=>src===media?.src||src===lastFrame?.src)));},[media?.src,lastFrame?.src]);

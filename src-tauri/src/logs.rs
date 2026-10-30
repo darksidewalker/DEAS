@@ -67,7 +67,7 @@ impl Store {
     }
 }
 
-fn after(seq: u64) -> Vec<Entry> {
+pub(crate) fn after(seq: u64) -> Vec<Entry> {
     let s = store();
     // Entries are seq-ordered: skip the already delivered prefix.
     let start = s.entries.partition_point(|e| e.seq <= seq);
