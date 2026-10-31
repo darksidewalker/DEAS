@@ -312,6 +312,21 @@ test('late latent capability replies from an old endpoint cannot enable the new 
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
+test('a pending capability probe is not a missing latent upscale model',async()=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:true,model:'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',scale:2,steps:1,denoise:0.2}));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ let finish!:(value:Awaited<ReturnType<typeof checkRecipePrerequisites>>)=>void;
+ vi.mocked(checkRecipePrerequisites).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ render(<I18nProvider><Workbench roots={{models:'/m'}} endpoint="http://127.0.0.1:7801"/></I18nProvider>);
+ await waitFor(()=>expect(finish).toBeTypeOf('function'));
+ // Backend still answering: Run is disabled by the pending notice alone, the selected model is not reported missing.
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
+ await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors']}}));
+ expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
+});
+
 test.each(['cancel','download'] as const)('missing latent model opens the actual Library offer without automatic work (%s)',async action=>{
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:false,model:'explicit-missing.safetensors',scale:2,steps:1,denoise:0.2}));

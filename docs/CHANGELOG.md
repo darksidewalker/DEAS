@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9 BETA (unreleased)
+
+- **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
+
 ## 0.2.8 BETA
 
 - **MiniMax H3 image edit (image → image / inpaint) runs again.** The DaSiWa metadata config still pointed at the text encoders the H3 edit graph removes, so ComfyUI rejected every H3 image edit with `prompt_outputs_failed_validation` (`KeyError '2'`), with and without a mask. The metadata now reads the prompt from the H3 image-to-video conditioning and carries no negative.

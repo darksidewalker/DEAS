@@ -1,5 +1,9 @@
 # News
 
+## 0.2.9 BETA (unreleased)
+
+- Latent upscale no longer complains about a missing upscaler model right after start while the backend is still answering.
+
 ## 0.2.8 BETA
 
 - **Stop really stops.** The Stop button next to Run interrupts the running generation (long videos, many-step images) again instead of only clearing the queue. Takes effect after the next backend start.

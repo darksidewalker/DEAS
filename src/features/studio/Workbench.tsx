@@ -389,7 +389,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The owned backend may still be booting at mount, or models were added since the last probe: re-read when the latent options are shown.
  useEffect(()=>{if(latent&&dockTab==='post'&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
- const latentProblems=!latentEnabled?[]:[...(!choices?[]:latentNodes.filter(n=>!choices.nodes.includes(n))),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
+ // Before the capability probe answers, `latentChoices` is empty: that is "backend pending", not a missing model.
+ const latentProblems=!latentEnabled?[]:[...(!choices?[]:[...latentNodes.filter(n=>!choices.nodes.includes(n)),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[])]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=videoFamily==='minimax-h3'&&isVideo;
  const continuityOn=continuityAvailable&&plan.enabled===true;
  const continuityReferences=pipeline==='v2v'||pipeline==='ref2v';
