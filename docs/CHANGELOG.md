@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.2.6 BETA (unreleased)
+## 0.2.6 BETA
 
-- Windows: the owned ComfyUI backend no longer hangs at `Set cuda device to: 0` until the 120 s readiness timeout. The stop listener now polls its stdin pipe (`PeekNamedPipe`) instead of blocking in `readline`, which stalled numpy's DLL load during `import torch` (issue #11).
-- Reinstall and Update ComfyUI now record the current NVIDIA driver and GPU UUID, so a driver update no longer leaves Start failing with `NVIDIA hardware/driver changed; re-provision required`. A GPU with another compute capability is refused with a request for a new installation plan, because the installed PyTorch profile may not support it.
+- **Windows: the owned backend starts again (issue #11).** Symptoms in 0.2.5: Backend stayed on "Starting — verifying owned API" for 120 s and then failed with `Backend readiness timed out: Owned listener not ready` (`Owned child exited: exit code: 1`); the **Backend API** check never passed, so setup looked stuck there; Logs repeated `WARN: backend operation=GET endpoint=object_info code=BACKEND_UNAVAILABLE: error sending request`; the ComfyUI log stopped at `Set cuda device to: 0`; the "Optimizations off" startup preset made no difference, while ComfyUI started fine by hand. Cause: the stop listener thread blocked in `readline` on the stdin pipe, which stalled numpy's DLL load during `import torch`. It now polls the pipe with `PeekNamedPipe` and reads only once `stop\n` has arrived. Verified on Windows 11 with an RTX 4070 Ti SUPER: the old bootstrap hung twice, the new one was ready in 8–29 s, and Stop still shuts down gracefully (exit 0 in under a second).
+- **Reinstall and Update ComfyUI clear the driver-change error.** Symptom: after an NVIDIA driver update, Start failed with `NVIDIA hardware/driver changed; re-provision required`, and reinstalling did not help, because only the PyTorch update refreshed the recorded GPU. Reinstall and Update ComfyUI now record the probed driver version and GPU UUID when the compute capability is unchanged and the driver passes the install gates. A GPU with another compute capability is refused with a request for a new installation plan, because the installed PyTorch profile may not support it.
 
 ## 0.2.5 BETA
 

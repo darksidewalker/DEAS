@@ -1,5 +1,10 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 0.2.6 Windows backend startup and driver refresh (shipped in 0.2.6)
+
+- Windows startup hang (issue #11): A/B on Windows 11, RTX 4070 Ti SUPER, the existing test environment (ComfyUI 0.43.0, Python 3.12.11), launched with DEAS's cleared environment, `CREATE_NO_WINDOW`, piped stdin and the bootstrap text taken verbatim from `backend.rs`; readiness = `/system_stats` answers, then `stop\n` is written. Old bootstrap (0.2.5): not ready after 90 s in 2/2 runs, log ends at `Set cuda device to: 0`. New bootstrap: ready after 28.6 s and 8.1 s, `stop\n` → `Stopped server`, exit 0 in 0.77 s. No Python process remained. Not verified: the full `deas.exe` launch path on Windows.
+- Driver refresh: `reinstall_records_driver_update_but_refuses_other_compute_capability` (driver/UUID accepted, other compute capability refused, driver gate kept); `no_console_python_shutdown_pipe_wakes_asyncio_and_runs_finally` covers the non-Windows branch. Not verified: a real driver update on Windows.
+
 ## Release 0.2.5 (published)
 
 - GitHub release `v0.2.5` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.5), annotated tag on source commit `c530c13d6f4ab83c53090a1df7e9423609d9ed09` (tree `15ec19fff04ba2fc205141622e16b53f4b318971`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, every asset's server-side digest and size matched before publishing.

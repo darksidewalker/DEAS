@@ -1,8 +1,8 @@
 # News
 
-## 0.2.6 BETA (unreleased)
+## 0.2.6 BETA
 
-- Windows: the backend starts again instead of timing out on "verifying owned API".
+- Windows: the backend starts again instead of hanging on "Starting — verifying owned API" / the Backend API check and timing out after 120 s (`object_info … BACKEND_UNAVAILABLE` in Logs).
 - After a driver update, Reinstall or Update ComfyUI clears the "hardware/driver changed" start error.
 
 ## 0.2.5 BETA
