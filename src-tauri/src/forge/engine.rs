@@ -658,6 +658,16 @@ async fn read_references(
             images,
         );
     };
+    if chat::is_local(&req.model) {
+        warnings.push("The local GGUF runner cannot read pictures, so this was written from the brief alone.".into());
+        return (
+            RefState {
+                analysis: None,
+                carries: false,
+            },
+            vec![],
+        );
+    }
     let ollama = config.provider == Provider::Ollama;
     let question = refs::blueprint_message(&sent, &req.brief, pack);
     let messages = vec![
@@ -1731,16 +1741,18 @@ pub async fn native_forge_write(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    write(&data, &config, &request).await.inspect_err(|e| {
-        if e.starts_with(message::CANVAS_ERROR) {
-            message::report_canvas_failure("write");
-            return;
-        }
-        crate::logs::push(
-            crate::logs::Source::Deas,
-            &format!("ERROR: Prompt Forge {}: {e}", request.target),
-        );
-    })
+    chat::with_local_runner(&root, write(&data, &config, &request))
+        .await
+        .inspect_err(|e| {
+            if e.starts_with(message::CANVAS_ERROR) {
+                message::report_canvas_failure("write");
+                return;
+            }
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("ERROR: Prompt Forge {}: {e}", request.target),
+            );
+        })
 }
 
 #[tauri::command]
@@ -1755,7 +1767,7 @@ pub async fn native_forge_reference_readback(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    reference_readback(&data, &config, &model, &reference)
+    chat::with_local_runner(&root, reference_readback(&data, &config, &model, &reference))
         .await
         .inspect_err(|e| {
             crate::logs::push(
@@ -1777,7 +1789,7 @@ pub async fn native_forge_layout_rewrite(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    layout_rewrite(&data, &config, &model, &request)
+    chat::with_local_runner(&root, layout_rewrite(&data, &config, &model, &request))
         .await
         .inspect_err(|e| {
             if e.starts_with(message::CANVAS_ERROR) {
@@ -1802,16 +1814,18 @@ pub async fn native_forge_revise(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    revise(&data, &config, &request).await.inspect_err(|e| {
-        if e.starts_with(message::CANVAS_ERROR) {
-            message::report_canvas_failure("revise");
-            return;
-        }
-        crate::logs::push(
-            crate::logs::Source::Deas,
-            &format!("ERROR: Prompt Forge revise {}: {e}", request.write.target),
-        );
-    })
+    chat::with_local_runner(&root, revise(&data, &config, &request))
+        .await
+        .inspect_err(|e| {
+            if e.starts_with(message::CANVAS_ERROR) {
+                message::report_canvas_failure("revise");
+                return;
+            }
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                &format!("ERROR: Prompt Forge revise {}: {e}", request.write.target),
+            );
+        })
 }
 
 /// A numbered ladder's notch labels, in order: `[[level, label], ...]`.

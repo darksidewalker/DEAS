@@ -31,6 +31,20 @@ test('native model discovery lists provider-qualified models and diagnostics wit
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_llm_models', { root: '/env' }]]);
 });
 
+test('the native writer can pick a local GGUF, with a server staying the default', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'native_llm_models') return { models: [{ provider: 'local', id: 'nested/model.gguf', name: 'Local model' }, { provider: 'openai', id: 'server-model', name: 'Server model' }], warnings: [] };
+    throw Error(`Unexpected ${command}`);
+  });
+  const { result } = renderHook(() => useForgeModels('', '/env', true, false, true));
+  act(() => result.current.load());
+  await waitFor(() => expect(result.current.list).not.toBeNull());
+  expect(result.current.usable.map(m => m.id)).toEqual(['openai:server-model', 'local:nested/model.gguf']);
+  expect(result.current.model).toBe('openai:server-model');
+  expect(result.current.serverOnly).toBe(false);
+  expect(Object.values(result.current.list!.errors)).toEqual([]);
+});
+
 test('native model discovery asks for a server only when local GGUFs are all it found', async () => {
   vi.mocked(invoke).mockImplementation(async command => {
     if (command === 'native_llm_models') return { models: [{ provider: 'local', id: 'nested/model.gguf', name: 'Local model' }], warnings: [] };

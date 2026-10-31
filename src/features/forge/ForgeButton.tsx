@@ -3,18 +3,18 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
-import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeWrite, nativeModelId, nativeTarget, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
+import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeWrite, nativeTarget, nativeWriteModel, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { discoverLlmModels, hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
 import './forge.css';
 
 /** Read-only native discovery by default; video/node-pack tools also need their metadata. */
-export function useForgeModels(endpoint: string, root?: string, active = true, nodepack = false) {
+export function useForgeModels(endpoint: string, root?: string, active = true, nodepack = false, localGguf = false) {
   const [list, setList] = useState<ForgeModels | null>(null);
   const [error, setError] = useState('');
   const [model, setModel] = usePref('forge.model', '', isString);
   const [rev, setRev] = useState(0);
-  const identity = JSON.stringify([endpoint, root, rev, active, nodepack]);
+  const identity = JSON.stringify([endpoint, root, rev, active, nodepack, localGguf]);
   const scope = useRef<{ identity: string; active: boolean; loaded: boolean; pending: boolean } | null>(null);
   useEffect(() => {
     const bump = () => setRev(n => n + 1);
@@ -26,7 +26,7 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
     scope.current = current;
     setList(null); setError('');
     return () => { current.active = false; };
-  }, [endpoint, root, rev, active, nodepack]);
+  }, [endpoint, root, rev, active, nodepack, localGguf]);
   const load = () => {
     const current = scope.current;
     if (!current?.active || current.pending) return;
@@ -39,8 +39,10 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
         const result = await discoverLlmModels(root);
         const warnings = [...result.warnings];
         // Only when local GGUFs are all there is: beside a usable server they are just greyed out.
-        if (result.models.length && result.models.every(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
-        return { models: result.models.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name, disabled: m.provider === 'local' })), errors: Object.fromEntries(warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
+        if (!localGguf && result.models.length && result.models.every(m => m.provider === 'local')) warnings.push('forge.native.serverRequired');
+        // A server, when there is one, stays the default over a local GGUF.
+        const listed = [...result.models.filter(m => m.provider !== 'local'), ...result.models.filter(m => m.provider === 'local')];
+        return { models: listed.map(m => ({ id: `${m.provider}:${m.id}`, label: m.name, disabled: !localGguf && m.provider === 'local' })), errors: Object.fromEntries(warnings.map((w, i) => [String(i), w])), creativity: [], shot_counts: [], default_shots: 'Auto' };
       }
       // The node pack lists its models concurrently with the readiness check.
       const models = forgeModels(endpoint, root);
@@ -69,7 +71,7 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
   // The list empties on every reload (tab switch, backend start), which is not a model change.
   const settled = useRef('');
   if (current) settled.current = current;
-  return { list, error, load, rev, usable, model: current, settledModel: settled.current, serverOnly: !nodepack, setModel };
+  return { list, error, load, rev, usable, model: current, settledModel: settled.current, serverOnly: !nodepack && !localGguf, setModel };
 }
 
 export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels> }) {
@@ -95,7 +97,7 @@ export const HammerIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true" fill
 
 export function ForgeButton({ endpoint, root, dialect, value, image, onApply, onWildcards, wildcard, h3, tools, onBusyChange, inline = false, active = true }: { active?: boolean; inline?: boolean; endpoint: string; root?: string; dialect?: string; value: string; /** Image-to-image/inpaint source, read by a vision model. */ image?: string; onApply: (text: string) => void; onBusyChange?: (busy: boolean) => void; onWildcards?: () => void; /** Active wildcard rules: the node resolves them and the picks join the idea. */ wildcard?: WildcardRules; h3?: H3Context; /** Director prompt helpers shown in the panel (H3 video only). */ tools?: ReactNode }) {
   const { t } = useI18n();
-  const forge = useForgeModels(endpoint, root, true, !!h3 || !nativeTarget(dialect));
+  const forge = useForgeModels(endpoint, root, true, !!h3 || !nativeTarget(dialect), true);
   const opener = useRef<HTMLButtonElement>(null);
   const [shots, setShots] = usePref<string | number>('forge.h3.shots', 'Auto', isShots);
   const [shotBriefs, setShotBriefs] = useState<string[]>([]);
@@ -185,7 +187,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
       } else if (nativeTarget(dialect)) {
         // PromptForge's whole pipeline in DEAS (canon, tag search, clean-up) as if only the prompt had been filled in:
         // every control at PromptForge's default. The hammer is a quick text rewrite: pictures belong to the Prompt Forge tab.
-        const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeModelId(forge.model), controls: {} });
+        const out = await nativeForgeWrite(root!, { target: nativeTarget(dialect)!, brief, model: nativeWriteModel(forge.model), controls: {} });
         if (request.current !== current || current.cancelled) return;
         setResult(out.prompt); setWarnings(out.warnings);
       } else {

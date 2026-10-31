@@ -439,8 +439,10 @@ fn lock_environment(root: &Path) -> Result<fs::File, String> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
+        // Write access is what a second locker cannot share; readers (the owned manifest checks) can.
         options
-            .share_mode(0)
+            .write(true)
+            .share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ)
             .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(root.join("deas-install.json")).map_err(|_| {

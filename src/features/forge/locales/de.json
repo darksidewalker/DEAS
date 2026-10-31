@@ -15,7 +15,7 @@
   "forge.canvas.sendLayout": "Layout-JSON an Generieren senden",
   "forge.canvas.sendTextOnly": "Nur Text senden (Studio-Leinwand behalten)",
   "forge.canvas.handoffBlocked": "Die aktuelle Studio-Quelle oder Verarbeitung kann diese Leinwand nicht übernehmen. Sende nur Text oder ändere die Studio-Einstellungen.",
-  "forge.native.serverRequired": "Native Prompt Forge und Chat benötigen einen Ollama- oder OpenAI-kompatiblen Server. Der lokale GGUF-Runner unterstützt noch keine Tool-Aufrufe.",
+  "forge.native.serverRequired": "Chat benötigt einen Ollama- oder OpenAI-kompatiblen Server. Der lokale GGUF-Runner unterstützt Chat noch nicht. Prompt Forge kann ein lokales GGUF verwenden.",
   "forge.setup.required": "Konfiguriere hier ein LLM-Modell, bevor du Prompt Forge oder eine KI-Hilfe nutzt. Dein Entwurf bleibt erhalten; es wurde keine Generierung gestartet.",
   "forge.setup.environment": "Installiere oder öffne zuerst eine DEAS-Umgebung und füge dann ein lokales GGUF-Modell hinzu oder konfiguriere einen LLM-Server.",
   "forge.button": "Prompt Forge",

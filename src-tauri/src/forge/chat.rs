@@ -1,11 +1,28 @@
 //! One chat round with tools against the configured LLM server — Ollama's
 //! native API or an OpenAI-compatible one (llama.cpp, llama-swap, vLLM).
 //! Thinking is switched off the way PromptForge does it, because a prompt
-//! rewrite gains nothing from reasoning but latency.
+//! rewrite gains nothing from reasoning but latency. A `local:` model runs the
+//! same round through the managed GGUF worker instead.
 
-use crate::llm::{LlmConfig, Provider};
+use crate::llm::{LlmConfig, LocalRunner, Provider};
 use serde_json::{json, Value};
+use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
+
+const LOCAL_PREFIX: &str = "local:";
+tokio::task_local! {
+    static RUNNER: Arc<LocalRunner>;
+}
+
+/// The local model of everything `work` writes stays loaded until it ends.
+pub async fn with_local_runner<T>(root: &std::path::Path, work: impl Future<Output = T>) -> T {
+    RUNNER.scope(Arc::new(LocalRunner::new(root)), work).await
+}
+
+pub fn is_local(model: &str) -> bool {
+    model.starts_with(LOCAL_PREFIX)
+}
 
 const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 const MAX_TOOL_CALLS: usize = 128;
@@ -45,7 +62,7 @@ fn request(r: &Round<'_>, stream: bool) -> Result<(reqwest::Url, Value, bool), S
         Provider::Ollama => true,
         Provider::Openai => false,
         Provider::Local => {
-            return Err("Prompt Forge needs an LLM server (Ollama or OpenAI-compatible) set in Backend → LLM backend; the local GGUF runner cannot call tools yet.".into())
+            return Err("No LLM server is set: pick a local GGUF, or set a server under Backend → LLM.".into())
         }
     };
     let mut body = if ollama {
@@ -118,7 +135,132 @@ fn http_error(status: reqwest::StatusCode, bytes: &[u8]) -> String {
     )
 }
 
+/// Gemma's `{query:<|"|>red kimono<|"|>,limit:3}`, as JSON: its string quote is a token and its keys are bare.
+fn gemma_arguments(body: &str) -> Option<Value> {
+    let mut json = String::new();
+    for (index, part) in body.split("<|\"|>").enumerate() {
+        if index % 2 == 1 {
+            json.push_str(&Value::String(part.to_string()).to_string());
+            continue;
+        }
+        let mut word = String::new();
+        for c in part.chars() {
+            if c.is_alphanumeric() || c == '_' {
+                word.push(c);
+                continue;
+            }
+            if c == ':' && !word.is_empty() {
+                json.push_str(&Value::String(std::mem::take(&mut word)).to_string());
+            } else {
+                json.push_str(&std::mem::take(&mut word));
+            }
+            json.push(c);
+        }
+        json.push_str(&word);
+    }
+    serde_json::from_str(&json).ok()
+}
+
+/// One call's name and arguments, in whichever shape this model's template taught it.
+fn local_call(raw: &str) -> Option<(String, Value)> {
+    let raw = raw.trim();
+    if let Ok(call) = serde_json::from_str::<Value>(raw) {
+        return Some((call["name"].as_str()?.to_string(), call["arguments"].clone()));
+    }
+    if let Some(rest) = raw.strip_prefix("<function=") {
+        let (name, mut rest) = rest.split_once('>')?;
+        let mut arguments = serde_json::Map::new();
+        while let Some((_, after)) = rest.split_once("<parameter=") {
+            let (key, after) = after.split_once('>')?;
+            let (value, tail) = after.split_once("</parameter>").unwrap_or((after, ""));
+            let value = value.trim();
+            let value = serde_json::from_str(value)
+                .ok()
+                .filter(|v: &Value| !v.is_string())
+                .unwrap_or_else(|| json!(value));
+            arguments.insert(key.to_string(), value);
+            rest = tail;
+        }
+        return Some((name.trim().to_string(), Value::Object(arguments)));
+    }
+    let (name, body) = raw.strip_prefix("call:")?.split_once('{')?;
+    let body = body.rsplit_once('}')?.0;
+    Some((name.trim().to_string(), gemma_arguments(&format!("{{{body}}}"))?))
+}
+
+/// `<think>` blocks and tool calls come back as plain text from a local model.
+fn local_reply(text: &str, finish: Option<&str>) -> Reply {
+    let mut rest = text;
+    // Gemma closes its (empty, with thinking off) channel its own way.
+    for close in ["</think>", "<channel|>"] {
+        if let Some((_, after)) = rest.rsplit_once(close) {
+            rest = after;
+        }
+    }
+    let mut content = String::new();
+    let mut calls = vec![];
+    loop {
+        let plain = rest.find("<tool_call>");
+        let gemma = rest.find("<|tool_call>");
+        let (start, open, close) = match (plain, gemma) {
+            (Some(p), Some(g)) if g < p => (g, "<|tool_call>", "<tool_call|>"),
+            (None, Some(g)) => (g, "<|tool_call>", "<tool_call|>"),
+            (Some(p), _) => (p, "<tool_call>", "</tool_call>"),
+            (None, None) => break,
+        };
+        content.push_str(&rest[..start]);
+        let after = &rest[start + open.len()..];
+        let (raw, tail) = after.split_once(close).unwrap_or((after, ""));
+        rest = tail;
+        let Some((name, arguments)) = local_call(raw).filter(|_| calls.len() < MAX_TOOL_CALLS)
+        else {
+            continue;
+        };
+        calls.push(ToolCall {
+            id: Some(format!("call_{}", calls.len())),
+            name,
+            arguments: json!(arguments.to_string()),
+        });
+    }
+    content.push_str(rest);
+    Reply {
+        content: content.trim().to_string(),
+        calls,
+        truncated: finish == Some("length"),
+    }
+}
+
+async fn local_round(r: &Round<'_>) -> Result<Reply, String> {
+    let model = &r.model[LOCAL_PREFIX.len()..];
+    if r.messages.iter().any(|m| m["content"].is_array()) {
+        return Err("The local GGUF runner cannot read pictures.".into());
+    }
+    let runner = RUNNER
+        .try_with(Arc::clone)
+        .map_err(|_| "Local GGUF models are not available here")?;
+    let request = json!({
+        "messages": r.messages,
+        "tools": r.tools.filter(|t| !t.is_empty()),
+        "temperature": r.temperature,
+        "top_p": r.top_p,
+        "max_tokens": r.max_tokens,
+    });
+    let (text, finish) = runner.round(model, request.clone(), r.timeout).await?;
+    let reply = local_reply(&text, finish.as_deref());
+    // A model that ignores or fumbles its tools still writes when asked without them.
+    if r.tools.is_some() && reply.calls.is_empty() && !reply.content.contains("===SEGMENT:") {
+        let mut plain = request;
+        plain["tools"] = Value::Null;
+        let (text, finish) = runner.round(model, plain, r.timeout).await?;
+        return Ok(local_reply(&text, finish.as_deref()));
+    }
+    Ok(reply)
+}
+
 pub async fn round(r: Round<'_>) -> Result<Reply, String> {
+    if is_local(r.model) {
+        return local_round(&r).await;
+    }
     let (url, body, ollama) = request(&r, false)?;
     let mut response = post(url, &body, r.timeout).await?;
     let status = response.status();
@@ -461,6 +603,59 @@ pub fn tool_result(call: &ToolCall, content: &str) -> Value {
 pub(super) mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn local_reply_lifts_tool_calls_and_thinking_out_of_the_text() {
+        let reply = local_reply(
+            "<think>hm</think>Looking.\n<tool_call>\n{\"name\": \"search_tags\", \"arguments\": {\"query\": \"red kimono\"}}\n</tool_call>\n<tool_call>not json</tool_call>\n<tool_call>{\"name\": \"read_guidance\", \"arguments\": {}}",
+            Some("stop"),
+        );
+        assert_eq!(reply.content, "Looking.");
+        assert_eq!(local_reply("<|channel>thought
+<channel|>===SEGMENT: A===", None).content, "===SEGMENT: A===");
+        assert_eq!(reply.calls.len(), 2);
+        assert_eq!(reply.calls[0].name, "search_tags");
+        assert_eq!(reply.calls[0].id.as_deref(), Some("call_0"));
+        assert_eq!(
+            crate::forge::tools::arguments(&reply.calls[0].arguments)["query"],
+            "red kimono"
+        );
+        assert_eq!(reply.calls[1].name, "read_guidance");
+        assert!(!reply.truncated);
+        // Qwen 3.8's XML and Gemma 4's own shape are the same call.
+        let xml = local_reply("<tool_call>\n<function=search_tags>\n<parameter=query>\nred kimono\n</parameter>\n<parameter=limit>\n3\n</parameter>\n</function>\n</tool_call>", None);
+        let gemma = local_reply("<|tool_call>call:search_tags{query:<|\"|>red: kimono, {x}<|\"|>,limit:3}<tool_call|>", None);
+        for (call, query) in [(&xml.calls[0], "red kimono"), (&gemma.calls[0], "red: kimono, {x}")] {
+            assert_eq!(call.name, "search_tags");
+            let args = crate::forge::tools::arguments(&call.arguments);
+            assert_eq!((args["query"].as_str(), args["limit"].as_u64()), (Some(query), Some(3)));
+        }
+        let plain = local_reply("===SEGMENT: Prompt===\n1girl", Some("length"));
+        assert_eq!(plain.content, "===SEGMENT: Prompt===\n1girl");
+        assert!(plain.calls.is_empty() && plain.truncated);
+    }
+
+    #[tokio::test]
+    async fn local_rounds_need_a_runner_and_refuse_pictures() {
+        let config = &LlmConfig::default();
+        let round = |messages: Vec<Value>| async move {
+            let r = Round {
+                config,
+                model: "local:model.gguf",
+                messages: &messages,
+                tools: None,
+                temperature: None,
+                top_p: None,
+                max_tokens: None,
+                timeout: Duration::from_secs(1),
+            };
+            local_round(&r).await.map(|_| ())
+        };
+        let picture = user_with_images("look", &["data:image/png;base64,AA".into()], false);
+        assert!(round(vec![picture]).await.unwrap_err().contains("pictures"));
+        let text = json!({ "role": "user", "content": "write" });
+        assert!(round(vec![text]).await.unwrap_err().contains("not available"));
+    }
 
     // Real HTTP peers: an unfinished response stays open until the client drops it.
     pub(in crate::forge) async fn fixture(

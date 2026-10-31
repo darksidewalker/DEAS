@@ -407,6 +407,71 @@ async fn subprocess_output_reader_is_bounded() {
     assert!(bounded_read(&b"abcd"[..], 3).await.is_err());
 }
 #[test]
+fn python_worker_session_serves_rounds_until_stdin_closes() {
+    // Fixtures only: the real session loop over a real pipe, with a fake llama_cpp.
+    let code = format!(
+        r#"
+import io, json, os, sys, types, tempfile
+ns = {{'__name__': 'fixture'}}
+exec({worker:?}, ns)
+calls = []
+class Fixture:
+    metadata = {{'tokenizer.chat_template': 'plain'}}
+    def __init__(self, **kwargs): calls.append(kwargs)
+    def create_chat_completion(self, **kwargs):
+        calls.append(kwargs)
+        if kwargs['messages'][0]['content'] == 'long': raise ValueError('Requested tokens exceed context window: SECRET')
+        if kwargs['messages'][0]['content'] == 'bad': raise RuntimeError('SECRET prompt')
+        return {{'choices':[{{'message':{{'content':'<tool_call>x</tool_call>'}},'finish_reason':'stop'}}]}}
+    def close(self): calls.append('closed')
+sys.modules['llama_cpp'] = types.SimpleNamespace(Llama=Fixture, llama_supports_gpu_offload=lambda: False)
+with tempfile.TemporaryDirectory() as folder:
+    path = os.path.join(folder, 'fixture.gguf')
+    open(path, 'wb').close()
+    lines = [{{'modelPath':path}}, {{'messages':[{{'content':'one','tool_calls':[{{'function':{{'arguments':'{{\"query\":\"x\"}}'}}}}]}}],'tools':[{{'type':'function'}}],'max_tokens':9,'temperature':None}}, {{'messages':[{{'content':'long'}}]}}, {{'messages':[{{'content':'bad'}}]}}, {{'messages':[{{'content':'two'}}]}}]
+    read, write = os.pipe()
+    keep, saved = sys.stdin, os.dup(1)
+    sys.stdin = types.SimpleNamespace(buffer=io.BytesIO(b''.join(json.dumps(l).encode() + b'\n' for l in lines)))
+    os.dup2(write, 1)
+    try: code = ns['serve']()
+    finally:
+        os.dup2(saved, 1); sys.stdin = keep; os.close(write)
+    out = os.fdopen(read, 'rb').read().decode()
+    assert code == 0 and 'SECRET' not in out
+    replies = [json.loads(l) for l in out.splitlines()]
+    tool = {{'text':'<tool_call>x</tool_call>','finish':'stop'}}
+    assert replies == [{{'ready':True}}, tool, {{'error':'context'}}, {{'error':'failed'}}, tool], replies
+    assert calls[0]['n_ctx'] == 32768 and sum(isinstance(c, dict) and 'model_path' in c for c in calls) == 1
+    assert calls[1]['tool_choice'] == 'auto' and calls[1]['max_tokens'] == 9 and 'temperature' not in calls[1]
+    assert calls[1]['messages'][0]['tool_calls'][0]['function']['arguments'] == {{'query':'x'}}
+    assert 'tools' not in calls[-2] and calls[-1] == 'closed'
+seen = []
+class Small(Fixture):
+    def __init__(self, **kwargs):
+        seen.append(kwargs['n_ctx'])
+        if kwargs['n_ctx'] > 8192: raise ValueError('no memory')
+fake = types.SimpleNamespace(Llama=Small, llama_supports_gpu_offload=lambda: True)
+assert isinstance(ns['open_model'](fake, 'model.gguf'), Small) and seen == [32768, 16384, 8192]
+class Never(Fixture):
+    def __init__(self, **kwargs): raise ValueError('no memory')
+try: ns['open_model'](types.SimpleNamespace(Llama=Never, llama_supports_gpu_offload=lambda: True), 'model.gguf')
+except ValueError: pass
+else: raise AssertionError('expected failure')
+print('session fixtures passed')
+"#,
+        worker = include_str!("llm_worker.py")
+    );
+    let output = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
+        .args(["-I", "-c", &code])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+#[test]
 fn python_worker_mocked_import_fixtures() {
     // Fixtures only: this executes the real worker code with a fake llama_cpp import.
     let code = format!(

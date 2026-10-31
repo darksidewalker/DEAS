@@ -15,7 +15,7 @@
   "forge.canvas.sendLayout": "将布局JSON发送到生成",
   "forge.canvas.sendTextOnly": "仅发送文本（保留Studio画布）",
   "forge.canvas.handoffBlocked": "当前Studio来源或处理模式无法接受此画布。请仅发送文本或更改Studio设置。",
-  "forge.native.serverRequired": "原生 Prompt Forge 和聊天需要 Ollama 或兼容 OpenAI 的服务器。本地 GGUF 运行器尚不支持工具调用。",
+  "forge.native.serverRequired": "聊天需要 Ollama 或兼容 OpenAI 的服务器。本地 GGUF 运行器尚不支持聊天。Prompt Forge 可以使用本地 GGUF。",
   "forge.setup.required": "使用 Prompt Forge 或 AI 助手前，请在此配置 LLM 模型。草稿已保留，未启动生成。",
   "forge.setup.environment": "请先安装或打开 DEAS 环境，然后添加本地 GGUF 模型或配置 LLM 服务器。",
   "forge.button": "Prompt Forge",
