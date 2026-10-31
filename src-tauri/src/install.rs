@@ -1887,8 +1887,6 @@ async fn packages(
         py,
         "--index",
         &selected.index_url,
-        "--constraint",
-        constraint.to_str().ok_or("Constraint path must be UTF-8")?,
     ];
     if upgrade {
         args.push("--upgrade");
@@ -1946,8 +1944,6 @@ async fn packages(
                 py,
                 "--index",
                 &selected.index_url,
-                "--constraint",
-                constraint.to_str().ok_or("Invalid constraint path")?,
                 "-r",
                 "requirements.txt",
             ],
@@ -1991,8 +1987,6 @@ async fn packages(
                         py,
                         "--index",
                         "https://pypi.nvidia.com/",
-                        "--constraint",
-                        constraint.to_str().ok_or("Invalid constraint path")?,
                         "--only-binary",
                         "nvidia-vfx",
                         requirement,
@@ -2013,8 +2007,6 @@ async fn packages(
                 py,
                 "--index",
                 &selected.index_url,
-                "--constraint",
-                constraint.to_str().ok_or("Invalid constraint path")?,
             ];
             args.extend(wheel_args.iter().map(String::as_str));
             if upgrade {

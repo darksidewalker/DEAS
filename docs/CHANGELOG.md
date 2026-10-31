@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Windows: install works in a folder with a space.** uv splits `--constraint` on spaces even on the command line, so any such path failed at Requirements, including the default beside the executable under a user name with a space. The managed `UV_CONSTRAINT` file URI is now the only constraint source.
+
 ## 0.2.6 BETA
 
 - **Windows: the owned backend starts again (issue #11).** Symptoms in 0.2.5: Backend stayed on "Starting — verifying owned API" for 120 s and then failed with `Backend readiness timed out: Owned listener not ready` (`Owned child exited: exit code: 1`); the **Backend API** check never passed, so setup looked stuck there; Logs repeated `WARN: backend operation=GET endpoint=object_info code=BACKEND_UNAVAILABLE: error sending request`; the ComfyUI log stopped at `Set cuda device to: 0`; the "Optimizations off" startup preset made no difference, while ComfyUI started fine by hand. Cause: the stop listener thread blocked in `readline` on the stdin pipe, which stalled numpy's DLL load during `import torch`. It now polls the pipe with `PeekNamedPipe` and reads only once `stop\n` has arrived. Verified on Windows 11 with an RTX 4070 Ti SUPER: the old bootstrap hung twice, the new one was ready in 8–29 s, and Stop still shuts down gracefully (exit 0 in under a second).
