@@ -276,5 +276,21 @@
   "setup.update.torchHint": "Yönetilen arka ucu durdurur; ComfyUI ve düğüm paketleri olduğu gibi kalır. Yeni profil yalnızca doğrulama geçtikten sonra kaydedilir.",
   "setup.update.torchChecking": "Daha yeni bir PyTorch profili denetleniyor…",
   "setup.update.torchCurrent": "Bu DEAS sürümünün bildiği en yeni PyTorch profili zaten kullanılıyor ({from}).",
-  "setup.updateRestart": "DEAS ikilisi güncellendi. Güncellemeler ve proje kayıtları tamamlandığında otomatik olarak yeniden başlatılacak…"
+  "setup.updateRestart": "DEAS ikilisi güncellendi. Güncellemeler ve proje kayıtları tamamlandığında otomatik olarak yeniden başlatılacak…",
+  "search.title": "Arama",
+  "search.placeholder": "Bir kontrol ara…",
+  "search.results": "Sonuçlar",
+  "search.empty": "Eşleşen kontrol yok",
+  "search.notAvailable": "Şu anda kullanılamaz",
+  "search.disabled": "Gri gösterildi: şu anda kullanılamaz",
+  "search.reason.models": "Backend'den bir model gerekir",
+  "search.reason.backend": "Sahipli backend gerekir",
+  "search.reason.references": "Bir görsel referansı gerekir",
+  "search.reason.plan": "Çalıştırma planı yalnızca bu taslağın kullandığı aşamaları gösterir",
+  "search.reason.installed": "Kurulu bir ortam gerekir",
+  "search.section.prompts": "Promptlar",
+  "search.section.run": "Çalıştır",
+  "search.section.filters": "Filtreler",
+  "search.section.panes": "Backend panelleri",
+  "search.reason.lines": "Mevcut filtreyle eşleşen log satırı yok"
 }

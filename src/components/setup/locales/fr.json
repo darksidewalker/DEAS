@@ -276,5 +276,21 @@
   "setup.update.torchHint": "Arrête le moteur géré ; ComfyUI et les packs de nœuds restent inchangés. Le nouveau profil n’est enregistré qu’après une vérification réussie.",
   "setup.update.torchChecking": "Recherche d’un profil PyTorch plus récent…",
   "setup.update.torchCurrent": "Déjà sur le profil PyTorch le plus récent connu de cette version de DEAS ({from}).",
-  "setup.updateRestart": "Binaire DEAS mis à jour. Redémarrage automatique après les mises à jour et les enregistrements de projet…"
+  "setup.updateRestart": "Binaire DEAS mis à jour. Redémarrage automatique après les mises à jour et les enregistrements de projet…",
+  "search.title": "Recherche",
+  "search.placeholder": "Chercher un contrôle…",
+  "search.results": "Résultats",
+  "search.empty": "Aucun contrôle correspondant",
+  "search.notAvailable": "Pas disponible maintenant",
+  "search.disabled": "Affiché grisé : inutilisable maintenant",
+  "search.reason.models": "Nécessite un modèle du backend",
+  "search.reason.backend": "Nécessite le backend intégré",
+  "search.reason.references": "Nécessite une référence image",
+  "search.reason.plan": "Le plan d'exécution montre seulement les étapes de ce brouillon",
+  "search.reason.installed": "Nécessite une installation",
+  "search.section.prompts": "Prompts",
+  "search.section.run": "Exécuter",
+  "search.section.filters": "Filtres",
+  "search.section.panes": "Panneaux du backend",
+  "search.reason.lines": "Aucune ligne de log ne correspond au filtre actuel"
 }

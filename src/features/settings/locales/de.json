@@ -6,5 +6,13 @@
   "settings.prompt.autocompleteHelp": "Standardmäßig aus. Nutzt die lokale Tag-Datenbank von Prompt Forge; benötigt eine eingerichtete Umgebung mit Tag-Daten. Ab zwei Zeichen: Pfeiltasten und Enter/Tab zum Übernehmen, Escape zum Schließen.",
   "settings.prompt.dictionaryMissing": "Für die gewählte Sprache ist kein Wörterbuch installiert. Installiere das Systemwörterbuch und schalte die Rechtschreibprüfung danach aus/ein.",
   "settings.prompt.unsupported": "Diese WebView kann kein separates Wörterbuch einstellen. Rechtschreibhinweise hängen vom Betriebssystem und der WebView ab.",
-  "settings.prompt.failed": "Rechtschreibprüfung konnte nicht eingerichtet werden. Details stehen unter Logs."
+  "settings.prompt.failed": "Rechtschreibprüfung konnte nicht eingerichtet werden. Details stehen unter Logs.",
+  "settings.spellcheck.install": "Wörterbuch installieren",
+  "settings.spellcheck.installBusy": "Wörterbuch wird geladen…",
+  "settings.spellcheck.installed": "Wörterbuch installiert. Spellcheck nutzt es jetzt.",
+  "settings.spellcheck.restart": "DEAS neu starten, um das neue Wörterbuch zu laden.",
+  "settings.spellcheck.installHelp": "Lädt das Hunspell-Paar für {language} ({size} MB, {license}) in deinen Benutzerordner — ohne Admin-Rechte.",
+  "settings.spellcheck.unavailable": "Für diese Sprache ist kein Hunspell-Wörterbuch verfügbar.",
+  "settings.spellcheck.failed": "Wörterbuch-Download fehlgeschlagen. Details im Log.",
+  "settings.prompt.dictionaryRestart": "DEAS neu starten, um das Spellcheck-Wörterbuch zu laden."
 }

@@ -2,3 +2,8 @@
 identifier = "allow-native-prompt-spellcheck"
 description = "Configure local WebView spellchecking with a validated language; no prompt text or network access."
 commands.allow = ["native_prompt_spellcheck"]
+
+[[permission]]
+identifier = "allow-native-spellcheck-dictionary-install"
+description = "Download and install the pinned Hunspell dictionary pair for one spellcheck language into the user-level Enchant path; digest- and size-checked, no credentials."
+commands.allow = ["native_spellcheck_dictionary_install", "native_spellcheck_dictionary_info"]

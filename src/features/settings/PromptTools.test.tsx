@@ -37,17 +37,39 @@ test.each(['es-ES','en-GB','zh-Hant-TW'])('system spelling locale keeps %s indep
  const selector=screen.getByLabelText('Spellcheck language') as HTMLSelectElement;
  expect(selector.options[0].textContent).toContain(language);
 });
-test('native dictionary failure is localized under Backend and retries after a settings change',async()=>{
+test('missing dictionary offers its pinned Hunspell pair and reports the restart',async()=>{
  vi.mocked(isTauri).mockReturnValue(true);
- vi.mocked(invoke).mockRejectedValueOnce('SPELLCHECK_DICTIONARY_MISSING').mockResolvedValue(null);
+ let configured=0;
+ vi.mocked(invoke).mockImplementation(async (command:string)=>{
+  if(command==='native_prompt_spellcheck'){configured++;if(configured===1)throw 'SPELLCHECK_DICTIONARY_MISSING';return null;}
+  if(command==='native_spellcheck_dictionary_info')return {available:true,license:'MIT',bytes:12*1024*1024};
+  if(command==='native_spellcheck_dictionary_install')return {path:'/home/x/.local/share/hunspell/fr.dic',license:'MIT',loaded:false};
+  return null;
+ });
  render(<I18nProvider><LanguageSetting/><QuickSettings/></I18nProvider>);
- expect(await screen.findByRole('alert')).toHaveProperty('textContent','No dictionary for the selected language is installed. Install its system spelling dictionary, then toggle spellcheck off/on.');
+ const install=await screen.findByRole('button',{name:'Install dictionary'});
+ expect(screen.getByText(/12 MB/).textContent).toContain('MIT');
  fireEvent.click(screen.getByRole('button',{name:'Quick Settings'}));
- expect(screen.getAllByRole('alert')).toHaveLength(1);
+ expect(screen.queryAllByRole('alert')).toHaveLength(0);
  expect((screen.getByRole('button',{name:'Prompt spellcheck'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(install);
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','Restart DEAS to load the spellcheck dictionary.');
+ expect(invoke).toHaveBeenCalledWith('native_spellcheck_dictionary_install',{language:expect.any(String),enabled:true});
  fireEvent.change(screen.getByLabelText('Spellcheck language'),{target:{value:'fr'}});
  expect(invoke).toHaveBeenLastCalledWith('native_prompt_spellcheck',{enabled:true,language:'fr'});
  expect(screen.queryByRole('alert')).toBeNull();
+});
+test('a language without a published dictionary says so and offers no download',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ vi.mocked(invoke).mockImplementation(async (command:string)=>{
+  if(command==='native_prompt_spellcheck')throw 'SPELLCHECK_DICTIONARY_MISSING';
+  if(command==='native_spellcheck_dictionary_info')return {available:false,license:null,bytes:null};
+  return null;
+ });
+ localStorage.setItem('deas.pref.prompt.tools',JSON.stringify({language:'ja',spellcheck:true,autocomplete:false}));
+ render(<I18nProvider><LanguageSetting/><QuickSettings/></I18nProvider>);
+ expect(await screen.findByText('No Hunspell dictionary is published for this language.')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Install dictionary'})).toBeNull();
 });
 test('corrupt saved writing settings fall back without breaking the interface',()=>{
  localStorage.setItem('deas.pref.prompt.tools',JSON.stringify({language:'../bad',spellcheck:true,autocomplete:true}));

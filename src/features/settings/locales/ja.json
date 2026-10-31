@@ -6,5 +6,13 @@
   "settings.prompt.autocompleteHelp": "初期設定はオフです。設定済み環境の Prompt Forge ローカルタグデータを使用します。2文字以上で候補を表示し、矢印と Enter/Tab で選択、Escape で閉じます。",
   "settings.prompt.dictionaryMissing": "選択した言語の辞書がありません。システム辞書をインストールしてから、スペルチェックをオフにして再度オンにしてください。",
   "settings.prompt.unsupported": "この WebView では独立した辞書を設定できません。スペルチェックは OS と WebView に依存します。",
-  "settings.prompt.failed": "スペルチェックを設定できませんでした。ログを確認してください。"
+  "settings.prompt.failed": "スペルチェックを設定できませんでした。ログを確認してください。",
+  "settings.spellcheck.install": "辞書をインストール",
+  "settings.spellcheck.installBusy": "辞書をダウンロードしています…",
+  "settings.spellcheck.installed": "辞書をインストールしました。スペルチェックはすぐに使えます。",
+  "settings.spellcheck.restart": "新しい辞書を読み込むためにDEASを再起動してください。",
+  "settings.spellcheck.installHelp": "{language}のHunspell辞書ペア（{size} MB、{license}）をユーザーフォルダにダウンロードします。管理者権限不要。",
+  "settings.spellcheck.unavailable": "この言語用のHunspell辞書は公開されていません。",
+  "settings.spellcheck.failed": "辞書のダウンロードに失敗しました。ログを参照してください。",
+  "settings.prompt.dictionaryRestart": "スペルチェック辞書を読み込むためにDEASを再起動してください。"
 }

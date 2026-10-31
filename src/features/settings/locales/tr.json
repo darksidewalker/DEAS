@@ -6,5 +6,13 @@
   "settings.prompt.autocompleteHelp": "Varsayılan olarak kapalıdır. Yapılandırılmış ortamın Prompt Forge yerel etiket verilerini kullanır. En az iki karakter yazın; oklar ve Enter/Tab ile seçin, Escape ile kapatın.",
   "settings.prompt.dictionaryMissing": "Seçilen dilin sözlüğü kurulu değil. Sistem yazım sözlüğünü kurun, ardından denetimi kapatıp açın.",
   "settings.prompt.unsupported": "Bu WebView bağımsız sözlük seçemiyor. Yazım ipuçları işletim sistemine ve WebView sürümüne bağlıdır.",
-  "settings.prompt.failed": "Yazım denetimi yapılandırılamadı. Günlüklere bakın."
+  "settings.prompt.failed": "Yazım denetimi yapılandırılamadı. Günlüklere bakın.",
+  "settings.spellcheck.install": "Sözlüğü kur",
+  "settings.spellcheck.installBusy": "Sözlük indiriliyor…",
+  "settings.spellcheck.installed": "Sözlük kuruldu. Yazım denetimi artık kullanabilir.",
+  "settings.spellcheck.restart": "Yeni sözlüğü yüklemek için DEAS'ı yeniden başlatın.",
+  "settings.spellcheck.installHelp": "{language} için Hunspell çiftini ({size} MB, {license}) kullanıcı klasörüne indirir — yönetici hakları gerekmez.",
+  "settings.spellcheck.unavailable": "Bu dil için Hunspell sözlüğü yayınlanmadı.",
+  "settings.spellcheck.failed": "Sözlük indirme başarısız. Logları kontrol edin.",
+  "settings.prompt.dictionaryRestart": "Yazım denetimi sözlüğünü yüklemek için DEAS'ı yeniden başlatın."
 }

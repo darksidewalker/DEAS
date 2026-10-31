@@ -276,5 +276,21 @@
   "setup.update.torchHint": "停止托管后端；ComfyUI 和节点包保持不变。新配置仅在验证通过后才会记录。",
   "setup.update.torchChecking": "正在检查更新的 PyTorch 配置…",
   "setup.update.torchCurrent": "已在使用此 DEAS 版本所知的最新 PyTorch 配置（{from}）。",
-  "setup.updateRestart": "DEAS 二进制文件已更新。更新和项目保存完成后将自动重启…"
+  "setup.updateRestart": "DEAS 二进制文件已更新。更新和项目保存完成后将自动重启…",
+  "search.title": "搜索",
+  "search.placeholder": "查找控件…",
+  "search.results": "结果",
+  "search.empty": "没有匹配的控件",
+  "search.notAvailable": "当前不可用",
+  "search.disabled": "灰色显示：当前不可用",
+  "search.reason.models": "需要后端中的模型",
+  "search.reason.backend": "需要自有后端",
+  "search.reason.references": "需要一张图像参考",
+  "search.reason.plan": "运行计划只显示此草稿用到的阶段",
+  "search.reason.installed": "需要已安装的环境",
+  "search.section.prompts": "提示词",
+  "search.section.run": "运行",
+  "search.section.filters": "筛选",
+  "search.section.panes": "后端面板",
+  "search.reason.lines": "没有匹配当前筛选的日志行"
 }

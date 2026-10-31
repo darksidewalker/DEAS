@@ -6,5 +6,13 @@
   "settings.prompt.autocompleteHelp": "默认关闭。使用已配置环境中的 Prompt Forge 本地标签数据库。输入至少两个字符，用方向键和 Enter/Tab 选择，Escape 关闭。",
   "settings.prompt.dictionaryMissing": "未安装所选语言的词典。请安装系统拼写词典，然后关闭并重新开启拼写检查。",
   "settings.prompt.unsupported": "此 WebView 无法配置独立词典。拼写提示取决于操作系统和 WebView。",
-  "settings.prompt.failed": "无法配置拼写检查。请查看日志。"
+  "settings.prompt.failed": "无法配置拼写检查。请查看日志。",
+  "settings.spellcheck.install": "安装词典",
+  "settings.spellcheck.installBusy": "正在下载词典…",
+  "settings.spellcheck.installed": "词典已安装。拼写检查现在可以使用。",
+  "settings.spellcheck.restart": "重启 DEAS 以加载新词典。",
+  "settings.spellcheck.installHelp": "下载 {language} 的 Hunspell 词典对（{size} MB，{license}）到用户目录 — 无需管理员权限。",
+  "settings.spellcheck.unavailable": "该语言没有可用的 Hunspell 词典。",
+  "settings.spellcheck.failed": "词典下载失败。请查看日志。",
+  "settings.prompt.dictionaryRestart": "重启 DEAS 以加载拼写检查词典。"
 }

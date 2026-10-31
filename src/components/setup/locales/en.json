@@ -276,5 +276,21 @@
   "setup.update.torchHint": "Stops the owned backend; ComfyUI and node packs stay as they are. The new profile is recorded only after verification passes.",
   "setup.update.torchChecking": "Checking for a newer PyTorch profile…",
   "setup.update.torchCurrent": "Already on the newest PyTorch profile this DEAS version knows ({from}).",
-  "setup.updateRestart": "DEAS binary updated. Restarting automatically when updates and project saves are complete…"
+  "setup.updateRestart": "DEAS binary updated. Restarting automatically when updates and project saves are complete…",
+  "search.title": "Search",
+  "search.placeholder": "Find a control…",
+  "search.results": "Results",
+  "search.empty": "No matching control",
+  "search.notAvailable": "Not available right now",
+  "search.disabled": "Shown greyed: not usable right now",
+  "search.reason.models": "Requires a model from the backend",
+  "search.reason.backend": "Requires the owned backend",
+  "search.reason.references": "Requires an image reference",
+  "search.reason.plan": "The Run Plan shows only the stages this draft uses",
+  "search.reason.installed": "Requires an installed environment",
+  "search.section.prompts": "Prompts",
+  "search.section.run": "Run",
+  "search.section.filters": "Filters",
+  "search.section.panes": "Backend panes",
+  "search.reason.lines": "No log lines match the current filter"
 }

@@ -7,10 +7,12 @@ import {AuthPanel} from '../../features/downloads/DownloadPluginPanel';
 const panels=['startup','llm','auth'] as const;
 type Panel=typeof panels[number];
 /** Visit lazily, then retain drafts while choosing another panel or top-level tab. */
-export function BackendPanels({root,modelsDir,onRestart,onAuthChange,llmSetupRequest=0}:{llmSetupRequest?:number;root:string;modelsDir?:string;onRestart:()=>void;onAuthChange:()=>void}){
+export function BackendPanels({root,modelsDir,onRestart,onAuthChange,llmSetupRequest=0,panelRequest}:{llmSetupRequest?:number;panelRequest?:{panel:Panel;nonce:number}|null;root:string;modelsDir?:string;onRestart:()=>void;onAuthChange:()=>void}){
  const {t}=useI18n(),id=useId();
  const [active,setActive]=useState<Panel>(root?'startup':'auth');
  useEffect(()=>{if(llmSetupRequest){setActive('llm');}},[llmSetupRequest]);
+ // Global search selects a pane without mounting any of its controls.
+ useEffect(()=>{if(panelRequest)setActive(panelRequest.panel);},[panelRequest?.nonce]);
  const selected=root||active==='llm'?active:'auth',visited=useRef(new Set<Panel>());visited.current.add(selected);
  const labels={startup:t('startup.title'),llm:t('llm.title'),auth:t('downloads.auth')};
  return <div className="backend-panels">

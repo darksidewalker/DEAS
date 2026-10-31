@@ -82,11 +82,11 @@ export function LogsPanel() {
   };
   return <section className="aio-detail logs-panel" aria-label={t('logs.title')}>
     <div className="logs-toolbar">
-      <div className="logs-chips" role="group" aria-label={t('logs.sources')}>{(['all', ...sources] as const).map(s => <button key={s} type="button" className="logs-chip" aria-pressed={source === s} onClick={() => setSource(s)}>{t(s === 'all' ? 'logs.all' : `logs.source.${s}`)}</button>)}</div>
-      <div className="logs-chips" role="group" aria-label={t('logs.levels')}>{(['all', ...levels] as const).map(l => <button key={l} type="button" className={`logs-chip log-${l}`} aria-pressed={level === l} onClick={() => setLevel(l)}>{t(l === 'all' ? 'logs.all' : `logs.level.${l}`)}</button>)}</div>
+      <div className="logs-chips" role="group" data-logs-group="source" aria-label={t('logs.sources')}>{(['all', ...sources] as const).map(s => <button key={s} type="button" className="logs-chip" aria-pressed={source === s} onClick={() => setSource(s)}>{t(s === 'all' ? 'logs.all' : `logs.source.${s}`)}</button>)}</div>
+      <div className="logs-chips" role="group" data-logs-group="level" aria-label={t('logs.levels')}>{(['all', ...levels] as const).map(l => <button key={l} type="button" className={`logs-chip log-${l}`} aria-pressed={level === l} onClick={() => setLevel(l)}>{t(l === 'all' ? 'logs.all' : `logs.level.${l}`)}</button>)}</div>
       <input type="search" className="logs-search" aria-label={t('logs.search')} placeholder={t('logs.search')} value={search} onChange={e => setSearch(e.target.value)} />
-      <button type="button" className="logs-chip logs-action" disabled={!matches.length} onClick={() => void copy()}>{t('logs.copy')}</button>
-      <button type="button" className="logs-chip logs-action" disabled={!matches.length} onClick={() => void exportText()}>{t('logs.export')}</button>
+      <button type="button" className="logs-chip logs-action" data-logs-action="copy" disabled={!matches.length} onClick={() => void copy()}>{t('logs.copy')}</button>
+      <button type="button" className="logs-chip logs-action" data-logs-action="export" disabled={!matches.length} onClick={() => void exportText()}>{t('logs.export')}</button>
     </div>
     <p className="aio-help logs-count" role="status">{!native ? t('logs.browser') : matches.length > SHOWN ? t('logs.limited', { shown: SHOWN, count: matches.length }) : t('logs.count', { shown: matches.length, total: entries.length })}{note && ` · ${note}`}</p>
     <pre ref={view} className="logs-view" tabIndex={0} aria-label={t('logs.lines')} onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>

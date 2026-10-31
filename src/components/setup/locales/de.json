@@ -276,5 +276,21 @@
   "setup.update.torchHint": "Stoppt das eigene Backend; ComfyUI und Node-Packs bleiben unverändert. Das neue Profil wird erst nach bestandener Prüfung übernommen.",
   "setup.update.torchChecking": "Suche nach einem neueren PyTorch-Profil…",
   "setup.update.torchCurrent": "Bereits auf dem neuesten PyTorch-Profil, das diese DEAS-Version kennt ({from}).",
-  "setup.updateRestart": "DEAS-Binary aktualisiert. Automatischer Neustart, sobald Updates und Projektspeicherungen abgeschlossen sind…"
+  "setup.updateRestart": "DEAS-Binary aktualisiert. Automatischer Neustart, sobald Updates und Projektspeicherungen abgeschlossen sind…",
+  "search.title": "Suche",
+  "search.placeholder": "Control suchen…",
+  "search.results": "Ergebnisse",
+  "search.empty": "Kein passender Control",
+  "search.notAvailable": "Im Moment nicht verfügbar",
+  "search.disabled": "Grau angezeigt: gerade nicht nutzbar",
+  "search.reason.models": "Braucht ein Modell aus dem Backend",
+  "search.reason.backend": "Braucht das eigene Backend",
+  "search.reason.references": "Braucht eine Bildreferenz",
+  "search.reason.plan": "Der Ablaufplan zeigt nur die Stufen dieses Entwurfs",
+  "search.reason.installed": "Braucht eine installierte Umgebung",
+  "search.section.prompts": "Prompts",
+  "search.section.run": "Ausführen",
+  "search.section.filters": "Filter",
+  "search.section.panes": "Backend-Panels",
+  "search.reason.lines": "Keine Logzeilen passen zum aktuellen Filter"
 }

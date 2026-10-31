@@ -6,5 +6,13 @@
   "settings.prompt.autocompleteHelp": "Désactivée par défaut. Utilise la base locale de tags de Prompt Forge dans un environnement configuré. Saisissez au moins deux caractères ; flèches et Entrée/Tab pour choisir, Échap pour fermer.",
   "settings.prompt.dictionaryMissing": "Aucun dictionnaire installé pour cette langue. Installez le dictionnaire système, puis désactivez et réactivez la correction.",
   "settings.prompt.unsupported": "Cette WebView ne peut pas choisir un dictionnaire indépendant. La correction dépend du système et du moteur WebView.",
-  "settings.prompt.failed": "Impossible de configurer la correction. Consultez les journaux."
+  "settings.prompt.failed": "Impossible de configurer la correction. Consultez les journaux.",
+  "settings.spellcheck.install": "Installer le dictionnaire",
+  "settings.spellcheck.installBusy": "Téléchargement du dictionnaire…",
+  "settings.spellcheck.installed": "Dictionnaire installé. Le correcteur peut l'utiliser maintenant.",
+  "settings.spellcheck.restart": "Redémarrez DEAS pour charger le nouveau dictionnaire.",
+  "settings.spellcheck.installHelp": "Télécharge la paire Hunspell pour {language} ({size} MB, {license}) dans votre dossier utilisateur — sans droits admin.",
+  "settings.spellcheck.unavailable": "Aucun dictionnaire Hunspell n'est publié pour cette langue.",
+  "settings.spellcheck.failed": "Le téléchargement du dictionnaire a échoué. Voir les logs.",
+  "settings.prompt.dictionaryRestart": "Redémarrez DEAS pour charger le dictionnaire de correction."
 }

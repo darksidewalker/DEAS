@@ -65,6 +65,8 @@ fn main() {
         .manage(deas::ModelScanEngine::default())
         .invoke_handler(tauri::generate_handler![
             deas::spellcheck::native_prompt_spellcheck,
+            deas::spellcheck::native_spellcheck_dictionary_install,
+            deas::spellcheck::native_spellcheck_dictionary_info,
             deas::native_video_post_inspect,
             deas::native_video_post_inspect_path,
             deas::native_video_post_upload,

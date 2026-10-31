@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { readPref, writePref } from './preferences';
 
 interface PromptTools { spellcheck: boolean; autocomplete: boolean; language: string }
@@ -39,4 +40,27 @@ export function usePromptTools() {
   window.dispatchEvent(new CustomEvent(EVENT, { detail: next }));
  };
  return { ...settings, error, systemLanguage, language: settings.language || systemLanguage, languageChoice: settings.language, update };
+}
+
+/** Which pinned Hunspell pair exists for a language; read-only, no network. */
+export interface SpellcheckDictionaryInfo {
+ available: boolean;
+ license?: string | null;
+ bytes?: number | null;
+}
+export async function readSpellcheckDictionaryInfo(language: string): Promise<SpellcheckDictionaryInfo> {
+ if (!isTauri()) return { available: false };
+ return invoke<SpellcheckDictionaryInfo>('native_spellcheck_dictionary_info', { language });
+}
+
+/** Explicit install into the user-level Enchant path; `loaded:false` means a restart is required. */
+export interface SpellcheckDictionary {
+ path: string;
+ license: string;
+ loaded: boolean;
+}
+export async function installSpellcheckDictionary(language: string, enabled: boolean): Promise<SpellcheckDictionary> {
+ const result = await invoke<SpellcheckDictionary>('native_spellcheck_dictionary_install', { language, enabled });
+ reportPromptSpellcheckError(result.loaded ? '' : 'settings.prompt.dictionaryRestart');
+ return result;
 }

@@ -276,5 +276,21 @@
   "setup.update.torchHint": "管理対象バックエンドを停止します。ComfyUI とノードパックはそのままです。新しいプロファイルは検証に合格した後にのみ記録されます。",
   "setup.update.torchChecking": "より新しい PyTorch プロファイルを確認中…",
   "setup.update.torchCurrent": "この DEAS バージョンが認識する最新の PyTorch プロファイルを使用中です({from})。",
-  "setup.updateRestart": "DEAS バイナリを更新しました。更新とプロジェクト保存の完了後、自動的に再起動します…"
+  "setup.updateRestart": "DEAS バイナリを更新しました。更新とプロジェクト保存の完了後、自動的に再起動します…",
+  "search.title": "検索",
+  "search.placeholder": "コントロールを検索…",
+  "search.results": "結果",
+  "search.empty": "一致するコントロールなし",
+  "search.notAvailable": "現在利用できません",
+  "search.disabled": "グレー表示：現在使用できません",
+  "search.reason.models": "バックエンドのモデルが必要",
+  "search.reason.backend": "所有バックエンドが必要",
+  "search.reason.references": "画像参照が必要",
+  "search.reason.plan": "実行プランはこのドラフトが使うステージのみ表示します",
+  "search.reason.installed": "インストール済み環境が必要",
+  "search.section.prompts": "プロンプト",
+  "search.section.run": "実行",
+  "search.section.filters": "フィルター",
+  "search.section.panes": "バックエンドパネル",
+  "search.reason.lines": "現在のフィルターに一致するログ行がありません"
 }
