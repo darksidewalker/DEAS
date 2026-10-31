@@ -2,6 +2,7 @@
 
 ## 0.2.7 BETA (unreleased)
 
+- **The update arrow clears after an update.** The footer checked for updates once at launch, so after a successful ComfyUI or node pack update it kept showing the arrow until DEAS restarted. It now checks again when an update finishes. A replaced DEAS binary stays cleared until the restart, because it still reports its old version.
 - **Prompt Forge keeps its result through a list reload.** Switching tabs or the backend finishing its start briefly emptied the model list, which read as a model change: a finished result lost its Send buttons and a write in progress was thrown away. Native writes no longer depend on the backend endpoint, and a text result no longer depends on the Studio canvas.
 - **Prompt Forge asks for a server, not a GGUF.** The tool writers cannot use local GGUFs, so the empty model list now points at Backend → LLM.
 - **Install steps past an unfinished folder.** A folder left by a failed or cancelled install is still never reused or deleted, but setup now picks the next numbered folder and says so instead of stopping on an error.

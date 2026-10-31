@@ -175,8 +175,8 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
  });
 });
 
-async function installFixture(result:'succeeded'|'failed') {
- vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
+async function installFixture(result:'succeeded'|'failed',updateCheck?:()=>unknown) {
+ vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_update_check'&&updateCheck)return updateCheck();if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_install_defaults')return {storagePath:'/data/mock-DEAS',backend:'cpu',hardware:null,warnings:[]};
   if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};
@@ -341,6 +341,23 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
    await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_app_restart'));
    expect(screen.getByText('DEAS binary updated. Restarting automatically when updates and project saves are complete…')).toBeTruthy();
   }
+ });
+ it.each([false,true])('clears the footer arrow once an update finished (app replaced: %s)',async replaced=>{
+  let comfy=true;
+  await installFixture('succeeded',()=>({app:replaced?'v9.9.9':null,comfy,nodepack:false}));
+  const base=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+   if(command==='native_app_update')return replaced;
+   if(command==='native_app_restart')return true;
+   if(command==='native_install_update'){comfy=false;return {state:'succeeded',stepId:null,logs:[],error:null};}
+   return base(command,args);
+  });
+  fireEvent.click(screen.getByRole('tab',{name:'Backend'}));
+  await waitFor(()=>expect(document.querySelector('.footer-version.is-update')).not.toBeNull());
+  fireEvent.click(document.querySelector('.footer-version')!);
+  fireEvent.click(screen.getByRole('button',{name:'Update now'}));
+  await waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_update_check').length).toBe(2));
+  await waitFor(()=>expect(document.querySelector('.footer-version.is-update')).toBeNull());
  });
  it('shows a failed backend resume even when updating the environment succeeded',async()=>{
   await installFixture('succeeded');const base=vi.mocked(invoke).getMockImplementation()!;

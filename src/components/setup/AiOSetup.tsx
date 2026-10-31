@@ -111,7 +111,8 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  const [upgradeScope,setUpgradeScope]=useState<UpdateScope>('all');const [torchUpdate,setTorchUpdate]=useState<TorchUpdate|'checking'|null>(null);
  const [appReplaced,setAppReplaced]=useState(false);
  const [updateBlocked,setUpdateBlocked]=useState(false);
- useEffect(()=>{if(!native)return;let alive=true;invoke<typeof available>('native_update_check').then(value=>{if(alive)setAvailable(value);},()=>{});return()=>{alive=false;};},[native]);
+ // A finished update re-checks; a replaced binary still reports its old version until the restart.
+ useEffect(()=>{if(!native)return;let alive=true;invoke<NonNullable<typeof available>>('native_update_check').then(value=>{if(alive)setAvailable(appReplaced?{...value,app:null}:value);},()=>{});return()=>{alive=false;};},[native,updates]);
  const pending=available?[available.app&&`DEAS ${available.app}`,available.comfy&&'ComfyUI',available.nodepack&&t('app.updateNodes')].filter(Boolean):[];
  const updateHint=pending.length?t('app.update',{list:pending.join(' · ')}):'';
  const inBackend=view==='backend';
