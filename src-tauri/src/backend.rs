@@ -428,10 +428,26 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 // asks Python to run its normal SIGINT handler, waking ComfyUI's asyncio loop.
 #[cfg(any(windows, test))]
 const WINDOWS_BOOTSTRAP: &str = r#"
-import sys, runpy, threading, _thread
+import sys, runpy, threading, _thread, os, time
 sys.argv = sys.argv[1:]
+def deas_wait_stop():
+    if os.name != 'nt':
+        return sys.stdin.buffer.readline(6)
+    # A blocking ReadFile on the synchronous stdin pipe stalls the main thread's
+    # DLL loads (numpy during `import torch`); poll and read only when complete.
+    import ctypes, msvcrt
+    from ctypes import wintypes
+    peek = ctypes.windll.kernel32.PeekNamedPipe
+    peek.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+    handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+    avail = wintypes.DWORD()
+    while peek(handle, None, 0, None, ctypes.byref(avail), None):
+        if avail.value >= 5:
+            return sys.stdin.buffer.read(5)
+        time.sleep(0.2)
+    return b''
 def deas_stop():
-    if sys.stdin.buffer.readline(6) == b'stop\n':
+    if deas_wait_stop() == b'stop\n':
         loop = getattr(sys.modules.get('__main__'), 'event_loop', None)
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(_thread.interrupt_main)

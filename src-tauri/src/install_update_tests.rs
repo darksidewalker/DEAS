@@ -155,3 +155,23 @@ fn torch_update_is_gated_on_a_newer_profile_and_known_node_packs() {
     // Nothing was launched by any refused update.
     assert_ne!(lock(&engine.inner).status.state, "running");
 }
+
+#[test]
+fn reinstall_records_driver_update_but_refuses_other_compute_capability() {
+    let gpu = |uuid: &str, driver: &str, cc: &str| -> torch_profile::Hardware {
+        serde_json::from_value(serde_json::json!({"vendor":"NVIDIA","name":"NVIDIA GeForce RTX 4090","uuid":uuid,"driverVersion":driver,"computeCapability":cc})).unwrap()
+    };
+    let recorded = gpu("GPU-a", "580.10", "8.9");
+    let updated = refreshed_hardware(&recorded, gpu("GPU-b", "595.02", "8.9")).unwrap();
+    assert_eq!(
+        (updated.uuid.as_str(), updated.driver_version.as_str()),
+        ("GPU-b", "595.02")
+    );
+    assert!(
+        refreshed_hardware(&recorded, gpu("GPU-a", "595.02", "12.0"))
+            .unwrap_err()
+            .contains("compute capability changed (8.9 -> 12.0)")
+    );
+    // The fresh-install driver gate still applies.
+    assert!(refreshed_hardware(&recorded, gpu("GPU-a", "570.1", "8.9")).is_err());
+}

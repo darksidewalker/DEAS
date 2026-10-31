@@ -1,5 +1,10 @@
 # News
 
+## 0.2.6 BETA (unreleased)
+
+- Windows: the backend starts again instead of timing out on "verifying owned API".
+- After a driver update, Reinstall or Update ComfyUI clears the "hardware/driver changed" start error.
+
 ## 0.2.5 BETA
 
 - Quick settings grey out the spellcheck button when no dictionary is available instead of showing a long message.

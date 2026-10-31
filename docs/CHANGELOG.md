@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6 BETA (unreleased)
+
+- Windows: the owned ComfyUI backend no longer hangs at `Set cuda device to: 0` until the 120 s readiness timeout. The stop listener now polls its stdin pipe (`PeekNamedPipe`) instead of blocking in `readline`, which stalled numpy's DLL load during `import torch` (issue #11).
+- Reinstall and Update ComfyUI now record the current NVIDIA driver and GPU UUID, so a driver update no longer leaves Start failing with `NVIDIA hardware/driver changed; re-provision required`. A GPU with another compute capability is refused with a request for a new installation plan, because the installed PyTorch profile may not support it.
+
 ## 0.2.5 BETA
 
 - Quick settings no longer show the long spellcheck error text. When spellcheck is unavailable (missing system dictionary, unsupported or failed), the **Prompt spellcheck** button is greyed out with the reason as its tooltip; the full explanation stays under Backend.

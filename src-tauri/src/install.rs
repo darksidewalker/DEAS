@@ -733,6 +733,9 @@ impl Engine {
             }
         } else {
             enable_gguf_upgrade(&mut plan);
+            if let Some(recorded) = &plan.hardware {
+                plan.hardware = Some(refreshed_hardware(recorded, torch_profile::probe()?)?);
+            }
         }
         let previous = g.approved.clone();
         let active = self.stop_for_maintenance();
@@ -1529,6 +1532,21 @@ fn torch_target(
         None => None,
     };
     Ok(torch_profile::newer(current, hardware.as_ref())?.map(|torch| (torch, hardware)))
+}
+/// Hardware a reinstall/update may record: a driver update or same-capability GPU keeps the
+/// installed Torch valid; another compute capability needs a new plan and Torch profile.
+fn refreshed_hardware(
+    recorded: &torch_profile::Hardware,
+    probed: torch_profile::Hardware,
+) -> Result<torch_profile::Hardware, String> {
+    if probed.compute_capability != recorded.compute_capability {
+        return Err(format!(
+            "NVIDIA_GPU: compute capability changed ({} -> {}); the installed PyTorch profile may not support it, create a new installation plan",
+            recorded.compute_capability, probed.compute_capability
+        ));
+    }
+    torch_profile::select(&probed)?;
+    Ok(probed)
 }
 /// Node packs DEAS does not install have unknown compatibility with another Torch.
 fn foreign_nodes(plan: &Plan) -> Option<String> {
