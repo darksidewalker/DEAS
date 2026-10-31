@@ -186,7 +186,6 @@
 .tve-post .wb-option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* Post dock: actions on top, then one titled group per stage so related controls sit together. */
 .wb-post { display: grid; gap: 10px; align-content: start; }
-.wb-post-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-group { margin: 0; padding: .5rem .6rem .6rem; border: 1px solid var(--line-strong); border-radius: .8rem; min-width: 0; }
 .wb-group > legend { padding: 0 .4rem; font-size: .78rem; font-weight: 600; color: var(--muted); }
 .wb-group > .tve-post { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); margin-bottom: 0; }

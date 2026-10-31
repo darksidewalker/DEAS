@@ -1,7 +1,13 @@
 # News
 
-## 0.2.8 BETA (unreleased)
+## 0.2.8 BETA
 
+- **Stop really stops.** The Stop button next to Run interrupts the running generation (long videos, many-step images) again instead of only clearing the queue. Takes effect after the next backend start.
+- **MiniMax H3 image edit / inpaint runs again**, with and without a mask (the saver's metadata config pointed at nodes the H3 graph removes).
+- **LLM backend:** thinking models (Qwen3.5, gpt-oss) on Ollama answer again instead of "LLM response has no valid text"; OpenAI-compatible servers accept an **API key**, also used by Prompt Forge.
+- Click a video preview to play/pause it.
+- Presets tab: **New preset…** opens the preset overlay with your changed settings; Post-Processing tab is grouped by stage (Latent upscale, Upscale model, TVE).
+- Quick Settings: the spellcheck and tag-autocompletion toggles now show whether they are on.
 - **Spellcheck now works the same on Linux and Windows.** DEAS checks prompt fields itself (Studio prompts, Prompt Forge, Chat) with the downloaded Hunspell dictionary — wavy underline, right-click or Ctrl+. for suggestions. Install the dictionary once under Backend → Language; no restart, no admin rights, nothing leaves your PC.
 
 ## 0.2.7 BETA

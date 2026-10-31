@@ -400,6 +400,8 @@ test.each([false,true])('video workspace navigation seam is optional (%s) and le
  fireEvent.change(upscale,{target:{value:'3'}});
  const navigate=document.querySelector('[data-open-video-post]');
  expect(!!navigate).toBe(connected);
+ // The TVE link lives inside its own category, never loose above the groups.
+ if(navigate)expect(navigate.closest('[data-post-group="tve"]')).not.toBeNull();
  const calls=vi.mocked(invoke).mock.calls.length;
  const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
  if(navigate)fireEvent.click(navigate);

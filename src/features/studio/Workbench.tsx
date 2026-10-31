@@ -1330,10 +1330,6 @@ const promptTools=forgeContext&&<>
    {dockTab==='presets'&&<div className="wb-dock-panel"><PresetPanel disabled={busy||!!current||autoPlan||resolving}/></div>}
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
-    {(onOpenVideoPost||latent)&&<div className="wb-option-row wb-post-actions">
-     {onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}
-     {latent&&<button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>}
-    </div>}
     {latent&&<fieldset className="wb-group" data-post-group="latent"><legend>{t('studio.run.post.group.latent')}</legend><div className="wb-options">
      <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
      <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
@@ -1353,6 +1349,7 @@ const promptTools=forgeContext&&<>
         </div><button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
        </details>;})()}
      {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
+     <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
     </fieldset>}
     {!isVideo&&<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend><div className="wb-options">
      <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
@@ -1365,8 +1362,9 @@ const promptTools=forgeContext&&<>
      <fieldset className="wb-group" data-post-group="model"><legend>{t('studio.run.post.model')}</legend><div className="wb-options">
       <label className="wb-option"><select data-tve-post="upscaleModel" aria-label={t('studio.run.post.model')} value={tve.upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setTve({...tve,upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{tve.upscaleModel&&!choices?.upscaleModels?.includes(tve.upscaleModel)&&<option value={tve.upscaleModel}>{tve.upscaleModel}</option>}</select><small>{t('studio.run.post.group.modelHint')}</small></label>
      </div></fieldset>
-     <fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/></fieldset>
+     <fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>
     </>}
+    {!isVideo&&onOpenVideoPost&&<fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>}
    </section>}
 
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
