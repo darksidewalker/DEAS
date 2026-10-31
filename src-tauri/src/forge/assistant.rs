@@ -1038,6 +1038,7 @@ mod tests {
                     &LlmConfig {
                         provider: Provider::Openai,
                         base_url: url,
+                        api_key: String::new(),
                     },
                     SendRequest {
                         id: None,
@@ -1122,6 +1123,7 @@ mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: url,
+            api_key: String::new(),
         };
         let id = Mutex::new(None);
         let mut events = vec![];
@@ -1178,6 +1180,7 @@ mod tests {
             let config = LlmConfig {
                 provider: Provider::Openai,
                 base_url: url,
+                api_key: String::new(),
             };
             let data = Data {
                 pack: serde_json::from_value(json!({
@@ -1377,6 +1380,7 @@ mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: std::env::var("DEAS_FORGE_LLM").unwrap(),
+            api_key: String::new(),
         };
         let model = std::env::var("DEAS_FORGE_MODEL").unwrap();
         let root = temp_root();

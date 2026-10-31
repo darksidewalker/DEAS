@@ -57,7 +57,7 @@ function EnvironmentLlmPanel({ root }: { root: string }) {
     return () => { ++epoch.current; lock.current = false; };
   }, [native, root]);
 
-  const dirty = config?.provider !== saved?.provider || config?.baseUrl !== saved?.baseUrl;
+  const dirty = config?.provider !== saved?.provider || config?.baseUrl !== saved?.baseUrl || (config?.apiKey ?? '') !== (saved?.apiKey ?? '');
   const remote = config?.provider !== 'local';
   const valid = config !== null && (!remote || !!config.baseUrl.trim());
   const model = models.find(value => modelKey(value) === selected);
@@ -93,10 +93,11 @@ function EnvironmentLlmPanel({ root }: { root: string }) {
     <p className="aio-help">{t('llm.help')}</p>
     {!config ? <p className="aio-help">{t(!native ? 'llm.native' : !root ? 'llm.root' : error ? 'llm.unavailable' : 'llm.loading')}</p> : <>
       <fieldset disabled={busy} className="llm-fields">
-        <label className="startup-field"><span>{t('llm.provider')}</span><select value={config.provider} onChange={e => edit({ ...config, provider: e.target.value as LlmProvider })}>
+        <label className="startup-field"><span>{t('llm.provider')}</span><select value={config.provider} onChange={e => { const provider = e.target.value as LlmProvider; const { apiKey, ...rest } = config; edit(provider === 'openai' && apiKey ? { ...rest, provider, apiKey } : { ...rest, provider }); }}>
           <option value="local">{t('llm.provider.local')}</option><option value="ollama">{t('llm.provider.ollama')}</option><option value="openai">{t('llm.provider.openai')}</option>
         </select></label>
         {remote && <label className="startup-field"><span>{t('llm.baseUrl')}</span><input type="url" value={config.baseUrl} onChange={e => edit({ ...config, baseUrl: e.target.value })} /></label>}
+        {config.provider === 'openai' && <label className="startup-field"><span>{t('llm.apiKey')}</span><input type="password" autoComplete="off" value={config.apiKey ?? ''} onChange={e => { const apiKey = e.target.value.trim(); const { apiKey: _, ...rest } = config; edit(apiKey ? { ...rest, apiKey } : rest); }} /></label>}
       </fieldset>
       <div className="aio-actions"><button type="button" className="aio-confirm-button" disabled={busy || !dirty || !valid} onClick={() => void request('save')}>{t('llm.save')}</button><button type="button" disabled={busy || dirty} onClick={() => void request('refresh')}>{t('llm.refresh')}</button></div>
       {dirty && <p className="aio-help">{t('llm.dirty')}</p>}

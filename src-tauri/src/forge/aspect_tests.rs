@@ -297,6 +297,7 @@ async fn forge_write_revise_and_layout_reject_geometry_before_reference_or_llm_n
     let config = LlmConfig {
         provider: Provider::Openai,
         base_url: format!("http://{}", listener.local_addr().unwrap()),
+        api_key: String::new(),
     };
     let mut invalid = vec![
         request("illustrious", "unknown-aspect", None),

@@ -1401,6 +1401,7 @@ mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: std::env::var("DEAS_FORGE_LLM").unwrap(),
+            api_key: String::new(),
         };
         let target = std::env::var("DEAS_FORGE_TARGETS").unwrap_or_else(|_| "illustrious".into());
         let write_req = WriteRequest {
@@ -1469,6 +1470,7 @@ mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: std::env::var("DEAS_FORGE_LLM").unwrap(),
+            api_key: String::new(),
         };
         let model = std::env::var("DEAS_FORGE_MODEL").unwrap();
         let png = std::fs::read(std::env::var("DEAS_FORGE_PICTURE").unwrap()).unwrap();
@@ -1659,6 +1661,7 @@ mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: std::env::var("DEAS_FORGE_LLM").unwrap(),
+            api_key: String::new(),
         };
         let model = std::env::var("DEAS_FORGE_MODEL").unwrap();
         let targets = std::env::var("DEAS_FORGE_TARGETS")

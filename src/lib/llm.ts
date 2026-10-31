@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type LlmProvider = 'local' | 'ollama' | 'openai';
-export interface LlmConfig { provider: LlmProvider; baseUrl: string }
+export interface LlmConfig { provider: LlmProvider; baseUrl: string; apiKey?: string }
 export interface LlmModelRef { id: string; provider: LlmProvider }
 export interface LlmModel extends LlmModelRef { name: string }
 export interface LlmModels { models: LlmModel[]; warnings: string[] }

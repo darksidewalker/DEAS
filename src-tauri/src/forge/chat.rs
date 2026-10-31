@@ -525,6 +525,7 @@ pub(super) mod tests {
             let config = LlmConfig {
                 provider: Provider::Openai,
                 base_url: url,
+                api_key: String::new(),
             };
             let stop = std::sync::atomic::AtomicBool::new(false);
             let mut on_text = |_: &str| {};
@@ -569,6 +570,7 @@ pub(super) mod tests {
         let config = LlmConfig {
             provider: Provider::Ollama,
             base_url: url,
+            api_key: String::new(),
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
         let result = tokio::time::timeout(
@@ -613,6 +615,7 @@ pub(super) mod tests {
                     Provider::Openai
                 },
                 base_url: url,
+                api_key: String::new(),
             };
             let mut text = String::new();
             let reply = stream_round(
@@ -646,6 +649,7 @@ pub(super) mod tests {
         let config = LlmConfig {
             provider: Provider::Openai,
             base_url: url,
+            api_key: String::new(),
         };
         let result = tokio::time::timeout(
             Duration::from_secs(1),

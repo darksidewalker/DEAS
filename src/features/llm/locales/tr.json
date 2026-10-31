@@ -1,6 +1,6 @@
 {
   "llm.title": "LLM arka ucu",
-  "llm.help": "Yerel llama.cpp, model ayarlarındaki llm klasörünün GGUF modellerini otomatik kullanır; indirme yapılmaz. Harici sunucu URL’si isteğe bağlıdır. API anahtarları desteklenmez.",
+  "llm.help": "Yerel llama.cpp, model ayarlarındaki llm klasöründeki GGUF modellerini otomatik kullanır; indirme yok. Harici sunucu URL’si isteğe bağlıdır; OpenAI uyumlu sunucular bir API anahtarı alabilir (Bearer belirteci olarak gönderilir, Prompt Forge de kullanır).",
   "llm.native": "Yalnızca masaüstü uygulamasında kullanılabilir.",
   "llm.root": "Önce ortam kökünü seçin.",
   "llm.unavailable": "LLM ayarları yüklenemedi.",
@@ -9,6 +9,7 @@
   "llm.provider.local": "Harici sunucu yok (yerel otomatik)",
   "llm.provider.ollama": "Ollama",
   "llm.provider.openai": "OpenAI uyumlu",
+  "llm.apiKey": "API anahtarı (isteğe bağlı)",
   "llm.baseUrl": "Uç nokta URL’si",
   "llm.save": "LLM ayarlarını kaydet",
   "llm.dirty": "Kaydedilmemiş değişiklikler — testten önce kaydedin.",

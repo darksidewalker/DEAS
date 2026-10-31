@@ -1,6 +1,6 @@
 {
   "llm.title": "Backend LLM",
-  "llm.help": "llama.cpp local utilise automatiquement les modèles GGUF du dossier llm des paramètres de modèles ; aucun téléchargement. URL de serveur externe facultative. Les clés API ne sont pas prises en charge.",
+  "llm.help": "llama.cpp local utilise automatiquement les modèles GGUF du dossier llm des réglages de modèles ; aucun téléchargement. L’URL d’un serveur externe est facultative ; les serveurs compatibles OpenAI acceptent une clé API (envoyée comme jeton Bearer, aussi utilisée par Prompt Forge).",
   "llm.native": "Disponible uniquement dans l’application de bureau.",
   "llm.root": "Choisissez d’abord le dossier de l’environnement.",
   "llm.unavailable": "Impossible de charger les paramètres LLM.",
@@ -9,6 +9,7 @@
   "llm.provider.local": "Aucun serveur externe (local automatique)",
   "llm.provider.ollama": "Ollama",
   "llm.provider.openai": "Compatible OpenAI",
+  "llm.apiKey": "Clé API (facultative)",
   "llm.baseUrl": "URL du service",
   "llm.save": "Enregistrer les paramètres LLM",
   "llm.dirty": "Modifications non enregistrées — enregistrez avant de tester.",

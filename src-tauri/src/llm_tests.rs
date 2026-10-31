@@ -36,6 +36,7 @@ fn config(provider: Provider, url: String) -> LlmConfig {
     LlmConfig {
         provider,
         base_url: url,
+        api_key: String::new(),
     }
 }
 fn http_fixture(
@@ -75,7 +76,7 @@ fn http_fixture(
         let _ = stream.write_all(&body);
         assert!(end > 0);
         (
-            header.lines().next().unwrap().to_owned(),
+            header,
             if data.is_empty() {
                 Value::Null
             } else {
@@ -129,7 +130,12 @@ fn config_roundtrip_defaults_and_boundary_validation() {
     assert!(read(root.path()).is_err());
     let mut raw = serde_json::to_value(&expected).unwrap();
     raw["apiKey"] = json!("secret");
-    assert!(serde_json::from_value::<LlmConfig>(raw).is_err());
+    // A key is accepted in the shape but only for the OpenAI-compatible provider.
+    assert!(write(
+        root.path(),
+        serde_json::from_value::<LlmConfig>(raw).unwrap()
+    )
+    .is_err());
     assert!(read(Path::new("relative")).is_err());
     std::fs::write(root.path().join(FILE), vec![b' '; 16385]).unwrap();
     assert!(read(root.path()).is_err());
@@ -211,15 +217,16 @@ async fn actual_http_chat_payloads_and_prefixes() {
                 .unwrap(),
             "fixture reply"
         );
-        let (line, payload) = server.join().unwrap();
+        let (header, payload) = server.join().unwrap();
         assert_eq!(
-            line,
+            header.lines().next().unwrap(),
             if provider == Provider::Ollama {
                 "POST /prefix/v1/api/chat HTTP/1.1"
             } else {
                 "POST /prefix/v1/chat/completions HTTP/1.1"
             }
         );
+        assert!(!header.to_lowercase().contains("authorization:"));
         assert_eq!(payload["model"], "fixture-model");
         assert_eq!(payload["messages"][0]["content"], request().system);
         assert_eq!(payload["messages"][1]["content"], request().prompt);
@@ -227,10 +234,55 @@ async fn actual_http_chat_payloads_and_prefixes() {
         if provider == Provider::Ollama {
             assert_eq!(payload["options"]["num_ctx"], 4096);
             assert_eq!(payload["options"]["num_predict"], 32);
+            // Thinking models otherwise answer only in `message.thinking`.
+            assert_eq!(payload["think"], false);
         } else {
             assert_eq!(payload["max_tokens"], 32);
         }
     }
+}
+#[tokio::test]
+async fn openai_api_key_is_sent_as_bearer_and_forwarded_to_forge() {
+    let body = json!({"choices":[{"message":{"role":"assistant","content":"ok"}}]});
+    let (url, server) = http_fixture(200, serde_json::to_vec(&body).unwrap(), "");
+    let mut cfg = config(Provider::Openai, format!("{url}/v1"));
+    cfg.api_key = "sk-fixture".into();
+    validate(&cfg).unwrap();
+    remote(&cfg, &request(), Duration::from_secs(5))
+        .await
+        .unwrap();
+    let (header, _) = server.join().unwrap();
+    assert!(
+        header.contains("authorization: Bearer sk-fixture")
+            || header.contains("Authorization: Bearer sk-fixture"),
+        "{header}"
+    );
+    assert_eq!(
+        forge_settings(&cfg),
+        json!({"openai_url": cfg.base_url, "openai_api_key": "sk-fixture"})
+    );
+    // Key only with the OpenAI-compatible provider, printable ASCII, bounded; absent key is not serialized.
+    for (provider, key) in [
+        (Provider::Ollama, "sk-x"),
+        (Provider::Openai, " sk-x"),
+        (Provider::Openai, "sk\nx"),
+        (Provider::Openai, "ä"),
+    ] {
+        let mut bad = config(provider, cfg.base_url.clone());
+        bad.api_key = key.into();
+        assert!(validate(&bad).is_err(), "{provider:?} {key:?}");
+    }
+    let mut long = cfg.clone();
+    long.api_key = "k".repeat(513);
+    assert!(validate(&long).is_err());
+    assert!(
+        !serde_json::to_string(&config(Provider::Openai, cfg.base_url.clone()))
+            .unwrap()
+            .contains("apiKey")
+    );
+    let root = tempfile::tempdir().unwrap();
+    assert_eq!(write(root.path(), cfg.clone()).unwrap(), cfg);
+    assert_eq!(read(root.path()).unwrap(), cfg);
 }
 #[tokio::test]
 async fn remote_errors_are_redacted_without_fallback_policy() {
@@ -630,10 +682,10 @@ async fn discovery_keeps_local_models_with_remote_success_or_failure() {
         assert_eq!(result.models[0].provider, Provider::Local);
         assert_eq!(result.models[1].provider, provider);
         assert!(result.warnings.is_empty());
-        let (line, body) = server.join().unwrap();
+        let (header, body) = server.join().unwrap();
         assert_eq!(body, Value::Null);
         assert_eq!(
-            line,
+            header.lines().next().unwrap(),
             if provider == Provider::Ollama {
                 "GET /prefix/v1/api/tags HTTP/1.1"
             } else {
@@ -1111,6 +1163,7 @@ fn forge_forwards_only_node_pack_routes_with_the_saved_endpoint() {
     let ollama = LlmConfig {
         provider: Provider::Ollama,
         base_url: "http://127.0.0.1:11434".into(),
+        api_key: String::new(),
     };
     assert_eq!(
         forge_settings(&ollama),

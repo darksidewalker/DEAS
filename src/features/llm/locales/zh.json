@@ -1,6 +1,6 @@
 {
   "llm.title": "LLM 后端",
-  "llm.help": "本地 llama.cpp 自动使用模型设置中 llm 文件夹内的 GGUF 模型，不会下载。外部服务器 URL 为可选项，暂不支持 API 密钥。",
+  "llm.help": "本地 llama.cpp 会自动使用模型设置中 llm 文件夹内的 GGUF 模型；无需下载。外部服务器 URL 为可选项；OpenAI 兼容服务器可设置 API 密钥（作为 Bearer 令牌发送，Prompt Forge 也会使用）。",
   "llm.native": "仅桌面应用可用。",
   "llm.root": "请先选择环境根目录。",
   "llm.unavailable": "无法加载 LLM 设置。",
@@ -9,6 +9,7 @@
   "llm.provider.local": "无外部服务器（本地自动）",
   "llm.provider.ollama": "Ollama",
   "llm.provider.openai": "OpenAI 兼容",
+  "llm.apiKey": "API 密钥（可选）",
   "llm.baseUrl": "端点 URL",
   "llm.save": "保存 LLM 设置",
   "llm.dirty": "有未保存的更改，请先保存再测试。",

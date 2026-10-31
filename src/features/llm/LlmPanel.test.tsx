@@ -172,3 +172,17 @@ it('does not invoke IPC in a browser or with an empty root', async () => {
   await screen.findByText('Choose an environment root first.');
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it('offers an API key for OpenAI-compatible servers only, saves it trimmed and drops it with the provider', async () => {
+  render(ui()); await ready();
+  expect(screen.queryByLabelText('API key (optional)')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: 'openai' } });
+  fireEvent.change(screen.getByLabelText('API key (optional)'), { target: { value: ' sk-test ' } });
+  expect((screen.getByLabelText('API key (optional)') as HTMLInputElement).type).toBe('password');
+  fireEvent.click(button('Save LLM settings'));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('native_llm_write', { root: '/env', config: { provider: 'openai', baseUrl: config.baseUrl, apiKey: 'sk-test' } }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), { target: { value: 'ollama' } });
+  expect(screen.queryByLabelText('API key (optional)')).toBeNull();
+  fireEvent.click(button('Save LLM settings'));
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('native_llm_write', { root: '/env', config: { provider: 'ollama', baseUrl: config.baseUrl } }));
+});

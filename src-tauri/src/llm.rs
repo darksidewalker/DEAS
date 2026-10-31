@@ -24,12 +24,16 @@ pub enum Provider {
 pub struct LlmConfig {
     pub provider: Provider,
     pub base_url: String,
+    /// Bearer token for OpenAI-compatible servers; the node pack's `openai_api_key`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_key: String,
 }
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
             provider: Provider::Local,
             base_url: "http://127.0.0.1:11434".into(),
+            api_key: String::new(),
         }
     }
 }
@@ -422,6 +426,14 @@ fn validate(config: &LlmConfig) -> Result<(), String> {
     if config.provider != Provider::Local || !config.base_url.is_empty() {
         endpoint(config, "")?;
     }
+    if !config.api_key.is_empty()
+        && (config.provider != Provider::Openai
+            || config.api_key.len() > 512
+            || config.api_key.trim() != config.api_key
+            || config.api_key.bytes().any(|b| !(0x21..0x7f).contains(&b)))
+    {
+        return Err("LLM API key is only for OpenAI-compatible servers: printable ASCII, at most 512 characters".into());
+    }
     Ok(())
 }
 fn validate_request(request: &LlmRequest) -> Result<(), String> {
@@ -559,11 +571,14 @@ async fn http_json(
             .build()
             .map_err(|_| "Cannot create LLM HTTP client")?;
         let url = endpoint(config, route)?;
-        let builder = if let Some(body) = body {
+        let mut builder = if let Some(body) = body {
             client.post(url).json(&body)
         } else {
             client.get(url)
         };
+        if config.provider == Provider::Openai && !config.api_key.is_empty() {
+            builder = builder.bearer_auth(&config.api_key);
+        }
         let mut response = builder.send().await.map_err(http_error)?;
         if !response.status().is_success() {
             return Err(format!(
@@ -599,7 +614,8 @@ async fn remote(
     let (route, body) = if config.provider == Provider::Ollama {
         (
             "api/chat",
-            json!({"model":request.model.id,"messages":messages,"stream":false,"options":{"num_ctx":4096,"num_predict":request.max_tokens,"temperature":request.temperature}}),
+            // think:false — thinking models (Qwen3.5, gpt-oss) otherwise spend num_predict in `message.thinking` and return empty `content`.
+            json!({"model":request.model.id,"messages":messages,"stream":false,"think":false,"options":{"num_ctx":4096,"num_predict":request.max_tokens,"temperature":request.temperature}}),
         )
     } else {
         (
@@ -775,7 +791,9 @@ fn forge_settings(config: &LlmConfig) -> Value {
     match config.provider {
         Provider::Local => json!({}),
         Provider::Ollama => json!({ "ollama_url": config.base_url }),
-        Provider::Openai => json!({ "openai_url": config.base_url }),
+        Provider::Openai => {
+            json!({ "openai_url": config.base_url, "openai_api_key": config.api_key })
+        }
     }
 }
 fn forge_route(route: &str) -> Result<&'static str, String> {
@@ -1129,6 +1147,7 @@ mod continuity_tests {
             LlmConfig {
                 provider: Provider::Ollama,
                 base_url: "http://127.0.0.1:11434".into(),
+                api_key: String::new(),
             },
         )
         .unwrap();
@@ -1170,6 +1189,7 @@ mod continuity_tests {
         let saved = LlmConfig {
             provider: Provider::Ollama,
             base_url: "http://127.0.0.1:11434/saved".into(),
+            api_key: String::new(),
         };
         write(root.path(), saved.clone()).unwrap();
         for overlap in [None, Some(73), Some(56), Some(39), Some(22), Some(5)] {
@@ -1241,6 +1261,7 @@ mod continuity_tests {
         let saved = LlmConfig {
             provider: Provider::Ollama,
             base_url: "http://127.0.0.1:11434/saved".into(),
+            api_key: String::new(),
         };
         write(root.path(), saved.clone()).unwrap();
         for overlap in [None, Some(73), Some(56), Some(39), Some(22), Some(5)] {
@@ -1284,6 +1305,7 @@ mod continuity_tests {
         let saved = LlmConfig {
             provider: Provider::Ollama,
             base_url: "http://127.0.0.1:11434".into(),
+            api_key: String::new(),
         };
         write(root.path(), saved.clone()).unwrap();
         for kind in ["checkpoint", "video"] {

@@ -1,6 +1,6 @@
 {
   "llm.title": "LLM backend",
-  "llm.help": "Local llama.cpp automatically uses GGUF models in the model settings’ llm folder; no downloads. An external server URL is optional. API keys are not supported.",
+  "llm.help": "Local llama.cpp automatically uses GGUF models in the model settings’ llm folder; no downloads. An external server URL is optional; OpenAI-compatible servers may take an API key (sent as Bearer token, also used by Prompt Forge).",
   "llm.native": "Available in the desktop app only.",
   "llm.root": "Choose an environment root first.",
   "llm.unavailable": "Could not load LLM settings.",
@@ -9,6 +9,7 @@
   "llm.provider.local": "No external server (local automatic)",
   "llm.provider.ollama": "Ollama",
   "llm.provider.openai": "OpenAI compatible",
+  "llm.apiKey": "API key (optional)",
   "llm.baseUrl": "Endpoint URL",
   "llm.save": "Save LLM settings",
   "llm.dirty": "Unsaved changes — save before testing.",

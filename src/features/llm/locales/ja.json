@@ -1,6 +1,6 @@
 {
   "llm.title": "LLMバックエンド",
-  "llm.help": "ローカルの llama.cpp はモデル設定の llm フォルダー内の GGUF を自動で使用します。ダウンロードは行いません。外部サーバーの URL は任意です。API キーは未対応です。",
+  "llm.help": "ローカル llama.cpp はモデル設定の llm フォルダー内の GGUF モデルを自動的に使用します。ダウンロードはありません。外部サーバー URL は任意です。OpenAI 互換サーバーには API キーを設定できます（Bearer トークンとして送信、Prompt Forge でも使用）。",
   "llm.native": "デスクトップアプリでのみ利用できます。",
   "llm.root": "先に環境のルートを選択してください。",
   "llm.unavailable": "LLM設定を読み込めませんでした。",
@@ -9,6 +9,7 @@
   "llm.provider.local": "外部サーバーなし（ローカル自動）",
   "llm.provider.ollama": "Ollama",
   "llm.provider.openai": "OpenAI互換",
+  "llm.apiKey": "API キー（任意）",
   "llm.baseUrl": "エンドポイントURL",
   "llm.save": "LLM設定を保存",
   "llm.dirty": "未保存の変更があります。テスト前に保存してください。",
