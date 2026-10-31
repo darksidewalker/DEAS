@@ -1,5 +1,20 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.8 (published)
+
+Published 2026-10-31 at https://github.com/darksidewalker/DEAS/releases/tag/v0.2.8 from source commit `144d1494b537fe6cc7049eccb34bb3cb115bf700` (tree `c5a9c4132de7471b5de17df1fafddfe7aa19d426`, tag `v0.2.8`, mirrored to gitea). Built locally with `bash build-linux.sh --release` (rustc 1.97.0, Node 26.12.1; GitHub runners gated, release unsigned). Staged four-asset set in `artifacts/releases/v0.2.8/`:
+
+```
+cdd5f1db550e498df646c1eea8cb9f8f44007e01ca0af8e293a6db9a0cc9ad17  BUILD-MANIFEST.json
+d3b79bf15b25ed6fdd3bb4cc584934f5483767727ce8e388e8ae0590cfc95fd1  deas.exe
+19c3ab5cabcde32cc0027506aa15951827319db34bd1226e1f78560ab73c817d  deas-linux-amd64
+```
+
+- Gates run fresh on `4a5a16c` (the code before the release commit): `npm run typecheck`; `npm test` (core 125 + vitest 1288/1288 across 71 files); `cargo fmt --check`; `cargo clippy --locked --release --lib --bins -- -D warnings`; `cargo test --locked -- --test-threads=1` (671 passed, 39 ignored); `cargo xwin check` and `cargo xwin clippy -D warnings` for `x86_64-pc-windows-msvc`. The release commit changed TSX/CSS/docs only; re-run on it: typecheck, core 125, `Workbench.test.tsx` 295/295, `QuickSettings.test.tsx` 3/3. One Workbench H3 IPC test failed once under parallel cargo load and passed in the isolated full-file rerun (load flake).
+- Linux asset: `ldd` reports no "not found"; derived glibc floor `GLIBC_2.39`; both binaries embed `dist/assets/index-BhgoaD2t.js`. `sha256sum -c SHA256SUMS` passes locally and on the assets downloaded back from GitHub.
+- Content: Stop interruption on `master` backends (protocol-statement check replaces whole-file hash pins; verified against ComfyUI `6ea48ff`), H3 image edit metadata fix, Ollama `think:false` (verified live against Ollama 0.40.13 with Qwen3.5 and Gemma4), OpenAI-compatible API key (fixture Bearer header + Forge `openai_api_key`), in-app spellcheck, presets overlay, Post-Processing grouping, Quick Settings toggle state, video click-to-play.
+- Not established: Windows runtime acceptance of the cross-compiled `deas.exe`; a live Stop of a running GPU job through the new adapter; a real API-key request against an authenticated server; WebKitGTK rendering of the Quick Settings ☐/☑ markers.
+
 ## Release 0.2.7 (published)
 
 Published 2026-10-31 at https://github.com/darksidewalker/DEAS/releases/tag/v0.2.7 from source commit `b67127f5d6c03042b89b844694426e8657694c49` (tag `v0.2.7`, mirrored to gitea). Built locally with `bash build-linux.sh --release` (rustc 1.97.0, Node 26.12.1; GitHub runners gated, release unsigned). Staged four-asset set in `artifacts/releases/v0.2.7/`:
