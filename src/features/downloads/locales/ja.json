@@ -132,6 +132,8 @@
   "downloads.installed.cfg": "CFG {n}",
   "downloads.installed.clipSkip": "Clip skip {n}",
   "downloads.installed.hashHelp": "ハッシュ計算はファイル全体を一度読み込み、結果を隣の .deas.json に保存します。",
+  "downloads.installed.integrity": "ファイル検査",
+  "downloads.installed.truncated": "不完全な safetensors: ヘッダがファイルに存在しないデータを要求しています。再ダウンロードしてください。",
   "downloads.folder.clip": "CLIP",
   "downloads.folder.unet": "UNet",
   "downloads.folder.style_models": "スタイルモデル",

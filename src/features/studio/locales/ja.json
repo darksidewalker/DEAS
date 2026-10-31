@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE にはフレーム補間モデルが必要です",
   "studio.tve.post.needsStage": "TVE ステージを少なくとも 1 つ有効にしてください。",
   "studio.tve.post.baselineHint": "デコードした動画はそのままオリジナルとしてエンコードされ、処理結果は別ファイルになります。",
+  "studio.tve.post.rtxMemory": "RTX メモリ",
+  "studio.tve.post.useMmap": "ディスクフォールバック (use_mmap)",
+  "studio.tve.post.chunkFrames": "チャンクあたりのフレーム",
+  "studio.tve.post.rtxMemoryHint": "長い動画のみ: RAM 不足時に use_mmap が RTX バッチ全体をディスクに書き込みます。チャンクあたりのフレームは SDK の処理量を制限しますが、バッチ全体の保存領域は必要です。",
   "studio.plan.tve": "TVE ポスト処理",
   "studio.tve.backend": "バックエンドで強化",
   "studio.tve.backendHint": "DaSiWa ノードを使って所有 ComfyUI バックエンドで TVE ステージを実行します。ソースは入力フォルダーにコピーされ、ジョブは Studio のキューに表示されます。",
   "studio.tve.enhance": "強化",
   "studio.tve.enhancing": "送信中…",
   "studio.tve.queueHint": "進行状況・プレビュー・エクスポートは Studio のキューで確認できます。",
+  "studio.tve.jobGone": "ジョブが完了前に Studio キューから離れました。ログを確認してください。",
   "studio.tve.pick": "またはメディア（入力/出力フォルダー）から動画を選択:"
 }

@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE nécessite un modèle d’interpolation",
   "studio.tve.post.needsStage": "Activez au moins une étape TVE.",
   "studio.tve.post.baselineHint": "La vidéo décodée est encodée telle quelle comme Original ; le résultat traité est un second fichier.",
+  "studio.tve.post.rtxMemory": "Mémoire RTX",
+  "studio.tve.post.useMmap": "Repli sur disque (use_mmap)",
+  "studio.tve.post.chunkFrames": "Images par bloc",
+  "studio.tve.post.rtxMemoryHint": "Pour les longues vidéos uniquement : use_mmap écrit le lot RTX complet sur le disque quand la RAM manque ; les images par bloc limitent le travail du SDK, le lot complet exige toujours du stockage.",
   "studio.plan.tve": "Post-traitement TVE",
   "studio.tve.backend": "Améliorer sur le backend",
   "studio.tve.backendHint": "Exécute les étapes TVE sur le backend ComfyUI géré avec les nœuds DaSiWa ; la source est copiée dans son dossier d’entrée et le job apparaît dans la file du Studio.",
   "studio.tve.enhance": "Améliorer",
   "studio.tve.enhancing": "Envoi…",
   "studio.tve.queueHint": "Progression, aperçu et export : file du Studio.",
+  "studio.tve.jobGone": "La tâche a quitté la file du Studio avant de se terminer ; voir les Logs.",
   "studio.tve.pick": "Ou choisissez une vidéo dans Médias (dossiers d’entrée/sortie) :"
 }

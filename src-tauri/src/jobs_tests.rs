@@ -3013,6 +3013,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
         ("six_fields", "succeeded"),
         ("error", "failed"),
         ("error_newline", "failed"),
+        ("loader_error", "failed"),
         ("foreign_id", "unknown"),
         ("foreign_client", "unknown"),
         ("foreign_graph", "unknown"),
@@ -3056,6 +3057,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
                     "six_fields" => entry["prompt"].as_array_mut().unwrap().push(json!({"hidden":"not returned"})),
                     "error" => entry["status"] = json!({"completed":true,"status_str":"error","messages":[["execution_error",{"node_id":"5","node_type":"KSampler","exception_type":"RuntimeError","exception_message":"failure".repeat(1000)}]]}),
                     "error_newline" => entry["status"] = json!({"completed":true,"status_str":"error","messages":[["execution_error",{"node_id":"5","node_type":"KSampler","exception_type":"RuntimeError","exception_message":"Missing checkpoint\nSelect a compatible dependency.\n"}]]}),
+                    "loader_error" => entry["status"] = json!({"completed":true,"status_str":"error","messages":[["execution_error",{"node_id":"1","node_type":"CheckpointLoaderSimple","exception_type":"SafetensorError","exception_message":"Error while deserializing header: incomplete metadata, file not fully covered"}]]}),
                     "foreign_id" => entry["prompt"][1] = json!("other"),
                     "foreign_client" => entry["prompt"][3]["client_id"] = json!("other"),
                     "foreign_graph" => entry["prompt"][2]["5"]["inputs"]["seed"] = json!(999),
@@ -3101,7 +3103,7 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
             .unwrap();
         assert_eq!(job["state"], expected, "case {case}: {job}");
         assert_eq!(job["generationReady"], false);
-        if expected != "succeeded" && !["error", "error_newline"].contains(&case) {
+        if expected != "succeeded" && !["error", "error_newline", "loader_error"].contains(&case) {
             assert_eq!(job["outputs"], json!([]));
         }
         if let Some(error) = job["error"].as_str() {
@@ -3111,6 +3113,12 @@ async fn history_and_queue_refuse_foreign_identity_and_unsafe_outputs() {
             let text = job["error"].as_str().unwrap();
             assert_eq!(text, "node 5 (KSampler): RuntimeError: Missing checkpoint Select a compatible dependency.");
             assert!(!text.contains("\\n"));
+        }
+        if case == "loader_error" {
+            assert_eq!(
+                job["error"].as_str().unwrap(),
+                "node 1 (CheckpointLoaderSimple): SafetensorError: Error while deserializing header: incomplete metadata, file not fully covered [sd/model.safetensors]"
+            );
         }
         if case == "error" {
             assert!(job["error"].as_str().unwrap().contains("KSampler"));

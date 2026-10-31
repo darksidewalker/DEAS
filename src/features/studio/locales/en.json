@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE needs a frame interpolation model",
   "studio.tve.post.needsStage": "Enable at least one TVE stage.",
   "studio.tve.post.baselineHint": "The decoded video is encoded unchanged as Original; the processed result is a second file.",
+  "studio.tve.post.rtxMemory": "RTX memory",
+  "studio.tve.post.useMmap": "Disk fallback (use_mmap)",
+  "studio.tve.post.chunkFrames": "Frames per chunk",
+  "studio.tve.post.rtxMemoryHint": "Only for long videos: use_mmap writes the complete RTX batch to disk when RAM is short; frames per chunk bounds SDK work, the whole batch still needs storage.",
   "studio.plan.tve": "TVE post-processing",
   "studio.tve.backend": "Enhance on the backend",
   "studio.tve.backendHint": "Runs the TVE stages on the owned ComfyUI backend with the DaSiWa nodes; the source is copied to its input folder and the job appears in the Studio queue.",
   "studio.tve.enhance": "Enhance",
   "studio.tve.enhancing": "Submitting…",
   "studio.tve.queueHint": "Progress, preview and export: Studio queue.",
+  "studio.tve.jobGone": "The job left the Studio queue before it settled; see Logs.",
   "studio.tve.pick": "Or pick a video from Media (input/output folders):"
 }

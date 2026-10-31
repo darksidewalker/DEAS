@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE braucht ein Frame-Interpolationsmodell",
   "studio.tve.post.needsStage": "Mindestens eine TVE-Stufe aktivieren.",
   "studio.tve.post.baselineHint": "Das dekodierte Video wird unverändert als Original kodiert; das bearbeitete Ergebnis ist eine zweite Datei.",
+  "studio.tve.post.rtxMemory": "RTX-Speicher",
+  "studio.tve.post.useMmap": "Disk-Ausweich (use_mmap)",
+  "studio.tve.post.chunkFrames": "Frames pro Block",
+  "studio.tve.post.rtxMemoryHint": "Nur für lange Videos: use_mmap schreibt den kompletten RTX-Batch auf die Platte, wenn der RAM knapp ist; Frames pro Block begrenzen die SDK-Arbeit, der ganze Batch braucht trotzdem Speicher.",
   "studio.plan.tve": "TVE-Nachbearbeitung",
   "studio.tve.backend": "Auf dem Backend verbessern",
   "studio.tve.backendHint": "Führt die TVE-Stufen auf dem eigenen ComfyUI-Backend mit den DaSiWa-Knoten aus; die Quelle wird in dessen Eingabeordner kopiert und der Job erscheint in der Studio-Warteschlange.",
   "studio.tve.enhance": "Verbessern",
   "studio.tve.enhancing": "Wird übermittelt…",
   "studio.tve.queueHint": "Fortschritt, Vorschau und Export: Studio-Warteschlange.",
+  "studio.tve.jobGone": "Der Job hat die Studio-Warteschlange verlassen, bevor er fertig war; siehe Logs.",
   "studio.tve.pick": "Oder ein Video aus Medien wählen (Eingabe-/Ausgabeordner):"
 }

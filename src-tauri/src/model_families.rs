@@ -168,6 +168,19 @@ fn valid_tensors(head: &serde_json::Map<String, Value>, payload: u64) -> Option<
     (end == payload).then_some(())
 }
 
+/// safetensors payload completeness: header parses and every tensor range lies inside the file.
+/// `None` for other formats; `Some(false)` for a truncated/partial safetensors.
+pub fn intact(path: &Path) -> Option<bool> {
+    if !safetensors(path) {
+        return None;
+    }
+    Some(
+        read_header(path)
+            .and_then(|(head, payload)| valid_tensors(&head, payload))
+            .is_some(),
+    )
+}
+
 fn safetensors(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -770,6 +783,24 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, bytes).unwrap();
         path
+    }
+
+    #[test]
+    fn intact_flags_a_truncated_payload_and_accepts_complete_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = serde_json::json!({"w":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}});
+        let text = header.to_string();
+        let mut bytes = (text.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(text.as_bytes());
+        let truncated = dir.path().join("t.safetensors");
+        std::fs::write(&truncated, &bytes).unwrap();
+        assert_eq!(intact(&truncated), Some(false));
+        let mut full = bytes.clone();
+        full.extend([0u8; 8]);
+        let complete = dir.path().join("c.safetensors");
+        std::fs::write(&complete, &full).unwrap();
+        assert_eq!(intact(&complete), Some(true));
+        assert_eq!(intact(&dir.path().join("x.pt")), None);
     }
 
     #[test]

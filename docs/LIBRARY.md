@@ -12,7 +12,7 @@ The Library sorts catalog cards and loaded file rows by version publication date
 
 ## Catalog and Installed views
 
-Catalog offers source selection, provider browsing/search, category/base-model filters, sorting, file/version/quantization selection and Selected for download. Installed scans the configured models folder; opening a file shows path/size/hash and an explicit CivitAI metadata fetch/cache action. Listing a file is not compatibility proof.
+Catalog offers source selection, provider browsing/search, category/base-model filters, sorting, file/version/quantization selection and Selected for download. Installed scans the configured models folder; opening a file shows path/size/hash, a **File check** row when a safetensors header covers payload the file does not hold (**Incomplete safetensors: … Download it again**), and an explicit CivitAI metadata fetch/cache action. Listing a file is not compatibility proof; a truncated safetensors is excluded from the Studio's automatic component selection, so a broken encoder is never picked silently.
 
 ### Scan Files (Installed)
 

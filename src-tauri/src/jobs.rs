@@ -1933,14 +1933,39 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
                     .iter()
                     .find(|m| m[0] == "execution_error")
                     .map(|m| {
+                        let node = m[1]["node_id"].as_str().unwrap_or("unknown");
+                        let node_type = m[1]["node_type"].as_str().unwrap_or("unknown");
+                        // Loader failures only name the node type; the compiled graph knows the model file.
+                        let loader = [
+                            "CLIPLoader",
+                            "DualCLIPLoader",
+                            "UNETLoader",
+                            "UnetLoaderGGUF",
+                            "VAELoader",
+                            "CheckpointLoaderSimple",
+                            "UpscaleModelLoader",
+                            "FrameInterpolationModelLoader",
+                        ]
+                        .contains(&node_type);
+                        let inputs: Vec<&str> = loader
+                            .then(|| job.plan.graph.get(node))
+                            .flatten()
+                            .and_then(|n| n["inputs"].as_object())
+                            .map(|i| i.values().filter_map(Value::as_str).take(3).collect())
+                            .unwrap_or_default();
                         format!(
-                            "node {} ({}): {}: {}",
-                            m[1]["node_id"].as_str().unwrap_or("unknown"),
-                            m[1]["node_type"].as_str().unwrap_or("unknown"),
+                            "node {} ({}): {}: {}{}",
+                            node,
+                            node_type,
                             m[1]["exception_type"].as_str().unwrap_or("Error"),
                             m[1]["exception_message"]
                                 .as_str()
-                                .unwrap_or("Backend execution failed")
+                                .unwrap_or("Backend execution failed"),
+                            if inputs.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" [{}]", inputs.join(", "))
+                            }
                         )
                     })
                     .unwrap_or_else(|| "Backend reported diagnostic execution error".into());

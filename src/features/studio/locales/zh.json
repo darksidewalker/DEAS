@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE 需要帧插值模型",
   "studio.tve.post.needsStage": "至少启用一个 TVE 阶段。",
   "studio.tve.post.baselineHint": "解码后的视频按原样编码为原始版本；处理结果是另一个文件。",
+  "studio.tve.post.rtxMemory": "RTX 内存",
+  "studio.tve.post.useMmap": "磁盘回退 (use_mmap)",
+  "studio.tve.post.chunkFrames": "每块帧数",
+  "studio.tve.post.rtxMemoryHint": "仅用于长视频：RAM 不足时 use_mmap 会把整个 RTX 批次写入磁盘；每块帧数只限制 SDK 工作量，整批仍需存储空间。",
   "studio.plan.tve": "TVE 后期处理",
   "studio.tve.backend": "在后端增强",
   "studio.tve.backendHint": "使用 DaSiWa 节点在自有 ComfyUI 后端运行 TVE 阶段；源文件会复制到其输入文件夹，任务显示在 Studio 队列中。",
   "studio.tve.enhance": "增强",
   "studio.tve.enhancing": "提交中…",
   "studio.tve.queueHint": "进度、预览和导出：Studio 队列。",
+  "studio.tve.jobGone": "任务在完成前离开了 Studio 队列；请查看日志。",
   "studio.tve.pick": "或从媒体（输入/输出文件夹）中选择视频："
 }

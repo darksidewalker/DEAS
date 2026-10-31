@@ -3,13 +3,13 @@ import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { RecipeAllowlist } from '../../lib/execution';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
-import { readCurrentWorkbench, runWorkbenchJob, type JobStatus } from '../../lib/jobs';
+import { pollWorkbench, readCurrentWorkbench, runWorkbenchJob, type JobStatus } from '../../lib/jobs';
 import { usePref } from '../../lib/preferences';
 import { audioBitrates, audioCodecs, bitDepths, defaultVideoOutput, isVideoOutput, videoCodecs, videoContainers, videoPostFrameRate, type VideoEnhanceIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { uploadVideoPostSource, type VideoPostInspection } from '../../lib/videoPost';
 import { TvePostControls, defaultTve, isTvePref, toVideoPost } from './TvePostControls';
 
-const terminal = (s: JobStatus['state']) => ['succeeded', 'failed', 'cancelled'].includes(s);
+const terminal = (s: JobStatus['state']) => ['succeeded', 'failed', 'cancelled', 'unknown'].includes(s);
 /** Enhance an inspected source on the owned backend with the same TVE chain the video pipelines use; the job lands in the Studio queue. */
 export function TveBackendEnhance({ endpoint, source, disabled = false }: { endpoint: string; source: VideoPostInspection | null; disabled?: boolean }) {
   const { t } = useI18n();
@@ -28,13 +28,20 @@ export function TveBackendEnhance({ endpoint, source, disabled = false }: { endp
     reading.current = true;
     void checkRecipePrerequisites(endpoint).then(v => { if (live.current) setChoices(v.allowlist); }, () => undefined).finally(() => { reading.current = false; });
   };
-  // Follow the submitted job through the shared native session until it settles.
+  // Follow the submitted job through the shared native session until it settles. The TVE panel owns its
+  // own poll: `native_workbench_current` only replays the last snapshot, so a queued job never advanced
+  // while the Studio queue was closed.
   useEffect(() => {
     if (!job || terminal(job.state) || !isTauri()) return;
     let on = true;
-    const timer = setInterval(() => { void readCurrentWorkbench().then(s => { const next = s.jobs.find(j => j.id === job.id); if (on && next) setJob(next); }, () => undefined); }, 1500);
+    const timer = setInterval(() => { void pollWorkbench().then(s => {
+      if (!on) return;
+      const next = s.jobs.find(j => j.id === job.id);
+      // A failed preparation drops the held job; polling a vanished id would stay "queued" forever.
+      setJob(next ?? { ...job, state: 'unknown', error: t('studio.tve.jobGone') });
+    }, () => undefined); }, 1500);
     return () => { on = false; clearInterval(timer); };
-  }, [job?.id, job?.state]);
+  }, [job?.id, job?.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const videoPost = toVideoPost(tve);
   const fps = source ? source.fpsNumerator / source.fpsDenominator : undefined;
   const ready = !!source?.sourceId && !!videoPost && !!endpoint.trim() && isTauri() && !busy && !disabled && !(tve.frameGen && tve.engine === 'rife' && !tve.rifeModel);

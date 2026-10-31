@@ -1,5 +1,11 @@
 # News
 
+## 0.2.7 BETA (unreleased)
+
+- TVE **Enhance** now shows queued/running/failed itself and prints the backend error instead of staying on "Queued" while the Studio queue is closed.
+- TVE RTX stages gained **Disk fallback (use_mmap)** and **Frames per chunk**, so the out-of-RAM advice from the node is reachable from the app.
+- Loader errors name the model file, and truncated safetensors are flagged in the Library and never auto-selected.
+
 ## 0.2.6 BETA
 
 - Windows: the backend starts again instead of hanging on "Starting — verifying owned API" / the Backend API check and timing out after 120 s (`object_info … BACKEND_UNAVAILABLE` in Logs).

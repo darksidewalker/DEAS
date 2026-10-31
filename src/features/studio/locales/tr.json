@@ -813,11 +813,16 @@
   "studio.tve.post.needsRifeModel": "RIFE için kare ara değerleme modeli gerekli",
   "studio.tve.post.needsStage": "En az bir TVE aşaması etkinleştirin.",
   "studio.tve.post.baselineHint": "Çözülen video değiştirilmeden Orijinal olarak kodlanır; işlenmiş sonuç ikinci bir dosyadır.",
+  "studio.tve.post.rtxMemory": "RTX bellek",
+  "studio.tve.post.useMmap": "Disk yedek (use_mmap)",
+  "studio.tve.post.chunkFrames": "Blok başına kare",
+  "studio.tve.post.rtxMemoryHint": "Yalnızca uzun videolar için: RAM az olduğunda use_mmap RTX toplu işini tamamen diske yazar; blok başına kare SDK işini sınırlar, toplu iş yine de depolama ister.",
   "studio.plan.tve": "TVE son işleme",
   "studio.tve.backend": "Arka uçta iyileştir",
   "studio.tve.backendHint": "TVE aşamalarını DaSiWa düğümleriyle sahip olunan ComfyUI arka ucunda çalıştırır; kaynak giriş klasörüne kopyalanır ve iş Studio kuyruğunda görünür.",
   "studio.tve.enhance": "İyileştir",
   "studio.tve.enhancing": "Gönderiliyor…",
   "studio.tve.queueHint": "İlerleme, önizleme ve dışa aktarma: Studio kuyruğu.",
+  "studio.tve.jobGone": "İş tamamlanmadan Studio kuyruğundan ayrıldı; Logs a bakın.",
   "studio.tve.pick": "Ya da Medya’dan bir video seçin (giriş/çıkış klasörleri):"
 }

@@ -132,6 +132,8 @@
   "downloads.installed.cfg": "CFG {n}",
   "downloads.installed.clipSkip": "Clip skip {n}",
   "downloads.installed.hashHelp": "Le hachage lit le fichier entier une fois ; le résultat est mis en cache à côté dans .deas.json.",
+  "downloads.installed.integrity": "Contrôle du fichier",
+  "downloads.installed.truncated": "Safetensors incomplet : l'en-tête attend des données absentes du fichier. Téléchargez-le à nouveau.",
   "downloads.folder.clip": "CLIP",
   "downloads.folder.unet": "UNet",
   "downloads.folder.style_models": "Modèles de style",

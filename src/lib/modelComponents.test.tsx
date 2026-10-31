@@ -32,7 +32,12 @@ test('Windows model subfolders do not satisfy filename hints and exact model ide
  expect(componentFiles(files,family,'textEncoders')).toEqual(['folder\\qwen_3_600m.gguf']);
 });
 
-test('component overrides default off and restored values require every boolean flag',()=>{
+test('a truncated safetensors is never offered for automatic selection', () => {
+  const files=[{...model('text_encoders','minimax_h3_text_encoder (1).safetensors'),integrity:'truncated'},model('text_encoders','minimax_h3_text_encoder.safetensors')];
+  expect(componentFiles(files,{textEncoders:['minimax_h3']},'textEncoders')).toEqual(['minimax_h3_text_encoder.safetensors']);
+});
+
+test('component overrides default off and restored values require every boolean flag', () => {
  expect(Object.values(defaultComponentOverrides).every(value=>value===false)).toBe(true);
  expect(isComponentOverrides({...defaultComponentOverrides,textEncoders:true})).toBe(true);
  for(const value of [null,{},[],{...defaultComponentOverrides,textEncoders:'true'},{...defaultComponentOverrides,other:true}])expect(isComponentOverrides(value)).toBe(false);

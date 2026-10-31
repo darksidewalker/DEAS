@@ -446,6 +446,9 @@ pub struct LocalModel {
     /// Header-verified companion architecture ID; omitted for unknown/unsupported formats.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// `truncated` when a safetensors header covers payload bytes the file does not hold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub integrity: Option<String>,
 }
 
 fn is_model(path: &Path) -> bool {
@@ -637,6 +640,8 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         detected_family,
         family_override,
         metadata_error,
+        integrity: crate::model_families::intact(path)
+            .and_then(|ok| (!ok).then(|| "truncated".to_owned())),
         path: shown,
     })
 }

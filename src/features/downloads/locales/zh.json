@@ -132,6 +132,8 @@
   "downloads.installed.cfg": "CFG {n}",
   "downloads.installed.clipSkip": "Clip skip {n}",
   "downloads.installed.hashHelp": "计算哈希会完整读取文件一次；结果缓存在旁边的 .deas.json 中。",
+  "downloads.installed.integrity": "文件检查",
+  "downloads.installed.truncated": "不完整的 safetensors：文件头需要文件中不存在的数据。请重新下载。",
   "downloads.folder.clip": "CLIP",
   "downloads.folder.unet": "UNet",
   "downloads.folder.style_models": "风格模型",

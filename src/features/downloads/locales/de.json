@@ -132,6 +132,8 @@
   "downloads.installed.cfg": "CFG {n}",
   "downloads.installed.clipSkip": "Clip Skip {n}",
   "downloads.installed.hashHelp": "Das Hashen liest die Datei einmal komplett; das Ergebnis wird daneben als .deas.json gespeichert.",
+  "downloads.installed.integrity": "Dateiprüfung",
+  "downloads.installed.truncated": "Unvollständige safetensors: der Header erwartet Daten, die die Datei nicht enthält. Erneut herunterladen.",
   "downloads.folder.clip": "CLIP",
   "downloads.folder.unet": "UNet",
   "downloads.folder.style_models": "Style-Modelle",

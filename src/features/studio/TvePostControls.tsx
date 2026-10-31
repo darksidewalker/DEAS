@@ -3,12 +3,17 @@ import type { RecipeAllowlist } from '../../lib/execution';
 import { frameGenModes, rtxQualities, rtxUpscaleModes, type RtxQuality, type VideoPost } from '../../lib/videoIntent';
 
 /** Remembered TVE post-processing controls; `toVideoPost` keeps only enabled stages so untouched intents stay byte-identical. */
-export interface TvePref { upscaleModel:string; denoise:boolean; denoiseQuality:RtxQuality; deblur:boolean; deblurQuality:RtxQuality; rtxUpscale:boolean; rtxMode:typeof rtxUpscaleModes[number]; rtxQuality:RtxQuality; rtxScale:number; frameGen:boolean; engine:'rtx'|'rife'; multiplier:number; mode:typeof frameGenModes[number]; rifeModel:string }
-export const defaultTve:TvePref={upscaleModel:'',denoise:false,denoiseQuality:'Ultra',deblur:false,deblurQuality:'Ultra',rtxUpscale:false,rtxMode:'VSR',rtxQuality:'Ultra',rtxScale:2,frameGen:false,engine:'rtx',multiplier:2,mode:'HIGH',rifeModel:''};
-export const isTvePref=(v:unknown):v is TvePref=>{const o=v as Record<string,unknown>;return !!o&&typeof o==='object'&&Object.keys(defaultTve).every(k=>typeof o[k]===typeof (defaultTve as unknown as Record<string,unknown>)[k])&&['rtx','rife'].includes(o.engine as string);};
+export interface TvePref { upscaleModel:string; denoise:boolean; denoiseQuality:RtxQuality; deblur:boolean; deblurQuality:RtxQuality; rtxUpscale:boolean; rtxMode:typeof rtxUpscaleModes[number]; rtxQuality:RtxQuality; rtxScale:number; useMmap:boolean; chunkFrames:number; frameGen:boolean; engine:'rtx'|'rife'; multiplier:number; mode:typeof frameGenModes[number]; rifeModel:string }
+export const defaultTve:TvePref={upscaleModel:'',denoise:false,denoiseQuality:'Ultra',deblur:false,deblurQuality:'Ultra',rtxUpscale:false,rtxMode:'VSR',rtxQuality:'Ultra',rtxScale:2,useMmap:false,chunkFrames:16,frameGen:false,engine:'rtx',multiplier:2,mode:'HIGH',rifeModel:''};
+/** Absent fields (a preference saved before the RTX memory controls) keep their defaults. */
+export const isTvePref=(v:unknown):v is TvePref=>{const o=v as Record<string,unknown>;return !!o&&typeof o==='object'&&['rtx','rife'].includes(o.engine as string)&&Object.entries(defaultTve).every(([k,d])=>o[k]===undefined||typeof o[k]===typeof d);};
 export function toVideoPost(p:TvePref):VideoPost|undefined{
- const rtx={...(p.denoise?{denoise:p.denoiseQuality}:{}),...(p.deblur?{deblur:p.deblurQuality}:{}),...(p.rtxUpscale?{upscale:{mode:p.rtxMode,quality:p.rtxQuality,scale:p.rtxScale}}:{})};
+ const rtx={...(p.denoise?{denoise:p.denoiseQuality}:{}),...(p.deblur?{deblur:p.deblurQuality}:{}),...(p.rtxUpscale?{upscale:{mode:p.rtxMode,quality:p.rtxQuality,scale:p.rtxScale}}:{}),
+  // The node's own default is 16; only a changed value reaches the intent.
+  ...(p.rtxUpscale&&p.chunkFrames!==undefined&&p.chunkFrames!==16?{chunkFrames:p.chunkFrames}:{})};
  const post:VideoPost={...(p.upscaleModel?{upscaleModel:p.upscaleModel}:{}),...(Object.keys(rtx).length?{rtx}:{}),
+  // use_mmap is a node option; without an RTX stage it would be a key with no effect.
+  ...(p.useMmap&&(Object.keys(rtx).length||(p.frameGen&&p.engine==='rtx'))?{useMmap:true}:{}),
   ...(p.frameGen?{frameGeneration:p.engine==='rife'?{engine:'rife' as const,multiplier:p.multiplier,model:p.rifeModel}:{engine:'rtx' as const,multiplier:p.multiplier,mode:p.mode}}:{})};
  return Object.keys(post).length?post:undefined;
 }
@@ -17,11 +22,12 @@ export function fromVideoPost(v:VideoPost|undefined):TvePref{
  if(!v)return defaultTve;
  const u=v.rtx?.upscale,f=v.frameGeneration;
  return {...defaultTve,upscaleModel:v.upscaleModel??'',denoise:!!v.rtx?.denoise,denoiseQuality:v.rtx?.denoise??'Ultra',deblur:!!v.rtx?.deblur,deblurQuality:v.rtx?.deblur??'Ultra',
-  rtxUpscale:!!u,rtxMode:u?.mode??'VSR',rtxQuality:u?.quality??'Ultra',rtxScale:u?.scale??2,frameGen:!!f,engine:f?.engine??'rtx',multiplier:f?.multiplier??2,mode:f?.engine==='rtx'?f.mode:'HIGH',rifeModel:f?.engine==='rife'?f.model:''};
+  rtxUpscale:!!u,rtxMode:u?.mode??'VSR',rtxQuality:u?.quality??'Ultra',rtxScale:u?.scale??2,useMmap:!!v.useMmap,chunkFrames:v.rtx?.chunkFrames??16,
+  frameGen:!!f,engine:f?.engine??'rtx',multiplier:f?.multiplier??2,mode:f?.engine==='rtx'?f.mode:'HIGH',rifeModel:f?.engine==='rife'?f.model:''};
 }
 /** One-line summary of the enabled stages for Run Plan and metadata. */
 export function describeVideoPost(v:VideoPost):string{
- return [v.upscaleModel,v.rtx?.denoise&&`Denoise ${v.rtx.denoise}`,v.rtx?.deblur&&`Deblur ${v.rtx.deblur}`,v.rtx?.upscale&&`RTX ${v.rtx.upscale.mode} ${v.rtx.upscale.quality} ×${v.rtx.upscale.scale}`,
+ return [v.upscaleModel,v.rtx?.denoise&&`Denoise ${v.rtx.denoise}`,v.rtx?.deblur&&`Deblur ${v.rtx.deblur}`,v.rtx?.upscale&&`RTX ${v.rtx.upscale.mode} ${v.rtx.upscale.quality} ×${v.rtx.upscale.scale}`,v.useMmap&&'RTX use_mmap',
   v.frameGeneration&&(v.frameGeneration.engine==='rife'?`RIFE ${v.frameGeneration.model} ×${v.frameGeneration.multiplier}`:`RTX FrameGen ${v.frameGeneration.mode} ×${v.frameGeneration.multiplier}`)].filter(Boolean).join(' → ');
 }
 
@@ -49,6 +55,11 @@ export function TvePostControls({value,onChange,allow,onRead,disabled=false,fps}
     <input type="number" data-tve-post="rtxScale" aria-label={t('studio.run.upscale')} disabled={disabled} min={1} max={4} step={0.05} value={value.rtxScale} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))set({rtxScale:Math.min(4,Math.max(1,n))});}}/>
    </div>}
   </div>
+  {(value.denoise||value.deblur||value.rtxUpscale||(value.frameGen&&value.engine==='rtx'))&&<div className="wb-option" data-tve-post="rtxMemory"><span>{t('studio.tve.post.rtxMemory')}{badge}</span>
+   <label className="wb-option-row"><input type="checkbox" data-tve-post="useMmap" disabled={disabled} checked={!!value.useMmap} onChange={e=>set({useMmap:e.target.checked})}/>{t('studio.tve.post.useMmap')}</label>
+   {(value.denoise||value.deblur||value.rtxUpscale)&&<label className="wb-option-row">{t('studio.tve.post.chunkFrames')}<input type="number" data-tve-post="chunkFrames" disabled={disabled} min={1} max={1024} step={1} value={value.chunkFrames??16} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n))set({chunkFrames:Math.min(1024,Math.max(1,n))});}}/></label>}
+   <small>{t('studio.tve.post.rtxMemoryHint')}</small>
+  </div>}
   <div className="wb-option" data-tve-post="frameGen"><span><label className="wb-option-row"><input type="checkbox" data-tve-post="frameGenEnabled" disabled={disabled||(!frameGenNode&&!rifeNode)} checked={value.frameGen} onChange={e=>set({frameGen:e.target.checked})}/>{t('studio.tve.post.frameGen')}</label>{badge}</span>
    {value.frameGen&&<>
     <div className="wb-option-row">

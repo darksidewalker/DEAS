@@ -47,8 +47,11 @@ fn multiplier_ok(v: &Value) -> bool {
 
 /// `videoPost`: at least one stage; each stage only with the node's own enum/range values.
 pub(crate) fn validate(p: &Value) -> Result<(), String> {
-    if !keys_in(p, &["upscaleModel", "rtx", "frameGeneration"]) {
+    if !keys_in(p, &["upscaleModel", "rtx", "frameGeneration", "useMmap"]) {
         return Err("videoPost needs upscaleModel, rtx or frameGeneration".into());
+    }
+    if p.get("useMmap").is_some_and(|v| !v.is_boolean()) {
+        return Err("videoPost.useMmap must be a boolean".into());
     }
     if p.get("upscaleModel")
         .is_some_and(|m| !m.as_str().is_some_and(comfy_model_name))
@@ -66,12 +69,15 @@ pub(crate) fn validate(p: &Value) -> Result<(), String> {
                     .as_f64()
                     .is_some_and(|s| (1.0..=4.0).contains(&s))
         });
-        if !keys_in(r, &["denoise", "deblur", "upscale"])
+        if !keys_in(r, &["denoise", "deblur", "upscale", "chunkFrames"])
             || !r.get("denoise").is_none_or(quality)
             || !r.get("deblur").is_none_or(quality)
             || !upscale_ok
+            || !r
+                .get("chunkFrames")
+                .is_none_or(|n| n.as_u64().is_some_and(|n| (1..=1024).contains(&n)))
         {
-            return Err("Invalid videoPost.rtx: denoise/deblur quality Low|Medium|High|Ultra, upscale {mode, quality, scale 1..4}".into());
+            return Err("Invalid videoPost.rtx: denoise/deblur quality Low|Medium|High|Ultra, upscale {mode, quality, scale 1..4}, chunkFrames 1..1024".into());
         }
     }
     if let Some(f) = p.get("frameGeneration") {
@@ -112,14 +118,24 @@ pub(crate) fn chain(g: &mut Value, mut images: Value, p: &Value) -> Value {
     if let Some(r) = p.get("rtx") {
         let u = &r["upscale"];
         // Required inputs only; resize_type Scale keeps the owner's node defaults for the unused resize controls.
-        g["PR"] = json!({"class_type":"DaSiWa_RTX_UpscalerRefiner","inputs":{
+        let mut inputs = json!({
             "images":images,
             "denoise":r.get("denoise").is_some(),"denoise_quality":r.get("denoise").cloned().unwrap_or(json!("Ultra")),
             "deblur":r.get("deblur").is_some(),"deblur_quality":r.get("deblur").cloned().unwrap_or(json!("Ultra")),
             "upscale":u.get("mode").cloned().unwrap_or(json!("Off")),"upscale_quality":u.get("quality").cloned().unwrap_or(json!("Ultra")),
             "resize_type":"Scale","scale":u.get("scale").cloned().unwrap_or(json!(1.0)),
             "megapixels":2.0,"width":1920,"height":1080,"divisible_by":"8","ratio_preset":"16:9","resize_method":"Center Crop (Fill)","device_id":0
-        }});
+        });
+        // Node optional inputs, only when selected: the complete IMAGE batch is still allocated up front,
+        // so these bound SDK work / move the batch to disk, they never shrink the required storage.
+        if p["useMmap"] == true {
+            inputs["use_mmap"] = json!(true);
+        }
+        if let Some(frames) = r["chunkFrames"].as_u64() {
+            inputs["chunking"] = json!(true);
+            inputs["chunk_frames"] = json!(frames);
+        }
+        g["PR"] = json!({"class_type":"DaSiWa_RTX_UpscalerRefiner","inputs":inputs});
         images = json!(["PR", 0]);
     }
     if let Some(f) = p.get("frameGeneration") {
@@ -127,10 +143,14 @@ pub(crate) fn chain(g: &mut Value, mut images: Value, p: &Value) -> Value {
             g["PFL"] = json!({"class_type":"FrameInterpolationModelLoader","inputs":{"model_name":f["model"]}});
             g["PF"] = json!({"class_type":"FrameInterpolate","inputs":{"interp_model":["PFL",0],"images":images,"multiplier":f["multiplier"]}});
         } else {
-            g["PF"] = json!({"class_type":"DaSiWa_RTX_FrameGeneration","inputs":{
+            let mut inputs = json!({
                 "images":images,"generation_type":"frame rate multiplier","multiplier":f["multiplier"],"timestep":0.5,"mode":f["mode"],
                 "automatic_shot_change_detection":true,"shot_change":false,"device_id":0
-            }});
+            });
+            if p["useMmap"] == true {
+                inputs["use_mmap"] = json!(true);
+            }
+            g["PF"] = json!({"class_type":"DaSiWa_RTX_FrameGeneration","inputs":inputs});
         }
         images = json!(["PF", 0]);
     }
@@ -259,6 +279,31 @@ mod tests {
         assert_eq!(g["PR"]["inputs"]["deblur"], true);
         assert_eq!(g["PR"]["inputs"]["deblur_quality"], "Low");
         assert_eq!(g["PR"]["inputs"]["denoise"], false);
+    }
+
+    #[test]
+    fn rtx_memory_options_reach_the_nodes_only_when_selected() {
+        let mut g = json!({});
+        chain(&mut g, json!(["6", 0]), &json!({"rtx":{"denoise":"Low"}}));
+        assert!(g["PR"]["inputs"].get("use_mmap").is_none());
+        assert!(g["PR"]["inputs"].get("chunk_frames").is_none());
+        let p = json!({"useMmap":true,
+            "rtx":{"denoise":"Low","chunkFrames":8},
+            "frameGeneration":{"engine":"rtx","multiplier":2,"mode":"HIGH"}});
+        let mut g = json!({});
+        chain(&mut g, json!(["6", 0]), &p);
+        assert_eq!(g["PR"]["inputs"]["use_mmap"], true);
+        assert_eq!(g["PR"]["inputs"]["chunking"], true);
+        assert_eq!(g["PR"]["inputs"]["chunk_frames"], 8);
+        assert_eq!(g["PF"]["inputs"]["use_mmap"], true);
+        assert!(validate(&p).is_ok());
+        for bad in [
+            json!({"rtx":{"denoise":"Low","chunkFrames":0}}),
+            json!({"rtx":{"denoise":"Low","chunkFrames":1025}}),
+            json!({"useMmap":"yes","rtx":{"denoise":"Low"}}),
+        ] {
+            assert!(validate(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

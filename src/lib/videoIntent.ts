@@ -31,16 +31,21 @@ export const frameGenModes=['LOW','MEDIUM','HIGH'] as const;
 export type RtxQuality=typeof rtxQualities[number];
 export interface VideoPost {
  upscaleModel?:string;
- rtx?:{ denoise?:RtxQuality; deblur?:RtxQuality; upscale?:{ mode:typeof rtxUpscaleModes[number]; quality:RtxQuality; scale:number } };
+ /** RTX disk fallback (`use_mmap`) for both RTX nodes; only for batches that exceed available RAM. */
+ useMmap?:boolean;
+ rtx?:{ denoise?:RtxQuality; deblur?:RtxQuality; upscale?:{ mode:typeof rtxUpscaleModes[number]; quality:RtxQuality; scale:number }; chunkFrames?:number };
  frameGeneration?:{ engine:'rtx'; multiplier:number; mode:typeof frameGenModes[number] }|{ engine:'rife'; multiplier:number; model:string };
 }
 const multiplierOk=(m:unknown)=>Number.isInteger(m)&&(m as number)>=2&&(m as number)<=16;
+const chunkFramesOk=(n:unknown)=>Number.isInteger(n)&&(n as number)>=1&&(n as number)<=1024;
 export const isVideoPost=(v:unknown):v is VideoPost=>{
  const p=v as VideoPost;
- if(!p||typeof p!=='object'||!Object.keys(p).length||Object.keys(p).some(k=>!['upscaleModel','rtx','frameGeneration'].includes(k)))return false;
+ if(!p||typeof p!=='object'||!Object.keys(p).length||Object.keys(p).some(k=>!['upscaleModel','rtx','frameGeneration','useMmap'].includes(k)))return false;
  if(p.upscaleModel!==undefined&&typeof p.upscaleModel!=='string')return false;
+ if(p.useMmap!==undefined&&typeof p.useMmap!=='boolean')return false;
  const r=p.rtx;
  if(r!==undefined&&(!r||typeof r!=='object'||!Object.keys(r).length||(r.denoise!==undefined&&!inList(rtxQualities,r.denoise))||(r.deblur!==undefined&&!inList(rtxQualities,r.deblur))
+  ||(r.chunkFrames!==undefined&&!chunkFramesOk(r.chunkFrames))
   ||(r.upscale!==undefined&&!(inList(rtxUpscaleModes,r.upscale.mode)&&inList(rtxQualities,r.upscale.quality)&&Number.isFinite(r.upscale.scale)&&r.upscale.scale>=1&&r.upscale.scale<=4))))return false;
  const f=p.frameGeneration;
  return f===undefined||(f.engine==='rtx'&&multiplierOk(f.multiplier)&&inList(frameGenModes,f.mode))||(f.engine==='rife'&&multiplierOk(f.multiplier)&&typeof f.model==='string');

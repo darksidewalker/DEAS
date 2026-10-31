@@ -132,6 +132,8 @@
   "downloads.installed.cfg": "CFG {n}",
   "downloads.installed.clipSkip": "Clip skip {n}",
   "downloads.installed.hashHelp": "Hashleme dosyanın tamamını bir kez okur; sonuç yanına .deas.json olarak kaydedilir.",
+  "downloads.installed.integrity": "Dosya denetimi",
+  "downloads.installed.truncated": "Eksik safetensors: başlık dosyada olmayan veriyi bekliyor. Yeniden indirin.",
   "downloads.folder.clip": "CLIP",
   "downloads.folder.unet": "UNet",
   "downloads.folder.style_models": "Stil modelleri",
