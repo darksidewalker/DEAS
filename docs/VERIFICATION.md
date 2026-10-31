@@ -1,5 +1,20 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.7 (published)
+
+Published 2026-10-31 at https://github.com/darksidewalker/DEAS/releases/tag/v0.2.7 from source commit `b67127f5d6c03042b89b844694426e8657694c49` (tag `v0.2.7`, mirrored to gitea). Built locally with `bash build-linux.sh --release` (rustc 1.97.0, Node 26.12.1; GitHub runners gated, release unsigned). Staged four-asset set in `artifacts/releases/v0.2.7/`:
+
+```
+2eff9e88c8a50d7c83d814f430920b552bd850765a6fc09357acd34e7c7730e0  BUILD-MANIFEST.json
+4eb503a662fe744d69db9c516f6f903d0e89c2cc0dc08cdaf824257bb7c5c25b  deas.exe
+19fd4f29706eb591b538394af8874927799e275a81efa8b63de0e941d2c79dc2  deas-linux-amd64
+```
+
+- Gates on the source commit, run fresh: `npm run typecheck`; `npm test` (core 125 + vitest 1282/1282 across 71 files); `cargo fmt --check` (one PR #14 line reformatted first); `cargo clippy --locked --release --lib --bins -- -D warnings`; `cargo test --locked -- --test-threads=1`; `cargo xwin check` and `cargo xwin clippy -D warnings` for `x86_64-pc-windows-msvc`.
+- Linux asset: `ldd` reports no "not found"; derived glibc floor `GLIBC_2.39`; both binaries embed the current `dist/assets/index-Cx_GByAy.js`. `sha256sum -c SHA256SUMS` passes locally and on the assets downloaded back from GitHub.
+- Content: global search, Linux spellcheck dictionary install, TVE progress + RTX memory controls, loader-file naming + truncated-safetensors detection (issue #12, closed), PRs #13/#14/#15 merged.
+- Not established: Windows runtime acceptance of the cross-compiled `deas.exe` (no NSIS/portable bundle); native WebKitGTK acceptance of the global-search overlay and of Enchant picking up a freshly installed dictionary without restart.
+
 ## Release 0.2.6 (published)
 
 - GitHub release `v0.2.6` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.6), annotated tag on source commit `99ed90b1c9e492257cc2f964e4b4b691ab677c82` (tree `1f755a9e3c72f08bded98eeb2fd144a97047236b`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, asset sizes matched before publishing.
