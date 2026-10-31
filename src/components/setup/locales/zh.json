@@ -107,6 +107,7 @@
   "setup.pickParent": "选择父文件夹…",
   "setup.selectedParent": "已选父文件夹",
   "setup.error.child": "请输入安全的单个新文件夹名称，不得包含分隔符、路径穿越或保留名称。",
+  "setup.storageRenamed": "该文件夹包含未完成的安装，因此 DEAS 选择了这个新文件夹。您可以删除旧文件夹。",
   "setup.request.storagePath": "目标目录",
   "setup.request.backend": "后端",
   "setup.request.features": "选定能力（确切 ID）",

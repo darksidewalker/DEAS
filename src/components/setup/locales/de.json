@@ -107,6 +107,7 @@
   "setup.pickParent": "Übergeordneten Ordner wählen…",
   "setup.selectedParent": "Gewählter übergeordneter Ordner",
   "setup.error.child": "Einen sicheren neuen Ordnernamen ohne Trennzeichen, Pfadwechsel oder reservierte Namen eingeben.",
+  "setup.storageRenamed": "Dieser Ordner enthält eine unfertige Installation, daher hat DEAS diesen neuen Ordner gewählt. Den alten kannst du löschen.",
   "setup.request.storagePath": "Zielordner",
   "setup.request.backend": "Backend",
   "setup.request.features": "Gewählte Fähigkeiten (exakte IDs)",

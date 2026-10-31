@@ -22,6 +22,7 @@
   "forge.model": "LLMモデル",
   "forge.loading": "モデルを読み込み中…",
   "forge.noModels": "LLMモデルがありません：ComfyUI/models/llm に GGUF を置くか、Backend → LLM でサーバーを設定してください",
+  "forge.noServer": "LLM サーバーが見つかりません: Backend → LLM で設定してください",
   "forge.retry": "再試行",
   "forge.noBackend": "Prompt Forge を使うには、インストール済み環境のバックエンドを起動してください。",
   "forge.noDialect": "このモデル用のプロンプトスタイルはありません",

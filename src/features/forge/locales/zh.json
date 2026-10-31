@@ -22,6 +22,7 @@
   "forge.model": "LLM 模型",
   "forge.loading": "正在加载模型…",
   "forge.noModels": "未找到 LLM 模型：将 GGUF 放入 ComfyUI/models/llm，或在 Backend → LLM 中设置服务器",
+  "forge.noServer": "未找到 LLM 服务器：请在 Backend → LLM 中设置",
   "forge.retry": "重试",
   "forge.noBackend": "请启动已安装环境的后端以使用 Prompt Forge。",
   "forge.noDialect": "Prompt Forge 没有适用于此模型的提示词风格",

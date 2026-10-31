@@ -2,7 +2,7 @@ import { readAuthStatus } from '../../lib/downloads';
 import { StrictMode } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import AiOSetup from './AiOSetup';
+import AiOSetup, { nextFolder } from './AiOSetup';
 import { defaultLlmConfig } from '../../lib/llm';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -518,4 +518,9 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   const requests=vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_install_plan').map(([,a])=>(a as {request:NativeInstallRequest}).request);
   expect(requests.some(r=>r.takeover===true&&r.storagePath==='/foreign/env')).toBe(true);
  });
+});
+
+it('numbers the next folder after an unfinished install',()=>{
+ expect(nextFolder('C:\deas-environment')).toBe('C:\deas-environment-2');
+ expect(nextFolder('/env/deas-environment-2/')).toBe('/env/deas-environment-3');
 });

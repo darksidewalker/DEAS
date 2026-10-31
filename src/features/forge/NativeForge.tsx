@@ -28,7 +28,7 @@ interface Draft { result: NativeResult; prompt: string; negative: string; associ
  * tables, the tag-search and guidance tools, then the mechanical clean-up — with PromptForge's builder: named-notch
  * sliders, folding sections that say what is set inside them, and camera/light tiles. The result goes to Generate.
  */
-export function NativeForge({ root, endpoint = '', canvasContext, target, forge, brief, setBrief, detail, setDetail, creativity, setCreativity, onSend, header, active = true }: { brief: string; setBrief: (value: string) => void; detail: number; setDetail: (value: number) => void; creativity: number; setCreativity: (value: number) => void; root?: string; endpoint?: string; canvasContext?: ForgeCanvasContext; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string, canvas?: ForgeSendCanvas) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
+export function NativeForge({ root, canvasContext, target, forge, brief, setBrief, detail, setDetail, creativity, setCreativity, onSend, header, active = true }: { brief: string; setBrief: (value: string) => void; detail: number; setDetail: (value: number) => void; creativity: number; setCreativity: (value: number) => void; root?: string; endpoint?: string; canvasContext?: ForgeCanvasContext; target: string; forge: ReturnType<typeof useForgeModels>; onSend: (positive: string, negative: string, canvas?: ForgeSendCanvas) => void; /** The Write-for picker, shown first. */ header?: ReactNode; /** A retained, hidden tab reads nothing. */ active?: boolean }) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<NativeTargets | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -109,7 +109,8 @@ export function NativeForge({ root, endpoint = '', canvasContext, target, forge,
   }, [layoutMode, canvas?.width, canvas?.height, resolved.error]); // eslint-disable-line react-hooks/exhaustive-deps
   // An identity object changes even across A → B → A. Responses from an older
   // authoring context cannot replace the current text or layout.
-  const scopeKey = JSON.stringify([root, endpoint, target, activeMode, forge.model, forge.rev, aspect, customWidth, customHeight, canvasContext?.key, canvas, resolved.error]);
+  // The native writer never talks to the backend, and a plain text result has no canvas to go stale.
+  const scopeKey = JSON.stringify([root, target, activeMode, forge.settledModel, forge.rev, aspect, customWidth, customHeight, canvas || layoutMode ? canvasContext?.key : '', canvas, resolved.error]);
   // Reference pictures can contain large data URLs. Their immutable state
   // identity participates in freshness without serializing their bytes.
   const scope = useMemo(() => ({}), [scopeKey, brief, detail, creativity, lightingOn, quality, style, pick.angle, pick.shot, pick.light, keepPositive, keepNegative, lengthUnit, lengthValue, tags, pictures, withNegative, withNotes]);

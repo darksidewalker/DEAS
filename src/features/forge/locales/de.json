@@ -22,6 +22,7 @@
   "forge.model": "LLM-Modell",
   "forge.loading": "Modelle werden geladen…",
   "forge.noModels": "Kein LLM-Modell gefunden: GGUF nach ComfyUI/models/llm legen oder Server unter Backend → LLM eintragen",
+  "forge.noServer": "Kein LLM-Server gefunden: unter Backend → LLM einrichten",
   "forge.retry": "Erneut versuchen",
   "forge.noBackend": "Starte das Backend einer installierten Umgebung, um Prompt Forge zu nutzen.",
   "forge.noDialect": "Prompt Forge hat keinen Prompt-Stil für dieses Modell",

@@ -107,6 +107,7 @@
   "setup.pickParent": "Üst klasör seç…",
   "setup.selectedParent": "Seçilen üst klasör",
   "setup.error.child": "Ayırıcı, üst dizine geçiş veya ayrılmış ad içermeyen güvenli, tek bir yeni klasör adı girin.",
+  "setup.storageRenamed": "Bu klasörde tamamlanmamış bir kurulum var, bu yüzden DEAS bu yeni klasörü seçti. Eskisini silebilirsiniz.",
   "setup.request.storagePath": "Hedef dizin",
   "setup.request.backend": "Arka uç",
   "setup.request.features": "Seçilen özellikler (kesin kimlikler)",
