@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **The update arrow clears after an update.** The footer checked for updates once at launch, so after a successful ComfyUI or node pack update it kept showing the arrow until DEAS restarted. It now checks again when an update finishes. A replaced DEAS binary stays cleared until the restart, because it still reports its old version.
+
 ## 0.2.6 BETA
 
 - **Windows: the owned backend starts again (issue #11).** Symptoms in 0.2.5: Backend stayed on "Starting — verifying owned API" for 120 s and then failed with `Backend readiness timed out: Owned listener not ready` (`Owned child exited: exit code: 1`); the **Backend API** check never passed, so setup looked stuck there; Logs repeated `WARN: backend operation=GET endpoint=object_info code=BACKEND_UNAVAILABLE: error sending request`; the ComfyUI log stopped at `Set cuda device to: 0`; the "Optimizations off" startup preset made no difference, while ComfyUI started fine by hand. Cause: the stop listener thread blocked in `readline` on the stdin pipe, which stalled numpy's DLL load during `import torch`. It now polls the pipe with `PeekNamedPipe` and reads only once `stop\n` has arrived. Verified on Windows 11 with an RTX 4070 Ti SUPER: the old bootstrap hung twice, the new one was ready in 8–29 s, and Stop still shuts down gracefully (exit 0 in under a second).
