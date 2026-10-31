@@ -1,12 +1,16 @@
 # News
 
-## 0.2.7 BETA (unreleased)
+## 0.2.7 BETA
 
 - TVE **Enhance** now shows queued/running/failed itself and prints the backend error instead of staying on "Queued" while the Studio queue is closed.
 - TVE RTX stages gained **Disk fallback (use_mmap)** and **Frames per chunk**, so the out-of-RAM advice from the node is reachable from the app.
 - Loader errors name the model file, and truncated safetensors are flagged in the Library and never auto-selected.
 - **Global search.** A magnifier in the top tab band (Ctrl+K) finds controls across every tab by breadcrumb — Studio settings and prompts, Forge, Chat, TVE, Run Plan stages, Library, Comfy, Backend and Logs — and switches to the hit, opens its group, scrolls to it and flashes it. A control that does not apply right now shows why instead of doing nothing. Search never writes a setting, submits a job or calls the backend.
 - **Spellcheck dictionary install (Linux).** When no dictionary exists for the spellcheck language, Backend → Language offers **Install dictionary** for German, English, French and Turkish: the pinned Hunspell pair goes into your user folder, no admin rights. Japanese and Chinese say that no Hunspell dictionary is published instead.
+- Windows: installing into a folder with a space (including a user name with a space) no longer fails at Requirements.
+- Prompt Forge keeps a written result through a tab switch or the backend finishing its start, and says "No LLM server found" instead of "no models" when that is the actual gap.
+- Setup steps past a folder left by a failed or cancelled install (`…-2`) with a note; the old folder is never reused or deleted.
+- The footer update arrow clears as soon as a ComfyUI or node-pack update finishes.
 
 ## 0.2.6 BETA
 

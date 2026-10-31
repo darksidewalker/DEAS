@@ -655,7 +655,9 @@ impl Lifecycle {
                 || actual.compute_capability != expected.compute_capability
                 || actual.driver_version != expected.driver_version
             {
-                return Err("NVIDIA hardware/driver changed; use Backend → Re-run installation".into());
+                return Err(
+                    "NVIDIA hardware/driver changed; use Backend → Re-run installation".into(),
+                );
             }
         }
         self.launch(approved, Duration::from_secs(120))
