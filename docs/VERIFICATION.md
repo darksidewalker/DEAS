@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.6 (published)
+
+- GitHub release `v0.2.6` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.6), annotated tag on source commit `99ed90b1c9e492257cc2f964e4b4b691ab677c82` (tree `1f755a9e3c72f08bded98eeb2fd144a97047236b`), pushed to both remotes. Built locally and unsigned with `build-linux.sh --release` (rustc 1.97.0, Node v26.12.1); draft-first, asset sizes matched before publishing.
+- Gates: typecheck; `npm test` (core + UI 1268/1268 across 70 files) on the release tree; on the code commit `af06413` (the release commit changes docs only): `cargo fmt --check`, `cargo clippy --locked --release --lib --bins -D warnings`, `cargo test --locked -- --test-threads=1` (665 lib passed, 39 ignored), `cargo xwin clippy --locked --target x86_64-pc-windows-msvc --all-targets -D warnings`.
+- Assets (downloaded back from the release and checked with `sha256sum -c`):
+```
+0de6f5f630bd095495e1e2916093e5b5679dc61ed1b57991a0e417bedb49ad96  BUILD-MANIFEST.json
+45c1bd400128dacf5b251a1d1a54192b63af10f6c8b3a04dcff321fc959b89b1  deas.exe
+f93388f5a05e8296fa558d5fc13b651f78f69a4619cb284beedad1cc90ef86e6  deas-linux-amd64
+```
+- Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-DR7pg1HP.js`. `deas.exe` is a cargo-xwin cross-build (benign `LNK4099` linker warning) without NSIS installer; the startup fix was verified with the bootstrap on Windows, not by launching this `deas.exe`.
+
 ## 0.2.6 Windows backend startup and driver refresh (shipped in 0.2.6)
 
 - Windows startup hang (issue #11): A/B on Windows 11, RTX 4070 Ti SUPER, the existing test environment (ComfyUI 0.43.0, Python 3.12.11), launched with DEAS's cleared environment, `CREATE_NO_WINDOW`, piped stdin and the bootstrap text taken verbatim from `backend.rs`; readiness = `/system_stats` answers, then `stop\n` is written. Old bootstrap (0.2.5): not ready after 90 s in 2/2 runs, log ends at `Set cuda device to: 0`. New bootstrap: ready after 28.6 s and 8.1 s, `stop\n` → `Stopped server`, exit 0 in 0.77 s. No Python process remained. Not verified: the full `deas.exe` launch path on Windows.
