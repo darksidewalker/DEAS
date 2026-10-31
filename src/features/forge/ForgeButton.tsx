@@ -64,14 +64,18 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
   };
   const usable = scope.current?.identity === identity && scope.current.loaded ? list?.models.filter(m => !m.disabled) ?? [] : [];
   // A remembered model only counts while the backend still lists it.
-  return { list, error, load, rev, usable, model: usable.some(m => m.id === model) ? model : usable[0]?.id ?? '', setModel };
+  const current = usable.some(m => m.id === model) ? model : usable[0]?.id ?? '';
+  // The list empties on every reload (tab switch, backend start), which is not a model change.
+  const settled = useRef('');
+  if (current) settled.current = current;
+  return { list, error, load, rev, usable, model: current, settledModel: settled.current, serverOnly: !nodepack, setModel };
 }
 
 export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels> }) {
   const { t } = useI18n();
   return <label className="forge-field"><span>{t('forge.model')}</span>
     <select data-forge-model value={forge.model} disabled={!forge.usable.length} onChange={e => forge.setModel(e.target.value)}>
-      {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{t(forge.list ? 'forge.noModels' : 'forge.loading')}</option>}
+      {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{t(forge.list ? forge.serverOnly ? 'forge.noServer' : 'forge.noModels' : 'forge.loading')}</option>}
     </select>
     {forge.list && Object.values(forge.list.errors).map(text => <small key={text} className="forge-warning">{t(text)}</small>)}
     {forge.error && <span className="error-message" role="alert">{t(forge.error)} <button type="button" data-forge-retry onClick={forge.load}>{t('forge.retry')}</button></span>}

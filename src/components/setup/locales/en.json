@@ -107,6 +107,7 @@
   "setup.pickParent": "Choose parent folder…",
   "setup.selectedParent": "Selected parent",
   "setup.error.child": "Enter a safe single new folder name, without separators, traversal or reserved names.",
+  "setup.storageRenamed": "That folder holds an unfinished install, so DEAS chose this new folder. You can delete the old one.",
   "setup.request.storagePath": "Target directory",
   "setup.request.backend": "Backend",
   "setup.request.features": "Selected capabilities (exact IDs)",

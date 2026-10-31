@@ -107,6 +107,7 @@
   "setup.pickParent": "親フォルダーを選択…",
   "setup.selectedParent": "選択した親フォルダー",
   "setup.error.child": "区切り文字、パストラバーサル、予約名を含まない、安全な単一の新規フォルダー名を入力してください。",
+  "setup.storageRenamed": "そのフォルダーには未完了のインストールがあるため、DEAS はこの新しいフォルダーを選びました。古いフォルダーは削除できます。",
   "setup.request.storagePath": "保存先ディレクトリ",
   "setup.request.backend": "バックエンド",
   "setup.request.features": "選択した機能（正確な ID）",

@@ -20,6 +20,9 @@ import { readAuthStatus, verifyAuthToken } from '../../lib/downloads';
 import { forgetPref, isBoolean, isString, readPref, usePref, writePref } from '../../lib/preferences';
 // Root of the last successful install; restored on start only while its deas-install.json still exists.
 const installedKey='install.root';
+const unfinishedInstall='unfinished DEAS installation';
+/** The next numbered sibling: DEAS never reuses a folder an install left behind. */
+export const nextFolder=(path:string)=>{const trimmed=path.replace(/[\\/]+$/,'');const numbered=/^(.*-)(\d+)$/.exec(trimmed);return numbered?`${numbered[1]}${Number(numbered[2])+1}`:`${trimmed}-2`;};
 const updateScopes=['all','app','comfy','torch'] as const;
 type UpdateScope=typeof updateScopes[number];
 /** `native_torch_update_check`: exact from → to Torch packages, or why the PyTorch-only update is unavailable. */
@@ -37,6 +40,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
  useEffect(()=>forgetPref('backend.resumeAfterUpdate'),[]);
  const [state,setState]=useState(()=>transitionSetup(initialSetupState(),{type:'automatic'}));
  const [error,setError]=useState('');
+ const [storageRenamed,setStorageRenamed]=useState(false);
  const [pickerBusy,setPickerBusy]=useState(false);const [folderPickerBusy,setFolderPickerBusy]=useState(false);
  const pickerLock=useRef(false);
  const [storageParent,setStorageParent]=useState('');
@@ -231,7 +235,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   setBusy(true);setNativePlan(null);setTechnicalError('');setStatus(s=>s?.state==='failed'||s?.state==='cancelled'?s:null);
   const {storagePath,backend,features,options,comfyRef}=plan;
   try{const result=await invoke<NativeInstallPlan>('native_install_plan',{request:{storagePath:takeoverOn&&takeoverPath?takeoverPath:storagePath,backend,features,options,comfyRef,...(takeoverOn?{takeover:true}:{}),...(Object.keys(folderDraft).length?{folders:folderDraft}:{})}});if(version===generation.current)setNativePlan(result);}
-  catch(e){if(version===generation.current)setTechnicalError(String(e));}
+  catch(e){if(version!==generation.current)return;if(!takeoverOn&&String(e).includes(unfinishedInstall)){operationLock.current=false;setStorageParent('');edit({type:'select',step:'storage',value:nextFolder(storagePath)},'storage');setStorageRenamed(true);}else setTechnicalError(String(e));}
   finally{operationLock.current=false;setBusy(false);}
  };
  // Plans without a separate click; Start stays the only authorization.
@@ -329,7 +333,7 @@ export function AiOSetup({ onConnectExisting, onInstalled, onEnvironment, studio
   {(side||installed)&&<aside className="aio-right" hidden={!side}>
   {inBackend&&review&&<section className="aio-detail aio-auto-review" aria-label={t('setup.autoReview')}><h3>{t('setup.autoReview')}</h3><p className="aio-help">{t(reopening?'setup.reuseHelp':native?'setup.autoHelp':'setup.autoBrowser')}</p>
    <fieldset className="aio-auto-fields" disabled={running||busy||pickerBusy||folderPickerBusy}>
-    {!takeoverOn&&<><label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');edit({type:'select',step:'storage',value:e.target.value},'storage');}}/></>}
+    {!takeoverOn&&<><label htmlFor="auto-storage">{t('setup.storageDirectory')}</label><input id="auto-storage" value={state.values.storage??''} onChange={e=>{setStorageParent('');setError('');setStorageRenamed(false);edit({type:'select',step:'storage',value:e.target.value},'storage');}}/>{storageRenamed&&<p className="aio-help" role="status">{t('setup.storageRenamed')}</p>}</>}
     <div className="aio-row">
      <button type="button" disabled={!native||takeoverOn} onClick={()=>void pickDirectory()}>{t('setup.pickParent')}</button>
      {!reopening&&<button type="button" className="action-button" aria-pressed={takeoverOn} title={t('setup.takeover.help')} onClick={()=>{setTakeoverOn(v=>!v);setNativePlan(null);setTechnicalError('');setTakeoverPath('');}}>{t('setup.takeover.label')}</button>}

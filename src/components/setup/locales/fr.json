@@ -107,6 +107,7 @@
   "setup.pickParent": "Choisir le dossier parent…",
   "setup.selectedParent": "Parent sélectionné",
   "setup.error.child": "Saisissez un seul nom de nouveau dossier sûr, sans séparateurs, traversée de répertoires ni noms réservés.",
+  "setup.storageRenamed": "Ce dossier contient une installation inachevée : DEAS a donc choisi ce nouveau dossier. Vous pouvez supprimer l’ancien.",
   "setup.request.storagePath": "Dossier de destination",
   "setup.request.backend": "Moteur d’exécution",
   "setup.request.features": "Fonctionnalités sélectionnées (identifiants exacts)",

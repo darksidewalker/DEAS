@@ -22,6 +22,7 @@
   "forge.model": "LLM modeli",
   "forge.loading": "Modeller yükleniyor…",
   "forge.noModels": "LLM modeli yok: ComfyUI/models/llm içine bir GGUF ekleyin veya Backend → LLM altında sunucu ayarlayın",
+  "forge.noServer": "LLM sunucusu bulunamadı: Backend → LLM altından ayarlayın",
   "forge.retry": "Tekrar dene",
   "forge.noBackend": "Prompt Forge için kurulu bir ortamın backend'inu başlatın.",
   "forge.noDialect": "Prompt Forge bu model için bir prompt stili içermiyor",

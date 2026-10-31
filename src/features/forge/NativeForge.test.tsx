@@ -13,9 +13,9 @@ const targets = { source: {}, creativity: [], targets: ['illustrious', 'anima', 
 const result: NativeResult = { segments: [{ label: 'Positive prompt', body: 'written city' }], prompt: 'written city', negative: 'blur', refused: false, characters: [], tools: [], rounds: 0, warnings: [], fixes: [] };
 const writes = () => vi.mocked(invoke).mock.calls.filter(([command]) => command === 'native_forge_write').map(([, args]) => (args as { request: NativeWrite }).request);
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; };
-function view({ target = 'illustrious', endpoint = 'http://127.0.0.1:8188', root = '/env', model = 'openai:qwen', brief = 'a city', detail = 5, canvasContext = context, onSend = vi.fn<Parameters<typeof NativeForge>[0]['onSend']>() }: { target?: string; endpoint?: string; root?: string; model?: string; brief?: string; detail?: number; canvasContext?: ForgeCanvasContext; onSend?: Parameters<typeof NativeForge>[0]['onSend'] } = {}) {
-  const forge = { model, usable: [{ id: model, label: model }], setModel: vi.fn(), list: null, error: '', load: vi.fn(), rev: 0 };
-  return <I18nProvider><NativeForge root={root} endpoint={endpoint} canvasContext={canvasContext} target={target} forge={forge} brief={brief} setBrief={vi.fn()} detail={detail} setDetail={vi.fn()} creativity={5} setCreativity={vi.fn()} onSend={onSend}/></I18nProvider>;
+function view({ target = 'illustrious', root = '/env', model = 'openai:qwen', settledModel = model, brief = 'a city', detail = 5, canvasContext = context, onSend = vi.fn<Parameters<typeof NativeForge>[0]['onSend']>() }: { target?: string; root?: string; model?: string; settledModel?: string; brief?: string; detail?: number; canvasContext?: ForgeCanvasContext; onSend?: Parameters<typeof NativeForge>[0]['onSend'] } = {}) {
+  const forge = { model, usable: [{ id: model, label: model }], setModel: vi.fn(), list: null, error: '', load: vi.fn(), rev: 0, settledModel, serverOnly: true };
+  return <I18nProvider><NativeForge root={root} canvasContext={canvasContext} target={target} forge={forge} brief={brief} setBrief={vi.fn()} detail={detail} setDetail={vi.fn()} creativity={5} setCreativity={vi.fn()} onSend={onSend}/></I18nProvider>;
 }
 const tile = (choice: string) => document.querySelector(`[data-forge-tile="aspect:${choice}"]`)!;
 beforeEach(() => {
@@ -90,13 +90,32 @@ it('unavailable Auto is disclosed and cannot write; N/A remains usable without S
   await screen.findByDisplayValue('written city'); expect(writes()[0].controls?.canvas).toBeUndefined();
 });
 
-it.each(['root', 'endpoint', 'model', 'canvas', 'aspect', 'brief', 'detail'])('discards a late reply after %s changes, including a return to the original context', async change => {
+it('keeps a result sendable while the model list reloads', async () => {
+  const ui = render(view()); await screen.findByRole('button', { name: 'Open all' });
+  fireEvent.click(tile('N/A')); fireEvent.click(document.querySelector('[data-forge-write]')!);
+  await screen.findByDisplayValue('written city');
+  ui.rerender(view({ model: '', settledModel: 'openai:qwen' }));
+  ui.rerender(view());
+  expect((screen.getByRole('button', { name: 'Send prompt to Generate' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('keeps a text reply when the Studio canvas context changes during the write', async () => {
+  const pending = deferred<NativeResult>(); const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_forge_write' ? pending.promise : base(command, args));
+  const ui = render(view()); await screen.findByRole('button', { name: 'Open all' });
+  fireEvent.click(tile('N/A')); fireEvent.click(document.querySelector('[data-forge-write]')!);
+  ui.rerender(view({ canvasContext: { ...context, key: 'studio-b' } }));
+  await act(async () => pending.resolve(result));
+  await screen.findByDisplayValue('written city');
+});
+
+it.each(['root', 'model', 'canvas', 'aspect', 'brief', 'detail'])('discards a late reply after %s changes, including a return to the original context', async change => {
   const pending = deferred<NativeResult>(); const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation((command, args) => command === 'native_forge_write' ? pending.promise : base(command, args));
   const ui = render(view()); await screen.findByRole('button', { name: 'Open all' });
   fireEvent.click(tile('16:9')); fireEvent.click(document.querySelector('[data-forge-write]')!);
   if (change === 'aspect') { fireEvent.click(tile('9:16')); fireEvent.click(tile('16:9')); }
-  else { ui.rerender(view(change === 'canvas' ? { canvasContext: { ...context, key: 'studio-b' } } : change === 'brief' ? { brief: 'a forest' } : change === 'detail' ? { detail: 9 } : { [change]: change === 'root' ? '/other' : change === 'endpoint' ? 'http://127.0.0.1:9999' : 'openai:other' })); ui.rerender(view()); }
+  else { ui.rerender(view(change === 'canvas' ? { canvasContext: { ...context, key: 'studio-b' } } : change === 'brief' ? { brief: 'a forest' } : change === 'detail' ? { detail: 9 } : { [change]: change === 'root' ? '/other' : 'openai:other' })); ui.rerender(view()); }
   expect(writes()[0]).toMatchObject({ brief: 'a city', model: 'qwen', controls: { detail: 5, canvas: { width: 1344, height: 768 } } });
   await act(async () => pending.resolve(result));
   expect(document.querySelector('[data-forge-result]')).toBeNull();
