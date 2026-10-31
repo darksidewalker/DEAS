@@ -2,7 +2,7 @@
   "presets.title": "Presets",
   "presets.help": "Aktuelle Studio-Einstellungen als Preset speichern. Gespeichert werden nur Abweichungen von den Standardwerten, damit spätere Standardänderungen alles erreichen, was ein Preset nicht ändert. Rechtsklick auf ein Preset (oder Umschalt+F10) zum Anwenden, Bearbeiten oder Überschreiben. Medien, Projekte und laufende Jobs werden nie ersetzt.",
   "presets.name": "Preset-Name",
-  "presets.save": "Als neues Preset speichern",
+  "presets.save": "Neues Preset…",
   "presets.update": "Mit aktuellen Einstellungen überschreiben",
   "presets.confirm": "„{name}“ durch die aktuellen Einstellungen ersetzen?",
   "presets.saved": "Preset gespeichert.",
@@ -16,6 +16,7 @@
   "presets.apply": "Anwenden",
   "presets.edit": "Bearbeiten…",
   "presets.editTitle": "Preset bearbeiten",
+  "presets.newTitle": "Neues Preset",
   "presets.showAll": "Auch Einstellungen mit Standardwert zeigen",
   "presets.noChanges": "Dieses Preset verwendet nur Standardwerte.",
   "presets.changedMark": "Geändert",
@@ -25,5 +26,6 @@
   "presets.reset": "Auf Standard zurücksetzen",
   "presets.remove": "Entfernen",
   "presets.saveEdit": "Änderungen speichern",
+  "presets.saveNew": "Preset speichern",
   "presets.cancel": "Abbrechen"
 }

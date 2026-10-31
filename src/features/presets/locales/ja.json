@@ -2,7 +2,7 @@
   "presets.title": "プリセット",
   "presets.help": "現在の Studio 設定をプリセットとして保存します。既定値と異なる設定だけを保存するため、今後既定値が変わっても、プリセットが変更していない項目には反映されます。プリセットを右クリック(または Shift+F10)して、適用・編集・上書きできます。メディア、プロジェクト、実行中のジョブは置き換えられません。",
   "presets.name": "プリセット名",
-  "presets.save": "新規プリセットとして保存",
+  "presets.save": "新規プリセット…",
   "presets.update": "現在の設定で上書き",
   "presets.confirm": "「{name}」を現在の設定で置き換えますか？",
   "presets.saved": "プリセットを保存しました。",
@@ -16,6 +16,7 @@
   "presets.apply": "適用",
   "presets.edit": "編集…",
   "presets.editTitle": "プリセットを編集",
+  "presets.newTitle": "新規プリセット",
   "presets.showAll": "既定値の設定も表示",
   "presets.noChanges": "このプリセットは既定値のみを使用しています。",
   "presets.changedMark": "変更済み",
@@ -25,5 +26,6 @@
   "presets.reset": "既定値に戻す",
   "presets.remove": "削除",
   "presets.saveEdit": "変更を保存",
+  "presets.saveNew": "プリセットを保存",
   "presets.cancel": "キャンセル"
 }

@@ -24,24 +24,30 @@ test('read failure is visible and cannot overwrite unread presets',async()=>{
  vi.mocked(invoke).mockRejectedValue('Cannot read presets');
  render(<I18nProvider><PresetPanel disabled={false}/></I18nProvider>);
  expect(await screen.findByRole('alert')).toHaveProperty('textContent','Cannot read presets');
- expect((screen.getByRole('button',{name:'Save as new preset'}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole('button',{name:'New preset…'}) as HTMLButtonElement).disabled).toBe(true);
  expect(invoke).toHaveBeenCalledExactlyOnceWith('native_presets_read');
 });
 test('write failure never reports success or shows the unsaved tile',async()=>{
  vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_presets_read')return [];throw new Error('Disk full');});
  mount();
- await waitFor(()=>expect((screen.getByLabelText('Preset name') as HTMLInputElement).disabled).toBe(false));
- fireEvent.change(screen.getByLabelText('Preset name'),{target:{value:'Draft'}});
- fireEvent.click(screen.getByRole('button',{name:'Save as new preset'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:'New preset…'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'New preset…'}));
+ const dialog=screen.getByRole('dialog',{name:'New preset'});
+ fireEvent.change(within(dialog).getByRole('textbox',{name:'Preset name'}),{target:{value:'Draft'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Save preset'}));
  expect((await screen.findByRole('alert')).textContent).toContain('Disk full');
  expect(screen.queryByText('Preset saved.')).toBeNull();expect(screen.queryByRole('button',{name:/Draft/})).toBeNull();
 });
-test('saving stores only settings that differ from the defaults',async()=>{
+test('New preset… opens the editor with the current overrides, asks for the name and stores only what differs from the defaults',async()=>{
  localStorage.setItem('deas.pref.studio.run.video',JSON.stringify({seconds:8,fps:24}));
  const saved=store([]);mount();
- await waitFor(()=>expect((screen.getByLabelText('Preset name') as HTMLInputElement).disabled).toBe(false));
- fireEvent.change(screen.getByLabelText('Preset name'),{target:{value:'Long'}});
- fireEvent.click(screen.getByRole('button',{name:'Save as new preset'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:'New preset…'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'New preset…'}));
+ const dialog=screen.getByRole('dialog',{name:'New preset'});
+ expect([...dialog.querySelectorAll('li[data-changed="true"] code')].map(c=>c.textContent)).toEqual(['video › seconds']);
+ expect((within(dialog).getByRole('button',{name:'Save preset'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(within(dialog).getByRole('textbox',{name:'Preset name'}),{target:{value:'Long'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Save preset'}));
  expect((await screen.findByRole('button',{name:/Long.*1 changed/})).getAttribute('aria-pressed')).toBe('true');
  expect(saved()).toEqual([{name:'Long',settings:{'studio.run.video':{seconds:8}}}]);
 });

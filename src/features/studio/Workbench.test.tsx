@@ -815,9 +815,11 @@ test('separate Presets saves live settings, reloads across remounts and updates 
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'saved prompt'}});
  fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'31'}});
  dock('Presets');
- await waitFor(()=>expect((screen.getByLabelText('Preset name') as HTMLInputElement).disabled).toBe(false));
- fireEvent.change(screen.getByLabelText('Preset name'),{target:{value:'My settings'}});
- fireEvent.click(screen.getByRole('button',{name:'Save as new preset'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:'New preset…'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'New preset…'}));
+ const presetDialog=screen.getByRole('dialog',{name:'New preset'});
+ fireEvent.change(within(presetDialog).getByRole('textbox',{name:'Preset name'}),{target:{value:'My settings'}});
+ fireEvent.click(within(presetDialog).getByRole('button',{name:'Save preset'}));
  await screen.findByText('Preset saved.');
  expect(stored).toEqual([{name:'My settings',settings:expect.objectContaining({'studio.run.positive':'saved prompt','studio.run.steps':31})}]);
  expect((stored[0] as {settings:object}).settings).not.toHaveProperty('studio.run.recentSeeds');
@@ -3323,7 +3325,7 @@ test('prompt fields expand into a floating editor that edits the same text and c
  expect(big.value).toBe('a castle');
  expect(document.querySelector('[data-prompt-count="positive"]')?.textContent).toBe('8 / 16384');
  expect(document.querySelector('[data-prompt-count="negative"]')?.textContent).toBe('0 / 16384');
- expect(big.getAttribute('spellcheck')).toBe('true');
+ expect(big.getAttribute('spellcheck')).toBe('false'); // in the app DEAS checks the text itself; the WebView checker stays off
  fireEvent.change(big,{target:{value:'a castle at dawn'}});
  expect(within(screen.getByRole('dialog',{name:'Prompt'})).getByRole('button',{name:'Prompt Forge'})).toBeTruthy();
  expect((document.querySelector('[data-run-positive]') as HTMLTextAreaElement).value).toBe('a castle at dawn');

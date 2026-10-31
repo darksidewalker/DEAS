@@ -377,6 +377,9 @@
   "studio.run.post.hint": "同じモデル・プロンプト・シードで2回目のパス：任意のアップスケールモデル、{width}×{height}へリサイズ、リファイナー強度で再サンプリング。",
   "studio.run.post.denoise": "リファイナー強度",
   "studio.run.post.model": "アップスケールモデル",
+  "studio.run.post.group.latent": "潜在アップスケール",
+  "studio.run.post.group.refine": "リファイン / アップスケール",
+  "studio.run.post.group.modelHint": "最終エンコード前のデコード済みフレームに適用します。元のエンコードも保持されます。",
   "studio.run.post.lanczos": "なし (Lanczos)",
   "studio.run.more": "その他",
   "studio.run.post.refine": "リファイン",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "送信中…",
   "studio.tve.queueHint": "進行状況・プレビュー・エクスポートは Studio のキューで確認できます。",
   "studio.tve.jobGone": "ジョブが完了前に Studio キューから離れました。ログを確認してください。",
-  "studio.tve.pick": "またはメディア（入力/出力フォルダー）から動画を選択:"
+  "studio.tve.pick": "またはメディア（入力/出力フォルダー）から動画を選択:",
+  "spellcheck.suggestions": "「{word}」の候補",
+  "spellcheck.noSuggestions": "候補なし"
 }

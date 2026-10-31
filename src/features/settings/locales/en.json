@@ -2,17 +2,14 @@
   "settings.prompt.spellcheck": "Prompt spellcheck",
   "settings.prompt.language": "Spellcheck language",
   "settings.prompt.autocomplete": "Tag autocomplete",
-  "settings.prompt.spellcheckHelp": "Independent of interface language. Uses local system dictionaries; the selected dictionary must be installed.",
+  "settings.prompt.spellcheckHelp": "Independent of interface language. DEAS checks prompt fields itself with a downloaded Hunspell dictionary; nothing leaves this PC.",
   "settings.prompt.autocompleteHelp": "Off by default. Uses Prompt Forge’s local tag database; requires a configured environment and its tag data. Type at least two characters, use arrows and Enter/Tab to choose; Escape dismisses.",
-  "settings.prompt.dictionaryMissing": "No dictionary for the selected language is installed. Install its system spelling dictionary, then toggle spellcheck off/on.",
-  "settings.prompt.unsupported": "This WebView cannot configure an independent spelling dictionary. Spelling hints depend on the operating system and WebView runtime.",
+  "settings.prompt.dictionaryMissing": "No dictionary is installed for the selected language.",
   "settings.prompt.failed": "Could not configure spellcheck. See Logs for details.",
   "settings.spellcheck.install": "Install dictionary",
   "settings.spellcheck.installBusy": "Downloading dictionary…",
-  "settings.spellcheck.installed": "Dictionary installed. Spellcheck can use it now.",
-  "settings.spellcheck.restart": "Restart DEAS to load the new dictionary.",
-  "settings.spellcheck.installHelp": "Downloads the Hunspell pair for {language} ({size} MB, {license}) into your user folder — no admin rights.",
+  "settings.spellcheck.installed": "Dictionary installed. Prompt fields are checked now.",
+  "settings.spellcheck.installHelp": "Downloads the Hunspell pair for {language} ({size} MB, {license}) into the DEAS data folder — no admin rights, works on Linux and Windows.",
   "settings.spellcheck.unavailable": "No Hunspell dictionary is published for this language.",
-  "settings.spellcheck.failed": "Dictionary download failed. See Logs for details.",
-  "settings.prompt.dictionaryRestart": "Restart DEAS to load the spellcheck dictionary."
+  "settings.spellcheck.failed": "Dictionary download failed. See Logs for details."
 }

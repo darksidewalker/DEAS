@@ -99,6 +99,36 @@ fn running_interrupt_adapter_auth_and_mutex_race_fixture() {
 }
 
 #[test]
+fn running_interrupt_protocol_accepts_current_core_and_rejects_moved_lock() {
+    // Statement checks, not hashes: the live `master` checkout (when present) must pass.
+    let live = PathBuf::from("/data/GitHub/deas-environment/ComfyUI");
+    if live.is_dir() {
+        for name in INTERRUPT_FILES {
+            let text = fs::read_to_string(live.join(name)).unwrap();
+            assert!(interrupt_protocol(name, &text), "{name} protocol rejected");
+        }
+    }
+    let ok = "class PromptQueue:\n    def __init__(self):\n        self.mutex = threading.RLock()\n        self.not_empty = threading.Condition(self.mutex)\n\n    def get(self, timeout=None):\n        with self.not_empty:\n            pass\n\n    def task_done(self, item_id):\n        with self.mutex:\n            pass\n\n    def get_current_queue(self):\n        with self.mutex:\n            pass\n\nclass PromptExecutor:\n    async def execute_async(self, prompt):\n        nodes.interrupt_processing(False)\n";
+    assert!(interrupt_protocol("execution.py", ok));
+    // task_done releasing the queue lock before its body could interrupt a foreign successor.
+    assert!(!interrupt_protocol(
+        "execution.py",
+        &ok.replace(
+            "def task_done(self, item_id):\n        with self.mutex:",
+            "def task_done(self, item_id):\n        with self.other:"
+        )
+    ));
+    assert!(!interrupt_protocol(
+        "execution.py",
+        &ok.replace("nodes.interrupt_processing(False)", "pass")
+    ));
+    assert!(!interrupt_protocol(
+        "server.py",
+        "# unsupported legacy handler"
+    ));
+}
+
+#[test]
 fn running_interrupt_unsupported_source_cannot_gain_authority_after_launch() {
     let (tmp, approved) = fixture(SERVER);
     let lifecycle = Lifecycle::default();
@@ -126,7 +156,7 @@ fn running_interrupt_source_backed_launch_proof_and_queue_race() {
     for crlf in [false, true] {
         let (tmp, approved) = fixture(SERVER);
         let root = tmp.path();
-        for (name, _) in INTERRUPT_PINS {
+        for name in INTERRUPT_FILES {
             let bytes = fs::read(source.join(name)).unwrap();
             let bytes = if crlf {
                 String::from_utf8(bytes)

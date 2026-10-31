@@ -1329,36 +1329,45 @@ const promptTools=forgeContext&&<>
    </div>}
    {dockTab==='presets'&&<div className="wb-dock-panel"><PresetPanel disabled={busy||!!current||autoPlan||resolving}/></div>}
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel endpoint={endpoint} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled}/></div>}
-   {dockTab==='post'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.post')}><div className="wb-options">
+{dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
+    {(onOpenVideoPost||latent)&&<div className="wb-option-row wb-post-actions">
      {onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}
-    {latent&&<>
+     {latent&&<button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>}
+    </div>}
+    {latent&&<fieldset className="wb-group" data-post-group="latent"><legend>{t('studio.run.post.group.latent')}</legend><div className="wb-options">
      <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
      <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
      <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
-     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label>
-      {(()=>{const a={...h3LatentDefaults,...latentPref.advanced};const set=(patch:H3LatentAdvanced)=>setLatentPref({...latentPref,advanced:{...latentPref.advanced,...patch}});
+     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
+    </div>
+     {videoFamily==='minimax-h3'&&(()=>{const a={...h3LatentDefaults,...latentPref.advanced};const set=(patch:H3LatentAdvanced)=>setLatentPref({...latentPref,advanced:{...latentPref.advanced,...patch}});
        const num=(k:'cfg'|'memoryBudgetMb'|'guardSensitivity'|'guardStrength'|'memoryReservePct'|'continuityMaskStrength',min:number,max:number,step:number,hint?:string)=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><input data-latent-advanced={k} type="number" min={min} max={max} step={step} value={a[k]} onChange={e=>set({[k]:Number(e.target.value)})}/>{hint&&<small>{t(hint)}</small>}</label>;
        const flag=(k:'spatialTiling'|'temporalChunking'|'spikeGuard'|'memoryPlanning'|'continuitySoftRefine',hint?:string)=><div className="wb-option" key={k}><label className="wb-option-row"><input data-latent-advanced={k} type="checkbox" checked={a[k]} onChange={e=>set({[k]:e.target.checked})}/>{t(`studio.run.latent.${k}`)}</label>{hint&&<small>{t(hint)}</small>}</div>;
        const choose=(k:'scheduler'|'precision'|'guardMode',options:readonly string[])=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><select data-latent-advanced={k} value={a[k]} onChange={e=>set({[k]:e.target.value} as H3LatentAdvanced)}>{(options.includes(a[k])?options:[a[k],...options]).map(o=><option key={o} value={o}>{o}</option>)}</select></label>;
-       return <details className="wb-model-files" data-latent-upscale-more><summary aria-label={t('studio.run.latent.more')}>☰ {t('studio.run.latent.more')}</summary>
+       return <details className="wb-model-files" data-latent-upscale-more><summary aria-label={t('studio.run.latent.more')}>☰ {t('studio.run.latent.more')}</summary><div className="wb-options">
         {num('cfg',0,20,0.1)}{choose('scheduler',choices?.schedulers??[h3LatentDefaults.scheduler])}{choose('precision',['auto','bf16','fp16','fp32'])}
         {flag('spatialTiling')}{flag('temporalChunking')}
         {flag('memoryPlanning','studio.run.latent.memoryPlanningHint')}{a.memoryPlanning&&num('memoryReservePct',0,100,5)}{num('memoryBudgetMb',0,131072,256,'studio.run.latent.memoryBudgetHint')}
         {flag('spikeGuard','studio.run.latent.spikeGuardHint')}{a.spikeGuard&&<>{num('guardSensitivity',1.5,12,0.1)}{num('guardStrength',0,1,0.05)}{choose('guardMode',['burn_direction','both'])}</>}
         {flag('continuitySoftRefine','studio.run.latent.continuityHint')}{a.continuitySoftRefine&&num('continuityMaskStrength',0,1,0.05)}
-        <button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
-       </details>;})()}</>}
-     <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
+        </div><button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
+       </details>;})()}
      {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
-     </>}
-     {isVideo&&<TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps}/>}
-     {!isVideo&&<><div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
-    <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
-    <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
-    <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
-    <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
-   </>}
-   </div></section>}
+    </fieldset>}
+    {!isVideo&&<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend><div className="wb-options">
+     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled} disabled={!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
+     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
+     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
+     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+    </div></fieldset>}
+    {isVideo&&<>
+     <fieldset className="wb-group" data-post-group="model"><legend>{t('studio.run.post.model')}</legend><div className="wb-options">
+      <label className="wb-option"><select data-tve-post="upscaleModel" aria-label={t('studio.run.post.model')} value={tve.upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setTve({...tve,upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{tve.upscaleModel&&!choices?.upscaleModels?.includes(tve.upscaleModel)&&<option value={tve.upscaleModel}>{tve.upscaleModel}</option>}</select><small>{t('studio.run.post.group.modelHint')}</small></label>
+     </div></fieldset>
+     <fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/></fieldset>
+    </>}
+   </section>}
 
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>

@@ -1,5 +1,9 @@
 # News
 
+## 0.2.8 BETA (unreleased)
+
+- **Spellcheck now works the same on Linux and Windows.** DEAS checks prompt fields itself (Studio prompts, Prompt Forge, Chat) with the downloaded Hunspell dictionary — wavy underline, right-click or Ctrl+. for suggestions. Install the dictionary once under Backend → Language; no restart, no admin rights, nothing leaves your PC.
+
 ## 0.2.7 BETA
 
 - TVE **Enhance** now shows queued/running/failed itself and prints the backend error instead of staying on "Queued" while the Studio queue is closed.

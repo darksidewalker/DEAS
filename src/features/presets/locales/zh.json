@@ -2,7 +2,7 @@
   "presets.title": "预设",
   "presets.help": "将当前 Studio 设置保存为预设。只保存与默认值不同的设置,因此以后默认值的变化仍会作用于预设未更改的所有项目。右键单击预设(或 Shift+F10)可应用、编辑或覆盖。媒体、项目和正在运行的任务永远不会被替换。",
   "presets.name": "预设名称",
-  "presets.save": "保存为新预设",
+  "presets.save": "新建预设…",
   "presets.update": "用当前设置覆盖",
   "presets.confirm": "用当前设置替换“{name}”？",
   "presets.saved": "预设已保存。",
@@ -16,6 +16,7 @@
   "presets.apply": "应用",
   "presets.edit": "编辑…",
   "presets.editTitle": "编辑预设",
+  "presets.newTitle": "新建预设",
   "presets.showAll": "同时显示默认值设置",
   "presets.noChanges": "此预设仅使用默认值。",
   "presets.changedMark": "已更改",
@@ -25,5 +26,6 @@
   "presets.reset": "恢复默认",
   "presets.remove": "移除",
   "presets.saveEdit": "保存更改",
+  "presets.saveNew": "保存预设",
   "presets.cancel": "取消"
 }

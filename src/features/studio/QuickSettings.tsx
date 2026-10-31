@@ -3,16 +3,20 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { SCHEMES, useScheme } from '../../lib/theme';
 import './quickSettings.css';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { reportPromptSpellcheckError, usePromptTools } from '../../lib/promptTools';
+import { DICTIONARY_EVENT, reportPromptSpellcheckError, usePromptTools } from '../../lib/promptTools';
 
 export function QuickSettings(){
  const tools=usePromptTools();
+ // Dictionary status only (read-only, no network); the install lives under Backend → Language.
+ const [dictionaries,setDictionaries]=useState(0);
+ useEffect(()=>{const bump=()=>setDictionaries(n=>n+1);window.addEventListener(DICTIONARY_EVENT,bump);return()=>window.removeEventListener(DICTIONARY_EVENT,bump);},[]);
  useEffect(()=>{
   if(!isTauri())return;
   let alive=true;reportPromptSpellcheckError('');
-  void invoke('native_prompt_spellcheck',{enabled:tools.spellcheck,language:tools.language}).catch(e=>{if(alive)reportPromptSpellcheckError(String(e)==='SPELLCHECK_DICTIONARY_MISSING'?'settings.prompt.dictionaryMissing':String(e)==='SPELLCHECK_UNSUPPORTED'?'settings.prompt.unsupported':'settings.prompt.failed');});
+  if(!tools.spellcheck)return;
+  void invoke<{available:boolean;installed:boolean}>('native_spellcheck_status',{language:tools.language}).then(status=>{if(alive&&typeof status?.installed==='boolean'&&!status.installed)reportPromptSpellcheckError(status.available===true?'settings.prompt.dictionaryMissing':'settings.spellcheck.unavailable');},()=>{if(alive)reportPromptSpellcheckError('settings.prompt.failed');});
   return()=>{alive=false;};
- },[tools.spellcheck,tools.language]);
+ },[tools.spellcheck,tools.language,dictionaries]);
  const {t}=useI18n();const [open,setOpen]=useState(false);const [scheme,setScheme]=useScheme();const host=useRef<HTMLDivElement>(null),button=useRef<HTMLButtonElement>(null);
  useEffect(()=>{
   if(!open)return;

@@ -1,3 +1,4 @@
+import { PromptTextarea } from '../studio/PromptTextarea';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { H3, dialects as familyDialects, forgeError, forgeH3, nativeTarget, writePrompt, type H3Reference } from '../../lib/forge';
@@ -134,7 +135,7 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, canvasContext
         {resolved.error && <p className="forge-warning" data-forge-canvas-error role="status">{t(resolved.error)}</p>}
       </> : <p className="field-help" data-forge-canvas-unsupported>{t('forge.canvas.unsupported')}</p>}
       <div className="forge-row">{level('forge.detail', detail, setDetail)}{level('forge.creativity', creativity, setCreativity)}</div>
-      <label className="forge-field"><span>{t('forge.brief')}</span><textarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
+      <label className="forge-field"><span>{t('forge.brief')}</span><PromptTextarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
       {limit > 0 && <div className="forge-pictures">
         <p className="field-help">{t('forge.pictures', { count: shown.length, limit })}</p>
         <ul>{shown.map((p, i) => <li key={p.path}>
@@ -151,10 +152,10 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, canvasContext
       {error && <p className="error-message" role="alert">{t(error)}</p>}
     </div>
     <div className="forge-output">
-      <label className="forge-field"><span>{t('forge.result')}</span><textarea data-forge-result value={result} onChange={e => editResult(e.target.value)}/></label>
+      <label className="forge-field"><span>{t('forge.result')}</span><PromptTextarea data-forge-result value={result} onChange={e => editResult(e.target.value)}/></label>
       {blind && <p className="forge-warning">{t('forge.blind')}</p>}
       {warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
-      <label className="forge-field"><span>{t('forge.negative')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>
+      <label className="forge-field"><span>{t('forge.negative')}</span><PromptTextarea data-forge-negative className="forge-negative" value={negative} onChange={e => setNegative(e.target.value)}/></label>
       {result.trim() && !resultFits && <p className="forge-warning" data-forge-stale role="status">{t('forge.canvas.stale')}</p>}
       {handoffBlocked && <p className="forge-warning" data-forge-handoff-blocked role="status">{t('forge.canvas.handoffBlocked')}</p>}
       {association?.canvas && <p className="field-help" data-forge-result-canvas>{t('forge.canvas.consumed', { width: String(association.canvas.width), height: String(association.canvas.height) })}</p>}

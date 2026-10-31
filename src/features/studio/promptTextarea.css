@@ -45,3 +45,25 @@
   overflow: auto;
   background: var(--panel);
 }
+/* Transparent twin of the textarea: only the wavy underlines of misspelled words are visible. */
+.prompt-textarea > .prompt-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  border-color: transparent;
+  border-style: solid;
+  background: none;
+}
+.prompt-mirror > mark {
+  color: transparent;
+  background: none;
+  text-decoration: underline wavy var(--danger);
+  text-decoration-skip-ink: none;
+  text-underline-offset: .15em;
+}
+.prompt-textarea > .prompt-fixes > li.prompt-fix-none { cursor: default; opacity: .7; }

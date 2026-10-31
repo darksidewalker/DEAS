@@ -2,7 +2,7 @@
   "presets.title": "Préréglages",
   "presets.help": "Enregistrez les réglages actuels du Studio comme préréglage. Seuls les réglages différents des valeurs par défaut sont stockés, afin que les futurs changements de valeurs par défaut atteignent tout ce qu’un préréglage ne modifie pas. Clic droit sur un préréglage (ou Maj+F10) pour l’appliquer, le modifier ou l’écraser. Les médias, projets et tâches en cours ne sont jamais remplacés.",
   "presets.name": "Nom du préréglage",
-  "presets.save": "Enregistrer un nouveau préréglage",
+  "presets.save": "Nouveau préréglage…",
   "presets.update": "Écraser avec les réglages actuels",
   "presets.confirm": "Remplacer « {name} » par les réglages actuels ?",
   "presets.saved": "Préréglage enregistré.",
@@ -16,6 +16,7 @@
   "presets.apply": "Appliquer",
   "presets.edit": "Modifier…",
   "presets.editTitle": "Modifier le préréglage",
+  "presets.newTitle": "Nouveau préréglage",
   "presets.showAll": "Afficher aussi les réglages par défaut",
   "presets.noChanges": "Ce préréglage n’utilise que des valeurs par défaut.",
   "presets.changedMark": "Modifié",
@@ -25,5 +26,6 @@
   "presets.reset": "Rétablir la valeur par défaut",
   "presets.remove": "Retirer",
   "presets.saveEdit": "Enregistrer les modifications",
+  "presets.saveNew": "Enregistrer le préréglage",
   "presets.cancel": "Annuler"
 }

@@ -377,6 +377,9 @@
   "studio.run.post.hint": "Seconde passe avec le même modèle, les mêmes prompts et la même seed : modèle d’agrandissement facultatif, redimensionnement à {width}×{height}, puis rééchantillonnage à la force d’affinage.",
   "studio.run.post.denoise": "Force d’affinage",
   "studio.run.post.model": "Modèle d’agrandissement",
+  "studio.run.post.group.latent": "Upscale latent",
+  "studio.run.post.group.refine": "Affiner / Agrandir",
+  "studio.run.post.group.modelHint": "S’applique aux images décodées avant l’encodage final ; l’encodage original est conservé à côté.",
   "studio.run.post.lanczos": "Aucun (Lanczos)",
   "studio.run.more": "Plus",
   "studio.run.post.refine": "Affiner",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "Envoi…",
   "studio.tve.queueHint": "Progression, aperçu et export : file du Studio.",
   "studio.tve.jobGone": "La tâche a quitté la file du Studio avant de se terminer ; voir les Logs.",
-  "studio.tve.pick": "Ou choisissez une vidéo dans Médias (dossiers d’entrée/sortie) :"
+  "studio.tve.pick": "Ou choisissez une vidéo dans Médias (dossiers d’entrée/sortie) :",
+  "spellcheck.suggestions": "Suggestions pour « {word} »",
+  "spellcheck.noSuggestions": "Aucune suggestion"
 }

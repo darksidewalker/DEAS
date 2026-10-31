@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "deas"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "base64 0.22.1",
  "claxon",
@@ -794,6 +794,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "spellbook",
  "tar",
  "tauri",
  "tauri-build",
@@ -802,7 +803,6 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.2",
  "uuid",
- "webkit2gtk",
  "windows-sys 0.59.0",
  "zip",
 ]
@@ -3994,6 +3994,16 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]

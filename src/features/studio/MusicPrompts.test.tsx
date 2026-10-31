@@ -6,7 +6,7 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import { MusicPrompts, musicDialects } from './MusicPrompts';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (p: string) => p }));
-vi.mock('../../lib/promptTools', () => ({ usePromptTools: () => ({ spellcheck: false, language: 'en-US', autocomplete: false }) }));
+vi.mock('../../lib/promptTools', () => ({ usePromptTools: () => ({ spellcheck: false, language: 'en-US', autocomplete: false }), DICTIONARY_EVENT: 'deas:spellcheck-dictionary', spellcheckWords: vi.fn(async () => []), spellcheckSuggest: vi.fn(async () => []) }));
 const models = { models: [{ id: 'ollama:qwen', label: 'qwen' }], errors: {}, creativity: ['balanced'], shot_counts: ['Auto'], default_shots: 'Auto', durations: [5] };
 const writes = () => vi.mocked(invoke).mock.calls.filter(([c, a]) => c === 'native_forge' && (a as { route: string }).route === 'write').map(([, a]) => (a as { body: Record<string, unknown> }).body);
 let resolveWrite: ((v: { prompt: string; saw_images: number }) => void) | null = null;

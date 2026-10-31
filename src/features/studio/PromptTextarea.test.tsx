@@ -3,9 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { PromptTextarea } from './PromptTextarea';
 import { tagSearch } from '../../lib/forge';
+import { spellcheckSuggest, spellcheckWords } from '../../lib/promptTools';
+import { resetSpellcheckCache, tokenize } from '../../lib/spellcheck';
 
 const tools = vi.hoisted(() => ({ spellcheck: true, language: 'de-DE', autocomplete: false }));
-vi.mock('../../lib/promptTools', () => ({ usePromptTools: () => tools }));
+const native = vi.hoisted(() => ({ on: false }));
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => native.on, invoke: vi.fn() }));
+vi.mock('../../lib/promptTools', () => ({ usePromptTools: () => tools, DICTIONARY_EVENT: 'deas:spellcheck-dictionary', spellcheckWords: vi.fn(), spellcheckSuggest: vi.fn() }));
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ t: (s: string) => `translated:${s}` }) }));
 vi.mock('../../lib/forge', () => ({ tagSearch: vi.fn(), forgeError: (e: unknown) => String(e).includes('404') ? 'forge.outdated' : String(e) }));
 const hits = [{ tag: 'blue_eyes', category: 'general', count: 12 }, { tag: 'blue_hair', category: 'general', count: 8 }];
@@ -20,7 +24,7 @@ function select(value: string, caret = value.length) {
   fireEvent.select(textarea(), { target: { selectionStart: caret, selectionEnd: caret } });
 }
 async function debounce() { await act(async () => { vi.advanceTimersByTime(150); }); }
-beforeEach(() => { vi.useFakeTimers(); tools.autocomplete = false; tools.spellcheck = true; tools.language = 'de-DE'; vi.mocked(tagSearch).mockResolvedValue(hits); });
+beforeEach(() => { vi.useFakeTimers(); native.on = false; (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} }; resetSpellcheckCache(); vi.mocked(spellcheckWords).mockResolvedValue([]); vi.mocked(spellcheckSuggest).mockResolvedValue([]); tools.autocomplete = false; tools.spellcheck = true; tools.language = 'de-DE'; vi.mocked(tagSearch).mockResolvedValue(hits); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 it('mounts the enlarged editor autofocus before the ref is assigned without throwing', () => {
@@ -186,8 +190,58 @@ it('forwards native textarea props and independent spelling settings without opt
   render(<Editor data-prompt="positive" rows={4} />);
   select('blue'); await debounce();
   expect(tagSearch).not.toHaveBeenCalled();
-  expect(textarea().getAttribute('spellcheck')).toBe('true');
+  expect(textarea().getAttribute('spellcheck')).toBe('true'); // browser mode keeps the browser's checker
   expect(textarea().lang).toBe('de-DE');
   expect(textarea().dataset.prompt).toBe('positive');
   expect(textarea().rows).toBe(4);
+  expect(spellcheckWords).not.toHaveBeenCalled();
+});
+
+it('tokenizes words only: tags, digits, acronyms and single letters are never checked', () => {
+  expect(tokenize('1girl, long_hair, masterpiece, NSFW, a, Straßenbahn-Haltestelle, aujourd’hui').map(m => m.word))
+    .toEqual(['girl', 'long', 'hair', 'masterpiece', 'Straßenbahn-Haltestelle', 'aujourd’hui']);
+});
+
+it('in the app, underlines misspelled words from the in-app dictionary and keeps the browser checker off', async () => {
+  native.on = true;
+  vi.mocked(spellcheckWords).mockResolvedValue(['wunderschoen']);
+  render(<Editor />);
+  expect(textarea().getAttribute('spellcheck')).toBe('false');
+  select('ein wunderschoen Haus'); await act(async () => { vi.advanceTimersByTime(300); });
+  expect(spellcheckWords).toHaveBeenCalledWith('de-DE', ['ein', 'wunderschoen', 'Haus']);
+  const marks = document.querySelectorAll('.prompt-mirror mark');
+  expect([...marks].map(m => m.textContent)).toEqual(['wunderschoen']);
+  // Cached verdicts: retyping the same words asks nothing new.
+  select('ein wunderschoen Haus Haus'); await act(async () => { vi.advanceTimersByTime(300); });
+  expect(spellcheckWords).toHaveBeenCalledTimes(1);
+});
+
+it('right-click or Ctrl+. on an underlined word offers suggestions and replaces only that word', async () => {
+  native.on = true;
+  vi.mocked(spellcheckWords).mockResolvedValue(['wunderschoen']);
+  vi.mocked(spellcheckSuggest).mockResolvedValue(['wunderschön', 'wunderschon']);
+  render(<Editor />);
+  select('ein wunderschoen Haus', 8); await act(async () => { vi.advanceTimersByTime(300); });
+  fireEvent.keyDown(textarea(), { key: '.', ctrlKey: true });
+  await act(async () => {});
+  expect(spellcheckSuggest).toHaveBeenCalledWith('de-DE', 'wunderschoen');
+  const options = screen.getAllByRole('option');
+  expect(options.map(o => o.textContent)).toEqual(['wunderschön', 'wunderschon']);
+  fireEvent.keyDown(textarea(), { key: 'ArrowDown' });
+  fireEvent.keyDown(textarea(), { key: 'ArrowUp' });
+  fireEvent.keyDown(textarea(), { key: 'Enter' });
+  expect(textarea().value).toBe('ein wunderschön Haus');
+  expect(screen.queryByRole('option')).toBeNull();
+  // Right-click outside a misspelling keeps the browser's own context menu.
+  select('ein wunderschön Haus', 1);
+  const event = fireEvent.contextMenu(textarea());
+  expect(event).toBe(true);
+});
+
+it('a missing dictionary leaves the text unmarked instead of failing', async () => {
+  native.on = true;
+  vi.mocked(spellcheckWords).mockRejectedValue('SPELLCHECK_DICTIONARY_MISSING');
+  render(<Editor />);
+  select('ein Haus'); await act(async () => { vi.advanceTimersByTime(300); });
+  expect(document.querySelector('.prompt-mirror')).toBeNull();
 });

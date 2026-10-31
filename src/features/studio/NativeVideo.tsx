@@ -64,7 +64,7 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  const fill=(percent:number)=>({'--progress':`${percent}%`} as CSSProperties);
  const silent=muted===true||status.muted;
  return <div className="native-video" data-native-video data-audio-only={audioOnly||undefined} role="group" aria-label={label}>
-  <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}}/>
+  <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}} onClick={()=>{if(enabled)control({kind:'pause',paused:!status.paused});}}/>
   {error&&<p role="alert" className="error-message">{t('studio.video.error')} {error}</p>}
   <div className="native-video-controls">
    <button type="button" disabled={!enabled} title={t(status.paused?'studio.video.play':'studio.video.pause')} aria-label={t(status.paused?'studio.video.play':'studio.video.pause')} onClick={()=>control({kind:'pause',paused:!status.paused})}><svg viewBox="0 0 24 24" aria-hidden="true">{status.paused?<path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/>:<path d="M8 5v14M16 5v14" strokeWidth="4"/>}</svg></button>

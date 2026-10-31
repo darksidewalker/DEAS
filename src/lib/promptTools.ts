@@ -6,6 +6,8 @@ interface PromptTools { spellcheck: boolean; autocomplete: boolean; language: st
 const KEY = 'prompt.tools';
 const EVENT = 'deas:prompt-tools';
 const STATUS_EVENT = 'deas:prompt-spellcheck-status';
+/** Fired after a dictionary install so open prompt fields re-check their words. */
+export const DICTIONARY_EVENT = 'deas:spellcheck-dictionary';
 let spellcheckError = '';
 export function reportPromptSpellcheckError(error: string) {
  spellcheckError = error;
@@ -42,25 +44,27 @@ export function usePromptTools() {
  return { ...settings, error, systemLanguage, language: settings.language || systemLanguage, languageChoice: settings.language, update };
 }
 
-/** Which pinned Hunspell pair exists for a language; read-only, no network. */
-export interface SpellcheckDictionaryInfo {
+/** Pinned-pair status for a language; read-only, no network. */
+export interface SpellcheckStatus {
  available: boolean;
+ installed: boolean;
  license?: string | null;
  bytes?: number | null;
 }
-export async function readSpellcheckDictionaryInfo(language: string): Promise<SpellcheckDictionaryInfo> {
- if (!isTauri()) return { available: false };
- return invoke<SpellcheckDictionaryInfo>('native_spellcheck_dictionary_info', { language });
+export async function readSpellcheckStatus(language: string): Promise<SpellcheckStatus> {
+ if (!isTauri()) return { available: false, installed: false };
+ return invoke<SpellcheckStatus>('native_spellcheck_status', { language });
 }
 
-/** Explicit install into the user-level Enchant path; `loaded:false` means a restart is required. */
-export interface SpellcheckDictionary {
- path: string;
- license: string;
- loaded: boolean;
-}
-export async function installSpellcheckDictionary(language: string, enabled: boolean): Promise<SpellcheckDictionary> {
- const result = await invoke<SpellcheckDictionary>('native_spellcheck_dictionary_install', { language, enabled });
- reportPromptSpellcheckError(result.loaded ? '' : 'settings.prompt.dictionaryRestart');
+/** Explicit install into the DEAS dictionary folder; the engine picks it up on the next check. */
+export interface SpellcheckDictionary { path: string; license: string }
+export async function installSpellcheckDictionary(language: string): Promise<SpellcheckDictionary> {
+ const result = await invoke<SpellcheckDictionary>('native_spellcheck_install', { language });
+ reportPromptSpellcheckError('');
+ window.dispatchEvent(new Event(DICTIONARY_EVENT));
  return result;
 }
+
+/** Words the installed dictionary does not know; bounded by the native side. */
+export const spellcheckWords = (language: string, words: string[]) => invoke<string[]>('native_spellcheck_check', { language, words });
+export const spellcheckSuggest = (language: string, word: string) => invoke<string[]>('native_spellcheck_suggest', { language, word });

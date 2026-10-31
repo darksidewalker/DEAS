@@ -2,7 +2,7 @@
   "presets.title": "Presets",
   "presets.help": "Save the current Studio settings as a preset. Only settings that differ from the defaults are stored, so later default changes still reach everything a preset leaves alone. Right-click a preset (or Shift+F10) to apply, edit or overwrite it. Media, projects and running jobs are never replaced.",
   "presets.name": "Preset name",
-  "presets.save": "Save as new preset",
+  "presets.save": "New preset…",
   "presets.update": "Overwrite with current settings",
   "presets.confirm": "Replace “{name}” with the current settings?",
   "presets.saved": "Preset saved.",
@@ -16,6 +16,7 @@
   "presets.apply": "Apply",
   "presets.edit": "Edit…",
   "presets.editTitle": "Edit preset",
+  "presets.newTitle": "New preset",
   "presets.showAll": "Also show settings at their default",
   "presets.noChanges": "This preset uses only defaults.",
   "presets.changedMark": "Changed",
@@ -25,5 +26,6 @@
   "presets.reset": "Reset to default",
   "presets.remove": "Remove",
   "presets.saveEdit": "Save changes",
+  "presets.saveNew": "Save preset",
   "presets.cancel": "Cancel"
 }

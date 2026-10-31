@@ -1,6 +1,10 @@
-//! Native spellchecking configuration; dictionaries remain a system/runtime prerequisite.
-use std::sync::Mutex;
+//! In-app spellcheck: the same Hunspell-compatible engine (`spellbook`) on every platform over
+//! pinned dictionaries that the user installs explicitly. No WebView or OS dictionary involved.
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use tauri::Manager;
 
 // Accept the bounded BCP47 subset language[-Script][-REGION], not POSIX locales/extensions.
 fn valid_language(language: &str) -> bool {
@@ -28,10 +32,10 @@ fn valid_language(language: &str) -> bool {
     parts.next().is_none()
 }
 
-/// An unsupported platform/runtime is a known, UI-explained limit (e.g. WebView2 keeps the
-/// OS spelling language), logged on every launch there; only real configuration failures are errors.
+/// A language without a published dictionary is a known, UI-explained limit; only real
+/// download/install failures are errors.
 fn severity(code: &str) -> &'static str {
-    if code == "SPELLCHECK_UNSUPPORTED" || code == "SPELLCHECK_DICTIONARY_UNAVAILABLE" {
+    if code == "SPELLCHECK_DICTIONARY_UNAVAILABLE" {
         "WARN"
     } else {
         "ERROR"
@@ -41,17 +45,14 @@ fn severity(code: &str) -> &'static str {
 fn failure(code: &str) -> String {
     let message = match code {
         "SPELLCHECK_DICTIONARY_MISSING" => {
-            "Install an Enchant-compatible dictionary for the selected language, then restart DEAS"
+            "No dictionary is installed for the selected language; install it under Backend → Language"
         }
         "SPELLCHECK_DICTIONARY_UNAVAILABLE" => {
             "No Hunspell dictionary is published for this language"
         }
         "SPELLCHECK_DICTIONARY_FAILED" => "Could not download or install the spellcheck dictionary",
         "SPELLCHECK_INVALID_LANGUAGE" => "Invalid spellchecking language tag",
-        "SPELLCHECK_UNSUPPORTED" => {
-            "Native spellchecking configuration is unsupported by this platform or runtime"
-        }
-        _ => "Could not configure native spellchecking",
+        _ => "Could not load the spellcheck dictionary",
     };
     let level = severity(code);
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
@@ -66,19 +67,7 @@ fn failure(code: &str) -> String {
     code.to_owned()
 }
 
-#[tauri::command]
-pub fn native_prompt_spellcheck(
-    window: tauri::WebviewWindow,
-    enabled: bool,
-    language: String,
-) -> Result<(), String> {
-    if !valid_language(&language) {
-        return Err(failure("SPELLCHECK_INVALID_LANGUAGE"));
-    }
-    configure(window, enabled, language).map_err(|message| failure(&message))
-}
-
-/// A bundled Hunspell pair for the spellcheck languages that have a real dictionary (de/en/fr/tr).
+/// A pinned Hunspell pair for the spellcheck languages that have a published dictionary.
 struct Dictionary {
     language: &'static str,
     /// (sha256, size)
@@ -90,6 +79,9 @@ struct Dictionary {
 // Pinned commit: the same files the sizes/hashes below were verified against.
 const DICTIONARY_COMMIT: &str = "8cfea406b505e4d7df52d5a19bce525df98c54ab";
 const MAX_DICTIONARY_BYTES: u64 = 12 * 1024 * 1024;
+const MAX_WORDS: usize = 2000;
+const MAX_WORD_CHARS: usize = 64;
+const MAX_SUGGESTIONS: usize = 8;
 const DICTIONARIES: [Dictionary; 4] = [
     Dictionary {
         language: "de",
@@ -151,17 +143,19 @@ fn dictionary(language: &str) -> Option<&'static Dictionary> {
     DICTIONARIES.iter().find(|entry| entry.language == base)
 }
 
-/// Enchant 2's user dictionary path, verified with `enchant-lsmod-2 -list-dicts` on Enchant 2.8:
-/// `$XDG_CONFIG_HOME/enchant/hunspell` (no root, no system package).
-fn dictionary_dir() -> Result<std::path::PathBuf, String> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-        });
-    base.map(|path| path.join("enchant").join("hunspell"))
-        .ok_or_else(|| "SPELLCHECK_DICTIONARY_FAILED".to_owned())
+/// DEAS-owned dictionary folder inside the app data dir; identical layout on every platform.
+fn dictionary_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("dictionaries"))
+        .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())
+}
+
+fn pair_paths(dir: &Path, language: &str) -> (PathBuf, PathBuf) {
+    (
+        dir.join(format!("{language}.dic")),
+        dir.join(format!("{language}.aff")),
+    )
 }
 
 async fn fetch_dictionary(
@@ -169,10 +163,9 @@ async fn fetch_dictionary(
     url: &str,
     size: u64,
     sha256: &str,
-    target: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     use sha2::{Digest, Sha256};
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -186,59 +179,153 @@ async fn fetch_dictionary(
     {
         return Err("SPELLCHECK_DICTIONARY_FAILED".to_owned());
     }
-    let partial = target.with_extension("partial");
-    let mut file =
-        std::fs::File::create(&partial).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+    let mut bytes = Vec::with_capacity(size as usize);
     let mut digest = Sha256::new();
-    let mut count = 0u64;
-    let mut response = response;
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?
     {
-        count += chunk.len() as u64;
-        if count > size || count > MAX_DICTIONARY_BYTES {
-            let _ = std::fs::remove_file(&partial);
+        if bytes.len() as u64 + chunk.len() as u64 > size {
             return Err("SPELLCHECK_DICTIONARY_FAILED".to_owned());
         }
         digest.update(&chunk);
-        std::io::Write::write_all(&mut file, &chunk)
-            .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+        bytes.extend_from_slice(&chunk);
     }
-    if count != size || format!("{:x}", digest.finalize()) != sha256 {
-        let _ = std::fs::remove_file(&partial);
+    if bytes.len() as u64 != size || format!("{:x}", digest.finalize()) != sha256 {
         return Err("SPELLCHECK_DICTIONARY_FAILED".to_owned());
     }
-    file.sync_all()
-        .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
-    drop(file);
-    std::fs::rename(&partial, target).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())
+    Ok(bytes)
+}
+
+/// `FLAG num` dictionaries may use flag `0`, which Nuspell/spellbook reject; renumber it to one
+/// past the highest flag in use. Both files change together, so the rewritten pair stays coherent.
+fn normalize_zero_flag(aff: &str, dic: &str) -> Option<(String, String)> {
+    let numeric = aff.lines().any(|line| line.trim_end() == "FLAG num");
+    let zero_rule = |line: &str| {
+        let mut parts = line.split_whitespace();
+        matches!(parts.next(), Some("SFX" | "PFX")) && parts.next() == Some("0")
+    };
+    if !numeric || !aff.lines().any(zero_rule) {
+        return None;
+    }
+    let highest = aff
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            matches!(parts.next(), Some("SFX" | "PFX"))
+                .then(|| parts.next()?.parse::<u32>().ok())?
+        })
+        .max()
+        .unwrap_or(0);
+    let replacement = (highest + 1).to_string();
+    let aff = aff
+        .lines()
+        .map(|line| {
+            if zero_rule(line) {
+                let mut parts = line.splitn(3, ' ');
+                let kind = parts.next().unwrap_or_default();
+                parts.next();
+                format!("{kind} {replacement} {}", parts.next().unwrap_or_default())
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let dic = dic
+        .lines()
+        .map(|line| match line.split_once('/') {
+            Some((word, flags)) => {
+                let flags = flags
+                    .split(',')
+                    .map(|flag| {
+                        if flag == "0" {
+                            replacement.as_str()
+                        } else {
+                            flag
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{word}/{flags}")
+            }
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some((aff + "\n", dic + "\n"))
+}
+
+fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), String> {
+    let partial = target.with_extension("partial");
+    std::fs::write(&partial, bytes).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+    std::fs::rename(&partial, target).map_err(|_| {
+        let _ = std::fs::remove_file(&partial);
+        "SPELLCHECK_DICTIONARY_FAILED".to_owned()
+    })
+}
+
+type Loaded = Mutex<HashMap<String, Arc<spellbook::Dictionary>>>;
+fn loaded() -> &'static Loaded {
+    static LOADED: OnceLock<Loaded> = OnceLock::new();
+    LOADED.get_or_init(Default::default)
+}
+
+fn load(app: &tauri::AppHandle, language: &str) -> Result<Arc<spellbook::Dictionary>, String> {
+    let entry = dictionary(language).ok_or("SPELLCHECK_DICTIONARY_UNAVAILABLE")?;
+    if let Some(dict) = loaded()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(entry.language)
+    {
+        return Ok(dict.clone());
+    }
+    let (dic, aff) = pair_paths(&dictionary_dir(app)?, entry.language);
+    let aff = std::fs::read_to_string(aff).map_err(|_| "SPELLCHECK_DICTIONARY_MISSING")?;
+    let dic = std::fs::read_to_string(dic).map_err(|_| "SPELLCHECK_DICTIONARY_MISSING")?;
+    let dict = Arc::new(
+        spellbook::Dictionary::new(&aff, &dic).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED")?,
+    );
+    loaded()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(entry.language.to_owned(), dict.clone());
+    Ok(dict)
 }
 
 #[derive(serde::Serialize)]
-pub struct SpellcheckDictionaryInfo {
+pub struct SpellcheckStatus {
+    /// A pinned pair exists for this language.
     available: bool,
+    /// The pair is installed in the DEAS dictionary folder.
+    installed: bool,
     license: Option<String>,
     bytes: Option<u64>,
 }
 
-/// Read-only: which pinned pair exists for a language; no network, no writes.
+/// Read-only: no network, no writes.
 #[tauri::command]
-pub fn native_spellcheck_dictionary_info(
+pub fn native_spellcheck_status(
+    app: tauri::AppHandle,
     language: String,
-) -> Result<SpellcheckDictionaryInfo, String> {
+) -> Result<SpellcheckStatus, String> {
     if !valid_language(&language) {
         return Err("SPELLCHECK_INVALID_LANGUAGE".to_owned());
     }
     Ok(match dictionary(&language) {
-        Some(entry) => SpellcheckDictionaryInfo {
-            available: true,
-            license: Some(entry.license.to_owned()),
-            bytes: Some(entry.dic.1 + entry.aff.1),
-        },
-        None => SpellcheckDictionaryInfo {
+        Some(entry) => {
+            let (dic, aff) = pair_paths(&dictionary_dir(&app)?, entry.language);
+            SpellcheckStatus {
+                available: true,
+                installed: dic.is_file() && aff.is_file(),
+                license: Some(entry.license.to_owned()),
+                bytes: Some(entry.dic.1 + entry.aff.1),
+            }
+        }
+        None => SpellcheckStatus {
             available: false,
+            installed: false,
             license: None,
             bytes: None,
         },
@@ -250,190 +337,104 @@ pub struct SpellcheckDictionary {
     /// Absolute path of the installed `.dic` file.
     path: String,
     license: String,
-    /// False means Enchant needs an app restart before it lists the new dictionary.
-    loaded: bool,
 }
 
-/// Explicit install of the bundled Hunspell pair; nothing is downloaded by reading settings.
+/// Explicit install of the pinned pair; nothing is downloaded by reading settings or typing.
 #[tauri::command]
-pub fn native_spellcheck_dictionary_install(
-    window: tauri::WebviewWindow,
+pub async fn native_spellcheck_install(
+    app: tauri::AppHandle,
     language: String,
-    enabled: bool,
 ) -> Result<SpellcheckDictionary, String> {
     if !valid_language(&language) {
         return Err(failure("SPELLCHECK_INVALID_LANGUAGE"));
     }
     let entry =
         dictionary(&language).ok_or_else(|| failure("SPELLCHECK_DICTIONARY_UNAVAILABLE"))?;
-    let dir = dictionary_dir().map_err(|_| failure("SPELLCHECK_DICTIONARY_FAILED"))?;
+    let dir = dictionary_dir(&app).map_err(|code| failure(&code))?;
     std::fs::create_dir_all(&dir).map_err(|_| failure("SPELLCHECK_DICTIONARY_FAILED"))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| failure("SPELLCHECK_DICTIONARY_FAILED"))?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
         .build()
         .map_err(|_| failure("SPELLCHECK_DICTIONARY_FAILED"))?;
     let base = format!(
         "https://raw.githubusercontent.com/wooorm/dictionaries/{DICTIONARY_COMMIT}/dictionaries/{}/index",
         entry.language
     );
-    let dic = dir.join(format!("{}.dic", entry.language));
-    let aff = dir.join(format!("{}.aff", entry.language));
-    runtime.block_on(async {
-        fetch_dictionary(
-            &client,
-            &format!("{base}.dic"),
-            entry.dic.1,
-            entry.dic.0,
-            &dic,
-        )
-        .await?;
-        fetch_dictionary(
-            &client,
-            &format!("{base}.aff"),
-            entry.aff.1,
-            entry.aff.0,
-            &aff,
-        )
-        .await
-    })?;
-    let loaded = configure(window, enabled, language).is_ok();
+    let result: Result<(), String> = async {
+        let dic =
+            fetch_dictionary(&client, &format!("{base}.dic"), entry.dic.1, entry.dic.0).await?;
+        let aff =
+            fetch_dictionary(&client, &format!("{base}.aff"), entry.aff.1, entry.aff.0).await?;
+        let aff_text =
+            String::from_utf8(aff).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+        let dic_text =
+            String::from_utf8(dic).map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+        let (aff_text, dic_text) =
+            normalize_zero_flag(&aff_text, &dic_text).unwrap_or((aff_text, dic_text));
+        // Parse before publishing so a broken pair never becomes the installed one.
+        spellbook::Dictionary::new(&aff_text, &dic_text)
+            .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?;
+        let (dic_path, aff_path) = pair_paths(&dir, entry.language);
+        write_atomic(&aff_path, aff_text.as_bytes())?;
+        write_atomic(&dic_path, dic_text.as_bytes())?;
+        Ok(())
+    }
+    .await;
+    result.map_err(|code| failure(&code))?;
+    loaded()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(entry.language);
     Ok(SpellcheckDictionary {
-        path: dic.display().to_string(),
+        path: pair_paths(&dir, entry.language).0.display().to_string(),
         license: entry.license.to_owned(),
-        loaded,
     })
 }
 
-#[cfg(target_os = "linux")]
-fn configure(window: tauri::WebviewWindow, enabled: bool, language: String) -> Result<(), String> {
-    use webkit2gtk::{WebContextExt, WebViewExt};
-
-    // WebKit uses Enchant-style lang_COUNTRY identifiers, not HTML language hints.
-    let language = language.replace('-', "_");
-    let (send, receive) = std::sync::mpsc::sync_channel(1);
-    window
-        .with_webview(move |platform| {
-            let result = platform
-                .inner()
-                .context()
-                .ok_or_else(|| "SPELLCHECK_UNSUPPORTED".to_owned())
-                .and_then(|context| {
-                    // This context can be shared with other webviews in the same application.
-                    context.set_spell_checking_languages(&[&language]);
-                    context.set_spell_checking_enabled(enabled);
-                    if context.is_spell_checking_enabled() != enabled {
-                        return Err("SPELLCHECK_UNSUPPORTED".to_owned());
-                    }
-                    if !enabled {
-                        return Ok(());
-                    }
-                    // WebKit's getter describes loaded Enchant dictionaries, not requested tags.
-                    let mut loaded = context.spell_checking_languages();
-                    if loaded.is_empty() && !language.contains('_') {
-                        if let Some(regional) = regional_dictionary(&language)? {
-                            context.set_spell_checking_languages(&[&regional]);
-                            loaded = context.spell_checking_languages();
-                        }
-                    }
-                    check_loaded_language(&language, loaded.iter().map(|tag| tag.as_str()))
-                });
-            let _ = send.send(result);
-        })
-        .map_err(|_| "SPELLCHECK_CONFIGURE_FAILED".to_owned())?;
-    // Tauri executes inline on its UI thread; off-thread callers wait for the real result.
-    receive
-        .recv_timeout(Duration::from_secs(5))
-        .map_err(|_| "SPELLCHECK_CONFIGURE_FAILED".to_owned())?
+/// Returns the words from `words` that the dictionary does not know. Over-long words are
+/// skipped (never flagged) rather than checked.
+#[tauri::command]
+pub async fn native_spellcheck_check(
+    app: tauri::AppHandle,
+    language: String,
+    words: Vec<String>,
+) -> Result<Vec<String>, String> {
+    if !valid_language(&language) {
+        return Err("SPELLCHECK_INVALID_LANGUAGE".to_owned());
+    }
+    if words.len() > MAX_WORDS {
+        return Err("SPELLCHECK_TOO_MANY_WORDS".to_owned());
+    }
+    let dict = tokio::task::spawn_blocking(move || load(&app, &language))
+        .await
+        .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?
+        .map_err(|code| failure(&code))?;
+    Ok(words
+        .into_iter()
+        .filter(|word| word.chars().count() <= MAX_WORD_CHARS && !dict.check(word))
+        .collect())
 }
 
-#[cfg(any(target_os = "linux", test))]
-fn check_loaded_language<'a>(
-    language: &str,
-    loaded: impl Iterator<Item = &'a str>,
-) -> Result<(), String> {
-    let language = language.replace('-', "_").to_ascii_lowercase();
-    if loaded.into_iter().any(|tag| {
-        let tag = tag.replace('-', "_").to_ascii_lowercase();
-        tag == language
-            || (!language.contains('_') && tag.starts_with(&format!("{language}_")))
-            || (!tag.contains('_') && language.starts_with(&format!("{tag}_")))
-    }) {
-        Ok(())
-    } else {
-        Err("SPELLCHECK_DICTIONARY_MISSING".to_owned())
+#[tauri::command]
+pub async fn native_spellcheck_suggest(
+    app: tauri::AppHandle,
+    language: String,
+    word: String,
+) -> Result<Vec<String>, String> {
+    if !valid_language(&language) {
+        return Err("SPELLCHECK_INVALID_LANGUAGE".to_owned());
     }
-}
-
-#[cfg(target_os = "linux")]
-fn regional_dictionary(language: &str) -> Result<Option<String>, String> {
-    use std::ffi::{c_char, c_void, CStr};
-    type Describe = unsafe extern "C" fn(
-        *const c_char,
-        *const c_char,
-        *const c_char,
-        *const c_char,
-        *mut c_void,
-    );
-    unsafe extern "C" fn collect(
-        tag: *const c_char,
-        _: *const c_char,
-        _: *const c_char,
-        _: *const c_char,
-        data: *mut c_void,
-    ) {
-        if !tag.is_null() {
-            if let Ok(tag) = CStr::from_ptr(tag).to_str() {
-                (*(data as *mut Vec<String>)).push(tag.to_owned());
-            }
-        }
+    if word.is_empty() || word.chars().count() > MAX_WORD_CHARS {
+        return Ok(Vec::new());
     }
-    // Only enumerate for base-language fallback; WebKit still verifies the selected dictionary loads.
-    unsafe {
-        let unsupported = |_| "SPELLCHECK_UNSUPPORTED".to_owned();
-        // Enchant 2.8 registers GTypes: unloading/reloading it can abort on duplicate types.
-        static LIBRARY: std::sync::OnceLock<Result<libloading::Library, libloading::Error>> =
-            std::sync::OnceLock::new();
-        let library = LIBRARY
-            .get_or_init(|| libloading::Library::new("libenchant-2.so.2"))
-            .as_ref()
-            .map_err(|_| "SPELLCHECK_UNSUPPORTED".to_owned())?;
-        let init = library
-            .get::<unsafe extern "C" fn() -> *mut c_void>(b"enchant_broker_init\0")
-            .map_err(unsupported)?;
-        let free = library
-            .get::<unsafe extern "C" fn(*mut c_void)>(b"enchant_broker_free\0")
-            .map_err(unsupported)?;
-        let list = library
-            .get::<unsafe extern "C" fn(*mut c_void, Describe, *mut c_void)>(
-                b"enchant_broker_list_dicts\0",
-            )
-            .map_err(unsupported)?;
-        let broker = init();
-        if broker.is_null() {
-            return Err("SPELLCHECK_UNSUPPORTED".to_owned());
-        }
-        let mut tags = Vec::<String>::new();
-        list(broker, collect, &mut tags as *mut _ as *mut c_void);
-        free(broker);
-        tags.sort();
-        Ok(tags
-            .into_iter()
-            .find(|tag| check_loaded_language(language, std::iter::once(tag.as_str())).is_ok()))
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn configure(
-    _window: tauri::WebviewWindow,
-    _enabled: bool,
-    _language: String,
-) -> Result<(), String> {
-    // shortcut: installed WebView2 bindings expose no spellchecking profile API; upgrade when available.
-    Err("SPELLCHECK_UNSUPPORTED".to_owned())
+    let dict = tokio::task::spawn_blocking(move || load(&app, &language))
+        .await
+        .map_err(|_| "SPELLCHECK_DICTIONARY_FAILED".to_owned())?
+        .map_err(|code| failure(&code))?;
+    let mut suggestions = Vec::new();
+    dict.suggest(&word, &mut suggestions);
+    suggestions.truncate(MAX_SUGGESTIONS);
+    Ok(suggestions)
 }
 
 #[cfg(test)]
@@ -507,38 +508,21 @@ mod tests {
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].source, crate::logs::Source::Deas);
         assert!(matching[0].text.contains(message));
-        assert!(matching[0]
-            .text
-            .contains("Install an Enchant-compatible dictionary"));
+        assert!(matching[0].text.contains("Backend → Language"));
         assert!(!matching[0].text.contains("<script>"));
         assert!(matching[0].text.starts_with("ERROR: "));
     }
 
     #[test]
-    fn unsupported_platform_is_a_warning_not_an_error() {
-        assert_eq!(severity("SPELLCHECK_UNSUPPORTED"), "WARN");
+    fn unpublished_language_is_a_warning_not_an_error() {
+        assert_eq!(severity("SPELLCHECK_DICTIONARY_UNAVAILABLE"), "WARN");
         for code in [
             "SPELLCHECK_DICTIONARY_MISSING",
+            "SPELLCHECK_DICTIONARY_FAILED",
             "SPELLCHECK_INVALID_LANGUAGE",
             "OTHER",
         ] {
             assert_eq!(severity(code), "ERROR");
-        }
-    }
-
-    #[test]
-    fn requires_a_loaded_dictionary_for_the_selected_language() {
-        for (language, loaded) in [("en", "en_US"), ("EN-us", "en_US"), ("de-DE", "de")] {
-            assert_eq!(
-                check_loaded_language(language, [loaded].into_iter()),
-                Ok(())
-            );
-        }
-        for loaded in [vec![], vec!["fr_FR"], vec!["english"], vec!["en_GB"]] {
-            assert_eq!(
-                check_loaded_language("en_US", loaded.into_iter()),
-                Err("SPELLCHECK_DICTIONARY_MISSING".to_owned())
-            );
         }
     }
 
@@ -562,19 +546,40 @@ mod tests {
         for language in ["ja", "zh", "zh-Hans", "es", "ko"] {
             assert!(dictionary(language).is_none(), "{language}");
         }
-        assert_eq!(
-            severity("SPELLCHECK_DICTIONARY_UNAVAILABLE"),
-            "WARN",
-            "a language without a published dictionary is a known limit"
-        );
-        assert_eq!(severity("SPELLCHECK_DICTIONARY_FAILED"), "ERROR");
     }
 
     #[test]
-    #[ignore = "network: verifies the pinned Hunspell URLs, sizes and digests"]
-    fn downloads_pinned_dictionary_pairs() {
-        let dir = std::env::temp_dir().join(format!("deas-dict-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    fn zero_flag_is_renumbered_only_for_numeric_flag_dictionaries() {
+        let aff = "SET UTF-8\nFLAG num\n\nSFX 0 N 1\nSFX 0 0 de .\n\nSFX 12 N 1\nSFX 12 0 ler .\n";
+        let dic = "3\nev/0,12\nokul/12\nsu\n";
+        let (aff2, dic2) = normalize_zero_flag(aff, dic).expect("renumbered");
+        assert!(aff2.contains("SFX 13 N 1\nSFX 13 0 de ."));
+        assert!(!aff2.contains("SFX 0 "));
+        assert!(dic2.contains("ev/13,12\n") && dic2.contains("okul/12\n") && dic2.contains("su\n"));
+        let dict = spellbook::Dictionary::new(&aff2, &dic2).expect("parses after renumbering");
+        assert!(dict.check("evde") && dict.check("evler") && !dict.check("sude"));
+        assert!(
+            spellbook::Dictionary::new(aff, dic).is_err(),
+            "unchanged pair is rejected"
+        );
+        assert!(normalize_zero_flag("SET UTF-8\nSFX A Y 1\nSFX A 0 s .\n", "1\ncat/A\n").is_none());
+    }
+
+    #[test]
+    fn check_and_suggest_work_on_an_inline_dictionary() {
+        let aff = "SET UTF-8\nTRY esianrtolcdugmphbyfvkwzESIANRTOLCDUGMPHBYFVKWZ'\nSFX S Y 1\nSFX S 0 s .\n";
+        let dic = "3\nhouse/S\nbeautiful\nlight\n";
+        let dict = spellbook::Dictionary::new(aff, dic).unwrap();
+        assert!(dict.check("houses") && dict.check("beautiful"));
+        assert!(!dict.check("beautifull"));
+        let mut suggestions = Vec::new();
+        dict.suggest("beautifull", &mut suggestions);
+        assert_eq!(suggestions.first().map(String::as_str), Some("beautiful"));
+    }
+
+    #[test]
+    #[ignore = "network: verifies the pinned Hunspell URLs, sizes and digests, and that every pair parses"]
+    fn downloads_pinned_dictionary_pairs_and_parses_them() {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -583,53 +588,33 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        for language in ["de", "en", "fr", "tr"] {
-            let entry = dictionary(language).unwrap();
+        for entry in &DICTIONARIES {
             let base = format!(
-                "https://raw.githubusercontent.com/wooorm/dictionaries/{DICTIONARY_COMMIT}/dictionaries/{language}/index"
+                "https://raw.githubusercontent.com/wooorm/dictionaries/{DICTIONARY_COMMIT}/dictionaries/{}/index",
+                entry.language
             );
-            let dic = dir.join(format!("{language}.dic"));
-            let aff = dir.join(format!("{language}.aff"));
-            runtime.block_on(async {
-                fetch_dictionary(
-                    &client,
-                    &format!("{base}.dic"),
-                    entry.dic.1,
-                    entry.dic.0,
-                    &dic,
+            let (dic, aff) = runtime.block_on(async {
+                (
+                    fetch_dictionary(&client, &format!("{base}.dic"), entry.dic.1, entry.dic.0)
+                        .await
+                        .unwrap(),
+                    fetch_dictionary(&client, &format!("{base}.aff"), entry.aff.1, entry.aff.0)
+                        .await
+                        .unwrap(),
                 )
-                .await
-                .unwrap();
-                fetch_dictionary(
-                    &client,
-                    &format!("{base}.aff"),
-                    entry.aff.1,
-                    entry.aff.0,
-                    &aff,
-                )
-                .await
-                .unwrap();
             });
-            assert_eq!(std::fs::metadata(&dic).unwrap().len(), entry.dic.1);
-            assert_eq!(std::fs::metadata(&aff).unwrap().len(), entry.aff.1);
-        }
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    #[ignore = "requires the host Enchant 2 runtime; run explicitly for native dictionary availability"]
-    fn probes_installed_enchant_without_a_display() {
-        for language in ["en", "de"] {
-            let dictionary =
-                regional_dictionary(language).expect("host Enchant 2 must be available");
-            eprintln!("Enchant {language}: {dictionary:?}");
-            if let Some(tag) = dictionary {
-                assert_eq!(
-                    check_loaded_language(language, [tag.as_str()].into_iter()),
-                    Ok(())
-                );
-            }
+            let aff = String::from_utf8(aff).unwrap();
+            let dic = String::from_utf8(dic).unwrap();
+            let (aff, dic) = normalize_zero_flag(&aff, &dic).unwrap_or((aff, dic));
+            let dict = spellbook::Dictionary::new(&aff, &dic)
+                .unwrap_or_else(|e| panic!("{}: {e:?}", entry.language));
+            let sample = match entry.language {
+                "de" => "Sonnenuntergang",
+                "en" => "beautiful",
+                "fr" => "éclairage",
+                _ => "güzel",
+            };
+            assert!(dict.check(sample), "{}: {sample}", entry.language);
         }
     }
 }

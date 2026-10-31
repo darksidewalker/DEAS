@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { installSpellcheckDictionary, readSpellcheckDictionaryInfo, usePromptTools, type SpellcheckDictionaryInfo } from '../../lib/promptTools';
+import { installSpellcheckDictionary, readSpellcheckStatus, usePromptTools, type SpellcheckStatus } from '../../lib/promptTools';
 
 /** Language follows the system until the user picks one; a custom pick is labelled and can be undone. */
 export function LanguageSetting() {
@@ -10,18 +10,18 @@ export function LanguageSetting() {
  const name=(id:string)=>languages.find(l=>l.id===id)?.name??id;
  // A missing dictionary offers its pinned Hunspell pair; nothing is fetched before the explicit click.
  const missing=tools.error==='settings.prompt.dictionaryMissing';
- const [dictionary,setDictionary]=useState<SpellcheckDictionaryInfo|null>(null);
+ const [status,setStatus]=useState<SpellcheckStatus|null>(null);
  const [installing,setInstalling]=useState(false);const [installed,setInstalled]=useState(false);const [failed,setFailed]=useState(false);
  useEffect(()=>{
-  if(!missing||!isTauri()){setDictionary(null);return;}
+  if(!missing||!isTauri()){setStatus(null);return;}
   let alive=true;
-  readSpellcheckDictionaryInfo(tools.language).then(info=>{if(alive)setDictionary(info);},()=>{if(alive)setDictionary(null);});
+  readSpellcheckStatus(tools.language).then(info=>{if(alive)setStatus(info);},()=>{if(alive)setStatus(null);});
   return()=>{alive=false;};
  },[missing,tools.language]);
  const install=async()=>{
-  if(!dictionary?.available||installing)return;
+  if(!status?.available||installing)return;
   setInstalling(true);setFailed(false);setInstalled(false);
-  try{await installSpellcheckDictionary(tools.language,tools.spellcheck);setInstalled(true);}
+  try{await installSpellcheckDictionary(tools.language);setInstalled(true);}
   catch{setFailed(true);}
   finally{setInstalling(false);}
  };
@@ -38,9 +38,7 @@ export function LanguageSetting() {
     {languages.map(l=><option key={l.id} value={l.id}>{l.name} ({l.id})</option>)}
    </select></label>
    <p className="field-help">{t('settings.prompt.spellcheckHelp')}</p>
-   {missing&&isTauri()&&dictionary&&(dictionary.available
-    ?<div className="spellcheck-dictionary"><button type="button" className="action-button" disabled={installing} onClick={()=>void install()}>{t(installing?'settings.spellcheck.installBusy':'settings.spellcheck.install')}</button><p className="field-help">{t('settings.spellcheck.installHelp',{language:tools.language,size:String(Math.max(1,Math.round((dictionary.bytes??0)/1048576))),license:dictionary.license??''})}</p></div>
-    :<p className="field-help">{t('settings.spellcheck.unavailable')}</p>)}
+   {missing&&status?.available&&<div className="spellcheck-dictionary"><button type="button" className="action-button" disabled={installing} onClick={()=>void install()}>{t(installing?'settings.spellcheck.installBusy':'settings.spellcheck.install')}</button><p className="field-help">{t('settings.spellcheck.installHelp',{language:tools.language,size:String(Math.max(1,Math.round((status.bytes??0)/1048576))),license:status.license??''})}</p></div>}
    {installed&&!tools.error&&<p role="status" className="field-help">{t('settings.spellcheck.installed')}</p>}
    {failed&&<p className="error-message" role="alert">{t('settings.spellcheck.failed')}</p>}
    {tools.error&&!missing&&<p className="error-message" role="alert">{t(tools.error)}</p>}

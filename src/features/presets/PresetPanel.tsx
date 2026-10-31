@@ -9,12 +9,13 @@ import './presets.css';
 type Preset={name:string;settings:Settings};
 /** Presets hold only overrides of the Studio defaults (see lib/presetSettings); older full snapshots are reduced the same way when read. */
 export function PresetPanel({disabled}:{disabled:boolean}){
- const {t}=useI18n();const [presets,setPresets]=useState<Preset[]|null>(null),[name,setName]=useState(''),[selected,setSelected]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(''),[saving,setSaving]=useState(false);
+ const {t}=useI18n();const [presets,setPresets]=useState<Preset[]|null>(null),[selected,setSelected]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(''),[saving,setSaving]=useState(false);
+ // `editing.name===''` is a new preset: the editor shows the current overrides and asks for the name.
  const [menu,setMenu]=useState<{name:string;x:number;y:number}|null>(null),[editing,setEditing]=useState<Preset|null>(null);
  const live=useRef(false),lock=useRef(false),firstItem=useRef<HTMLButtonElement>(null),list=useRef<HTMLUListElement>(null);const native=isTauri();
  useEffect(()=>{live.current=true;if(native)invoke<Preset[]>('native_presets_read').then(p=>{if(live.current)setPresets(p);},e=>{if(live.current)setError(String(e));});return()=>{live.current=false;};},[native]);
  useEffect(()=>{if(!menu)return;firstItem.current?.focus();const dismiss=(e:PointerEvent)=>{if(!(e.target as Element).closest?.('.preset-menu'))setMenu(null);};document.addEventListener('pointerdown',dismiss);return()=>document.removeEventListener('pointerdown',dismiss);},[menu]);
- const trimmed=name.trim();const defaults=studioDefaults();
+ const defaults=studioDefaults();
  const focusTile=(target:string)=>[...list.current?.querySelectorAll<HTMLButtonElement>('[data-preset]')??[]].find(b=>b.dataset.preset===target)?.focus();
  /** Write the whole list and read it back before reporting success. */
  const persist=async(next:Preset[],target:string)=>{
@@ -29,10 +30,6 @@ export function PresetPanel({disabled}:{disabled:boolean}){
   finally{lock.current=false;if(live.current)setSaving(false);}
  };
  const current=()=>overrides(captureStudioSettings(),studioDefaults());
- const saveNew=()=>{
-  if(!presets||disabled||!trimmed||presets.some(p=>p.name===trimmed))return;
-  void persist([...presets,{name:trimmed,settings:current()}],trimmed).then(ok=>{if(ok&&live.current)setName('');});
- };
  const overwrite=(target:string)=>{
   if(!presets||disabled||!window.confirm(t('presets.confirm',{name:target})))return;
   void persist(presets.map(p=>p.name===target?{name:target,settings:current()}:p),target);
@@ -50,10 +47,7 @@ export function PresetPanel({disabled}:{disabled:boolean}){
  return <section className="presets" aria-label={t('presets.title')}>
   <p className="aio-help">{t('presets.help')}</p>
   {!native?<p>{t('presets.native')}</p>:<>
-   <div className="preset-controls">
-    <label>{t('presets.name')}<input value={name} maxLength={100} disabled={!presets||saving} onChange={e=>{setName(e.target.value);setStatus('');}}/></label>
-    <button type="button" disabled={!presets||disabled||saving||!trimmed||presets.length>=100||presets.some(p=>p.name===trimmed)} onClick={saveNew}>{t('presets.save')}</button>
-   </div>
+   <div className="preset-controls"><button type="button" disabled={!presets||disabled||saving||presets.length>=100} onClick={()=>{setStatus('');setEditing({name:'',settings:current()});}}>{t('presets.save')}</button></div>
    {presets?.length===0&&<p className="aio-help">{t('presets.empty')}</p>}
    {!!presets?.length&&<ul ref={list} className="wb-tiles preset-tiles" aria-label={t('presets.list')}>{presets.map(p=><li key={p.name}>
     <button type="button" data-preset={p.name} aria-pressed={selected===p.name} aria-haspopup="menu" aria-keyshortcuts="Shift+F10" title={t('presets.tileHint')}
@@ -71,7 +65,7 @@ export function PresetPanel({disabled}:{disabled:boolean}){
   </div>,document.body)}
   {editing&&presets&&createPortal(<PresetEditor preset={editing} taken={presets.map(p=>p.name).filter(n=>n!==editing.name)} saving={saving}
    onCancel={()=>{const n=editing.name;setEditing(null);setTimeout(()=>focusTile(n));}}
-   onSave={edited=>void persist(presets.map(p=>p.name===editing.name?edited:p),edited.name).then(ok=>{if(ok&&live.current){setEditing(null);setTimeout(()=>focusTile(edited.name));}})}/>,document.body)}
+   onSave={edited=>void persist(editing.name?presets.map(p=>p.name===editing.name?edited:p):[...presets,edited],edited.name).then(ok=>{if(ok&&live.current){setEditing(null);setTimeout(()=>focusTile(edited.name));}})}/>,document.body)}
   {error&&<p role="alert" className="error-message">{error}</p>}
   {status&&<p role="status">{status}</p>}
  </section>;
@@ -81,7 +75,7 @@ const show=(v:unknown)=>{const s=JSON.stringify(v)??'—';return s.length>80?`${
 const parses=(s:string)=>{try{JSON.parse(s);return true;}catch{return false;}};
 /** Edits one preset field by field against today's defaults: changed rows are marked, Reset drops the override, settings this version no longer has can be removed. */
 function PresetEditor({preset,taken,saving,onCancel,onSave}:{preset:Preset;taken:string[];saving:boolean;onCancel:()=>void;onSave:(p:Preset)=>void}){
- const {t}=useI18n();const dialog=useRef<HTMLDialogElement>(null);
+ const {t}=useI18n();const dialog=useRef<HTMLDialogElement>(null);const isNew=!preset.name;
  const [defaults]=useState(studioDefaults);
  const [name,setName]=useState(preset.name),[over,setOver]=useState(()=>overrides(preset.settings,defaults)),[all,setAll]=useState(false),[text,setText]=useState<Record<string,string>>({});
  useEffect(()=>{dialog.current?.showModal();},[]);
@@ -100,8 +94,8 @@ function PresetEditor({preset,taken,saving,onCancel,onSave}:{preset:Preset;taken
   return <textarea aria-label={r.label} rows={2} aria-invalid={!parses(raw)} value={raw} onChange={e=>{const s=e.target.value;setText(m=>({...m,[r.id]:s}));if(parses(s))setLeaf(r.key,r.path,JSON.parse(s));}}/>;
  };
  const reset=(r:typeof rows[number])=>{setText(m=>{const next={...m};delete next[r.id];return next;});if(r.known)setLeaf(r.key,r.path,r.fallback);else setOver(o=>{const next={...o};delete next[r.key];return next;});};
- return <dialog ref={dialog} className="preset-editor" aria-label={t('presets.editTitle')} onCancel={e=>{e.preventDefault();if(!saving)onCancel();}}>
-  <h2>{t('presets.editTitle')}</h2>
+ return <dialog ref={dialog} className="preset-editor" aria-label={t(isNew?'presets.newTitle':'presets.editTitle')} onCancel={e=>{e.preventDefault();if(!saving)onCancel();}}>
+  <h2>{t(isNew?'presets.newTitle':'presets.editTitle')}</h2>
   <label className="preset-editor-name">{t('presets.name')}<input value={name} maxLength={100} aria-invalid={!nameOk} onChange={e=>setName(e.target.value)}/></label>
   <label className="preset-editor-all"><input type="checkbox" checked={all} onChange={e=>setAll(e.target.checked)}/>{t('presets.showAll')}</label>
   {!rows.length&&<p className="aio-help">{t('presets.noChanges')}</p>}
@@ -113,7 +107,7 @@ function PresetEditor({preset,taken,saving,onCancel,onSave}:{preset:Preset;taken
     {r.changed&&<button type="button" onClick={()=>reset(r)}>{t(r.known?'presets.reset':'presets.remove')}</button>}</span>
   </li>)}</ul>
   <div className="preset-editor-actions">
-   <button type="button" disabled={saving||!nameOk||badJson||invalid.length>0} onClick={()=>onSave({name:trimmed,settings:over})}>{t('presets.saveEdit')}</button>
+   <button type="button" disabled={saving||!nameOk||badJson||invalid.length>0} onClick={()=>onSave({name:trimmed,settings:over})}>{t(isNew?'presets.saveNew':'presets.saveEdit')}</button>
    <button type="button" disabled={saving} onClick={onCancel}>{t('presets.cancel')}</button>
   </div>
  </dialog>;

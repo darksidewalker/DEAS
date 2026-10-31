@@ -16,6 +16,9 @@ test('localized accessible typed controls and cleanup',async()=>{
  const ui=render(view());
  await waitFor(()=>expect(screen.getByRole('slider',{name:'Seek video'}).getAttribute('max')).toBe('5'));
  fireEvent.click(screen.getByRole('button',{name:'Play'}));
+ // Clicking the picture toggles like the Play button.
+ fireEvent.click(ui.container.querySelector('.native-video-surface')!);
+ expect(vi.mocked(invoke).mock.calls.filter(([c,a])=>c==='native_video_update'&&(a as {action:{kind:string}}).action.kind==='pause')).toHaveLength(2);
  fireEvent.change(screen.getByRole('slider',{name:'Seek video'}),{target:{value:'2'}});
  fireEvent.click(screen.getByRole('button',{name:'Mute'}));
  fireEvent.change(screen.getByRole('slider',{name:'Video volume'}),{target:{value:'25'}});

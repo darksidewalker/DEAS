@@ -1935,7 +1935,17 @@ fn minimax_h3_edits_the_crop_as_first_frame_and_composites_frame_zero_back() {
     assert_eq!(g["IR"]["inputs"]["image"], json!(["F", 0]));
     assert_eq!(g["Y"]["inputs"]["source"], json!(["IR", 0]));
     assert_eq!(g["7"]["inputs"]["images"], json!(["Y", 0]));
-    // Without mask: the whole picture, frame 0 saved directly.
+    // The metadata config must not reference the removed text encoders (ComfyUI: KeyError '2').
+    let mut saver = g.clone();
+    civitai_saver(
+        &mut saver,
+        &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+        &i,
+    );
+    assert_eq!(saver["M"]["inputs"]["node_positive"], json!(["HE", 0]));
+    assert_eq!(saver["M"]["inputs"]["text_positive"], "a cat");
+    assert!(saver["M"]["inputs"].get("node_negative").is_none());
+    assert_eq!(saver["7"]["inputs"]["metadata_config"], json!(["M", 0]));
     let mut plain = i.clone();
     for k in ["inputMask", "maskBlur", "inpaintCrop"] {
         plain.as_object_mut().unwrap().remove(k);

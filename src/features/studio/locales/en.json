@@ -377,6 +377,9 @@
   "studio.run.post.hint": "Second pass with the same model, prompts and seed: optional upscale model, resize to {width}×{height}, then resample at the refiner strength.",
   "studio.run.post.denoise": "Refiner strength",
   "studio.run.post.model": "Upscale model",
+  "studio.run.post.group.latent": "Latent upscale",
+  "studio.run.post.group.refine": "Refine / Upscale",
+  "studio.run.post.group.modelHint": "Runs on the decoded frames before the final encode; the original encode is kept alongside.",
   "studio.run.post.lanczos": "None (Lanczos)",
   "studio.run.more": "More",
   "studio.run.post.refine": "Refine",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "Submitting…",
   "studio.tve.queueHint": "Progress, preview and export: Studio queue.",
   "studio.tve.jobGone": "The job left the Studio queue before it settled; see Logs.",
-  "studio.tve.pick": "Or pick a video from Media (input/output folders):"
+  "studio.tve.pick": "Or pick a video from Media (input/output folders):",
+  "spellcheck.suggestions": "Suggestions for “{word}”",
+  "spellcheck.noSuggestions": "No suggestions"
 }

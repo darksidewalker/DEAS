@@ -1,3 +1,4 @@
+import { PromptTextarea } from '../studio/PromptTextarea';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
@@ -247,7 +248,7 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
         <span className="forge-group-label">{t('forge.format')}</span>
         <div className="forge-seg">{modes.map(m => <button key={m} type="button" data-forge-mode={m} aria-pressed={m === activeMode} onClick={() => setMode(m)}>{m}</button>)}</div>
       </div>}
-      <label className="forge-field"><span>{t('forge.brief')}</span><textarea data-forge-brief value={brief} maxLength={16384} placeholder={t('forge.briefPlaceholder')} onChange={e => setBrief(e.target.value)}/></label>
+      <label className="forge-field"><span>{t('forge.brief')}</span><PromptTextarea data-forge-brief value={brief} maxLength={16384} placeholder={t('forge.briefPlaceholder')} onChange={e => setBrief(e.target.value)}/></label>
       <div className="forge-ladders">
         <Ladder name="detail" label={t('forge.detail')} notches={spec?.detailLevels ?? []} value={detail} onChange={setDetail}/>
         <Ladder name="creativity" label={t('forge.creativity')} notches={creativityNotches} value={creativity} onChange={setCreativity}/>
@@ -277,8 +278,8 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
           {notesLabels.length > 0 && <label className="forge-switch"><input type="checkbox" data-forge-with-notes checked={withNotes} onChange={e => setWithNotes(e.target.checked)}/><span>{t('forge.withNotes')}</span></label>}
         </div>)}
         {fold('verbatim', <>
-          <label className="forge-field"><span>{t('forge.customPositive')} <em>{t('forge.verbatim')}</em></span><textarea className="forge-short" data-forge-keep-positive value={keepPositive} maxLength={2000} placeholder={t('forge.keepPositive')} onChange={e => setKeepPositive(e.target.value)}/></label>
-          {spec.hasNegative && <label className="forge-field"><span>{t('forge.customNegative')} <em>{t('forge.verbatim')}</em></span><textarea className="forge-short" data-forge-keep-negative value={keepNegative} maxLength={2000} placeholder={t('forge.keepNegative')} onChange={e => setKeepNegative(e.target.value)}/></label>}
+          <label className="forge-field"><span>{t('forge.customPositive')} <em>{t('forge.verbatim')}</em></span><PromptTextarea className="forge-short" data-forge-keep-positive value={keepPositive} maxLength={2000} placeholder={t('forge.keepPositive')} onChange={e => setKeepPositive(e.target.value)}/></label>
+          {spec.hasNegative && <label className="forge-field"><span>{t('forge.customNegative')} <em>{t('forge.verbatim')}</em></span><PromptTextarea className="forge-short" data-forge-keep-negative value={keepNegative} maxLength={2000} placeholder={t('forge.keepNegative')} onChange={e => setKeepNegative(e.target.value)}/></label>}
         </>)}
         {fold('camera', <>
           {!!spec.camera?.angle.length && <Tiles name="angle" label={t('forge.angle')} value={pick.angle} onChange={setAngle} options={camTiles(spec.camera.angle)}/>}
@@ -313,7 +314,7 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
           {handoffBlocked && <p className="forge-warning" data-forge-handoff-blocked role="status">{t('forge.canvas.handoffBlocked')}</p>}
           {association?.canvas && <p className="forge-note" data-forge-result-canvas>{t('forge.canvas.consumed', { width: String(association.canvas.width), height: String(association.canvas.height) })}</p>}
           <div className="forge-send"><button type="button" className="action-button" data-forge-send-layout disabled={!resultFits || busy || !!geometryError || handoffBlocked} onClick={() => send(JSON.stringify(exportLayout(studio.project), null, 2), negative)}>{t('forge.canvas.sendLayout')}</button></div>
-          {spec?.hasNegative && negative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
+          {spec?.hasNegative && negative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><PromptTextarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
           {result.characters.length > 0 && <p className="forge-note">{t('forge.canon', { list: result.characters.join(', ') })}</p>}
           {result.fixes.length > 0 && <p className="forge-note">{t('forge.fixes', { list: result.fixes.join('; ') })}</p>}
           {result.warnings.map(w => <p key={w} className="forge-warning">{w}</p>)}
@@ -337,8 +338,8 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
         <strong>{t(busy ? 'forge.writing' : 'forge.emptyTitle')}</strong>
         <span>{t(busy ? pictures.length ? 'forge.refs.busy' : 'forge.emptyBusy' : 'forge.emptyBody')}</span>
       </div> : <>
-        <label className="forge-field"><span>{t('forge.positive')}</span><textarea data-forge-result aria-label={t('forge.result')} value={prompt} onChange={e => editPrompt(e.target.value)}/></label>
-        {spec?.hasNegative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><textarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
+        <label className="forge-field"><span>{t('forge.positive')}</span><PromptTextarea data-forge-result aria-label={t('forge.result')} value={prompt} onChange={e => editPrompt(e.target.value)}/></label>
+        {spec?.hasNegative && <label className="forge-field"><span>{t('forge.negativeShort')}</span><PromptTextarea data-forge-negative className="forge-negative" value={negative} onChange={e => editNegative(e.target.value)}/></label>}
       </>}
       {result && !resultFits && <p className="forge-warning" data-forge-stale role="status">{t('forge.canvas.stale')}</p>}
       {handoffBlocked && <p className="forge-warning" data-forge-handoff-blocked role="status">{t('forge.canvas.handoffBlocked')}</p>}

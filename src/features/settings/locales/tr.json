@@ -2,17 +2,14 @@
   "settings.prompt.spellcheck": "İstem yazım denetimi",
   "settings.prompt.language": "Yazım denetimi dili",
   "settings.prompt.autocomplete": "Etiket otomatik tamamlama",
-  "settings.prompt.spellcheckHelp": "Arayüz dilinden bağımsızdır. Yerel sistem sözlüklerini kullanır; seçilen sözlük kurulu olmalıdır.",
+  "settings.prompt.spellcheckHelp": "Arayüz dilinden bağımsız. DEAS, indirilen bir Hunspell sözlüğüyle prompt alanlarını kendisi denetler; hiçbir şey bu PC'den çıkmaz.",
   "settings.prompt.autocompleteHelp": "Varsayılan olarak kapalıdır. Yapılandırılmış ortamın Prompt Forge yerel etiket verilerini kullanır. En az iki karakter yazın; oklar ve Enter/Tab ile seçin, Escape ile kapatın.",
-  "settings.prompt.dictionaryMissing": "Seçilen dilin sözlüğü kurulu değil. Sistem yazım sözlüğünü kurun, ardından denetimi kapatıp açın.",
-  "settings.prompt.unsupported": "Bu WebView bağımsız sözlük seçemiyor. Yazım ipuçları işletim sistemine ve WebView sürümüne bağlıdır.",
+  "settings.prompt.dictionaryMissing": "Seçilen dil için sözlük kurulu değil.",
   "settings.prompt.failed": "Yazım denetimi yapılandırılamadı. Günlüklere bakın.",
   "settings.spellcheck.install": "Sözlüğü kur",
   "settings.spellcheck.installBusy": "Sözlük indiriliyor…",
-  "settings.spellcheck.installed": "Sözlük kuruldu. Yazım denetimi artık kullanabilir.",
-  "settings.spellcheck.restart": "Yeni sözlüğü yüklemek için DEAS'ı yeniden başlatın.",
-  "settings.spellcheck.installHelp": "{language} için Hunspell çiftini ({size} MB, {license}) kullanıcı klasörüne indirir — yönetici hakları gerekmez.",
+  "settings.spellcheck.installed": "Sözlük kuruldu. Prompt alanları artık denetleniyor.",
+  "settings.spellcheck.installHelp": "{language} için Hunspell çiftini ({size} MB, {license}) DEAS veri klasörüne indirir — yönetici hakları gerekmez, Linux ve Windows'ta çalışır.",
   "settings.spellcheck.unavailable": "Bu dil için Hunspell sözlüğü yayınlanmadı.",
-  "settings.spellcheck.failed": "Sözlük indirme başarısız. Logları kontrol edin.",
-  "settings.prompt.dictionaryRestart": "Yazım denetimi sözlüğünü yüklemek için DEAS'ı yeniden başlatın."
+  "settings.spellcheck.failed": "Sözlük indirme başarısız. Logları kontrol edin."
 }

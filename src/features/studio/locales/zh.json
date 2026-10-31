@@ -377,6 +377,9 @@
   "studio.run.post.hint": "使用相同模型、提示词和种子进行第二遍：可选放大模型，缩放到 {width}×{height}，再按精修强度重新采样。",
   "studio.run.post.denoise": "精修强度",
   "studio.run.post.model": "放大模型",
+  "studio.run.post.group.latent": "潜空间放大",
+  "studio.run.post.group.refine": "精修 / 放大",
+  "studio.run.post.group.modelHint": "在最终编码前作用于解码后的帧；原始编码会一并保留。",
   "studio.run.post.lanczos": "无 (Lanczos)",
   "studio.run.more": "更多",
   "studio.run.post.refine": "精修",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "提交中…",
   "studio.tve.queueHint": "进度、预览和导出：Studio 队列。",
   "studio.tve.jobGone": "任务在完成前离开了 Studio 队列；请查看日志。",
-  "studio.tve.pick": "或从媒体（输入/输出文件夹）中选择视频："
+  "studio.tve.pick": "或从媒体（输入/输出文件夹）中选择视频：",
+  "spellcheck.suggestions": "“{word}”的建议",
+  "spellcheck.noSuggestions": "无建议"
 }

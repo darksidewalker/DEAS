@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
+import { PromptTextarea } from '../studio/PromptTextarea';
 import { cancelChat, chatSettings, deleteChat, getChat, listChats, renameChat, saveChatSettings, sendChat, workingContext, type ChatEvent, type ChatHit, type ChatMessage, type ChatSettings, type ChatSummary, type WrittenPrompt } from '../../lib/chat';
 import { forgeError, nativeModelId } from '../../lib/forge';
 import { isBoolean, isString, usePref } from '../../lib/preferences';
@@ -234,7 +235,7 @@ export function Chat({ endpoint, root, active = true, onSend }: { endpoint: stri
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {pictures.length > 0 && <div className="chat-pictures">{pictures.map((p, i) => <span key={i} className="chat-pic"><img src={p} alt=""/><button type="button" aria-label={t('chat.removePicture')} onClick={() => setPictures(pictures.filter((_, k) => k !== i))}>×</button></span>)}</div>}
       <div className="chat-compose">
-        <textarea data-chat-input aria-label={t('chat.message')} value={draft} maxLength={32000} rows={Math.min(8, Math.max(2, draft.split('\n').length))} placeholder={t('chat.placeholder')}
+        <PromptTextarea data-chat-input aria-label={t('chat.message')} value={draft} maxLength={32000} rows={Math.min(8, Math.max(2, draft.split('\n').length))} placeholder={t('chat.placeholder')}
           onChange={e => setDraft(e.target.value)} onPaste={paste}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}/>
         <div className="chat-compose-bar">

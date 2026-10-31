@@ -1,3 +1,4 @@
+import { PromptTextarea } from '../studio/PromptTextarea';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
@@ -233,7 +234,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         </fieldset>}
         {typeof shots === 'number' && Array.from({ length: shots }, (_, i) => <label key={i} className="forge-field"><span>{t('forge.shot', { n: String(i + 1) })}</span><textarea data-forge-shot={i + 1} rows={2} maxLength={4000} value={shotBriefs[i] ?? ''} onChange={e => setShotBriefs(Object.assign([...shotBriefs], { [i]: e.target.value }))}/></label>)}
       </>}
-      <label className="forge-field"><span>{t(h3?.continuity ? 'forge.nextAction' : 'forge.brief')}</span><textarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
+      <label className="forge-field"><span>{t(h3?.continuity ? 'forge.nextAction' : 'forge.brief')}</span><PromptTextarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
       {busy && h3 ? <button type="button" className="action-button" data-forge-cancel onClick={cancel}>{t('forge.cancel')}</button>
         : <button type="button" className="action-button" data-forge-write disabled={busy || !forge.model || (!brief.trim() && !(image && !nativeTarget(dialect)) && !(h3 && shotBriefs.some(s => s.trim())))} onClick={() => void write()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
@@ -243,7 +244,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         {/* The prompt in the box and the rewrite, side by side: nothing changes until the new one is chosen. */}
         <div className="forge-compare" data-forge-compare>
           <label className="forge-field"><span>{t('forge.current')}</span><textarea data-forge-current readOnly value={value}/></label>
-          <label className="forge-field forge-new"><span>{t('forge.new')}</span><textarea data-forge-result aria-label={t('forge.result')} value={result} onChange={e => setResult(e.target.value)}/></label>
+          <label className="forge-field forge-new"><span>{t('forge.new')}</span><PromptTextarea data-forge-result aria-label={t('forge.result')} value={result} onChange={e => setResult(e.target.value)}/></label>
         </div>
         <div className="forge-row">
           <button type="button" className="action-button" data-forge-apply onClick={() => { setUndo(value); onApply(result); setOpen(false); opener.current?.focus(); }}>{t('forge.useNew')}</button>
@@ -251,7 +252,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         </div>
       </>}
       {result && h3 && <>
-        <label className="forge-field"><span>{t('forge.result')}</span><textarea data-forge-result value={result} onChange={e => setResult(e.target.value)}/></label>
+        <label className="forge-field"><span>{t('forge.result')}</span><PromptTextarea data-forge-result value={result} onChange={e => setResult(e.target.value)}/></label>
         {stale && <p className="forge-warning" role="status">{t('forge.stale')}</p>}
         <button type="button" className="action-button" data-forge-apply disabled={stale} onClick={() => { setUndo(value); onApply(result); setOpen(false); opener.current?.focus(); }}>{t('forge.apply')}</button>
       </>}

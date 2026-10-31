@@ -32,7 +32,7 @@ export function describeVideoPost(v:VideoPost):string{
 }
 
 /** The TVE post stages (model upscale → RTX refine → frame generation), each marked as pulled from TVE. */
-export function TvePostControls({value,onChange,allow,onRead,disabled=false,fps}:{value:TvePref;onChange:(next:TvePref)=>void;allow:RecipeAllowlist|null;onRead?:()=>void;disabled?:boolean;fps?:number}){
+export function TvePostControls({value,onChange,allow,onRead,disabled=false,fps,modelCard=true}:{value:TvePref;onChange:(next:TvePref)=>void;allow:RecipeAllowlist|null;onRead?:()=>void;disabled?:boolean;fps?:number;/** false = the Post dock renders the upscale-model card in its own group. */modelCard?:boolean}){
  const {t}=useI18n();
  const set=(patch:Partial<TvePref>)=>onChange({...value,...patch});
  const rtxNode=!allow||allow.nodes.includes('DaSiWa_RTX_UpscalerRefiner');
@@ -43,7 +43,7 @@ export function TvePostControls({value,onChange,allow,onRead,disabled=false,fps}
  const quality=(k:'denoiseQuality'|'deblurQuality'|'rtxQuality')=><select data-tve-post={k} disabled={disabled} value={value[k]} onChange={e=>set({[k]:e.target.value as RtxQuality})}>{rtxQualities.map(q=><option key={q} value={q}>{q}</option>)}</select>;
  const rifeModels=allow?.frameInterpolationModels??[];
  return <div className="tve-post" data-tve-post>
-  <label className="wb-option"><span>{t('studio.tve.post.model')}{badge}</span><select data-tve-post="upscaleModel" disabled={disabled} value={value.upscaleModel} onFocus={onRead} onPointerDown={onRead} onChange={e=>set({upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(allow?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{value.upscaleModel&&!allow?.upscaleModels?.includes(value.upscaleModel)&&<option value={value.upscaleModel}>{value.upscaleModel}</option>}</select></label>
+  {modelCard&&<label className="wb-option"><span>{t('studio.tve.post.model')}{badge}</span><select data-tve-post="upscaleModel" disabled={disabled} value={value.upscaleModel} onFocus={onRead} onPointerDown={onRead} onChange={e=>set({upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(allow?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{value.upscaleModel&&!allow?.upscaleModels?.includes(value.upscaleModel)&&<option value={value.upscaleModel}>{value.upscaleModel}</option>}</select></label>}
   <div className="wb-option" data-tve-post="rtx"><span>{t('studio.tve.post.rtx')}{badge}</span>
    {!rtxNode&&<small>{t('studio.tve.post.rtxMissing')}</small>}
    <label className="wb-option-row"><input type="checkbox" data-tve-post="denoise" disabled={disabled||!rtxNode} checked={value.denoise} onChange={e=>set({denoise:e.target.checked})}/>{t('studio.tve.post.denoise')}{value.denoise&&quality('denoiseQuality')}</label>

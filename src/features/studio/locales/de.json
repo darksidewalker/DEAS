@@ -377,6 +377,9 @@
   "studio.run.post.hint": "Zweiter Durchgang mit demselben Modell, Prompts und Seed: optionales Upscale-Modell, Skalierung auf {width}×{height}, dann erneutes Sampling mit der Refiner-Stärke.",
   "studio.run.post.denoise": "Refiner-Stärke",
   "studio.run.post.model": "Upscale-Modell",
+  "studio.run.post.group.latent": "Latent-Upscale",
+  "studio.run.post.group.refine": "Verfeinern / Hochskalieren",
+  "studio.run.post.group.modelHint": "Läuft auf den dekodierten Frames vor der finalen Kodierung; die Original-Kodierung bleibt daneben erhalten.",
   "studio.run.post.lanczos": "Keins (Lanczos)",
   "studio.run.more": "Mehr",
   "studio.run.post.refine": "Refine",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "Wird übermittelt…",
   "studio.tve.queueHint": "Fortschritt, Vorschau und Export: Studio-Warteschlange.",
   "studio.tve.jobGone": "Der Job hat die Studio-Warteschlange verlassen, bevor er fertig war; siehe Logs.",
-  "studio.tve.pick": "Oder ein Video aus Medien wählen (Eingabe-/Ausgabeordner):"
+  "studio.tve.pick": "Oder ein Video aus Medien wählen (Eingabe-/Ausgabeordner):",
+  "spellcheck.suggestions": "Vorschläge für „{word}“",
+  "spellcheck.noSuggestions": "Keine Vorschläge"
 }

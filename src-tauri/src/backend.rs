@@ -256,25 +256,57 @@ impl Approved {
     }
 }
 
-// shortcut: only the inspected ComfyUI b1a247c9 protocol is supported; review new sources before adding pins.
-const INTERRUPT_PINS: [(&str, &str); 4] = [
-    (
-        "server.py",
-        "6e3614c753c95b037e57e25dfc2de979de70136baad2a3abb5d2d32aaf05281e",
-    ),
-    (
-        "execution.py",
-        "bf61eed32e9db0fe87ab8c108ea21adeb948e0596242c9cc55334de4a6e451a1",
-    ),
-    (
-        "main.py",
-        "226a90fdd2cb0942c587e60ae292cddcebd8f6173224e3b91a80ab0efafa93ef",
-    ),
-    (
-        "nodes.py",
-        "a6db3d4ea52220db85bf92a01e27a3e8b17545f7d1c6d2fc6c929f1eb27b111e",
-    ),
-];
+/// Core files whose queue-to-interrupt protocol the adapter (`running_interrupt.py`) relies on.
+/// Installs track `master`, so the protocol is checked by its statements, not by whole-file hashes.
+const INTERRUPT_FILES: [&str; 4] = ["server.py", "execution.py", "main.py", "nodes.py"];
+/// Body of a `def` up to the next definition at the same or lower indentation.
+fn def_body<'a>(text: &'a str, def: &str) -> Option<&'a str> {
+    let rest = &text[text.find(def)? + def.len()..];
+    let end = [
+        "\n    def ",
+        "\n    async def ",
+        "\ndef ",
+        "\nasync def ",
+        "\nclass ",
+    ]
+    .iter()
+    .filter_map(|d| rest.find(d))
+    .min()
+    .unwrap_or(rest.len());
+    Some(&rest[..end])
+}
+/// First `with` statement of a def body is the given lock.
+fn locked_by(text: &str, def: &str, lock: &str) -> bool {
+    def_body(text, def).is_some_and(|b| b.find("with ").is_some_and(|i| b[i..].starts_with(lock)))
+}
+fn interrupt_protocol(name: &str, text: &str) -> bool {
+    match name {
+        // get/task_done/get_current_queue share one RLock (the Condition wraps it); every prompt resets the flag first.
+        "execution.py" => {
+            let Some(queue) = text.find("class PromptQueue:").map(|i| &text[i..]) else {
+                return false;
+            };
+            queue.contains("self.mutex = threading.RLock()")
+                && queue.contains("self.not_empty = threading.Condition(self.mutex)")
+                && locked_by(
+                    queue,
+                    "def get(self, timeout=None):",
+                    "with self.not_empty:",
+                )
+                && locked_by(queue, "def task_done(", "with self.mutex:")
+                && locked_by(queue, "def get_current_queue(", "with self.mutex:")
+                && def_body(text, "async def execute_async(")
+                    .is_some_and(|b| b.contains("nodes.interrupt_processing(False)"))
+        }
+        "main.py" => def_body(text, "def prompt_worker(")
+            .is_some_and(|b| b.contains("q.get(") && b.contains("q.task_done(")),
+        "nodes.py" => def_body(text, "def interrupt_processing(value=True):").is_some_and(|b| {
+            b.contains("comfy.model_management.interrupt_current_processing(value)")
+        }),
+        "server.py" => text.contains("self.prompt_queue = execution.PromptQueue(self)"),
+        _ => false,
+    }
+}
 struct InterruptSource {
     files: Vec<(PathBuf, [u8; 32])>,
     token: String,
@@ -282,14 +314,14 @@ struct InterruptSource {
 impl InterruptSource {
     fn capture(root: &Path) -> Result<Self, String> {
         let mut files = Vec::new();
-        for (name, pin) in INTERRUPT_PINS {
+        for name in INTERRUPT_FILES {
             let path = root.join("ComfyUI").join(name);
             let bytes = read_owned(&path, 1024 * 1024)?;
             // Accept Windows checkout CRLF, but retain and revalidate the exact launched raw bytes.
             let normalized = std::str::from_utf8(&bytes)
                 .map_err(|_| "Invalid backend source encoding")?
                 .replace("\r\n", "\n");
-            if format!("{:x}", Sha256::digest(&normalized)) != pin {
+            if !interrupt_protocol(name, &normalized) {
                 return Err("Scoped interruption requires inspected backend sources".into());
             }
             files.push((path, Sha256::digest(&bytes).into()));

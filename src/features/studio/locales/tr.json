@@ -377,6 +377,9 @@
   "studio.run.post.hint": "Aynı model, prompt'lar ve Seed ile ikinci geçiş: isteğe bağlı büyütme modeli, {width}×{height} boyutuna ölçekleme, ardından iyileştirme gücüyle yeniden örnekleme.",
   "studio.run.post.denoise": "İyileştirme gücü",
   "studio.run.post.model": "Büyütme modeli",
+  "studio.run.post.group.latent": "Latent büyütme",
+  "studio.run.post.group.refine": "İyileştir / Büyüt",
+  "studio.run.post.group.modelHint": "Son kodlamadan önce kodu çözülmüş karelerde çalışır; orijinal kodlama yanında saklanır.",
   "studio.run.post.lanczos": "Yok (Lanczos)",
   "studio.run.more": "Daha",
   "studio.run.post.refine": "İyileştir",
@@ -824,5 +827,7 @@
   "studio.tve.enhancing": "Gönderiliyor…",
   "studio.tve.queueHint": "İlerleme, önizleme ve dışa aktarma: Studio kuyruğu.",
   "studio.tve.jobGone": "İş tamamlanmadan Studio kuyruğundan ayrıldı; Logs a bakın.",
-  "studio.tve.pick": "Ya da Medya’dan bir video seçin (giriş/çıkış klasörleri):"
+  "studio.tve.pick": "Ya da Medya’dan bir video seçin (giriş/çıkış klasörleri):",
+  "spellcheck.suggestions": "“{word}” için öneriler",
+  "spellcheck.noSuggestions": "Öneri yok"
 }

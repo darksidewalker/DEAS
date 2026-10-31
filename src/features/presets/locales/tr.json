@@ -2,7 +2,7 @@
   "presets.title": "Ön ayarlar",
   "presets.help": "Geçerli Studio ayarlarını ön ayar olarak kaydedin. Yalnızca varsayılandan farklı ayarlar saklanır; böylece sonraki varsayılan değişiklikleri ön ayarın değiştirmediği her şeye ulaşır. Uygulamak, düzenlemek veya üzerine yazmak için ön ayara sağ tıklayın (veya Shift+F10). Medya, projeler ve çalışan işler asla değiştirilmez.",
   "presets.name": "Ön ayar adı",
-  "presets.save": "Yeni ön ayar olarak kaydet",
+  "presets.save": "Yeni ön ayar…",
   "presets.update": "Geçerli ayarlarla üzerine yaz",
   "presets.confirm": "“{name}” geçerli ayarlarla değiştirilsin mi?",
   "presets.saved": "Ön ayar kaydedildi.",
@@ -16,6 +16,7 @@
   "presets.apply": "Uygula",
   "presets.edit": "Düzenle…",
   "presets.editTitle": "Ön ayarı düzenle",
+  "presets.newTitle": "Yeni ön ayar",
   "presets.showAll": "Varsayılan değerdeki ayarları da göster",
   "presets.noChanges": "Bu ön ayar yalnızca varsayılanları kullanıyor.",
   "presets.changedMark": "Değişti",
@@ -25,5 +26,6 @@
   "presets.reset": "Varsayılana sıfırla",
   "presets.remove": "Kaldır",
   "presets.saveEdit": "Değişiklikleri kaydet",
+  "presets.saveNew": "Ön ayarı kaydet",
   "presets.cancel": "İptal"
 }

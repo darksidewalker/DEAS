@@ -1125,6 +1125,16 @@ fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
         return;
     }
     graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
+    if let Some(h3) = graph.get("HE") {
+        // The H3 edit removed both text encoders; the prompt is encoded by the I2V node, and there is no negative.
+        let prompt = h3["inputs"]["prompt"].clone();
+        graph["M"]["inputs"]["node_positive"] = json!(["HE", 0]);
+        graph["M"]["inputs"]["text_positive"] = prompt;
+        graph["M"]["inputs"]
+            .as_object_mut()
+            .unwrap()
+            .remove("node_negative");
+    }
     if let Some(qwen) = graph.get("QI") {
         let (positive, negative) = (
             qwen["inputs"]["prompt"].clone(),
