@@ -2,6 +2,7 @@
 
 ## 0.2.9 BETA (unreleased)
 
+- **Prompt Forge: cleaner image prompts.** A bare `===` line and the tag search's `[retired by danbooru]` flag no longer reach the prompt, and Keep positive no longer adds a trigger word twice when the model put it on its own line.
 - **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
 
 ## 0.2.8 BETA
