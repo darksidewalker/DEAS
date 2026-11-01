@@ -293,5 +293,6 @@
   "search.section.run": "Çalıştır",
   "search.section.filters": "Filtreler",
   "search.section.panes": "Backend panelleri",
-  "search.reason.lines": "Mevcut filtreyle eşleşen log satırı yok"
+  "search.reason.lines": "Mevcut filtreyle eşleşen log satırı yok",
+  "search.reason.backendRunning": "Yalnızca arka uç durdurulmuşken"
 }

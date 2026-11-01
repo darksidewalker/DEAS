@@ -293,5 +293,6 @@
   "search.section.run": "Exécuter",
   "search.section.filters": "Filtres",
   "search.section.panes": "Panneaux du backend",
-  "search.reason.lines": "Aucune ligne de log ne correspond au filtre actuel"
+  "search.reason.lines": "Aucune ligne de log ne correspond au filtre actuel",
+  "search.reason.backendRunning": "Seulement quand le backend est arrêté"
 }

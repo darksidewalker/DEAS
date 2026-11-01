@@ -293,5 +293,6 @@
   "search.section.run": "Run",
   "search.section.filters": "Filters",
   "search.section.panes": "Backend panes",
-  "search.reason.lines": "No log lines match the current filter"
+  "search.reason.lines": "No log lines match the current filter",
+  "search.reason.backendRunning": "Only while the backend is stopped"
 }

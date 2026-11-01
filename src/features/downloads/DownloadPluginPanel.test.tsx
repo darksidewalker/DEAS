@@ -92,6 +92,27 @@ it('Catalog source lists creator entries after the default DaSiWa catalog and br
  expect(screen.getByRole('button',{name:/Curated index/})).toBeTruthy();
  expect(screen.queryByLabelText('Remote file')).toBeNull();
 });
+it('a creator source groups its models by category and base model like the bundled catalog',async()=>{
+ const creator={id:'civitai-creator-trashai',label:'Browse CivitAI creator TrashAI',providerId:'fixture',scope:'user',locator:'TrashAI',kind:'model',target:'other'};
+ const withCreator={...catalog,providers:[{...catalog.providers[0],scopes:['index','repo','user']}],entries:[...catalog.entries,creator]};
+ const model=(id:string,label:string,category:string,base?:string)=>({...resource,id,label,kind:'repo',downloadable:false,locator:id,category,base});
+ const listing=[model('1','Anima Checkpoint','checkpoints','Anima'),model('2','Illu LoRA','loras','Illustrious'),model('3','Anima LoRA','loras','Anima'),model('4','Some workflow','workflows')];
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?withCreator:c==='native_auth_status'?[]:c==='native_download_browse'?{resources:listing,warnings:[],nextCursor:null}:c==='native_files_present'?[false]:null);
+ await open();
+ fireEvent.change(screen.getByLabelText('Catalog source'),{target:{value:'civitai-creator-trashai'}});
+ await waitFor(()=>expect(document.querySelector('[data-source-categories]')).not.toBeNull());
+ const tabs=document.querySelector<HTMLElement>('[data-source-categories]')!;
+ expect([...tabs.querySelectorAll('[role="tab"]')].map(b=>b.textContent)).toEqual(['All','Models','LoRAs','Workflows']);
+ const bases=()=>[...within(screen.getByRole('group',{name:'Base model'})).getAllByRole('button')].map(b=>b.textContent);
+ expect(bases()).toEqual(['All','Anima','Illustrious']);
+ const shown=()=>[...document.querySelectorAll('.download-resource .action-button')].map(e=>e.textContent?.replace(/^Select repository: /,'')).sort();
+ expect(shown()).toEqual(['Anima Checkpoint','Anima LoRA','Illu LoRA','Some workflow']);
+ fireEvent.click(within(tabs).getByRole('tab',{name:'LoRAs'}));
+ expect(shown()).toEqual(['Anima LoRA','Illu LoRA']);
+ expect(bases()).toEqual(['All','Anima','Illustrious']);
+ fireEvent.click(within(screen.getByRole('group',{name:'Base model'})).getByRole('button',{name:'Anima'}));
+ expect(shown()).toEqual(['Anima LoRA']);
+});
 it('uses exact nested IPC and metadata-only auth contracts',async()=>{
  const request={providerId:'fixture',scope:'index' as const,locator:'source',authenticated:false};await browseDownloads(request);expect(invoke).toHaveBeenLastCalledWith('native_download_browse',{request});
  const plan={providerId:'fixture',resources:[resource],parentPath:'/parent',folderName:'new',authenticated:false};await planDownloads(plan);expect(invoke).toHaveBeenLastCalledWith('native_download_plan',{request:plan});

@@ -101,11 +101,11 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
   </ul>}
   {children}
   <div className="aio-actions">
-   {native&&installSucceeded&&!active&&<button disabled={busy||locked} onClick={()=>void request('native_backend_start')}>{t('setup.backendLifecycle.start')}</button>}
-   <button title={t('setup.backendLifecycle.testHelp')} disabled={!native||busy||locked} onClick={()=>void (async()=>{await test();await request('native_backend_status');})()}>{t('setup.backendLifecycle.test')}</button>
-   {native&&status?.state==='running'&&<button disabled={busy||locked} onClick={()=>void request('native_backend_stop').then(s=>{if(s?.state==='stopped')return request('native_backend_start');})}>{t('setup.backendLifecycle.restart')}</button>}
-   {native&&active&&<button disabled={busy||locked} onClick={()=>void request('native_backend_stop')}>{t('setup.backendLifecycle.stop')}</button>}
-   {native&&status?.state==='running'&&status.endpoint&&<button title={t('setup.backendLifecycle.inspectHelp')} disabled={busy} onClick={()=>onConnectExisting(status.endpoint!)}>{t('setup.backendLifecycle.inspect')}</button>}
+   {native&&installSucceeded&&!active&&<button data-backend-action="start" disabled={busy||locked} onClick={()=>void request('native_backend_start')}>{t('setup.backendLifecycle.start')}</button>}
+   <button data-backend-action="test" title={t('setup.backendLifecycle.testHelp')} disabled={!native||busy||locked} onClick={()=>void (async()=>{await test();await request('native_backend_status');})()}>{t('setup.backendLifecycle.test')}</button>
+   {native&&status?.state==='running'&&<button data-backend-action="restart" disabled={busy||locked} onClick={()=>void request('native_backend_stop').then(s=>{if(s?.state==='stopped')return request('native_backend_start');})}>{t('setup.backendLifecycle.restart')}</button>}
+   {native&&active&&<button data-backend-action="stop" disabled={busy||locked} onClick={()=>void request('native_backend_stop')}>{t('setup.backendLifecycle.stop')}</button>}
+   {native&&status?.state==='running'&&status.endpoint&&<button data-backend-action="inspect" title={t('setup.backendLifecycle.inspectHelp')} disabled={busy} onClick={()=>onConnectExisting(status.endpoint!)}>{t('setup.backendLifecycle.inspect')}</button>}
    {actions}
   </div>
   {(technicalError||status?.error)&&<p className="aio-error" role="alert">{t('setup.technicalError')}: {technicalError||status?.error}</p>}

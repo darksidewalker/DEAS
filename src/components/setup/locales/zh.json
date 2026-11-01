@@ -293,5 +293,6 @@
   "search.section.run": "运行",
   "search.section.filters": "筛选",
   "search.section.panes": "后端面板",
-  "search.reason.lines": "没有匹配当前筛选的日志行"
+  "search.reason.lines": "没有匹配当前筛选的日志行",
+  "search.reason.backendRunning": "仅在后端已停止时"
 }

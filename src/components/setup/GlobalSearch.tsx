@@ -39,9 +39,13 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (entry: SearchEntry) 
     close();
     onNavigate(entry);
     // Studio and backend panes mount lazily after the tab switch; retry a few frames instead of guessing a delay.
+    // A dock card exists only on its dock tab: select that tab first (the tab button is the user's own switch).
+    const dock = () => entry.dockTab && document.querySelector<HTMLButtonElement>(`[data-dock-tab="${entry.dockTab}"]:not([aria-selected="true"])`)?.click();
+    dock();
     let outcome = revealTarget(entry.target);
     for (let frame = 0; frame < 20 && outcome.state === 'missing'; frame++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
+      dock();
       outcome = revealTarget(entry.target);
     }
     // A disabled control keeps its own explanation; the entry reason is the fallback.

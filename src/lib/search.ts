@@ -11,6 +11,8 @@ export interface SearchEntry {
   studioTab?: SearchStudioTab;
   panel?: SearchPanel;
   libraryView?: 'catalog' | 'installed';
+  /** Studio bottom-dock tab that must be selected before the target exists. */
+  dockTab?: 'options' | 'post' | 'loras' | 'presets' | 'wildcards' | 'media' | 'models';
   /** Breadcrumb tab → section → control, all locale keys. */
   tab: string;
   section: string;
@@ -48,6 +50,15 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'presets.title', target: '[data-dock-tab="presets"]', aliases: ['preset'] },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'wildcards.title', target: '[data-dock-tab="wildcards"]', aliases: ['wildcard'] },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'studio.run.dock.references', target: '[data-open-references]', aliases: ['reference', 'image'], reason: 'search.reason.references' },
+  // Studio · Options dock cards
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.attention', target: '[data-option="attention"]', aliases: ['sage', 'flash', 'kitchen'], reason: 'search.reason.backend' },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.vae', target: '[data-option="vae"]', aliases: ['tiled', 'tile'], reason: 'search.reason.backend' },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.cache', target: '[data-option="cache"]', aliases: ['teacache', 'magcache', 'easycache', 'threshold'], reason: 'search.reason.backend' },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.compile', target: '[data-option="compile"]', aliases: ['torch'], reason: 'search.reason.backend' },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.chunking', target: '[data-option="chunking"]', aliases: ['chunk', 'memory', 'video'], reason: 'search.reason.backend' },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.sigmas', target: '[data-option="sigmas"]', aliases: ['schedule', 'noise'] },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.output', target: '[data-option="output"]', aliases: ['format', 'png', 'webp', 'jpeg', 'quality', 'codec'] },
+  { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.outputNaming', target: '[data-option="outputNaming"]', aliases: ['filename', 'prefix'] },
   // Prompt Forge
   { view: studio, studioTab: 'forge', tab: 'studio.tab.forge', section: 'studio.tab.forge', label: 'forge.brief', target: '[data-forge-brief]', aliases: ['prompt', 'idea'] },
   { view: studio, studioTab: 'forge', tab: 'studio.tab.forge', section: 'studio.tab.forge', label: 'forge.result', target: '[data-forge-result]', aliases: ['prompt', 'output'] },
@@ -83,6 +94,15 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: 'backend', panel: 'llm', tab: 'settings.button', section: 'search.section.panes', label: 'llm.title', target: '.llm-panel', aliases: ['endpoint', 'server'], reason: 'search.reason.installed' },
   { view: 'backend', panel: 'auth', tab: 'settings.button', section: 'search.section.panes', label: 'downloads.auth', target: '.auth-providers button', aliases: ['token', 'civitai'] },
   { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendAutostart', target: '.backend-autostart', aliases: ['start', 'autostart'] },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.start', target: '[data-backend-action="start"]', aliases: ['start', 'comfyui', 'run backend'], reason: 'search.reason.backendRunning' },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.stop', target: '[data-backend-action="stop"]', aliases: ['stop', 'kill', 'shutdown'], reason: 'search.reason.backend' },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.restart', target: '[data-backend-action="restart"]', aliases: ['restart', 'reload'], reason: 'search.reason.backend' },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.test', target: '[data-backend-action="test"]', aliases: ['test', 'check', 'dependencies'] },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.inspect', target: '[data-backend-action="inspect"]', aliases: ['inspect', 'connect', 'endpoint'], reason: 'search.reason.backend' },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.pickParent', target: '[data-setup-action="pick"]', aliases: ['environment', 'folder', 'install location'] },
+  { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.reinstall', target: '[data-setup-action="reinstall"]', aliases: ['reinstall', 'repair', 'venv'], reason: 'search.reason.installed' },
+  { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.prompt.spellcheck', target: '[data-prompt-tool="spellcheck"]', aliases: ['spelling', 'dictionary'] },
+  { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.prompt.autocomplete', target: '[data-prompt-tool="autocomplete"]', aliases: ['tags', 'suggest', 'danbooru'] },
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.models', target: '[data-folder="models"]', aliases: ['folder', 'directory'], reason: 'search.reason.installed' },
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.input', target: '[data-folder="input"]', aliases: ['folder', 'directory'], reason: 'search.reason.installed' },
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.output', target: '[data-folder="output"]', aliases: ['folder', 'directory'], reason: 'search.reason.installed' },

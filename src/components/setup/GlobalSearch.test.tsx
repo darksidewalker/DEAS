@@ -66,6 +66,31 @@ test('a disabled control shows its own explanation, then the entry reason', asyn
   cfg.remove();
 });
 
+test('an Options dock card selects its dock tab first, then reveals the card; Backend actions and Options are indexed', async () => {
+  const dock = document.createElement('button');
+  dock.setAttribute('data-dock-tab', 'options');
+  dock.setAttribute('aria-selected', 'false');
+  const card = document.createElement('div');
+  card.setAttribute('data-option', 'cache');
+  card.hidden = true;
+  // The card mounts only once its tab is selected, like the Workbench dock.
+  dock.addEventListener('click', () => { dock.setAttribute('aria-selected', 'true'); card.hidden = false; });
+  document.body.append(dock, card);
+  const onNavigate = mount();
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(screen.getByPlaceholderText('Find a control…'), { target: { value: 'teacache' } });
+  fireEvent.click(screen.getByRole('button', { name: /Studio › Options › Step cache/ }));
+  await waitFor(() => expect(card.classList.contains('search-flash')).toBe(true));
+  expect(dock.getAttribute('aria-selected')).toBe('true');
+  expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ dockTab: 'options', target: '[data-option="cache"]' }));
+  dock.remove(); card.remove();
+  const text = (key: string) => bundledCatalog.dictionaries.en[key] ?? key;
+  expect(matchEntries(searchIndex, 'stop', text).map((entry) => entry.target)).toContain('[data-backend-action="stop"]');
+  expect(matchEntries(searchIndex, 'reinstall', text).map((entry) => entry.target)).toContain('[data-setup-action="reinstall"]');
+  expect(matchEntries(searchIndex, 'spellcheck', text).map((entry) => entry.target)).toContain('[data-prompt-tool="spellcheck"]');
+  expect(matchEntries(searchIndex, 'torch.compile', text).map((entry) => entry.target)).toContain('[data-option="compile"]');
+});
+
 test('matching uses the current language and English aliases, and stays read-only', () => {
   const text = (key: string) => `${bundledCatalog.dictionaries.en[key] ?? key} ${bundledCatalog.dictionaries.de[key] ?? key}`;
   expect(matchEntries(searchIndex, 'Ausführen', text).map((entry) => entry.target)).toContain('[data-run]');

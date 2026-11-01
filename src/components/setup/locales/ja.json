@@ -293,5 +293,6 @@
   "search.section.run": "実行",
   "search.section.filters": "フィルター",
   "search.section.panes": "バックエンドパネル",
-  "search.reason.lines": "現在のフィルターに一致するログ行がありません"
+  "search.reason.lines": "現在のフィルターに一致するログ行がありません",
+  "search.reason.backendRunning": "バックエンド停止中のみ"
 }

@@ -293,5 +293,6 @@
   "search.section.run": "Ausführen",
   "search.section.filters": "Filter",
   "search.section.panes": "Backend-Panels",
-  "search.reason.lines": "Keine Logzeilen passen zum aktuellen Filter"
+  "search.reason.lines": "Keine Logzeilen passen zum aktuellen Filter",
+  "search.reason.backendRunning": "Nur solange das Backend gestoppt ist"
 }

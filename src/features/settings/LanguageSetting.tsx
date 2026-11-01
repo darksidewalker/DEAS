@@ -32,7 +32,7 @@ export function LanguageSetting() {
     {languages.map(l=><option key={l.id} value={l.id}>{l.name} ({l.id})</option>)}
    </select></label>
    <p className="field-help">{custom?<><strong className="language-custom">{t('settings.language.customTag')}</strong> {t('settings.language.custom',{name:name(systemLocale)})}</>:t('settings.language.auto')}</p>
-   <label className="download-check"><input type="checkbox" checked={tools.spellcheck} onChange={e=>tools.update({spellcheck:e.target.checked})}/>{t('settings.prompt.spellcheck')}</label>
+   <label className="download-check"><input type="checkbox" data-prompt-tool="spellcheck" checked={tools.spellcheck} onChange={e=>tools.update({spellcheck:e.target.checked})}/>{t('settings.prompt.spellcheck')}</label>
    <label>{t('settings.prompt.language')}<select aria-label={t('settings.prompt.language')} value={tools.languageChoice} onChange={e=>tools.update({language:e.target.value})}>
     <option value="">{t('settings.language.system',{name:tools.systemLanguage})}</option>
     {languages.map(l=><option key={l.id} value={l.id}>{l.name} ({l.id})</option>)}
@@ -42,7 +42,7 @@ export function LanguageSetting() {
    {installed&&!tools.error&&<p role="status" className="field-help">{t('settings.spellcheck.installed')}</p>}
    {failed&&<p className="error-message" role="alert">{t('settings.spellcheck.failed')}</p>}
    {tools.error&&!missing&&<p className="error-message" role="alert">{t(tools.error)}</p>}
-   <label className="download-check"><input type="checkbox" checked={tools.autocomplete} onChange={e=>tools.update({autocomplete:e.target.checked})}/>{t('settings.prompt.autocomplete')}</label>
+   <label className="download-check"><input type="checkbox" data-prompt-tool="autocomplete" checked={tools.autocomplete} onChange={e=>tools.update({autocomplete:e.target.checked})}/>{t('settings.prompt.autocomplete')}</label>
    <p className="field-help">{t('settings.prompt.autocompleteHelp')}</p>
   </div>
  </section>;
