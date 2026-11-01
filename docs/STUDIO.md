@@ -328,9 +328,9 @@ History is optional local metadata in one versioned app-data JSON file. It store
 
 **System** shows one full-width graph per component, like the DaSiWa System Monitor's Full mode: CPU, RAM, GPU, VRAM (y axis 0–100 %) and disk read / disk write (y axis in MiB/s, top rounded to the next step above the series peak), each with its current value, an x axis in seconds before now (−60 … 0 s) and the last 60 samples taken once per second while the tab is visible. Samples come from the native `native_monitoring_sample` command (`/proc` and `/proc/diskstats` on Linux; `GetSystemTimes`, `GlobalMemoryStatusEx`, `GetDiskFreeSpaceExW` and `IOCTL_DISK_PERFORMANCE` over the physical drives on Windows; `nvidia-smi` for GPUs), so the tab works with the backend stopped; the source is named under the graphs. No telemetry beyond the per-job peaks is persisted, the backend is never queried, and nothing animates — graphs redraw only when a sample arrives. Without `nvidia-smi` the GPU graphs stay empty and say so. Not read: AMD/Intel GPUs, the node pack's `/dasiwa/system-monitor` route.
 
-## Checkpoint filter
+## Checkpoint list
 
-When more than eight checkpoints are installed, a **Filter checkpoints…** field sits above the Studio checkpoint selector. Typing narrows the native dropdown to names containing the text (case-insensitive); the currently selected model stays listed so the selection remains valid, and the filter itself is session-only — it writes no preference and never changes the selected model.
+The Studio checkpoint selector opens its own list: click it (or press Enter/Space/↓) and a **Filter checkpoints…** line appears inside the open list — but only there, and only when more than eight models are installed. Typing narrows the list to names containing the text (case-insensitive); the currently selected model stays listed so the select's value remains valid. Enter picks the first usable match, Esc closes, and clicking a name selects it. The filter is session-only — it writes no preference and never changes the selected model by itself.
 
 ## Seed controls
 

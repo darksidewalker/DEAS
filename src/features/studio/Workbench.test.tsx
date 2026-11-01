@@ -64,23 +64,32 @@ test('model metadata action enables an unknown supported file while GGUF stays u
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
-test('the checkpoint filter narrows the native select and keeps the selected model listed',async()=>{
+test('the checkpoint list filters while it is open and the filter field only exists then',async()=>{
  const files=['anima_a','anima_b','illu_c','krea_d','wan_e','ltx_f','sdxl_g','pony_h','moss_i'].map(n=>({category:'checkpoints',name:`${n}.safetensors`,path:`/m/${n}.safetensors`,size:1,info:null,family:'sdxl'}));
  vi.mocked(scanModels).mockResolvedValue(files);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  const picker=await waitFor(()=>{const p=document.querySelector<HTMLSelectElement>('[data-model-picker]')!;expect(p.options.length).toBe(9);return p;});
  fireEvent.change(picker,{target:{value:'krea_d.safetensors'}});
+ // Closed: no filter field anywhere.
+ expect(document.querySelector('[data-model-filter]')).toBeNull();
+ fireEvent.mouseDown(picker);
  const filter=screen.getByLabelText('Filter checkpoints…') as HTMLInputElement;
  fireEvent.change(filter,{target:{value:'ANIMA'}});
  // Both matches plus the selected model, so the select's value stays valid; nothing is written to preferences by typing.
  expect([...picker.options].map(o=>o.value)).toEqual(['anima_a.safetensors','anima_b.safetensors','krea_d.safetensors']);
  expect(picker.value).toBe('krea_d.safetensors');
+ expect([...document.querySelectorAll('[data-model-list] [role="option"]')].map(o=>o.textContent)).toEqual(['anima_a.safetensors','anima_b.safetensors','krea_d.safetensors']);
  fireEvent.change(filter,{target:{value:''}});
  expect(picker.options.length).toBe(9);
- // Few models: no filter field.
+ fireEvent.click([...document.querySelectorAll('[data-model-list] [role="option"]')].find(o=>o.textContent==='anima_b.safetensors')!);
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.checkpoint')!)).toBe('anima_b.safetensors');
+ expect(document.querySelector('[data-model-filter]')).toBeNull();
+ // Few models: the list still opens, without a filter field.
  cleanup();localStorage.removeItem('deas.pref.studio.run.checkpoint');vi.mocked(scanModels).mockResolvedValue(files.slice(0,3));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
- await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-model-picker]')!.options.length).toBe(3));
+ const few=await waitFor(()=>{const p=document.querySelector<HTMLSelectElement>('[data-model-picker]')!;expect(p.options.length).toBe(3);return p;});
+ fireEvent.mouseDown(few);
+ expect(document.querySelectorAll('[data-model-list] [role="option"]').length).toBe(3);
  expect(document.querySelector('[data-model-filter]')).toBeNull();
 });
 test('declared GGUF runs through the GGUF loader while invalid metadata fails closed',async()=>{

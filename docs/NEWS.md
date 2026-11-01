@@ -2,6 +2,7 @@
 
 ## 0.2.10 BETA (unreleased)
 
+- **Checkpoint picker:** typing to filter now happens inside the open list, not in a permanent field above it.
 - **MOSS-Image inpaint:** a painted mask (Inpaint mode) works with MOSS now, with the same graph as every other image model.
 
 ## 0.2.9 BETA

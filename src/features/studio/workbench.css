@@ -26,7 +26,12 @@
 .wb-field.wb-pipeline select { font-weight: 600; }
 .wb-checkpoint { margin-bottom: .6rem; min-width: 0; }
 .wb-checkpoint > small { color: var(--muted); font-size: .68rem; }
+.wb-model-list { margin-top: 4px; padding: 4px; border: 1px solid rgb(var(--ink-rgb) / 0.2); border-radius: 6px; background: var(--field); max-height: 220px; overflow-y: auto; }
+.wb-model-list ul { list-style: none; margin: 0; padding: 0; }
 .wb-model-filter { width: 100%; margin-bottom: 4px; padding: .3rem .5rem; font-size: .75rem; }
+.wb-model-list li { padding: .25rem .4rem; border-radius: 4px; font-size: .78rem; color: var(--chalk); cursor: pointer; }
+.wb-model-list li:hover, .wb-model-list li[aria-selected="true"] { background: var(--raised); }
+.wb-model-list li.is-disabled { color: var(--muted); cursor: not-allowed; }
 .wb-model-files { margin-top: .65rem; border-top: 1px solid rgb(var(--ink-rgb) / 0.122); min-width: 0; }
 .wb-model-files > summary { padding: .45rem 0; color: var(--muted); font-size: .78rem; cursor: pointer; }
 .wb-model-files > summary:focus-visible { outline: 1px solid var(--copper); }
