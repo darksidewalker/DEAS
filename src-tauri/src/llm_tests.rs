@@ -457,6 +457,21 @@ class Never(Fixture):
 try: ns['open_model'](types.SimpleNamespace(Llama=Never, llama_supports_gpu_offload=lambda: True), 'model.gguf')
 except ValueError: pass
 else: raise AssertionError('expected failure')
+with tempfile.TemporaryDirectory() as folder:
+    path = os.path.join(folder, 'sized.gguf')
+    with open(path, 'wb') as file: file.truncate(4 * 2**30)
+    free = [8200 * 2**20]
+    sys.modules['torch'] = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True, mem_get_info=lambda: (free[0], 0)))
+    assert ns['fitting_contexts'](path) == (16384, 8192)
+    free[0] = 16000 * 2**20
+    assert ns['fitting_contexts'](path) == (32768, 16384, 8192)
+    free[0] = 5000 * 2**20
+    try: ns['fitting_contexts'](path)
+    except MemoryError: pass
+    else: raise AssertionError('expected refusal')
+    sys.modules['torch'].cuda.is_available = lambda: False
+    assert ns['fitting_contexts'](path) == ns['SESSION_CONTEXTS']
+    del sys.modules['torch']
 print('session fixtures passed')
 "#,
         worker = include_str!("llm_worker.py")

@@ -750,6 +750,7 @@ impl LocalWorker {
         let value: Value = serde_json::from_slice(&reply).map_err(|_| LOCAL_FAILED.to_string())?;
         match value["error"].as_str() {
             Some("context") => Err("This write is too long for the context the local model loaded with. Free GPU memory by stopping the backend, lower Detail, or pick a server under Backend → LLM.".into()),
+            Some("memory") => Err("Not enough free GPU memory for this local model. Close other apps using the GPU, stop the backend, or pick a smaller GGUF.".into()),
             Some("runtime") => Err("The local LLM runtime did not start. Use Backend → Re-run installation to repair it.".into()),
             Some("load") => Err("The local model did not load. It may be too large for the free memory, so stop the backend or pick a smaller GGUF.".into()),
             Some(_) => Err(LOCAL_FAILED.into()),

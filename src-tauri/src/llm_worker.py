@@ -8,6 +8,9 @@ MAX_INPUT = 1024 * 1024
 MAX_OUTPUT = 1024 * 1024
 SESSION_INPUT = 4 * 1024 * 1024
 SESSION_CONTEXTS = (32768, 16384, 8192)
+# Measured on real GGUFs: the cost of each context token, plus a small fixed overhead.
+CONTEXT_BYTES = 215 * 1024
+MODEL_OVERHEAD = 512 * 1024 * 1024
 
 
 def load_llama():
@@ -35,15 +38,32 @@ def thinking_off(llama_cpp, model):
     ).to_chat_handler()
 
 
+def fitting_contexts(path):
+    """Windows pages an oversized model to system memory instead of refusing it, so ask first."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return SESSION_CONTEXTS
+        free = torch.cuda.mem_get_info()[0]
+        size = os.path.getsize(path) + MODEL_OVERHEAD
+    except Exception:
+        return SESSION_CONTEXTS
+    fits = tuple(n for n in SESSION_CONTEXTS if size + n * CONTEXT_BYTES <= free)
+    if not fits:
+        raise MemoryError("Not enough free GPU memory")
+    return fits
+
+
 def open_model(llama_cpp, path):
     """The largest context that fits: a smaller card still gets a working, shorter one."""
     layers = -1 if llama_cpp.llama_supports_gpu_offload() else 0
-    for n_ctx in SESSION_CONTEXTS:
+    contexts = fitting_contexts(path) if layers else SESSION_CONTEXTS
+    for n_ctx in contexts:
         try:
             model = llama_cpp.Llama(model_path=path, n_ctx=n_ctx, n_gpu_layers=layers, verbose=False)
             break
         except Exception:
-            if n_ctx == SESSION_CONTEXTS[-1]:
+            if n_ctx == contexts[-1]:
                 raise
     try:
         thinking_off(llama_cpp, model)
@@ -96,7 +116,7 @@ def serve():
                     reply = session_round(model, request)
             except Exception as error:
                 # Never expose exception text: tokenizer/model errors can contain the user's prompt.
-                reply = {"error": "context" if "exceed context" in str(error) else stage}
+                reply = {"error": "memory" if isinstance(error, MemoryError) else "context" if "exceed context" in str(error) else stage}
             protocol.write(json.dumps(reply, ensure_ascii=True).encode("utf-8") + b"\n")
             protocol.flush()
     finally:
