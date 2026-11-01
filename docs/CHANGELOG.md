@@ -2,6 +2,7 @@
 
 ## 0.2.9 BETA (unreleased)
 
+- **Prompt Forge: cleaner image prompts.** A bare `===` line and the tag search's `[retired by danbooru]` flag no longer reach the prompt, and Keep positive no longer adds a trigger word twice when the model put it on its own line.
 - **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
 - **Prompt Forge can be stopped.** The Prompt Forge tab and the hammer on image models show **Cancel** while writing. It ends the request or the local GGUF at once and frees the GPU; before, a slow write could only be waited out or ended by closing DEAS.
 - **Video prompts say why they cannot start.** With the backend stopped, MiniMax H3, LTX and Wan showed "Prompt Forge request failed" over a model list stuck on loading. They now say the backend isn't running and where to start it.

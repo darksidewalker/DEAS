@@ -43,6 +43,26 @@ fn delimiter(line: &str) -> Option<&str> {
     (!label.is_empty()).then_some(label)
 }
 
+/// Two things a model copies into a prompt that are never part of one: a bare
+/// `===` line left over from the delimiters, and the tag search's
+/// `[retired by danbooru]` flag (`tools.rs`).
+fn tidy_body(body: &str) -> String {
+    let kept: Vec<&str> = body
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            line.len() < 3 || line.chars().any(|c| c != '=')
+        })
+        .collect();
+    kept.join("\n")
+        .split("[retired by danbooru]")
+        .map(|part| part.trim_matches(' '))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
 /// Segments in contract order. `discard` labels are allowed but dropped (the
 /// model's file may still list them); a `Refused` segment satisfies the
 /// contract on its own and comes back alone with `refused = true`.
@@ -67,7 +87,7 @@ pub fn parse(
         return Err(ParseError::NoSegments);
     }
     for s in &mut segments {
-        s.body = s.body.trim().to_string();
+        s.body = tidy_body(&s.body);
     }
     if segments.iter().any(|s| s.label == REFUSED) {
         return Ok((
@@ -106,6 +126,13 @@ mod tests {
     use super::*;
 
     const EXPECTED: [&str; 3] = ["Positive prompt", "Negative prompt", "Reasoning"];
+
+    #[test]
+    fn bare_equals_line_and_tag_search_flag_are_not_prompt_text() {
+        let text = "===SEGMENT: Positive prompt===\nknight, [retired by danbooru]my trigger, wide shot\n===\n===SEGMENT: Negative prompt===\nbad hands\n===SEGMENT: Reasoning===\nshort\n";
+        let (segs, _) = parse(text, &EXPECTED, &[]).unwrap();
+        assert_eq!(segs[0].body, "knight, my trigger, wide shot");
+    }
 
     #[test]
     fn parses_in_contract_order() {

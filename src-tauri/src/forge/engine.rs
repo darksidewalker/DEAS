@@ -1200,8 +1200,10 @@ fn keep_as_written(
             .collect::<Vec<_>>()
             .join(" ")
     };
+    // A new line separates tags too: a model that puts a trigger word on its
+    // own line has still kept it.
     let split = |s: &str| {
-        s.split(',')
+        s.split([',', '\n'])
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(String::from)
