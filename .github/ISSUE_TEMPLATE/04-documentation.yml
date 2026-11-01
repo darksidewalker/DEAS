@@ -1,0 +1,61 @@
+name: Documentation issue
+description: Report missing, unclear or incorrect documentation.
+title: '[Docs]: '
+labels:
+- documentation
+body:
+- type: markdown
+  attributes:
+    value: 'Search existing issues before submitting. Reports and attachments are public: remove API keys,
+      tokens, personal paths and private prompts/media. Never upload model weights or credentials.'
+- type: input
+  id: version
+  attributes:
+    label: DEAS version / commit
+    description: Copy the displayed app version; include the commit hash for a source build. Write unknown
+      if the app cannot start.
+  validations:
+    required: false
+- type: dropdown
+  id: updated
+  attributes:
+    label: Update status
+    description: Report what you actually checked; updating is not required to submit.
+    options:
+    - App and backend updated; issue still occurs
+    - App updated only
+    - Backend updated only
+    - Updates available / not yet updated
+    - Fresh installation
+    - Not checked / unknown
+    - Not applicable
+  validations:
+    required: false
+- type: input
+  id: page
+  attributes:
+    label: Documentation page / URL
+    description: Link the page or name the file and section.
+  validations:
+    required: true
+- type: textarea
+  id: problem
+  attributes:
+    label: Missing / incorrect information
+    description: Quote the affected passage or describe missing instructions.
+  validations:
+    required: true
+- type: textarea
+  id: correction
+  attributes:
+    label: Suggested correction
+    description: What would make the instructions accurate or clearer?
+  validations:
+    required: false
+- type: textarea
+  id: context
+  attributes:
+    label: Additional context
+    description: Include OS/install details or a screenshot if instructions differ from your app.
+  validations:
+    required: false

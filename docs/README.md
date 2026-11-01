@@ -30,6 +30,7 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Run Plan · 
 | Library → Catalog / Installed, Scan Files; Backend → Provider authorization | [Library and authorization](LIBRARY.md) |
 | Original Comfy editor and workflow import | [Comfy tab](COMFY.md) |
 | Logs, source/level/search filters, copy/export | [Logs](LOGS.md) |
+| Bug reports, feature requests, questions and documentation issues | [GitHub issue forms](LOGS.md#github-issue-forms) |
 
 ## News, history and attribution
 

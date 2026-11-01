@@ -1,0 +1,75 @@
+name: Question / help
+description: Ask about setup, usage or supported workflows.
+title: '[Question]: '
+labels:
+- question
+body:
+- type: markdown
+  attributes:
+    value: 'Search existing issues before submitting. Reports and attachments are public: remove API keys,
+      tokens, personal paths and private prompts/media. Never upload model weights or credentials.'
+- type: input
+  id: version
+  attributes:
+    label: DEAS version / commit
+    description: Copy the displayed app version; include the commit hash for a source build. Write unknown
+      if the app cannot start.
+  validations:
+    required: true
+- type: dropdown
+  id: updated
+  attributes:
+    label: Update status
+    description: Report what you actually checked; updating is not required to submit.
+    options:
+    - App and backend updated; issue still occurs
+    - App updated only
+    - Backend updated only
+    - Updates available / not yet updated
+    - Fresh installation
+    - Not checked / unknown
+    - Not applicable
+  validations:
+    required: false
+- type: textarea
+  id: environment
+  attributes:
+    label: System and installation
+    description: Include OS/version, installation method, GPU/VRAM, RAM, driver and ComfyUI / node-pack
+      revisions if known. Write unknown for unavailable details.
+    placeholder: 'OS/version:
+
+      Installation (release binary / source):
+
+      GPU / VRAM:
+
+      RAM:
+
+      Driver:
+
+      ComfyUI / DaSiWa node-pack revision (if known):'
+  validations:
+    required: false
+- type: textarea
+  id: question
+  attributes:
+    label: Question
+    description: What are you trying to do, and where are you stuck?
+  validations:
+    required: true
+- type: textarea
+  id: attempted
+  attributes:
+    label: What have you tried?
+    description: Include relevant documentation links and exact messages.
+  validations:
+    required: false
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs (.txt export)
+    description: 'After reproducing: open Logs, set Source and Level to All, clear Search, then Export
+      .txt. Review/redact the file and drag it into this field. If export is unavailable (e.g. startup
+      crash), explain why and paste terminal output if available. Do not paste secrets.'
+  validations:
+    required: false

@@ -22,6 +22,16 @@ Every plugin/feature must route diagnostics and errors to its host application's
 
 The existing source/level filters above do **not** establish complete per-plugin structured logging or frontend-to-native error delivery. Those paths require an audit and integration tests; adding this rule does not implement or verify them. See the mandatory [shared logging contract](PROJECT-RULES.md#shared-logging-for-every-plugin-and-implementation) for IPC, redaction, failure handling and test requirements.
 
+## GitHub issue forms
+
+Open [New issue](https://github.com/darksidewalker/DEAS/issues/new/choose) and choose **Bug report**, **Feature / enhancement request**, **Question / help** or **Documentation issue**. The corresponding form applies the existing `bug`, `enhancement`, `question` or `documentation` label automatically; dropdown answers do not add extra labels. Templates become available after `.github/ISSUE_TEMPLATE/` reaches the repository's default branch.
+
+All forms ask for the DEAS version and update status; these are optional for enhancement/documentation requests. Bug reports require the version, update status, system/installation details, affected feature, reproduction steps, expected/actual behavior and log attachment or an explanation of why logs are unavailable. Include the last working version and backend/driver changes when reporting a regression. Generation reports should also include exact model filenames and effective settings.
+
+For a bug report, reproduce the problem, open **Logs**, select **All** for both Source and Level, clear Search, and click **Export .txt**. Save the file before closing DEAS: retained logs are session-only and older entries can be evicted. Review and redact the text, then drag the `.txt` file into the form's **Logs (.txt export)** field. That field deliberately has no code-block renderer so attachments remain available. If the app cannot start or export fails, explain this and include terminal output if available. GitHub validates that the field is filled, not that a genuine `.txt` export was attached. Logs are optional for questions and not requested for enhancements/documentation.
+
+Reports and attachments are public. Never upload tokens, credentials, private prompts/media or model weights. Redact sensitive paths and metadata before submitting. No logs are collected or uploaded automatically, and an update is not a prerequisite for filing an issue.
+
 ## Reporting errors safely
 
 Discovery connection failures now show a translated **Backend not reachable** hint instead of the low-level `object_info` request URL. Start the owned backend under Backend; if already started, wait until ready, verify its current address and inspect Logs. A timeout says the backend may still be starting or busy, rather than claiming it stopped. An HTTP response keeps its status code and points to address/access checks. Malformed data, model/validation errors and uncertain execution outcomes remain separate; a transport failure after submission is not permission to blindly resubmit. Discovery transport diagnostics retain their endpoint/category in shared Logs, omit the request URL, and repeat at most once per endpoint/category per minute.

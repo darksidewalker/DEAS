@@ -1,0 +1,69 @@
+name: Feature / enhancement request
+description: Suggest a feature or improve an existing workflow.
+title: '[Enhancement]: '
+labels:
+- enhancement
+body:
+- type: markdown
+  attributes:
+    value: 'Search existing issues before submitting. Reports and attachments are public: remove API keys,
+      tokens, personal paths and private prompts/media. Never upload model weights or credentials.'
+- type: input
+  id: version
+  attributes:
+    label: DEAS version / commit
+    description: Copy the displayed app version; include the commit hash for a source build. Write unknown
+      if the app cannot start.
+  validations:
+    required: false
+- type: dropdown
+  id: updated
+  attributes:
+    label: Update status
+    description: Report what you actually checked; updating is not required to submit.
+    options:
+    - App and backend updated; issue still occurs
+    - App updated only
+    - Backend updated only
+    - Updates available / not yet updated
+    - Fresh installation
+    - Not checked / unknown
+    - Not applicable
+  validations:
+    required: false
+- type: input
+  id: area
+  attributes:
+    label: Affected tab / feature
+    description: ''
+  validations:
+    required: false
+- type: textarea
+  id: problem
+  attributes:
+    label: Problem / use case
+    description: Describe the workflow and why current behavior is insufficient.
+  validations:
+    required: true
+- type: textarea
+  id: proposal
+  attributes:
+    label: Requested improvement
+    description: Describe what should change and what success looks like.
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatives / workarounds
+    description: What have you tried?
+  validations:
+    required: false
+- type: textarea
+  id: context
+  attributes:
+    label: Additional context
+    description: Relevant OS/hardware/model constraints, mockups or links. Logs are not required for a
+      feature request.
+  validations:
+    required: false

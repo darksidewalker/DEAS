@@ -1,0 +1,121 @@
+name: Bug report
+description: Report a crash, failed operation or incorrect behavior.
+title: '[Bug]: '
+labels:
+- bug
+body:
+- type: markdown
+  attributes:
+    value: 'Search existing issues before submitting. Reports and attachments are public: remove API keys,
+      tokens, personal paths and private prompts/media. Never upload model weights or credentials.'
+- type: input
+  id: version
+  attributes:
+    label: DEAS version / commit
+    description: Copy the displayed app version; include the commit hash for a source build. Write unknown
+      if the app cannot start.
+  validations:
+    required: true
+- type: dropdown
+  id: updated
+  attributes:
+    label: Update status
+    description: Report what you actually checked; updating is not required to submit.
+    options:
+    - App and backend updated; issue still occurs
+    - App updated only
+    - Backend updated only
+    - Updates available / not yet updated
+    - Fresh installation
+    - Not checked / unknown
+    - Not applicable
+  validations:
+    required: true
+- type: textarea
+  id: regression
+  attributes:
+    label: Update / regression details
+    description: When did this start? Include the previous working version and changes to app, backend,
+      driver or models; note failed updates.
+  validations:
+    required: false
+- type: textarea
+  id: environment
+  attributes:
+    label: System and installation
+    description: Include OS/version, installation method, GPU/VRAM, RAM, driver and ComfyUI / node-pack
+      revisions if known. Write unknown for unavailable details.
+    placeholder: 'OS/version:
+
+      Installation (release binary / source):
+
+      GPU / VRAM:
+
+      RAM:
+
+      Driver:
+
+      ComfyUI / DaSiWa node-pack revision (if known):'
+  validations:
+    required: true
+- type: input
+  id: area
+  attributes:
+    label: Affected tab / feature
+    description: ''
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Steps to reproduce
+    description: Give the smallest reproducible example, frequency, and whether it persists after relaunch.
+      Do not interrupt a running job just to test.
+    placeholder: '1. Open ...
+
+      2. Select ...
+
+      3. Run ...
+
+      4. Observe ...'
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: Expected behavior
+    description: ''
+  validations:
+    required: true
+- type: textarea
+  id: actual
+  attributes:
+    label: Actual behavior
+    description: Include exact error text and job ID if available.
+  validations:
+    required: true
+- type: textarea
+  id: settings
+  attributes:
+    label: Models and effective settings
+    description: 'If generation-related: exact checkpoint/encoder/VAE filenames, pipeline, dimensions,
+      frames/FPS, seed, steps, CFG, sampler/scheduler, LoRAs and enabled post-processing. Omit private
+      prompts.'
+  validations:
+    required: false
+- type: textarea
+  id: logs
+  attributes:
+    label: Logs (.txt export)
+    description: 'After reproducing: open Logs, set Source and Level to All, clear Search, then Export
+      .txt. Review/redact the file and drag it into this field. If export is unavailable (e.g. startup
+      crash), explain why and paste terminal output if available. Do not paste secrets.'
+  validations:
+    required: true
+- type: textarea
+  id: attachments
+  attributes:
+    label: Screenshots / additional context
+    description: Attach redacted screenshots or a minimal workflow. No model weights.
+  validations:
+    required: false
