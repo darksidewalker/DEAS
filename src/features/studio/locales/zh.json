@@ -829,5 +829,6 @@
   "studio.tve.jobGone": "任务在完成前离开了 Studio 队列；请查看日志。",
   "studio.tve.pick": "或从媒体（输入/输出文件夹）中选择视频：",
   "spellcheck.suggestions": "“{word}”的建议",
-  "spellcheck.noSuggestions": "无建议"
+  "spellcheck.noSuggestions": "无建议",
+  "studio.run.checkpointFilter": "筛选检查点…"
 }

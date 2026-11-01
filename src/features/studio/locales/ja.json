@@ -829,5 +829,6 @@
   "studio.tve.jobGone": "ジョブが完了前に Studio キューから離れました。ログを確認してください。",
   "studio.tve.pick": "またはメディア（入力/出力フォルダー）から動画を選択:",
   "spellcheck.suggestions": "「{word}」の候補",
-  "spellcheck.noSuggestions": "候補なし"
+  "spellcheck.noSuggestions": "候補なし",
+  "studio.run.checkpointFilter": "チェックポイントを絞り込む…"
 }

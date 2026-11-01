@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.2.9 BETA (unreleased)
+## 0.2.9 BETA
 
+- **Checkpoint filter.** With more than eight models, a **Filter checkpoints…** field sits above the Studio checkpoint selector; typing narrows the native dropdown to matching names (case-insensitive). The selected model always stays listed, so clearing or changing the filter never changes the selection; typing writes nothing.
 - **Library: creator sources are grouped too.** A CivitAI creator chosen under **Catalog source** (e.g. TrashAI) showed one flat list of model names. Its listing now gets the same grouping as the bundled catalog: category tabs (All · Models · LoRAs · … from each model's CivitAI type) and the **Base model** buttons (Anima, Illustrious, …) from the models' base-model field; both filter the list. A stray debug `console.log` in the Library panel is gone.
 - **Global search finds Options and Backend controls.** New entries: the eight Options cards (attention backend, VAE processing, step cache, torch.compile, chunking, custom sigmas, output format, output naming — a hit selects the Options dock tab first), the Backend lifecycle buttons (Start, Stop, Restart, Test, Inspect), the environment folder picker and Reinstall, and the prompt spellcheck / tag autocomplete toggles.
 - **Buttons, round two.** The Presets **New preset…** button and the preset menus, plus the Library grouping pills (category, base model, media, sort, version) now use the shared skin; a selected grouping pill is filled like a pressed button.

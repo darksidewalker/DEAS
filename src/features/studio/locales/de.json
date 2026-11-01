@@ -829,5 +829,6 @@
   "studio.tve.jobGone": "Der Job hat die Studio-Warteschlange verlassen, bevor er fertig war; siehe Logs.",
   "studio.tve.pick": "Oder ein Video aus Medien wählen (Eingabe-/Ausgabeordner):",
   "spellcheck.suggestions": "Vorschläge für „{word}“",
-  "spellcheck.noSuggestions": "Keine Vorschläge"
+  "spellcheck.noSuggestions": "Keine Vorschläge",
+  "studio.run.checkpointFilter": "Checkpoints filtern…"
 }

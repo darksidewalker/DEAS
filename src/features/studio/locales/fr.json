@@ -829,5 +829,6 @@
   "studio.tve.jobGone": "La tâche a quitté la file du Studio avant de se terminer ; voir les Logs.",
   "studio.tve.pick": "Ou choisissez une vidéo dans Médias (dossiers d’entrée/sortie) :",
   "spellcheck.suggestions": "Suggestions pour « {word} »",
-  "spellcheck.noSuggestions": "Aucune suggestion"
+  "spellcheck.noSuggestions": "Aucune suggestion",
+  "studio.run.checkpointFilter": "Filtrer les checkpoints…"
 }
