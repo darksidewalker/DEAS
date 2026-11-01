@@ -365,10 +365,13 @@ fn resolve_local(root: &Path, id: &str) -> Result<std::path::PathBuf, String> {
             return Err("Local model symlinks are not allowed".into());
         }
     }
-    let actual = dunce::canonicalize(path).map_err(|_| "Local model is unavailable")?;
-    // Windows spells the folder as it is on disk (`LLM`), which `base` may not.
-    let base = dunce::canonicalize(&base).map_err(|_| "Local model is unavailable")?;
-    if !actual.starts_with(&base) || !actual.is_file() || !language_gguf(&actual) {
+    let actual = dunce::canonicalize(&path).map_err(|_| "Local model is unavailable")?;
+    // Compare the std forms: on Windows both carry `\\?\`, while dunce keeps it only for a
+    // path over 260 chars, so a deep llm folder failed `starts_with` against its own base.
+    let inside = std::fs::canonicalize(&path)
+        .and_then(|a| std::fs::canonicalize(&base).map(|b| a.starts_with(b)))
+        .map_err(|_| "Local model is unavailable")?;
+    if !inside || !actual.is_file() || !language_gguf(&actual) {
         return Err("Invalid local GGUF model".into());
     }
     Ok(actual)

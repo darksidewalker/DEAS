@@ -2,6 +2,7 @@
 
 ## 0.2.9 BETA (unreleased)
 
+- **Windows: a local GGUF in a deep folder was "Invalid local GGUF model".** The LLM list found it, but the path check compared a `\\?\`-prefixed file path (Windows adds it past 260 characters) with its unprefixed `llm` folder, so a subfolder model such as `TrashAI_4B/PromptForge-H3-4B-Uncensored-r4.Q8_0.gguf` under a long environment path never matched. Both sides are now compared in the same form (reproduced and verified on Windows 11 with a 306-character path).
 - **Windows: RTX VSR / frame generation ran into `NvVFX_Load failed … (code -12)`.** DEAS starts ComfyUI with a cleared environment, and the NVIDIA NGX runtime behind `DaSiWa_RTX_UpscalerRefiner` and `DaSiWa_RTX_FrameGeneration` needs `SYSTEMDRIVE` to find its driver files; without it every RTX effect failed at load while the latent upscale before it succeeded. The variable is now passed through (A/B on Windows 11, RTX 4070 Ti SUPER, driver 621.01: same venv, same effect — fails without `SYSTEMDRIVE`, upscales with it). Takes effect on the next backend start.
 
 - **Prompt Forge: cleaner image prompts.** A bare `===` line and the tag search's `[retired by danbooru]` flag no longer reach the prompt, and Keep positive no longer adds a trigger word twice when the model put it on its own line.
