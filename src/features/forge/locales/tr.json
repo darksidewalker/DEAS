@@ -27,6 +27,7 @@
   "forge.noBackend": "Prompt Forge için kurulu bir ortamın backend'inu başlatın.",
   "forge.noDialect": "Prompt Forge bu model için bir prompt stili içermiyor",
   "forge.outdated": "Prompt Forge backend'de daha yeni bir DaSiWa node paketi gerektirir: Backend → Yükselt.",
+  "forge.backendRequired": "Video promptları backend üzerinden yazılır ve backend çalışmıyor. Backend bölümünden başlatıp yeniden deneyin.",
   "forge.undo": "Geri al",
   "forge.target": "Hedef",
   "forge.brief": "Fikir veya iyileştirilecek prompt",

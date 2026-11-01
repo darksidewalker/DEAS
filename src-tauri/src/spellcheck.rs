@@ -32,10 +32,13 @@ fn valid_language(language: &str) -> bool {
     parts.next().is_none()
 }
 
-/// A language without a published dictionary is a known, UI-explained limit; only real
-/// download/install failures are errors.
+/// A language without a published dictionary is a known, UI-explained limit, and no dictionary
+/// yet is every first run; only real download/install failures are errors.
 fn severity(code: &str) -> &'static str {
-    if code == "SPELLCHECK_DICTIONARY_UNAVAILABLE" {
+    if matches!(
+        code,
+        "SPELLCHECK_DICTIONARY_UNAVAILABLE" | "SPELLCHECK_DICTIONARY_MISSING"
+    ) {
         "WARN"
     } else {
         "ERROR"
@@ -510,14 +513,14 @@ mod tests {
         assert!(matching[0].text.contains(message));
         assert!(matching[0].text.contains("Backend → Language"));
         assert!(!matching[0].text.contains("<script>"));
-        assert!(matching[0].text.starts_with("ERROR: "));
+        assert!(matching[0].text.starts_with("WARN: "));
     }
 
     #[test]
     fn unpublished_language_is_a_warning_not_an_error() {
         assert_eq!(severity("SPELLCHECK_DICTIONARY_UNAVAILABLE"), "WARN");
+        assert_eq!(severity("SPELLCHECK_DICTIONARY_MISSING"), "WARN");
         for code in [
-            "SPELLCHECK_DICTIONARY_MISSING",
             "SPELLCHECK_DICTIONARY_FAILED",
             "SPELLCHECK_INVALID_LANGUAGE",
             "OTHER",

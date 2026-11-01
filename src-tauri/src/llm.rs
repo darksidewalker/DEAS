@@ -405,6 +405,8 @@ async fn remote_models(config: &LlmConfig) -> Result<Vec<Model>, String> {
     models.dedup_by(|a, b| a.id == b.id);
     Ok(models)
 }
+const LOCAL_TIMED_OUT: &str = "Local LLM timed out. If a game or another app is using the GPU, close it and try again, or pick a smaller GGUF.";
+
 pub async fn models(root: &Path, config: &LlmConfig) -> Result<ModelList, String> {
     root_guard(root)?;
     validate(config)?;
@@ -705,7 +707,7 @@ async fn run_worker(root: &Path, input: Vec<u8>, timeout: Duration) -> Result<St
     };
     let result = tokio::time::timeout(timeout, work)
         .await
-        .unwrap_or_else(|_| Err("Local LLM timed out".into()));
+        .unwrap_or_else(|_| Err(LOCAL_TIMED_OUT.into()));
     if result.is_err() {
         let _ = child.kill().await;
         let _ = child.wait().await;
@@ -830,7 +832,7 @@ impl LocalRunner {
         };
         let result = tokio::time::timeout(timeout, work)
             .await
-            .unwrap_or_else(|_| Err("Local LLM timed out".into()));
+            .unwrap_or_else(|_| Err(LOCAL_TIMED_OUT.into()));
         if result.is_err() {
             *slot = None;
         }
@@ -1072,12 +1074,13 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         .timeout(Duration::from_secs(900))
         .build()
         .map_err(|_| "Cannot create Prompt Forge HTTP client")?;
-    let mut response = client
-        .post(url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| "Prompt Forge request failed")?;
+    let mut response = client.post(url).json(&body).send().await.map_err(|e| {
+        if e.is_connect() {
+            "forge.backendRequired"
+        } else {
+            "Prompt Forge request failed"
+        }
+    })?;
     let status = response.status();
     let limit = 4 * MAX_RESPONSE;
     if response.content_length().is_some_and(|n| n > limit as u64) {

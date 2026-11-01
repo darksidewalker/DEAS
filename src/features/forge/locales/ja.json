@@ -27,6 +27,7 @@
   "forge.noBackend": "Prompt Forge を使うには、インストール済み環境のバックエンドを起動してください。",
   "forge.noDialect": "このモデル用のプロンプトスタイルはありません",
   "forge.outdated": "Prompt Forge には新しい DaSiWa ノードパックが必要です：Backend → アップグレード。",
+  "forge.backendRequired": "動画プロンプトはバックエンド経由で作成しますが、バックエンドが起動していません。Backend で起動してからもう一度お試しください。",
   "forge.undo": "元に戻す",
   "forge.target": "対象",
   "forge.brief": "アイデアまたは改善するプロンプト",

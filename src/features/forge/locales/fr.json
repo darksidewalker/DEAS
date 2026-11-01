@@ -27,6 +27,7 @@
   "forge.noBackend": "Démarrez le backend d’un environnement installé pour utiliser Prompt Forge.",
   "forge.noDialect": "Prompt Forge n’a pas de style de prompt pour ce modèle",
   "forge.outdated": "Prompt Forge nécessite un pack de nœuds DaSiWa plus récent : Backend → Mettre à niveau.",
+  "forge.backendRequired": "Les prompts vidéo passent par le backend, et il n'est pas démarré. Démarrez-le dans Backend, puis réessayez.",
   "forge.undo": "Annuler",
   "forge.target": "Écrire pour",
   "forge.brief": "Idée ou prompt à améliorer",

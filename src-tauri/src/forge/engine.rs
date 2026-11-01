@@ -659,7 +659,10 @@ async fn read_references(
         );
     };
     if chat::is_local(&req.model) {
-        warnings.push("The local GGUF runner cannot read pictures, so this was written from the brief alone.".into());
+        warnings.push(
+            "The local GGUF runner cannot read pictures, so this was written from the brief alone."
+                .into(),
+        );
         return (
             RefState {
                 analysis: None,
@@ -1402,6 +1405,21 @@ mod aspect_tests;
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cancel_drops_a_write_in_flight() {
+        struct Dropped(tokio::sync::oneshot::Sender<()>);
+        let (sender, dropped) = tokio::sync::oneshot::channel::<()>();
+        let held = Dropped(sender);
+        let write = tokio::spawn(cancellable(async move {
+            let _held = held;
+            std::future::pending::<Result<(), String>>().await
+        }));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        native_forge_cancel();
+        assert_eq!(write.await.unwrap(), Err(CANCELLED.to_string()));
+        assert!(dropped.await.is_err());
+    }
+
     /// Write, then Second pass, then Refine, against a real server, printed in full:
     /// `DEAS_FORGE_DATA=<dir> DEAS_FORGE_LLM=<url> DEAS_FORGE_MODEL=<id> cargo test --lib -- --ignored live_revise --nocapture`
     #[tokio::test]
@@ -1730,6 +1748,25 @@ mod tests {
     }
 }
 
+/// Wakes every native write in flight; dropping one closes its server request or local worker.
+static CANCEL: tokio::sync::Notify = tokio::sync::Notify::const_new();
+const CANCELLED: &str = "FORGE_CANCELLED";
+
+async fn cancellable<T>(
+    work: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let stop = CANCEL.notified();
+    tokio::select! {
+        out = work => out,
+        () = stop => Err(CANCELLED.into()),
+    }
+}
+
+#[tauri::command]
+pub fn native_forge_cancel() {
+    CANCEL.notify_waiters();
+}
+
 #[tauri::command]
 pub async fn native_forge_write(
     root: String,
@@ -1741,18 +1778,21 @@ pub async fn native_forge_write(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    chat::with_local_runner(&root, write(&data, &config, &request))
-        .await
-        .inspect_err(|e| {
-            if e.starts_with(message::CANVAS_ERROR) {
-                message::report_canvas_failure("write");
-                return;
-            }
-            crate::logs::push(
-                crate::logs::Source::Deas,
-                &format!("ERROR: Prompt Forge {}: {e}", request.target),
-            );
-        })
+    cancellable(async {
+        chat::with_local_runner(&root, write(&data, &config, &request))
+            .await
+            .inspect_err(|e| {
+                if e.starts_with(message::CANVAS_ERROR) {
+                    message::report_canvas_failure("write");
+                    return;
+                }
+                crate::logs::push(
+                    crate::logs::Source::Deas,
+                    &format!("ERROR: Prompt Forge {}: {e}", request.target),
+                );
+            })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1767,7 +1807,11 @@ pub async fn native_forge_reference_readback(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    chat::with_local_runner(&root, reference_readback(&data, &config, &model, &reference))
+    cancellable(async {
+        chat::with_local_runner(
+            &root,
+            reference_readback(&data, &config, &model, &reference),
+        )
         .await
         .inspect_err(|e| {
             crate::logs::push(
@@ -1775,6 +1819,8 @@ pub async fn native_forge_reference_readback(
                 &format!("ERROR: Prompt Forge reference read-back: {e}"),
             );
         })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1789,18 +1835,21 @@ pub async fn native_forge_layout_rewrite(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    chat::with_local_runner(&root, layout_rewrite(&data, &config, &model, &request))
-        .await
-        .inspect_err(|e| {
-            if e.starts_with(message::CANVAS_ERROR) {
-                message::report_canvas_failure("layout");
-                return;
-            }
-            crate::logs::push(
-                crate::logs::Source::Deas,
-                &format!("ERROR: Prompt Forge layout rewrite: {e}"),
-            );
-        })
+    cancellable(async {
+        chat::with_local_runner(&root, layout_rewrite(&data, &config, &model, &request))
+            .await
+            .inspect_err(|e| {
+                if e.starts_with(message::CANVAS_ERROR) {
+                    message::report_canvas_failure("layout");
+                    return;
+                }
+                crate::logs::push(
+                    crate::logs::Source::Deas,
+                    &format!("ERROR: Prompt Forge layout rewrite: {e}"),
+                );
+            })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1814,18 +1863,21 @@ pub async fn native_forge_revise(
     let data = tokio::task::spawn_blocking(move || Data::load(&dir))
         .await
         .map_err(|_| "Prompt Forge data failed to load")??;
-    chat::with_local_runner(&root, revise(&data, &config, &request))
-        .await
-        .inspect_err(|e| {
-            if e.starts_with(message::CANVAS_ERROR) {
-                message::report_canvas_failure("revise");
-                return;
-            }
-            crate::logs::push(
-                crate::logs::Source::Deas,
-                &format!("ERROR: Prompt Forge revise {}: {e}", request.write.target),
-            );
-        })
+    cancellable(async {
+        chat::with_local_runner(&root, revise(&data, &config, &request))
+            .await
+            .inspect_err(|e| {
+                if e.starts_with(message::CANVAS_ERROR) {
+                    message::report_canvas_failure("revise");
+                    return;
+                }
+                crate::logs::push(
+                    crate::logs::Source::Deas,
+                    &format!("ERROR: Prompt Forge revise {}: {e}", request.write.target),
+                );
+            })
+    })
+    .await
 }
 
 /// A numbered ladder's notch labels, in order: `[[level, label], ...]`.

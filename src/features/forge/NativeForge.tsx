@@ -1,7 +1,7 @@
 import { PromptTextarea } from '../studio/PromptTextarea';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeWriteModel, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
+import { forgeError, nativeForgeCancel, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeWriteModel, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { aspects as settingsAspects } from '../../lib/resolution';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
@@ -302,6 +302,7 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
       </div> : <>
       <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk) || !!geometryError} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
       </>}
+      {busy && <button type="button" className="action-button forge-write" data-forge-cancel onClick={() => void nativeForgeCancel()}>{t('forge.cancel')}</button>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {randomizer && root && <Randomizer root={root} onClose={() => setRandomizer(false)} onInsert={(text, replace) => setBrief(replace || !brief.trim() ? text : `${brief.trim().replace(/[,\s]+$/, '')}, ${text}`)}/>}
     </div>

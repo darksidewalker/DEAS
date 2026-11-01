@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { WildcardRules } from '../../lib/wildcard';
 import { useI18n } from '../../i18n/I18nProvider';
-import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeWrite, nativeTarget, nativeWriteModel, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
+import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeCancel, nativeForgeWrite, nativeTarget, nativeWriteModel, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { discoverLlmModels, hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
 import './forge.css';
@@ -78,7 +78,7 @@ export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels
   const { t } = useI18n();
   return <label className="forge-field"><span>{t('forge.model')}</span>
     <select data-forge-model value={forge.model} disabled={!forge.usable.length} onChange={e => forge.setModel(e.target.value)}>
-      {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{t(forge.list ? forge.serverOnly ? 'forge.noServer' : 'forge.noModels' : 'forge.loading')}</option>}
+      {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{forge.error ? '—' : t(forge.list ? forge.serverOnly ? 'forge.noServer' : 'forge.noModels' : 'forge.loading')}</option>}
     </select>
     {forge.list && Object.values(forge.list.errors).map(text => <small key={text} className="forge-warning">{t(text)}</small>)}
     {forge.error && <span className="error-message" role="alert">{t(forge.error)} <button type="button" data-forge-retry onClick={forge.load}>{t('forge.retry')}</button></span>}
@@ -209,7 +209,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
     } catch (e) { if (readRequest.current === current) setError(forgeError(e)); }
     finally { if (readRequest.current === current) { setReading(''); readRequest.current = null; } }
   };
-  const cancel = () => { const current = request.current; if (!current) return; current.cancelled = true; changeBusy(false); cancelForge(current.endpoint, current.root, current.id).catch(e => { if (request.current === current) setError(forgeError(e)); }); };
+  const cancel = () => { const current = request.current; if (!current) return; current.cancelled = true; changeBusy(false); (current.id ? cancelForge(current.endpoint, current.root, current.id) : nativeForgeCancel()).catch(e => { if (request.current === current) setError(forgeError(e)); }); };
   const stale = !!h3 && !!result && draftFit !== fit;
   const level = (key: string, v: number, set: (n: number) => void) => <label className="forge-field"><span>{t(key)} {v}</span><input type="range" min={1} max={10} value={v} onChange={e => set(Number(e.target.value))}/></label>;
   return <div className={inline ? 'forge-controls' : 'forge-anchor'}>
@@ -237,7 +237,7 @@ export function ForgeButton({ endpoint, root, dialect, value, image, onApply, on
         {typeof shots === 'number' && Array.from({ length: shots }, (_, i) => <label key={i} className="forge-field"><span>{t('forge.shot', { n: String(i + 1) })}</span><textarea data-forge-shot={i + 1} rows={2} maxLength={4000} value={shotBriefs[i] ?? ''} onChange={e => setShotBriefs(Object.assign([...shotBriefs], { [i]: e.target.value }))}/></label>)}
       </>}
       <label className="forge-field"><span>{t(h3?.continuity ? 'forge.nextAction' : 'forge.brief')}</span><PromptTextarea data-forge-brief value={brief} maxLength={16384} onChange={e => setBrief(e.target.value)}/></label>
-      {busy && h3 ? <button type="button" className="action-button" data-forge-cancel onClick={cancel}>{t('forge.cancel')}</button>
+      {busy && (h3 || nativeTarget(dialect)) ? <button type="button" className="action-button" data-forge-cancel onClick={cancel}>{t('forge.cancel')}</button>
         : <button type="button" className="action-button" data-forge-write disabled={busy || !forge.model || (!brief.trim() && !(image && !nativeTarget(dialect)) && !(h3 && shotBriefs.some(s => s.trim())))} onClick={() => void write()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {blind && <p className="forge-warning">{t('forge.blind')}</p>}

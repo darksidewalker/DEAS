@@ -27,6 +27,7 @@
   "forge.noBackend": "Starte das Backend einer installierten Umgebung, um Prompt Forge zu nutzen.",
   "forge.noDialect": "Prompt Forge hat keinen Prompt-Stil für dieses Modell",
   "forge.outdated": "Prompt Forge braucht ein neueres DaSiWa-Nodepack im Backend: Backend → Upgrade.",
+  "forge.backendRequired": "Video-Prompts werden über das Backend geschrieben, und es läuft nicht. Starte es unter Backend und versuche es erneut.",
   "forge.undo": "Rückgängig",
   "forge.target": "Schreiben für",
   "forge.brief": "Idee oder zu verbessernder Prompt",

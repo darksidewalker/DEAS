@@ -3,6 +3,12 @@
 ## 0.2.9 BETA (unreleased)
 
 - **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
+- **Prompt Forge can be stopped.** The Prompt Forge tab and the hammer on image models show **Cancel** while writing. It ends the request or the local GGUF at once and frees the GPU; before, a slow write could only be waited out or ended by closing DEAS.
+- **Video prompts say why they cannot start.** With the backend stopped, MiniMax H3, LTX and Wan showed "Prompt Forge request failed" over a model list stuck on loading. They now say the backend isn't running and where to start it.
+- **Library: four category tabs had no names.** GitHub files, Hugging Face datasets, Hugging Face models and Ollama models showed their raw keys, in every language.
+- **Music without a compatible model** no longer says "No checkpoints found" while listing checkpoints; it says the pipeline has no verified recipe.
+- **A missing spellcheck dictionary is a warning, not an error.** Spellcheck is on by default, so every first run filled the Errors filter in Logs.
+- **Local GGUF time-outs say what to try:** close whatever else is using the GPU, or pick a smaller GGUF.
 - **Image models can use a local GGUF.** Prompt Forge for Illustrious, Anima, Krea2 and MOSS, and the hammer, now run a language GGUF from `models/llm` with no server: tag lookups, guidance and clean-up all work. The model loads for one write and is released when it ends. It cannot read reference pictures yet, and Chat still needs a server.
 - **Windows: the local GGUF runner loads.** It could not find its CUDA DLLs outside ComfyUI, and a folder named `LLM` on disk was listed and then refused as an invalid model. While the backend ran, the environment check could not read `deas-install.json`, so the runner failed with `os error 32`; the lock now lets reads through and still refuses a second DEAS.
 

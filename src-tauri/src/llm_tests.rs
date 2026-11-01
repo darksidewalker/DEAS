@@ -594,7 +594,7 @@ async fn managed_worker_subprocess_mock_fixtures_bound_logs_time_and_errors() {
         run_worker(root.path(), input, Duration::from_millis(100))
             .await
             .unwrap_err(),
-        "Local LLM timed out"
+        LOCAL_TIMED_OUT
     );
     assert!(start.elapsed() < Duration::from_secs(2));
 }

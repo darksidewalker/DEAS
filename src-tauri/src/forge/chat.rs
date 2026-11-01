@@ -62,7 +62,10 @@ fn request(r: &Round<'_>, stream: bool) -> Result<(reqwest::Url, Value, bool), S
         Provider::Ollama => true,
         Provider::Openai => false,
         Provider::Local => {
-            return Err("No LLM server is set: pick a local GGUF, or set a server under Backend → LLM.".into())
+            return Err(
+                "No LLM server is set: pick a local GGUF, or set a server under Backend → LLM."
+                    .into(),
+            )
         }
     };
     let mut body = if ollama {
@@ -165,7 +168,10 @@ fn gemma_arguments(body: &str) -> Option<Value> {
 fn local_call(raw: &str) -> Option<(String, Value)> {
     let raw = raw.trim();
     if let Ok(call) = serde_json::from_str::<Value>(raw) {
-        return Some((call["name"].as_str()?.to_string(), call["arguments"].clone()));
+        return Some((
+            call["name"].as_str()?.to_string(),
+            call["arguments"].clone(),
+        ));
     }
     if let Some(rest) = raw.strip_prefix("<function=") {
         let (name, mut rest) = rest.split_once('>')?;
@@ -185,7 +191,10 @@ fn local_call(raw: &str) -> Option<(String, Value)> {
     }
     let (name, body) = raw.strip_prefix("call:")?.split_once('{')?;
     let body = body.rsplit_once('}')?.0;
-    Some((name.trim().to_string(), gemma_arguments(&format!("{{{body}}}"))?))
+    Some((
+        name.trim().to_string(),
+        gemma_arguments(&format!("{{{body}}}"))?,
+    ))
 }
 
 /// `<think>` blocks and tool calls come back as plain text from a local model.
@@ -611,8 +620,15 @@ pub(super) mod tests {
             Some("stop"),
         );
         assert_eq!(reply.content, "Looking.");
-        assert_eq!(local_reply("<|channel>thought
-<channel|>===SEGMENT: A===", None).content, "===SEGMENT: A===");
+        assert_eq!(
+            local_reply(
+                "<|channel>thought
+<channel|>===SEGMENT: A===",
+                None
+            )
+            .content,
+            "===SEGMENT: A==="
+        );
         assert_eq!(reply.calls.len(), 2);
         assert_eq!(reply.calls[0].name, "search_tags");
         assert_eq!(reply.calls[0].id.as_deref(), Some("call_0"));
@@ -624,11 +640,20 @@ pub(super) mod tests {
         assert!(!reply.truncated);
         // Qwen 3.8's XML and Gemma 4's own shape are the same call.
         let xml = local_reply("<tool_call>\n<function=search_tags>\n<parameter=query>\nred kimono\n</parameter>\n<parameter=limit>\n3\n</parameter>\n</function>\n</tool_call>", None);
-        let gemma = local_reply("<|tool_call>call:search_tags{query:<|\"|>red: kimono, {x}<|\"|>,limit:3}<tool_call|>", None);
-        for (call, query) in [(&xml.calls[0], "red kimono"), (&gemma.calls[0], "red: kimono, {x}")] {
+        let gemma = local_reply(
+            "<|tool_call>call:search_tags{query:<|\"|>red: kimono, {x}<|\"|>,limit:3}<tool_call|>",
+            None,
+        );
+        for (call, query) in [
+            (&xml.calls[0], "red kimono"),
+            (&gemma.calls[0], "red: kimono, {x}"),
+        ] {
             assert_eq!(call.name, "search_tags");
             let args = crate::forge::tools::arguments(&call.arguments);
-            assert_eq!((args["query"].as_str(), args["limit"].as_u64()), (Some(query), Some(3)));
+            assert_eq!(
+                (args["query"].as_str(), args["limit"].as_u64()),
+                (Some(query), Some(3))
+            );
         }
         let plain = local_reply("===SEGMENT: Prompt===\n1girl", Some("length"));
         assert_eq!(plain.content, "===SEGMENT: Prompt===\n1girl");
@@ -654,7 +679,10 @@ pub(super) mod tests {
         let picture = user_with_images("look", &["data:image/png;base64,AA".into()], false);
         assert!(round(vec![picture]).await.unwrap_err().contains("pictures"));
         let text = json!({ "role": "user", "content": "write" });
-        assert!(round(vec![text]).await.unwrap_err().contains("not available"));
+        assert!(round(vec![text])
+            .await
+            .unwrap_err()
+            .contains("not available"));
     }
 
     // Real HTTP peers: an unfinished response stays open until the client drops it.
