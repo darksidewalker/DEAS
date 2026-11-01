@@ -1409,7 +1409,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_drops_a_write_in_flight() {
-        struct Dropped(tokio::sync::oneshot::Sender<()>);
+        struct Dropped(#[allow(dead_code)] tokio::sync::oneshot::Sender<()>);
         let (sender, dropped) = tokio::sync::oneshot::channel::<()>();
         let held = Dropped(sender);
         let write = tokio::spawn(cancellable(async move {

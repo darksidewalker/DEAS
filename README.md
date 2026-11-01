@@ -48,6 +48,7 @@ In the app, open **Backend**, review the installation, choose a **new writable e
 | Discuss prompts with the configured LLM and optional web search | [Chat](docs/CHAT.md) |
 | Generate songs and melody covers with YuE2 | [Music](docs/MUSIC.md) |
 | Inspect and upscale a video in the TVE tab | [TVE workspace](docs/STUDIO.md#tve-workspace) |
+| Review generation times and live CPU/RAM/GPU telemetry | [Monitoring tab](docs/STUDIO.md#monitoring-tab) |
 | Use GGUF models or assign a model's architecture (**Edit meta…**) | [GGUF](docs/STUDIO.md#gguf-models-and-manual-architecture-assignment) |
 | Save/reopen image drafts and import/export draft ZIP packages | [Projects](docs/PROJECTS.md) |
 | Browse media, inspect metadata and preview results | [Media](docs/MEDIA.md) |

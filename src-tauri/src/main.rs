@@ -179,6 +179,7 @@ fn main() {
             deas::native_wildcard_build,
             deas::native_files_present,
             deas::native_detect_hardware,
+            deas::native_monitoring_sample,
             deas::native_install_defaults,
             deas::native_install_plan,
             deas::native_install_start,

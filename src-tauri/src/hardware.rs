@@ -122,7 +122,9 @@ mod tests {
     fn command_has_exact_local_permission_and_registration() {
         let permission = include_str!("../permissions/hardware.toml");
         assert!(permission.contains("identifier = \"allow-native-detect-hardware\""));
-        assert!(permission.contains("commands.allow = [\"native_detect_hardware\"]"));
+        assert!(permission.contains(
+            "commands.allow = [\"native_detect_hardware\", \"native_monitoring_sample\"]"
+        ));
         let capability: serde_json::Value =
             serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
         assert_eq!(capability["local"], true);
@@ -133,6 +135,7 @@ mod tests {
             .unwrap()
             .contains(&serde_json::json!("allow-native-detect-hardware")));
         assert!(include_str!("main.rs").contains("deas::native_detect_hardware,"));
+        assert!(include_str!("main.rs").contains("deas::native_monitoring_sample,"));
     }
 
     #[tokio::test]

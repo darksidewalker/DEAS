@@ -42,6 +42,12 @@ f93388f5a05e8296fa558d5fc13b651f78f69a4619cb284beedad1cc90ef86e6  deas-linux-amd
 ```
 - Linux binary: glibc floor 2.39, `ldd` clean; both binaries embed `index-DR7pg1HP.js`. `deas.exe` is a cargo-xwin cross-build (benign `LNK4099` linker warning) without NSIS installer; the startup fix was verified with the bootstrap on Windows, not by launching this `deas.exe`.
 
+## 0.2.9 Monitoring tab (unreleased)
+
+- Rust: `cargo test --lib monitoring` 3 passed — `nvidia-smi` CSV parsing incl. `[N/A]` fields and a malformed row, CPU percent as a clamped delta (first call 0, no NaN on no progress), a real host sample (RAM > 0, one disk for an absolute root, none for a relative one). `cargo xwin check` for `x86_64-pc-windows-msvc` compiles the Win32 branch (`GetSystemTimes`, `GlobalMemoryStatusEx`, `GetDiskFreeSpaceExW`); its values are not verified on a real Windows machine.
+- Frontend: `Monitoring.test.tsx` 3 passed — intent description and queued/running timing (measured end, failed-before-end, never-started), inactive tab makes no IPC, active tab polls history + one sample per second bounded to 60 and stops when inactive, failed sample/history show their alerts. `npm run test:core` 125 passed (locale parity, no literal JSX text).
+- Not verified: WebKitGTK/WebView2 rendering and canvas repaint cost at 1 Hz, narrow widths.
+
 ## 0.2.6 Windows backend startup and driver refresh (shipped in 0.2.6)
 
 - Windows startup hang (issue #11): A/B on Windows 11, RTX 4070 Ti SUPER, the existing test environment (ComfyUI 0.43.0, Python 3.12.11), launched with DEAS's cleared environment, `CREATE_NO_WINDOW`, piped stdin and the bootstrap text taken verbatim from `backend.rs`; readiness = `/system_stats` answers, then `stop\n` is written. Old bootstrap (0.2.5): not ready after 90 s in 2/2 runs, log ends at `Set cuda device to: 0`. New bootstrap: ready after 28.6 s and 8.1 s, `stop\n` → `Stopped server`, exit 0 in 0.77 s. No Python process remained. Not verified: the full `deas.exe` launch path on Windows.

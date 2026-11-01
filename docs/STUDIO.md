@@ -320,6 +320,12 @@ Outputs start as **Not checked** or **Remote or unknown location**. **Check file
 
 History is optional local metadata in one versioned app-data JSON file. It stores no previews, image bytes, model weights, credentials, interrupt tokens or execution authority. Trimming to ten records never deletes media, models, projects or live queue entries. Storage/schema/competing-writer failures preserve existing data and show read-only/degraded history with redacted diagnostics in **Logs**. No history reset, job recovery or automatic retry is provided. See [IPC and storage bounds](../src-tauri/README.md#recent-generation-history) and [verification](VERIFICATION.md#batch-b-recent-generation-history-0155).
 
+## Monitoring tab
+
+**Monitoring** in the top tab band has two panes. **Generations** lists the last ten finished native attempts from the same recent-history store (all pipelines): outcome, pipeline/family, model, canvas or frame count, steps, seed, queue wait (admission → start), measured generation time and a proportional timeline bar (queued · running, coloured by outcome). The latest measured generation time is the headline figure. Live queued/running jobs stay in the Studio queue; the history store never records previews or media bytes.
+
+**System** samples the host once per second while the tab is visible: CPU utilisation and thread count, RAM, swap, the environment's disk and every NVIDIA GPU (utilisation, VRAM, temperature, power draw / limit via `nvidia-smi`), plus a graph of the last 60 samples (CPU, RAM, GPU, VRAM in percent). The sample comes from the native `native_monitoring_sample` command (`/proc` on Linux, Win32 system calls on Windows), so it works with the backend stopped; the source is named under the graph. No telemetry is persisted, the backend is never queried, and nothing animates — the graph redraws only when a sample arrives. Without `nvidia-smi` the GPU row says so and the host values stay. Disk I/O rates, AMD/Intel GPUs and the node pack's `/dasiwa/system-monitor` route are not read.
+
 ## Seed controls
 
 Random/Fixed, New, exact wrapping ±1, Use last and ten submitted seeds with restore/copy persist across restarts. Manual edits/restores select Fixed. Failed preparation/submission adds no history. Seeds are exact within 0–9007199254740991, not full uint64.

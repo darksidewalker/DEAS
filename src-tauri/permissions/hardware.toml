@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-detect-hardware"
-description = "Read-only bounded NVIDIA discovery for backend preselection; no installation, downloads, environment or service changes."
-commands.allow = ["native_detect_hardware"]
+description = "Read-only bounded NVIDIA discovery for backend preselection and one host/GPU telemetry sample for the Monitoring tab; no installation, downloads, environment or service changes."
+commands.allow = ["native_detect_hardware", "native_monitoring_sample"]

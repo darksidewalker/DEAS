@@ -46,6 +46,8 @@ pub use backend::{
 };
 pub mod hardware;
 pub use hardware::native_detect_hardware;
+pub mod monitoring;
+pub use monitoring::native_monitoring_sample;
 pub mod projects;
 pub use projects::{
     native_project_close, native_project_close_notice, native_project_create,
