@@ -57,20 +57,33 @@ export function currentSummary(s:MonitoringSample,locale:string,t:(k:string)=>st
  return parts.join(' · ');
 }
 
-function Graph({series,color,max,label}:{series:(number|null)[];color:string;max?:number;label:string}){
+/** Y axis top for an auto-scaled series: a round MiB/s step above the maximum, never below 1. */
+export function axisTop(values:(number|null)[]):number {
+ const peak=Math.max(1,...values.map(v=>v??0));
+ const step=10**Math.floor(Math.log10(peak));
+ return Math.ceil(peak/step)*step;
+}
+const PAD={left:66,right:10,top:10,bottom:18};
+function Graph({series,color,max,unit,label}:{series:(number|null)[];color:string;max?:number;unit:string;label:string}){
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   const el=canvas.current,ctx=el?.getContext('2d');if(!el||!ctx)return;
-  const w=el.width,h=el.height;ctx.clearRect(0,0,w,h);
-  ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;
-  for(const y of [0.25,0.5,0.75]){ctx.beginPath();ctx.moveTo(0,y*h);ctx.lineTo(w,y*h);ctx.stroke();}
-  const top=max??Math.max(1,...series.map(v=>v??0))*1.1;
-  const step=w/(SAMPLE_LIMIT-1);
+  const w=el.width,h=el.height,x0=PAD.left,x1=w-PAD.right,y0=PAD.top,y1=h-PAD.bottom;ctx.clearRect(0,0,w,h);
+  const top=max??axisTop(series);
+  ctx.font='10px system-ui, sans-serif';ctx.fillStyle='rgba(255,255,255,.55)';ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;
+  // Y axis: 0, 25, 50, 75, 100 % or quarters of the rounded top.
+  ctx.textAlign='right';ctx.textBaseline='middle';
+  for(const f of [0,0.25,0.5,0.75,1]){const y=y1-f*(y1-y0);ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();const v=top*f;ctx.fillText(`${max===100?Math.round(v):v>=10?Math.round(v):v.toFixed(1)}${unit}`,x0-4,y);}
+  // X axis: seconds before now, one tick per 15 samples (1 Hz).
+  ctx.textAlign='center';ctx.textBaseline='top';
+  for(let s=0;s<SAMPLE_LIMIT;s+=15){const x=x1-s/(SAMPLE_LIMIT-1)*(x1-x0);ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x,y1);ctx.stroke();ctx.fillText(s===0?'0 s':`−${s} s`,x,y1+4);}
+  ctx.textAlign='left';ctx.fillText(`−${SAMPLE_LIMIT} s`,x0,y1+4);
+  const step=(x1-x0)/(SAMPLE_LIMIT-1);
   ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.beginPath();let pen=false;
-  series.forEach((v,i)=>{const x=w-(series.length-1-i)*step;if(v==null){pen=false;return;}const y=h-Math.min(top,Math.max(0,v))/top*h;if(pen)ctx.lineTo(x,y);else ctx.moveTo(x,y);pen=true;});
+  series.forEach((v,i)=>{const x=x1-(series.length-1-i)*step;if(v==null){pen=false;return;}const y=y1-Math.min(top,Math.max(0,v))/top*(y1-y0);if(pen)ctx.lineTo(x,y);else ctx.moveTo(x,y);pen=true;});
   ctx.stroke();
- },[series,color,max]);
- return <canvas ref={canvas} className="monitoring-graph" width={300} height={90} role="img" aria-label={label} data-monitoring-graph/>;
+ },[series,color,max,unit]);
+ return <canvas ref={canvas} className="monitoring-graph" width={900} height={130} role="img" aria-label={label} data-monitoring-graph/>;
 }
 
 /** Monitoring tab: the last ten native attempts with their timing and peaks, and live host/GPU telemetry while the tab is visible. */
@@ -108,8 +121,8 @@ export function Monitoring({active,root}:{active:boolean;root?:string}){
  const maxWall=Math.max(1,...finished.map(r=>timeline(r).wallMs));
  const current=samples[samples.length-1];
  return <section className="monitoring" data-monitoring aria-label={t('monitoring.title')}>
-  <header className="monitoring-heading"><div><p className="eyebrow">{t('monitoring.tab')}</p><h2>{t('monitoring.title')}</h2></div>
-   {current&&<p className="monitoring-current" data-monitoring-values title={current.warnings?.join(' · ')}>{currentSummary(current,locale,t)}</p>}
+  <header className="monitoring-heading"><div><p className="eyebrow">{t('monitoring.tab')}</p><h2>{t('monitoring.title')}</h2>
+    {current&&<p className="monitoring-current" data-monitoring-values title={current.warnings?.join(' · ')}>{currentSummary(current,locale,t)}</p>}</div>
    {latest&&<p className="monitoring-headline" data-monitoring-headline><strong>{seconds(latest.generationMs!,locale)}</strong><span>{t('monitoring.lastDuration')}</span></p>}</header>
   {!native&&<p className="field-help">{t('studio.history.native')}</p>}
   <section className="monitoring-panel" aria-labelledby="monitoring-generations"><h3 id="monitoring-generations">{t('monitoring.generations')}</h3>
@@ -128,7 +141,7 @@ export function Monitoring({active,root}:{active:boolean;root?:string}){
    {current&&<>
     <div className="monitoring-graphs">{metrics.map(m=>{const series=samples.map(m.value);const now=series[series.length-1];return <figure key={m.key} className="monitoring-metric" data-monitoring-metric={m.key}>
      <figcaption><span style={{background:m.color}}/>{t(`monitoring.${m.key}`)}<strong>{m.max===100?pct(now):mibs(now)}</strong></figcaption>
-     <Graph series={series} color={m.color} max={m.max} label={t('monitoring.graphOf',{metric:t(`monitoring.${m.key}`)})}/>
+     <Graph series={series} color={m.color} max={m.max} unit={m.max===100?' %':' MiB/s'} label={t('monitoring.graphOf',{metric:t(`monitoring.${m.key}`)})}/>
     </figure>;})}</div>
     {current.gpus.length===0&&<p className="field-help">{t('monitoring.noGpu')}</p>}
     <p className="field-help">{t('monitoring.source',{source:current.source})}{current.warnings?.length?` · ${current.warnings.join(' · ')}`:''}</p>

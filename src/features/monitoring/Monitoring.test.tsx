@@ -2,11 +2,11 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n/I18nProvider';
-import { Monitoring, SAMPLE_LIMIT, describeIntent, peakSummary, timeline, type MonitoringSample } from './Monitoring';
+import { Monitoring, SAMPLE_LIMIT, axisTop, describeIntent, peakSummary, timeline, type MonitoringSample } from './Monitoring';
 import type { HistoryRecord } from '../studio/history';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
-HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {} })) as never;
+HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fillText() {} })) as never;
 
 const image = { recipeId: 'diagnostic-image', version: 1, positivePrompt: 'p', negativePrompt: '', checkpoint: 'sdxl.safetensors', seed: 7, width: 896, height: 1152, steps: 30, cfg: 5, sampler: 'euler', scheduler: 'simple', denoise: 1, outputPrefix: 'raw/x' } as unknown as HistoryRecord['intent'];
 const record = (id: string, patch: Partial<HistoryRecord>): HistoryRecord => ({ id, clientId: null, promptId: null, origin: 'studio', appVersion: '0.2.9', admittedAt: 1000, observedAt: 9000, revision: 1, state: 'succeeded', intent: image, outputs: [], outputRoot: null, backendOrigin: 'http://127.0.0.1:7801', error: null, startedAt: 3000, generationMs: 5000, ...patch });
@@ -21,6 +21,8 @@ test('describes intents and derives queued/running timing from the history recor
   // Failed before a measured end: the running span ends at the last observation; never started: no running span.
   expect(timeline(record('b', { state: 'failed', generationMs: null }))).toEqual({ queuedMs: 2000, runningMs: 6000, wallMs: 8000 });
   expect(timeline(record('c', { state: 'cancelled', startedAt: null, generationMs: null }))).toEqual({ queuedMs: 8000, runningMs: 0, wallMs: 8000 });
+  // Auto-scaled axis: next round step above the peak, never below 1.
+  expect([axisTop([]), axisTop([0.4]), axisTop([7.2, 3]), axisTop([123, null]), axisTop([999])]).toEqual([1, 1, 8, 200, 1000]);
   expect(peakSummary(undefined, 'en')).toBeNull();
   expect(peakSummary({ samples: 0, cpuPercent: 1, ramUsed: null, gpuUtilization: null, vramUsed: null, temperature: null, powerW: null, diskReadMibS: null, diskWriteMibS: null }, 'en')).toBeNull();
   expect(peakSummary({ samples: 3, cpuPercent: 81.6, ramUsed: 30 * 2 ** 30, gpuUtilization: 99, vramUsed: 31 * 2 ** 30, temperature: 71.2, powerW: 418, diskReadMibS: 240, diskWriteMibS: null }, 'en')).toBe('CPU 82 % · RAM 30 GiB · GPU 99 % · VRAM 31 GiB · 71 °C · 418 W · I/O 240 MiB/s / —');
