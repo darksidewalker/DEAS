@@ -188,6 +188,7 @@ Constraints kept from the implementation plan: signatures from one checkpoint do
 ### 4.8 Installer, backend and distribution
 
 - AMD/Intel profiles and preflight; multi-GPU selection (`install_torch.rs` refuses more than one GPU today); free-space estimates.
+  - ROCm startup rules, from research (2026-11-01, no AMD hardware here): never offer `--fast fp16_accumulation` on ROCm — PyTorch applies `CUBLAS_COMPUTE_16F` only under `#ifndef USE_ROCM`, so it is a GEMM no-op, but ComfyUI still sets `PRIORITIZE_FP16` and picks fp16 over bf16 for UNet/text encoder (black/overflowing output on Flux/Qwen-class models; ComfyUI PR #9258 enabled it for AMD untested). Keep Speed+ NVIDIA-only (`startup.rs` already does). Offer `--force-fp32`/`--bf16-unet` as the first diagnostic for GGUF noise on RDNA3 (city96/ComfyUI-GGUF #300: noise on GPU, correct on CPU, 7900 XT/XTX, root cause open) and `--disable-smart-memory` for the ROCm 7.15 / torch 2.13 weight corruption (ComfyUI #15314, black frames). ComfyUI-GGUF has no dequant-dtype switch; there is no documented "fp16 accumulation bug with GGUF on AMD" beyond these two separate facts.
 - Git bootstrap, or removal of the external Git prerequisite; full FFmpeg/attention-extension provisioning.
 - Interrupted-install repair/resume; staged environment upgrade with rollback (reinstall replaces the venv, which is not rollback).
 - Pin the DaSiWa node-pack ref. It is cloned from `main` with the revision recorded but not user-selected, which falls short of the explicit-updates decision.
