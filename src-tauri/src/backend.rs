@@ -1000,18 +1000,34 @@ impl Drop for Lifecycle {
         self.stop();
     }
 }
+/// Reads one log segment ending at `\n` or `\r` (progress bars redraw with `\r` only, so a
+/// newline-only split showed a sampler's `1/4 … 3/4` steps only as the final `4/4`).
+pub(crate) fn read_log_segment<R: std::io::BufRead>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+) -> std::io::Result<usize> {
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(line.len());
+        }
+        let room = (MAX_LOG_LINE as usize).saturating_sub(line.len());
+        let end = buffer.iter().position(|b| matches!(b, b'\n' | b'\r'));
+        let take = end.map_or(buffer.len(), |i| i + 1).min(room);
+        line.extend_from_slice(&buffer[..take]);
+        reader.consume(take);
+        if end.is_some_and(|i| i < room) || line.len() >= MAX_LOG_LINE as usize {
+            return Ok(line.len());
+        }
+    }
+}
 fn capture<R: std::io::Read + Send + 'static>(reader: R, inner: Arc<Mutex<Inner>>, serial: u64) {
     std::thread::spawn(move || {
-        use std::io::{BufRead, Read};
         let mut reader = std::io::BufReader::new(reader);
         let mut line = Vec::new();
         loop {
             line.clear();
-            // Whole lines keep UTF-8 sequences intact; the cap bounds output without newlines.
-            match (&mut reader)
-                .take(MAX_LOG_LINE)
-                .read_until(b'\n', &mut line)
-            {
+            match read_log_segment(&mut reader, &mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }

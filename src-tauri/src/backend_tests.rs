@@ -794,6 +794,45 @@ fn clean_log_line_strips_terminal_control_sequences() {
     assert_eq!(clean_log_line(b"\n"), "");
 }
 #[test]
+fn log_capture_splits_progress_bar_redraws_into_live_segments() {
+    let mut reader = std::io::Cursor::new(
+        b" 25%|##  | 1/4\r 50%|### | 2/4\r100%|####| 4/4\r\nDone\nTail".to_vec(),
+    );
+    let mut segments = vec![];
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match read_log_segment(&mut reader, &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let text = clean_log_line(&line);
+                if !text.is_empty() {
+                    segments.push(text);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        segments,
+        [
+            " 25%|##  | 1/4",
+            " 50%|### | 2/4",
+            "100%|####| 4/4",
+            "Done",
+            "Tail"
+        ]
+    );
+    // An endless line without delimiters is still bounded per segment.
+    let mut long = std::io::Cursor::new(vec![b'x'; MAX_LOG_LINE as usize + 10]);
+    let mut line = Vec::new();
+    assert_eq!(
+        read_log_segment(&mut long, &mut line).unwrap(),
+        MAX_LOG_LINE as usize
+    );
+    line.clear();
+    assert_eq!(read_log_segment(&mut long, &mut line).unwrap(), 10);
+}
+#[test]
 fn native_backend_test_command_is_registered_and_permitted() {
     assert!(include_str!("../permissions/backend.toml").contains("\"native_backend_test\""));
     assert!(include_str!("main.rs").contains("deas::native_backend_test"));
