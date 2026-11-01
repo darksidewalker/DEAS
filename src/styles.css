@@ -272,18 +272,47 @@ select option:disabled { color: var(--muted); }
 @media (forced-colors: active) {
   select:not([multiple]):not([size]) { appearance: auto; background-image: none; }
 }
+/* One button skin for every text button (feature styles own layout: size, placement, wrapping).
+   Hover is an outline glow, never a fill; a pressed toggle is filled like the Media Output button. */
+.action-button, .wb-dock-action, .forge-ghost, .logs-panel .logs-chip, .aio-setup .repo-button,
+.media-header button, .media-path button, .media-roots button,
+.aio-actions button, .aio-draft-actions button, .aio-input-row button, .aio-detail > button, .aio-auto-fields button, button[data-upgrade],
+.studio-quick-actions button {
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  color: var(--chalk);
+  border-radius: .6rem;
+  font-weight: 500;
+  box-shadow: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+:is(.action-button, .wb-dock-action, .forge-ghost, .logs-panel .logs-chip, .aio-setup .repo-button,
+.media-header button, .media-path button, .media-roots button,
+.aio-actions button, .aio-draft-actions button, .aio-input-row button, .aio-detail > button, .aio-auto-fields button, button[data-upgrade],
+.studio-quick-actions button):hover:not(:disabled) {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px rgb(var(--blue-rgb) / 0.35), 0 0 10px rgb(var(--blue-rgb) / 0.3);
+}
+:is(.action-button, .wb-dock-action, .forge-ghost, .logs-panel .logs-chip, .aio-setup .repo-button,
+.media-header button, .media-path button, .media-roots button,
+.aio-actions button, .aio-draft-actions button, .aio-input-row button, .aio-detail > button, .aio-auto-fields button, button[data-upgrade],
+.studio-quick-actions button)[aria-pressed="true"] {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+  color: var(--chalk);
+}
+:is(.action-button, .wb-dock-action, .forge-ghost, .logs-panel .logs-chip, .aio-setup .repo-button,
+.media-header button, .media-path button, .media-roots button,
+.aio-actions button, .aio-draft-actions button, .aio-input-row button, .aio-detail > button, .aio-auto-fields button, button[data-upgrade],
+.studio-quick-actions button):disabled {
+  opacity: .55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 .action-button {
-  background: var(--blue);
-  border: 1px solid var(--blue-2);
-  color: var(--graphite);
   font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
   padding: 11px 14px;
   white-space: nowrap;
-}
-.action-button:hover {
-  background: var(--blue-hi);
 }
 .action-button span {
   margin-left: 7px;

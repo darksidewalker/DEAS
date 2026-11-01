@@ -8,9 +8,8 @@
 .media-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; min-width: 0; }
 .media-header h2 { margin: 0; font-size: 1rem; }
 .media-header > button { margin-left: auto; }
-.media-header button, .media-path button, .media-roots button { padding: .3rem .6rem; border: 1px solid var(--line-strong); border-radius: .6rem; background: var(--raised); color: inherit; font-size: .78rem; }
+.media-header button, .media-path button, .media-roots button { padding: .3rem .6rem; font-size: .78rem; }
 .media-roots { display: flex; gap: 4px; }
-.media-roots button[aria-pressed="true"] { background: var(--ok-soft); border-color: var(--ok); }
 .media-help { margin: 0; font-size: .72rem; color: var(--muted); }
 .media-error { margin: 0; font-size: .8rem; color: var(--danger); overflow-wrap: anywhere; }
 .media-browser { display: flex; gap: .6rem; flex: 1; min-height: 0; min-width: 0; }

@@ -39,9 +39,7 @@
 .forge-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .forge-card-title { margin: 0; font-family: Manrope, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .forge-actions { display: flex; gap: 6px; }
-.forge-ghost { background: none; border: 1px solid rgb(var(--ink-rgb) / 0.11); color: var(--chalk); border-radius: 6px; padding: 5px 10px; font-size: 11px; }
-.forge-ghost:hover:not(:disabled) { border-color: var(--blue); color: rgb(var(--ink-rgb)); }
-.forge-ghost:disabled { opacity: .4; cursor: default; }
+.forge-ghost { padding: 5px 10px; font-size: 11px; }
 .forge-pickers { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 10px; }
 .forge-builder textarea[data-forge-brief] { height: 6.5rem; font-size: 13px; }
 .forge-field em { font-style: normal; text-transform: none; letter-spacing: 0; color: rgb(var(--muted-rgb) / 0.6); margin-left: 4px; }

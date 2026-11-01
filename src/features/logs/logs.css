@@ -2,9 +2,7 @@
 .logs-toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .logs-chips { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
 /* Same look as the header buttons; level chips keep their level colour when pressed. */
-.logs-panel .logs-chip { padding: .3rem .65rem; border: 1px solid rgb(var(--blue-rgb) / 0.302); border-radius: .6rem; background: var(--panel); color: var(--muted); font-size: .78rem; line-height: 1.2; cursor: pointer; }
-.logs-panel .logs-chip:hover:not(:disabled) { border-color: var(--blue); color: var(--chalk); }
-.logs-panel .logs-chip[aria-pressed="true"] { background: var(--surface); color: var(--chalk); border-color: var(--copper); }
+.logs-panel .logs-chip { padding: .3rem .65rem; font-size: .78rem; line-height: 1.2; }
 .logs-panel .logs-chip[aria-pressed="false"] { opacity: .55; }
 .logs-panel .logs-chip.log-error[aria-pressed="true"] { color: var(--danger-hi); }
 .logs-panel .logs-chip.log-warning[aria-pressed="true"] { color: var(--gold); }

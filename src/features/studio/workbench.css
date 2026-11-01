@@ -173,7 +173,7 @@
 .wb-dock-tabs [role="tab"] { padding: 5px 12px; border: 1px solid rgb(var(--ink-rgb) / 0.102); border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); font-size: 12px; }
 .wb-dock-tabs [role="tab"][aria-selected="true"] { background: var(--panel); color: var(--chalk); }
 .wb-settings select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-.wb-dock-action { padding: .3rem .7rem; border: 1px solid var(--line-strong); border-radius: .6rem; background: var(--raised); color: inherit; font-size: .78rem; }
+.wb-dock-action { padding: .3rem .7rem; font-size: .78rem; }
 .wb-dock-panel { flex: 1; min-height: 0; overflow: auto; padding: .5rem .8rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--panel); }
 .media-browser > .wb-tiles { flex: 1; min-width: 0; overflow: auto; }
 .wb-tiles { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }

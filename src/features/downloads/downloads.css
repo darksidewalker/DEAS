@@ -69,8 +69,7 @@
 /* Library header: view tabs left, the run-everything button top right. */
 .download-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .5rem; border-bottom: 1px solid rgb(var(--ink-rgb) / 0.102); }
 .download-head .studio-tabs { padding-top: 0; }
-.download-controls .download-start-all { margin-bottom: .4rem; padding: .55rem 1.1rem; border-color: var(--copper); background: var(--copper); color: var(--field); font-weight: 600; }
-.download-controls .download-start-all:disabled { background: transparent; color: var(--muted); border-color: rgb(var(--ink-rgb) / 0.165); }
+.download-controls .download-start-all { margin-bottom: .4rem; padding: .55rem 1.1rem; }
 .download-basket { display: grid; gap: .35rem; padding: .6rem .8rem; border: 1px solid rgb(var(--ok-rgb) / 0.4); border-radius: .7rem; }
 .download-basket h3 { margin: 0; font-size: .85rem; }
 .download-basket ul { display: grid; gap: .2rem; margin: 0; padding: 0; list-style: none; font-size: .78rem; }
