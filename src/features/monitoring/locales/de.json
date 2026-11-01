@@ -15,14 +15,16 @@
   "monitoring.col.timeline": "Zeitleiste",
   "monitoring.timeline": "Gewartet {queued}, gelaufen {running}",
   "monitoring.cpu": "CPU",
-  "monitoring.threads": "Threads",
   "monitoring.ram": "RAM",
   "monitoring.swap": "Swap",
   "monitoring.disk": "Datenträger (Umgebung)",
   "monitoring.gpu": "GPU",
-  "monitoring.gpuUtil": "Auslastung",
   "monitoring.vram": "VRAM",
   "monitoring.noGpu": "Keine NVIDIA-GPU-Telemetrie (nvidia-smi).",
-  "monitoring.graph": "Letzte 60 Messwerte: CPU, RAM, GPU und VRAM in Prozent",
-  "monitoring.source": "Quelle: {source} · ein Messwert pro Sekunde, solange dieser Tab sichtbar ist"
+  "monitoring.source": "Quelle: {source} · ein Messwert pro Sekunde, solange dieser Tab sichtbar ist",
+  "monitoring.col.peaks": "Spitzenwerte",
+  "monitoring.noPeaks": "nicht gemessen",
+  "monitoring.ioRead": "Disk lesen",
+  "monitoring.ioWrite": "Disk schreiben",
+  "monitoring.graphOf": "Letzte 60 Messwerte: {metric}"
 }

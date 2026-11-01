@@ -12,15 +12,19 @@ export interface MonitoringSample {
  at:number; source:string;
  cpu:{percent:number;count:number}|null; ram:{used:number;total:number}|null; swap:{used:number;total:number}|null;
  disks:{path:string;used:number;total:number}[];
+ diskIo:{readMibS:number;writeMibS:number}|null;
  gpus:{index:number;name:string;utilization:number|null;memoryUsed:number|null;memoryTotal:number|null;temperature:number|null;powerW:number|null;powerLimitW:number|null}[];
  warnings?:string[];
 }
 export const SAMPLE_LIMIT=60;
-const lines=[
- {key:'cpu',color:'#38bdf8',value:(s:MonitoringSample)=>s.cpu?.percent??null},
- {key:'ram',color:'#a78bfa',value:(s:MonitoringSample)=>s.ram&&s.ram.total>0?s.ram.used/s.ram.total*100:null},
- {key:'gpu',color:'#4ade80',value:(s:MonitoringSample)=>s.gpus[0]?.utilization??null},
- {key:'vram',color:'#22d3ee',value:(s:MonitoringSample)=>{const g=s.gpus[0];return g?.memoryUsed!=null&&g.memoryTotal?g.memoryUsed/g.memoryTotal*100:null;}},
+/** One graph per component, like the DaSiWa System Monitor's Full mode. `max` undefined = scale to the series. */
+const metrics=[
+ {key:'cpu',color:'#38bdf8',max:100,value:(s:MonitoringSample)=>s.cpu?.percent??null},
+ {key:'ram',color:'#a78bfa',max:100,value:(s:MonitoringSample)=>s.ram&&s.ram.total>0?s.ram.used/s.ram.total*100:null},
+ {key:'gpu',color:'#4ade80',max:100,value:(s:MonitoringSample)=>s.gpus[0]?.utilization??null},
+ {key:'vram',color:'#22d3ee',max:100,value:(s:MonitoringSample)=>{const g=s.gpus[0];return g?.memoryUsed!=null&&g.memoryTotal?g.memoryUsed/g.memoryTotal*100:null;}},
+ {key:'ioRead',color:'#34d399',max:undefined,value:(s:MonitoringSample)=>s.diskIo?.readMibS??null},
+ {key:'ioWrite',color:'#f472b6',max:undefined,value:(s:MonitoringSample)=>s.diskIo?.writeMibS??null},
 ] as const;
 
 /** What a finished attempt ran, read from its immutable effective intent. */
@@ -39,25 +43,37 @@ export function timeline(r:HistoryRecord):{queuedMs:number;runningMs:number;wall
 }
 const gib=(bytes:number,locale:string)=>new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(bytes/2**30)+' GiB';
 const seconds=(ms:number,locale:string)=>new Intl.NumberFormat(locale,{style:'unit',unit:'second',unitDisplay:'short',maximumFractionDigits:1}).format(ms/1000);
+const pct=(v:number|null|undefined)=>v==null?'—':`${Math.round(v)} %`;
+const mibs=(v:number|null|undefined)=>v==null?'—':`${v<10?v.toFixed(1):Math.round(v)} MiB/s`;
+/** Peak line for one finished attempt; absent components are left out, nothing sampled = null. */
+export function peakSummary(p:HistoryRecord['peaks'],locale:string):string|null {
+ if(!p||!p.samples)return null;
+ const parts=[p.cpuPercent!=null&&`CPU ${pct(p.cpuPercent)}`,p.ramUsed!=null&&`RAM ${gib(p.ramUsed,locale)}`,p.gpuUtilization!=null&&`GPU ${pct(p.gpuUtilization)}`,p.vramUsed!=null&&`VRAM ${gib(p.vramUsed,locale)}`,p.temperature!=null&&`${Math.round(p.temperature)} °C`,p.powerW!=null&&`${Math.round(p.powerW)} W`,(p.diskReadMibS!=null||p.diskWriteMibS!=null)&&`I/O ${mibs(p.diskReadMibS)} / ${mibs(p.diskWriteMibS)}`].filter(Boolean);
+ return parts.length?parts.join(' · '):null;
+}
+/** One line of current values for the header; GPU index/name only, the rest as compact pairs. */
+export function currentSummary(s:MonitoringSample,locale:string,t:(k:string)=>string):string {
+ const parts=[s.cpu&&`${t('monitoring.cpu')} ${pct(s.cpu.percent)}`,s.ram&&`${t('monitoring.ram')} ${gib(s.ram.used,locale)} / ${gib(s.ram.total,locale)}`,s.swap&&s.swap.total>0&&`${t('monitoring.swap')} ${gib(s.swap.used,locale)}`,...s.disks.map(d=>`${t('monitoring.disk')} ${gib(d.used,locale)} / ${gib(d.total,locale)}`),s.diskIo&&`I/O ${mibs(s.diskIo.readMibS)} / ${mibs(s.diskIo.writeMibS)}`,...s.gpus.map(g=>`${t('monitoring.gpu')}${g.index} ${g.name.replace(/^NVIDIA (GeForce )?/,'')} ${pct(g.utilization)} · ${t('monitoring.vram')} ${g.memoryUsed!=null&&g.memoryTotal!=null?`${gib(g.memoryUsed,locale)} / ${gib(g.memoryTotal,locale)}`:'—'}${g.temperature!=null?` · ${Math.round(g.temperature)} °C`:''}${g.powerW!=null?` · ${Math.round(g.powerW)} W`:''}`)].filter(Boolean);
+ return parts.join(' · ');
+}
 
-function Graph({samples,label}:{samples:MonitoringSample[];label:string}){
+function Graph({series,color,max,label}:{series:(number|null)[];color:string;max?:number;label:string}){
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   const el=canvas.current,ctx=el?.getContext('2d');if(!el||!ctx)return;
   const w=el.width,h=el.height;ctx.clearRect(0,0,w,h);
   ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;
   for(const y of [0.25,0.5,0.75]){ctx.beginPath();ctx.moveTo(0,y*h);ctx.lineTo(w,y*h);ctx.stroke();}
+  const top=max??Math.max(1,...series.map(v=>v??0))*1.1;
   const step=w/(SAMPLE_LIMIT-1);
-  for(const line of lines){
-   ctx.strokeStyle=line.color;ctx.lineWidth=1.5;ctx.beginPath();let pen=false;
-   samples.forEach((s,i)=>{const v=line.value(s);const x=w-(samples.length-1-i)*step;if(v==null){pen=false;return;}const y=h-Math.min(100,Math.max(0,v))/100*h;if(pen)ctx.lineTo(x,y);else ctx.moveTo(x,y);pen=true;});
-   ctx.stroke();
-  }
- },[samples]);
- return <canvas ref={canvas} className="monitoring-graph" width={600} height={160} role="img" aria-label={label} data-monitoring-graph/>;
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.beginPath();let pen=false;
+  series.forEach((v,i)=>{const x=w-(series.length-1-i)*step;if(v==null){pen=false;return;}const y=h-Math.min(top,Math.max(0,v))/top*h;if(pen)ctx.lineTo(x,y);else ctx.moveTo(x,y);pen=true;});
+  ctx.stroke();
+ },[series,color,max]);
+ return <canvas ref={canvas} className="monitoring-graph" width={300} height={90} role="img" aria-label={label} data-monitoring-graph/>;
 }
 
-/** Monitoring tab: the last ten native attempts with their timing, and live host/GPU telemetry while the tab is visible. */
+/** Monitoring tab: the last ten native attempts with their timing and peaks, and live host/GPU telemetry while the tab is visible. */
 export function Monitoring({active,root}:{active:boolean;root?:string}){
  const {t,locale}=useI18n();
  const [records,setRecords]=useState<HistoryRecord[]>([]);
@@ -91,38 +107,32 @@ export function Monitoring({active,root}:{active:boolean;root?:string}){
  const latest=finished.find(r=>r.state==='succeeded'&&r.generationMs!=null);
  const maxWall=Math.max(1,...finished.map(r=>timeline(r).wallMs));
  const current=samples[samples.length-1];
- const pct=(v:number|null|undefined)=>v==null?'—':`${Math.round(v)} %`;
  return <section className="monitoring" data-monitoring aria-label={t('monitoring.title')}>
   <header className="monitoring-heading"><div><p className="eyebrow">{t('monitoring.tab')}</p><h2>{t('monitoring.title')}</h2></div>
+   {current&&<p className="monitoring-current" data-monitoring-values title={current.warnings?.join(' · ')}>{currentSummary(current,locale,t)}</p>}
    {latest&&<p className="monitoring-headline" data-monitoring-headline><strong>{seconds(latest.generationMs!,locale)}</strong><span>{t('monitoring.lastDuration')}</span></p>}</header>
   {!native&&<p className="field-help">{t('studio.history.native')}</p>}
-  <div className="monitoring-columns">
-   <section className="monitoring-panel" aria-labelledby="monitoring-generations"><h3 id="monitoring-generations">{t('monitoring.generations')}</h3>
-    {historyFailed&&<p className="error-message" role="alert">{t('studio.history.failed')}</p>}
-    {native&&!historyFailed&&finished.length===0&&<p className="field-help">{t('studio.history.empty')}</p>}
-    {finished.length>0&&<table className="monitoring-table"><thead><tr><th>{t('monitoring.col.outcome')}</th><th>{t('monitoring.col.pipeline')}</th><th>{t('monitoring.col.model')}</th><th>{t('monitoring.col.size')}</th><th>{t('monitoring.col.steps')}</th><th>{t('monitoring.col.seed')}</th><th>{t('monitoring.col.queued')}</th><th>{t('monitoring.col.duration')}</th><th>{t('monitoring.col.timeline')}</th></tr></thead>
-     <tbody>{finished.map(r=>{const d=describeIntent(r.intent),tl=timeline(r);return <tr key={r.id} data-monitoring-row={r.state}>
-      <td><span data-state={r.state}>{t(`studio.jobs.${r.state}`)}</span></td><td>{d.pipeline}</td><td className="monitoring-model" title={d.model}>{d.model}</td><td>{d.size}</td><td>{d.steps??'—'}</td><td>{d.seed??'—'}</td>
-      <td>{seconds(tl.queuedMs,locale)}</td><td>{r.generationMs!=null?seconds(r.generationMs,locale):'—'}</td>
-      <td><div className="monitoring-timeline" role="img" aria-label={t('monitoring.timeline',{queued:seconds(tl.queuedMs,locale),running:seconds(tl.runningMs,locale)})}><span className="is-queued" style={{width:`${tl.queuedMs/maxWall*100}%`}}/><span className={`is-${r.state}`} style={{width:`${tl.runningMs/maxWall*100}%`}}/></div></td>
-     </tr>;})}</tbody></table>}
-   </section>
-   <section className="monitoring-panel" aria-labelledby="monitoring-system"><h3 id="monitoring-system">{t('monitoring.system')}</h3>
-    {sampleError&&<p className="error-message" role="alert">{sampleError}</p>}
-    {current&&<>
-     <dl className="monitoring-values" data-monitoring-values>
-      <div><dt>{t('monitoring.cpu')}</dt><dd>{pct(current.cpu?.percent)}{current.cpu?` · ${current.cpu.count} ${t('monitoring.threads')}`:''}</dd></div>
-      <div><dt>{t('monitoring.ram')}</dt><dd>{current.ram?`${gib(current.ram.used,locale)} / ${gib(current.ram.total,locale)}`:'—'}</dd></div>
-      {current.swap&&current.swap.total>0&&<div><dt>{t('monitoring.swap')}</dt><dd>{gib(current.swap.used,locale)} / {gib(current.swap.total,locale)}</dd></div>}
-      {current.disks.map(d=><div key={d.path}><dt>{t('monitoring.disk')}</dt><dd title={d.path}>{gib(d.used,locale)} / {gib(d.total,locale)}</dd></div>)}
-      {current.gpus.map(g=><div key={g.index} className="monitoring-gpu"><dt>{`${t('monitoring.gpu')}${g.index} · ${g.name}`}</dt><dd>{t('monitoring.gpuUtil')} {pct(g.utilization)} · {t('monitoring.vram')} {g.memoryUsed!=null&&g.memoryTotal!=null?`${gib(g.memoryUsed,locale)} / ${gib(g.memoryTotal,locale)}`:'—'} · {g.temperature!=null?`${Math.round(g.temperature)} °C`:'—'} · {g.powerW!=null?`${Math.round(g.powerW)} W${g.powerLimitW!=null?` / ${Math.round(g.powerLimitW)} W`:''}`:'—'}</dd></div>)}
-      {current.gpus.length===0&&<div><dt>{t('monitoring.gpu')}</dt><dd>{t('monitoring.noGpu')}</dd></div>}
-     </dl>
-     <Graph samples={samples} label={t('monitoring.graph')}/>
-     <ul className="monitoring-legend">{lines.map(l=><li key={l.key}><span style={{background:l.color}}/>{t(`monitoring.${l.key}`)}</li>)}</ul>
-     <p className="field-help">{t('monitoring.source',{source:current.source})}{current.warnings?.length?` · ${current.warnings.join(' · ')}`:''}</p>
-    </>}
-   </section>
-  </div>
+  <section className="monitoring-panel" aria-labelledby="monitoring-generations"><h3 id="monitoring-generations">{t('monitoring.generations')}</h3>
+   {historyFailed&&<p className="error-message" role="alert">{t('studio.history.failed')}</p>}
+   {native&&!historyFailed&&finished.length===0&&<p className="field-help">{t('studio.history.empty')}</p>}
+   {finished.length>0&&<table className="monitoring-table"><thead><tr><th>{t('monitoring.col.outcome')}</th><th>{t('monitoring.col.pipeline')}</th><th>{t('monitoring.col.model')}</th><th>{t('monitoring.col.size')}</th><th>{t('monitoring.col.steps')}</th><th>{t('monitoring.col.seed')}</th><th>{t('monitoring.col.queued')}</th><th>{t('monitoring.col.duration')}</th><th>{t('monitoring.col.timeline')}</th><th>{t('monitoring.col.peaks')}</th></tr></thead>
+    <tbody>{finished.map(r=>{const d=describeIntent(r.intent),tl=timeline(r),peaks=peakSummary(r.peaks,locale);return <tr key={r.id} data-monitoring-row={r.state}>
+     <td><span data-state={r.state}>{t(`studio.jobs.${r.state}`)}</span></td><td>{d.pipeline}</td><td className="monitoring-model" title={d.model}>{d.model}</td><td>{d.size}</td><td>{d.steps??'—'}</td><td>{d.seed??'—'}</td>
+     <td>{seconds(tl.queuedMs,locale)}</td><td>{r.generationMs!=null?seconds(r.generationMs,locale):'—'}</td>
+     <td><div className="monitoring-timeline" role="img" aria-label={t('monitoring.timeline',{queued:seconds(tl.queuedMs,locale),running:seconds(tl.runningMs,locale)})}><span className="is-queued" style={{width:`${tl.queuedMs/maxWall*100}%`}}/><span className={`is-${r.state}`} style={{width:`${tl.runningMs/maxWall*100}%`}}/></div></td>
+     <td className="monitoring-peaks" data-monitoring-peaks>{peaks??<span className="field-help">{t('monitoring.noPeaks')}</span>}</td>
+    </tr>;})}</tbody></table>}
+  </section>
+  <section className="monitoring-panel" aria-labelledby="monitoring-system"><h3 id="monitoring-system">{t('monitoring.system')}</h3>
+   {sampleError&&<p className="error-message" role="alert">{sampleError}</p>}
+   {current&&<>
+    <div className="monitoring-graphs">{metrics.map(m=>{const series=samples.map(m.value);const now=series[series.length-1];return <figure key={m.key} className="monitoring-metric" data-monitoring-metric={m.key}>
+     <figcaption><span style={{background:m.color}}/>{t(`monitoring.${m.key}`)}<strong>{m.max===100?pct(now):mibs(now)}</strong></figcaption>
+     <Graph series={series} color={m.color} max={m.max} label={t('monitoring.graphOf',{metric:t(`monitoring.${m.key}`)})}/>
+    </figure>;})}</div>
+    {current.gpus.length===0&&<p className="field-help">{t('monitoring.noGpu')}</p>}
+    <p className="field-help">{t('monitoring.source',{source:current.source})}{current.warnings?.length?` · ${current.warnings.join(' · ')}`:''}</p>
+   </>}
+  </section>
  </section>;
 }

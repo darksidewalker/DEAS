@@ -15,14 +15,16 @@
   "monitoring.col.timeline": "时间线",
   "monitoring.timeline": "排队 {queued}，运行 {running}",
   "monitoring.cpu": "CPU",
-  "monitoring.threads": "线程",
   "monitoring.ram": "内存",
   "monitoring.swap": "交换",
   "monitoring.disk": "磁盘（环境）",
   "monitoring.gpu": "GPU",
-  "monitoring.gpuUtil": "利用率",
   "monitoring.vram": "显存",
   "monitoring.noGpu": "无 NVIDIA GPU 遥测（nvidia-smi）。",
-  "monitoring.graph": "最近 60 个样本：CPU、内存、GPU 和显存百分比",
-  "monitoring.source": "来源：{source} · 此标签可见时每秒采样一次"
+  "monitoring.source": "来源：{source} · 此标签可见时每秒采样一次",
+  "monitoring.col.peaks": "峰值",
+  "monitoring.noPeaks": "未采样",
+  "monitoring.ioRead": "磁盘读取",
+  "monitoring.ioWrite": "磁盘写入",
+  "monitoring.graphOf": "最近 60 个样本：{metric}"
 }

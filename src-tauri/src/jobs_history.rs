@@ -53,6 +53,9 @@ pub struct HistoryRecord {
     revision: u64,
     started_at: Option<u64>,
     generation_ms: Option<u64>,
+    /// Host/GPU maxima sampled while the job was active; absent for records older than 0.2.9.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    peaks: Option<crate::monitoring::Peaks>,
     state: String,
     intent: EffectiveIntent,
     outputs: Vec<HistoryOutput>,
@@ -286,6 +289,7 @@ impl History {
             revision: 1,
             started_at: timing(job, "startedAt"),
             generation_ms: timing(job, "generationMs"),
+            peaks: None,
             state: job.state.into(),
             intent: EffectiveIntent(effective_intent(&job.plan.intent)),
             outputs: projection_outputs(job),
@@ -339,14 +343,21 @@ impl History {
         let error = safe_error(job);
         let started_at = timing(job, "startedAt").or(record.started_at);
         let generation_ms = timing(job, "generationMs").or(record.generation_ms);
+        let peaks = (job.terminal() && record.peaks.is_none())
+            .then(|| crate::monitoring::take_peaks(&job.id))
+            .flatten();
         if record.state == job.state
             && record.prompt_id == job.prompt_id
             && record.outputs == outputs
             && record.error == error
             && record.started_at == started_at
             && record.generation_ms == generation_ms
+            && peaks.is_none()
         {
             return;
+        }
+        if peaks.is_some() {
+            record.peaks = peaks;
         }
         record.started_at = started_at;
         record.generation_ms = generation_ms;

@@ -15,14 +15,16 @@
   "monitoring.col.timeline": "Zaman çizelgesi",
   "monitoring.timeline": "Beklendi {queued}, çalıştı {running}",
   "monitoring.cpu": "CPU",
-  "monitoring.threads": "iş parçacığı",
   "monitoring.ram": "RAM",
   "monitoring.swap": "Takas",
   "monitoring.disk": "Disk (ortam)",
   "monitoring.gpu": "GPU",
-  "monitoring.gpuUtil": "Kullanım",
   "monitoring.vram": "VRAM",
   "monitoring.noGpu": "NVIDIA GPU telemetrisi yok (nvidia-smi).",
-  "monitoring.graph": "Son 60 örnek: CPU, RAM, GPU ve VRAM yüzde olarak",
-  "monitoring.source": "Kaynak: {source} · bu sekme görünürken saniyede bir örnek"
+  "monitoring.source": "Kaynak: {source} · bu sekme görünürken saniyede bir örnek",
+  "monitoring.col.peaks": "Tepe değerler",
+  "monitoring.noPeaks": "ölçülmedi",
+  "monitoring.ioRead": "Disk okuma",
+  "monitoring.ioWrite": "Disk yazma",
+  "monitoring.graphOf": "Son 60 örnek: {metric}"
 }

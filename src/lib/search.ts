@@ -63,7 +63,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'tve', tab: 'studio.tab.tve', section: 'studio.tve.post.title', label: 'studio.tve.post.chunkFrames', target: '[data-tve-post="chunkFrames"]', aliases: ['memory'] },
   { view: studio, studioTab: 'tve', tab: 'studio.tab.tve', section: 'studio.tve.post.title', label: 'studio.tve.post.multiplier', target: '[data-tve-post="multiplier"]', aliases: ['frame rate', 'fps'] },
   { view: studio, studioTab: 'monitor', tab: 'monitoring.tab', section: 'monitoring.generations', label: 'monitoring.col.duration', target: '[data-monitoring-headline]', aliases: ['duration', 'time', 'history'] },
-  { view: studio, studioTab: 'monitor', tab: 'monitoring.tab', section: 'monitoring.system', label: 'monitoring.graph', target: '[data-monitoring-graph]', aliases: ['cpu', 'ram', 'gpu', 'vram', 'telemetry'] },
+  { view: studio, studioTab: 'monitor', tab: 'monitoring.tab', section: 'monitoring.system', label: 'monitoring.cpu', target: '[data-monitoring-metric="cpu"]', aliases: ['cpu', 'ram', 'gpu', 'vram', 'telemetry'] },
   // Run Plan stages (a stage that the draft does not use is genuinely unavailable)
   { view: studio, studioTab: 'map', tab: 'studio.tab.map', section: 'studio.tab.map', label: 'studio.plan.model', target: '[data-plan-stage="model"]', aliases: ['checkpoint'], reason: 'search.reason.plan' },
   { view: studio, studioTab: 'map', tab: 'studio.tab.map', section: 'studio.tab.map', label: 'studio.plan.prompt', target: '[data-plan-stage="prompt"]', aliases: ['prompt'], reason: 'search.reason.plan' },

@@ -13,6 +13,8 @@ export interface HistoryRecord {
  outputs:{filename:string;subfolder:string;type:'output';format?:string}[];
  outputRoot:string|null; outputRootIdentity?:string|null; backendOrigin:string; error:string|null;
  startedAt?:number|null;generationMs?:number|null;
+ /** Host/GPU maxima sampled natively while the job was active; absent for older records. */
+ peaks?:{samples:number;cpuPercent:number|null;ramUsed:number|null;gpuUtilization:number|null;vramUsed:number|null;temperature:number|null;powerW:number|null;diskReadMibS:number|null;diskWriteMibS:number|null}|null;
 }
 export interface HistorySnapshot {schemaVersion:1;records:HistoryRecord[];readOnly:boolean;error:string|null}
 export async function readHistory():Promise<HistorySnapshot> {

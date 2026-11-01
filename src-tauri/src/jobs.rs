@@ -1280,6 +1280,23 @@ impl Jobs {
             .map_err(|_| "Native job state unavailable".into())
     }
 
+    /// Ids of every held job that is still queued or running, across nested workbenches.
+    pub fn active_job_ids(&self) -> Vec<String> {
+        let Ok(session) = self.lock() else {
+            return vec![];
+        };
+        let mut ids: Vec<String> = session
+            .job
+            .iter()
+            .filter(|job| matches!(job.state, "queued" | "running"))
+            .map(|job| job.id.clone())
+            .collect();
+        for nested in &session.workbench {
+            ids.extend(nested.active_job_ids());
+        }
+        ids
+    }
+
     #[cfg(test)]
     async fn prepare(&self, base_url: String, intent: Value) -> Result<Value, String> {
         self.prepare_with_models(base_url, intent, vec![]).await

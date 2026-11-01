@@ -15,14 +15,16 @@
   "monitoring.col.timeline": "Timeline",
   "monitoring.timeline": "Queued {queued}, running {running}",
   "monitoring.cpu": "CPU",
-  "monitoring.threads": "threads",
   "monitoring.ram": "RAM",
   "monitoring.swap": "Swap",
   "monitoring.disk": "Disk (environment)",
   "monitoring.gpu": "GPU",
-  "monitoring.gpuUtil": "Util",
   "monitoring.vram": "VRAM",
   "monitoring.noGpu": "No NVIDIA GPU telemetry (nvidia-smi).",
-  "monitoring.graph": "Last 60 samples: CPU, RAM, GPU and VRAM in percent",
-  "monitoring.source": "Source: {source} · one sample per second while this tab is visible"
+  "monitoring.source": "Source: {source} · one sample per second while this tab is visible",
+  "monitoring.col.peaks": "Peaks",
+  "monitoring.noPeaks": "not sampled",
+  "monitoring.ioRead": "Disk read",
+  "monitoring.ioWrite": "Disk write",
+  "monitoring.graphOf": "Last 60 samples: {metric}"
 }

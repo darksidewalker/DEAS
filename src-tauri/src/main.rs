@@ -19,6 +19,7 @@ fn main() {
                     .state::<deas::jobs::Jobs>()
                     .initialize_history_unavailable(),
             }
+            deas::monitoring::spawn_job_sampler(app.state::<deas::jobs::Jobs>().inner().clone());
             let config = app.config().app.windows[0].clone();
             let mut bridge = String::new();
             #[cfg(debug_assertions)]
