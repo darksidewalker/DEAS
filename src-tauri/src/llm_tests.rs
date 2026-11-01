@@ -445,6 +445,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert calls[1]['tool_choice'] == 'auto' and calls[1]['max_tokens'] == 9 and 'temperature' not in calls[1]
     assert calls[1]['messages'][0]['tool_calls'][0]['function']['arguments'] == {{'query':'x'}}
     assert 'tools' not in calls[-2] and calls[-1] == 'closed'
+    assert calls[1]['seed'] != calls[-2]['seed']
 seen = []
 class Small(Fixture):
     def __init__(self, **kwargs):

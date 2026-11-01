@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import random
 import sys
 
 MAX_INPUT = 1024 * 1024
@@ -83,7 +84,8 @@ def session_round(model, request):
     options = {key: request[key] for key in ("temperature", "top_p", "max_tokens") if request.get(key) is not None}
     if tools:
         options.update(tools=tools, tool_choice="auto")
-    result = model.create_chat_completion(messages=messages, stream=False, **options)["choices"][0]
+    # llama-cpp-python derives a fixed seed when given none, so Regenerate would repeat itself.
+    result = model.create_chat_completion(messages=messages, stream=False, seed=random.getrandbits(32), **options)["choices"][0]
     return {"text": result["message"].get("content") or "", "finish": result.get("finish_reason")}
 
 
@@ -144,7 +146,7 @@ def generate(payload):
     try:
         result = model.create_chat_completion(
             messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-            max_tokens=tokens, temperature=temperature, stream=False,
+            max_tokens=tokens, temperature=temperature, stream=False, seed=random.getrandbits(32),
         )
         text = result["choices"][0]["message"]["content"]
         if not isinstance(text, str) or not text.strip() or "\0" in text or len(text.encode("utf-8")) > MAX_OUTPUT:
