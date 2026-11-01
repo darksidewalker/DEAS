@@ -3,6 +3,15 @@
 ## 0.2.9 BETA (unreleased)
 
 - **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
+- **Prompt Forge can be stopped.** The Prompt Forge tab and the hammer on image models show **Cancel** while writing. It ends the request or the local GGUF at once and frees the GPU; before, a slow write could only be waited out or ended by closing DEAS.
+- **Video prompts say why they cannot start.** With the backend stopped, MiniMax H3, LTX and Wan showed "Prompt Forge request failed" over a model list stuck on loading. They now say the backend isn't running and where to start it.
+- **Library: four category tabs had no names.** GitHub files, Hugging Face datasets, Hugging Face models and Ollama models showed their raw keys, in every language.
+- **Music without a compatible model** no longer says "No checkpoints found" while listing checkpoints; it says the pipeline has no verified recipe.
+- **A missing spellcheck dictionary is a warning, not an error.** Spellcheck is on by default, so every first run filled the Errors filter in Logs.
+- **Regenerate on a local GGUF gives a new result.** Every write used the same seed, so the same brief always came back word for word.
+- **Local GGUF time-outs say what to try:** close whatever else is using the GPU, or pick a smaller GGUF.
+- **Image models can use a local GGUF.** Prompt Forge for Illustrious, Anima, Krea2 and MOSS, and the hammer, now run a language GGUF from `models/llm` with no server: tag lookups, guidance and clean-up all work. The model loads for one write and is released when it ends. It cannot read reference pictures yet, and Chat still needs a server.
+- **Windows: the local GGUF runner loads.** It could not find its CUDA DLLs outside ComfyUI, and a folder named `LLM` on disk was listed and then refused as an invalid model. While the backend ran, the environment check could not read `deas-install.json`, so the runner failed with `os error 32`; the lock now lets reads through and still refuses a second DEAS.
 
 ## 0.2.8 BETA
 
@@ -22,7 +31,7 @@
 
 - **The update arrow clears after an update.** The footer checked for updates once at launch, so after a successful ComfyUI or node pack update it kept showing the arrow until DEAS restarted. It now checks again when an update finishes. A replaced DEAS binary stays cleared until the restart, because it still reports its old version.
 - **Prompt Forge keeps its result through a list reload.** Switching tabs or the backend finishing its start briefly emptied the model list, which read as a model change: a finished result lost its Send buttons and a write in progress was thrown away. Native writes no longer depend on the backend endpoint, and a text result no longer depends on the Studio canvas.
-- **Prompt Forge asks for a server, not a GGUF.** The tool writers cannot use local GGUFs, so the empty model list now points at Backend → LLM.
+- **Chat asks for a server, not a GGUF.** Chat cannot use local GGUFs, so its empty model list now points at Backend → LLM.
 - **Install steps past an unfinished folder.** A folder left by a failed or cancelled install is still never reused or deleted, but setup now picks the next numbered folder and says so instead of stopping on an error.
 - **Windows: install works in a folder with a space.** uv splits `--constraint` on spaces even on the command line, so any such path failed at Requirements, including the default beside the executable under a user name with a space. The managed `UV_CONSTRAINT` file URI is now the only constraint source.
 - **Spellcheck dictionary install (Linux).** When the loaded-dictionary check reports `SPELLCHECK_DICTIONARY_MISSING`, Backend → Language shows **Install dictionary** with the pair's size and license. `native_spellcheck_dictionary_info` is read-only; `native_spellcheck_dictionary_install` downloads the pinned Hunspell `.dic`/`.aff` for de/en/fr/tr from `wooorm/dictionaries` (commit `8cfea406`), requires the declared size and SHA-256, caps each file at 12 MiB, writes atomically into `$XDG_CONFIG_HOME/enchant/hunspell` (`~/.config/enchant/hunspell`) and re-runs the dictionary check; when Enchant has not picked the pair up yet, the panel asks for a restart. Japanese and Chinese have no published Hunspell dictionary and say so (a Logs warning, not an error). Nothing downloads from opening Settings or typing; Windows keeps its explicit unsupported state.

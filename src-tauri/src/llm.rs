@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{io::Write, path::Path, process::Stdio, time::Duration};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 const FILE: &str = "deas-llm.json";
 const MAX_RESPONSE: usize = 1024 * 1024;
@@ -366,6 +366,8 @@ fn resolve_local(root: &Path, id: &str) -> Result<std::path::PathBuf, String> {
         }
     }
     let actual = dunce::canonicalize(path).map_err(|_| "Local model is unavailable")?;
+    // Windows spells the folder as it is on disk (`LLM`), which `base` may not.
+    let base = dunce::canonicalize(&base).map_err(|_| "Local model is unavailable")?;
     if !actual.starts_with(&base) || !actual.is_file() || !language_gguf(&actual) {
         return Err("Invalid local GGUF model".into());
     }
@@ -403,6 +405,8 @@ async fn remote_models(config: &LlmConfig) -> Result<Vec<Model>, String> {
     models.dedup_by(|a, b| a.id == b.id);
     Ok(models)
 }
+const LOCAL_TIMED_OUT: &str = "Local LLM timed out. If a game or another app is using the GPU, close it and try again, or pick a smaller GGUF.";
+
 pub async fn models(root: &Path, config: &LlmConfig) -> Result<ModelList, String> {
     root_guard(root)?;
     validate(config)?;
@@ -703,7 +707,7 @@ async fn run_worker(root: &Path, input: Vec<u8>, timeout: Duration) -> Result<St
     };
     let result = tokio::time::timeout(timeout, work)
         .await
-        .unwrap_or_else(|_| Err("Local LLM timed out".into()));
+        .unwrap_or_else(|_| Err(LOCAL_TIMED_OUT.into()));
     if result.is_err() {
         let _ = child.kill().await;
         let _ = child.wait().await;
@@ -718,6 +722,128 @@ async fn local(root: &Path, request: &LlmRequest) -> Result<String, String> {
         .map_err(|_| "Cannot encode local LLM request")?;
     run_worker(root, input, LOCAL_TIMEOUT).await
 }
+
+const LOCAL_FAILED: &str =
+    "Local LLM failed; verify llama-cpp-python, GGUF compatibility and available memory/context";
+
+struct LocalWorker {
+    model: String,
+    _permit: tokio::sync::SemaphorePermit<'static>,
+    // kill_on_drop: losing the worker, however that happens, frees the model.
+    _child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::io::BufReader<tokio::process::ChildStdout>,
+}
+impl LocalWorker {
+    async fn exchange(&mut self, request: &Value) -> Result<Value, String> {
+        let mut line =
+            serde_json::to_vec(request).map_err(|_| "Cannot encode local LLM request")?;
+        line.push(b'\n');
+        self.stdin
+            .write_all(&line)
+            .await
+            .map_err(|_| LOCAL_FAILED.to_string())?;
+        let mut reply = Vec::new();
+        (&mut self.stdout)
+            .take(MAX_RESPONSE as u64 * 4)
+            .read_until(b'\n', &mut reply)
+            .await
+            .map_err(|_| LOCAL_FAILED.to_string())?;
+        let value: Value = serde_json::from_slice(&reply).map_err(|_| LOCAL_FAILED.to_string())?;
+        match value["error"].as_str() {
+            Some("context") => Err("This write is too long for the context the local model loaded with. Free GPU memory by stopping the backend, lower Detail, or pick a server under Backend → LLM.".into()),
+            Some("memory") => Err("Not enough free GPU memory for this local model. Close other apps using the GPU, stop the backend, or pick a smaller GGUF.".into()),
+            Some("runtime") => Err("The local LLM runtime did not start. Use Backend → Re-run installation to repair it.".into()),
+            Some("load") => Err("The local model did not load. It may be too large for the free memory, so stop the backend or pick a smaller GGUF.".into()),
+            Some(_) => Err(LOCAL_FAILED.into()),
+            None => Ok(value),
+        }
+    }
+}
+
+/// One Prompt Forge command's local model: loaded by its first round, kept for
+/// the rounds after it, and gone when the command ends.
+pub struct LocalRunner {
+    root: std::path::PathBuf,
+    worker: tokio::sync::Mutex<Option<LocalWorker>>,
+}
+impl LocalRunner {
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            worker: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    async fn open(&self, model: &str) -> Result<LocalWorker, String> {
+        root_guard(&self.root)?;
+        let path = resolve_local(&self.root, model)?;
+        owned_environment(&self.root)?;
+        let permit = RUNS
+            .try_acquire()
+            .map_err(|_| "An LLM generation is already running")?;
+        let mut command = tokio::process::Command::new(self.root.join(crate::install::VENV_PYTHON));
+        command
+            .args(["-I", "-c", include_str!("llm_worker.py"), "session"])
+            .current_dir(&self.root)
+            .env("PYTHONUTF8", "1")
+            .env_remove("PYTHONPATH")
+            .env_remove("PYTHONHOME")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        let mut child = command
+            .spawn()
+            .map_err(|_| "Cannot start managed local LLM worker")?;
+        let stdin = child.stdin.take().ok_or("Local LLM stdin unavailable")?;
+        let stdout = child.stdout.take().ok_or("Local LLM stdout unavailable")?;
+        let mut worker = LocalWorker {
+            model: model.to_string(),
+            _permit: permit,
+            _child: child,
+            stdin,
+            stdout: tokio::io::BufReader::new(stdout),
+        };
+        worker.exchange(&json!({ "modelPath": path })).await?;
+        Ok(worker)
+    }
+
+    /// One chat round; the answer's text and finish reason.
+    pub async fn round(
+        &self,
+        model: &str,
+        request: Value,
+        timeout: Duration,
+    ) -> Result<(String, Option<String>), String> {
+        let mut slot = self.worker.lock().await;
+        let work = async {
+            if slot.as_ref().is_none_or(|w| w.model != model) {
+                // Free the old model before the new one needs its memory.
+                *slot = None;
+                *slot = Some(self.open(model).await?);
+            }
+            slot.as_mut()
+                .ok_or(LOCAL_FAILED.to_string())?
+                .exchange(&request)
+                .await
+        };
+        let result = tokio::time::timeout(timeout, work)
+            .await
+            .unwrap_or_else(|_| Err(LOCAL_TIMED_OUT.into()));
+        if result.is_err() {
+            *slot = None;
+        }
+        let value = result?;
+        Ok((
+            value["text"].as_str().unwrap_or("").to_string(),
+            value["finish"].as_str().map(String::from),
+        ))
+    }
+}
+
 pub async fn generate(
     root: &Path,
     config: &LlmConfig,
@@ -948,12 +1074,13 @@ async fn forge(base_url: &str, root: &str, route: &str, mut body: Value) -> Resu
         .timeout(Duration::from_secs(900))
         .build()
         .map_err(|_| "Cannot create Prompt Forge HTTP client")?;
-    let mut response = client
-        .post(url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| "Prompt Forge request failed")?;
+    let mut response = client.post(url).json(&body).send().await.map_err(|e| {
+        if e.is_connect() {
+            "forge.backendRequired"
+        } else {
+            "Prompt Forge request failed"
+        }
+    })?;
     let status = response.status();
     let limit = 4 * MAX_RESPONSE;
     if response.content_length().is_some_and(|n| n > limit as u64) {

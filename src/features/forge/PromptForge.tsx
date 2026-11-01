@@ -29,7 +29,7 @@ export function PromptForge({ endpoint, root, inputDir, outputDir, canvasContext
   const { t } = useI18n();
   const [target, setTarget] = usePref('forge.target', dialects[0], oneOf(...dialects));
   const native = nativeTarget(target);
-  const forge = useForgeModels(endpoint, root, active, !native);
+  const forge = useForgeModels(endpoint, root, active, !native, true);
   const [mode, setMode] = usePref('forge.h3.mode', 'T2VA', oneOf(...modes));
   const [duration, setDuration] = usePref('forge.h3.duration', 5, isNumber);
   const [shots, setShots] = usePref<string | number>('forge.h3.shots', 'Auto', (v): v is string | number => v === 'Auto' || isNumber(v));

@@ -50,6 +50,7 @@ export interface NativeCameraOption { key: string; label: string; icon: string |
 export interface NativeImageRef { role: string; fidelity: string; note: string; character: string; image: string }
 export interface NativeReferences { roles: { key: string; label: string; rule?: string }[]; fidelity: { key: string; label: string; rule?: string }[]; defaultRole: string | null; defaultFidelity: string | null; max: number; analyze: boolean }
 export interface NativeTargets { source: { commit?: string }; creativity: string[]; targets: NativeTarget[]; references?: NativeReferences }
+export const nativeForgeCancel = () => invoke<void>('native_forge_cancel');
 export const nativeForgeWrite = (root: string, request: NativeWrite) => invoke<NativeResult>('native_forge_write', { root, request });
 export const nativeForgeRevise = (root: string, request: NativeWrite & { segments: NativeSegment[]; instruction?: string; referenceAnalysis?: string }) => invoke<NativeResult>('native_forge_revise', { root, request });
 export interface RandomizerBox { id: string; label: string; children: { id: string; label: string; options: number }[] }
@@ -68,5 +69,8 @@ export const nativeForgeTargets = (root: string) => invoke<NativeTargets>('nativ
 export const nativeTarget = (dialect?: string) => ({ Illustrious: 'illustrious', Anima: 'anima', Krea2: 'krea2', MOSS: 'moss' } as Record<string, string>)[dialect ?? ''];
 /** Discovery qualifies model ids by provider; native requests take the bare id. */
 export const nativeModelId = (id: string) => id.replace(/^(local|openai|ollama):/, '');
+/** The native writer runs a local GGUF itself, so it keeps the `local:` prefix that says so. */
+export const nativeWriteModel = (id: string) => id.startsWith('local:') ? id : nativeModelId(id);
 /** A 404 — or 405, since ComfyUI's GET-only static `/` route catches unknown POST paths — means the node pack predates these routes. */
-export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return /^40[45]\b/.test(text) ? 'forge.outdated' : text; };
+/** A write the user stopped is not an error, so it reads as none. */
+export const forgeError = (e: unknown) => { const text = e instanceof Error ? e.message : String(e); return text === 'FORGE_CANCELLED' ? '' : /^40[45]\b/.test(text) ? 'forge.outdated' : text; };

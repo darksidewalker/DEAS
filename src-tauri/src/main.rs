@@ -158,6 +158,7 @@ fn main() {
             deas::native_llm_models,
             deas::native_forge,
             deas::forge::engine::native_forge_write,
+            deas::forge::engine::native_forge_cancel,
             deas::forge::engine::native_forge_revise,
             deas::forge::engine::native_forge_layout_rewrite,
             deas::forge::assistant::native_chat_send,

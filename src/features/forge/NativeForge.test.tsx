@@ -41,7 +41,7 @@ it.each(['illustrious', 'anima', 'krea2', 'moss'])('%s offers every Settings rat
   fireEvent.change(document.querySelector('[data-forge-result]')!, { target: { value: 'my edited city' } });
   fireEvent.click(document.querySelector('[data-forge-send]')!);
   expect(onSend).toHaveBeenCalledExactlyOnceWith('my edited city', '', { canvas: { width: 1344, height: 768 }, contextKey: 'studio-a' });
-  expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(['native_forge_targets', 'native_forge_write']);
+  expect(vi.mocked(invoke).mock.calls.map(([command]) => command).filter(command => command !== 'native_spellcheck_check')).toEqual(['native_forge_targets', 'native_forge_write']);
 });
 
 it('Auto consumes the effective source canvas; Custom validates values and N/A keeps the prompt-only callback', async () => {
@@ -172,4 +172,19 @@ it.each(['edit', 'clear'])('a late revision preserves the user’s newer %s and 
     fireEvent.click(document.querySelector('[data-forge-send]')!);
     expect(onSend).toHaveBeenCalledExactlyOnceWith('newer manual text', '', { canvas: { width: 1344, height: 768 }, contextKey: 'studio-a' });
   } else expect(document.querySelector('[data-forge-result]')).toBeNull();
+});
+
+it('stops a write in progress without reporting an error', async () => {
+  let stop!: (reason: string) => void; const pending = new Promise<never>((_, reject) => { stop = reject; });
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_forge_write' ? pending : command === 'native_forge_cancel' ? Promise.resolve(undefined as never) : base(command, args));
+  render(view({ target: 'krea2' }));
+  await screen.findByRole('button', { name: 'Open all' });
+  expect(document.querySelector('[data-forge-cancel]')).toBeNull();
+  fireEvent.click(document.querySelector('[data-forge-write]')!);
+  fireEvent.click(await waitFor(() => document.querySelector('[data-forge-cancel]')!));
+  expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'native_forge_cancel')).toBe(true);
+  stop('FORGE_CANCELLED');
+  await waitFor(() => expect(document.querySelector('[data-forge-cancel]')).toBeNull());
+  expect(document.querySelector('.error-message')).toBeNull();
 });

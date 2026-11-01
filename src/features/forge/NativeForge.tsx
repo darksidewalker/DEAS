@@ -1,7 +1,7 @@
 import { PromptTextarea } from '../studio/PromptTextarea';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { forgeError, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeModelId, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
+import { forgeError, nativeForgeCancel, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeWriteModel, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { aspects as settingsAspects } from '../../lib/resolution';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
@@ -133,7 +133,7 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
   };
   const lengthOk = Number.isInteger(lengthValue) && lengthValue >= LENGTH_MIN && lengthValue <= LENGTH_MAX;
   const request = (): NativeWrite => ({
-    target, brief, model: nativeModelId(forge.model), mode: activeMode || undefined, segmentsOn,
+    target, brief, model: nativeWriteModel(forge.model), mode: activeMode || undefined, segmentsOn,
     controls: {
       detail, creativity, lighting: lightingOn || undefined,
       qualityPreset: qualities.includes(quality) ? quality : 'none', style: styles.includes(style) ? style : 'None', aspectRatio: selectedAspect ?? aspect,
@@ -290,7 +290,7 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
           {!!spec.camera?.light.length && <Tiles name="light" label={t('forge.lightFrom')} value={pick.light} onChange={setLight} options={camTiles(spec.camera.light)}/>}
         </>)}
         {fold('tags', root && <TagPicker root={root} target={target} tags={tags} onTags={setTags} weightRange={spec.weightRange}/>)}
-        {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeModelId(forge.model) : ''} vocab={targets.references} pictures={pictures}
+        {fold('refs', root && targets?.references && <ReferenceImages root={root} target={target} model={forge.model ? nativeWriteModel(forge.model) : ''} vocab={targets.references} pictures={pictures}
           onPictures={setPictures}/>)}
       </div>}
       <p className={geometryError ? 'forge-warning' : 'forge-note'} data-forge-canvas role={geometryError ? 'status' : undefined}>
@@ -302,11 +302,12 @@ export function NativeForge({ root, canvasContext, target, forge, brief, setBrie
       </div> : <>
       <button type="button" className="action-button forge-write" data-forge-write disabled={busy || !forge.model || !brief.trim() || (!!lengthUnit && !lengthOk) || !!geometryError} onClick={() => void run()}>{t(busy ? 'forge.writing' : result ? 'forge.regenerate' : 'forge.write')}</button>
       </>}
+      {busy && <button type="button" className="action-button forge-write" data-forge-cancel onClick={() => void nativeForgeCancel()}>{t('forge.cancel')}</button>}
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {randomizer && root && <Randomizer root={root} onClose={() => setRandomizer(false)} onInsert={(text, replace) => setBrief(replace || !brief.trim() ? text : `${brief.trim().replace(/[,\s]+$/, '')}, ${text}`)}/>}
     </div>
     {layoutMode ? <div className="forge-layout-col">
-      <LayoutStudio root={root} model={forge.model ? nativeModelId(forge.model) : ''} studio={studio} busy={busy} requestScope={scope} geometryValid={!geometryError}/>
+      <LayoutStudio root={root} model={forge.model ? nativeWriteModel(forge.model) : ''} studio={studio} busy={busy} requestScope={scope} geometryValid={!geometryError}/>
       {(busy || result) && <div className="forge-card" aria-busy={busy} data-forge-layout-result>
         {busy && <p className="forge-note">{t(step === 'prompt' ? 'forge.layout.busyPrompt' : 'forge.layout.busyJson')}</p>}
         {result && <>
