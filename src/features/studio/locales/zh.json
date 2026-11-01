@@ -69,7 +69,7 @@
   "studio.videoPost.blocker.unsupportedDimensions": "不支持此视频源尺寸。",
   "studio.videoPost.blocker.fieldOrderUnknown": "场序未知。",
   "studio.videoPost.blocker.unknown": "未知的视频源阻碍。",
-  "studio.run.moss.plain": "MOSS-Image 仅支持基础生成；请明确禁用 {name}。已记忆的设置会保留。",
+  "studio.run.moss.plain": "MOSS-Image 支持基础生成、图像到图像和带掩码的局部重绘；请明确禁用 {name}。已记忆的设置会保留。",
   "studio.run.moss.resize": "MOSS-Image 输入边长必须能被 {multiple} 整除。请选择目标、适应或裁剪以明确调整尺寸；关闭和保持原尺寸的自动模式会裁剪源图像。",
   "studio.components.title": "模型文件",
   "studio.components.filtered": "匹配项",

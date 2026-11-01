@@ -3379,7 +3379,7 @@ test('prompt fields expand into a floating editor that edits the same text and c
  expect(screen.queryByRole('dialog')).toBeNull();
 });
 
-const mossNodes=['UNETLoader','CLIPLoader','VAELoader','CLIPTextEncode','KSampler','VAEDecode','SaveImage','EmptyFlux2LatentImage','LoadImage','VAEEncode','ImageScale'];
+const mossNodes=['UNETLoader','CLIPLoader','VAELoader','CLIPTextEncode','KSampler','VAEDecode','SaveImage','EmptyFlux2LatentImage','LoadImage','VAEEncode','ImageScale','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked'];
 async function mountMoss(nodes=mossNodes,clipTypes=['moss_image']){
  vi.mocked(scanModels).mockResolvedValue([
   {category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},
@@ -3433,7 +3433,7 @@ test.each([false,true])('MOSS reference readiness follows the active encoder wit
  expect(run.disabled).toBe(true);
  expect(screen.getByRole('alert').textContent).toContain('CLIPTextEncode');
 });
-test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
+test.each([...mossNodes.filter(n=>!['LoadImage','VAEEncode','ImageScale','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked'].includes(n)), 'moss_image'])('MOSS blocks t2i when emitted capability %s is missing',async(missing)=>{
  await mountMoss(mossNodes.filter(n=>n!==missing),missing==='moss_image'?[]:['moss_image']);
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('alert').textContent).toContain(missing);
@@ -3480,7 +3480,7 @@ test.each([
  localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,...patch,outputNaming:'keep/%seed%'}));
  await mountMoss();
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
- expect(screen.getByRole('alert').textContent).toContain('MOSS-Image supports plain generation only');
+ expect(screen.getByRole('alert').textContent).toContain('MOSS-Image supports plain generation');
  fireEvent.click(screen.getByRole('button',{name:`Restore ${label} defaults`}));
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.options')!).outputNaming).toBe('keep/%seed%');
@@ -3502,17 +3502,23 @@ test.each(['LoadImage','VAEEncode','ImageScale'])('MOSS i2i blocks its emitted %
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('alert').textContent).toContain(missing);
 });
-test.each(['inpaint','pad'])('MOSS retains unsupported %s until a visible reset',async(mode)=>{
+test('MOSS retains unsupported pad until a visible reset',async()=>{
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
  await mountMoss();await mossInput(512);
- if(mode==='inpaint')fireEvent.click(document.querySelector('[data-edit="inpaint"]')!);
- else fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'pad'}});
+ fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'pad'}});
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.click(screen.getByRole('button',{name:`Restore ${mode==='inpaint'?'Inpaint':'Input scaling'} defaults`}));
+ fireEvent.click(screen.getByRole('button',{name:'Restore Input scaling defaults'}));
  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false);
  // More stays visible on MOSS images; only its Refine/Upscale passes are unavailable.
  expect(document.querySelector('summary[data-more]')).not.toBeNull();
  for(const pass of ['[data-run-post]','[data-run-upscale]'])expect(document.querySelector<HTMLButtonElement>(pass)).toMatchObject({disabled:true,title:expect.stringContaining('MOSS')});
+});
+test('MOSS Inpaint is compatible and checks its mask nodes',async()=>{
+ vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});
+ await mountMoss(mossNodes.filter(n=>n!=='SetLatentNoiseMask'));await mossInput(512);
+ fireEvent.click(document.querySelector('[data-edit="inpaint"]')!);
+ expect(screen.queryByRole('button',{name:'Restore Inpaint defaults'})).toBeNull();
+ expect(screen.getByRole('alert').textContent).toContain('SetLatentNoiseMask');
 });
 test('MOSS disables inserted layers explicitly without deleting the editor draft',async()=>{
  vi.mocked(invoke).mockResolvedValue({path:'/input',parent:'/',entries:[{name:'source.png',path:'/input/source.png',kind:'file',media:'image',size:1,modified:1}],truncated:false});

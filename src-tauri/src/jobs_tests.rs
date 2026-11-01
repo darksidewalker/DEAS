@@ -3375,6 +3375,13 @@ fn moss_compiles_flux2_t2i_and_plain_vae_i2i() {
     );
     assert_eq!(g["5"]["inputs"]["latent_image"], json!(["9", 0]));
     assert_eq!(g["5"]["inputs"]["denoise"], 0.37);
+    // Masked inpaint rides the same model-generic graph: the mask goes on the encoded latent and the
+    // decoded pixels are composited onto the untouched source.
+    value["inputMask"] = json!("deas-masks/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png");
+    let g = compile(&value).unwrap();
+    assert_eq!(g["X"]["class_type"], "SetLatentNoiseMask");
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["X", 0]));
+    assert_eq!(g["Y"]["class_type"], "ImageCompositeMasked");
 }
 
 #[test]
@@ -3391,10 +3398,6 @@ fn moss_rejects_unaligned_dimensions_and_unproved_combinations() {
     for (key, extra) in [
         ("refine", json!({"width":1024,"height":1024,"denoise":0.5})),
         (
-            "inputMask",
-            json!("deas-masks/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png"),
-        ),
-        (
             "inputLayers",
             json!([{"image":"ref.png","x":0,"y":0,"width":512,"height":768}]),
         ),
@@ -3410,7 +3413,7 @@ fn moss_rejects_unaligned_dimensions_and_unproved_combinations() {
         bad[key] = extra;
         let error = compile(&bad).unwrap_err();
         assert!(
-            error.contains("MOSS-Image supports only plain"),
+            error.contains("MOSS-Image supports plain"),
             "{key}: {error}"
         );
     }

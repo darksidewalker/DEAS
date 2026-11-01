@@ -1,5 +1,9 @@
 # News
 
+## 0.2.10 BETA (unreleased)
+
+- **MOSS-Image inpaint:** a painted mask (Inpaint mode) works with MOSS now, with the same graph as every other image model.
+
 ## 0.2.9 BETA
 
 - **Monitoring tab:** the last ten generations with queue wait, generation time, a timeline bar and per-job hardware peaks, plus live CPU, RAM, GPU, VRAM and disk I/O graphs, three per row and sharp at any window size. Works with the backend stopped.

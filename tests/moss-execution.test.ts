@@ -44,13 +44,18 @@ test('MOSS rejects /8-only canvases and unproved combinations but accepts aligne
  const image={...intent,inputImage:'ref.png',denoise:0.37};
  for(const extra of [
   {refine:{width:1024,height:1024,denoise:0.5}},
-  {inputMask:'deas-masks/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png'},
   {inputLayers:[{image:'ref.png',x:0,y:0,width:512,height:768}]},
   {sigmas:Array.from({length:21},(_,n)=>(20-n)/20)},
   {loras:[{name:'style.safetensors',strength:1}]},
   {options:{vaeTile:512}},
   {inputResize:{width:512,height:768,crop:'disabled',pad:{left:0,right:0,top:0,bottom:0}}},
- ]) assert.throws(()=>compileRecipe({...image,...extra},allow),/MOSS-Image supports only plain/);
+ ]) assert.throws(()=>compileRecipe({...image,...extra},allow),/MOSS-Image supports plain/);
  const resize={width:512,height:768,crop:'disabled'};
  assert.doesNotThrow(()=>compileRecipe({...image,inputResize:resize},{...allow,nodes:[...nodes,'LoadImage','VAEEncode','ImageScale']}));
+ // A painted mask rides the model-independent inpaint graph.
+ const mask='deas-masks/4907ef27-6ffc-4fe9-a5af-56bbac500c11.png';
+ const masked=compileRecipe({...image,inputMask:mask},{...allow,images:['ref.png',mask],nodes:[...nodes,'LoadImage','VAEEncode','LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked']});
+ assert.equal(masked.graph.X.class_type,'SetLatentNoiseMask');
+ assert.deepEqual(masked.graph['5'].inputs.latent_image,['X',0]);
+ assert.equal(masked.graph.Y.class_type,'ImageCompositeMasked');
 });

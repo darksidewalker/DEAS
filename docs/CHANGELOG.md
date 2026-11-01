@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10 BETA (unreleased)
+
+- **MOSS-Image can inpaint.** A painted mask was refused for MOSS-Image as an unverified combination, although masked sampling is model-independent (`LoadImage` → `VAEEncode` → `SetLatentNoiseMask` → `KSampler` with denoise < 1 → `ImageCompositeMasked`). Inpaint now runs on MOSS through the same graph every other family uses, and Run checks the mask nodes that variant actually emits. LoRAs, inserted layers, refine, custom sigmas, padding and model options stay disabled; the model's own inpaint quality is unverified.
+
 ## 0.2.9 BETA
 
 - **Checkpoint filter.** With more than eight models, a **Filter checkpoints…** field sits above the Studio checkpoint selector; typing narrows the native dropdown to matching names (case-insensitive). The selected model always stays listed, so clearing or changing the filter never changes the selection; typing writes nothing.

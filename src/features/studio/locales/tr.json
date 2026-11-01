@@ -69,7 +69,7 @@
   "studio.videoPost.blocker.unsupportedDimensions": "Kaynak boyutları desteklenmiyor.",
   "studio.videoPost.blocker.fieldOrderUnknown": "Alan sırası bilinmiyor.",
   "studio.videoPost.blocker.unknown": "Bilinmeyen kaynak engeli.",
-  "studio.run.moss.plain": "MOSS-Image yalnızca sade üretimi destekler; {name} seçimini açıkça devre dışı bırakın. Hatırlanan ayarlar korunur.",
+  "studio.run.moss.plain": "MOSS-Image sade üretimi, görüntüden görüntüye ve maskeli inpaint destekler; {name} seçimini açıkça devre dışı bırakın. Hatırlanan ayarlar korunur.",
   "studio.run.moss.resize": "MOSS-Image giriş kenarları {multiple} ile bölünebilmelidir. Açıkça boyutlandırmak için Hedef, Sığdır veya Kırp seçin; Kapalı ve değişmeyen Otomatik kaynak görüntüyü kırpar.",
   "studio.components.title": "Model dosyaları",
   "studio.components.filtered": "Uygun",

@@ -69,7 +69,7 @@
   "studio.videoPost.blocker.unsupportedDimensions": "Source dimensions are unsupported.",
   "studio.videoPost.blocker.fieldOrderUnknown": "Field order is unknown.",
   "studio.videoPost.blocker.unknown": "Unknown source blocker.",
-  "studio.run.moss.plain": "MOSS-Image supports plain generation only; disable {name} explicitly. Remembered settings are retained.",
+  "studio.run.moss.plain": "MOSS-Image supports plain generation, image-to-image and masked inpaint; disable {name} explicitly. Remembered settings are retained.",
   "studio.run.moss.resize": "MOSS-Image requires input edges divisible by {multiple}. Choose Target, Fit or Crop to resize explicitly; Off and unchanged Auto would crop the source.",
   "studio.components.title": "Model files",
   "studio.components.filtered": "Matching",

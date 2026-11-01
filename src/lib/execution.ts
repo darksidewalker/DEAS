@@ -229,11 +229,11 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (isRecord(d) && d.clipType === 'moss_image') {
     const multiple = families.find(f => f.id === 'moss-image')!.multiple!;
     if ((input.width as number) % multiple !== 0 || (input.height as number) % multiple !== 0) invalid('dimensions', `MOSS-Image dimensions must be multiples of ${multiple}.`, 'Use the MOSS-Image canvas grid.');
-    if (['inputMask', 'inputLayers', 'refine', 'sigmas', 'upscaleModel'].some(k => Object.hasOwn(input, k))
+    if (['inputLayers', 'refine', 'sigmas', 'upscaleModel'].some(k => Object.hasOwn(input, k))
       || (Array.isArray(input.loras) && input.loras.length > 0)
       || (isRecord(input.options) && Object.keys(input.options).length > 0)
       || (isRecord(input.inputResize) && Object.hasOwn(input.inputResize, 'pad'))) {
-      invalid('diffusion', 'MOSS-Image supports only plain text-to-image or VAE image-to-image.', 'Disable unverified LoRAs, masks, layers, refine, custom sigmas, padding and model options.');
+      invalid('diffusion', 'MOSS-Image supports plain generation, VAE image-to-image and masked inpaint.', 'Disable unverified LoRAs, layers, refine, custom sigmas, padding and model options.');
     }
   }
   // Same grammar as native `safe_option`: option enums may carry spaces and `+` (`pytorch attention`, `…fp8_cuda++`).

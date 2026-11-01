@@ -69,7 +69,7 @@
   "studio.videoPost.blocker.unsupportedDimensions": "Dimensions de la source non prises en charge.",
   "studio.videoPost.blocker.fieldOrderUnknown": "Ordre des trames inconnu.",
   "studio.videoPost.blocker.unknown": "Blocage de source inconnu.",
-  "studio.run.moss.plain": "MOSS-Image prend uniquement en charge la génération simple ; désactivez explicitement {name}. Les réglages mémorisés sont conservés.",
+  "studio.run.moss.plain": "MOSS-Image prend en charge la génération simple, l’image vers image et l’inpainting masqué ; désactivez explicitement {name}. Les réglages mémorisés sont conservés.",
   "studio.run.moss.resize": "MOSS-Image exige des dimensions divisibles par {multiple}. Choisissez Cible, Ajuster ou Recadrer pour redimensionner explicitement ; Désactivé et Auto inchangé recadreraient la source.",
   "studio.components.title": "Fichiers du modèle",
   "studio.components.filtered": "Adaptés",

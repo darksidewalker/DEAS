@@ -428,7 +428,6 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(loras.length?[{name:t('studio.run.loras'),reset:()=>setLoras([])}]:[]),
   ...(['attention','cache','compile','vae','sigmas'] as const).filter(k=>k==='vae'?optionsPref.vae==='tiled':!!optionsPref[k]?.trim()).map(k=>({name:t(`studio.run.opt.${k}`),reset:()=>setOptions({...optionsPref,[k]:defaultOptions[k]})})),
   ...(post?[{name:t('studio.run.dock.post'),reset:()=>setPost(false)}]:[]),
-  ...(pipeline==='i2i'&&edit==='inpaint'?[{name:t('studio.run.edit.inpaint'),reset:()=>setEdit('resample')}]:[]),
   ...(pipeline==='i2i'&&visibleImages(layers).length?[{name:t('studio.editor.layers'),reset:()=>setLayers(layers.map(l=>({...l,visible:false})))}]:[]),
   ...(pipeline==='i2i'&&inputScaling==='pad'?[{name:t('studio.run.resolution.scaling'),reset:()=>setInputScaling('off')}]:[]),
  ];
@@ -507,7 +506,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  if(moss){
   // Check this variant's emitted nodes, not the checkpoint diagnostic's missingNodes.
   const saver=['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig'].every(n=>choices?.nodes.includes(n))?['DaSiWa_MetadataImageSaver','DaSiWa_MetadataConfig']:['SaveImage'];
-  const required=[isGguf(checkpoint)?'UnetLoaderGGUF':'UNETLoader',clipLoaderName(textEncoder),'VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage'])];
+  const required=[isGguf(checkpoint)?'UnetLoaderGGUF':'UNETLoader',clipLoaderName(textEncoder),'VAELoader',promptEncoder,'KSampler','VAEDecode',...saver,...(pipeline==='i2i'?['LoadImage','VAEEncode',...(scaled?.resize?['ImageScale']:[])]:['EmptyFlux2LatentImage']),...(inpaint?['LoadImageMask','SetLatentNoiseMask','ImageCompositeMasked']:[])];
   unavailable.push(...(!choices?[]:[...required.filter(n=>!choices.nodes.includes(n)),...(!(isGguf(textEncoder)?choices.ggufClipTypes:choices.clipTypes)?.includes('moss_image')?[`${clipLoaderName(textEncoder)}: moss_image`]:[])]));
  }
  // Video snaps the canvas to the family multiple like images; a video source only drives Auto aspect.

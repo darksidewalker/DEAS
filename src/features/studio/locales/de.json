@@ -69,7 +69,7 @@
   "studio.videoPost.blocker.unsupportedDimensions": "Quellabmessungen werden nicht unterstützt.",
   "studio.videoPost.blocker.fieldOrderUnknown": "Halbbildreihenfolge ist unbekannt.",
   "studio.videoPost.blocker.unknown": "Unbekannter Quellenblocker.",
-  "studio.run.moss.plain": "MOSS-Image unterstützt nur einfache Generierung; {name} ausdrücklich deaktivieren. Gespeicherte Einstellungen bleiben erhalten.",
+  "studio.run.moss.plain": "MOSS-Image unterstützt einfache Generierung, Bild-zu-Bild und maskiertes Inpainting; {name} ausdrücklich deaktivieren. Gespeicherte Einstellungen bleiben erhalten.",
   "studio.run.moss.resize": "MOSS-Image benötigt durch {multiple} teilbare Bildkanten. Ziel, Einpassen oder Zuschneiden zum ausdrücklichen Skalieren wählen; Aus und unverändertes Auto würden das Quellbild beschneiden.",
   "studio.components.title": "Modelldateien",
   "studio.components.filtered": "Passend",

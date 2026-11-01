@@ -405,13 +405,7 @@ fn compile(i: &Value) -> Result<Value, String> {
                 "MOSS-Image dimensions must be multiples of {multiple}"
             ));
         }
-        if [
-            "inputMask",
-            "inputLayers",
-            "refine",
-            "sigmas",
-            "upscaleModel",
-        ]
+        if ["inputLayers", "refine", "sigmas", "upscaleModel"]
         .iter()
         .any(|k| object.contains_key(*k))
             || loras.is_some_and(|l| !l.is_empty())
@@ -420,7 +414,7 @@ fn compile(i: &Value) -> Result<Value, String> {
                 .is_some_and(|o| o.as_object().is_none_or(|o| !o.is_empty()))
             || resize.is_some_and(|r| r.get("pad").is_some())
         {
-            return Err("MOSS-Image supports only plain text-to-image or VAE image-to-image; LoRAs, masks, layers, refine, custom sigmas, padding and model options are unverified".into());
+            return Err("MOSS-Image supports plain text-to-image, VAE image-to-image and masked inpaint; LoRAs, layers, refine, custom sigmas, padding and model options are unverified".into());
         }
     }
     // `h3Edit` (MiniMax H3 sigma shifts) marks the H3 image edit; it belongs exactly to the `minimax` text encoder.
