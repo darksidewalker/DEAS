@@ -2,6 +2,8 @@
 
 ## 0.2.9 BETA (unreleased)
 
+- **Windows: RTX VSR / frame generation ran into `NvVFX_Load failed … (code -12)`.** DEAS starts ComfyUI with a cleared environment, and the NVIDIA NGX runtime behind `DaSiWa_RTX_UpscalerRefiner` and `DaSiWa_RTX_FrameGeneration` needs `SYSTEMDRIVE` to find its driver files; without it every RTX effect failed at load while the latent upscale before it succeeded. The variable is now passed through (A/B on Windows 11, RTX 4070 Ti SUPER, driver 621.01: same venv, same effect — fails without `SYSTEMDRIVE`, upscales with it). Takes effect on the next backend start.
+
 - **Prompt Forge: cleaner image prompts.** A bare `===` line and the tag search's `[retired by danbooru]` flag no longer reach the prompt, and Keep positive no longer adds a trigger word twice when the model put it on its own line.
 - **No false "Missing compatible latent upscale model" at startup.** With **Latent upscale after sampling** enabled, DEAS reported the selected upscaler as missing until the backend capability probe had answered (the Post tab or a toggle triggered that probe, which is why disable/enable "fixed" it). The check now waits for the probe like the node check; Run stays disabled by the *Backend not ready* notice alone until then.
 - **Prompt Forge can be stopped.** The Prompt Forge tab and the hammer on image models show **Cancel** while writing. It ends the request or the local GGUF at once and frees the GPU; before, a slow write could only be waited out or ended by closing DEAS.

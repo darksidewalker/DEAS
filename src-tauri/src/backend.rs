@@ -795,7 +795,9 @@ impl Lifecycle {
                 "PATH",
                 std::env::join_paths(path).map_err(|_| "FFmpeg path invalid".to_string())?,
             );
-            for name in ["SYSTEMROOT", "WINDIR", "COMSPEC"] {
+            // SYSTEMDRIVE: the driver's NGX runtime builds its paths from it; without it every
+            // RTX VSR/frame-generation effect fails NvVFX_Load with code -12.
+            for name in ["SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC"] {
                 if let Some(value) = std::env::var_os(name) {
                     command.env(name, value);
                 }
