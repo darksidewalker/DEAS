@@ -829,6 +829,5 @@
   "studio.tve.jobGone": "İş tamamlanmadan Studio kuyruğundan ayrıldı; Logs a bakın.",
   "studio.tve.pick": "Ya da Medya’dan bir video seçin (giriş/çıkış klasörleri):",
   "spellcheck.suggestions": "“{word}” için öneriler",
-  "spellcheck.noSuggestions": "Öneri yok",
-  "studio.run.checkpointFilter": "Checkpoint’leri filtrele…"
+  "spellcheck.noSuggestions": "Öneri yok"
 }

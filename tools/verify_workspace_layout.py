@@ -45,7 +45,10 @@ window.__TAURI_INTERNALS__.invoke=async(c,a)=>{
   native_forge_randomizer_list:[],native_forge_targets:{source:{commit:'layout-fixture'},creativity:['balanced'],targets:[{key:'illustrious',label:'Layout fixture',modes:[],defaultMode:null,optional:[],qualityPresets:[],styles:[],aspectRatios:null,hasNegative:true,tools:false,guidance:[]}]},
   native_startup_read:{startup:{preset:'off',flags:[],fast:[]},packages:[],presets:{speed:{flags:[],fast:[]},compatibility:{flags:[],fast:[]},off:{flags:[],fast:[]}}},
   native_backend_status:{state:'stopped',endpoint:null,logs:[],error:null,generationReady:false},
-  native_chat_list:[],native_chat_settings:{search:'off',searxngUrl:''},native_logs:[]
+  native_chat_list:[],native_chat_settings:{search:'off',searxngUrl:''},native_logs:[],
+  native_spellcheck_status:{available:true,installed:true},native_spellcheck_check:[],
+  native_jobs_history:{schemaVersion:1,records:[],readOnly:false,error:null},
+  native_monitoring_sample:{at:0,source:'layout-fixture',cpu:null,ram:null,swap:null,disks:[],diskIo:null,gpus:[]}
  };
  if(c==='native_install_plan'){f.calls.push({command:c,args:clone(a??{})});return {id:'layout-reopen',reopenId:'checked',request:a.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};}
  if(Object.hasOwn(read,c)){f.calls.push({command:c,args:clone(a??{})});return clone(read[c]);}
@@ -63,6 +66,11 @@ def verify(browser, url, shots):
         collection.FIXTURE = original
     try:
         checks = []
+        picker = page.locator('[data-model-picker]')
+        expect(picker).to_be_visible()
+        assert picker.evaluate("e=>e.tagName==='SELECT'&&!e.multiple&&e.size===0")
+        assert page.locator('[data-model-filter], [data-model-list]').count() == 0
+        page.screenshot(path=str(shots/'checkpoint-native-desktop.png'))
         page.locator('[data-run-positive]').fill('Viewport draft retained')
         tabs = page.locator('.aio-tabs [role="tab"]').evaluate_all("els=>els.map(e=>({studio:e.dataset.studioTab,node:e.dataset.node}))")
         assert tabs

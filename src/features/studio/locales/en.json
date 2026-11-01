@@ -829,6 +829,5 @@
   "studio.tve.jobGone": "The job left the Studio queue before it settled; see Logs.",
   "studio.tve.pick": "Or pick a video from Media (input/output folders):",
   "spellcheck.suggestions": "Suggestions for “{word}”",
-  "spellcheck.noSuggestions": "No suggestions",
-  "studio.run.checkpointFilter": "Filter checkpoints…"
+  "spellcheck.noSuggestions": "No suggestions"
 }

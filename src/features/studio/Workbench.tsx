@@ -154,9 +154,6 @@ function WorkbenchContent({endpoint,roots={},root,incoming,onCanvasContext,onOpe
  const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
  const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
  const [checkpointPref,setCheckpoint]=usePref('studio.run.checkpoint','',isString);
- // Type-to-filter for the native checkpoint select; the selected model always stays listed so the value remains valid.
- const [modelFilter,setModelFilter]=useState('');
- const [pickerOpen,setPickerOpen]=useState(false);
  const [modelIdentity,setModelIdentity]=useState('');
  const identity=(m:LocalModel)=>JSON.stringify([m.category,m.path,m.name]);
  const [loras,setLoras]=usePref<Lora[]>('studio.run.loras',[],isLoras);
@@ -1020,8 +1017,6 @@ const promptTools=forgeContext&&<>
   :media?(inputImage||(!editableSource&&pipeline==='ref2v'&&media.path)?tools(media):editableSource?null:<div className="wb-media-tools" data-media-tools><StarMediaButton item={media}/></div>)
   :null;
  const modelValue=(m:LocalModel)=>allModels.filter(other=>other.name===m.name).length>1?identity(m):m.name;
- // The open list's type-to-filter; the selected model always stays listed so the select keeps a valid value.
- const shownModels=allModels.filter(m=>{const needle=modelFilter.trim().toLowerCase();return !needle||m.name.toLowerCase().includes(needle)||(model?identity(m)===identity(model):m.name===checkpointPref);});
  const toggleLora=(name:string,on:boolean)=>setLoras(on?[...loras.filter(l=>l.name!==name),{name,strength:1}]:loras.filter(l=>l.name!==name));
  // Session drafts are independent of persisted global defaults and immutable submitted jobs.
  const scope=JSON.stringify([root,modelsDir,extraModelsKey,endpoint,roots.input,outputDir,project?.id]);
@@ -1204,19 +1199,11 @@ const promptTools=forgeContext&&<>
    <aside id="studio-settings" className="wb-side" hidden={settingsHidden} style={{flexBasis:sideSize}}>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
      <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={pipeline} onChange={e=>{pickPipeline(e.target.value as Pipeline);}}>{pipelines.map(id=>{const reason=why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
-     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint}
-      onMouseDown={e=>{e.preventDefault();setPickerOpen(true);}}
-      onKeyDown={e=>{if(['Enter',' ','ArrowDown'].includes(e.key)){e.preventDefault();setPickerOpen(true);}else if(e.key==='Escape')setPickerOpen(false);}}
-      onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
+     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
       {!checkpointPref&&!checkpoint&&<option value="" disabled>{t('studio.run.noModels')}</option>}
       {checkpointPref&&!allModels.some(m=>m.name===checkpointPref)&&<option value={checkpointPref} disabled>{checkpointPref}</option>}
-      {shownModels.map(m=>{const reason=blocked(m,pipeline);return <option key={identity(m)} value={modelValue(m)} disabled={!!reason} title={reason?t(reason):m.name}>{m.name}</option>;})}
-     </select>
-     {pickerOpen&&<div className="wb-model-list" data-model-list role="listbox" aria-label={t('studio.run.checkpoint')}>
-      {allModels.length>8&&<input type="search" className="wb-model-filter" data-model-filter autoFocus aria-label={t('studio.run.checkpointFilter')} placeholder={t('studio.run.checkpointFilter')} value={modelFilter} spellCheck={false} onChange={e=>setModelFilter(e.target.value)} onKeyDown={e=>{if(e.key==='Escape'){setModelFilter('');setPickerOpen(false);}else if(e.key==='Enter'){const first=shownModels.find(m=>!blocked(m,pipeline));if(first){pickModel(first);setModelFilter('');setPickerOpen(false);}}}}/>}
-      <ul>{shownModels.map(m=>{const reason=blocked(m,pipeline);return <li key={identity(m)} role="option" aria-selected={model?identity(m)===identity(model):m.name===checkpointPref} aria-disabled={!!reason} className={reason?'is-disabled':undefined} title={reason?t(reason):m.name} onClick={()=>{if(reason)return;pickModel(m);setModelFilter('');setPickerOpen(false);}}>{m.name}</li>;})}</ul>
-     </div>}
-     </label><small>{t('studio.run.loras')} {activeLoras.length}</small></div>
+      {allModels.map(m=>{const reason=blocked(m,pipeline);return <option key={identity(m)} value={modelValue(m)} disabled={!!reason} title={reason?t(reason):m.name}>{m.name}</option>;})}
+     </select></label><small>{t('studio.run.loras')} {activeLoras.length}</small></div>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
     {pipeline==='i2v'&&!lastOnly&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
     {pipeline==='v2v'&&<p className="wb-active"><span>{t('studio.run.video.source')}</span><strong title={media?.path}>{media?.media==='video'?media.name:''}</strong></p>}

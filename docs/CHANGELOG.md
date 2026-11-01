@@ -4,7 +4,7 @@
 
 - **GitHub issue forms.** Bug, enhancement, question and documentation forms apply the corresponding existing label and ask for the DEAS version and update status. Bug reports collect reproduction steps, system/GPU details, effective model settings and a reviewed `.txt` log export (or an explanation if unavailable). The Logs guide documents export, attachment and privacy steps; no automatic uploads or app changes.
 
-- **The checkpoint filter sits in the open list.** The **Filter checkpoints…** field was a permanent line above the Studio checkpoint selector. The selector now opens its own list, and the filter line exists only inside that open list (still only with more than eight models): typing narrows it, Enter picks the first usable match, Esc closes, clicking a name selects. The select's value, preferences and the selected model stay untouched by typing.
+- **Compact native checkpoint picker restored.** Removed the custom expanding checkpoint list and filter field. The selector is again a single native dropdown with normal pointer/keyboard behavior, all model options, existing compatibility gates and saved selections. This UI correction does not claim to fix the separately observed native WebKit/EGL startup crash.
 
 - **MOSS-Image can inpaint.** A painted mask was refused for MOSS-Image as an unverified combination, although masked sampling is model-independent (`LoadImage` → `VAEEncode` → `SetLatentNoiseMask` → `KSampler` with denoise < 1 → `ImageCompositeMasked`). Inpaint now runs on MOSS through the same graph every other family uses, and Run checks the mask nodes that variant actually emits. LoRAs, inserted layers, refine, custom sigmas, padding and model options stay disabled; the model's own inpaint quality is unverified.
 

@@ -330,7 +330,7 @@ History is optional local metadata in one versioned app-data JSON file. It store
 
 ## Checkpoint list
 
-The Studio checkpoint selector opens its own list: click it (or press Enter/Space/↓) and a **Filter checkpoints…** line appears inside the open list — but only there, and only when more than eight models are installed. Typing narrows the list to names containing the text (case-insensitive); the currently selected model stays listed so the select's value remains valid. Enter picks the first usable match, Esc closes, and clicking a name selects it. The filter is session-only — it writes no preference and never changes the selected model by itself.
+The Studio checkpoint selector is a compact native dropdown, using the same theme skin as the other selectors. It shows only the selected checkpoint while closed; opening it uses the platform menu rather than inserting a list into the settings pane. Normal platform keyboard selection remains available. There is no extra filter field, custom list or filter preference. Selecting a model retains the existing draft and compatibility checks; unavailable models remain disabled.
 
 ## Seed controls
 

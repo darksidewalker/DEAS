@@ -1,5 +1,11 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Compact native checkpoint selector (0.2.10 unreleased)
+
+Removed the custom checkpoint popup/filter state, list markup, event interception, CSS and unused keys in all six locales. The native select retains all options, disabled compatibility states and the existing selection/draft preferences. Regression proof was RED against the intercepted mouse event before the change, then the full Workbench suite passed (297/297). Typecheck and core tests passed (125/125). The Chromium viewport gate passed 423 checks across ten tabs, six locales and seven window sizes, including its broken-layout negative control; its fixture was updated with the current read-only spellcheck, history and monitoring replies. The compact closed control screenshot was visually inspected; this is Chromium fixture evidence, not native WebKit rendering acceptance.
+
+`./build-linux.sh` completed and atomically staged `artifacts/deas-linux-amd64`, SHA-256 `138ecaa053b294c8956c9132d755bfa43cfe9dd32844ea78e8159dbd9f650128`. Native isolated launch without the DMA-BUF override still crashed its main WebKitWebProcess (PID 947861); reverting the picker is not a startup fix. The earlier checksum-verified original v0.2.9 release also reproduced the native EGL crash in a fresh XDG profile. No renderer default, driver, real user settings or live service was changed. Windows runtime was not exercised for this UI restoration.
+
 ## Release 0.2.8 (published)
 
 Published 2026-10-31 at https://github.com/darksidewalker/DEAS/releases/tag/v0.2.8 from source commit `144d1494b537fe6cc7049eccb34bb3cb115bf700` (tree `c5a9c4132de7471b5de17df1fafddfe7aa19d426`, tag `v0.2.8`, mirrored to gitea). Built locally with `bash build-linux.sh --release` (rustc 1.97.0, Node 26.12.1; GitHub runners gated, release unsigned). Staged four-asset set in `artifacts/releases/v0.2.8/`:
