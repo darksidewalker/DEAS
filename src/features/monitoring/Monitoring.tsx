@@ -63,27 +63,44 @@ export function axisTop(values:(number|null)[]):number {
  const step=10**Math.floor(Math.log10(peak));
  return Math.ceil(peak/step)*step;
 }
-const PAD={left:66,right:10,top:10,bottom:18};
+const PAD={left:58,right:14,top:8,bottom:20};
 function Graph({series,color,max,unit,label}:{series:(number|null)[];color:string;max?:number;unit:string;label:string}){
  const canvas=useRef<HTMLCanvasElement>(null);
+ // CSS box × devicePixelRatio, so the backing store is never stretched (a fixed 900 px store blurred at other widths).
+ const [box,setBox]=useState({w:0,h:0,dpr:1});
  useEffect(()=>{
-  const el=canvas.current,ctx=el?.getContext('2d');if(!el||!ctx)return;
-  const w=el.width,h=el.height,x0=PAD.left,x1=w-PAD.right,y0=PAD.top,y1=h-PAD.bottom;ctx.clearRect(0,0,w,h);
+  const el=canvas.current;if(!el)return;
+  const measure=()=>{const r=el.getBoundingClientRect();setBox({w:Math.round(r.width),h:Math.round(r.height),dpr:window.devicePixelRatio||1});};
+  measure();
+  const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(measure):null;observer?.observe(el);
+  return()=>observer?.disconnect();
+ },[]);
+ useEffect(()=>{
+  const el=canvas.current,ctx=el?.getContext('2d');if(!el||!ctx||box.w<PAD.left+PAD.right+10)return;
+  el.width=Math.round(box.w*box.dpr);el.height=Math.round(box.h*box.dpr);ctx.setTransform(box.dpr,0,0,box.dpr,0,0);
+  const w=box.w,h=box.h,x0=PAD.left,x1=w-PAD.right,y0=PAD.top,y1=h-PAD.bottom;ctx.clearRect(0,0,w,h);
+  // Hairlines on the device-pixel grid stay one physical pixel wide instead of a 2 px grey smear.
+  const crisp=(v:number)=>(Math.round(v*box.dpr)+0.5)/box.dpr;
+  const css=getComputedStyle(el),theme=(name:string,fallback:string)=>css.getPropertyValue(name).trim()||fallback;
   const top=max??axisTop(series);
-  ctx.font='10px system-ui, sans-serif';ctx.fillStyle='rgba(255,255,255,.55)';ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;
+  // The plot frame holds only grid and series; the scale sits outside it.
+  ctx.fillStyle=theme('--surface','#20262b');ctx.fillRect(x0,y0,x1-x0,y1-y0);
+  ctx.font='11px system-ui, sans-serif';ctx.fillStyle=theme('--muted','rgba(255,255,255,.6)');ctx.strokeStyle='rgba(255,255,255,.1)';ctx.lineWidth=1/box.dpr;
   // Y axis: 0, 25, 50, 75, 100 % or quarters of the rounded top.
   ctx.textAlign='right';ctx.textBaseline='middle';
-  for(const f of [0,0.25,0.5,0.75,1]){const y=y1-f*(y1-y0);ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();const v=top*f;ctx.fillText(`${max===100?Math.round(v):v>=10?Math.round(v):v.toFixed(1)}${unit}`,x0-4,y);}
+  for(const f of [0,0.25,0.5,0.75,1]){const y=crisp(y1-f*(y1-y0));ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();const v=top*f;ctx.fillText(`${max===100?Math.round(v):v>=10?Math.round(v):v.toFixed(1)}${unit}`,x0-6,y);}
   // X axis: seconds before now, one tick per 15 samples (1 Hz).
-  ctx.textAlign='center';ctx.textBaseline='top';
-  for(let s=0;s<SAMPLE_LIMIT;s+=15){const x=x1-s/(SAMPLE_LIMIT-1)*(x1-x0);ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x,y1);ctx.stroke();ctx.fillText(s===0?'0 s':`−${s} s`,x,y1+4);}
-  ctx.textAlign='left';ctx.fillText(`−${SAMPLE_LIMIT} s`,x0,y1+4);
+  ctx.textBaseline='top';
+  for(let s=0;s<SAMPLE_LIMIT;s+=15){const x=crisp(x1-s/(SAMPLE_LIMIT-1)*(x1-x0));ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x,y1);ctx.stroke();ctx.textAlign=s===0?'right':'center';ctx.fillText(s===0?'0 s':`−${s} s`,s===0?x1:x,y1+5);}
+  ctx.textAlign='left';ctx.fillText(`−${SAMPLE_LIMIT} s`,x0,y1+5);
+  ctx.strokeStyle=theme('--line','#435256');ctx.strokeRect(crisp(x0),crisp(y0),Math.round(x1-x0),Math.round(y1-y0));
   const step=(x1-x0)/(SAMPLE_LIMIT-1);
-  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.beginPath();let pen=false;
+  ctx.save();ctx.beginPath();ctx.rect(x0,y0,x1-x0,y1-y0);ctx.clip();
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.beginPath();let pen=false;
   series.forEach((v,i)=>{const x=x1-(series.length-1-i)*step;if(v==null){pen=false;return;}const y=y1-Math.min(top,Math.max(0,v))/top*(y1-y0);if(pen)ctx.lineTo(x,y);else ctx.moveTo(x,y);pen=true;});
-  ctx.stroke();
- },[series,color,max,unit]);
- return <canvas ref={canvas} className="monitoring-graph" width={900} height={130} role="img" aria-label={label} data-monitoring-graph/>;
+  ctx.stroke();ctx.restore();
+ },[series,color,max,unit,box]);
+ return <canvas ref={canvas} className="monitoring-graph" role="img" aria-label={label} data-monitoring-graph/>;
 }
 
 /** Monitoring tab: the last ten native attempts with their timing and peaks, and live host/GPU telemetry while the tab is visible. */

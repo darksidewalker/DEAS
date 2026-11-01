@@ -6,7 +6,7 @@ import { Monitoring, SAMPLE_LIMIT, axisTop, describeIntent, peakSummary, timelin
 import type { HistoryRecord } from '../studio/history';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
-HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fillText() {} })) as never;
+HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fillText() {}, fillRect() {}, strokeRect() {}, rect() {}, clip() {}, save() {}, restore() {}, setTransform() {} })) as never;
 
 const image = { recipeId: 'diagnostic-image', version: 1, positivePrompt: 'p', negativePrompt: '', checkpoint: 'sdxl.safetensors', seed: 7, width: 896, height: 1152, steps: 30, cfg: 5, sampler: 'euler', scheduler: 'simple', denoise: 1, outputPrefix: 'raw/x' } as unknown as HistoryRecord['intent'];
 const record = (id: string, patch: Partial<HistoryRecord>): HistoryRecord => ({ id, clientId: null, promptId: null, origin: 'studio', appVersion: '0.2.9', admittedAt: 1000, observedAt: 9000, revision: 1, state: 'succeeded', intent: image, outputs: [], outputRoot: null, backendOrigin: 'http://127.0.0.1:7801', error: null, startedAt: 3000, generationMs: 5000, ...patch });

@@ -1,8 +1,16 @@
 # News
 
-## 0.2.9 BETA (unreleased)
+## 0.2.9 BETA
 
+- **Monitoring tab:** the last ten generations with queue wait, generation time, a timeline bar and per-job hardware peaks, plus live CPU, RAM, GPU, VRAM and disk I/O graphs, three per row and sharp at any window size. Works with the backend stopped.
+- **Image models can use a local GGUF** for Prompt Forge and the hammer, with no LLM server; Prompt Forge can now be cancelled, and Regenerate on a local GGUF gives a new result.
+- **Windows:** RTX VSR / frame generation loads again (`NvVFX_Load … code -12`; takes effect on the next backend start), a local GGUF in a deep folder is no longer "invalid", and the local GGUF runner finds its CUDA DLLs.
+- **Checkpoint picker filter:** type to narrow the Studio model list when more than eight models are installed.
+- **Logs show progress bars live** instead of only the finished bar.
+- **One button look everywhere**, drawn from the active theme.
+- **Global search** finds Options cards and Backend controls; Library groups creator sources and names all category tabs.
 - Latent upscale no longer complains about a missing upscaler model right after start while the backend is still answering.
+- Video prompts say the backend isn't running instead of "Prompt Forge request failed"; a missing spellcheck dictionary is a warning, not an error; cleaner Prompt Forge image prompts.
 
 ## 0.2.8 BETA
 
