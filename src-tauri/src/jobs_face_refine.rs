@@ -104,7 +104,18 @@ pub(crate) fn insert(
     g["FRC"] = json!({"class_type":"MiniMaxH3ImageToVideo","inputs":{"clip":["C",0],"vae":["V",0],"prompt":f["prompt"],"width":768,"height":768,"length":5}});
     g["FRG"] =
         json!({"class_type":"BasicGuider","inputs":{"model":model,"conditioning":["FRC",0]}});
-    g["FRZ"] = json!({"class_type":"SplitSigmasDenoise","inputs":{"sigmas":["Z",0],"denoise":f["denoise"]}});
+    // SplitSigmasDenoise runs round(steps × strength) steps: a short (distilled) schedule at a low
+    // strength runs 1 or even 0. Keep the strength but give refine its own schedule with >= 2 steps.
+    let strength = f["denoise"].as_f64().unwrap_or(1.0);
+    let steps = g["Z"]["inputs"]["steps"].as_f64().unwrap_or(0.0);
+    let sigmas = if steps > 0.0 && steps * strength < 1.5 {
+        g["FRB"] = g["Z"].clone();
+        g["FRB"]["inputs"]["steps"] = json!((2.0 / strength).ceil().max(steps) as u64);
+        json!(["FRB", 0])
+    } else {
+        json!(["Z", 0])
+    };
+    g["FRZ"] = json!({"class_type":"SplitSigmasDenoise","inputs":{"sigmas":sigmas,"denoise":f["denoise"]}});
     let mut inputs = json!({
         "images":images,"fps":fps,"sam_model":["FRS",0],"sam_conditioning":["FRT",0],
         "detection_threshold":f["threshold"],"max_objects":f["maxObjects"],"detect_interval":f["detectInterval"],
@@ -396,6 +407,10 @@ mod tests {
             &b,
         );
         assert!(g["FR"]["inputs"].get("min_face").is_none());
+        assert!(
+            g.get("FRB").is_none(),
+            "no schedule of its own without a Z to extend"
+        );
         b["minFace"] = json!(96);
         insert(
             &mut g,
@@ -406,5 +421,44 @@ mod tests {
             &b,
         );
         assert_eq!(g["FR"]["inputs"]["min_face"], 96);
+        // Refine runs >= 2 steps: 4 steps at 0.35 (round(1.4) = 1) get a 6-step schedule (2 run),
+        // 8 steps (3 run) keep the generation schedule; strength unchanged.
+        for (steps, own) in [(4, Some(6)), (8, None), (2, Some(6)), (30, None)] {
+            let mut g = json!({"Z":{"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":"simple","steps":steps,"denoise":1.0}}});
+            insert(
+                &mut g,
+                json!(["SD", 0]),
+                None,
+                json!(24),
+                json!(["SS", 0]),
+                &b,
+            );
+            match own {
+                Some(n) => {
+                    assert_eq!(g["FRB"]["inputs"]["steps"], n);
+                    assert_eq!(g["FRB"]["inputs"]["scheduler"], "simple");
+                    assert_eq!(
+                        g["FRZ"]["inputs"],
+                        json!({"sigmas":["FRB",0],"denoise":0.35})
+                    );
+                }
+                None => {
+                    assert!(g.get("FRB").is_none());
+                    assert_eq!(g["FRZ"]["inputs"]["sigmas"], json!(["Z", 0]));
+                }
+            }
+        }
+        b["denoise"] = json!(0.1); // 4 steps × 0.1 ran 0 steps; now 20 total, 2 run
+        let mut g =
+            json!({"Z":{"class_type":"HyperFlowSigmas","inputs":{"model":["1",0],"steps":4}}});
+        insert(
+            &mut g,
+            json!(["SD", 0]),
+            None,
+            json!(24),
+            json!(["1", 0]),
+            &b,
+        );
+        assert_eq!(g["FRB"]["inputs"], json!({"model":["1",0],"steps":20}));
     }
 }
