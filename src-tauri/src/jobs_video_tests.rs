@@ -2,6 +2,101 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn latent_upscale_baseline_first_dependency_closure() {
+    fn closure(
+        g: &Value,
+        id: &str,
+        stack: &mut Vec<String>,
+        seen: &mut std::collections::BTreeSet<String>,
+    ) {
+        assert!(
+            !stack.iter().any(|s| s == id),
+            "graph cycle: {stack:?} -> {id}"
+        );
+        if !seen.insert(id.to_owned()) {
+            return;
+        }
+        stack.push(id.to_owned());
+        for v in g[id]["inputs"].as_object().unwrap().values() {
+            if let Some(a) = v.as_array().filter(|a| a.len() == 2 && a[1].is_number()) {
+                if let Some(dep) = a[0].as_str().filter(|dep| g.get(*dep).is_some()) {
+                    closure(g, dep, stack, seen);
+                }
+            }
+        }
+        stack.pop();
+    }
+    for mode in ["none", "full", "segment"] {
+        let segment = mode == "segment";
+        for fixes in 0..4 {
+            let mut i = h3();
+            i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+            if mode != "none" {
+                i["h3"]["mode"] = json!("REF2VA");
+                i["h3"]["references"] = json!([]);
+                i["h3"]["media"] = json!([]);
+                i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","sourceFrames":243,"capture":true,"action":"turn","outputMode":mode});
+            }
+            if fixes & 1 != 0 {
+                i["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+            }
+            if fixes & 2 != 0 {
+                i["faceRefine"] = face_block();
+            }
+            let g = compile(&i).unwrap();
+            let mut baseline = std::collections::BTreeSet::new();
+            closure(&g, "B7", &mut vec![], &mut baseline);
+            for forbidden in ["U", "PG", "DRP", "RE", "RC"] {
+                assert!(
+                    !baseline.contains(forbidden),
+                    "baseline pulls {forbidden}: {baseline:?}"
+                );
+            }
+            assert!(!baseline
+                .iter()
+                .any(|id| g[id]["class_type"] == "DEAS_H3FaceRefine"));
+            assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
+            assert_eq!(g["PG"]["inputs"]["baseline"], json!(["B7", 1]));
+            if segment {
+                // Pack validation requires the only SegmentDecode's audio DIRECTLY on exporter 7.
+                assert_eq!(g["SD"]["inputs"]["latent"], json!(["SP", 0]));
+                assert_eq!(g["7"]["inputs"]["audio"], json!(["SD", 1]));
+                assert_eq!(
+                    g.as_object()
+                        .unwrap()
+                        .values()
+                        .filter(|n| n["class_type"] == "DaSiWaH3ContinuitySegmentDecode")
+                        .count(),
+                    1
+                );
+            } else {
+                assert_eq!(g["7"]["inputs"]["audio"], json!(["PG", 1]));
+                assert_eq!(g["PG"]["inputs"]["audio"], json!(["SD", 1]));
+            }
+            closure(&g, "7", &mut vec![], &mut std::collections::BTreeSet::new());
+        }
+    }
+    for passes in [1, 3] {
+        let mut i = ltx();
+        i["ltx"]["passes"] = json!(passes);
+        if passes > 1 {
+            i["ltx"]["spatialUpscaler"] = json!("ltx-spatial-upscaler.safetensors");
+        }
+        i["latentUpscale"] = json!({"model":"ltx-spatial-upscaler.safetensors","scale":2});
+        let g = compile(&i).unwrap();
+        let mut baseline = std::collections::BTreeSet::new();
+        closure(&g, "B7", &mut vec![], &mut baseline);
+        for forbidden in ["U", "UML", "PG"] {
+            assert!(!baseline.contains(forbidden));
+        }
+        assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
+        assert_eq!(g["PG"]["inputs"]["image"], json!(["6", 0]));
+        assert_eq!(g["7"]["inputs"]["audio"], json!(["AD", 0]));
+        closure(&g, "7", &mut vec![], &mut std::collections::BTreeSet::new());
+    }
+}
+
+#[test]
 fn enhanced_preview_patches_all_sampling_branches_and_preserves_every_other_graph_value() {
     let mut multi = ltx();
     multi["ltx"]["passes"] = json!(3);
@@ -477,7 +572,10 @@ fn latent_post_upscale_h3_wires_prepared_context_and_processed_publish() {
     let mut processed = before["SD"].clone();
     processed["inputs"]["latent"] = json!(["U", 0]);
     assert_eq!(g["SD"], processed);
-    assert_eq!(g["7"], before["7"]);
+    let mut processed_saver = before["7"].clone();
+    processed_saver["inputs"]["images"] = json!(["PG", 0]);
+    processed_saver["inputs"]["audio"] = json!(["PG", 1]);
+    assert_eq!(g["7"], processed_saver);
     assert_eq!(g["P"], before["P"]);
     let mut baseline = before["7"].clone();
     baseline["inputs"]["images"] = json!(["BSD", 0]);
@@ -542,7 +640,7 @@ fn latent_post_upscale_bounds_canvas_prefix_and_h3_capture() {
 }
 
 #[test]
-fn h3_latent_upscale_segment_capture_decodes_the_baseline_on_core_nodes() {
+fn h3_latent_upscale_segment_capture_decodes_processed_on_core_nodes() {
     let mut i = h3();
     i["h3"]["mode"] = json!("REF2VA");
     i["h3"]["references"] = json!([]);
@@ -554,10 +652,10 @@ fn h3_latent_upscale_segment_capture_decodes_the_baseline_on_core_nodes() {
     assert!(compile(&i).is_err());
     i["h3"]["continuity"]["sourceFrames"] = json!(243);
     let g = compile(&i).unwrap();
-    // Exactly one SegmentDecode, fed by the upscale chain and kept on the publish path.
-    assert_eq!(g["SD"]["inputs"]["latent"], json!(["U", 0]));
+    // Exactly one SegmentDecode, before upscale, supplies exact segment audio to both products.
+    assert_eq!(g["SD"]["inputs"]["latent"], json!(["SP", 0]));
     assert_eq!(g["U"]["inputs"]["latent"], json!(["SP", 0]));
-    assert_eq!(g["7"]["inputs"]["images"], json!(["SD", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
     assert!(
         g.get("BSD").is_none(),
         "segment capture uses exactly one SegmentDecode"
@@ -569,12 +667,12 @@ fn h3_latent_upscale_segment_capture_decodes_the_baseline_on_core_nodes() {
         .filter(|n| n["class_type"] == "DaSiWaH3ContinuitySegmentDecode")
         .count();
     assert_eq!(decodes, 1);
-    // Baseline side: core decode of the prepared window cropped to the new segment (the pinned
+    // Processed side: core decode of the upscaled window cropped to the new segment (the pinned
     // 243-frame clip starts the window at 102, frames/24 duration = 119 frames) plus its audio.
-    assert_eq!(g["BA"]["inputs"]["samples"], json!(["SP", 0]));
+    assert_eq!(g["UD"]["inputs"]["samples"], json!(["U", 0]));
     assert_eq!(
         g["CB"]["inputs"],
-        json!({"image":["BA",0],"batch_index":141,"length":119})
+        json!({"image":["UD",0],"batch_index":141,"length":119})
     );
     assert_eq!(
         g["SD"]["inputs"]
@@ -585,7 +683,7 @@ fn h3_latent_upscale_segment_capture_decodes_the_baseline_on_core_nodes() {
         vec!["audio_vae", "context", "latent", "vae"],
         "SegmentDecode accepts no duration input"
     );
-    assert_eq!(g["B7"]["inputs"]["images"], json!(["CB", 0]));
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
     assert_eq!(g["B7"]["inputs"]["audio"], json!(["SD", 1]));
     assert_eq!(
         g["B7"]["inputs"]["filename_prefix"],
@@ -983,6 +1081,45 @@ fn continued(mode: &str) -> Value {
 }
 
 #[test]
+fn derope_keep_background_is_opt_in_and_uses_the_unprocessed_pass_input() {
+    let mut ordinary = h3();
+    ordinary["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+    let mut segment = continued("segment");
+    segment["h3"]["continuity"]["sourceFrames"] = json!(243);
+    for base in [ordinary, continued("full"), segment] {
+        for upscale in [false, true] {
+            let mut i = base.clone();
+            if upscale {
+                i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+            }
+            let old = compile(&i).unwrap();
+            i["videoPost"]["derope"]["keepBackground"] = json!(false);
+            assert_eq!(compile(&i).unwrap(), old);
+            i["videoPost"]["derope"]["keepBackground"] = json!(true);
+            let mut on = compile(&i).unwrap();
+            assert_eq!(
+                on["DRR"]["inputs"]["baseline"],
+                on["DRP"]["inputs"]["images"]
+            );
+            assert_eq!(on["DRR"]["inputs"]["keep_background"], true);
+            on["DRR"]["inputs"]
+                .as_object_mut()
+                .unwrap()
+                .remove("baseline");
+            on["DRR"]["inputs"]
+                .as_object_mut()
+                .unwrap()
+                .remove("keep_background");
+            assert_eq!(on, old); // Includes Original, audio and the existing baseline-first gate.
+            for bad in [json!("true"), json!(1), Value::Null] {
+                i["videoPost"]["derope"]["keepBackground"] = bad;
+                assert!(compile(&i).unwrap_err().contains("videoPost.derope"));
+            }
+        }
+    }
+}
+
+#[test]
 fn derope_follows_continuity_on_the_decoded_timeline() {
     // Full timeline: SegmentPrepare returns the cumulative latent and SD decodes all of it.
     let g = compile(&continued("full")).unwrap();
@@ -1020,7 +1157,7 @@ fn derope_follows_continuity_on_the_decoded_timeline() {
     assert_eq!(refine["inputs"]["audio"], json!(["SD", 1]));
     assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
 
-    // With the latent upscale the refined window is re-encoded and the segment decode crops it.
+    // With latent upscale the refined window is re-encoded; core decode/crop stays behind PG.
     i["latentUpscale"] =
         json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
     let g = compile(&i).unwrap();
@@ -1035,8 +1172,8 @@ fn derope_follows_continuity_on_the_decoded_timeline() {
     assert_eq!(node["inputs"]["audio"], json!(["WA", 0]));
     assert_eq!(g["RE"]["inputs"]["pixels"], json!([refine, 0]));
     assert_eq!(g["U"]["inputs"]["latent"], json!(["RC", 0]));
-    assert_eq!(g["CB"]["inputs"]["image"], json!(["BA", 0]));
-    assert_eq!(g["7"]["inputs"]["audio"], json!(["PG", 1]));
+    assert_eq!(g["CB"]["inputs"]["image"], json!(["UD", 0]));
+    assert_eq!(g["7"]["inputs"]["audio"], json!(["SD", 1]));
 
     // Imported-video sources build their window inside SegmentPrepare: no compile-time crop.
     let mut video = continued("segment");
@@ -1997,6 +2134,18 @@ fn dump_tve_graphs() {
     let mut full = continued("full");
     full["videoPost"]["derope"]["lora"] = lora;
     graphs["h3_derope_full_timeline"] = compile(&full).unwrap();
+    for (name, mut intent) in [
+        ("plain", h3()),
+        ("full", full),
+        ("segment_upscale", segment),
+        ("face_upscale", derope),
+    ] {
+        if intent["videoPost"]["derope"].is_null() {
+            intent["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+        }
+        intent["videoPost"]["derope"]["keepBackground"] = json!(true);
+        graphs[format!("h3_background_{name}")] = compile(&intent).unwrap();
+    }
     println!("{graphs}");
 }
 
@@ -2019,6 +2168,18 @@ fn dump_latent_upscale_graphs() {
         i["h3"]["continuity"] = json!({"session":"deas","sourceId":"","action":"","capture":capture,"outputMode":"full"});
         i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":2,"steps":1,"denoise":0.2});
         graphs[format!("h3_post_capture_{capture}")] = compile(&i).unwrap();
+    }
+    for fixes in [false, true] {
+        let mut i = continued("segment");
+        i["h3"]["continuity"]["sourceFrames"] = json!(243);
+        if fixes {
+            i["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+            i["faceRefine"] = face_block();
+        } else {
+            i.as_object_mut().unwrap().remove("videoPost");
+        }
+        i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":2,"steps":1,"denoise":0.2});
+        graphs[format!("h3_segment_fixes_{fixes}")] = compile(&i).unwrap();
     }
     println!("{graphs}");
 }
@@ -2559,7 +2720,11 @@ fn h3_face_refine_chains_after_decode_behind_the_baseline_gate() {
     assert_eq!(g["FR"]["inputs"]["audio"], json!(["SD", 1]));
     assert_eq!(g["FR"]["inputs"]["fps"], json!(["D", 8]));
     assert_eq!(g["FRG"]["inputs"]["model"], g["B"]["inputs"]["model"]);
-    assert_eq!(g["FRZ"]["inputs"]["sigmas"], json!(["Z", 0]));
+    // The 4-step fixture at 0.35 would run one step: refine extends the generation schedule.
+    assert_eq!(g["FRZ"]["inputs"]["sigmas"], json!(["FRB", 0]));
+    let mut own = g["Z"].clone();
+    own["inputs"]["steps"] = json!(6);
+    assert_eq!(g["FRB"], own);
     // Generation guides stay out of the refine conditioning.
     assert_eq!(g["FRG"]["inputs"]["conditioning"], json!(["FRC", 0]));
     assert_eq!(

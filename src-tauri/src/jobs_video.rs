@@ -1301,8 +1301,8 @@ fn post(
             };
             (json!(["PG", 0]), fps, audio)
         }
-        // Face refinement alone still runs behind the baseline gate.
-        None if i.get("faceRefine").is_some() => {
+        // A latent-upscale-only branch needs the same baseline-first lazy barrier.
+        None if i.get("faceRefine").is_some() || i.get("latentUpscale").is_some() => {
             crate::jobs_face_refine::gate(g, images);
             (json!(["PG", 0]), frame_rate, audio)
         }
@@ -1592,7 +1592,7 @@ fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i
         None => (model, 25, i["scheduler"].clone()),
     };
 
-    g["DRP"] = json!({"class_type":"DaSiWaH3DeropePrepare","inputs":{"images":images,"samples":["SP",0],"vae":["V",0],
+    g["DRP"] = json!({"class_type":"DaSiWaH3DeropePrepare","inputs":{"images":images.clone(),"samples":["SP",0],"vae":["V",0],
         "preset":d["preset"],"frame_rate":i["frameRate"],"audio":audio,"audio_vae":["AV",0],"conditioning":["G",0],
         // A continuation's keyframes index the sampled clip, not the decoded timeline/window.
         "keep_keyframes":!c_source(&i["h3"])}});
@@ -1603,6 +1603,10 @@ fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i
     g["DRK"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["DRG",0],"sampler":["Q",0],"sigmas":["DRS",1],"latent_image":["DRP",0]}});
     decode(g, "DRD", json!(["DRK", 0]), json!(["V", 0]), i);
     g["DRR"] = json!({"class_type":"DaSiWaH3DeropeRecover","inputs":{"images":["DRD",0],"hold_map":["DRP",1]}});
+    if d["keepBackground"] == true {
+        g["DRR"]["inputs"]["baseline"] = images;
+        g["DRR"]["inputs"]["keep_background"] = json!(true);
+    }
     json!(["DRR", 0])
 }
 
@@ -1773,14 +1777,20 @@ fn h3(i: &Value) -> Value {
             json!({"class_type":"VAEEncode","inputs":{"pixels":frames.clone(),"vae":["V",0]}});
         g["RC"] = json!({"class_type":"LTXVConcatAVLatent","inputs":{"video_latent":["RE",0],"audio_latent":["RS",1]}});
     }
-    // With latent upscale the post chain starts at the upscale decode SD.
-    let decoded = if upscale { json!(["SD", 0]) } else { frames };
+    // With latent upscale the post chain starts at its decode (core crop CB for segment capture).
+    let decoded = if upscale && segment_capture {
+        json!(["CB", 0])
+    } else if upscale {
+        json!(["SD", 0])
+    } else {
+        frames
+    };
 
     let (images, fps, audio) = post(&mut g, decoded, json!(["D", 8]), Some(json!(["SD", 1])), i);
     // With latent upscale the saver's audio comes from the upscale decode: pass it through the gate
     // too, else saver 7 pulls the upscale (and everything before it) ahead of the baseline B7.
     let audio = match audio {
-        Some(a) if upscale && g.get("PG").is_some() && g["PG"]["inputs"].get("audio").is_none() => {
+        Some(a) if upscale && !segment_capture && g["PG"]["inputs"].get("audio").is_none() => {
             g["PG"]["inputs"]["audio"] = a;
             Some(json!(["PG", 1]))
         }
@@ -1797,8 +1807,8 @@ fn h3(i: &Value) -> Value {
         );
     }
     if let Some(u) = i.get("latentUpscale") {
-        // Capture mode allows exactly one SegmentDecode (node pack validation): in segment mode the
-        // baseline side decodes the prepared window on core nodes, cropped to the new segment.
+        // Segment capture keeps its only SegmentDecode on SP for exact, pre-upscale audio cropping;
+        // the pack requires that audio directly on exporter 7. Core nodes decode/crop Processed.
         g["U"] = json!({"class_type":"DaSiWaH3TiledUpscale","inputs":{
             "model":["SS",0],"conditioning":["G",0],"latent":if refining {json!(["RC",0])} else {json!(["SP",0])},"continuity_context":["SP",1],
             "director_guide":["D",0],"vae":["V",0],"sampler":["Q",0],"noise":["N",0],"sampler_name":i["sampler"],
@@ -1816,25 +1826,23 @@ fn h3(i: &Value) -> Value {
                 }
             }
         }
-        g["SD"]["inputs"]["latent"] = json!(["U", 0]);
         if segment_capture {
             // The render plan is derived at runtime from the prepared latent tensor and context;
             // SegmentDecode accepts no duration input. The compile-time crop mirrors the pack's
             // continuation timing for the duration the Director received (durationSeconds else frames/24).
             let (crop_start, crop_frames) =
                 segment_crop_plan(i).expect("validated in validate_latent_upscale");
-            if g.get("BA").is_none() {
-                decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
-            }
-            g["CB"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["BA",0],"batch_index":crop_start,"length":crop_frames}});
+            decode(&mut g, "UD", json!(["U", 0]), json!(["V", 0]), i);
+            g["CB"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["UD",0],"batch_index":crop_start,"length":crop_frames}});
             baseline_combine(
                 &mut g,
-                json!(["CB", 0]),
+                json!(["SD", 0]),
                 Some(json!(["SD", 1])),
                 json!(["D", 8]),
                 i,
             );
         } else {
+            g["SD"]["inputs"]["latent"] = json!(["U", 0]);
             baseline_combine(
                 &mut g,
                 json!(["BSD", 0]),

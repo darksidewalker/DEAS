@@ -72,7 +72,8 @@ pub(crate) fn validate(p: &Value) -> Result<(), String> {
         return Err("videoPost needs upscaleModel, rtx, frameGeneration, loop or derope".into());
     }
     if let Some(d) = p.get("derope") {
-        let ok = keys_in(d, &["preset", "inject", "lora"])
+        let ok = keys_in(d, &["preset", "inject", "lora", "keepBackground"])
+            && d.get("keepBackground").is_none_or(Value::is_boolean)
             && d["preset"]
                 .as_str()
                 .is_some_and(|v| DEROPE_PRESETS.contains(&v))
@@ -82,7 +83,7 @@ pub(crate) fn validate(p: &Value) -> Result<(), String> {
             && d.get("lora")
                 .is_none_or(|l| l.as_str().is_some_and(comfy_model_name));
         if !ok {
-            return Err("Invalid videoPost.derope: {preset balanced|max quality|economy, inject 0.48|0.7, optional turbo lora}".into());
+            return Err("Invalid videoPost.derope: {preset balanced|max quality|economy, inject 0.48|0.7, optional turbo lora, optional keepBackground boolean}".into());
         }
     }
     if let Some(l) = p.get("loop") {

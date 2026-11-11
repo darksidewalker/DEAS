@@ -2,6 +2,8 @@
 
 ## 0.2.23 BETA (unreleased)
 
+- **Keep static background:** an optional H3 De-rope switch retains original detail outside motion/changed regions. It defaults OFF, needs DaSiWa nodes 0.5.45, and falls back to the full second pass for broad scene changes.
+- **Original before latent upscale:** H3 and LTX save the original video first, including H3 Continuity new-segment captures, so a later failed or stopped upscale can retain the take. Requires a compatible DEAS baseline gate in the backend.
 - **H3 face refinement:** refine tracked faces of an existing H3 video window, or switch on **Refine faces after H3 generation** (default OFF). Faces are re-sampled by H3 in a close crop and stitched back; the original video and soundtrack are kept alongside.
 - **Join clips:** assemble Continuity segments or video files into one video from the Continuity overlay, model-free.
 

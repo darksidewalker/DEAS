@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, beforeEach, expect, test } from 'vitest';
-import { I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n/I18nProvider';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { bundledCatalog, I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n/I18nProvider';
+import { matchEntries, revealTarget, searchIndex } from '../../lib/search';
 import type { RecipeAllowlist } from '../../lib/execution';
 import { isVideoPost } from '../../lib/videoIntent';
-import { DeropeControls, defaultDerope, fromDerope, withDerope, type DeropePref } from './DeropeControls';
+import { DeropeControls, defaultDerope, fromDerope, isDeropePref, withDerope, type DeropePref } from './DeropeControls';
 
 beforeEach(() => { localStorage.setItem(LOCALE_STORAGE_KEY, 'en'); });
 afterEach(() => { cleanup(); localStorage.clear(); });
@@ -24,9 +25,59 @@ test('off by default leaves the chain byte-identical; on adds the turbo or base-
   expect(isVideoPost(turbo)).toBe(true);
   const full = withDerope(undefined, { ...defaultDerope, enabled: true, mode: 'full', lora: 'ignored', preset: 'economy', inject: 0.7 });
   expect(full).toEqual({ derope: { preset: 'economy', inject: 0.7 } });
-  expect(fromDerope(full!.derope)).toEqual({ enabled: true, mode: 'full', lora: '', preset: 'economy', inject: 0.7 });
+  expect(fromDerope(full!.derope)).toEqual({ enabled: true, mode: 'full', lora: '', preset: 'economy', inject: 0.7, keepBackground: false });
   expect(fromDerope(turbo!.derope).mode).toBe('turbo');
   expect(isVideoPost({ derope: { preset: 'balanced', inject: 0.5 } })).toBe(false);
+});
+
+test('keep background is opt-in, restores old intents OFF, and rejects non-booleans', () => {
+  const old = { ...defaultDerope, enabled: true, mode: 'full' as const };
+  const off = withDerope(undefined, old)!;
+  expect(off.derope).not.toHaveProperty('keepBackground');
+  expect(withDerope(undefined, { ...old, keepBackground: undefined } as unknown as DeropePref)).toEqual(off);
+  const on = withDerope(undefined, { ...old, keepBackground: true })!;
+  expect(on.derope?.keepBackground).toBe(true);
+  expect(fromDerope(on.derope).keepBackground).toBe(true);
+  expect(fromDerope(off.derope).keepBackground).toBe(false);
+  const {keepBackground: _removed, ...legacy} = old;
+  expect(isDeropePref(legacy)).toBe(true);
+  expect(isDeropePref({...old,keepBackground:'true'})).toBe(false);
+  for (const keepBackground of ['true', 1, null]) expect(isVideoPost({ derope: { ...off.derope, keepBackground } })).toBe(false);
+});
+
+test('keep background stays disabled on an old pack without disabling De-rope', () => {
+  render(<Host/>);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Re-render smeared fast motion' }));
+  const toggle = screen.getByRole('checkbox', { name: 'Keep static background' });
+  expect(toggle).toHaveProperty('disabled', true);
+  expect(toggle).toHaveProperty('checked', false);
+  expect(screen.getByText(/Backend → Upgrade/)).toBeTruthy();
+});
+
+test('verified capability enables the switch; saved ON survives a missing capability without execution', () => {
+  const onChange = vi.fn();
+  const value = { ...defaultDerope, enabled: true, mode: 'full' as const };
+  const view = render(<I18nProvider><DeropeControls value={value} onChange={onChange} allow={{...allow(['DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover']),deropeKeepBackground:true}} conflict={false}/></I18nProvider>);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Keep static background' }));
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({...value,keepBackground:true});
+  view.rerender(<I18nProvider><DeropeControls value={{...value,keepBackground:true}} onChange={onChange} allow={allow(['DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover'])} conflict={false}/></I18nProvider>);
+  expect(screen.getByRole('checkbox', { name: 'Keep static background' })).toHaveProperty('checked',true);
+  expect(screen.getByRole('checkbox', { name: 'Keep static background' })).toHaveProperty('disabled',true);
+  expect(onChange).toHaveBeenCalledTimes(1);
+});
+
+test.each(['en','de','fr','ja','tr','zh'])('keep background has localized help and a reachable read-only search target (%s)', locale => {
+  localStorage.setItem(LOCALE_STORAGE_KEY,locale);
+  const text = (key:string) => bundledCatalog.dictionaries[locale][key];
+  const change=vi.fn();
+  render(<I18nProvider><div className="wb-post"><DeropeControls value={{...defaultDerope,enabled:true}} onChange={change} allow={allow(['DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover'])} conflict={false}/></div></I18nProvider>);
+  const entry=searchIndex.find(e=>e.label==='studio.run.derope.keepBackground')!;
+  expect(matchEntries(searchIndex,text(entry.label),text)).toContain(entry);
+  expect(matchEntries(searchIndex,'keep static background',text)).toContain(entry);
+  const toggle=screen.getByRole('checkbox',{name:text(entry.label)});
+  expect(revealTarget(entry.target)).toEqual({state:'disabled',title:text('studio.run.derope.keepBackgroundMissing')});
+  expect(toggle.getAttribute('title')).toBe(text('studio.run.derope.keepBackgroundMissing'));
+  expect(change).not.toHaveBeenCalled();
 });
 
 test('enabling reveals the pass controls; switching to the base model resets inject to 0.70', () => {

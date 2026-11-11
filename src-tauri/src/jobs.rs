@@ -1525,13 +1525,18 @@ impl Jobs {
             let prerequisites =
                 crate::recipe_prerequisites::native_recipe_prerequisites(base.to_string()).await?;
             let allow = &prerequisites["allowlist"];
+            if intent["videoPost"]["derope"]["keepBackground"] == true
+                && allow["deropeKeepBackground"] != true
+            {
+                return Err("De-rope Keep static background requires compatible Recover baseline IMAGE and keep_background BOOLEAN inputs with IMAGE output. Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+            }
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
             let video = crate::jobs_video::is_video(&intent);
             if video { crate::jobs_video::validate_preview_capability(&intent, allow)?; }
             if video
                 && !crate::jobs_video_post::is_enhance(&intent)
-                && intent.get("videoPost").is_some()
+                && (intent.get("videoPost").is_some() || intent.get("faceRefine").is_some() || intent.get("latentUpscale").is_some())
                 && !allow["nodes"].as_array().is_some_and(|n| n.contains(&json!("DEAS_VideoPostprocessGate")))
             {
                 return Err("Video post-processing requires the DEAS baseline-first lazy gate and a video saver with a filename output. Update/reopen the owned backend or disable post-processing; unsupported external backends cannot run it".into());

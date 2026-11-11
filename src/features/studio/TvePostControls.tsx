@@ -29,7 +29,7 @@ export function fromVideoPost(v:VideoPost|undefined):TvePref{
 }
 /** One-line summary of the enabled stages for Run Plan and metadata. */
 export function describeVideoPost(v:VideoPost):string{
- return [v.derope&&`De-rope ${v.derope.preset} inject ${v.derope.inject} ${v.derope.lora??'base model'}`,v.loop&&`Seamless loop ${v.loop.backend==='rife'?v.loop.model:'RTX'} ${v.loop.audio==='beat'?'beat-aware':'crossfade'}`,v.upscaleModel,v.rtx?.denoise&&`Denoise ${v.rtx.denoise}`,v.rtx?.deblur&&`Deblur ${v.rtx.deblur}`,v.rtx?.upscale&&`RTX ${v.rtx.upscale.mode} ${v.rtx.upscale.quality} ×${v.rtx.upscale.scale}`,v.useMmap&&'RTX use_mmap',
+ return [v.derope&&`De-rope ${v.derope.preset} inject ${v.derope.inject} ${v.derope.lora??'base model'}${v.derope.keepBackground?' · keep static background':''}`,v.loop&&`Seamless loop ${v.loop.backend==='rife'?v.loop.model:'RTX'} ${v.loop.audio==='beat'?'beat-aware':'crossfade'}`,v.upscaleModel,v.rtx?.denoise&&`Denoise ${v.rtx.denoise}`,v.rtx?.deblur&&`Deblur ${v.rtx.deblur}`,v.rtx?.upscale&&`RTX ${v.rtx.upscale.mode} ${v.rtx.upscale.quality} ×${v.rtx.upscale.scale}`,v.useMmap&&'RTX use_mmap',
   v.frameGeneration&&(v.frameGeneration.engine==='rife'?`RIFE ${v.frameGeneration.model} ×${v.frameGeneration.multiplier}`:`RTX FrameGen ${v.frameGeneration.mode} ×${v.frameGeneration.multiplier}`)].filter(Boolean).join(' → ');
 }
 

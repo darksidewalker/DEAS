@@ -190,6 +190,18 @@ fn seamless_loop_ready(nodes: &Value) -> bool {
             .all(|(_, m)| modes.as_array().is_some_and(|a| a.contains(&json!(m))))
 }
 
+fn derope_keep_background_ready(nodes: &Value) -> bool {
+    let node = &nodes["DaSiWaH3DeropeRecover"];
+    let input = |field: &str| {
+        node["input"]["required"]
+            .get(field)
+            .unwrap_or(&node["input"]["optional"][field])
+    };
+    node["output"][0] == "IMAGE"
+        && input("baseline")[0] == "IMAGE"
+        && input("keep_background")[0] == "BOOLEAN"
+}
+
 fn image_postprocess_ready(nodes: &Value) -> bool {
     let metadata = nodes.get("DaSiWa_MetadataImageSaver").is_some()
         && nodes.get("DaSiWa_MetadataConfig").is_some();
@@ -401,6 +413,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "clipTypes":combo(nodes, "CLIPLoader", "type")?,
             "vaes":combo(nodes, "VAELoader", "vae_name")?,
             "videoPreviews":video_previews(nodes),
+            "deropeKeepBackground":derope_keep_background_ready(nodes),
             "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
             "attention":options(nodes, "ModelAttentionBackend", "attention", option),
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
@@ -637,6 +650,49 @@ mod tests {
         info["DEAS_VideoPostprocessGate"] = gate;
         info["DEAS_VideoPostprocessGate"]["output"] = json!(["STRING"]);
         assert!(!listed(&info));
+    }
+
+    #[test]
+    fn derope_keep_background_discovery_requires_the_actual_recover_abi() {
+        let base = crate::validate_base_url("http://127.0.0.1:8188").unwrap();
+        let mut info = nodes();
+        assert_eq!(
+            parse(&base, &info).unwrap()["allowlist"]["deropeKeepBackground"],
+            false
+        );
+        info["DaSiWaH3DeropeRecover"] = json!({});
+        assert_eq!(
+            parse(&base, &info).unwrap()["allowlist"]["deropeKeepBackground"],
+            false
+        );
+        for group in ["required", "optional"] {
+            info["DaSiWaH3DeropeRecover"] = json!({"input":{group:{"baseline":["IMAGE"],"keep_background":["BOOLEAN",{"default":false}]}},"output":["IMAGE"]});
+            assert_eq!(
+                parse(&base, &info).unwrap()["allowlist"]["deropeKeepBackground"],
+                true
+            );
+            for field in ["baseline", "keep_background"] {
+                let mut bad = info.clone();
+                bad["DaSiWaH3DeropeRecover"]["input"][group][field] = json!(["STRING"]);
+                assert_eq!(
+                    parse(&base, &bad).unwrap()["allowlist"]["deropeKeepBackground"],
+                    false
+                );
+                bad["DaSiWaH3DeropeRecover"]["input"][group]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(field);
+                assert_eq!(
+                    parse(&base, &bad).unwrap()["allowlist"]["deropeKeepBackground"],
+                    false
+                );
+            }
+            info["DaSiWaH3DeropeRecover"]["output"] = json!(["MASK"]);
+            assert_eq!(
+                parse(&base, &info).unwrap()["allowlist"]["deropeKeepBackground"],
+                false
+            );
+        }
     }
 
     #[test]
@@ -1240,7 +1296,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "videos":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "deropeKeepBackground":false
                 }, "missingNodes":[], "generationReady":false
             })
         );

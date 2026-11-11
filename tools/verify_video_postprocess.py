@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--comfyui-root', type=Path, required=True)
 parser.add_argument('--node-pack', type=Path, required=True, help='ComfyUI-DaSiWa-Nodes checkout; imported without package startup.')
 parser.add_argument('--scratch', type=Path, required=True)
+parser.add_argument('--graphs', type=Path, help='Optional Rust dump_latent_upscale_graphs JSON: validate the real capture graphs against the pack.')
 args = parser.parse_args()
 os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 sys.dont_write_bytecode = True
@@ -148,7 +149,20 @@ class BrokenCombine(Combine):
         raise RuntimeError('synthetic baseline saver failure')
 
 
+class Decode:
+    """Model-free SegmentDecode shape: baseline images + exact same audio on both savers."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {'required': {'image': ('IMAGE',), 'audio': ('AUDIO',)}}
+    RETURN_TYPES = ('IMAGE', 'AUDIO')
+    FUNCTION = 'decode'
+
+    def decode(self, image, audio):
+        return image, audio
+
+
 nodes.NODE_CLASS_MAPPINGS.update(DaSiWa_EnhancedVideoCombine=Combine, PP_Loader=Loader, PP_Post=Post, PP_Audio=Audio, PP_Loop=Loop, PP_BrokenCombine=BrokenCombine, PP_Frames=Frames, DaSiWa_SeamlessLoop=GuardedLoop)
+nodes.NODE_CLASS_MAPPINGS['PP_Decode'] = Decode
 
 
 class Server:
@@ -204,6 +218,12 @@ def probe(path):
 
 args.scratch.mkdir(parents=True, exist_ok=True)
 results = []
+if args.graphs:
+    validation = load('_deas_capture_validation', args.node_pack / 'nodes/h3_continuity/validation.py')
+    for name, g in json.loads(args.graphs.read_text()).items():
+        if name.startswith('h3'):
+            validation.validate_capture_graph(g, 'G', 'segment' if 'segment' in name else 'full')
+            results.append(f'{name}: real pack capture validation passed')
 with tempfile.TemporaryDirectory(prefix='deas-pp1c-', dir=args.scratch) as directory:
     for setter in (folder_paths.set_output_directory, folder_paths.set_temp_directory, folder_paths.set_input_directory, folder_paths.set_user_directory):
         setter(directory)
@@ -272,4 +292,28 @@ with tempfile.TemporaryDirectory(prefix='deas-pp1c-', dir=args.scratch) as direc
     run(graph('ok', baseline='PP_BrokenCombine'), False, baseline=False)
     assert not calls, calls
     results.append('baseline saver failure blocks every post root')
-print(json.dumps({'python': sys.version.split()[0], 'torch': torch.__version__, 'device': str(comfy.model_management.get_torch_device()), 'passed': len(results), 'checks': results}, indent=2))
+    # H3 full: upscale decode AUDIO is lazy too; segment: the only SegmentDecode stays BEFORE U,
+    # so both savers consume its audio directly (the pack's capture validator requires that wire).
+    # LTX: independent audio decode is shared; the learned loader still sits behind PG.image.
+    for family in ['h3-full', 'h3-segment', 'ltx']:
+        for mode in ['ok', 'loader-fail', 'fail', 'interrupt', 'baseline-fail']:
+            clear()
+            g = graph(mode, baseline='PP_BrokenCombine' if mode == 'baseline-fail' else 'DaSiWa_EnhancedVideoCombine')
+            source = g['B7']['inputs']['images']
+            g['SD'] = {'class_type': 'PP_Decode', 'inputs': {'image': source, 'audio': ['A', 0]}}
+            g['B7']['inputs'].update(images=['SD', 0], audio=['SD', 1])
+            g['U'] = {'class_type': 'PP_Loop', 'inputs': {'image': ['SD', 0], 'audio': ['SD', 1], 'loader': ['RL', 0]}}
+            g['R6']['inputs']['image'] = ['U', 0]
+            if family == 'h3-full':
+                g['PG']['inputs']['audio'] = ['U', 1]
+                g['7']['inputs']['audio'] = ['PG', 1]
+            else:
+                g['7']['inputs']['audio'] = ['SD', 1]
+            executor = run(g, mode == 'ok', baseline=mode != 'baseline-fail', processed=mode == 'ok')
+            assert calls == ([] if mode == 'baseline-fail' else ['loader'] if mode == 'loader-fail' else ['loader', 'loop', 'post']), calls
+            if mode == 'interrupt':
+                assert any(event == 'execution_interrupted' for event, _ in executor.status_messages)
+            results.append(f'{family} {mode}: lazy upscale closure, encoded Original retained or failure blocks upscale')
+revisions = {name: subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+             for name, path in [('core', args.comfyui_root), ('pack', args.node_pack)]}
+print(json.dumps({'python': sys.version.split()[0], 'torch': torch.__version__, 'device': str(comfy.model_management.get_torch_device()), 'revisions': revisions, 'passed': len(results), 'checks': results}, indent=2))

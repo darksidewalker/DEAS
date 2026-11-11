@@ -21,6 +21,12 @@ const qwenAllowlist: RecipeAllowlist = {
   diffusionModels: [intent.checkpoint], textEncoders: [qwenDiffusion.textEncoder], clipTypes: ['qwen_image'], vaes: [qwenDiffusion.vae], images: nativeReference.images,
 };
 
+test('optional De-rope capability accepts absent/boolean values but not coercions', () => {
+  const baseline=compileRecipe(intent,allowlist);
+  for(const deropeKeepBackground of [false,true])assert.deepEqual(compileRecipe(intent,{...allowlist,deropeKeepBackground}),baseline);
+  for(const deropeKeepBackground of ['true',1,null])assert.throws(()=>compileRecipe(intent,{...allowlist,deropeKeepBackground}),{code:'INVALID_ALLOWLIST'});
+});
+
 test('Qwen native references encode both prompts in order and use the exact first-reference empty latent', () => {
   const result = compileRecipe({ ...intent, diffusion: qwenDiffusion, nativeImageReference: nativeReference }, qwenAllowlist);
   const g = result.graph;

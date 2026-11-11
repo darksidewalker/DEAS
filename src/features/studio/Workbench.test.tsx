@@ -9,7 +9,7 @@ import { Workbench } from './Workbench';
 import { defaultOptions } from './OptionsPanel';
 import { sam3VideoNodes, type Sam3VideoMaskIntentV1 } from '../../lib/sam3';
 import {normalizeAceDuration,defaultAceSettings,type AceStepFamily} from '../../lib/musicIntent';
-import { applyStudioSettings, captureStudioSettings } from '../../lib/preferences';
+import { applyStudioSettings, captureStudioSettings, resetStudioPreferences } from '../../lib/preferences';
 import { aspects, resolutions } from '../../lib/resolution';
 import type { HistoryRecord } from './history';
 import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
@@ -650,7 +650,8 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})):[...ltxModels];
  vi.mocked(scanModels).mockResolvedValue(files);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors',h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:[ltx,h3Model,'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'],h3LatentUpscaleModels:[h3Model,ltx,'interpolation']}});
+ const compatible={...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:[ltx,h3Model,'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'],h3LatentUpscaleModels:[h3Model,ltx,'interpolation']}};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...compatible,allowlist:{...compatible.allowlist,nodes:compatible.allowlist.nodes.filter(n=>n!=='DEAS_VideoPostprocessGate')}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('latent','failed'),error:'fixture'});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
@@ -660,6 +661,13 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
  fireEvent.click(screen.getByLabelText('Latent upscale after sampling'));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(document.body.textContent).toContain('DEAS_VideoPostprocessGate');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(compatible);
+ fireEvent.click(screen.getByRole('tab',{name:'Options'}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
  const picker=screen.getByLabelText('Latent upscale model') as HTMLSelectElement;
  expect([...picker.options].map(o=>o.value)).toContain(h3?h3Model:ltx);
  expect([...picker.options].map(o=>o.value)).not.toContain(h3?ltx:h3Model);
@@ -737,6 +745,45 @@ test('Seamless loop is a default-off post stage gated on the audio-aware node an
  expect(document.querySelector('[data-plan-stage="tve"]')?.textContent).toContain('Seamless loop rife_v4.26.safetensors beat-aware');
 });
 
+test.each([undefined,false,true])('De-rope keep background restores %s, gates Run on discovery and never executes while editing',async saved=>{
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.derope',JSON.stringify({enabled:true,mode:'full',lora:'',preset:'balanced',inject:0.7,...(saved===undefined?{}:{keepBackground:saved})}));
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
+ const allow={...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover']};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:allow});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('disabled',true));
+ expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('checked',saved??false);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',saved===true));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...allow,deropeKeepBackground:true}});
+ fireEvent.click(screen.getByRole('tab',{name:'Options'}));
+ await waitFor(()=>expect(document.querySelector('[data-dock-tab="options"]')?.getAttribute('aria-selected')).toBe('true'));
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('disabled',false));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ if(saved!==true)fireEvent.click(screen.getByRole('checkbox',{name:'Keep static background'}));
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).videoPost.derope.keepBackground).toBe(true));
+ expect(document.querySelector('[data-plan-stage="tve"]')?.textContent).toContain('keep static background');
+ const settings=captureStudioSettings();
+ expect(settings['studio.run.derope']).toMatchObject({keepBackground:true});
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ act(()=>resetStudioPreferences());
+ expect(captureStudioSettings()['studio.run.derope']).toMatchObject({enabled:false,keepBackground:false});
+ act(()=>{expect(applyStudioSettings(settings)).toBe(true);});
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('checked',true));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(prepareH3Video).not.toHaveBeenCalled();
+ if(saved===true){
+  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('derope-keep','failed'),error:'fixture'});
+  fireEvent.click(screen.getByRole('button',{name:'Run'}));
+  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({videoPost:{derope:{keepBackground:true}}});
+ }
+});
+
 test('H3 latent upscaler options sit in their own menu, keep separate refine steps and reach Run Plan only when changed',async()=>{
  const files=[
   {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},
@@ -746,7 +793,7 @@ test('H3 latent upscaler options sit in their own menu, keep separate refine ste
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null}));
  vi.mocked(scanModels).mockResolvedValue(files);
  const h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,schedulers:['simple','beta'],nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,schedulers:['simple','beta'],nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:h3Model,scale:2,steps:1,denoise:0.2}));
@@ -774,7 +821,7 @@ test('H3 latent upscaler options sit in their own menu, keep separate refine ste
 test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
- const allow=(latentUpscaleModels:string[])=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels}});
+ const allow=(latentUpscaleModels:string[])=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels}});
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow([]));
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -816,7 +863,7 @@ test('latent H3 segment capture is allowed in Continuity with the core baseline 
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-post.safetensors',scale:2,steps:1,denoise:0.2}));
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]}));
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
@@ -863,7 +910,7 @@ test('late latent capability replies from an old endpoint cannot enable the new 
  await waitFor(()=>expect(finish).toBeTypeOf('function'));
  view.rerender(<I18nProvider><Workbench {...props} endpoint="http://new:7801"/></I18nProvider>);
  await act(async()=>{});
- await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-post.safetensors']}}));
+ await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-post.safetensors']}}));
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(document.querySelector('.wb-stage-warning')?.textContent).toContain('LatentUpscaleModelLoader');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
@@ -880,7 +927,7 @@ test('a pending capability probe is not a missing latent upscale model',async()=
  // Backend still answering: Run is disabled by the pending notice alone, the selected model is not reported missing.
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
- await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors']}}));
+ await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors']}}));
  expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
 });
 
@@ -890,7 +937,7 @@ test.each(['cancel','download'] as const)('missing latent model opens the actual
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const filename='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
  let installed=false,started=false;
- vi.mocked(checkRecipePrerequisites).mockImplementation(async()=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:installed?[filename]:[]}}));
+ vi.mocked(checkRecipePrerequisites).mockImplementation(async()=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:installed?[filename]:[]}}));
  const file={id:'file',label:filename,locator:filename,downloadable:true,kind:'file',url:'https://huggingface.co/file',size:1};
  vi.mocked(invoke).mockImplementation(async c=>{
   if(c==='native_download_catalog')return {version:1,providers:[{id:'huggingface',kind:'huggingface',label:'Hugging Face',origin:'https://huggingface.co',scopes:['repo'],anonymousNotice:''}],entries:[{id:'ltx-latent-upscaler',label:'LTX',providerId:'huggingface',scope:'repo',locator:'models:Lightricks/LTX-2.3',kind:'repo',target:'latent_upscale_models'}]};
@@ -4925,7 +4972,7 @@ test('history restores independent latent post settings without submitting or ch
  const original=recentHistoryRecord({recipeId:'video-generation',version:1,family:'ltx-2',positivePrompt:'historic video',negativePrompt:'',model:ltxModels[0].name,textEncoder:ltxModels[1].name,vae:ltxModels[3].name,seed:19,width:768,height:512,frames:121,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},ltx:{passes:1,audioVae:ltxModels[4].name,textProjection:ltxModels[2].name},latentUpscale:{model:'ltx-held.safetensors',scale:2}});
  const before=JSON.stringify(original);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-held.safetensors'],textEncoders:[ltxModels[1].name,ltxModels[2].name],vaes:[ltxModels[3].name,ltxModels[4].name]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-held.safetensors'],textEncoders:[ltxModels[1].name,ltxModels[2].name],vaes:[ltxModels[3].name,ltxModels[4].name]}});
  vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{path:'/env/input',parent:'/env',entries:[],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));

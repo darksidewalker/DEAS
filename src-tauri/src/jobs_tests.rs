@@ -1730,16 +1730,102 @@ async fn video_prepare_checks_every_graph_node_and_reads_gifs_outputs() {
 }
 
 #[tokio::test]
+async fn derope_keep_background_prepare_rejects_missing_old_or_incompatible_recover() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+    let graph = compile(&intent).unwrap();
+    let mut all = nodes();
+    for node in graph.as_object().unwrap().values() {
+        let class = node["class_type"].as_str().unwrap();
+        if all.get(class).is_none() {
+            all[class] = json!({});
+        }
+    }
+    all["DaSiWa_EnhancedVideoCombine"]["output"] = json!(["IMAGE", "STRING"]);
+    all["DEAS_VideoPostprocessGate"] = json!({"input":{"required":{"baseline":["IMAGE,STRING"],"image":["IMAGE",{"lazy":true}]},"optional":{"audio":["AUDIO",{"lazy":true}]}},"output":["IMAGE","AUDIO"]});
+    for (field, names) in crate::jobs_video::requirements(&intent) {
+        let (node, input) = match field {
+            "diffusionModels" => ("UNETLoader", "unet_name"),
+            "textEncoders" => ("CLIPLoader", "clip_name"),
+            "clipTypes" => ("CLIPLoader", "type"),
+            "vaes" => ("VAELoader", "vae_name"),
+            "images" => ("LoadImage", "image"),
+            _ if names.is_empty() => continue,
+            _ => unreachable!("{field}"),
+        };
+        all[node]["input"]["required"][input] = json!([names]);
+    }
+    all["KSampler"]["input"]["required"]["sampler_name"] = json!([[intent["sampler"]]]);
+    all["KSampler"]["input"]["required"]["scheduler"] = json!([[intent["scheduler"]]]);
+    for case in [
+        "missing", "old", "baseline", "boolean", "output", "optional", "required",
+    ] {
+        let mut info = all.clone();
+        info["DaSiWaH3DeropeRecover"] = json!({"input":{"optional":{"baseline":["IMAGE"],"keep_background":["BOOLEAN",{"default":false}]}},"output":["IMAGE"]});
+        match case {
+            "missing" => {
+                info.as_object_mut()
+                    .unwrap()
+                    .remove("DaSiWaH3DeropeRecover");
+            }
+            "old" => info["DaSiWaH3DeropeRecover"] = json!({}),
+            "baseline" => {
+                info["DaSiWaH3DeropeRecover"]["input"]["optional"]["baseline"] = json!(["MASK"])
+            }
+            "boolean" => {
+                info["DaSiWaH3DeropeRecover"]["input"]["optional"]["keep_background"] =
+                    json!(["STRING"])
+            }
+            "output" => info["DaSiWaH3DeropeRecover"]["output"] = json!(["MASK"]),
+            "required" => {
+                let inputs = info["DaSiWaH3DeropeRecover"]["input"]["optional"].clone();
+                info["DaSiWaH3DeropeRecover"]["input"] = json!({"required":inputs});
+            }
+            _ => {}
+        }
+        let (base, task) = server(move |path, _| {
+            assert_eq!(
+                path, "GET /comfy/object_info HTTP/1.1",
+                "prepare must not execute"
+            );
+            (200, info.to_string())
+        })
+        .await;
+        let jobs = Jobs::default();
+        for enabled in [false, true] {
+            let mut i = intent.clone();
+            i["videoPost"]["derope"]["keepBackground"] = json!(enabled);
+            let result = jobs.prepare(base.clone(), i).await;
+            if enabled && !["optional", "required"].contains(&case) {
+                assert!(
+                    result.unwrap_err().contains("Keep static background"),
+                    "{case}"
+                );
+            } else if case != "missing" {
+                assert!(result.is_ok(), "{case}: {result:?}");
+            } else {
+                assert!(result.is_err());
+            }
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn video_postprocess_prepare_requires_the_baseline_first_gate() {
     let plain = crate::jobs_video::tests::ltx();
     let mut post = plain.clone();
     post["videoPost"] = json!({"upscaleModel":"2x-Sharp.safetensors"});
+    let mut latent = plain.clone();
+    latent["latentUpscale"] = json!({"model":"ltx-spatial-upscaler.safetensors","scale":2});
     let graph = compile(&post).unwrap();
     let mut all = json!({"UNETLoader":{"input":{"required":{"unet_name":[["LTX2/ltx.safetensors"]]}}},
         "CLIPLoader":{"input":{"required":{"clip_name":[["gemma_3_12B_it_fp8.safetensors","ltx-2.3_text_projection_bf16.safetensors"]],"type":[["ltxv"]]}}},
         "VAELoader":{"input":{"required":{"vae_name":[["LTX2/video_vae.safetensors","LTX2/audio_vae.safetensors"]]}}},
         "DualCLIPLoader":{"input":{"required":{"clip_name1":[["gemma_3_12B_it_fp8.safetensors","ltx-2.3_text_projection_bf16.safetensors"]],"type":[["ltxv"]]}}},
         "KSampler":{"input":{"required":{"sampler_name":[["euler_cfg_pp"]],"scheduler":[["linear_quadratic"]]}}},
+        "LatentUpscaleModelLoader":{"input":{"required":{"model_name":[["ltx-spatial-upscaler.safetensors"]]}}},
+        "LTXVLatentUpsampler":{},
         "UpscaleModelLoader":{"input":{"required":{"model_name":["COMBO",{"multiselect":false,"options":["2x-Sharp.safetensors"]}]}}},
         "DaSiWa_EnhancedVideoCombine":{"output":["IMAGE","STRING"]},
         "DEAS_VideoPostprocessGate":{"input":{"required":{"baseline":["IMAGE,STRING"],"image":["IMAGE",{"lazy":true}]},"optional":{"audio":["AUDIO",{"lazy":true}]}},"output":["IMAGE","AUDIO"]}});
@@ -1749,24 +1835,55 @@ async fn video_postprocess_prepare_requires_the_baseline_first_gate() {
             all[name] = json!({});
         }
     }
-    for compatible in [true, false] {
+    for case in [
+        "compatible",
+        "oldSaver",
+        "missingGate",
+        "eagerGate",
+        "noAudioGate",
+    ] {
         let mut info = all.clone();
-        if !compatible {
+        if case == "oldSaver" {
             // A saver without the filename socket cannot prove the baseline finished.
             info["DaSiWa_EnhancedVideoCombine"]["output"] = json!(["IMAGE"]);
+        }
+        match case {
+            "missingGate" => {
+                info.as_object_mut()
+                    .unwrap()
+                    .remove("DEAS_VideoPostprocessGate");
+            }
+            "eagerGate" => {
+                info["DEAS_VideoPostprocessGate"]["input"]["required"]["image"] = json!(["IMAGE"]);
+            }
+            "noAudioGate" => {
+                info["DEAS_VideoPostprocessGate"]["input"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("optional");
+            }
+            _ => {}
         }
         let (base, task) = server(move |_, _| (200, info.to_string())).await;
         let jobs = Jobs::default();
         assert!(jobs.prepare(base.clone(), plain.clone()).await.is_ok());
+        let latent_result = jobs.prepare(base.clone(), latent.clone()).await;
         let result = jobs.prepare(base, post.clone()).await;
         task.abort();
-        if compatible {
+        if case == "compatible" {
+            assert_eq!(
+                latent_result.unwrap()["graph"]["7"]["inputs"]["images"],
+                json!(["PG", 0])
+            );
             let g = &result.unwrap()["graph"];
             assert_eq!(g["PG"]["inputs"]["baseline"], json!(["B7", 1]));
             assert_eq!(g["PG"]["inputs"]["image"], json!(["PM", 0]));
             assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
         } else {
             assert!(result.unwrap_err().contains("baseline-first lazy gate"));
+            assert!(latent_result
+                .unwrap_err()
+                .contains("baseline-first lazy gate"));
         }
     }
 }
@@ -3341,6 +3458,8 @@ async fn prepare_latent_upscale_requires_exact_catalog_id_without_changing_legac
                     info[class] = json!({});
                 }
             }
+            info["DaSiWa_EnhancedVideoCombine"]["output"] = json!(["IMAGE", "STRING"]);
+            info["DEAS_VideoPostprocessGate"] = json!({"input":{"required":{"baseline":["IMAGE,STRING"],"image":["IMAGE",{"lazy":true}]},"optional":{"audio":["AUDIO",{"lazy":true}]}},"output":["IMAGE","AUDIO"]});
             for (field, names) in crate::jobs_video::requirements(&intent) {
                 let (node, input) = match field {
                     "diffusionModels" => ("UNETLoader", "unet_name"),

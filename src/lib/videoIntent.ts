@@ -48,7 +48,7 @@ export interface VideoPost {
  rtx?:{ denoise?:RtxQuality; deblur?:RtxQuality; upscale?:{ mode:typeof rtxUpscaleModes[number]; quality:RtxQuality; scale:number }; chunkFrames?:number };
  frameGeneration?:{ engine:'rtx'; multiplier:number; mode:typeof frameGenModes[number] }|{ engine:'rife'; multiplier:number; model:string };
  /** MiniMax H3 de-rope second pass (generation only, never TVE); `lora` = turbo pass, absent = base model. */
- derope?:{ preset:DeropePreset; inject:typeof deropeInjects[number]; lora?:string };
+ derope?:{ preset:DeropePreset; inject:typeof deropeInjects[number]; lora?:string; keepBackground?:boolean };
 }
 const multiplierOk=(m:unknown)=>Number.isInteger(m)&&(m as number)>=2&&(m as number)<=16;
 const chunkFramesOk=(n:unknown)=>Number.isInteger(n)&&(n as number)>=1&&(n as number)<=1024;
@@ -56,7 +56,7 @@ export const isVideoPost=(v:unknown):v is VideoPost=>{
  const p=v as VideoPost;
  if(!p||typeof p!=='object'||!Object.keys(p).length||Object.keys(p).some(k=>!['upscaleModel','rtx','frameGeneration','useMmap','loop','derope'].includes(k)))return false;
  const d=p.derope;
- if(d!==undefined&&!(d&&inList(deropePresets,d.preset)&&deropeInjects.some(v=>v===d.inject)&&(d.lora===undefined||typeof d.lora==='string')))return false;
+ if(d!==undefined&&!(d&&inList(deropePresets,d.preset)&&deropeInjects.some(v=>v===d.inject)&&(d.lora===undefined||typeof d.lora==='string')&&(d.keepBackground===undefined||typeof d.keepBackground==='boolean')))return false;
  const l=p.loop;
  if(l!==undefined&&!(l&&inList(loopAudios,l.audio)&&(l.backend==='rtx'||(l.backend==='rife'&&typeof l.model==='string'))))return false;
  if(p.upscaleModel!==undefined&&typeof p.upscaleModel!=='string')return false;

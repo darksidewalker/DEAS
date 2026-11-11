@@ -56,15 +56,10 @@ shutil.copy(os.path.join(folder_paths.get_input_directory(), image), os.path.joi
 if not os.path.exists(os.path.join(scratch, 'source.mp4')):
     subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=24:duration=1', '-pix_fmt', 'yuv420p', os.path.join(scratch, 'source.mp4')], check=True)
 folder_paths.set_input_directory(scratch)
-# The HyperFlow GGUF loader combo lists only .gguf files; nobody's disk is guaranteed to have
-# one, so drop a probe file into the first writable diffusion_models folder (removed below).
-probe_gguf = None
-for d in folder_paths.get_folder_paths('diffusion_models'):
-    candidate = os.path.join(d, 'deas-probe-hyperflow.gguf')
-    try:
-        open(candidate, 'wb').close(); probe_gguf = candidate; break
-    except OSError:
-        continue
+# Keep the combo-only GGUF fixture private; never write into the user's model folders.
+probe_gguf = os.path.join(scratch, 'deas-probe-hyperflow.gguf')
+Path(probe_gguf).touch()
+folder_paths.add_model_folder_path('diffusion_models', scratch)
 ok = True
 for family, g in graphs.items():
     text = json.dumps(g)
@@ -74,6 +69,9 @@ for family, g in graphs.items():
     g = json.loads(text)
     result = loop.run_until_complete(execution.validate_prompt('deas-probe', g, None))
     valid, error, outputs, node_errors = result[0], result[1], result[2], result[3]
+    # Core can report valid=True while dropping a failed output branch (e.g. only B7 survives).
+    expected = {node_id for node_id in ('7', 'B7', 'P') if node_id in g}
+    valid = valid and expected.issubset(outputs)
     print(f"{family}: valid={valid} outputs={outputs}")
     if not valid:
         ok = False

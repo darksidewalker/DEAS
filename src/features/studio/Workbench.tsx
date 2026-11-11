@@ -487,7 +487,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const latentChoices=latentModels(videoFamily,choices);
  const latentModel=latentPref.model||latentChoices[0]||'';
  const latentEnabled=latent&&latentPref.enabled;
- const latentNodes=videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'];
+ const latentNodes=['DEAS_VideoPostprocessGate',...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The backend may still be booting, or optional models were added since the last probe: re-read when their controls open.
  useEffect(()=>{if((latent&&dockTab==='post'||dockTab==='options')&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
@@ -583,6 +583,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    ...(videoPost.frameGeneration?.engine==='rtx'&&!choices.nodes.includes('DaSiWa_RTX_FrameGeneration')?['DaSiWa_RTX_FrameGeneration']:[]),
    ...(videoPost.frameGeneration?.engine==='rife'&&!choices.frameInterpolationModels?.includes(videoPost.frameGeneration.model)?[videoPost.frameGeneration.model]:[]),
    ...(videoPost.loop&&!choices.nodes.includes('DaSiWa_SeamlessLoop')?['DaSiWa_SeamlessLoop']:[]),
+   ...(videoPost.derope?.keepBackground&&!choices.deropeKeepBackground?[t('studio.run.derope.keepBackgroundMissing')]:[]),
    ...(videoPost.derope?deropeNodes.filter(n=>!choices.nodes.includes(n)):[]),
    ...(videoPost.derope?.lora&&!choices.loras?.includes(videoPost.derope.lora)?[videoPost.derope.lora]:[]),
    ...(videoPost.loop?.backend==='rife'&&videoPost.loop.model&&!choices.frameInterpolationModels?.includes(videoPost.loop.model)?[videoPost.loop.model]:[])]:[]),

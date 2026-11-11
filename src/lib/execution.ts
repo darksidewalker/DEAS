@@ -83,6 +83,7 @@ export interface RunOptions {
 export const isGguf = (name: string) => /\.gguf$/i.test(name);
 export const clipLoaderName = (name: string, dual = false) => `${dual ? 'DualCLIPLoader' : 'CLIPLoader'}${isGguf(name) ? 'GGUF' : ''}`;
 export interface RecipeAllowlist {
+  readonly deropeKeepBackground?: boolean;
   readonly videoPreviews?: Record<string, import('./videoPreview').VideoPreviewConfig>;
   readonly nodes: readonly string[];
   readonly checkpoints: readonly string[];
@@ -309,7 +310,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
 /** Pure compilation only: allowlists must be verified by the caller, not user declarations. */
 export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe {
   const intent = validateIntent(input);
-  if (!isRecord(verified) || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
+  if (!isRecord(verified) || (verified.deropeKeepBackground!==undefined&&typeof verified.deropeKeepBackground!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
     Object.hasOwn(verified, key) && Array.isArray(verified[key]) && Array.from(verified[key]).every((v: unknown) => typeof v === 'string' && v.length > 0))) {
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }
