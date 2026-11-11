@@ -381,6 +381,12 @@ H3_FPS = 24
 H3_CANVAS = 768
 
 
+def face_height(mask):
+    """Tallest per-frame extent of a bool [m,H,W] track mask, in pixels (0 when never present)."""
+    rows = mask.any(dim=2)
+    return max((int(r.nonzero()[-1]) - int(r.nonzero()[0]) + 1 for r in rows if r.any()), default=0)
+
+
 def crop_box(mask, crop_factor):
     """Fixed square crop of one tracked object over one shot; mask is bool [m,H,W].
 
@@ -397,7 +403,7 @@ def crop_box(mask, crop_factor):
     ys, xs = torch.nonzero(rows.any(dim=0)).flatten(), torch.nonzero(cols.any(dim=0)).flatten()
     y0, y1, x0, x1 = int(ys[0]), int(ys[-1]) + 1, int(xs[0]), int(xs[-1]) + 1
     # Context scales with the tallest per-frame face, as the reference's crop_factor does.
-    face = max(int(r.nonzero()[-1]) - int(r.nonzero()[0]) + 1 for r in rows[present])
+    face = face_height(mask)
     side = min(max(round(face * crop_factor), y1 - y0, x1 - x0), height, width)
     top = min(max((y0 + y1) // 2 - side // 2, 0), height - side)
     left = min(max((x0 + x1) // 2 - side // 2, 0), width - side)
@@ -453,6 +459,9 @@ class H3FaceRefine:
         }, "optional": {
             "audio": ("AUDIO",),
             "audio_vae": ("VAE",),
+            # Faces never taller than this many pixels keep their original pixels (0 = refine all):
+            # a tiny face upscaled to the 768 canvas costs a full H3 pass for little detail.
+            "min_face": ("INT", {"default": 0, "min": 0, "max": 4096}),
         }}
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "refine"
@@ -460,7 +469,7 @@ class H3FaceRefine:
 
     def refine(self, images, fps, sam_model, sam_conditioning, detection_threshold, max_objects,
                detect_interval, scene_threshold, noise, guider, sampler, sigmas, vae, crop_factor,
-               feather, audio=None, audio_vae=None):
+               feather, audio=None, audio_vae=None, min_face=0):
         import torch
         import comfy.utils
         import comfy.nested_tensor
@@ -490,6 +499,10 @@ class H3FaceRefine:
                 mask = SAM3_TrackToMask.execute(track_data=track, object_indices=str(obj)).result[0].cpu() > 0.5
                 box = crop_box(mask, crop_factor)
                 if box is None:
+                    continue
+                if face_height(mask) < min_face:
+                    _log.info("DEAS_H3FaceRefine shot=[%d,%d) object=%d skipped: face %d px < minimum %d px",
+                              first, end, obj, face_height(mask), min_face)
                     continue
                 top, left, side, present = box
                 count = end - first

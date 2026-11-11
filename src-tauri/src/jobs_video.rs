@@ -1572,14 +1572,26 @@ fn wan(i: &Value) -> Result<Value, String> {
 /// Director's frame-indexed keyframes onto the slowed clock. Feeds the post gate, so
 /// the baseline saver runs first; the result keeps the baseline audio (Motion Lab's reference_mix 1).
 fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i: &Value) -> Value {
+    // A generation that already runs a distilled setup (turbo checkpoint or turbo LoRA, <= 8 steps)
+    // gets Motion Lab's turbo schedule on its own model; a 25-step pass would over-resolve it.
+    let distilled = i["steps"].as_u64().is_some_and(|s| s <= 8);
+    let in_chain = |name: &Value| {
+        i["loras"]
+            .as_array()
+            .is_some_and(|l| l.iter().any(|x| &x["name"] == name))
+    };
     let (model, steps, scheduler) = match d.get("lora") {
-        // Motion Lab's turbo pass: 6 total steps on beta, of which inject × 6 run.
-        Some(lora) => {
+        // Motion Lab's turbo pass: 6 total steps on beta, of which inject × 6 run. A LoRA the
+        // generation chain already carries is not stacked a second time.
+        Some(lora) if !in_chain(lora) => {
             g["DRL"] = json!({"class_type":"LoraLoaderModelOnly","inputs":{"model":model,"lora_name":lora,"strength_model":1.0}});
             (json!(["DRL", 0]), 6, json!("beta"))
         }
+        Some(_) => (model, 6, json!("beta")),
+        None if distilled => (model, 6, json!("beta")),
         None => (model, 25, i["scheduler"].clone()),
     };
+
     g["DRP"] = json!({"class_type":"DaSiWaH3DeropePrepare","inputs":{"images":images,"samples":["SP",0],"vae":["V",0],
         "preset":d["preset"],"frame_rate":i["frameRate"],"audio":audio,"audio_vae":["AV",0],"conditioning":["G",0],
         // A continuation's keyframes index the sampled clip, not the decoded timeline/window.

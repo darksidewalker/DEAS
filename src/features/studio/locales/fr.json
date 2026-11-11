@@ -1060,7 +1060,7 @@
   "studio.run.derope.conflict": "De-rope ne peut pas continuer un nouveau segment depuis une vidéo importée (sa fenêtre est construite dans le pack de nœuds) ; utilisez la timeline complète ou un clip généré.",
   "studio.run.derope.mode": "Seconde passe",
   "studio.run.derope.turbo": "LoRA turbo · 6 étapes (rapide)",
-  "studio.run.derope.full": "Modèle de base · 25 étapes (qualité maximale)",
+  "studio.run.derope.full": "Modèle de génération · 25 étapes (6 si la génération est distillée)",
   "studio.run.derope.lora": "LoRA turbo",
   "studio.run.derope.loraHint": "Appliqué à la seconde passe uniquement, force 1.",
   "studio.run.derope.needsLora": "De-rope : choisissez un LoRA turbo ou passez au modèle de base",
@@ -1071,5 +1071,7 @@
   "studio.run.derope.inject": "Intensité du re-rendu",
   "studio.run.derope.inject.sharp": "0,48 · plus net",
   "studio.run.derope.inject.safe": "0,70 · plus sûr",
-  "studio.run.derope.injectHint": "Part du planning relancée sur le clip ralenti : plus bas garde davantage l’original, plus haut laisse le modèle réinventer davantage."
+  "studio.run.derope.injectHint": "Part du planning relancée sur le clip ralenti : plus bas garde davantage l’original, plus haut laisse le modèle réinventer davantage.",
+  "studio.faceRefine.minFace": "Taille minimale du visage (px)",
+  "studio.faceRefine.minFaceHint": "Les visages jamais plus grands que cette valeur gardent leurs pixels d’origine (0 = tous). Un visage minuscule est agrandi au canevas 768 et coûte une passe H3 complète pour peu de détail."
 }

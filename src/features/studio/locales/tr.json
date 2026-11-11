@@ -1060,7 +1060,7 @@
   "studio.run.derope.conflict": "De-rope, içe aktarılmış bir videodan yeni bölüm devam ettiremez (penceresi düğüm paketinde oluşturulur); tam zaman çizelgesini veya üretilmiş bir klibi kullanın.",
   "studio.run.derope.mode": "İkinci geçiş",
   "studio.run.derope.turbo": "Turbo LoRA · 6 adım (hızlı)",
-  "studio.run.derope.full": "Temel model · 25 adım (tam kalite)",
+  "studio.run.derope.full": "Üretim modeli · 25 adım (üretim damıtılmışsa 6)",
   "studio.run.derope.lora": "Turbo LoRA",
   "studio.run.derope.loraHint": "Yalnızca ikinci geçişe, 1 güçle uygulanır.",
   "studio.run.derope.needsLora": "De-rope: bir turbo LoRA seçin veya temel modele geçin",
@@ -1071,5 +1071,7 @@
   "studio.run.derope.inject": "Yeniden işleme gücü",
   "studio.run.derope.inject.sharp": "0,48 · daha keskin",
   "studio.run.derope.inject.safe": "0,70 · daha güvenli",
-  "studio.run.derope.injectHint": "Yavaşlatılmış klipte yeniden çalıştırılan zamanlama payı: düşük değer orijinali daha çok korur, yüksek değer modelin daha çok yeniden üretmesine izin verir."
+  "studio.run.derope.injectHint": "Yavaşlatılmış klipte yeniden çalıştırılan zamanlama payı: düşük değer orijinali daha çok korur, yüksek değer modelin daha çok yeniden üretmesine izin verir.",
+  "studio.faceRefine.minFace": "En küçük yüz boyutu (px)",
+  "studio.faceRefine.minFaceHint": "Bu değerden hiç büyük olmayan yüzler orijinal piksellerini korur (0 = tüm yüzler). Çok küçük bir yüz 768 tuvaline büyütülür ve az ayrıntı için tam bir H3 geçişine mal olur."
 }

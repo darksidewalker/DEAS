@@ -1060,7 +1060,7 @@
   "studio.run.derope.conflict": "De-ropeはインポート動画から新規セグメントを継続できません（ウィンドウはノードパック内で作られます）。全タイムラインか生成済みクリップを使ってください。",
   "studio.run.derope.mode": "第2パス",
   "studio.run.derope.turbo": "Turbo LoRA · 6ステップ（高速）",
-  "studio.run.derope.full": "ベースモデル · 25ステップ（最高品質）",
+  "studio.run.derope.full": "生成モデル · 25ステップ（蒸留生成なら6）",
   "studio.run.derope.lora": "Turbo LoRA",
   "studio.run.derope.loraHint": "第2パスのみに強度1で適用。",
   "studio.run.derope.needsLora": "De-rope：Turbo LoRAを選ぶかベースモデルに切り替えてください",
@@ -1071,5 +1071,7 @@
   "studio.run.derope.inject": "再レンダリング強度",
   "studio.run.derope.inject.sharp": "0.48 · よりシャープ",
   "studio.run.derope.inject.safe": "0.70 · より安全",
-  "studio.run.derope.injectHint": "減速クリップで再実行するスケジュールの割合：低いほど元を保ち、高いほどモデルが作り直します。"
+  "studio.run.derope.injectHint": "減速クリップで再実行するスケジュールの割合：低いほど元を保ち、高いほどモデルが作り直します。",
+  "studio.faceRefine.minFace": "最小顔サイズ（px）",
+  "studio.faceRefine.minFaceHint": "この高さを一度も超えない顔は元のピクセルのままです（0＝すべて補正）。小さな顔は768の補正キャンバスに拡大され、少ない効果のためにH3を1回分使います。"
 }

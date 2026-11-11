@@ -1060,7 +1060,7 @@
   "studio.run.derope.conflict": "De-rope kann ein neues Segment nicht aus einem importierten Video fortsetzen (dessen Fenster entsteht im Node-Pack); „Ganze Zeitleiste“ oder einen generierten Clip verwenden.",
   "studio.run.derope.mode": "Zweiter Durchgang",
   "studio.run.derope.turbo": "Turbo-LoRA · 6 Schritte (schnell)",
-  "studio.run.derope.full": "Basismodell · 25 Schritte (volle Qualität)",
+  "studio.run.derope.full": "Generierungsmodell · 25 Schritte (6 bei destillierter Generierung)",
   "studio.run.derope.lora": "Turbo-LoRA",
   "studio.run.derope.loraHint": "Nur auf den zweiten Durchgang angewendet, Stärke 1.",
   "studio.run.derope.needsLora": "De-rope: Turbo-LoRA wählen oder auf das Basismodell umschalten",
@@ -1071,5 +1071,7 @@
   "studio.run.derope.inject": "Neu-Render-Stärke",
   "studio.run.derope.inject.sharp": "0,48 · schärfer",
   "studio.run.derope.inject.safe": "0,70 · sicherer",
-  "studio.run.derope.injectHint": "Anteil des Zeitplans, der auf dem verlangsamten Clip neu läuft: niedriger behält mehr vom Original, höher lässt das Modell mehr neu erfinden."
+  "studio.run.derope.injectHint": "Anteil des Zeitplans, der auf dem verlangsamten Clip neu läuft: niedriger behält mehr vom Original, höher lässt das Modell mehr neu erfinden.",
+  "studio.faceRefine.minFace": "Mindest-Gesichtsgröße (px)",
+  "studio.faceRefine.minFaceHint": "Gesichter, die nie größer als dieser Wert sind, behalten ihre Original-Pixel (0 = alle verfeinern). Ein winziges Gesicht wird auf das 768er-Raster hochskaliert und kostet einen vollen H3-Durchgang für wenig Detail."
 }

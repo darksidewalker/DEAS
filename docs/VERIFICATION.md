@@ -1,5 +1,16 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## H3 de-rope, face refinement minimum size, continuity and latent-upscale order (0.2.23, unreleased)
+
+- Real runs on a throwaway owned-env backend (scratch view of core `fca60fe` with node pack 0.5.43 `665230e` and the working-tree adapters mounted, RTX 5090 free of other GPU jobs, owner's `dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8…` + `qwen3vl_32b_minimax_h3_nvfp4_awq`, 832×480, 124 frames, 8 steps euler/simple), graphs compiled by the native `compile` from DEAS intents, scratch output:
+  - **De-rope, generation model** (distilled generation → 6-step `beta`, inject 0.48 = 3 executed steps): `[DaSiWa] H3 de-rope balanced: 85 of 124 frames held, 124 -> 362 frames, peak x11`; `success` in 287 s incl. loads, VRAM peak 31.9 GB. Original and Processed both 124 frames / 5.17 s. Visually the spinning limbs are less smeared (arm/head blur in the kick frames resolves into defined limbs); the background is softer (mean Laplacian variance 43.2 → 25.5) and temporal flicker is unchanged (7.52 → 7.56).
+  - **Stop during pass 2**: interrupt 15 s into the de-rope sampler → `execution_interrupted` 5.0 s later; `derope-stop_original` written before, no Processed file.
+  - **De-rope → face refinement → re-encode → 1.5× latent upscale** (face refine 0.35): `success` in 457 s, VRAM peak 32.0 GB; Original 832×480 encoded before De-rope started (log order), Processed 1248×704, 124 frames, same audio duration. No seam at the face crop; same person, but hair/face shape drifted a little (de-rope + refine at 0.35 on a close shot). The tracker reported an 80 px face present in 1 frame refined with a full 768 pass — the case the new minimum face size skips.
+  - **Continuity new segment only** (captured 124-frame T2VA take, then a 119-frame continuation with De-rope + face refinement): window decode 243 frames, `243 -> 753` slowed frames, `1 keyframe(s) not carried into pass 2`, cropped back to 119 frames; `success` in 655 s, clip published to the session. Processed audio sample-identical to the Original (max abs diff 0.0). The first processed frame differs more from the un-de-roped take's last frame than the raw segment does (mean abs 12.4 vs 6.6 /255): the join is only as consistent as the de-roping of both sides.
+- Offline graph validation with pack 0.5.43: `h3_derope_turbo`, `h3_derope_full`, `h3_derope_face_upscale`, `h3_derope_full_timeline`, `h3_derope_segment`, `h3_derope_segment_upscale` all `valid=True`.
+- Hold planning/smear/audio stretch/recovery bit-identical to MAINodes Motion Lab `db1f62d` (120 random profiles + audio, scratch comparison); pack tests 5/5; adapter tests 27/27 incl. `min_face` skip.
+- Not verified: the controls inside the running native app; de-rope quality across more footage and LoRAs.
+
 ## H3 face refinement (0.2.23, unreleased)
 
 - Real runs on a throwaway owned-env backend (core `fca60fe`, DaSiWa pack 0.5.42, RTX 5090, owner's `dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8…` + `qwen3vl_32b_minimax_h3_nvfp4_awq`, SAM `sam3.1_multiplex_fp16`, 8 steps euler/simple, shift 10/3), scratch input/output, bundled adapter mounted only for the probe and removed afterwards:

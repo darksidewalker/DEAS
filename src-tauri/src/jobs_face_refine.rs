@@ -12,7 +12,7 @@ pub(crate) const ALLOW_NODES: [&str; 3] = [
     "MiniMaxH3ImageToVideo",
     "SplitSigmasDenoise",
 ];
-const BLOCK: [&str; 9] = [
+const BLOCK: [&str; 10] = [
     "samCheckpoint",
     "prompt",
     "threshold",
@@ -22,6 +22,7 @@ const BLOCK: [&str; 9] = [
     "denoise",
     "cropFactor",
     "feather",
+    "minFace",
 ];
 const RECIPE: [&str; 19] = [
     "recipeId",
@@ -60,7 +61,7 @@ pub(crate) fn validate(f: &Value) -> Result<(), String> {
     let ok = o.keys().all(|k| BLOCK.contains(&k.as_str()))
         && BLOCK
             .iter()
-            .filter(|k| **k != "sceneThreshold")
+            .filter(|k| !["sceneThreshold", "minFace"].contains(*k))
             .all(|k| o.contains_key(*k))
         && f["samCheckpoint"].as_str().is_some_and(comfy_model_name)
         && f["prompt"]
@@ -76,7 +77,9 @@ pub(crate) fn validate(f: &Value) -> Result<(), String> {
             .is_none_or(|v| finite(v, f64::MIN_POSITIVE, 1.0))
         && f["denoise"].as_f64().is_some_and(|n| n > 0.0 && n <= 1.0)
         && finite(&f["cropFactor"], 1.2, 8.0)
-        && f["feather"].as_u64().is_some_and(|n| n <= 256);
+        && f["feather"].as_u64().is_some_and(|n| n <= 256)
+        && f.get("minFace")
+            .is_none_or(|n| n.as_u64().is_some_and(|n| n <= 4096));
     if ok {
         Ok(())
     } else {
@@ -109,6 +112,9 @@ pub(crate) fn insert(
         "noise":["N",0],"guider":["FRG",0],"sampler":["Q",0],"sigmas":["FRZ",1],"vae":["V",0],
         "crop_factor":f["cropFactor"],"feather":f["feather"],
     });
+    if let Some(n) = f.get("minFace") {
+        inputs["min_face"] = n.clone();
+    }
     if let Some(a) = audio {
         inputs["audio"] = a;
         inputs["audio_vae"] = json!(["AV", 0]);
@@ -367,5 +373,38 @@ mod tests {
         let mut cuts = block();
         cuts["sceneThreshold"] = json!(0.3);
         assert!(validate(&cuts).is_ok());
+        // Optional minimum face size: absent = refine every face, never stacked onto the node otherwise.
+        for (n, ok) in [
+            (json!(0), true),
+            (json!(96), true),
+            (json!(4097), false),
+            (json!(-1), false),
+            (json!(1.5), false),
+        ] {
+            let mut b = block();
+            b["minFace"] = n.clone();
+            assert_eq!(validate(&b).is_ok(), ok, "{n}");
+        }
+        let mut g = json!({});
+        let mut b = block();
+        insert(
+            &mut g,
+            json!(["SD", 0]),
+            None,
+            json!(24),
+            json!(["SS", 0]),
+            &b,
+        );
+        assert!(g["FR"]["inputs"].get("min_face").is_none());
+        b["minFace"] = json!(96);
+        insert(
+            &mut g,
+            json!(["SD", 0]),
+            None,
+            json!(24),
+            json!(["SS", 0]),
+            &b,
+        );
+        assert_eq!(g["FR"]["inputs"]["min_face"], 96);
     }
 }

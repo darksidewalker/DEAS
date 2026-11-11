@@ -885,10 +885,24 @@ fn h3_derope_second_pass_sits_behind_the_baseline_gate() {
         .any(|n| n["class_type"] == "DEAS_H3FaceRefine"
             && n["inputs"]["images"] == json!(["DRR", 0])));
 
-    // Full-quality pass: base model, 25 steps on the generation scheduler.
+    // A turbo LoRA the generation already carries is not stacked again.
+    let mut chained = i.clone();
+    chained["loras"] = json!([{"name":"h3_turbo.safetensors","strength":1.0}]);
+    let g = compile(&chained).unwrap();
+    assert!(g.get("DRL").is_none());
+    assert_eq!(g["DRZ"]["inputs"]["steps"], 6);
+
+    // Generation model: 25 steps on the generation scheduler, Motion Lab's turbo schedule when
+    // the generation itself is distilled (<= 8 steps; the fixture runs 4).
     i["videoPost"]["derope"] = json!({"preset":"economy","inject":0.7});
     let g = compile(&i).unwrap();
     assert!(g.get("DRL").is_none());
+    assert_eq!(
+        g["DRZ"]["inputs"],
+        json!({"model":["SS",0],"scheduler":"beta","steps":6,"denoise":1.0})
+    );
+    i["steps"] = json!(30);
+    let g = compile(&i).unwrap();
     assert_eq!(
         g["DRZ"]["inputs"],
         json!({"model":["SS",0],"scheduler":"simple","steps":25,"denoise":1.0})

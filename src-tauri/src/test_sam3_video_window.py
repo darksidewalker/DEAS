@@ -427,6 +427,8 @@ class CoreRefineTests(unittest.TestCase):
         huge[:, 10:90, 10:20] = True
         self.assertEqual(window.crop_box(huge, 8.0)[2], 100)
         self.assertIsNone(window.crop_box(torch.zeros(4, 8, 8, dtype=torch.bool), 2.5))
+        self.assertEqual((window.face_height(mask), window.face_height(huge)), (20, 80))
+        self.assertEqual(window.face_height(torch.zeros(2, 4, 4, dtype=torch.bool)), 0)
 
     def test_feather_grows_and_softens_without_leaking_far(self):
         import torch
@@ -486,6 +488,15 @@ class CoreRefineTests(unittest.TestCase):
         self.assertAlmostEqual(out[:, 20:30, 40:50].mean().item(), 1.0, places=4)
         outside = out.clone(); outside[:, 20:30, 40:50] = 0.25
         self.assertTrue(torch.equal(outside, images))
+        # A minimum face size above the 10 px face keeps the original pixels without sampling.
+        seen.clear()
+        with patch.object(window, "track_shot", return_value=track), \
+                patch.object(nodes_sam3.SAM3_TrackToMask, "execute", return_value=SimpleNamespace(result=(mask,))), \
+                patch.object(nodes_custom_sampler.SamplerCustomAdvanced, "execute", side_effect=sample):
+            out, = window.H3FaceRefine().refine(images, 24.0, None, None, 0.5, 4, 1, 0.0, None, None, None, None,
+                                               Vae(), 2.5, 0, min_face=11)
+        self.assertEqual(seen, {})
+        self.assertTrue(torch.equal(out, images))
 
 
 if __name__ == "__main__":

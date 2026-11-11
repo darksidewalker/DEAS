@@ -3,9 +3,9 @@ import type {Sam3VideoMaskIntentV1} from '../../lib/sam3';
 
 export type Sam3VideoSettings = Pick<Sam3VideoMaskIntentV1,'checkpoint'|'threshold'|'maxObjects'|'detectInterval'|'startSeconds'|'durationSeconds'> & {cuts:boolean;sceneThreshold:number};
 /** H3 face refinement settings; an empty prompt uses the current positive prompt. `auto` chains it after H3 generation. */
-export interface FaceRefineSettings {auto:boolean;denoise:number;cropFactor:number;feather:number;prompt:string}
+export interface FaceRefineSettings {auto:boolean;denoise:number;cropFactor:number;feather:number;prompt:string;/** Absent in preferences saved before it existed = 0 (refine every face). */minFace?:number}
 export interface FaceRefineControls {value:FaceRefineSettings;onChange:(value:FaceRefineSettings)=>void;unavailable:string;autoUnavailable:string;onRefine:()=>void}
-const refineFields={denoise:['studio.faceRefine.denoise','studio.faceRefine.denoiseHint',0.05,0.05,1],cropFactor:['studio.faceRefine.cropFactor','studio.faceRefine.cropFactorHint',1.2,0.1,8],feather:['studio.faceRefine.feather','studio.faceRefine.featherHint',0,1,256]} as const;
+const refineFields={denoise:['studio.faceRefine.denoise','studio.faceRefine.denoiseHint',0.05,0.05,1],cropFactor:['studio.faceRefine.cropFactor','studio.faceRefine.cropFactorHint',1.2,0.1,8],feather:['studio.faceRefine.feather','studio.faceRefine.featherHint',0,1,256],minFace:['studio.faceRefine.minFace','studio.faceRefine.minFaceHint',0,8,4096]} as const;
 /** Analysis and refinement run only on explicit actions; editing settings never starts computation. */
 export function Sam3VideoControls({value,onChange,models,sourceName,unavailable,busy,onAnalyze,refine}:{value:Sam3VideoSettings;onChange:(value:Sam3VideoSettings)=>void;models:readonly string[];sourceName?:string;unavailable:string;busy:boolean;onAnalyze:()=>void;refine?:FaceRefineControls}){
  const {t}=useI18n();
@@ -28,7 +28,7 @@ export function Sam3VideoControls({value,onChange,models,sourceName,unavailable,
   {refine&&<div className="wb-options" data-face-refine-group>
    <label className="wb-option" title={refine.autoUnavailable||t('studio.faceRefine.autoHint')}><span><input data-face-refine="auto" type="checkbox" checked={refine.value.auto} disabled={!!refine.autoUnavailable&&!refine.value.auto} onChange={e=>refine.onChange({...refine.value,auto:e.target.checked})}/>{t('studio.faceRefine.auto')}</span></label>
    {refine.autoUnavailable&&<small data-face-refine="autoUnavailable">{refine.autoUnavailable}</small>}
-   {(Object.keys(refineFields) as (keyof typeof refineFields)[]).map(key=>{const [label,hint,min,step,max]=refineFields[key];const v=refine.value[key];return <label className="wb-option" key={key}><span>{t(label)}</span><input data-face-refine={key} type="number" min={min} max={max} step={step} title={t(hint)} value={Number.isNaN(v)?'':v} onChange={e=>refine.onChange({...refine.value,[key]:e.target.value===''?NaN:Number(e.target.value)})}/></label>;})}
+   {(Object.keys(refineFields) as (keyof typeof refineFields)[]).map(key=>{const [label,hint,min,step,max]=refineFields[key];const v=refine.value[key]??0;return <label className="wb-option" key={key}><span>{t(label)}</span><input data-face-refine={key} type="number" min={min} max={max} step={step} title={t(hint)} value={Number.isNaN(v)?'':v} onChange={e=>refine.onChange({...refine.value,[key]:e.target.value===''?NaN:Number(e.target.value)})}/></label>;})}
    <label className="wb-option"><span>{t('studio.faceRefine.prompt')}</span><textarea data-face-refine="prompt" maxLength={16384} rows={2} placeholder={t('studio.faceRefine.promptHint')} value={refine.value.prompt} onChange={e=>refine.onChange({...refine.value,prompt:e.target.value})}/></label>
    <p className="media-help">{t('studio.faceRefine.hint')}</p>
    {/* One live region per group: the analysis status above; refinement blockers are plain text. */}
