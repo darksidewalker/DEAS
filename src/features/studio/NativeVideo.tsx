@@ -1,4 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import './nativeVideo.css';
@@ -15,7 +16,7 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  const report=useRef(onStatus);report.current=onStatus;
  const modes=useRef({muted,audioOnly});modes.current={muted,audioOnly};
  const owner=useRef('');
- const [id,setId]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState<NativeVideoStatus>(initial);
+ const [id,setId]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState<NativeVideoStatus>(initial),[maximized,setMaximized]=useState(false);
  const sourceKey=JSON.stringify(source);
  useEffect(()=>{
   setId('');setError('');setStatus(initial);
@@ -63,7 +64,9 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  const time=`${clock(position)} / ${clock(status.duration)}`;
  const fill=(percent:number)=>({'--progress':`${percent}%`} as CSSProperties);
  const silent=muted===true||status.muted;
- return <div className="native-video" data-native-video data-audio-only={audioOnly||undefined} role="group" aria-label={label}>
+ useEffect(()=>{if(!maximized)return;const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setMaximized(false);};document.addEventListener('keydown',key);return ()=>document.removeEventListener('keydown',key);},[maximized]);
+ // Maximizing moves the same player into a full-window layer: the surface ref follows, the native player is not reopened.
+ const player=<div className="native-video" data-native-video data-audio-only={audioOnly||undefined} data-maximized={maximized||undefined} role="group" aria-label={label}>
   <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}} onClick={()=>{if(enabled)control({kind:'pause',paused:!status.paused});}}/>
   {error&&<p role="alert" className="error-message">{t('studio.video.error')} {error}</p>}
   <div className="native-video-controls">
@@ -73,6 +76,8 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
    <button type="button" disabled={!enabled||muted===true} title={t(silent?'studio.video.unmute':'studio.video.mute')} aria-label={t(silent?'studio.video.unmute':'studio.video.mute')} aria-pressed={silent} onClick={()=>{if(muted!==true)control({kind:'mute',muted:!status.muted});}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/>{silent?<path d="m16 9 5 6m0-6-5 6"/>:<path d="M15 8c3 2 3 6 0 8m3-11c5 4 5 10 0 14"/>}</svg></button>
    <input className="native-video-volume" type="range" aria-label={t('studio.video.volume')} aria-valuetext={`${Math.round(volume)}%`} min={0} max={100} value={volume} style={fill(volume)} disabled={!enabled} onChange={e=>control({kind:'volume',volume:Number(e.target.value)})}/>
    <span className="native-video-percent">{Math.round(volume)}%</span>
+   {!audioOnly&&<button type="button" title={t(maximized?'studio.video.restore':'studio.video.maximize')} aria-label={t(maximized?'studio.video.restore':'studio.video.maximize')} aria-pressed={maximized} onClick={()=>setMaximized(m=>!m)}><svg viewBox="0 0 24 24" aria-hidden="true">{maximized?<path d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5"/>:<path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/>}</svg></button>}
   </div>
  </div>;
+ return maximized?createPortal(player,document.body):player;
 }

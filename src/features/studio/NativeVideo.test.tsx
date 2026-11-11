@@ -124,3 +124,17 @@ test('native path is Linux-only, never selected for browser or Windows',()=>{
  vi.spyOn(navigator,'userAgent','get').mockReturnValue('Linux');vi.mocked(isTauri).mockReturnValue(false);expect(nativeVideo()).toBe(false);
  vi.mocked(isTauri).mockReturnValue(true);expect(nativeVideo()).toBe(true);
 });
+test('maximize moves the same player into a full-window layer without reopening it; Escape restores',async()=>{
+ const ui=render(<I18nProvider><div data-host><NativeVideo source={{path:'/clip.webm'}} label="Clip"/></div></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('slider',{name:'Seek video'}).getAttribute('max')).toBe('5'));
+ fireEvent.click(screen.getByRole('button',{name:'Maximize video'}));
+ const group=screen.getByRole('group',{name:'Clip'});
+ expect(group.dataset.maximized).toBe('true');expect(group.parentElement).toBe(document.body);
+ expect(ui.container.querySelector('[data-host] [data-native-video]')).toBeNull();
+ expect(screen.getByRole('button',{name:'Restore video size'}).getAttribute('aria-pressed')).toBe('true');
+ fireEvent.keyDown(document,{key:'Escape'});
+ expect(ui.container.querySelector('[data-host] [data-native-video]')?.hasAttribute('data-maximized')).toBe(false);
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_video_open')).toHaveLength(1);
+ render(<I18nProvider><NativeVideo source={{path:'/a.flac'}} label="Audio" audioOnly/></I18nProvider>);
+ expect(screen.getAllByRole('button',{name:'Maximize video'})).toHaveLength(1);
+});

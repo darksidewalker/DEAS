@@ -17,3 +17,5 @@
 .native-video-controls button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .native-video-time,.native-video-percent{flex:none;white-space:nowrap;font-size:.72rem;font-variant-numeric:tabular-nums;color:var(--text-2)}
 .native-video-percent{min-width:4ch;text-align:right}
+.native-video[data-maximized]{position:fixed;inset:0;z-index:1000;max-height:none;padding:.75rem;background:rgb(var(--shadow-rgb))}
+.native-video[data-maximized] .native-video-surface{max-height:none;width:auto;height:100%;max-width:100%}

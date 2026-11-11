@@ -322,7 +322,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [samVideoCuts,setSamVideoCuts]=usePref('studio.run.samVideoCuts',false,isBoolean);
  const [samVideoSceneThreshold,setSamVideoSceneThreshold]=usePref('studio.run.samVideoSceneThreshold',0.3,isNumber);
  // Off by default; denoise/crop/feather start from the reference node's defaults (unverified on H3 quality).
- const [faceRefine,setFaceRefine]=usePref<FaceRefineSettings>('studio.run.faceRefine',{auto:false,denoise:0.35,cropFactor:2.5,feather:6,prompt:''},isFaceRefineSettings);
+ const [faceRefine,setFaceRefine]=usePref<FaceRefineSettings>('studio.run.faceRefine',{auto:false,denoise:0.3,cropFactor:2.5,feather:6,prompt:''},isFaceRefineSettings);
  const samVideoSettings={cuts:samVideoCuts,sceneThreshold:samVideoSceneThreshold,checkpoint:samCheckpoint,threshold:samThreshold,maxObjects:samVideoMax,detectInterval:samVideoInterval,startSeconds:samVideoStart,durationSeconds:samVideoDuration};
  const [samBusy,setSamBusy]=useState(false);const [nativeRefining,setNativeRefining]=useState(false);const [samStatus,setSamStatus]=useState('');
  const samValue={checkpoint:samCheckpoint,targets:samText,enabled:samEnabled,denoise:samDenoise,threshold:samThreshold};
