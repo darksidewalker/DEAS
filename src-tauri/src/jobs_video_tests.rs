@@ -990,21 +990,47 @@ fn h3_derope_second_pass_sits_behind_the_baseline_gate() {
     assert!(g.get("DRL").is_none());
     assert_eq!(g["DRZ"]["inputs"]["steps"], 6);
 
-    // Generation model: 25 steps on the generation scheduler, Motion Lab's turbo schedule when
-    // the generation itself is distilled (<= 8 steps; the fixture runs 4).
+    // Generation model: 25 steps on the generation scheduler unless the owner marks the chain
+    // distilled. The step count alone decides nothing (the fixture runs 4 steps).
     i["videoPost"]["derope"] = json!({"preset":"economy","inject":0.7});
     let g = compile(&i).unwrap();
     assert!(g.get("DRL").is_none());
     assert_eq!(
         g["DRZ"]["inputs"],
-        json!({"model":["SS",0],"scheduler":"beta","steps":6,"denoise":1.0})
-    );
-    i["steps"] = json!(30);
-    let g = compile(&i).unwrap();
-    assert_eq!(
-        g["DRZ"]["inputs"],
         json!({"model":["SS",0],"scheduler":"simple","steps":25,"denoise":1.0})
     );
+    // Distilled: the generation chain as-is (its turbo LoRA included, never stacked) on the turbo schedule.
+    i["videoPost"]["derope"]["distilled"] = json!(true);
+    i["steps"] = json!(30);
+    let mut with_lora = i.clone();
+    with_lora["loras"] = json!([{"name":"h3_turbo.safetensors","strength":1.0}]);
+    for x in [&i, &with_lora] {
+        let g = compile(x).unwrap();
+        assert!(g.get("DRL").is_none());
+        assert_eq!(
+            g["DRZ"]["inputs"],
+            json!({"model":["SS",0],"scheduler":"beta","steps":6,"denoise":1.0})
+        );
+    }
+    let g = compile(&with_lora).unwrap();
+    assert_eq!(g["DRG"]["inputs"]["model"], json!(["SS", 0]));
+    assert!(g
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|n| n["class_type"] == "LoraLoaderModelOnly"
+            && n["inputs"]["lora_name"] == "h3_turbo.safetensors"));
+    for bad in [json!(false), json!("true"), json!(1)] {
+        i["videoPost"]["derope"]["distilled"] = bad;
+        assert!(compile(&i).is_err());
+    }
+    i["videoPost"]["derope"]["distilled"] = json!(true);
+    i["videoPost"]["derope"]["lora"] = json!("h3_turbo.safetensors");
+    assert!(
+        compile(&i).is_err(),
+        "a turbo LoRA pass is already distilled"
+    );
+    i["videoPost"]["derope"] = json!({"preset":"economy","inject":0.7});
 
     for (field, value) in [
         ("preset", json!("loud")),

@@ -1572,9 +1572,10 @@ fn wan(i: &Value) -> Result<Value, String> {
 /// Director's frame-indexed keyframes onto the slowed clock. Feeds the post gate, so
 /// the baseline saver runs first; the result keeps the baseline audio (Motion Lab's reference_mix 1).
 fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i: &Value) -> Value {
-    // A generation that already runs a distilled setup (turbo checkpoint or turbo LoRA, <= 8 steps)
-    // gets Motion Lab's turbo schedule on its own model; a 25-step pass would over-resolve it.
-    let distilled = i["steps"].as_u64().is_some_and(|s| s <= 8);
+    // The owner declares a distilled generation chain (turbo checkpoint or a turbo LoRA in the
+    // generation LoRAs): it then gets Motion Lab's turbo schedule on that same chain. The step count
+    // is no evidence of distillation.
+    let distilled = d["distilled"] == true;
     let in_chain = |name: &Value| {
         i["loras"]
             .as_array()

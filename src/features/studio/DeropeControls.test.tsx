@@ -25,9 +25,23 @@ test('off by default leaves the chain byte-identical; on adds the turbo or base-
   expect(isVideoPost(turbo)).toBe(true);
   const full = withDerope(undefined, { ...defaultDerope, enabled: true, mode: 'full', lora: 'ignored', preset: 'economy', inject: 0.7 });
   expect(full).toEqual({ derope: { preset: 'economy', inject: 0.7 } });
-  expect(fromDerope(full!.derope)).toEqual({ enabled: true, mode: 'full', lora: '', preset: 'economy', inject: 0.7, keepBackground: false });
+  expect(fromDerope(full!.derope)).toEqual({ enabled: true, mode: 'full', lora: '', preset: 'economy', inject: 0.7, keepBackground: false, distilled: false });
   expect(fromDerope(turbo!.derope).mode).toBe('turbo');
   expect(isVideoPost({ derope: { preset: 'balanced', inject: 0.5 } })).toBe(false);
+});
+
+test('distilled is an explicit base-model flag, omitted when off and never with a turbo LoRA', () => {
+  const base = { ...defaultDerope, enabled: true, mode: 'full' as const };
+  expect(withDerope(undefined, base)!.derope).not.toHaveProperty('distilled');
+  const on = withDerope(undefined, { ...base, distilled: true })!;
+  expect(on.derope).toEqual({ preset: 'balanced', inject: 0.48, distilled: true });
+  expect(isVideoPost(on)).toBe(true);
+  expect(fromDerope(on.derope).distilled).toBe(true);
+  expect(withDerope(undefined, { ...base, mode: 'turbo', lora: 'x.safetensors', distilled: true })!.derope).not.toHaveProperty('distilled');
+  for (const distilled of [false, 'true', 1]) expect(isVideoPost({ derope: { preset: 'balanced', inject: 0.48, distilled } })).toBe(false);
+  expect(isVideoPost({ derope: { preset: 'balanced', inject: 0.48, lora: 'x.safetensors', distilled: true } })).toBe(false);
+  const {distilled: _removed, ...legacy} = base;
+  expect(isDeropePref(legacy)).toBe(true);
 });
 
 test('keep background is opt-in, restores old intents OFF, and rejects non-booleans', () => {

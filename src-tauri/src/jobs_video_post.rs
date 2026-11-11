@@ -72,8 +72,10 @@ pub(crate) fn validate(p: &Value) -> Result<(), String> {
         return Err("videoPost needs upscaleModel, rtx, frameGeneration, loop or derope".into());
     }
     if let Some(d) = p.get("derope") {
-        let ok = keys_in(d, &["preset", "inject", "lora", "keepBackground"])
+        let ok = keys_in(d, &["preset", "inject", "lora", "keepBackground", "distilled"])
             && d.get("keepBackground").is_none_or(Value::is_boolean)
+            // `distilled` describes the generation chain the base-model pass reuses; a turbo LoRA pass is always distilled.
+            && d.get("distilled").is_none_or(|v| v == true && d.get("lora").is_none())
             && d["preset"]
                 .as_str()
                 .is_some_and(|v| DEROPE_PRESETS.contains(&v))
@@ -83,7 +85,7 @@ pub(crate) fn validate(p: &Value) -> Result<(), String> {
             && d.get("lora")
                 .is_none_or(|l| l.as_str().is_some_and(comfy_model_name));
         if !ok {
-            return Err("Invalid videoPost.derope: {preset balanced|max quality|economy, inject 0.48|0.7, optional turbo lora, optional keepBackground boolean}".into());
+            return Err("Invalid videoPost.derope: {preset balanced|max quality|economy, inject 0.48|0.7, optional turbo lora, optional keepBackground boolean, optional distilled true without lora}".into());
         }
     }
     if let Some(l) = p.get("loop") {
