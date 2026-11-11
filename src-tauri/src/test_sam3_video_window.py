@@ -417,17 +417,29 @@ class CoreRefineTests(unittest.TestCase):
         import torch
         mask = torch.zeros(10, 100, 200, dtype=torch.bool)
         mask[2:8, 40:60, 100:120] = True
-        top, left, side, present = window.crop_box(mask, 2.5)
-        self.assertEqual((top, left, side), (25, 85, 50))
+        tops, lefts, side, present = window.crop_box(mask, 2.5)
+        self.assertEqual((tops, lefts, side), ([25] * 10, [85] * 10, 50))
         self.assertEqual(present.nonzero().flatten().tolist(), [2, 3, 4, 5, 6, 7])
         edge = torch.zeros(3, 100, 200, dtype=torch.bool)
         edge[:, 0:10, 190:200] = True
-        self.assertEqual(window.crop_box(edge, 2.5)[:3], (0, 175, 25))
+        self.assertEqual(window.crop_box(edge, 2.5)[:3], ([0] * 3, [175] * 3, 25))
         huge = torch.zeros(2, 100, 200, dtype=torch.bool)
         huge[:, 10:90, 10:20] = True
         self.assertEqual(window.crop_box(huge, 8.0)[2], 100)
         self.assertIsNone(window.crop_box(torch.zeros(4, 8, 8, dtype=torch.bool), 2.5))
         self.assertEqual((window.face_height(mask), window.face_height(huge)), (20, 80))
+        # A face crossing the frame: same face-scaled side, box follows it, smoothed, held when lost.
+        walk = torch.zeros(20, 100, 400, dtype=torch.bool)
+        for f in range(20):
+            if f != 10:
+                walk[f, 40:60, 10 + 18 * f:30 + 18 * f] = True
+        tops, lefts, side, present = window.crop_box(walk, 2.5)
+        self.assertEqual((side, int(present.sum()), set(tops)), (50, 19, {25}))
+        self.assertEqual(lefts, sorted(lefts))
+        self.assertGreater(lefts[-1] - lefts[0], 250)
+        for f in present.nonzero().flatten().tolist():  # the face stays inside its moving crop
+            self.assertTrue(walk[f, :, lefts[f]:lefts[f] + side].sum() == walk[f].sum(), f)
+        self.assertTrue(max(b - a for a, b in zip(lefts, lefts[1:])) <= 20)
         self.assertEqual(window.face_height(torch.zeros(2, 4, 4, dtype=torch.bool)), 0)
 
     def test_feather_grows_and_softens_without_leaking_far(self):

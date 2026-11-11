@@ -387,12 +387,13 @@ def face_height(mask):
     return max((int(r.nonzero()[-1]) - int(r.nonzero()[0]) + 1 for r in rows if r.any()), default=0)
 
 
-def crop_box(mask, crop_factor):
-    """Fixed square crop of one tracked object over one shot; mask is bool [m,H,W].
+def crop_box(mask, crop_factor, smooth=9):
+    """Square crop of one tracked object over one shot; mask is bool [m,H,W].
 
-    shortcut: one static box per shot and object (no moving crop), so a face crossing the
-    frame gets a larger, lower-detail crop; upgrade to a stabilized moving crop when owners
-    report wide-motion shots.
+    Returns (tops, lefts, side, present) with one top/left per frame. A face that stays inside a
+    face-sized square keeps one static box; a face that travels further gets a box of the same
+    face-scaled side that follows its centre, smoothed over `smooth` frames (a jittering crop would
+    read as camera shake to H3) and held at the last/next seen position where the track drops out.
     """
     import torch
     m, height, width = mask.shape
@@ -404,10 +405,31 @@ def crop_box(mask, crop_factor):
     y0, y1, x0, x1 = int(ys[0]), int(ys[-1]) + 1, int(xs[0]), int(xs[-1]) + 1
     # Context scales with the tallest per-frame face, as the reference's crop_factor does.
     face = face_height(mask)
-    side = min(max(round(face * crop_factor), y1 - y0, x1 - x0), height, width)
-    top = min(max((y0 + y1) // 2 - side // 2, 0), height - side)
-    left = min(max((x0 + x1) // 2 - side // 2, 0), width - side)
-    return top, left, side, present
+    widest = max(int(c.nonzero()[-1]) - int(c.nonzero()[0]) + 1 for c in cols[present])
+    side = min(max(round(face * crop_factor), widest), height, width)
+    if max(y1 - y0, x1 - x0) <= side:
+        top = min(max((y0 + y1) // 2 - side // 2, 0), height - side)
+        left = min(max((x0 + x1) // 2 - side // 2, 0), width - side)
+        return [top] * m, [left] * m, side, present
+    seen = present.nonzero().flatten().tolist()
+    centres, extents = {}, {}
+    for f in seen:
+        r, c = rows[f].nonzero().flatten(), cols[f].nonzero().flatten()
+        extents[f] = (int(r[0]), int(r[-1]) + 1, int(c[0]), int(c[-1]) + 1)
+        centres[f] = ((extents[f][0] + extents[f][1]) / 2, (extents[f][2] + extents[f][3]) / 2)
+    track = torch.tensor([centres[min(seen, key=lambda s: (abs(s - f), s))] for f in range(m)])
+    k = min(smooth, m) | 1
+    padded = torch.cat([track[:1].expand(k // 2, 2), track, track[-1:].expand(k // 2, 2)])
+    track = padded.unfold(0, k, 1).mean(dim=-1)
+    tops, lefts = [], []
+    for f, (cy, cx) in enumerate(track.tolist()):
+        top, left = round(cy - side / 2), round(cx - side / 2)
+        if f in extents:  # smoothing lags at fast turns: never let the face leave its crop
+            fy0, fy1, fx0, fx1 = extents[f]
+            top, left = min(max(top, fy1 - side), fy0), min(max(left, fx1 - side), fx0)
+        tops.append(min(max(top, 0), height - side))
+        lefts.append(min(max(left, 0), width - side))
+    return tops, lefts, side, present
 
 
 def feather_mask(mask, radius):
@@ -504,12 +526,14 @@ class H3FaceRefine:
                     _log.info("DEAS_H3FaceRefine shot=[%d,%d) object=%d skipped: face %d px < minimum %d px",
                               first, end, obj, face_height(mask), min_face)
                     continue
-                top, left, side, present = box
+                tops, lefts, side, present = box
                 count = end - first
                 length, latent_t, audio_t = temporal_shape(count)
-                _log.info("DEAS_H3FaceRefine shot=[%d,%d) object=%d crop=(top=%d,left=%d,side=%d) canvas=%d h3_frames=%d present=%d",
-                          first, end, obj, top, left, side, H3_CANVAS, length, int(present.sum()))
-                crop = images[first:end, top:top + side, left:left + side]
+                moving = len(set(tops)) > 1 or len(set(lefts)) > 1
+                _log.info("DEAS_H3FaceRefine shot=[%d,%d) object=%d crop=(top=%d,left=%d,side=%d%s) canvas=%d h3_frames=%d present=%d",
+                          first, end, obj, tops[0], lefts[0], side, ", moving" if moving else "", H3_CANVAS, length,
+                          int(present.sum()))
+                crop = torch.stack([images[first + f, t:t + side, l:l + side] for f, (t, l) in enumerate(zip(tops, lefts))])
                 # Explicit tail padding to H3's 17k+5 grid; padded frames are discarded after decode.
                 crop = torch.cat([crop, crop[-1:].expand(length - count, -1, -1, -1)]) if length > count else crop
                 crop = comfy.utils.common_upscale(crop.movedim(-1, 1), H3_CANVAS, H3_CANVAS, "lanczos", "disabled").movedim(1, -1)
@@ -535,9 +559,10 @@ class H3FaceRefine:
                 if refined.shape[0] != count:
                     raise ValueError("DEAS_H3_FACE_REFINE: decoded frame count differs from the shot")
                 refined = comfy.utils.common_upscale(refined.movedim(-1, 1), side, side, "bicubic", "disabled").movedim(1, -1).clamp(0, 1)
-                alpha = feather_mask(mask[:, top:top + side, left:left + side], feather)[..., None]
-                region = out[first:end, top:top + side, left:left + side]
-                out[first:end, top:top + side, left:left + side] = region * (1 - alpha) + refined * alpha
+                for f, (t, l) in enumerate(zip(tops, lefts)):
+                    alpha = feather_mask(mask[f:f + 1, t:t + side, l:l + side], feather)[0, ..., None]
+                    region = out[first + f, t:t + side, l:l + side]
+                    out[first + f, t:t + side, l:l + side] = region * (1 - alpha) + refined[f] * alpha
                 del crop, video, sound, latent, sampled, refined, alpha
             del track, packed
         mm.throw_exception_if_processing_interrupted()
