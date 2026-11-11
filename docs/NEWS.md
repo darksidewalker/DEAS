@@ -1,7 +1,12 @@
 # News
 
-## 0.2.23 BETA (unreleased)
+## 0.2.23 BETA
 
+- **De-rope (fast motion) for MiniMax H3:** an optional second pass that re-renders smeared whip-fast motion after the Original is saved, with a turbo-LoRA (6 steps) or generation-model pass; tick **Generation is distilled (turbo)** when your generation already uses a turbo checkpoint or turbo LoRA. Needs DaSiWa nodes 0.5.43+ (0.5.45 for Keep static background). Results vary with content; both switches default OFF.
+- **Maximize videos:** the Linux video player gets a **Maximize video** button; the same player fills the window and Escape brings it back.
+- **Inpaint only masked has its Context padding right below it** (it used to hide in the SAM group as "Mask Shrink Grow").
+- **Export into folders like ~/Videos works:** both exports failed when the save dialog went through a symlinked folder.
+- **Face refinement:** follows faces that move across the frame, can skip faces below a minimum size, always runs at least 2 steps; default strength is now 0.3.
 - **Keep static background:** an optional H3 De-rope switch retains original detail outside motion/changed regions. It defaults OFF, needs DaSiWa nodes 0.5.45, and falls back to the full second pass for broad scene changes.
 - **Original before latent upscale:** H3 and LTX save the original video first, including H3 Continuity new-segment captures, so a later failed or stopped upscale can retain the take. Requires a compatible DEAS baseline gate in the backend.
 - **H3 face refinement:** refine tracked faces of an existing H3 video window, or switch on **Refine faces after H3 generation** (default OFF). Faces are re-sampled by H3 in a close crop and stitched back; the original video and soundtrack are kept alongside.

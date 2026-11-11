@@ -7,7 +7,7 @@ A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model
 | Tab | What you get |
 | --- | --- |
 | **Studio** | Images with the checkpoint you choose (Illustrious, Anima, Krea 2, MOSS, SDXL) at model-exact sizes, with LoRAs and a Beginner mode; SAM 3.1 masking that understands words, points and boxes, plus opt-in Auto Refine against the original |
-| **Video & Music** | MiniMax H3, Wan and LTX pipelines; songs with YuE2 and ACE-Step |
+| **Video & Music** | MiniMax H3 (with fast-motion de-rope and face refinement), Wan and LTX pipelines; songs with YuE2 and ACE-Step |
 | **Prompt Forge** | Prompts written in your exact model's own style — presets, wildcards and spellcheck included |
 | **Chat** | Talks ideas through, searches the web, and on request *draws the picture* with your selected settings; on one GPU the chat model and ComfyUI step aside for each other |
 | **Media Analysis** | Reads a picture's tags with local ONNX taggers, shows how it was made, describes it with your vision LLM, and picks exact frames from videos |
