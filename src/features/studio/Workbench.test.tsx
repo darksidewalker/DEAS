@@ -3108,7 +3108,7 @@ test.each([{cropped:false,paintBase:false,delayed:false,paintLayer:false},{cropp
  expect(screen.queryByRole('checkbox',{name:'Inpaint only masked'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
  expect((screen.getByRole('spinbutton',{name:'Mask Blur (px)'}) as HTMLInputElement).value).toBe('4');
- if(cropped){fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));dock('Post-Processing');fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Shrink Grow (px)'}),{target:{value:'32'}});fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});dock('Media');await screen.findByRole('button',{name:'cat.png'});}
+ if(cropped){const padding=screen.getByRole('spinbutton',{name:'Context padding (px)'});expect((padding as HTMLInputElement).disabled).toBe(true);fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));expect((padding as HTMLInputElement).disabled).toBe(false);fireEvent.change(padding,{target:{value:'32'}});dock('Post-Processing');expect(document.querySelector<HTMLInputElement>('[data-sam="margin"]')!.value).toBe('32');fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});dock('Media');await screen.findByRole('button',{name:'cat.png'});}
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true); // nothing painted yet
  const mask=screen.getByLabelText('Inpaint mask',{selector:'canvas'}) as HTMLCanvasElement;
  const viewport=document.querySelector<HTMLElement>('[data-editor-viewport]')!;
