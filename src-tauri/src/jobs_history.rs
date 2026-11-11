@@ -283,7 +283,9 @@ impl History {
     /// Called under the owning job commit lock, before the first submission await.
     pub(super) fn admit(&self, job: &Job, origin: &str) {
         // Segmentation is an intermediate asset operation, not a restorable generation.
-        if crate::jobs_sam3::is_sam3(&job.plan.intent) {
+        if crate::jobs_sam3::is_sam3(&job.plan.intent)
+            || crate::jobs_sam3_video::is_video_mask(&job.plan.intent)
+        {
             return;
         }
         let admitted_at = now();

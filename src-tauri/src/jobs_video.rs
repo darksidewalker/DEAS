@@ -28,7 +28,8 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 11] = [
+const OPTIONAL: [&str; 12] = [
+    "faceRefine",
     "enhancedPreview",
     "latentUpscale",
     "videoPost",
@@ -110,14 +111,24 @@ pub(crate) const VIDEO_NODES: [&str; 39] = [
     "MiniMaxChunkFeedForward",
     "DaSiWa_EnhancedVideoCombine",
 ];
-pub(crate) const H3_CONTINUITY_NODES: [&str; 3] = [
+pub(crate) const H3_CONTINUITY_NODES: [&str; 6] = [
     "DaSiWaH3ContinuitySegmentPrepare",
     "DaSiWaH3ContinuitySegmentDecode",
     "DaSiWaH3ContinuityPublish",
+    "DaSiWaH3ClipAssemble",
+    "DaSiWaH3TransitionGuide",
+    "DaSiWaH3TransitionRender",
 ];
 
 pub(crate) fn is_video(intent: &Value) -> bool {
-    intent["recipeId"] == "video-generation" || crate::jobs_video_post::is_enhance(intent)
+    intent["recipeId"] == "video-generation"
+        || crate::jobs_video_post::is_enhance(intent)
+        || is_join(intent)
+        || crate::jobs_face_refine::is_face_refine(intent)
+}
+
+pub(crate) fn is_join(intent: &Value) -> bool {
+    intent["recipeId"] == "h3-join"
 }
 
 /// Canvas multiple, frame step and frame offset: EmptyLTXVLatentVideo /32 & 8k+1, Wan /16 & 4k+1, H3 /32 & 17k+5.
@@ -339,7 +350,7 @@ fn segment_crop_plan(i: &Value) -> Option<(u64, u64)> {
 pub(crate) fn needs_source_frames(i: &Value) -> bool {
     is_video(i)
         && i["family"] == "minimax-h3"
-        && i.get("latentUpscale").is_some()
+        && (i.get("latentUpscale").is_some() || i["videoPost"].get("derope").is_some())
         && i["h3"]["continuity"]["capture"] == true
         && i["h3"]["continuity"]["outputMode"] == "segment"
         && i["h3"]["continuity"]["sourceKind"] != "video"
@@ -685,6 +696,118 @@ pub(crate) fn block(family: &str) -> &'static str {
     }
 }
 
+/// Model-free Join clips prompt: validates the optional `h3.join` block against the
+/// DaSiWaH3ClipAssemble contract (pinned by h3_join_contract_pins_pack_nodes_and_json_schema,
+/// pack 0.5.42 assembly.py::_request; trims are seconds, effective cuts snap to 24-fps frames).
+/// Chain ordering and export coverage are pack-verified at run time; DEAS does not duplicate that.
+fn join(i: &Value) -> Result<Value, String> {
+    if i["version"].as_f64() != Some(1.0) {
+        return Err("Unsupported join recipe version".into());
+    }
+    if i.get("h3").is_some_and(|h| {
+        h.as_object()
+            .is_none_or(|o| o.keys().len() != 1 || !o.contains_key("join"))
+    }) {
+        return Err("h3 block must carry only the join block".into());
+    }
+    let j = &i["h3"]["join"];
+    if j["kind"]
+        .as_str()
+        .is_none_or(|k| k != "segments" && k != "files")
+    {
+        return Err("h3.join.kind must be segments or files".into());
+    }
+    let rows: Vec<Value> = if j["kind"] == "segments" {
+        let session = j["session"]
+            .as_str()
+            .filter(|s| continuity_id(s) && *s != "_imports")
+            .ok_or("Invalid h3.join.session")?;
+        let chain = j["chain"]
+            .as_array()
+            .filter(|a| !a.is_empty() && a.len() <= 100)
+            .ok_or("h3.join.chain needs 1..=100 clip ids")?;
+        chain
+            .iter()
+            .map(|c| {
+                c.as_str()
+                    .filter(|s| continuity_id(s))
+                    .map(|clip| json!({"kind": "checkpoint", "session": session, "clip_id": clip}))
+                    .ok_or("Invalid h3.join.chain entry".to_string())
+            })
+            .collect::<Result<_, _>>()?
+    } else {
+        let files = j["files"]
+            .as_array()
+            .filter(|a| !a.is_empty() && a.len() <= 100)
+            .ok_or("h3.join.files needs 1..=100 entries")?;
+        files
+            .iter()
+            .map(|f| -> Result<Value, String> {
+                let name = f["filename"]
+                    .as_str()
+                    .filter(|s| {
+                        !s.is_empty()
+                            && s.len() <= 1024
+                            && !s.contains("..")
+                            && !s.contains('\0')
+                            && !s.contains(':')
+                            && !s.starts_with('/')
+                    })
+                    .ok_or("Invalid h3.join.files.filename")?;
+                let seconds = |k: &str| -> Result<Option<f64>, String> {
+                    match f.get(k) {
+                        None | Some(Value::Null) => Ok(None),
+                        Some(v) => v
+                            .as_f64()
+                            .filter(|n| (0.0..=3600.0).contains(n))
+                            .map(Some)
+                            .ok_or(format!("Invalid h3.join.files.{k}")),
+                    }
+                };
+                let start = seconds("trimStart")?.unwrap_or_default();
+                let end = seconds("trimEnd")?;
+                if end.is_some_and(|e| e <= start) {
+                    return Err("h3.join.files trim must end after its start".into());
+                }
+                Ok(json!({"kind": "media", "filename": name, "trim_start": start, "trim_end": end}))
+            })
+            .collect::<Result<_, _>>()?
+    };
+    if j.get("copyVideo").is_some_and(|b| !b.is_boolean()) {
+        return Err("h3.join.copyVideo must be boolean".into());
+    }
+    let prefix = match j.get("filenamePrefix") {
+        None | Some(Value::Null) => "H3_Joined".to_string(),
+        Some(v) => v
+            .as_str()
+            .filter(|s| {
+                !s.is_empty()
+                    && s.len() <= 80
+                    && s.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+            .map(str::to_string)
+            .ok_or("Invalid h3.join.filenamePrefix")?,
+    };
+    let data = json!({
+        "version": 1,
+        "rows": rows,
+        "repair_transitions": false,
+        "copy_video": j["copyVideo"].as_bool().unwrap_or(false),
+        "audio_policy": "preserve",
+    });
+    if data.to_string().len() > 65536 {
+        return Err("h3.join request exceeds the pack's 64 KiB budget".into());
+    }
+    // Node "7" is the house saver-node id: native history output extraction reads only that node.
+    Ok(
+        json!({"7": {"class_type": "DaSiWaH3ClipAssemble", "inputs": {
+            "assembly_data": data.to_string(),
+            "filename_prefix": prefix,
+        }}}),
+    )
+}
+
 pub(crate) fn validate(i: &Value) -> Result<&str, String> {
     let object = i.as_object().ok_or("Expected a video intent object")?;
     let family = i["family"]
@@ -785,6 +908,31 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
     }
     if let Some(p) = i.get("videoPost") {
         crate::jobs_video_post::validate(p)?;
+        if let Some(d) = p.get("derope") {
+            // Prepare reads the latent the baseline frames were decoded from: one plain new take only.
+            let c = &i["h3"]["continuity"];
+            let segment_continuation =
+                c["capture"] == true && c["outputMode"] == "segment" && c_source(&i["h3"]);
+            if family != "minimax-h3" || (segment_continuation && segment_crop_plan(i).is_none()) {
+                return Err("videoPost.derope runs on MiniMax H3; a new-segment continuation needs a pinned checkpoint clip (imported-video sources are unsupported) with its sourceFrames from the session list".into());
+            }
+            if let Some(lora) = d["lora"].as_str() {
+                crate::jobs::validate_lora_format(lora)?;
+                if crate::jobs::is_gguf(i["model"].as_str().unwrap_or_default()) {
+                    return Err(
+                        "MODEL_FORMAT_UNSUPPORTED: LoRA on a GGUF base is not proven".into(),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(f) = i.get("faceRefine") {
+        // With latent upscale + segment capture, latentUpscale's own validation requires the
+        // checkpoint window that refinement then works on.
+        if !is_h3(family) {
+            return Err("faceRefine runs on MiniMax H3".into());
+        }
+        crate::jobs_face_refine::validate(f)?;
     }
     if i.get("loras").is_some_and(|l| {
         !l.as_array().is_some_and(|a| {
@@ -917,6 +1065,12 @@ pub(crate) fn validate_preview_capability(intent: &Value, allow: &Value) -> Resu
 }
 
 pub(crate) fn compile(i: &Value) -> Result<Value, String> {
+    if is_join(i) {
+        return join(i);
+    }
+    if crate::jobs_face_refine::is_face_refine(i) {
+        return crate::jobs_face_refine::compile(i);
+    }
     if crate::jobs_video_post::is_enhance(i) {
         return crate::jobs_video_post::compile_enhance(i);
     }
@@ -1091,7 +1245,7 @@ pub(crate) fn combine(
 }
 
 /// Unprocessed baseline as "B7" at the pre-chain frame rate.
-fn baseline_combine(
+pub(crate) fn baseline_combine(
     g: &mut Value,
     images: Value,
     audio: Option<Value>,
@@ -1147,13 +1301,19 @@ fn post(
             };
             (json!(["PG", 0]), fps, audio)
         }
+        // Face refinement alone still runs behind the baseline gate.
+        None if i.get("faceRefine").is_some() => {
+            crate::jobs_face_refine::gate(g, images);
+            (json!(["PG", 0]), frame_rate, audio)
+        }
         None => (images, frame_rate, audio),
     }
 }
 
 /// The baseline is the first decode: before the latent upscale when there is one, else before the TVE chain.
 fn needs_post_baseline(i: &Value) -> bool {
-    i.get("videoPost").is_some() && i.get("latentUpscale").is_none()
+    (i.get("videoPost").is_some() || i.get("faceRefine").is_some())
+        && i.get("latentUpscale").is_none()
 }
 
 /// One LTX sampling pass. `suffix` "" is the first pass; guides are re-added on the given video latent,
@@ -1405,6 +1565,57 @@ fn wan(i: &Value) -> Result<Value, String> {
     Ok(g)
 }
 
+/// H3 sigma schedule as `Z` (shifted `BasicScheduler`, or the distilled family's own sigma node
+/// reading the stored schedule); returns the model link the guiders sample.
+/// De-rope second pass (MAINodes Motion Lab via DaSiWa De-rope Prepare/Recover): hold the hot motion
+/// spans of the baseline, re-render them at partial denoise, drop the holds; Prepare also moves the
+/// Director's frame-indexed keyframes onto the slowed clock. Feeds the post gate, so
+/// the baseline saver runs first; the result keeps the baseline audio (Motion Lab's reference_mix 1).
+fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i: &Value) -> Value {
+    let (model, steps, scheduler) = match d.get("lora") {
+        // Motion Lab's turbo pass: 6 total steps on beta, of which inject × 6 run.
+        Some(lora) => {
+            g["DRL"] = json!({"class_type":"LoraLoaderModelOnly","inputs":{"model":model,"lora_name":lora,"strength_model":1.0}});
+            (json!(["DRL", 0]), 6, json!("beta"))
+        }
+        None => (model, 25, i["scheduler"].clone()),
+    };
+    g["DRP"] = json!({"class_type":"DaSiWaH3DeropePrepare","inputs":{"images":images,"samples":["SP",0],"vae":["V",0],
+        "preset":d["preset"],"frame_rate":i["frameRate"],"audio":audio,"audio_vae":["AV",0],"conditioning":["G",0],
+        // A continuation's keyframes index the sampled clip, not the decoded timeline/window.
+        "keep_keyframes":!c_source(&i["h3"])}});
+    g["DRZ"] = json!({"class_type":"BasicScheduler","inputs":{"model":model,"scheduler":scheduler,"steps":steps,"denoise":1.0}});
+    g["DRS"] = json!({"class_type":"SplitSigmasDenoise","inputs":{"sigmas":["DRZ",0],"denoise":d["inject"]}});
+    g["DRG"] =
+        json!({"class_type":"BasicGuider","inputs":{"model":model,"conditioning":["DRP",3]}});
+    g["DRK"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["DRG",0],"sampler":["Q",0],"sigmas":["DRS",1],"latent_image":["DRP",0]}});
+    decode(g, "DRD", json!(["DRK", 0]), json!(["V", 0]), i);
+    g["DRR"] = json!({"class_type":"DaSiWaH3DeropeRecover","inputs":{"images":["DRD",0],"hold_map":["DRP",1]}});
+    json!(["DRR", 0])
+}
+
+pub(crate) fn h3_schedule(
+    g: &mut Value,
+    model: Value,
+    family: &str,
+    i: &Value,
+    shift_video: &Value,
+    shift_audio: &Value,
+) -> Value {
+    match crate::model_families::video_recipe(family).sigma_node {
+        // Distilled checkpoints sample their own stored schedule: no shift or scheduler chain runs.
+        Some(node) => {
+            g["Z"] = json!({"class_type":node,"inputs":{"model":model.clone(),"steps":i["steps"]}});
+            model
+        }
+        None => {
+            g["SS"] = json!({"class_type":"MiniMaxH3SigmaShift","inputs":{"model":model,"shift_video":shift_video,"shift_audio":shift_audio}});
+            g["Z"] = json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":1.0}});
+            json!(["SS", 0])
+        }
+    }
+}
+
 fn h3(i: &Value) -> Value {
     let h = &i["h3"];
     let mut items: Vec<Value> = h["references"]
@@ -1462,7 +1673,6 @@ fn h3(i: &Value) -> Value {
             .map(|r| json!({"slot":r["slot"],"name":r["name"],"enabled":true,"strength":r["strength"],"description":r.get("description").cloned().unwrap_or(json!(""))}))
             .collect();
     }
-    let vr = crate::model_families::video_recipe(i["family"].as_str().unwrap_or_default());
     let mut g = json!({
         "1":unet_loader(i["family"].as_str().unwrap_or_default(),&i["model"]),
         "C":crate::jobs::clip_loader(&i["textEncoder"], &json!("minimax")),
@@ -1490,29 +1700,80 @@ fn h3(i: &Value) -> Value {
         "fl2va_model"
     }] = model;
     g["G"] = json!({"class_type":"MiniMaxH3DirectorGuide","inputs":{"clip":["C",0],"vae":["V",0],"guide":["D",0],"audio_vae":["AV",0]}});
-    if let Some(node) = vr.sigma_node {
-        // Distilled checkpoints sample their own stored schedule: the sigma node reads it from
-        // the Director's pass-through model, so no shift or scheduler chain runs.
-        g["Z"] = json!({"class_type":node,"inputs":{"model":["D",5],"steps":i["steps"]}});
-        g["B"] =
-            json!({"class_type":"BasicGuider","inputs":{"model":["D",5],"conditioning":["G",0]}});
-    } else {
-        g["SS"] = json!({"class_type":"MiniMaxH3SigmaShift","inputs":{"model":["D",5],"shift_video":h["shiftVideo"],"shift_audio":h["shiftAudio"]}});
-        g["Z"] = json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":1.0}});
-        g["B"] =
-            json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":["G",0]}});
-    }
+    let sampling = h3_schedule(
+        &mut g,
+        json!(["D", 5]),
+        i["family"].as_str().unwrap_or_default(),
+        i,
+        &h["shiftVideo"],
+        &h["shiftAudio"],
+    );
+    g["B"] = json!({"class_type":"BasicGuider","inputs":{"model":sampling.clone(),"conditioning":["G",0]}});
     g["5"] = json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["B",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":["G",1]}});
     // Segment Prepare/Decode serve both Director output modes and are plain decode without capture.
     g["SP"] = json!({"class_type":"DaSiWaH3ContinuitySegmentPrepare","inputs":{"sampled":["5",0],"context":["G",2]}});
     g["SD"] = json!({"class_type":"DaSiWaH3ContinuitySegmentDecode","inputs":{"latent":["SP",0],"vae":["V",0],"audio_vae":["AV",0],"context":["SP",1]}});
-    let (images, fps, audio) = post(
-        &mut g,
-        json!(["SD", 0]),
-        json!(["D", 8]),
-        Some(json!(["SD", 1])),
-        i,
-    );
+    let upscale = i.get("latentUpscale").is_some();
+    let segment_capture = c["capture"] == true && c["outputMode"] == "segment";
+    let derope_block = i["videoPost"].get("derope");
+    let refining = derope_block.is_some() || i.get("faceRefine").is_some();
+    // A continued new-segment capture decodes only the new segment from a render window that also
+    // holds the source tail: De-rope (and a re-encode for the upscale) needs the whole window.
+    let window =
+        segment_capture && c_source(h) && (derope_block.is_some() || (upscale && refining));
+    let (mut frames, mut audio) = if window {
+        decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
+        g["WA"] =
+            json!({"class_type":"VAEDecodeAudio","inputs":{"samples":["SP",0],"vae":["AV",0]}});
+        (json!(["BA", 0]), json!(["WA", 0]))
+    } else if upscale && !segment_capture {
+        // With latent upscale, the fixes work on the base decode BSD (SD decodes the upscale).
+        g["BSD"] = g["SD"].clone();
+        (json!(["BSD", 0]), json!(["BSD", 1]))
+    } else {
+        (json!(["SD", 0]), json!(["SD", 1]))
+    };
+    // De-rope re-renders the whole clip, so it runs before face refinement and the TVE chain.
+    if let Some(d) = derope_block {
+        frames = derope(&mut g, frames, audio.clone(), sampling.clone(), d, i);
+    }
+    if window && !upscale {
+        // Back to the new segment before face refinement; the segment decode carries its audio.
+        let (start, count) = segment_crop_plan(i).expect("validated with videoPost.derope");
+        g["WC"] = json!({"class_type":"ImageFromBatch","inputs":{"image":frames,"batch_index":start,"length":count}});
+        frames = json!(["WC", 0]);
+        audio = json!(["SD", 1]);
+    }
+    if let Some(f) = i.get("faceRefine") {
+        frames = crate::jobs_face_refine::insert(
+            &mut g,
+            frames,
+            Some(audio),
+            json!(["D", 8]),
+            sampling,
+            f,
+        );
+    }
+    if upscale && refining {
+        // Fix first, then upscale: re-encode the refined frames beside the untouched audio latent.
+        g["RS"] = json!({"class_type":"LTXVSeparateAVLatent","inputs":{"av_latent":["SP",0]}});
+        g["RE"] =
+            json!({"class_type":"VAEEncode","inputs":{"pixels":frames.clone(),"vae":["V",0]}});
+        g["RC"] = json!({"class_type":"LTXVConcatAVLatent","inputs":{"video_latent":["RE",0],"audio_latent":["RS",1]}});
+    }
+    // With latent upscale the post chain starts at the upscale decode SD.
+    let decoded = if upscale { json!(["SD", 0]) } else { frames };
+
+    let (images, fps, audio) = post(&mut g, decoded, json!(["D", 8]), Some(json!(["SD", 1])), i);
+    // With latent upscale the saver's audio comes from the upscale decode: pass it through the gate
+    // too, else saver 7 pulls the upscale (and everything before it) ahead of the baseline B7.
+    let audio = match audio {
+        Some(a) if upscale && g.get("PG").is_some() && g["PG"]["inputs"].get("audio").is_none() => {
+            g["PG"]["inputs"]["audio"] = a;
+            Some(json!(["PG", 1]))
+        }
+        a => a,
+    };
     combine(&mut g, images, audio, fps, i);
     if needs_post_baseline(i) {
         baseline_combine(
@@ -1526,12 +1787,8 @@ fn h3(i: &Value) -> Value {
     if let Some(u) = i.get("latentUpscale") {
         // Capture mode allows exactly one SegmentDecode (node pack validation): in segment mode the
         // baseline side decodes the prepared window on core nodes, cropped to the new segment.
-        let segment_capture = c["capture"] == true && c["outputMode"] == "segment";
-        if !segment_capture {
-            g["BSD"] = g["SD"].clone();
-        }
         g["U"] = json!({"class_type":"DaSiWaH3TiledUpscale","inputs":{
-            "model":["SS",0],"conditioning":["G",0],"latent":["SP",0],"continuity_context":["SP",1],
+            "model":["SS",0],"conditioning":["G",0],"latent":if refining {json!(["RC",0])} else {json!(["SP",0])},"continuity_context":["SP",1],
             "director_guide":["D",0],"vae":["V",0],"sampler":["Q",0],"noise":["N",0],"sampler_name":i["sampler"],
             "scale":u["scale"],"upscale_model":u["model"],"steps":u["steps"],"denoise":u["denoise"],"seed":i["seed"],
             "cfg":1.0,"scheduler":"simple","memory_budget_mb":0,"upscale_precision":"auto",
@@ -1554,7 +1811,9 @@ fn h3(i: &Value) -> Value {
             // continuation timing for the duration the Director received (durationSeconds else frames/24).
             let (crop_start, crop_frames) =
                 segment_crop_plan(i).expect("validated in validate_latent_upscale");
-            decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
+            if g.get("BA").is_none() {
+                decode(&mut g, "BA", json!(["SP", 0]), json!(["V", 0]), i);
+            }
             g["CB"] = json!({"class_type":"ImageFromBatch","inputs":{"image":["BA",0],"batch_index":crop_start,"length":crop_frames}});
             baseline_combine(
                 &mut g,
@@ -1593,6 +1852,13 @@ pub(crate) fn unet_loader(family: &str, name: &Value) -> Value {
 
 /// Model/encoder/VAE/image/upscaler names prepare() must find in object_info, per allowlist field.
 pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
+    if is_join(i) {
+        // Model-free assembly: the pack nodes ride H3_CONTINUITY_NODES evidence; no models/files needed.
+        return Vec::new();
+    }
+    if crate::jobs_face_refine::is_face_refine(i) {
+        return crate::jobs_face_refine::requirements(i);
+    }
     if crate::jobs_video_post::is_enhance(i) {
         return crate::jobs_video_post::requirements(&i["videoPost"]);
     }
@@ -1680,6 +1946,9 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
         required.push(("vaes", strs(&[&i["enhancedPreview"]["model"]])));
     }
     required.extend(crate::jobs_video_post::requirements(&i["videoPost"]));
+    if let Some(sam) = i["faceRefine"]["samCheckpoint"].as_str() {
+        required.push(("checkpoints", vec![sam]));
+    }
     required
 }
 

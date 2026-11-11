@@ -1,13 +1,13 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { CompiledRecipe, DiagnosticImageIntentV1 } from './execution';
-import type { Sam3MaskIntentV1 } from './sam3';
+import type { H3FaceRefineIntentV1, Sam3MaskIntentV1, Sam3VideoMaskIntentV1 } from './sam3';
 import { type MusicIntentV1 } from './musicIntent';
-import { type H3Media, type VideoEnhanceIntentV1, type VideoIntentV1 } from './videoIntent';
+import { type H3Media, type H3JoinIntentV1, type VideoEnhanceIntentV1, type VideoIntentV1 } from './videoIntent';
 
 /** Image recipe, one of the video family recipes or a YuE2 music recipe; all compile natively.
  * TVE enhance jobs (`VideoEnhanceIntentV1`) share the native session: readers check `isVideoEnhanceIntent` before narrowing. */
 export type JobIntent = DiagnosticImageIntentV1 | VideoIntentV1 | MusicIntentV1;
-export type WorkbenchIntent = JobIntent | VideoEnhanceIntentV1 | Sam3MaskIntentV1;
+export type WorkbenchIntent = JobIntent | VideoEnhanceIntentV1 | Sam3MaskIntentV1 | Sam3VideoMaskIntentV1;
 export const isImageIntent = (i: WorkbenchIntent): i is DiagnosticImageIntentV1 => i.recipeId === 'checkpoint-text-to-image-diagnostic';
 
 export interface DiagnosticJobPlan {
@@ -27,7 +27,7 @@ export interface JobStatus {
   promptId: string | null;
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
   /** `format` is the MIME type the video combine reports (`video/webm`); image savers omit it. */
-  outputs: { filename: string; subfolder: string; type: 'output'; format?: string; role?: 'original' | 'processed' }[];
+  outputs: { filename: string; subfolder: string; type: 'output'; format?: string; role?: 'original' | 'processed' | 'mask-preview' }[];
   error: string | null;
   generationReady: false;
   /** Immutable native-held intent, never the workbench's current controls; TVE tab jobs carry the enhance recipe. */
@@ -61,12 +61,15 @@ export interface WorkbenchSnapshot { jobs: JobStatus[]; preparing: number; capac
 export interface WorkbenchStopResult extends WorkbenchSnapshot { outcome: 'empty'|'settled'|'partial'; discarded: number; issues: {jobId:string;error:string}[] }
 const pendingWorkbenchRuns = new Map<number, number>();
 let pendingWorkbenchStop: Promise<WorkbenchStopResult> | undefined;
+export function runWorkbenchJob(baseUrl: string, intent: Sam3VideoMaskIntentV1, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: Sam3MaskIntentV1, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: VideoIntentV1, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: VideoEnhanceIntentV1, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: H3JoinIntentV1, admissionEpoch: number): Promise<JobStatus>;
+export function runWorkbenchJob(baseUrl: string, intent: H3FaceRefineIntentV1, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: JobIntent, admissionEpoch: number): Promise<JobStatus>;
 export function runWorkbenchJob(baseUrl: string, intent: DiagnosticImageIntentV1, admissionEpoch: number): Promise<JobStatus>;
-export function runWorkbenchJob(baseUrl: string, intent: WorkbenchIntent, admissionEpoch: number): Promise<JobStatus> {
+export function runWorkbenchJob(baseUrl: string, intent: WorkbenchIntent | H3JoinIntentV1 | H3FaceRefineIntentV1, admissionEpoch: number): Promise<JobStatus> {
   if (!baseUrl.trim()) return Promise.reject(new Error('An explicit backend endpoint is required.'));
   if (pendingWorkbenchStop) return Promise.reject(new Error('Workbench Stop is in progress.'));
   pendingWorkbenchRuns.set(admissionEpoch, (pendingWorkbenchRuns.get(admissionEpoch) ?? 0) + 1);

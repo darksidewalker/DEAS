@@ -36,6 +36,11 @@ fn sam3_intermediate_masks_do_not_displace_or_degrade_generation_history() {
     );
     history.admit(&mask, "studio");
     history.observe(&mask);
+    let video_mask = job(
+        json!({"recipeId":"sam3-video-mask","version":1,"checkpoint":"sam3.1.safetensors","sourceVideo":"source.mp4","outputPrefix":"DEAS/mask","threshold":0.5,"maxObjects":4,"detectInterval":1,"startSeconds":0,"durationSeconds":1}),
+    );
+    history.admit(&video_mask, "studio");
+    history.observe(&video_mask);
     assert_eq!(document(&history).records, before.records);
     assert!(history.view().error.is_none());
 }

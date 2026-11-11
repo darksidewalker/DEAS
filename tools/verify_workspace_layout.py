@@ -34,7 +34,7 @@ def assert_viewport(page, label):
         utility = page.locator('.aio-utility-tabs')
         assert utility.locator('[role="tab"]').evaluate_all('(es)=>es.map(e=>e.dataset.studioTab||e.dataset.node)') == ['monitor','map','settings','logs'], label
         creative = page.locator('.aio-topbar > .aio-tabs').first
-        assert creative.locator('[role="tab"]').evaluate_all('(es)=>es.map(e=>e.dataset.studioTab||e.dataset.node)')[:6] == ['generate','optional-downloads','forge','chat','tve','comfy'], label
+        assert creative.locator('[role="tab"]').evaluate_all('(es)=>es.map(e=>e.dataset.studioTab||e.dataset.node)')[:7] == ['generate','optional-downloads','forge','chat','analysis','tve','comfy'], label
         if g['width'] >= 1440:
             left, right = creative.bounding_box(), utility.bounding_box()
             assert left['x']+left['width'] <= right['x']+1, (label,'utility group is not right of creative tabs')
@@ -42,6 +42,8 @@ def assert_viewport(page, label):
 
 
 FIXTURE = video.IPC + r'''
+window.__TAURI_INTERNALS__.metadata={currentWindow:{label:'main'},currentWebview:{label:'main'}};
+window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener(){}};
 localStorage.setItem('deas.pref.install.root', JSON.stringify('/fixture/env'));
 localStorage.setItem('deas.pref.backend.autostart', 'false');
 const layoutInvoke=window.__TAURI_INTERNALS__.invoke;
@@ -54,6 +56,7 @@ window.__TAURI_INTERNALS__.invoke=async(c,a)=>{
   native_forge_randomizer_list:[],native_forge_targets:{source:{commit:'layout-fixture'},creativity:['balanced'],targets:[{key:'illustrious',label:'Layout fixture',modes:[],defaultMode:null,optional:[],qualityPresets:[],styles:[],aspectRatios:null,hasNegative:true,tools:false,guidance:[]}]},
   native_startup_read:{startup:{preset:'off',flags:[],fast:[]},packages:[],presets:{speed:{flags:[],fast:[]},compatibility:{flags:[],fast:[]},off:{flags:[],fast:[]}}},
   native_backend_status:{state:'stopped',endpoint:null,logs:[],error:null,generationReady:false},
+  native_analysis_overview:{runtimeReady:false,install:{running:false,stage:'',downloaded:0,total:0,error:null},taggers:[],unusable:[],defaultSize:0,runtimeSize:0,toolsSize:0},
   native_chat_list:[],native_chat_settings:{search:'off',searxngUrl:''},native_logs:[],
   native_spellcheck_status:{available:true,installed:true},native_spellcheck_check:[],
   native_jobs_history:{schemaVersion:1,records:[],readOnly:false,error:null},
@@ -97,7 +100,7 @@ def verify(browser, url, shots):
                     try:
                         expect(button).to_have_attribute('aria-selected', 'true')
                     except AssertionError:
-                        print('NAVIGATION_DIAGNOSTICS', page.evaluate('({calls:__collection.calls,unexpected:__collection.unexpected,text:document.body.innerText.slice(0,6000)})'), flush=True)
+                        print('NAVIGATION_DIAGNOSTICS', errors, page.evaluate('({calls:__collection.calls,unexpected:__collection.unexpected,text:document.body.innerText.slice(0,6000)})'), flush=True)
                         raise
                     page.wait_for_timeout(35)
                     label = f'{locale}:{width}x{height}:{target}'

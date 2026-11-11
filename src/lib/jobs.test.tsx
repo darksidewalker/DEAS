@@ -16,6 +16,14 @@ test('auto-refine forwards explicit consent, immutable settings, target order an
  expect(invoke).toHaveBeenCalledWith('native_auto_refine',{baseUrl:'http://127.0.0.1:9',intent,settings,confirmed:true,admissionEpoch:7,sourceJobId:'source-job',masks:[]});
  vi.mocked(invoke).mockResolvedValue({state:'running'});await expect(autoRefine('http://127.0.0.1:9',intent,settings,7)).rejects.toThrow('Invalid native auto-refine result');
 });
+test.each([false,true])('SAM video analysis submits the exact separate recipe through Workbench IPC with consent and epoch (cuts=%s)',async cuts=>{
+ vi.mocked(isTauri).mockReturnValue(true);vi.mocked(invoke).mockResolvedValue({id:'face-mask-job'});
+ const analysis={recipeId:'sam3-video-mask',version:1,checkpoint:'SAM3/sam3.1.safetensors',sourceVideo:'source.mp4',outputPrefix:'DEAS/SAM3/face-mask',threshold:0.5,maxObjects:4,detectInterval:1,startSeconds:0,durationSeconds:2,...(cuts?{sceneThreshold:0.3}:{})} as const;
+ expect(isImageIntent(analysis)).toBe(false);
+ await runWorkbenchJob('http://127.0.0.1:9',analysis,7);
+ expect(invoke).toHaveBeenCalledExactlyOnceWith('native_workbench_run',{baseUrl:'http://127.0.0.1:9',intent:analysis,confirmed:true,admissionEpoch:7});
+ expect(Object.hasOwn(analysis,'sceneThreshold')).toBe(cuts);
+});
 test('SAM jobs cannot be mistaken for image-generation intents or retried on unknown status',async()=>{
  const sam={recipeId:'sam3-mask',version:1,checkpoint:'sam.safetensors',inputImage:'in.png',width:512,height:512,outputPrefix:'mask',threshold:0.5,prompt:'eyes'} as const;
  expect(isImageIntent(sam)).toBe(false);expect(isImageIntent(intent)).toBe(true);

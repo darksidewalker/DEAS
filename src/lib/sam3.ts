@@ -15,6 +15,80 @@ export interface Sam3MaskIntentV1 {
   box?: { x: number; y: number; width: number; height: number };
   threshold: number;
 }
+export interface Sam3VideoMaskIntentV1 {
+  recipeId: 'sam3-video-mask';
+  version: 1;
+  checkpoint: string;
+  sourceVideo: string;
+  outputPrefix: string;
+  threshold: number;
+  maxObjects: number;
+  detectInterval: number;
+  startSeconds: number;
+  durationSeconds: number;
+  sceneThreshold?: number;
+}
+export const sam3VideoNodes = ['CheckpointLoaderSimple','CLIPTextEncode','LoadVideo','DEAS_SAM3VideoWindow','GetVideoComponents','SAM3_VideoTrack','SAM3_TrackToMask','MaskToImage','CreateVideo','SaveVideo'] as const;
+
+export function isSam3VideoIntent(input: unknown): input is Sam3VideoMaskIntentV1 {
+  const keys = ['recipeId','version','checkpoint','sourceVideo','outputPrefix','threshold','maxObjects','detectInterval','startSeconds','durationSeconds'];
+  return record(input) && keys.every(k => Object.hasOwn(input,k)) && Object.keys(input).every(k => keys.includes(k) || k === 'sceneThreshold')
+    && (!Object.hasOwn(input,'sceneThreshold') || (typeof input.sceneThreshold === 'number' && Number.isFinite(input.sceneThreshold) && input.sceneThreshold > 0 && input.sceneThreshold <= 1))
+    && input.recipeId === 'sam3-video-mask' && input.version === 1
+    && typeof input.checkpoint === 'string' && name(input.checkpoint.replace(/\\/gu,'/')) && name(input.sourceVideo) && !/[\/\[\]]/u.test(input.sourceVideo)
+    && safeOutputPrefix(input.outputPrefix) && typeof input.threshold === 'number' && Number.isFinite(input.threshold) && input.threshold >= 0 && input.threshold <= 1
+    && integer(input.maxObjects,1,64) && integer(input.detectInterval,1,2_147_483_647)
+    && typeof input.startSeconds === 'number' && Number.isFinite(input.startSeconds) && input.startSeconds >= 0
+    && typeof input.durationSeconds === 'number' && Number.isFinite(input.durationSeconds) && input.durationSeconds > 0
+    && Number.isFinite(input.startSeconds + input.durationSeconds);
+}
+
+/** `faceRefine` block (native `jobs_face_refine::validate`): SAM3.1 face tracks re-sampled by H3 in square crops. */
+export interface H3FaceRefineBlock {
+  samCheckpoint: string;
+  prompt: string;
+  threshold: number;
+  maxObjects: number;
+  detectInterval: number;
+  sceneThreshold?: number;
+  denoise: number;
+  cropFactor: number;
+  feather: number;
+}
+/** Standalone refinement of an existing 24 fps video (native `jobs_face_refine::compile`). */
+export interface H3FaceRefineIntentV1 {
+  recipeId: 'h3-face-refine';
+  version: 1;
+  family: 'minimax-h3' | 'minimax-h3-hyperflow';
+  model: string;
+  textEncoder: string;
+  vae: string;
+  audioVae: string;
+  sourceVideo: string;
+  startSeconds: number;
+  durationSeconds: number;
+  seed: number;
+  steps: number;
+  sampler: string;
+  scheduler: string;
+  shiftVideo: number;
+  shiftAudio: number;
+  outputPrefix: string;
+  faceRefine: H3FaceRefineBlock;
+}
+/** Mirrors native `jobs_face_refine::NODES`. */
+export const faceRefineNodes = ['DEAS_H3FaceRefine','DEAS_VideoPostprocessGate','CheckpointLoaderSimple','CLIPTextEncode','SAM3_VideoTrack','MiniMaxH3ImageToVideo','SplitSigmasDenoise'] as const;
+const between = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+export function isFaceRefineBlock(b: unknown): b is H3FaceRefineBlock {
+  const keys = ['samCheckpoint','prompt','threshold','maxObjects','detectInterval','sceneThreshold','denoise','cropFactor','feather'];
+  return record(b) && Object.keys(b).every(k => keys.includes(k)) && keys.every(k => k === 'sceneThreshold' || Object.hasOwn(b, k))
+    && typeof b.samCheckpoint === 'string' && name(b.samCheckpoint.replace(/\\/gu,'/'))
+    && typeof b.prompt === 'string' && b.prompt.trim() !== '' && b.prompt.length <= 16384
+    && between(b.threshold, 0, 1) && integer(b.maxObjects, 1, 64) && integer(b.detectInterval, 1, 2_147_483_647)
+    && (!Object.hasOwn(b, 'sceneThreshold') || (between(b.sceneThreshold, 0, 1) && b.sceneThreshold > 0))
+    && between(b.denoise, 0, 1) && b.denoise > 0 && between(b.cropFactor, 1.2, 8) && integer(b.feather, 0, 256);
+}
+
 const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const name = (v: unknown): v is string => typeof v === 'string' && new TextEncoder().encode(v).length <= 255 && v.split('/').every(s => s.length > 0 && s !== '.' && s !== '..' && s.trim() === s && !/[\p{Cc}\\:%]/u.test(s));
 const integer = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max;

@@ -680,6 +680,167 @@ async fn wildcard_prepare_requires_original_plugin_without_submitting() {
     }
 }
 
+fn sam3_video_intent() -> Value {
+    json!({"recipeId":"sam3-video-mask","version":1,"checkpoint":"sam3.1.safetensors","sourceVideo":"source.mp4","outputPrefix":"DEAS/mask-video","threshold":0.5,"maxObjects":4,"detectInterval":1,"startSeconds":0,"durationSeconds":1})
+}
+fn sam3_video_nodes() -> Value {
+    let mut n = nodes();
+    for node in compile(&sam3_video_intent())
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .values()
+    {
+        let name = node["class_type"].as_str().unwrap();
+        if n.get(name).is_none() {
+            n[name] = json!({});
+        }
+    }
+    n["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"] = json!([["sam3.1.safetensors"]]);
+    n["LoadVideo"] = json!({"input":{"required":{"file":["COMBO",{"options":["source.mp4"]}]}}});
+    n["DEAS_SAM3VideoWindow"] = json!({"output":["VIDEO"],"input":{"required":{
+        "video":["VIDEO"],"model":["MODEL"],"start_seconds":["FLOAT"],"duration_seconds":["FLOAT"],"max_objects":["INT",{"min":1,"max":64}]}}});
+    n
+}
+#[tokio::test]
+async fn sam3_video_prepare_requires_every_emitted_node_source_checkpoint_and_adapter_abi() {
+    let graph = compile(&sam3_video_intent()).unwrap();
+    let mut scenarios = vec![
+        "ok".to_owned(),
+        "checkpoint".into(),
+        "source".into(),
+        "adapter-abi".into(),
+    ];
+    scenarios.extend(
+        graph
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|n| n["class_type"].as_str().unwrap().to_owned()),
+    );
+    for scenario in scenarios {
+        let case = scenario.clone();
+        let (base, task) = server(move |path, _| {
+            assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+            let mut n = sam3_video_nodes();
+            match case.as_str() {
+                "ok" => {}
+                "checkpoint" => {
+                    n["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"] =
+                        json!([["other.safetensors"]])
+                }
+                "source" => {
+                    n["LoadVideo"]["input"]["required"]["file"] = json!(["COMBO",{"options":[]}])
+                }
+                "adapter-abi" => n["DEAS_SAM3VideoWindow"]["output"] = json!(["IMAGE"]),
+                name => {
+                    n.as_object_mut().unwrap().remove(name);
+                }
+            }
+            (200, n.to_string())
+        })
+        .await;
+        let result = Jobs::default().prepare(base, sam3_video_intent()).await;
+        if scenario == "ok" {
+            assert_eq!(result.unwrap()["graph"], graph);
+        } else {
+            assert!(result.is_err(), "unsupported {scenario} admitted");
+        }
+        task.abort();
+    }
+}
+#[tokio::test]
+async fn sam3_shot_prepare_requires_optional_node_only_when_enabled_and_checks_abi() {
+    let schema = json!({"output":["MASK"],"input":{"required":{
+        "images":["IMAGE"],"model":["MODEL"],"conditioning":["CONDITIONING"],
+        "detection_threshold":["FLOAT",{"min":0.0,"max":1.0}],
+        "max_objects":["INT",{"min":1,"max":64}],
+        "detect_interval":["INT",{"min":1,"max":2147483647}],
+        "scene_threshold":["FLOAT",{"min":5e-324,"max":1.0,"default":0.3}]}}});
+    for enabled in [false, true] {
+        for mutation in ["ok", "absent", "output", "field", "extra", "range"] {
+            let mut n = sam3_video_nodes();
+            n["DEAS_SAM3ShotMask"] = schema.clone();
+            match mutation {
+                "absent" => {
+                    n.as_object_mut().unwrap().remove("DEAS_SAM3ShotMask");
+                }
+                "output" => n["DEAS_SAM3ShotMask"]["output"] = json!(["IMAGE"]),
+                "field" => {
+                    n["DEAS_SAM3ShotMask"]["input"]["required"]["conditioning"] = json!(["STRING"])
+                }
+                "extra" => n["DEAS_SAM3ShotMask"]["input"]["required"]["unknown"] = json!(["INT"]),
+                "range" => {
+                    n["DEAS_SAM3ShotMask"]["input"]["required"]["max_objects"][1]["max"] = json!(4)
+                }
+                _ => {}
+            }
+            let (base, task) = server(move |_, _| (200, n.to_string())).await;
+            let mut i = sam3_video_intent();
+            if enabled {
+                i["sceneThreshold"] = json!(0.3);
+            }
+            let result = Jobs::default().prepare(base, i).await;
+            assert_eq!(
+                result.is_ok(),
+                !enabled || mutation == "ok",
+                "{enabled} {mutation}: {result:?}"
+            );
+            task.abort();
+        }
+    }
+}
+#[tokio::test]
+async fn sam3_video_workbench_correlates_indexed_mask_video_and_excludes_generation_history() {
+    let expected = compile(&sam3_video_intent()).unwrap();
+    let mut tuple = Value::Null;
+    let (base,task)=server(move |path,body|match path.as_str(){
+        "GET /comfy/object_info HTTP/1.1"=>(200,sam3_video_nodes().to_string()),
+        "POST /comfy/prompt HTTP/1.1"=>{
+            assert_eq!(body["prompt"],expected);
+            tuple=json!([1,PROMPT_ID,body["prompt"],{"client_id":body["client_id"]},["7"]]);
+            (200,json!({"prompt_id":PROMPT_ID,"number":1,"node_errors":{}}).to_string())
+        },
+        p if p==format!("GET /comfy/history/{PROMPT_ID} HTTP/1.1")=>(200,json!({PROMPT_ID:{"prompt":tuple,"outputs":{"2":{"images":[{"filename":"source.mp4","subfolder":"","type":"input"}]},"7":{"images":[{"filename":"mask.mp4","subfolder":"DEAS","type":"output"}],"animated":[true]}},"status":{"completed":true,"status_str":"success","messages":[]}}}).to_string()),
+        _=>panic!("unexpected SAM video request {path}")
+    }).await;
+    let jobs = Jobs::default();
+    jobs.workbench_run(base, sam3_video_intent(), true, 0, None)
+        .await
+        .unwrap();
+    let status = jobs.workbench_poll().await.unwrap();
+    assert_eq!(status["jobs"][0]["state"], "succeeded", "{status}");
+    assert_eq!(
+        status["jobs"][0]["outputs"],
+        json!([{"filename":"mask.mp4","subfolder":"DEAS","type":"output","format":"video/mp4","role":"mask-preview"}])
+    );
+    assert_eq!(
+        serde_json::to_value(jobs.3.view()).unwrap()["records"],
+        json!([])
+    );
+    let id = status["jobs"][0]["id"].as_str().unwrap().to_owned();
+    let held = jobs.workbench_job(&id).unwrap().unwrap();
+    assert!(held
+        .output(id, 0)
+        .await
+        .err()
+        .unwrap()
+        .contains("Auto Refine"));
+    task.abort();
+}
+#[test]
+fn sam3_video_output_rejects_nonvideo_foreign_and_multiple_products() {
+    let graph = compile(&sam3_video_intent()).unwrap();
+    for descriptors in [
+        json!([{"filename":"mask.png","subfolder":"","type":"output"}]),
+        json!([{"filename":"mask.mp4","subfolder":"../private","type":"output"}]),
+        json!([{"filename":"mask.mp4","subfolder":"","type":"temp"}]),
+        json!([{"filename":"a.mp4","subfolder":"","type":"output"},{"filename":"b.mp4","subfolder":"","type":"output"}]),
+    ] {
+        assert!(job_outputs(&json!({"outputs":{"7":{"images":descriptors}}}), &graph).is_err());
+    }
+}
+
 #[tokio::test]
 async fn sam3_prepare_checks_only_emitted_nodes_explicit_checkpoint_and_safe_sources() {
     for scenario in [

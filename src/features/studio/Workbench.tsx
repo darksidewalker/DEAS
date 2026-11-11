@@ -1,6 +1,8 @@
 import { BeginnerLoras,isBeginnerLoraDraft,type BeginnerLoraDraft,type BeginnerLora } from '../beginner/BeginnerLoras';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { backendErrorText } from '../../lib/backendErrors';
+import { revealTarget } from '../../lib/search';
+import '../../components/setup/search.css';
 import { type DownloadStatus } from '../../lib/downloads';
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -28,6 +30,7 @@ import { AudioEnhance } from './AudioEnhance';
 import { activePost, activeWildcards, changedOptions } from './dockBadges';
 import { useAudioEnhance } from './useAudioEnhance';
 import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
+import { DeropeControls, defaultDerope, deropeNodes, fromDerope, isDeropePref, withDerope } from './DeropeControls';
 import { ReferencePeople, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -48,7 +51,8 @@ import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } 
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
 import { Sam3Controls, samTargets } from './Sam3Controls';
-import { isSam3Intent, type Sam3MaskIntentV1 } from '../../lib/sam3';
+import { Sam3VideoControls, type FaceRefineSettings } from './Sam3VideoControls';
+import { isSam3VideoIntent, sam3VideoNodes, type Sam3VideoMaskIntentV1, isSam3Intent, type Sam3MaskIntentV1, faceRefineNodes, isFaceRefineBlock, type H3FaceRefineBlock, type H3FaceRefineIntentV1 } from '../../lib/sam3';
 import { StudioImageEditor, copyImageLayer, type EditorHandle, type EditorSnapshot } from './StudioImageEditor';
 import { ImageViewer } from './ImageViewer';
 import { StarMediaButton } from '../media/StarMediaButton';
@@ -91,6 +95,7 @@ const supportedLoraFormat=(m:LocalModel)=>/\.safetensors$/i.test(m.name);
 type Lora={name:string;strength:number};
 const isLoras=(v:unknown):v is Lora[]=>Array.isArray(v)&&v.every(l=>l&&typeof l.name==='string'&&typeof l.strength==='number');
 const isNumber=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
+const isFaceRefineSettings=(v:unknown):v is FaceRefineSettings=>!!v&&typeof v==='object'&&typeof (v as FaceRefineSettings).auto==='boolean'&&typeof (v as FaceRefineSettings).prompt==='string'&&(['denoise','cropFactor','feather'] as const).every(k=>typeof (v as FaceRefineSettings)[k]==='number');
 const isMaskGrow=(v:unknown):v is number=>isNumber(v)&&Number.isInteger(v)&&v>=0&&v<=512;
 const isMaskBlur=(v:unknown):v is number=>isMaskGrow(v)&&v<=31;
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
@@ -142,6 +147,8 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [savedDockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
  const dockTab=beginner?'media':savedDockTab;
  const focusDockTab=useRef(false);
+ const [samTargetReveal,setSamTargetReveal]=useState(0);
+ useEffect(()=>{if(samTargetReveal){const target='.wb-post [data-sam="targets"]';revealTarget(target);document.querySelector<HTMLInputElement>(target)?.focus();}},[samTargetReveal]);
  useLayoutEffect(()=>{if(focusDockTab.current){document.querySelector<HTMLButtonElement>(`[data-dock-tab="${dockTab}"]`)?.focus();focusDockTab.current=false;}},[dockTab]);
  const openWildcards=()=>{focusDockTab.current=true;setDockTab('wildcards');document.querySelector<HTMLButtonElement>('[data-dock-tab="wildcards"]')?.focus();};
  const [dockHeight,setDockHeight]=usePref('studio.dock.height',defaultLayout.dock,isNumber);
@@ -250,6 +257,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [pipelinePref,setPipeline]=usePref<Pipeline>('studio.run.pipeline','t2i',oneOf(...pipelines));
  const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
  const [tve,setTve]=usePref('studio.run.tve',defaultTve,isTvePref);
+ const [deropePref,setDerope]=usePref('studio.run.derope',defaultDerope,isDeropePref);
  const audioEnhance=useAudioEnhance('post');
  const [h3Latent,setH3Latent]=usePref('studio.run.latent.h3',defaultLatent,isLatentPref);
  const [ltxLatent,setLtxLatent]=usePref('studio.run.latent.ltx',defaultLatent,isLatentPref);
@@ -307,6 +315,15 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [samEnabled,setSamEnabled]=usePref('studio.run.samEnabled',false,isBoolean);
  const [samDenoise,setSamDenoise]=usePref('studio.run.samDenoise',0.25,(v):v is number=>isUnit(v)&&v>=0.05);
  const [samThreshold,setSamThreshold]=usePref('studio.run.samThreshold',0.5,isUnit);
+ const [samVideoStart,setSamVideoStart]=usePref('studio.run.samVideoStart',0,isNumber);
+ const [samVideoDuration,setSamVideoDuration]=usePref('studio.run.samVideoDuration',2,isNumber);
+ const [samVideoMax,setSamVideoMax]=usePref('studio.run.samVideoMax',4,isNumber);
+ const [samVideoInterval,setSamVideoInterval]=usePref('studio.run.samVideoInterval',1,isNumber);
+ const [samVideoCuts,setSamVideoCuts]=usePref('studio.run.samVideoCuts',false,isBoolean);
+ const [samVideoSceneThreshold,setSamVideoSceneThreshold]=usePref('studio.run.samVideoSceneThreshold',0.3,isNumber);
+ // Off by default; denoise/crop/feather start from the reference node's defaults (unverified on H3 quality).
+ const [faceRefine,setFaceRefine]=usePref<FaceRefineSettings>('studio.run.faceRefine',{auto:false,denoise:0.35,cropFactor:2.5,feather:6,prompt:''},isFaceRefineSettings);
+ const samVideoSettings={cuts:samVideoCuts,sceneThreshold:samVideoSceneThreshold,checkpoint:samCheckpoint,threshold:samThreshold,maxObjects:samVideoMax,detectInterval:samVideoInterval,startSeconds:samVideoStart,durationSeconds:samVideoDuration};
  const [samBusy,setSamBusy]=useState(false);const [nativeRefining,setNativeRefining]=useState(false);const [samStatus,setSamStatus]=useState('');
  const samValue={checkpoint:samCheckpoint,targets:samText,enabled:samEnabled,denoise:samDenoise,threshold:samThreshold};
  const setSamValue=(v:typeof samValue)=>{setSamCheckpoint(v.checkpoint);setSamText(v.targets);setSamEnabled(v.enabled);setSamDenoise(v.denoise);setSamThreshold(v.threshold);};
@@ -350,7 +367,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   try{
    const next=modelsDir?await scanModels(modelsDir,extraModelsKey?extraModelsKey.split('\n'):[])
     :await checkRecipePrerequisites(endpoint).then(e=>{if(live.current&&version===epoch.current)setChoices(e.allowlist);return [...e.allowlist.checkpoints.map(name=>({category:'checkpoints',name})),...(e.allowlist.loras??[]).map(name=>({category:'loras',name}))].map(m=>({...m,path:'',size:0,info:null}));});
-   if(live.current&&version===epoch.current)setModels(next);
+   if(live.current&&version===epoch.current){setModels(next);if(modelsDir&&!automatic&&endpoint.trim())await refreshChoices();}
   }catch(e){if(live.current&&version===epoch.current)setError(e instanceof Error?e.message:String(e));}
   finally{if(live.current&&version===epoch.current)setScanning(false);}
  }
@@ -387,6 +404,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  };
  const allModels=(models??[]).filter(m=>modelCategories.includes(m.category)).sort(byName);
  const samModels=[...new Set([...(models??[]).filter(m=>m.category==='checkpoints'&&m.family==='sam3').map(m=>m.name),...(choices?.checkpoints??[]).filter(name=>/sam3[._-]?1/i.test(name))])].filter(name=>!choices||choices.checkpoints.includes(name)).sort();
+ useEffect(()=>{if(choices&&samModels.length&&!samModels.includes(samCheckpoint))setSamCheckpoint(samModels[0]);},[choices,samModels,samCheckpoint,setSamCheckpoint]);
  const samUnavailable=!native?t('studio.sam.native'):!choices?t('studio.sam.checking'):!choices.nodes.includes('SAM3_Detect')?t('studio.sam.missingNode'):!samCheckpoint||!samModels.includes(samCheckpoint)?t('studio.sam.missingModel'):'';
  const samSettings=()=>({checkpoint:samCheckpoint,targets:samTargets(samText),denoise:samDenoise,margin:maskGrow,threshold:samThreshold});
  // Dock search/sort are display-only: the pick logic keeps the name-sorted lists. Models have no date, so that option exists for media only.
@@ -489,6 +507,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const fps=family?.video?.fixedFps?family.video.fps:video.fps;
  const frames=videoFamily?videoFrames(videoFamily,video.seconds,fps):0;
  const audioVae=video.audioVae||recommended?.audioVaes[0]||'';
+ const faceRefineBlock:H3FaceRefineBlock={samCheckpoint,prompt:faceRefine.prompt.trim()||positive,threshold:samThreshold,maxObjects:samVideoMax,detectInterval:samVideoInterval,...(samVideoCuts?{sceneThreshold:samVideoSceneThreshold}:{}),denoise:faceRefine.denoise,cropFactor:faceRefine.cropFactor,feather:faceRefine.feather};
+ const faceRefineMissing=choices?faceRefineNodes.filter(node=>!choices.nodes.includes(node)):[];
+ // Blockers shared by generation chaining and the explicit action (which also needs a source video).
+ const faceRefineSetup=!native?t('studio.sam.native'):!endpoint.trim()?t('studio.samVideo.noBackend'):!choices?t('studio.sam.checking')
+  :faceRefineMissing.length?t('studio.samVideo.core',{names:faceRefineMissing.join(', ')})
+  :!samCheckpoint||!samModels.includes(samCheckpoint)?t('studio.sam.missingModel')
+  :!isFaceRefineBlock(faceRefineBlock)?t('studio.faceRefine.invalid'):'';
+ const faceRefineAutoUnavailable=faceRefineSetup;
  const textProjection=video.textProjection||recommended?.textProjections[0]||'';
  const lastFrameName=comfyName(lastFrame);
  const lastOnly=isH3Video(videoFamily)&&pipeline==='i2v'&&!!media&&lastOnlySrc===media.src&&lastFrame?.src===media.src;
@@ -502,7 +528,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // Unread lists keep the remembered model; native preparation rejects one the backend no longer lists.
  const upscaleModel=!choices||choices.upscaleModels?.includes(upscaleModelPref)?upscaleModelPref:'';
  // TVE post stages ride on every video pipeline; the chain is omitted when nothing is enabled.
- const videoPost=isVideo?toVideoPost(tve):undefined;
+ // De-rope re-renders a plain MiniMax H3 generation from its own latent (not HyperFlow, not TVE).
+ const derope=videoFamily==='minimax-h3'?deropePref:defaultDerope;
+ const videoPost=isVideo?withDerope(toVideoPost(tve),derope):undefined;
  const loraNames=loraModels.map(m=>m.name);
  const activeLoras=loras.filter(l=>loraNames.includes(l.name));
 
@@ -549,11 +577,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(split&&isVideo&&family?.audioVaes&&!split.audioVaes.includes(audioVae)?[audioVae||t('studio.run.video.audioVae')]:[]),
   ...(split&&isVideo&&family?.textProjections&&!split.projections.includes(textProjection)?[textProjection||t('studio.run.video.textProjection')]:[]),
   ...(isVideo&&((tve.frameGen&&tve.engine==='rife'&&!tve.rifeModel)||(tve.loop&&tve.loopBackend==='rife'&&!tve.loopModel))?[t('studio.tve.post.needsRifeModel')]:[]),
+  ...(isVideo&&derope.enabled&&derope.mode==='turbo'&&!derope.lora?[t('studio.run.derope.needsLora')]:[]),
   ...(isVideo&&videoPost&&choices?[...(videoPost.upscaleModel&&!choices.upscaleModels?.includes(videoPost.upscaleModel)?[videoPost.upscaleModel]:[]),
    ...(videoPost.rtx&&!choices.nodes.includes('DaSiWa_RTX_UpscalerRefiner')?['DaSiWa_RTX_UpscalerRefiner']:[]),
    ...(videoPost.frameGeneration?.engine==='rtx'&&!choices.nodes.includes('DaSiWa_RTX_FrameGeneration')?['DaSiWa_RTX_FrameGeneration']:[]),
    ...(videoPost.frameGeneration?.engine==='rife'&&!choices.frameInterpolationModels?.includes(videoPost.frameGeneration.model)?[videoPost.frameGeneration.model]:[]),
    ...(videoPost.loop&&!choices.nodes.includes('DaSiWa_SeamlessLoop')?['DaSiWa_SeamlessLoop']:[]),
+   ...(videoPost.derope?deropeNodes.filter(n=>!choices.nodes.includes(n)):[]),
+   ...(videoPost.derope?.lora&&!choices.loras?.includes(videoPost.derope.lora)?[videoPost.derope.lora]:[]),
    ...(videoPost.loop?.backend==='rife'&&videoPost.loop.model&&!choices.frameInterpolationModels?.includes(videoPost.loop.model)?[videoPost.loop.model]:[])]:[]),
   ...(choices?[...(!isVideo&&wildcardEnabled&&!choices.nodes.includes(wildcardNode)?[wildcardNode]:[]),...(!choices.samplers.includes(sampler)?[sampler]:[]),...(!choices.schedulers.includes(scheduler)?[scheduler]:[]),
   ...(imageRefs.length>0&&revisionOk&&(!refVision||!choices.visionModels?.includes(refVision))?[refVision||t('studio.run.reference.vision')]:[]),
@@ -565,6 +596,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    ...(optionsPref.vae==='tiled'&&!options?.vaeTile?['VAEDecodeTiled']:[])]:[])
  ];
  if((isMusic||isVideo&&videoFamily!=='wan')&&!audioEnhance.ready)unavailable.push(t('studio.audioEnhance.notReady'));
+ // A chained refinement that cannot run blocks Run instead of being silently dropped.
+ if(isVideo&&isH3Video(videoFamily)&&faceRefine.auto&&faceRefineAutoUnavailable)unavailable.push(faceRefineAutoUnavailable);
  const lowModel=isVideo&&model?lowOf(model,family):'';
  const lowMetadata=lowModel&&(models??[]).find(m=>m.name===lowModel&&m.category===model?.category)?.metadataError;
  if(lowMetadata)unavailable.push(`${t('modelMeta.invalid')} ${lowModel}`);
@@ -904,6 +937,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     intent={...base,family:vf,h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
    if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(h3LatentChanged(latentPref.advanced)?{advanced:h3LatentChanged(latentPref.advanced)}:{})}};
+   if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){
@@ -963,7 +997,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     admissionEpoch.current=next.admissionEpoch;setNativeRefining(!!next.autoRefining);setStopping(next.stopping);setStopAvailable(next.stopAvailable);setPreparing(next.preparing);setFrontendAdmitting(!!next.frontendAdmitting);setRecovered(true);
     // Native order is oldest first; the queue displays newest first without truncating active peers.
     setJobs([...next.jobs].reverse());
-    if(!recovered)setSelectedJob(id=>id||next.jobs.filter(job=>!job.intent||!isSam3Intent(job.intent)).at(-1)?.id||'');
+    // Re-reading admitted mask jobs must not replace an explicitly adopted editor draft.
+    if(!recovered&&!media)setSelectedJob(id=>id||next.jobs.filter(job=>!job.intent||!isSam3Intent(job.intent)).at(-1)?.id||'');
     for(const job of next.jobs){
      if(job.state==='succeeded'&&jobs.find(j=>j.id===job.id)?.state!=='succeeded')setOutputRevision(r=>r+1);
      if(job.id!==planRun.current?.jobId)continue;
@@ -978,7 +1013,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const timer=recovered||observationRetry?window.setTimeout(()=>void observe(),1000):undefined;
   if(timer===undefined)void observe();
   return()=>{cancelled=true;window.clearTimeout(timer);};
- },[jobs,native,working,stopping,preparing,frontendAdmitting,recovered,observationRetry,nativeRefining,samBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+ },[jobs,native,working,stopping,preparing,frontendAdmitting,recovered,observationRetry,nativeRefining,samBusy,media]); // eslint-disable-line react-hooks/exhaustive-deps
  // Run all: start the next planned step once the previous clip is pinned and nothing is in flight.
  useEffect(()=>{
   if(!autoPlan||stopLock.current||current||admissionBlocked||serialBlocked||resolving)return;
@@ -1096,7 +1131,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   return()=>{observer.disconnect();document.removeEventListener('visibilitychange',update);};
  },[!!shown?.temporalPreview]);
  const temporalPreview=shown?.state==='running'&&previewVisible&&!browsed&&!planVisible&&(!beginner||beginnerPage==='generate')&&optionsPref.enhancedPreview!==false&&shown.intent&&isVideoIntent(shown.intent)?shown.temporalPreview:undefined;
- const paired=!!shown?.outputs.some(o=>o.role);
+ const paired=!!shown?.outputs.some(o=>o.role==='original'||o.role==='processed');
  const outputIndex=paired&&shown?.outputs[selectedOutput]?selectedOutput:0;
  const audioOutputIndex=shown?.outputs[selectedOutput]?selectedOutput:0;
  const visibleOutputs=shown?(paired?[shown.outputs[outputIndex]]:shown.outputs):[];
@@ -1164,6 +1199,51 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const isVideoOut=(o:JobStatus['outputs'][number])=>!!o.format?.startsWith('video/')||/\.(webm|mkv|mp4|avif)$/i.test(o.filename);
  // Full view steps through finished local image results in queue order (each paired product in role order); video/audio are skipped.
  const viewerList=jobs.flatMap(j=>terminalOutput(j)&&j.outputRoot?j.outputs.map(o=>outputItem(j,o)).filter(i=>i.media==='image'):[]);
+ // Prefer exactly the visible media; a rootless/unfinished selected job cannot borrow another row's path.
+ const samVideoSource=browsed??(shown?(terminalOutput(shown)&&shown.outputs[audioOutputIndex]?outputItem(shown,shown.outputs[audioOutputIndex]):null):media);
+ const samVideoOutput=(item:MediaItem)=>!!item.path&&jobs.some(job=>job.intent?.recipeId==='sam3-video-mask'&&job.outputs.some(o=>{const path=outputItem(job,o).path;return path&&normalizedMediaPath(path)===normalizedMediaPath(item.path!);}));
+ const {cuts,sceneThreshold,...samVideoBase}=samVideoSettings;
+ const samVideoDraft:Sam3VideoMaskIntentV1={recipeId:'sam3-video-mask',version:1,...samVideoBase,...(cuts?{sceneThreshold}:{}),sourceVideo:'pending.mp4',outputPrefix:'DEAS/SAM3/face-mask'};
+ const samVideoMissing=sam3VideoNodes.filter(node=>node!=='DEAS_SAM3VideoWindow'&&!choices?.nodes.includes(node));
+ const samVideoUnavailable=!native?t('studio.sam.native'):!endpoint.trim()?t('studio.samVideo.noBackend'):!choices?t('studio.sam.checking')
+  :!choices.nodes.includes('DEAS_SAM3VideoWindow')?t('studio.samVideo.adapter')
+  :cuts&&!choices.nodes.includes('DEAS_SAM3ShotMask')?t('studio.samVideo.cutsAdapter')
+  :samVideoMissing.length?t('studio.samVideo.core',{names:samVideoMissing.join(', ')})
+  :!samCheckpoint||!samModels.includes(samCheckpoint)?t('studio.sam.missingModel')
+  :samVideoSource?.media!=='video'?t('studio.samVideo.noSource'):!samVideoSource.path?t('studio.samVideo.localSource')
+  :!isSam3VideoIntent(samVideoDraft)?t('studio.samVideo.invalid'):'';
+ async function analyzeFaceMasks(){
+  if(lock.current||samVideoUnavailable||serialBlocked||admissionBlocked||scanning||!samVideoSource?.path||!isVideo||!isH3Video(videoFamily))return;
+  const sourcePath=samVideoSource.path,capturedEndpoint=endpoint,draft=Object.freeze({...samVideoDraft});
+  observation.current++;setObservationRetry(n=>n+1);const ticket=beginRun();let admitted=false;
+  try{
+   const sourceVideo=await uploadInput(capturedEndpoint,sourcePath);
+   if(!activeRun(ticket))return;
+   const intent=Object.freeze({...draft,sourceVideo});
+   if(!isSam3VideoIntent(intent))throw new Error(t('studio.samVideo.invalid'));
+   admitted=true;const job=await runWorkbenchJob(capturedEndpoint,intent,ticket.admissionEpoch);
+   if(activeRun(ticket)){setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSlider(false);setSelectedJob(job.id);}
+  }catch(e){if(activeRun(ticket))setError(e instanceof Error?e.message:String(e));}
+  finally{finishRun(ticket,admitted);}
+ }
+ const faceRefineUnavailable=faceRefineSetup||(samVideoSource?.media!=='video'?t('studio.samVideo.noSource'):!samVideoSource.path?t('studio.samVideo.localSource')
+  :!checkpoint||!textEncoder||!vae||!audioVae?t('studio.faceRefine.models'):'');
+ async function refineFaces(){
+  if(lock.current||faceRefineUnavailable||serialBlocked||admissionBlocked||scanning||!samVideoSource?.path||!isVideo||!isH3Video(videoFamily))return;
+  const capturedSeed=seedMode==='random'?nextSeed.current:seed;
+  if(seedMode==='random'){nextSeed.current=randomSeed();setSeed(nextSeed.current);}
+  const sourcePath=samVideoSource.path,capturedEndpoint=endpoint;
+  const draft:Omit<H3FaceRefineIntentV1,'sourceVideo'>=Object.freeze({recipeId:'h3-face-refine',version:1,family:videoFamily,model:checkpoint,textEncoder,vae,audioVae,startSeconds:samVideoStart,durationSeconds:samVideoDuration,
+   seed:capturedSeed,steps,sampler,scheduler,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,outputPrefix:'raw/video/DEAS_face_refine',faceRefine:faceRefineBlock});
+  observation.current++;setObservationRetry(n=>n+1);const ticket=beginRun();let admitted=false;
+  try{
+   const sourceVideo=await uploadInput(capturedEndpoint,sourcePath);
+   if(!activeRun(ticket))return;
+   admitted=true;const job=await runWorkbenchJob(capturedEndpoint,Object.freeze({...draft,sourceVideo}),ticket.admissionEpoch);
+   if(activeRun(ticket)){setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSlider(false);setSelectedJob(job.id);}
+  }catch(e){if(activeRun(ticket))setError(e instanceof Error?e.message:String(e));}
+  finally{finishRun(ticket,admitted);}
+ }
  const shownOutput=shown&&terminalOutput(shown)&&shown.outputRoot&&shown.outputs[outputIndex]&&shown.intent&&isImageIntent(shown.intent)?outputItem(shown,shown.outputs[outputIndex]):null;
  const postFor=(item:MediaItem)=>shownOutput?.src===item.src&&shown?.intent&&isImageIntent(shown.intent)?{image:'',size:shown.outputs[outputIndex]?.role==='original'?shown.intent:shown.intent.refine??shown.intent,src:shownOutput.src,item:shownOutput}
   :media?.src===item.src&&inputImage&&source?{image:inputImage,size:source,src:media.src,item:media}
@@ -1208,7 +1288,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     :{label:t('studio.run.video.useLast'),onClick:()=>{if(pipeline==='i2v'&&isH3Video(videoFamily)&&(lastOnly||!firstFrame||media?.src===item.src)){select(item);setLastOnlySrc(item.src);}setLastFrame(item);}},
    ...(pipeline==='i2v'?[{label:t('studio.run.video.useBoth'),onClick:()=>{select(item);setLastOnlySrc(null);setLastFrame(item);}}]:[])]
   :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),input:true,onClick:()=>select(item)}]:[];
- const mediaActions=(item:MediaItem):MediaAction[]=>[...inputActions(item),...(item.media==='image'?[{label:t('studio.sam.refine'),onClick:()=>void refineObjects(item),blocked:(!native||serialBlocked||admissionBlocked||isVideo||isMusic||!model||(!item.path&&item.src!==media?.src))?t('studio.sam.refineHelp'):samTargets(samText).length?samUnavailable||undefined:item.src===media?.src&&masked?undefined:t('studio.sam.needsTargets')}]:[]),...(item.path&&item.media!=='audio'?[{label:t('studio.run.metadata.apply'),onClick:()=>void applyFileSettings(item,'all'),blocked:(!native||scanning||working||autoPlan||resolving||!!planRun.current)?t('studio.run.metadata.native'):undefined}]:[]),...(item.path?[{label:t('studio.run.exportClean.label'),hint:t('studio.run.exportClean.hint'),onClick:()=>void exportClean(item.path!),blocked:native?undefined:t('studio.run.exportClean.native')}]:[]),...(onAnalyze&&item.path&&(item.media==='image'||item.media==='video')?[{label:t('analysis.open'),onClick:()=>onAnalyze(item)}]:[])];
+ const mediaActions=(item:MediaItem):MediaAction[]=>[...inputActions(item),...(item.media==='image'?[{label:t('studio.sam.refine'),onClick:()=>void refineObjects(item),blocked:(!native||serialBlocked||admissionBlocked||isVideo||isMusic||!model||(!item.path&&item.src!==media?.src))?t('studio.sam.refineHelp'):samTargets(samText).length?samUnavailable||undefined:item.src===media?.src&&masked?undefined:t('studio.sam.needsTargets')}]:[]),...(item.path&&item.media!=='audio'?[{label:t('studio.run.metadata.apply'),onClick:()=>void applyFileSettings(item,'all'),blocked:samVideoOutput(item)?t('studio.samVideo.hint'):(!native||scanning||working||autoPlan||resolving||!!planRun.current)?t('studio.run.metadata.native'):undefined}]:[]),...(item.path?[{label:t('studio.run.exportClean.label'),more:true,hint:t('studio.run.exportClean.hint'),onClick:()=>void exportClean(item.path!),blocked:native?undefined:t('studio.run.exportClean.native')}]:[]),...(onAnalyze&&item.path&&(item.media==='image'||item.media==='video')?[{label:t('analysis.open'),more:true,onClick:()=>onAnalyze(item)}]:[])];
  // Metadata-free copy through the native save dialog; cancel (null) stays silent, the source file is never touched.
  const exportClean=async(path:string)=>{setMoreResult(null);try{const saved=await exportWithoutMetadata(path,t('studio.run.exportClean.title'));if(saved)setMoreResult(t('studio.run.exportClean.done',{path:saved.path}));}catch(e){setMoreResult(t('studio.run.exportClean.failed',{error:e instanceof Error?e.message:String(e)}));}};
  // After every render, so the frame picker always asks the current actions (not a render-time side effect).
@@ -1231,10 +1311,10 @@ const promptTools=forgeContext&&<>
  <button type="button" data-insert-structure onClick={()=>insertPrompt(promptStructure(forgeContext.mode))}>{t('studio.run.prompt.structure')}</button>
  <button type="button" data-insert-shot onClick={()=>insertPrompt(nextShot(positive))}>{t('studio.run.prompt.shot')}</button>
  {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
- const tools=(item:MediaItem,showStar=true)=>{const actions=mediaActions(item);return <div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
-  {/* Every right-click media action is mirrored here (same label, effect and block reason), so new menu options appear in the preview automatically. */}
+ const tools=(item:MediaItem,showStar=true)=>{const actions=mediaActions(item);const moreActions=actions.filter(a=>a.more).map(a=><button key={a.label} type="button" data-media-action data-media-export-clean={a.label===t('studio.run.exportClean.label')||undefined} disabled={!!a.blocked} title={a.blocked||a.hint} onClick={()=>selectMoreAction(true,a.onClick)}>{a.label}</button>);return <div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
+  {/* Keep per-file actions shared with the context menu; secondary actions live in More. */}
   {!actions.some(a=>a.input)&&<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
-  {actions.map(a=><button key={a.label} type="button" data-media-action data-media-settings={a.label===t('studio.run.metadata.apply')||undefined} data-media-export-clean={a.label===t('studio.run.exportClean.label')||undefined} data-use-input={a.input||undefined} disabled={!!a.blocked} title={a.blocked||a.hint} onClick={a.onClick}>{a.label}</button>)}
+  {actions.filter(a=>!a.more).map(a=><button key={a.label} type="button" data-media-action data-media-settings={a.label===t('studio.run.metadata.apply')||undefined} data-media-export-clean={a.label===t('studio.run.exportClean.label')||undefined} data-use-input={a.input||undefined} disabled={!!a.blocked} title={a.blocked||a.hint} onClick={a.onClick}>{a.label}</button>)}
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);setEdit(m);}}>{t(`studio.run.edit.${m}`)}</button>)}
  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
   {/* More stays on every image; Refine/Upscale are disabled with a reason outside the image-model pipelines. */}
@@ -1242,10 +1322,11 @@ const promptTools=forgeContext&&<>
    <button type="button" data-run-post disabled={off||postOff} title={t(postOff?'studio.run.post.imageOnly':'studio.run.post.refineHint')} onClick={()=>{if(only)selectMoreAction(true,()=>void run(only));}}>{t('studio.run.post.refine')}</button>
    <button type="button" data-run-upscale disabled={off||postOff} title={t(postOff?'studio.run.post.imageOnly':'studio.run.post.upscaleHint')} onClick={()=>{if(only)selectMoreAction(true,()=>void run({...only,upscaleOnly:true}));}}>{t('studio.run.post.upscale')}</button>
    <button type="button" data-more-apply disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.applyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
-   <button type="button" data-more-reuse disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.reuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button></div></details>;})()}
-  {item.media==='video'&&(()=>{const off=!native||!item.path||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current;const hint=!native?t('studio.run.metadata.native'):'';return <details className="wb-more" open={moreFor===item.src}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreFor(moreFor===item.src?null:item.src);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
+   <button type="button" data-more-reuse disabled={metaOff} title={metaOff?t('studio.run.metadata.native'):t('studio.run.metadata.reuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button>{moreActions}</div></details>;})()}
+  {item.media==='video'&&(()=>{const off=samVideoOutput(item)||!native||!item.path||scanning||admissionBlocked||autoPlan||resolving||!!planRun.current;const hint=samVideoOutput(item)?t('studio.samVideo.hint'):!native?t('studio.run.metadata.native'):'';return <details className="wb-more" open={moreFor===item.src}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreFor(moreFor===item.src?null:item.src);}}>{t('studio.run.more')}<span className="wb-more-caret" aria-hidden="true">▾</span></summary><div className="wb-more-menu">
    <button type="button" data-more-apply disabled={off} title={hint||t('studio.run.metadata.videoApplyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
-   <button type="button" data-more-reuse disabled={off} title={hint||t('studio.run.metadata.videoReuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button></div></details>;})()}
+   <button type="button" data-more-reuse disabled={off} title={hint||t('studio.run.metadata.videoReuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button>{moreActions}</div></details>;})()}
+  {item.media==='audio'&&moreActions.length>0&&<details className="wb-more" open={moreFor===item.src}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreFor(moreFor===item.src?null:item.src);}}>{t('studio.run.more')}</summary><div className="wb-more-menu">{moreActions}</div></details>}
   {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider&&item.media==='image'} disabled={item.media!=='image'} title={item.media!=='image'?t('studio.run.edit.sliderImageOnly'):undefined} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
   {showStar&&<StarMediaButton item={item}/>}
  </div>;};
@@ -1329,7 +1410,7 @@ const promptTools=forgeContext&&<>
    advancedSettings.current=saved;beginnerSamplingEdited.current=false;
    advancedReferences.current={imageRefs,refs,refmods,lastFrame,lastOnlySrc,framePeople,plan};
    setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLastOnlySrc(null);setPlan(p=>({...p,enabled:false}));
-   setLoras(model&&beginnerLoraDraft.current?.model===identity(model)?beginnerLoraDraft.current.loras:[]);setNegative('');setPost(false);setTve(defaultTve);setH3Latent(defaultLatent);setLtxLatent(defaultLatent);setWildcardEnabled(false);setOptions(defaultOptions);setSeedMode('random');setEdit('resample');setTextEncoder('');setVae('');setComponentOverrides(defaultComponentOverrides);
+   setLoras(model&&beginnerLoraDraft.current?.model===identity(model)?beginnerLoraDraft.current.loras:[]);setNegative('');setPost(false);setTve(defaultTve);setDerope(defaultDerope);setH3Latent(defaultLatent);setLtxLatent(defaultLatent);setWildcardEnabled(false);setOptions(defaultOptions);setSeedMode('random');setEdit('resample');setTextEncoder('');setVae('');setComponentOverrides(defaultComponentOverrides);
    if(!beginnerPipelines.includes(pipeline))pickPipeline('t2i');
    // Entering Beginner keeps the user's Steps/CFG; only a model change resets them to family starting values.
    if(model){startingSettings(model);setSteps(steps);setCfg(cfg);}beginnerModelKey.current=model?identity(model):'';
@@ -1368,11 +1449,11 @@ const promptTools=forgeContext&&<>
  const base=(n:string)=>n.replace(/\\/g,'/').split('/').at(-1)!.toLowerCase();
  const resolveMetadataModel=(list:LocalModel[],name:string)=>{const exact=list.filter(m=>m.name===name);if(exact.length)return exact.length===1?exact[0]:undefined;const matches=list.filter(m=>base(m.name)===base(name)||!name.includes('.')&&shortName(m.name).toLowerCase()===base(name));return matches.length===1?matches[0]:undefined;};
  const stoppable=(j:JobStatus)=>stopAvailable&&(j.state==='queued'||j.state==='running');
- const reusable=(j:JobStatus)=>!!j.intent&&!isVideoEnhanceIntent(j.intent)&&!isSam3Intent(j.intent);
+ const reusable=(j:JobStatus)=>!!j.intent&&!isVideoEnhanceIntent(j.intent)&&!isSam3Intent(j.intent)&&!isSam3VideoIntent(j.intent);
  // The clicked job's own immutable intent, through the same projection as Recent history.
  const reusePrompt=(j:Pick<JobStatus,'intent'>)=>{metadataRead.current++;if(j.intent&&(isImageIntent(j.intent)||isVideoIntent(j.intent))){setPositive(j.intent.positivePrompt);setNegative(j.intent.negativePrompt);}};
  const reuseJob=(j:JobStatus)=>{
-  if(!j.intent||isVideoEnhanceIntent(j.intent)||isSam3Intent(j.intent))return false;
+  if(!j.intent||isVideoEnhanceIntent(j.intent)||isSam3Intent(j.intent)||isSam3VideoIntent(j.intent))return false;
   return restoreHistory(historyRestore({id:j.id,clientId:null,promptId:j.promptId,origin:'studio',appVersion:j.appVersion??'',admittedAt:0,observedAt:0,revision:0,state:j.state,intent:j.intent,outputs:[],outputRoot:j.outputRoot??null,backendOrigin:j.baseUrl,error:j.error},{endpoint,inputRoot:roots.input,allow:choices,models:models??[]}));
  };
  const applySettings=(s:GenerationSettings):string[]=>{
@@ -1386,7 +1467,7 @@ const promptTools=forgeContext&&<>
    else {
     if(restoredFamily?.id!==family?.id){
      setTextEncoder('');setTextEncoder2('');setVae('');setVideo(defaultVideo);setOptions({...structuredClone(defaultOptions),outputNaming:optionsPref.outputNaming});
-     setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setTve(defaultTve);setH3Latent({...h3Latent,enabled:false});setLtxLatent({...ltxLatent,enabled:false});
+     setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setTve(defaultTve);setDerope(defaultDerope);setH3Latent({...h3Latent,enabled:false});setLtxLatent({...ltxLatent,enabled:false});
      setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLoras([]);setWildcardEnabled(false);
     }
     if(!restoredFamily?.pipelines.includes(pipeline)&&restoredFamily)setPipeline(restoredFamily.video?'t2v':'t2i');
@@ -1417,6 +1498,7 @@ const promptTools=forgeContext&&<>
  const applyFileSettings=async(item:MediaItem,mode:'all'|'prompt',preview=false)=>{
   setMoreResult(null);
   if(!native||!item.path)return;
+  if(samVideoOutput(item)){if(preview)setBrowsed(item);return;}
   const revision=++metadataRead.current;
   const matches=jobs.filter(j=>reusable(j)&&j.outputs.some(o=>{const path=outputItem(j,o).path;return path&&normalizedMediaPath(path)===normalizedMediaPath(item.path!);}));
   const job=matches.length===1?matches[0]:undefined;
@@ -1474,7 +1556,7 @@ const promptTools=forgeContext&&<>
   setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
   setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setInputScaling('off');setEdit('resample');
   if(isVideoIntent(intent)){
-   setTve(fromVideoPost(intent.videoPost));audioEnhance.restore(intent.audioEnhance);
+   setTve(fromVideoPost(intent.videoPost));setDerope(fromDerope(intent.videoPost?.derope));audioEnhance.restore(intent.audioEnhance);
    if(intent.family==='minimax-h3')setH3Latent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...h3Latent,enabled:false});
    if(intent.family==='ltx-2')setLtxLatent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...ltxLatent,enabled:false});
   }
@@ -1500,7 +1582,7 @@ const promptTools=forgeContext&&<>
  const componentPick=(id:string,slot:ComponentSlot,value:string,list:readonly string[],set:(value:string)=>void)=><span key={slot} style={{display:'contents'}} data-run-component={slot}><ComponentPicker label={t(id)} value={value} automatic={recommended?.[slot][0]??''} files={list} all={componentOverrides[slot]} onAll={all=>setComponentOverrides({...componentOverrides,[slot]:all})} onChange={set}/></span>;
  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isMusic?'audio':isVideo?'video':'image',seed,model:checkpoint});
  // The plan shows the cover source by its dock name only; the upload handle exists after Run.
- const samControls=(inEditor=false)=><Sam3Controls value={samValue} onChange={setSamValue} models={samModels} margin={maskGrow} onMargin={setMaskGrow} unavailable={samUnavailable} refineUnavailable={samTargets(samText).length?samUnavailable:undefined} status={samStatus} busy={serialBlocked||admissionBlocked} inpaint={inEditor} onMask={()=>void maskWithSam()} onRefine={()=>void refineObjects()} canRefine={!!media&&(masked||!!samTargets(samText).length)}/>;
+ const samControls=()=><Sam3Controls value={samValue} onChange={setSamValue} models={samModels} margin={maskGrow} onMargin={setMaskGrow} unavailable={samUnavailable} refineUnavailable={samTargets(samText).length?samUnavailable:undefined} status={samStatus} busy={serialBlocked||admissionBlocked} onRefine={()=>void refineObjects()} canRefine={!!media&&(masked||!!samTargets(samText).length)}/>;
  const preview=planVisible&&naming!==null?(isMusic?buildMusicIntent(naming,seed,musicSource?.name??''):isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
  const previewDrop=useRef(async(_paths:string[])=>{});
  // The beginner starting-image row accepts image drops like picking one in the media panel.
@@ -1580,7 +1662,7 @@ const promptTools=forgeContext&&<>
    </div>}<span id="project-actions-slot" hidden={beginner}/></div>);
  // How many settings in a dock tab are switched on / differ from default; nothing when all defaults.
  const wildcardChanges=activeWildcards(wildcardEnabled,wildcard),optionChanges=changedOptions(optionsPref);
- const postChanges=activePost({video:isVideo,audio:isMusic||(isVideo&&videoFamily!=='wan'),latent:latentEnabled,tve,refine:post,sam:samEnabled,audioMode:audioEnhance.mode});
+ const postChanges=[...activePost({video:isVideo,audio:isMusic||(isVideo&&videoFamily!=='wan'),latent:latentEnabled,tve,refine:post,sam:samEnabled,audioMode:audioEnhance.mode}),...(isVideo&&derope.enabled?['derope']:[])];
  // aria-hidden keeps each tab's accessible name stable; the count stays visible and in the tooltip.
  const dockBadge=(n:number)=>n>0&&<small className="wb-dock-badge" aria-hidden="true" title={t('studio.run.dock.changed',{count:String(n)})}>{n}</small>;
  const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?activeLoras.length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
@@ -1654,7 +1736,8 @@ const promptTools=forgeContext&&<>
       {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{!h3Image&&num('denoise',denoise,setDenoise,0,1,0.05,undefined,true)}{h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}</>}
       {inpaint&&<>
        <label className="wb-field wb-wide" title={t('studio.run.maskGrowHelp')}><span><input type="checkbox" style={{width:'auto'}} checked={inpaintOnlyMasked} onChange={e=>setInpaintOnlyMasked(e.target.checked)}/>{t('studio.run.inpaintOnlyMasked')}</span></label>
-        {samControls(true)}
+       <button type="button" className="wb-dock-action wb-wide" data-sam="mask" disabled={serialBlocked||admissionBlocked||samBusy} title={samUnavailable||undefined} onClick={()=>{focusDockTab.current=true;setDockTab('post');loadChoices();if(samTargets(samText).length)void maskWithSam();else setSamTargetReveal(n=>n+1);}}>{t('studio.sam.mask')}</button>
+       {samStatus&&<p className="wb-wide" role="status">{samStatus}</p>}
        {num('maskBlur',maskBlur,n=>{if(isMaskBlur(n))setMaskBlur(n);},0,31,1,undefined,true)}
        {h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
       </>}
@@ -1774,7 +1857,8 @@ const promptTools=forgeContext&&<>
      {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
      <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
     </fieldset>}
-    {!isVideo&&!isMusic&&!inpaint&&samControls()}
+    {isVideo&&isH3Video(videoFamily)&&<Sam3VideoControls value={samVideoSettings} onChange={v=>{setSamCheckpoint(v.checkpoint);setSamThreshold(v.threshold);setSamVideoStart(v.startSeconds);setSamVideoDuration(v.durationSeconds);setSamVideoMax(v.maxObjects);setSamVideoInterval(v.detectInterval);setSamVideoCuts(v.cuts);setSamVideoSceneThreshold(v.sceneThreshold);}} models={samModels} sourceName={samVideoSource?.media==='video'?samVideoSource.name:undefined} unavailable={samVideoUnavailable} busy={serialBlocked||admissionBlocked||scanning} onAnalyze={()=>void analyzeFaceMasks()} refine={{value:faceRefine,onChange:setFaceRefine,unavailable:faceRefineUnavailable,autoUnavailable:faceRefineAutoUnavailable,onRefine:()=>void refineFaces()}}/>}
+    {!isVideo&&!isMusic&&samControls()}
     {!isVideo&&<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend><div className="wb-options">
      <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
      <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled&&!family?.temporalLatent} disabled={!!family?.temporalLatent||(!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion'))} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(family?.temporalLatent?'studio.run.post.tiledFamily':choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
@@ -1786,6 +1870,7 @@ const promptTools=forgeContext&&<>
      <fieldset className="wb-group" data-post-group="model"><legend>{t('studio.run.post.model')}</legend><div className="wb-options">
       <label className="wb-option"><select data-tve-post="upscaleModel" aria-label={t('studio.run.post.model')} value={tve.upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setTve({...tve,upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{tve.upscaleModel&&!choices?.upscaleModels?.includes(tve.upscaleModel)&&<option value={tve.upscaleModel}>{tve.upscaleModel}</option>}</select><small>{t('studio.run.post.group.modelHint')}</small></label>
      </div></fieldset>
+     {videoFamily==='minimax-h3'&&<DeropeControls value={deropePref} onChange={setDerope} allow={choices} onRead={loadChoices} conflict={continuityOn&&plan.outputMode==='segment'&&nextStep(plan)?.continuity.sourceKind==='video'}/>}
      <fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>
     </>}
     {!isVideo&&onOpenVideoPost&&<fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>}

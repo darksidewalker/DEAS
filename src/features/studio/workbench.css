@@ -107,7 +107,7 @@
 .wb-stage > .wb-media-tools > *, .wb-stage > .wb-edit-tools > * { pointer-events: auto; min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }
-.wb-queue-output > .media-star-control { position: absolute; top: 5px; right: 5px; }
+.wb-queue-output > .media-star-control { position: absolute; top: 5px; left: 5px; }
 .wb-queue .media-star-control .media-star { width: 1.8rem; height: 1.8rem; padding: 0; background: rgb(var(--shadow-rgb) / 0.8); }
 .wb-queue-output + .wb-queue-output { margin-top: 6px; }
 .wb-queue .media-star:focus-visible, .wb-queue-select:focus-visible { outline: 2px solid var(--ok); outline-offset: -2px; }
@@ -192,6 +192,7 @@
 .wb-loras input[type="number"] { width: 4.4rem; padding: 2px 5px; font-size: .72rem; }
 .wb-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 8px; align-content: start; align-items: start; }
 .wb-option[data-video-post] { overflow-wrap: anywhere; }
+.wb-sam-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 [data-sam-controls] > .wb-options { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
 /* TVE post stages (shared by the Post dock and the TVE tab); the badge marks controls pulled from TVE. */
 .tve-post { display: grid; gap: 8px; margin-bottom: 12px; }

@@ -300,6 +300,78 @@ fn video_previews(nodes: &Value) -> Value {
     previews
 }
 
+fn sam3_shot_mask_ready(nodes: &Value) -> bool {
+    let node = &nodes["DEAS_SAM3ShotMask"];
+    let required = &node["input"]["required"];
+    node["output"] == json!(["MASK"])
+        && required.as_object().is_some_and(|r| r.len() == 7)
+        && [
+            ("images", "IMAGE"),
+            ("model", "MODEL"),
+            ("conditioning", "CONDITIONING"),
+            ("detection_threshold", "FLOAT"),
+            ("max_objects", "INT"),
+            ("detect_interval", "INT"),
+            ("scene_threshold", "FLOAT"),
+        ]
+        .iter()
+        .all(|(field, kind)| required[*field][0] == *kind)
+        && required["max_objects"][1]["min"] == 1
+        && required["max_objects"][1]["max"] == 64
+        && required["detect_interval"][1]["min"] == 1
+        && required["detect_interval"][1]["max"] == 2_147_483_647
+        && required["scene_threshold"][1]["min"]
+            .as_f64()
+            .is_some_and(|n| n == f64::from_bits(1))
+        && required["scene_threshold"][1]["max"] == 1.0
+        && required["detection_threshold"][1]["min"] == 0.0
+        && required["detection_threshold"][1]["max"] == 1.0
+}
+
+fn sam3_video_window_ready(nodes: &Value) -> bool {
+    let node = &nodes["DEAS_SAM3VideoWindow"];
+    let required = &node["input"]["required"];
+    node["output"] == json!(["VIDEO"])
+        && [
+            ("video", "VIDEO"),
+            ("model", "MODEL"),
+            ("start_seconds", "FLOAT"),
+            ("duration_seconds", "FLOAT"),
+            ("max_objects", "INT"),
+        ]
+        .iter()
+        .all(|(field, kind)| required[*field][0] == *kind)
+        && required.as_object().is_some_and(|r| r.len() == 5)
+        && required["max_objects"][1]["min"] == 1
+        && required["max_objects"][1]["max"] == 64
+}
+
+/// The refine adapter ships with the audio-aware window; an older deployed copy would drop sound.
+pub(crate) fn face_refine_ready(nodes: &Value) -> bool {
+    let node = &nodes["DEAS_H3FaceRefine"];
+    let (required, optional) = (&node["input"]["required"], &node["input"]["optional"]);
+    node["output"] == json!(["IMAGE"])
+        && required.as_object().is_some_and(|r| r.len() == 15)
+        && [
+            ("images", "IMAGE"),
+            ("fps", "FLOAT"),
+            ("sam_model", "MODEL"),
+            ("sam_conditioning", "CONDITIONING"),
+            ("noise", "NOISE"),
+            ("guider", "GUIDER"),
+            ("sampler", "SAMPLER"),
+            ("sigmas", "SIGMAS"),
+            ("vae", "VAE"),
+            ("crop_factor", "FLOAT"),
+            ("feather", "INT"),
+        ]
+        .iter()
+        .all(|(field, kind)| required[*field][0] == *kind)
+        && optional["audio"][0] == "AUDIO"
+        && optional["audio_vae"][0] == "VAE"
+        && nodes["DEAS_SAM3VideoWindow"]["input"]["optional"]["include_audio"][0] == "BOOLEAN"
+}
+
 fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     let definitions = nodes
         .as_object()
@@ -310,8 +382,9 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_sam3::NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).chain(crate::jobs_video_post::POST_NODES.iter()).chain(crate::jobs_music::MUSIC_NODES.iter()).chain(crate::jobs_music::ace::NODES.iter()).filter(|name| definitions.contains_key(**name) && (**name != "DEAS_ImagePostprocessGate" || image_postprocess_ready(nodes)) && (**name != "DEAS_VideoPostprocessGate" || video_postprocess_ready(nodes)) && (**name != "ModelPreviewOverrideKJ" || video_preview_ready(nodes)) && (**name != "DaSiWa_SeamlessLoop" || seamless_loop_ready(nodes))).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_sam3::NODES.iter()).chain(crate::jobs_sam3_video::NODES.iter()).chain(crate::jobs_face_refine::ALLOW_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).chain(crate::jobs_video_post::POST_NODES.iter()).chain(crate::jobs_music::MUSIC_NODES.iter()).chain(crate::jobs_music::ace::NODES.iter()).filter(|name| definitions.contains_key(**name) && (**name != "DEAS_SAM3ShotMask" || sam3_shot_mask_ready(nodes)) && (**name != "DEAS_SAM3VideoWindow" || sam3_video_window_ready(nodes)) && (**name != "DEAS_H3FaceRefine" || face_refine_ready(nodes)) && (**name != "DEAS_ImagePostprocessGate" || image_postprocess_ready(nodes)) && (**name != "DEAS_VideoPostprocessGate" || video_postprocess_ready(nodes)) && (**name != "ModelPreviewOverrideKJ" || video_preview_ready(nodes)) && (**name != "DaSiWa_SeamlessLoop" || seamless_loop_ready(nodes))).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
+            "videos":options(nodes, "LoadVideo", "file", crate::jobs::model_name),
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
             "images":combo(nodes, "LoadImage", "image")?,
             "samplers":combo(nodes, "KSampler", "sampler_name")?,
@@ -1166,7 +1239,7 @@ mod tests {
                 "baseUrl": format!("{base}/"), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
-                    "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
+                    "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "videos":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
                     "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}
                 }, "missingNodes":[], "generationReady":false
             })

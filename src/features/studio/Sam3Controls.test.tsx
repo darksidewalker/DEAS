@@ -9,13 +9,15 @@ test('target groups retain order and plural matches stay in their group',()=>{
 });
 test('SAM settings never execute until an explicit action and missing SAM does not block painted-mask refinement',()=>{
  localStorage.setItem('deas.locale.v1','en');const onChange=vi.fn(),onMask=vi.fn(),onRefine=vi.fn();
- const view=render(<I18nProvider><Sam3Controls value={value} onChange={onChange} models={[value.checkpoint]} margin={32} onMargin={vi.fn()} busy={false} inpaint onMask={onMask} onRefine={onRefine} canRefine/></I18nProvider>);
+ const view=render(<I18nProvider><Sam3Controls value={value} onChange={onChange} models={[value.checkpoint]} margin={32} onMargin={vi.fn()} busy={false} onRefine={onRefine} canRefine/></I18nProvider>);
  expect(onMask).not.toHaveBeenCalled();expect(onRefine).not.toHaveBeenCalled();
  const denoise=view.container.querySelector('[data-sam="denoise"]')!;
  fireEvent.change(denoise,{target:{value:'0.4'}});expect(onChange).toHaveBeenLastCalledWith({...value,denoise:0.4});
- fireEvent.click(view.container.querySelector('[data-sam="mask"]')!);expect(onMask).toHaveBeenCalledOnce();
- view.rerender(<I18nProvider><Sam3Controls value={{...value,targets:''}} onChange={onChange} models={[]} margin={32} onMargin={vi.fn()} unavailable="Missing SAM checkpoint" busy={false} inpaint onMask={onMask} onRefine={onRefine} canRefine/></I18nProvider>);
- expect(view.container.querySelector('[data-sam="mask"]')).toHaveProperty('disabled',true);
+ expect(view.container.querySelector('[data-sam="mask"]')).toBeNull();
+ expect(view.container.querySelector('small')).toBeNull();
+ const row=view.container.querySelector('.wb-sam-actions')!;expect(row.firstElementChild!.querySelector('[data-sam="enabled"]')).not.toBeNull();expect(row.lastElementChild!.getAttribute('data-sam')).toBe('refine');
+ view.rerender(<I18nProvider><Sam3Controls value={{...value,targets:''}} onChange={onChange} models={[]} margin={32} onMargin={vi.fn()} unavailable="Missing SAM checkpoint" busy={false} onRefine={onRefine} canRefine/></I18nProvider>);
+ expect(view.container.querySelector('[data-sam="mask"]')).toBeNull();
  expect(view.container.querySelector('[data-sam="refine"]')).toHaveProperty('disabled',false);
  fireEvent.click(view.container.querySelector('[data-sam="refine"]')!);expect(onRefine).toHaveBeenCalledOnce();
  expect(screen.getByRole('checkbox')).toHaveProperty('checked',false);

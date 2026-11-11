@@ -1,3 +1,4 @@
+import type { H3FaceRefineBlock } from './sam3';
 import type { VideoPreviewConfig } from './videoPreview';
 import type { AudioEnhanceIntent } from './audioEnhance';
 import type { RunOptions } from './execution';
@@ -34,6 +35,9 @@ export const rtxUpscaleModes=['VSR','High Bitrate','Streaming Medium','Streaming
 export const frameGenModes=['LOW','MEDIUM','HIGH'] as const;
 export type RtxQuality=typeof rtxQualities[number];
 export const loopAudios=['crossfade','beat'] as const;
+export const deropePresets=['balanced','max quality','economy'] as const;
+export type DeropePreset=typeof deropePresets[number];
+export const deropeInjects=[0.48,0.7] as const;
 export type LoopAudio=typeof loopAudios[number];
 export interface VideoPost {
  /** DaSiWa Seamless Loop, first in the chain: trims the frames to a loop at unchanged fps and loops the audio. */
@@ -43,12 +47,16 @@ export interface VideoPost {
  useMmap?:boolean;
  rtx?:{ denoise?:RtxQuality; deblur?:RtxQuality; upscale?:{ mode:typeof rtxUpscaleModes[number]; quality:RtxQuality; scale:number }; chunkFrames?:number };
  frameGeneration?:{ engine:'rtx'; multiplier:number; mode:typeof frameGenModes[number] }|{ engine:'rife'; multiplier:number; model:string };
+ /** MiniMax H3 de-rope second pass (generation only, never TVE); `lora` = turbo pass, absent = base model. */
+ derope?:{ preset:DeropePreset; inject:typeof deropeInjects[number]; lora?:string };
 }
 const multiplierOk=(m:unknown)=>Number.isInteger(m)&&(m as number)>=2&&(m as number)<=16;
 const chunkFramesOk=(n:unknown)=>Number.isInteger(n)&&(n as number)>=1&&(n as number)<=1024;
 export const isVideoPost=(v:unknown):v is VideoPost=>{
  const p=v as VideoPost;
- if(!p||typeof p!=='object'||!Object.keys(p).length||Object.keys(p).some(k=>!['upscaleModel','rtx','frameGeneration','useMmap','loop'].includes(k)))return false;
+ if(!p||typeof p!=='object'||!Object.keys(p).length||Object.keys(p).some(k=>!['upscaleModel','rtx','frameGeneration','useMmap','loop','derope'].includes(k)))return false;
+ const d=p.derope;
+ if(d!==undefined&&!(d&&inList(deropePresets,d.preset)&&deropeInjects.some(v=>v===d.inject)&&(d.lora===undefined||typeof d.lora==='string')))return false;
  const l=p.loop;
  if(l!==undefined&&!(l&&inList(loopAudios,l.audio)&&(l.backend==='rtx'||(l.backend==='rife'&&typeof l.model==='string'))))return false;
  if(p.upscaleModel!==undefined&&typeof p.upscaleModel!=='string')return false;
@@ -62,7 +70,7 @@ export const isVideoPost=(v:unknown):v is VideoPost=>{
 };
 /** Output frame rate of a post chain; frame generation multiplies the source cadence. */
 export const videoPostFrameRate=(fps:number,post:VideoPost|undefined)=>fps*(post?.frameGeneration?.multiplier??1);
-interface VideoBase { readonly enhancedPreview?:VideoPreviewConfig; readonly audioEnhance?:AudioEnhanceIntent; readonly recipeId:'video-generation'; readonly version:1; readonly positivePrompt:string; readonly negativePrompt:string; readonly model:string; readonly textEncoder:string; readonly vae:string; readonly seed:number; readonly width:number; readonly height:number; readonly frames:number; readonly frameRate:number; readonly steps:number; readonly cfg:number; readonly sampler:string; readonly scheduler:string; readonly outputPrefix:string; readonly output:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly firstFrame?:string; readonly lastFrame?:string; readonly sourceVideo?:string; readonly loras?:readonly {name:string;strength:number}[]; readonly options?:RunOptions; readonly chunks?:number; readonly videoPost?:VideoPost }
+interface VideoBase { readonly faceRefine?:H3FaceRefineBlock; readonly enhancedPreview?:VideoPreviewConfig; readonly audioEnhance?:AudioEnhanceIntent; readonly recipeId:'video-generation'; readonly version:1; readonly positivePrompt:string; readonly negativePrompt:string; readonly model:string; readonly textEncoder:string; readonly vae:string; readonly seed:number; readonly width:number; readonly height:number; readonly frames:number; readonly frameRate:number; readonly steps:number; readonly cfg:number; readonly sampler:string; readonly scheduler:string; readonly outputPrefix:string; readonly output:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly firstFrame?:string; readonly lastFrame?:string; readonly sourceVideo?:string; readonly loras?:readonly {name:string;strength:number}[]; readonly options?:RunOptions; readonly chunks?:number; readonly videoPost?:VideoPost }
 /** Optional `DaSiWaH3TiledUpscale` inputs; omitted keys keep the node defaults in `h3LatentDefaults`. */
 export interface H3LatentAdvanced { cfg?:number; scheduler?:string; precision?:'auto'|'bf16'|'fp16'|'fp32'; memoryBudgetMb?:number; spatialTiling?:boolean; temporalChunking?:boolean; spikeGuard?:boolean; guardSensitivity?:number; guardStrength?:number; guardMode?:'burn_direction'|'both'; memoryPlanning?:boolean; memoryReservePct?:number; continuitySoftRefine?:boolean; continuityMaskStrength?:number }
 export const h3LatentDefaults:Required<H3LatentAdvanced>={cfg:1,scheduler:'simple',precision:'auto',memoryBudgetMb:0,spatialTiling:true,temporalChunking:true,spikeGuard:false,guardSensitivity:4.3,guardStrength:1,guardMode:'burn_direction',memoryPlanning:true,memoryReservePct:5,continuitySoftRefine:false,continuityMaskStrength:1};
@@ -83,6 +91,11 @@ export type VideoIntentV1=VideoBase&(
  |{readonly family:'wan';readonly latentUpscale?:never;readonly wan:{lowModel:string;shiftHigh:number;shiftLow:number;refinerStep:number}}
  |{readonly family:'minimax-h3'|'minimax-h3-hyperflow';readonly latentUpscale?:H3LatentUpscale;readonly h3:{mode:'T2VA'|'I2VA'|'L2VA'|'FL2VA'|'REF2VA';audioVae:string;shiftVideo:number;shiftAudio:number;references:{slot:0|1;image:string}[];media?:H3Media[];continuity?:H3Continuity;inputScaling?:H3Scaling;refmods?:{slot:number;name:string;strength:number;description?:string}[]}});
 export const isVideoIntent=(i:{recipeId:string}):i is VideoIntentV1=>i.recipeId==='video-generation';
+/** Director parity Join clips: model-free DaSiWaH3ClipAssemble prompt (native `jobs_video::join`); trims are seconds. */
+export type H3JoinIntentV1={readonly recipeId:'h3-join';readonly version:1;readonly h3:{readonly join:
+ |{readonly kind:'segments';readonly session:string;readonly chain:readonly string[];readonly copyVideo?:boolean;readonly filenamePrefix?:string}
+ |{readonly kind:'files';readonly files:readonly {readonly filename:string;readonly trimStart?:number|null;readonly trimEnd?:number|null}[];readonly copyVideo?:boolean;readonly filenamePrefix?:string}}};
+export const isH3JoinIntent=(i:{recipeId:string}):i is H3JoinIntentV1=>i.recipeId==='h3-join';
 /** TVE tab: enhance an uploaded source video with the same chain (native `compile_enhance`); the source stays the baseline. */
 export interface VideoEnhanceIntentV1 { readonly audioEnhance?:AudioEnhanceIntent; readonly recipeId:'video-enhance'; readonly version:1; readonly sourceVideo:string; readonly frameRate:number; readonly seed:number; readonly videoPost:VideoPost; readonly output?:Omit<VideoOutput,'imageFormat'|'imageCompression'>; readonly outputPrefix?:string }
 export const isVideoEnhanceIntent=(i:{recipeId:string}):i is VideoEnhanceIntentV1=>i.recipeId==='video-enhance';

@@ -11,6 +11,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 module = ast.parse((ROOT/'tools/verify_inpaint.py').read_text())
 INIT = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'INIT' for t in node.targets))
 SAM = r"""
+window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener(){}};
 const fallback=window.__TAURI_INTERNALS__.invoke;
 window.__samJobs=[];window.__refines=[];
 window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
@@ -18,6 +19,7 @@ window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
  if(command==='native_media_star_notice')return null;
  if(command==='native_wildcard_library')return {categories:[]};
  if(command==='native_audio_enhance_capabilities')return {};
+ if(command==='native_audio_enhance_install_status')return {running:false,mode:'',stage:'',downloaded:0,total:0};
  if(command==='native_recipe_prerequisites'){
   const result=await fallback(command,args);
   result.allowlist.nodes.push('SAM3_Detect','PrimitiveBoundingBox');
@@ -48,8 +50,14 @@ with sync_playwright() as p:
     page.get_by_role('button',name='base.png',exact=True).click()
     page.locator('[data-use-input]:visible').first.click()
     page.get_by_role('button',name='Inpaint',exact=True).click()
-    page.locator('[data-sam="model"]').select_option('SAM3/sam3.1_multiplex_fp16.safetensors')
-    page.locator('[data-sam="targets"]').fill('eyes, feet, hands')
+    assert page.locator('.wb-side [data-sam-controls]').count() == 0
+    assert page.locator('.wb-side [data-open-post]').count() == 0
+    page.locator('[data-sam="mask"]').click()
+    expect(page.locator('.wb-post [data-sam="targets"]')).to_be_focused()
+    expect(page.locator('.wb-post [data-sam="targets"]')).to_have_class('search-flash')
+    assert page.evaluate('window.__plans.length') == 0
+    expect(page.locator('.wb-post [data-sam="model"]')).to_have_value('SAM3/sam3.1_multiplex_fp16.safetensors')
+    page.locator('.wb-post [data-sam="targets"]').fill('eyes, feet, hands')
     page.locator('[data-sam="mask"]').click()
     try:
         page.wait_for_function('window.__plans.length===3')
@@ -84,6 +92,11 @@ with sync_playwright() as p:
     box=page.evaluate('window.__plans.at(-1).box')
     assert abs(box['x']-205)<=1 and abs(box['y']-128)<=1 and abs(box['width']-205)<=1 and abs(box['height']-128)<=1,box
     page.wait_for_function('!document.querySelector("[data-sam=refine]").disabled')
+    page.locator('[data-sam="enabled"]').scroll_into_view_if_needed()
+    checkbox=page.locator('[data-sam="enabled"]').bounding_box()
+    refine_button=page.locator('[data-sam="refine"]').bounding_box()
+    assert checkbox and refine_button and checkbox['width'] < 24 and checkbox['height'] < 24
+    assert checkbox['x'] < refine_button['x']
     for width in (1440,768,390):
         page.set_viewport_size({'width':width,'height':960})
         for locale in ('en','de','fr','ja','tr','zh'):

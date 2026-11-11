@@ -7,6 +7,7 @@ const askCancel=()=>{const d=document.querySelector('dialog.confirm-dialog')!;fi
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
 import { defaultOptions } from './OptionsPanel';
+import { sam3VideoNodes, type Sam3VideoMaskIntentV1 } from '../../lib/sam3';
 import {normalizeAceDuration,defaultAceSettings,type AceStepFamily} from '../../lib/musicIntent';
 import { applyStudioSettings, captureStudioSettings } from '../../lib/preferences';
 import { aspects, resolutions } from '../../lib/resolution';
@@ -38,12 +39,141 @@ beforeEach(()=>{
   return collection([...new Map(submitted.filter((job):job is JobStatus=>!!job).map(job=>[job.id,job])).values()]);
  });
  vi.mocked(pollWorkbench).mockResolvedValue(collection());
+ vi.mocked(readH3Session).mockResolvedValue({latestId:null,clips:[]});
  localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(isTauri).mockReturnValue(true);
  Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.open=true;}});
  Object.defineProperty(HTMLDialogElement.prototype,'close',{configurable:true,value:function(this:HTMLDialogElement){this.open=false;}});
  vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue({save:vi.fn(),restore:vi.fn(),arc:vi.fn(),fill:vi.fn(),beginPath:vi.fn(),clearRect:vi.fn(),fillRect:vi.fn(),drawImage:vi.fn(),getImageData:vi.fn(()=>({data:new Uint8ClampedArray([0,0,0,0])}))} as unknown as CanvasRenderingContext2D);
 });
 afterEach(()=>{cleanup();Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');Reflect.deleteProperty(HTMLDialogElement.prototype,'close');Reflect.deleteProperty(HTMLVideoElement.prototype,'src');vi.clearAllMocks();vi.unstubAllGlobals();});
+const videoSam='SAM3/sam3.1_multiplex_fp16.safetensors';
+async function faceAnalysisFixture(missing='',source:'queue'|'rootless'|'none'='queue'){
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify('t2v'));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...sam3VideoNodes.filter(n=>n!==missing),...(missing==='DEAS_SAM3ShotMask'?[]:['DEAS_SAM3ShotMask'])],checkpoints:missing==='checkpoint'?[]:[videoSam,'SAM3/sam3.1_other.safetensors']}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3',family:'minimax-h3',size:1,info:null}]);
+ const sourceJob={...heldJob('source-video','succeeded',evidence.baseUrl),...(source==='rootless'?{}:{outputRoot:'/out'}),outputs:[{filename:'shown.mp4',subfolder:'clips',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(source==='none'?[]:[sourceJob,{...sourceJob,id:'other-video',outputs:[{filename:'other.mp4',subfolder:'clips',type:'output'}]}]));
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));choosePipe('Text → Video');dock('Post-Processing');
+ await screen.findByRole('group',{name:'H3 face-mask analysis'});
+ if(source!=='none'){await waitFor(()=>expect(document.querySelector('[data-job-id="source-video"]')).not.toBeNull());fireEvent.click(document.querySelector('[data-job-id="source-video"] .wb-queue-select')!);}
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam-video="checkpoint"]')!.value).toBe(missing==='checkpoint'?'':videoSam));
+ return {view,sourceJob};
+}
+const faceField=(key:string)=>document.querySelector<HTMLInputElement>(`[data-sam-video="${key}"]`)!;
+test.each([false,true])('H3 face analysis is explicit, snapshots source/settings/endpoint before upload and previews its shared queue output (cuts=%s)',async cuts=>{
+ const {view,sourceJob}=await faceAnalysisFixture();
+ expect(faceField('cuts').checked).toBe(false);expect(faceField('sceneThreshold').disabled).toBe(true);
+ if(cuts){fireEvent.click(faceField('cuts'));fireEvent.change(faceField('sceneThreshold'),{target:{value:'0.4'}});}
+ const button=screen.getByRole('button',{name:'Analyze face masks'});
+ await waitFor(()=>expect(button).toHaveProperty('disabled',false));
+ expect(faceField('durationSeconds').value).toBe('2');expect(faceField('maxObjects').value).toBe('4');expect(faceField('detectInterval').value).toBe('1');
+ fireEvent.change(faceField('startSeconds'),{target:{value:'1.5'}});fireEvent.change(faceField('durationSeconds'),{target:{value:'1.25'}});
+ expect(document.querySelector('[data-sam-video="source"]')!.textContent).toContain('shown.mp4');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
+ expect(document.querySelector('.wb-post [data-sam="refine"]')).toBeNull();
+ let finishUpload!:(value:string)=>void;
+ vi.mocked(uploadInput).mockReturnValueOnce(new Promise(resolve=>{finishUpload=resolve;}));
+ const analysisIntent:Sam3VideoMaskIntentV1={recipeId:'sam3-video-mask',version:1,checkpoint:videoSam,sourceVideo:'uploaded.mp4',outputPrefix:'DEAS/SAM3/face-mask',threshold:0.5,maxObjects:4,detectInterval:1,startSeconds:1.5,durationSeconds:1.25,...(cuts?{sceneThreshold:0.4}:{})};
+ const result={...heldJob('face-masks','succeeded',evidence.baseUrl),intent:analysisIntent,outputRoot:'/out',outputs:[{filename:'face-masks.mp4',subfolder:'analysis',type:'output' as const,format:'video/mp4',role:'mask-preview' as const}]};
+ vi.mocked(runWorkbenchJob).mockResolvedValueOnce(result);
+ fireEvent.click(button);
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl,'/out/clips/shown.mp4'));
+ if(cuts)fireEvent.change(faceField('sceneThreshold'),{target:{value:'0.9'}});
+ fireEvent.click(faceField('cuts'));if(!cuts)fireEvent.change(faceField('sceneThreshold'),{target:{value:'0.9'}});
+ fireEvent.click(document.querySelector('[data-job-id="other-video"] .wb-queue-select')!);
+ expect(document.querySelector('[data-sam-video="source"]')!.textContent).toContain('other.mp4');
+ fireEvent.change(faceField('durationSeconds'),{target:{value:'8'}});fireEvent.change(faceField('maxObjects'),{target:{value:'12'}});fireEvent.change(faceField('threshold'),{target:{value:'0.8'}});fireEvent.change(faceField('checkpoint'),{target:{value:'SAM3/sam3.1_other.safetensors'}});
+ view.rerender(<I18nProvider><Workbench endpoint="http://127.0.0.1:9999/" roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([sourceJob,result]));
+ await act(async()=>finishUpload('uploaded.mp4'));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledExactlyOnceWith(evidence.baseUrl,analysisIntent,0));
+ await waitFor(()=>expect(document.querySelector('[data-job-id="face-masks"]')).not.toBeNull());
+ expect(document.querySelector('.wb-shown video')?.getAttribute('src')).toContain('face-masks.mp4');
+ expect(document.querySelector('[data-job-id="face-masks"]')?.textContent).toContain('Mask preview');
+ expect(document.querySelector('.wb-output-choices')).toBeNull();
+ expect(document.querySelector<HTMLButtonElement>('[data-more-apply]')?.disabled).toBe(true);
+ expect(document.querySelector<HTMLButtonElement>('[data-more-reuse]')?.disabled).toBe(true);
+ expect(autoRefine).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+test.each([undefined,false,true])('H3 hard-cut preference defaults OFF and persists explicit ON/OFF (%s)',async saved=>{
+ if(saved!==undefined)localStorage.setItem('deas.pref.studio.run.samVideoCuts',JSON.stringify(saved));
+ const {view}=await faceAnalysisFixture();
+ expect(faceField('cuts').checked).toBe(saved??false);expect(faceField('sceneThreshold').value).toBe('0.3');
+ fireEvent.click(faceField('cuts'));fireEvent.change(faceField('sceneThreshold'),{target:{value:'0.45'}});
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ view.unmount();const next=await faceAnalysisFixture();
+ expect(faceField('cuts').checked).toBe(!(saved??false));expect(faceField('sceneThreshold').value).toBe('0.45');
+ fireEvent.click(faceField('cuts'));next.view.unmount();await faceAnalysisFixture();
+ expect(faceField('cuts').checked).toBe(saved??false);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('H3 missing optional shot adapter blocks only hard-cut analysis',async()=>{
+ await faceAnalysisFixture('DEAS_SAM3ShotMask');const button=screen.getByRole('button',{name:'Analyze face masks'});
+ await waitFor(()=>expect(button).toHaveProperty('disabled',false));
+ fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',true);
+ expect(within(screen.getByRole('group',{name:'H3 face-mask analysis'})).getByRole('status').textContent).toContain('DEAS_SAM3ShotMask');fireEvent.click(button);
+ fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',false);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['0','-0.1','1.01',''])('H3 hard-cut analysis rejects invalid frame difference %s before upload',async value=>{
+ await faceAnalysisFixture();const button=screen.getByRole('button',{name:'Analyze face masks'});
+ await waitFor(()=>expect(button).toHaveProperty('disabled',false));fireEvent.click(faceField('cuts'));
+ fireEvent.change(faceField('sceneThreshold'),{target:{value}});expect(button).toHaveProperty('disabled',true);fireEvent.click(button);
+ expect(within(screen.getByRole('group',{name:'H3 face-mask analysis'})).getByRole('status').textContent).toContain('frame-difference threshold > 0');
+ fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',false);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each([...sam3VideoNodes,'checkpoint','none','rootless'] as const)('H3 face analysis blocks missing prerequisite %s before uploading',async missing=>{
+ await faceAnalysisFixture(missing,missing==='none'?'none':missing==='rootless'?'rootless':'queue');
+ const button=screen.getByRole('button',{name:'Analyze face masks'});
+ expect(button).toHaveProperty('disabled',true);fireEvent.click(button);
+ const group=screen.getByRole('group',{name:'H3 face-mask analysis'});
+ expect(group.textContent).toContain(missing==='DEAS_SAM3VideoWindow'?'Restart or update':missing==='checkpoint'?'checkpoint':missing==='rootless'?'local video path':missing==='none'?'Select a video':missing);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
+});
+test.each([['maxObjects','0'],['maxObjects','65'],['maxObjects','1.5'],['detectInterval','0'],['detectInterval','1.5'],['detectInterval','2147483648'],['durationSeconds','0'],['durationSeconds',''],['startSeconds','-1'],['threshold','1.1']] as const)('H3 face analysis rejects invalid %s=%s without uploading',async(key,value)=>{
+ await faceAnalysisFixture();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Analyze face masks'})).toHaveProperty('disabled',false));
+ fireEvent.change(faceField(key),{target:{value}});
+ const button=screen.getByRole('button',{name:'Analyze face masks'});expect(button).toHaveProperty('disabled',true);fireEvent.click(button);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each([false,true])('H3 face analysis prefers the browsed video / current input (%s) over a selected queue row',async adopted=>{
+ const previous=vi.mocked(invoke).getMockImplementation()!;
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_list'?{path:'/out',parent:'/',entries:[{name:'browsed.mov',path:'/out/browsed.mov',kind:'file',media:'video',symlink:false,size:1,modified:1}],truncated:false}:previous(command,args));
+ try{
+  await faceAnalysisFixture();dock('Media');fireEvent.click(await screen.findByRole('button',{name:'browsed.mov'}));
+  if(adopted)adopt();
+  dock('Post-Processing');
+  expect(document.querySelector('[data-sam-video="source"]')!.textContent).toContain('browsed.mov');
+  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+  vi.mocked(uploadInput).mockResolvedValueOnce('browsed-upload.mov');vi.mocked(runWorkbenchJob).mockResolvedValueOnce({...heldJob('analysis','failed'),error:'fixture'});
+  fireEvent.click(screen.getByRole('button',{name:'Analyze face masks'}));
+  await waitFor(()=>expect(uploadInput).toHaveBeenCalledExactlyOnceWith(evidence.baseUrl,'/out/browsed.mov'));
+  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledOnce());
+  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({recipeId:'sam3-video-mask',sourceVideo:'browsed-upload.mov',checkpoint:videoSam});
+  expect(autoRefine).not.toHaveBeenCalled();
+ }finally{vi.mocked(invoke).mockImplementation(previous);}
+});
+test('H3 face analysis requires an explicit endpoint and never executes on a missing backend',async()=>{
+ const {view}=await faceAnalysisFixture();
+ view.rerender(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
+ expect(screen.getByRole('button',{name:'Analyze face masks'})).toHaveProperty('disabled',true);
+ expect(screen.getByRole('group',{name:'H3 face-mask analysis'}).textContent).toContain('Select an owned backend endpoint');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('H3 face analysis Stop fences a pending source upload',async()=>{
+ await faceAnalysisFixture();
+ let resolve!:(value:string)=>void;vi.mocked(uploadInput).mockReturnValueOnce(new Promise(done=>{resolve=done;}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Analyze face masks'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('button',{name:'Analyze face masks'}));await waitFor(()=>expect(uploadInput).toHaveBeenCalledOnce());
+ fireEvent.click(screen.getByRole('button',{name:'Stop'}));
+ await waitFor(()=>expect(stopWorkbench).toHaveBeenCalledOnce());
+ await act(async()=>resolve('uploaded.mp4'));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
+});
+
 test('SAM refinement defaults off, preserves saved OFF/ON and uses an explicit checkpoint',async()=>{
  const sam='SAM3/sam3.1_multiplex_fp16.safetensors';
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'SAM3_Detect'],checkpoints:[...evidence.allowlist.checkpoints,sam]}});
@@ -55,13 +185,95 @@ test('SAM refinement defaults off, preserves saved OFF/ON and uses an explicit c
  expect(document.querySelector<HTMLInputElement>('[data-sam="denoise"]')!.value).toBe('0.25');
  expect(document.querySelector<HTMLInputElement>('[data-sam="margin"]')!.value).toBe('32');
  await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam="model"]')!.options.length).toBe(2));
- expect(document.querySelector<HTMLSelectElement>('[data-sam="model"]')!.value).toBe('');
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam="model"]')!.value).toBe(sam));
  fireEvent.click(enabled);expect(enabled.checked).toBe(true);
  expect(autoRefine).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
  view.unmount();render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  expect(document.querySelector<HTMLInputElement>('[data-sam="enabled"]')!.checked).toBe(true);
  fireEvent.click(document.querySelector('[data-sam="enabled"]')!);
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.samEnabled')!)).toBe(false);
+});
+test.each(['missing','', 'SAM3/sam3.1_z.safetensors'])('SAM checkpoint fallback preserves an available saved choice (%s)',async(saved)=>{
+ const first='SAM3/sam3.1_a.safetensors',last='SAM3/sam3.1_z.safetensors';
+ localStorage.setItem('deas.pref.studio.run.samCheckpoint',JSON.stringify(saved));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:[...evidence.allowlist.checkpoints,last,first]}});
+ vi.mocked(scanModels).mockResolvedValue([]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl}/></I18nProvider>);
+ dock('Post-Processing');
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('.wb-post [data-sam="model"]')!.value).toBe(saved===last?last:first));
+ expect(autoRefine).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+test('explicit model Reload discovers and auto-selects a newly installed SAM checkpoint',async()=>{
+ const sam='SAM3/sam3.1_new.safetensors';
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a',family:'sdxl',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ dock('Post-Processing');
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam="model"]')!.value).toBe(''));
+ await waitFor(()=>expect(scanModels).toHaveBeenCalled());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'SAM3_Detect'],checkpoints:[...evidence.allowlist.checkpoints,sam]}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:sam,path:'/m/'+sam,family:'sam3',size:1,info:null}]);
+ dock('Models');fireEvent.click(document.querySelector('[data-run-load]')!);
+ dock('Post-Processing');
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam="model"]')!.value).toBe(sam));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
+});
+test.each([['point',false],['point',true],['box',false],['target',false]] as const)('SAM %s masks only the current editor source and preserves queue selection (preview %s)',async(kind,preview)=>{
+ const sam='SAM3/sam3.1.safetensors',png=new Uint8Array([137,80,78,71,13,10,26,10]);
+ for(const [key,value] of Object.entries({samEnabled:true,samTargets:''}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'SAM3_Detect'],checkpoints:[...evidence.allowlist.checkpoints,sam]}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a',family:'sdxl',size:1,info:null}]);
+ const old={...heldJob('latest','succeeded'),outputRoot:'/out',outputs:[{filename:'latest.png',subfolder:'',type:'output' as const}]};
+ let submitted:JobStatus|undefined;
+ vi.mocked(readCurrentWorkbench).mockImplementation(async()=>collection(submitted?[old,submitted]:[old]));
+ vi.mocked(pollWorkbench).mockImplementation(async()=>collection(submitted?[old,submitted]:[old]));
+ vi.mocked(runWorkbenchJob).mockImplementation(async(_url,intent)=>submitted={...heldJob('sam-only','succeeded'),intent,outputs:[{filename:'mask.png',subfolder:'',type:'output'}]});
+ vi.mocked(waitForWorkbenchJob).mockImplementation(async job=>job);
+ vi.mocked(loadDiagnosticJobOutput).mockResolvedValue({jobId:'sam-only',index:0,bytes:Array.from(png),mimeType:'image/png',width:1024,height:640,sha256:'fixture'});
+ vi.mocked(uploadMask).mockResolvedValue('current-source.png');
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/out',parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false});
+ const fetchSource=vi.fn(async()=>({ok:true,blob:async()=>new Blob()}));vi.stubGlobal('fetch',fetchSource);
+ vi.stubGlobal('createImageBitmap',vi.fn(async()=>({width:1024,height:640,close:vi.fn()})));
+ vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(function(done){done({arrayBuffer:async()=>png.buffer} as Blob);});
+ vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({save:vi.fn(),restore:vi.fn(),clearRect:vi.fn(),drawImage:vi.fn(),fillRect:vi.fn(),putImageData:vi.fn(),getImageData:()=>({data:new Uint8ClampedArray([255,255,255,255])})} as unknown as CanvasRenderingContext2D);
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
+ await screen.findByRole('button',{name:'source.png'});fireEvent.click(screen.getByRole('button',{name:'source.png'}));adopt();
+ const source=screen.getByRole('img',{name:'source.png'});Object.defineProperties(source,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(source);
+ fireEvent.click(document.querySelector('[data-edit="inpaint"]')!);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-sam-tool="samPoint"]')!.disabled).toBe(false));
+ expect(document.querySelector('.wb-side [data-sam-controls]')).toBeNull();
+ expect(within(document.querySelector('.wb-side')!).queryByRole('button',{name:'Post-Processing'})).toBeNull();
+ expect(document.querySelector('.wb-side [data-sam="mask"]')).not.toBeNull();
+ fireEvent.click(document.querySelector('.wb-side [data-sam="mask"]')!);
+ const target=document.querySelector<HTMLInputElement>('.wb-post [data-sam="targets"]')!;
+ expect(document.querySelector('[data-dock-tab="post"]')?.getAttribute('aria-selected')).toBe('true');
+ expect(target.classList.contains('search-flash')).toBe(true);expect(document.activeElement).toBe(target);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
+ fireEvent.change(target,{target:{value:'eyes'}});
+ expect(document.querySelector('.wb-post [data-sam-controls]')).not.toBeNull();
+ if(preview)fireEvent.click(document.querySelector('[data-job-id="latest"] .wb-queue-select')!);
+ const selected=()=>[...document.querySelectorAll('.wb-queue-select[aria-current="true"]')].map(el=>el.closest('[data-job-id]')!.getAttribute('data-job-id'));
+ const before=selected(),canvas=document.querySelector('.sie-mask'),editor=document.querySelector('.wb-editor-host');
+ const viewport=document.querySelector('[data-editor-viewport]')!;
+ Object.defineProperty(viewport,'setPointerCapture',{configurable:true,value:vi.fn()});Object.defineProperty(viewport,'releasePointerCapture',{configurable:true,value:vi.fn()});
+ const pointer=(type:string,x:number,y:number)=>{const event=new MouseEvent(type,{bubbles:true,button:0,clientX:x,clientY:y});Object.defineProperty(event,'pointerId',{value:1});fireEvent(viewport,event);};
+ vi.spyOn(screen.getByTestId('editor-world'),'getBoundingClientRect').mockReturnValue({left:0,top:0,width:1024,height:640} as DOMRect);
+ if(kind==='target')fireEvent.click(document.querySelector('.wb-side [data-sam="mask"]')!);
+ else {
+  fireEvent.click(document.querySelector(`[data-sam-tool="${kind==='point'?'samPoint':'samBox'}"]`)!);
+  pointer('pointerdown',20,30);
+  if(kind==='box')pointer('pointerup',80,90);
+ }
+ await waitFor(()=>expect(document.querySelector('.wb-side [role="status"]')?.textContent).toContain('A separate SAM mask layer was added.'));
+ await waitFor(()=>expect(readCurrentWorkbench).toHaveBeenCalledTimes(2),{timeout:3000});
+ expect(selected()).toEqual(before);expect(document.querySelector('.wb-editor-host')).toBe(editor);expect(document.querySelector('.sie-mask')).toBe(canvas);
+ expect(document.querySelector('.sie-image img')?.getAttribute('src')).toBe(source.getAttribute('src'));
+ expect(fetchSource).toHaveBeenCalledTimes(1);expect(fetchSource).toHaveBeenCalledWith(source.getAttribute('src'));
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({recipeId:'sam3-mask',checkpoint:sam,inputImage:'current-source.png',width:1024,height:640,...(kind==='point'?{positivePoints:[{x:20,y:30}],negativePoints:[]}:kind==='box'?{box:{x:20,y:30,width:60,height:60}}:{prompt:'eyes'})});
+ expect(autoRefine).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ expect(vi.mocked(invoke).mock.calls.some(([command])=>/generate|auto_refine/.test(command))).toBe(false);
+ view.unmount();
 });
 test('SAM automatic refinement hands the exact submitted job to the native serial group chain',async()=>{
  const sam='SAM3/sam3.1_multiplex_fp16.safetensors';
@@ -2626,6 +2838,8 @@ test.each([
 });
 
 test('IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view',async()=>{
+ // Own prerequisites: the module default throws (backend not ready); never inherit a previous test's mock.
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  let made=0;
@@ -2825,6 +3039,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
 });
 
 test.each([{cropped:false,paintBase:false,delayed:false,paintLayer:false},{cropped:true,paintBase:false,delayed:false,paintLayer:false},{cropped:false,paintBase:true,delayed:false,paintLayer:false},{cropped:true,paintBase:false,delayed:true,paintLayer:true}])('IPC fixture: Inpaint preserves draft and submits edited base ($cropped, $paintBase)',async({cropped,paintBase,delayed,paintLayer})=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  const entry=(name:string)=>({name,path:`/env/ComfyUI/output/${name}`,kind:'file',symlink:false,media:'image',size:1,modified:1});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[entry('out.png'),entry('cat.png')],truncated:false}));
@@ -2846,7 +3061,7 @@ test.each([{cropped:false,paintBase:false,delayed:false,paintLayer:false},{cropp
  expect(screen.queryByRole('checkbox',{name:'Inpaint only masked'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Inpaint'}));
  expect((screen.getByRole('spinbutton',{name:'Mask Blur (px)'}) as HTMLInputElement).value).toBe('4');
- if(cropped){fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Shrink Grow (px)'}),{target:{value:'32'}});fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});}
+ if(cropped){fireEvent.click(screen.getByRole('checkbox',{name:'Inpaint only masked'}));dock('Post-Processing');fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Shrink Grow (px)'}),{target:{value:'32'}});fireEvent.change(screen.getByRole('spinbutton',{name:'Mask Blur (px)'}),{target:{value:'8'}});dock('Media');await screen.findByRole('button',{name:'cat.png'});}
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true); // nothing painted yet
  const mask=screen.getByLabelText('Inpaint mask',{selector:'canvas'}) as HTMLCanvasElement;
  const viewport=document.querySelector<HTMLElement>('[data-editor-viewport]')!;
@@ -3525,7 +3740,7 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
  }
  if(ref2va)expect(uploadInput).toHaveBeenCalledTimes(uploadsBeforePlan+(useReferences?2:!selected?1:0)*(pipeline==='ref2v'?2:1));
  expect((screen.getByRole('combobox',{name:'Overlap (frames)'}) as HTMLSelectElement).value).toBe('56');
- await waitFor(()=>expect(screen.getByText('kid1')).toBeTruthy(),{timeout:5000});
+ await waitFor(()=>expect(document.querySelector('[data-step="1"] .wb-cont-state')?.textContent).toContain('kid1'),{timeout:5000});
  expect(readH3Session).toHaveBeenCalledWith('http://127.0.0.1:7801/','Named_session-1');
  expect(peerObserved).toBe(true);
  const pinned=JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!);
@@ -5543,6 +5758,32 @@ test('full view steps through recent image results in queue order, skips video, 
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('keep');
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
 });
+test.each(['image','video','audio'] as const)('secondary preview actions stay in More and retain the media context menu (%s)',async(media)=>{
+ const filename=media==='image'?'c.png':media==='video'?'c.mp4':'c.flac';
+ const job={...heldJob('secondary','succeeded'),outputRoot:'/out',outputs:[{filename,subfolder:'',type:'output' as const}]};
+ vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/out',parent:'/',entries:[{name:filename,path:'/out/'+filename,kind:'file',symlink:false,media,size:1,modified:1}],truncated:false});
+ const onAnalyze=vi.fn();render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{output:'/out'}} onAnalyze={onAnalyze}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-job-id="secondary"]')).not.toBeNull());
+ const toolbar=document.querySelector('.wb-stage > [data-media-tools]')!;
+ const clean=toolbar.querySelector('[data-media-export-clean]')!;
+ expect(clean.closest('.wb-more-menu')).not.toBeNull();
+ expect(toolbar.querySelector(':scope > [data-media-export-clean]')).toBeNull();
+ const analyze=within(toolbar as HTMLElement).queryByText('Open in Media Analysis');
+ if(media!=='audio'){
+  expect(analyze).not.toBeNull();expect(analyze!.closest('.wb-more-menu')).not.toBeNull();
+  fireEvent.click(toolbar.querySelector('[data-more]')!);
+  fireEvent.mouseDown(analyze!);fireEvent.click(analyze!);
+  expect(onAnalyze).toHaveBeenCalledWith(expect.objectContaining({path:'/out/'+filename,media}));
+ }else expect(analyze).toBeNull();
+ fireEvent.contextMenu(document.querySelector('[data-job-id="secondary"] .wb-queue-select')!);
+ expect(screen.getByRole('menuitem',{name:'Export without metadata…'})).toBeTruthy();
+ fireEvent.keyDown(document,{key:'Escape'});
+ fireEvent.contextMenu(await screen.findByRole('button',{name:filename}));
+ expect(screen.getByRole('menuitem',{name:'Export without metadata…'})).toBeTruthy();
+ if(media!=='audio')expect(screen.getByRole('menuitem',{name:'Open in Media Analysis'})).toBeTruthy();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
+});
 test('Export without metadata saves a clean copy from the queue menu and preview toolbar; cancel is silent, errors show',async()=>{
  const job=navJobs()[2];
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([job]));
@@ -5556,10 +5797,12 @@ test('Export without metadata saves a clean copy from the queue menu and preview
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_media_export_clean',{path:'/out/c.png',title:'Export without metadata'}));
  await screen.findByText('Saved a copy without metadata: /save/c.png');
  reply=async()=>null;const toolbar=()=>document.querySelector<HTMLButtonElement>('[data-media-export-clean]')!;
+ expect(toolbar().closest('.wb-more-menu')).not.toBeNull();
+ fireEvent.click(document.querySelector('[data-more]')!);
  fireEvent.click(toolbar());
  await waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(c=>c[0]==='native_media_export_clean')).toHaveLength(2));
  expect(document.querySelector('.wb-more-feedback')).toBeNull();
- reply=async()=>{throw new Error('disk full');};fireEvent.click(toolbar());
+ reply=async()=>{throw new Error('disk full');};fireEvent.click(document.querySelector('[data-more]')!);fireEvent.click(toolbar());
  await screen.findByText('Export without metadata failed: disk full');
  vi.mocked(isTauri).mockReturnValue(false);view.rerender(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
  expect(toolbar().disabled).toBe(true);expect(toolbar().title).toBe('Exporting without metadata requires a local file in the desktop app.');

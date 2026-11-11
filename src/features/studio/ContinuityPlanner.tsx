@@ -6,6 +6,7 @@ import { H3 } from '../../lib/forge';
 import { ContinuityVideoSource } from './ContinuityVideoSource';
 import { ContinuitySources } from './ContinuitySources';
 import { h3OverlapFrames, isH3OverlapFrames } from '../../lib/videoIntent';
+import { ContinuityJoin } from './ContinuityJoin';
 
 export interface ContinuityPlannerProps { endpoint?:string; root?:string; forgeContext?:H3Context; allowReferences?:boolean; plan:ContinuityPlan; onChange:(plan:ContinuityPlan)=>void; /** Run the next planned step (or every remaining one in sequence). */ onRun:(all:boolean)=>void; running:boolean; disabled:boolean }
 /** MiniMax H3 continuity planner: planned segments with their own seconds and next action, run one or all; finished steps show the checkpoint clip they produced. */
@@ -54,6 +55,7 @@ export function ContinuityPlanner({endpoint,root,forgeContext,allowReferences=fa
    <button type="button" className="wb-dock-action" data-cont-run-all disabled={!enabled||disabled||locked||sourceChanged||!next} onClick={()=>onRun(true)}>{t('studio.run.cont.runAll')}</button>
    <button type="button" className="wb-dock-action" disabled={locked||!plan.steps.some(s=>s.clipId)} onClick={()=>onChange({...plan,steps:plan.steps.map(s=>({id:s.id,seconds:s.seconds,action:s.action}))})}>{t('studio.run.cont.reset')}</button>
   </div>
+  {enabled&&<ContinuityJoin endpoint={endpoint} session={plan.session} running={locked} disabled={disabled}/>}
   <p className="media-help">{t('studio.run.cont.hint')}</p>
  </div>;
 }

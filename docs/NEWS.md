@@ -1,5 +1,17 @@
 # News
 
+## 0.2.23 BETA (unreleased)
+
+- **H3 face refinement:** refine tracked faces of an existing H3 video window, or switch on **Refine faces after H3 generation** (default OFF). Faces are re-sampled by H3 in a close crop and stitched back; the original video and soundtrack are kept alongside.
+- **Join clips:** assemble Continuity segments or video files into one video from the Continuity overlay, model-free.
+
+- **Cut-safe mask analysis:** optionally restart SAM tracking at detected hard cuts inside the selected video window. A compact threshold control stays with face-mask analysis; the option defaults OFF.
+
+- **H3 face-mask analysis:** Post-Processing gains explicit SAM3.1 face-mask analysis for a selected video window. It outputs a silent mask preview.
+
+- **Less clutter in Inpaint:** SAM settings live in Post-Processing, without an extra navigation button in Inpaint settings. Available SAM checkpoints select automatically; point picking stays on the editor image and only creates a mask.
+- **Result controls:** queue stars sit on the left, and preview Media Analysis/metadata-free export actions live in More.
+
 ## 0.2.22 BETA
 
 - **New: Media Analysis.** Drop a picture on **Studio → Media Analysis** for its tags, the settings that made it and **Open in ComfyUI** for its workflow; press **Describe** for the picture in words from your vision LLM, with the characters it recognises and what the tagger missed. It uses the taggers you already have (WD14 node, animetimm ONNX, and others) and downloads one only if you have none and ask. Drop a video to get every frame in a strip: save frames, analyse one, or send it to Generate as a first/last frame or H3 picture (several picked frames at once as H3 references). Have animetimm taggers from ComfyUI's animetimm node? Media Analysis can convert them to ONNX for you, once, and use them. Describe has Temperature and Repeat penalty sliders, and you pick its model before it runs. [Media Analysis guide](MEDIA-ANALYSIS.md).

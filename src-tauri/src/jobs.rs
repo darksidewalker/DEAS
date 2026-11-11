@@ -316,6 +316,9 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
         recipe.as_object_mut().unwrap().remove("audioEnhance");
         return compile(&recipe);
     }
+    if crate::jobs_sam3_video::is_video_mask(i) {
+        return crate::jobs_sam3_video::compile(i);
+    }
     if crate::jobs_sam3::is_sam3(i) {
         return crate::jobs_sam3::compile(i);
     }
@@ -1540,7 +1543,8 @@ impl Jobs {
                 return Err("Seamless loop requires DaSiWa_SeamlessLoop with audio, frame_rate and audio_loop inputs (DaSiWa node pack 0.5.41 or newer). Update ComfyUI and the node packs via Backend, or turn Seamless loop off".into());
             }
             let music = crate::jobs_music::is_music(&intent);
-            let sam3 = crate::jobs_sam3::is_sam3(&intent);
+            let sam3_video = crate::jobs_sam3_video::is_video_mask(&intent);
+            let sam3 = crate::jobs_sam3::is_sam3(&intent) || sam3_video;
             if !video && !music && !sam3 {
                 civitai_saver(&mut graph, &allow["nodes"], &intent);
                 if intent.get("refine").is_some()
@@ -1550,7 +1554,9 @@ impl Jobs {
                 }
             }
             // Video recipes name their models/encoders/VAEs/images per family; image recipes below.
-            let mut required: Vec<(&str, Vec<&str>)> = if sam3 {
+            let mut required: Vec<(&str, Vec<&str>)> = if sam3_video {
+                crate::jobs_sam3_video::requirements(&intent)
+            } else if sam3 {
                 crate::jobs_sam3::requirements(&intent)
             } else if music {
                 crate::jobs_music::requirements(&intent)
@@ -2131,8 +2137,23 @@ fn outputs(entry: &Value) -> Result<Vec<Value>, String> {
 }
 
 // Roles come only from the held compiler graph, never filenames or backend-supplied labels.
-fn job_outputs(entry: &Value, graph: &Value) -> Result<Vec<Value>, String> {
+pub(crate) fn job_outputs(entry: &Value, graph: &Value) -> Result<Vec<Value>, String> {
     let mut final_outputs = outputs(entry)?;
+    // Face refinement windows its source too, but publishes paired B7/7 products.
+    if graph["W"]["class_type"] == "DEAS_SAM3VideoWindow" && graph.get("FR").is_none() {
+        if final_outputs.len() > 1
+            || final_outputs
+                .iter()
+                .any(|o| !o["filename"].as_str().is_some_and(|s| s.ends_with(".mp4")))
+        {
+            return Err("SAM3 mask preview must be one encoded MP4 output".into());
+        }
+        for output in &mut final_outputs {
+            output["format"] = json!("video/mp4");
+            output["role"] = json!("mask-preview");
+        }
+        return Ok(final_outputs);
+    }
     if graph.get("B7").is_none() {
         return Ok(final_outputs);
     }

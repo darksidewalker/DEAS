@@ -835,6 +835,202 @@ pub(crate) fn wan() -> Value {
     i
 }
 
+#[test]
+fn h3_derope_second_pass_sits_behind_the_baseline_gate() {
+    let mut i = h3();
+    i["videoPost"] =
+        json!({"derope":{"preset":"balanced","inject":0.48,"lora":"h3_turbo.safetensors"}});
+    let g = compile(&i).unwrap();
+    assert_eq!(
+        g["DRP"]["inputs"],
+        json!({"images":["SD",0],"samples":["SP",0],"vae":["V",0],"preset":"balanced",
+            "frame_rate":i["frameRate"],"audio":["SD",1],"audio_vae":["AV",0],"conditioning":["G",0],"keep_keyframes":true})
+    );
+    // Turbo pass: LoRA on the shifted model, Motion Lab's 6-step beta schedule cut to the inject tail.
+    assert_eq!(g["DRL"]["inputs"]["model"], json!(["SS", 0]));
+    assert_eq!(
+        g["DRZ"]["inputs"],
+        json!({"model":["DRL",0],"scheduler":"beta","steps":6,"denoise":1.0})
+    );
+    assert_eq!(
+        g["DRS"]["inputs"],
+        json!({"sigmas":["DRZ",0],"denoise":0.48})
+    );
+    assert_eq!(
+        g["DRK"]["inputs"],
+        json!({"noise":["N",0],"guider":["DRG",0],"sampler":["Q",0],"sigmas":["DRS",1],"latent_image":["DRP",0]})
+    );
+    // FL2VA/L2VA keyframes carry absolute frame indices: pass 2 uses the remapped conditioning.
+    assert_eq!(g["DRG"]["inputs"]["conditioning"], json!(["DRP", 3]));
+    assert_eq!(
+        g["DRR"]["inputs"],
+        json!({"images":["DRD",0],"hold_map":["DRP",1]})
+    );
+    // Baseline saved first with its own frames; the result keeps the baseline audio.
+    assert_eq!(
+        g["PG"]["inputs"],
+        json!({"baseline":["B7",1],"image":["DRR",0]})
+    );
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
+    assert_eq!(g["7"]["inputs"]["audio"], json!(["SD", 1]));
+    assert!(requirements(&i).contains(&("loras", vec!["h3_turbo.safetensors"])));
+    // Face refinement works on the de-roped frames, not the other way round.
+    let mut both = i.clone();
+    both["faceRefine"] = face_block();
+    let g = compile(&both).unwrap();
+    assert!(g
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|n| n["class_type"] == "DEAS_H3FaceRefine"
+            && n["inputs"]["images"] == json!(["DRR", 0])));
+
+    // Full-quality pass: base model, 25 steps on the generation scheduler.
+    i["videoPost"]["derope"] = json!({"preset":"economy","inject":0.7});
+    let g = compile(&i).unwrap();
+    assert!(g.get("DRL").is_none());
+    assert_eq!(
+        g["DRZ"]["inputs"],
+        json!({"model":["SS",0],"scheduler":"simple","steps":25,"denoise":1.0})
+    );
+
+    for (field, value) in [
+        ("preset", json!("loud")),
+        ("inject", json!(0.5)),
+        ("lora", json!("../x.safetensors")),
+        ("steps", json!(6)),
+    ] {
+        let mut bad = i.clone();
+        bad["videoPost"]["derope"][field] = value;
+        assert!(compile(&bad).unwrap_err().contains("videoPost.derope"));
+    }
+    let mut ltx_intent = ltx();
+    ltx_intent["videoPost"] = i["videoPost"].clone();
+    assert!(compile(&ltx_intent).unwrap_err().contains("derope"));
+}
+
+#[test]
+fn derope_and_face_refine_run_on_the_base_decode_before_the_latent_upscale() {
+    let mut i = h3();
+    i["videoPost"] =
+        json!({"derope":{"preset":"balanced","inject":0.48,"lora":"h3_turbo.safetensors"}});
+    i["faceRefine"] = face_block();
+    i["latentUpscale"] = json!({"model":"h3/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":1.5,"steps":3,"denoise":0.25});
+    let g = compile(&i).unwrap();
+    // Base decode of the sampled latent: the baseline and the input of both fixes.
+    assert_eq!(g["BSD"]["inputs"]["latent"], json!(["SP", 0]));
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["BSD", 0]));
+    assert_eq!(g["DRP"]["inputs"]["images"], json!(["BSD", 0]));
+    assert_eq!(g["DRP"]["inputs"]["audio"], json!(["BSD", 1]));
+    let (refine, _) = g
+        .as_object()
+        .unwrap()
+        .iter()
+        .find(|(_, n)| n["class_type"] == "DEAS_H3FaceRefine")
+        .unwrap();
+    assert_eq!(g[refine]["inputs"]["images"], json!(["DRR", 0]));
+    // Refined frames re-encoded beside the untouched audio latent, then upscaled and decoded.
+    assert_eq!(
+        g["RE"]["inputs"],
+        json!({"pixels":[refine,0],"vae":["V",0]})
+    );
+    assert_eq!(g["RS"]["inputs"], json!({"av_latent":["SP",0]}));
+    assert_eq!(
+        g["RC"]["inputs"],
+        json!({"video_latent":["RE",0],"audio_latent":["RS",1]})
+    );
+    assert_eq!(g["U"]["inputs"]["latent"], json!(["RC", 0]));
+    assert_eq!(g["SD"]["inputs"]["latent"], json!(["U", 0]));
+    // Everything after the baseline sits behind the gate, the saver's audio included.
+    assert_eq!(
+        g["PG"]["inputs"],
+        json!({"baseline":["B7",1],"image":["SD",0],"audio":["SD",1]})
+    );
+    assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
+    assert_eq!(g["7"]["inputs"]["audio"], json!(["PG", 1]));
+
+    // Without a fix the upscale keeps reading the sampled latent directly.
+    i.as_object_mut().unwrap().remove("faceRefine");
+    i.as_object_mut().unwrap().remove("videoPost");
+    let g = compile(&i).unwrap();
+    assert_eq!(g["U"]["inputs"]["latent"], json!(["SP", 0]));
+    assert!(g.get("RE").is_none());
+}
+
+fn continued(mode: &str) -> Value {
+    let mut i = h3();
+    i["h3"]["mode"] = json!("REF2VA");
+    i["h3"]["references"] = json!([]);
+    i["h3"]["media"] = json!([]);
+    i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"she turns around","outputMode":mode});
+    i["videoPost"] =
+        json!({"derope":{"preset":"balanced","inject":0.48,"lora":"h3_turbo.safetensors"}});
+    i
+}
+
+#[test]
+fn derope_follows_continuity_on_the_decoded_timeline() {
+    // Full timeline: SegmentPrepare returns the cumulative latent and SD decodes all of it.
+    let g = compile(&continued("full")).unwrap();
+    assert_eq!(g["DRP"]["inputs"]["images"], json!(["SD", 0]));
+    assert_eq!(g["DRP"]["inputs"]["samples"], json!(["SP", 0]));
+    // A continuation's keyframes index the sampled clip, so pass 2 runs without them.
+    assert_eq!(g["DRP"]["inputs"]["keep_keyframes"], false);
+    assert!(g.get("BA").is_none());
+
+    // New segment only: de-rope the whole render window, then cut back to the new segment.
+    let mut i = continued("segment");
+    assert!(compile(&i).unwrap_err().contains("sourceFrames"));
+    assert!(needs_source_frames(&i));
+    i["h3"]["continuity"]["sourceFrames"] = json!(243);
+    i["faceRefine"] = face_block();
+    let g = compile(&i).unwrap();
+    assert_eq!(g["BA"]["inputs"]["samples"], json!(["SP", 0]));
+    assert_eq!(
+        g["WA"]["inputs"],
+        json!({"samples":["SP",0],"vae":["AV",0]})
+    );
+    assert_eq!(g["DRP"]["inputs"]["images"], json!(["BA", 0]));
+    assert_eq!(g["DRP"]["inputs"]["audio"], json!(["WA", 0]));
+    assert_eq!(
+        g["WC"]["inputs"],
+        json!({"image":["DRR",0],"batch_index":141,"length":119})
+    );
+    let refine = g
+        .as_object()
+        .unwrap()
+        .values()
+        .find(|n| n["class_type"] == "DEAS_H3FaceRefine")
+        .unwrap();
+    assert_eq!(refine["inputs"]["images"], json!(["WC", 0]));
+    assert_eq!(refine["inputs"]["audio"], json!(["SD", 1]));
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
+
+    // With the latent upscale the refined window is re-encoded and the segment decode crops it.
+    i["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+    let g = compile(&i).unwrap();
+    assert!(g.get("WC").is_none());
+    let (refine, node) = g
+        .as_object()
+        .unwrap()
+        .iter()
+        .find(|(_, n)| n["class_type"] == "DEAS_H3FaceRefine")
+        .unwrap();
+    assert_eq!(node["inputs"]["images"], json!(["DRR", 0]));
+    assert_eq!(node["inputs"]["audio"], json!(["WA", 0]));
+    assert_eq!(g["RE"]["inputs"]["pixels"], json!([refine, 0]));
+    assert_eq!(g["U"]["inputs"]["latent"], json!(["RC", 0]));
+    assert_eq!(g["CB"]["inputs"]["image"], json!(["BA", 0]));
+    assert_eq!(g["7"]["inputs"]["audio"], json!(["PG", 1]));
+
+    // Imported-video sources build their window inside SegmentPrepare: no compile-time crop.
+    let mut video = continued("segment");
+    video["h3"]["continuity"]["sourceKind"] = json!("video");
+    video["h3"]["continuity"]["sourceFrames"] = json!(243);
+    assert!(compile(&video).unwrap_err().contains("derope"));
+}
+
 pub(crate) fn h3() -> Value {
     let mut i = ltx();
     i["family"] = json!("minimax-h3");
@@ -1766,6 +1962,27 @@ fn dump_tve_graphs() {
     }
     let enhance = json!({"recipeId":"video-enhance","version":1,"sourceVideo":"source.mp4","frameRate":24,"seed":7,"videoPost":post});
     graphs["enhance"] = compile(&enhance).unwrap();
+    let mut derope = h3();
+    derope["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48,
+        "lora":"MiniMaxH3/turbo/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors"}});
+    graphs["h3_derope_turbo"] = compile(&derope).unwrap();
+    derope["videoPost"] = json!({"derope":{"preset":"max quality","inject":0.7}});
+    graphs["h3_derope_full"] = compile(&derope).unwrap();
+    derope["faceRefine"] = face_block();
+    derope["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":1.5,"steps":3,"denoise":0.25});
+    graphs["h3_derope_face_upscale"] = compile(&derope).unwrap();
+    let lora =
+        json!("MiniMaxH3/turbo/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors");
+    let mut segment = continued("segment");
+    segment["videoPost"]["derope"]["lora"] = lora.clone();
+    segment["h3"]["continuity"]["sourceFrames"] = json!(243);
+    segment["faceRefine"] = face_block();
+    graphs["h3_derope_segment"] = compile(&segment).unwrap();
+    segment["latentUpscale"] = derope["latentUpscale"].clone();
+    graphs["h3_derope_segment_upscale"] = compile(&segment).unwrap();
+    let mut full = continued("full");
+    full["videoPost"]["derope"]["lora"] = lora;
+    graphs["h3_derope_full_timeline"] = compile(&full).unwrap();
     println!("{graphs}");
 }
 
@@ -2031,4 +2248,368 @@ fn h3_ref2va_continuation_maps_reference_choice_and_preserves_segment_chain() {
             }
         }
     }
+}
+
+// Pins the Director-parity Join clips contract BEFORE DEAS emits it (docs/PLAN.md §4.1).
+// Source: ComfyUI-DaSiWa-Nodes 0.5.42, nodes/h3_continuity/{assembly,assembly_node,transition}.py;
+// nodes registered in the pack root __init__.py:21-25. If the pack changes any shape below,
+// this test fails at the next source check and the emit slice must align to the pack, not here.
+#[test]
+fn h3_join_contract_pins_pack_nodes_and_json_schema() {
+    // Exact node names and INPUT_TYPES "required" keys (input order fixed for the emit slice).
+    let nodes: [(&str, &[&str]); 3] = [
+        (
+            "DaSiWaH3ClipAssemble",
+            &["assembly_data", "filename_prefix"],
+        ),
+        (
+            "DaSiWaH3TransitionGuide",
+            &["clip", "vae", "guide", "transition_data", "audio_vae"],
+        ),
+        (
+            "DaSiWaH3TransitionRender",
+            &["latent", "vae", "audio_vae", "transition"],
+        ),
+    ];
+    // The emit slice wires all three join nodes into H3_CONTINUITY_NODES; presence evidence
+    // rides the same pack registration as the three continuity nodes.
+    for (name, _) in nodes {
+        assert!(
+            H3_CONTINUITY_NODES.contains(&name),
+            "join node {name} left the continuity node list; re-check this contract"
+        );
+    }
+
+    // assembly_data wire shape (assembly.py::_request; media rows per _plan).
+    let assembly = json!({
+        "version": 1,
+        "rows": [
+            {"kind": "media", "filename": "clipA.mp4", "trim_start": 0, "trim_end": null},
+            {"kind": "media", "filename": "sub/clipB.mp4", "trim_start": 12, "trim_end": 100},
+        ],
+        "repair_transitions": false,
+        "copy_video": true,
+        "audio_policy": "preserve",
+    });
+    assert_eq!(assembly["version"], json!(1));
+    // _request: exactly these control keys; repair_transitions true is a hard error (bridges
+    // belong to Transition Guide/Render), audio_policy only accepts "preserve".
+    assert_eq!(assembly["repair_transitions"], json!(false));
+    assert_eq!(assembly["audio_policy"], json!("preserve"));
+    // Rows: 1..=100 (MAX_ROWS), one kind only, never mixed.
+    let rows = assembly["rows"].as_array().unwrap();
+    assert!(!rows.is_empty() && rows.len() <= 100);
+    let kinds: Vec<&str> = rows.iter().map(|r| r["kind"].as_str().unwrap()).collect();
+    assert!(kinds.iter().all(|k| *k == kinds[0]) && ["media", "checkpoint"].contains(&kinds[0]));
+    // Media handles are input-root-relative (assembly.py::_local: <=1024 chars, no NUL/'..'),
+    // trims are numbers with trim_end null meaning "to end"; the join total stays <= 1 hour.
+    for row in rows {
+        let name = row["filename"].as_str().unwrap();
+        assert!(
+            !name.is_empty() && name.len() <= 1024 && !name.contains("..") && !name.contains('\0')
+        );
+    }
+    // Checkpoint chain row shape (resolve_checkpoints): one session, parent-chain order,
+    // ready status, identical width/height/fps(24)/mode_family, export coverage contract
+    // kind "full"|"segment" with start_frame == covered and start_frame + frames == clip frames.
+    let chain_row = json!({"kind": "checkpoint", "session": "deas-ab12cd34", "clip_id": "clip_1"});
+    let mut keys: Vec<String> = chain_row.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, vec!["clip_id", "kind", "session"]);
+    // Output prefix contract on the node input, not in assembly_data
+    // (assembly_node.py + assemble()): [A-Za-z0-9_-]{1,80}; output is a new unique MP4.
+    let prefix_ok = |p: &str| {
+        !p.is_empty()
+            && p.len() <= 80
+            && p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    assert!(
+        prefix_ok("H3_Joined")
+            && !prefix_ok("")
+            && !prefix_ok(&"a".repeat(81))
+            && !prefix_ok("a.b")
+    );
+    // Whole request stays <= 64 KiB serialized (MAX_JSON).
+    assert!(assembly.to_string().len() <= 65536);
+    // Media constraints probed per row (_plan): average rate exactly 24, 8-bit yuv420p SDR
+    // (HDR trc 16/18 and BT.2020 primaries rejected), identical color props across rows;
+    // lossless copy only for {h264, hevc, av1, vp9} (COPY_CODECS), else re-encode.
+
+    // transition_data wire shape (transition.py::transition_spec): exactly two media rows.
+    let transition = json!({
+        "version": 1,
+        "rows": [{"kind": "media", "filename": "a.mp4"}, {"kind": "media", "filename": "b.mp4"}],
+        "context_frames": 22,
+        "transition_frames": 29,
+        "prompt": "match the camera pan across the desk",
+        "filename_prefix": "H3_Transition",
+    });
+    assert_eq!(transition["rows"].as_array().unwrap().len(), 2);
+    assert!(transition["prompt"].as_str().unwrap().len() <= 4000);
+    // H3 temporal grid rules: context >= 5 and 17k+5; transition >= 12 and 2*context+gap
+    // stays on 17k+5; derived window_frames/guide_b_frame per the spec's return.
+    for (context, gap) in [(5usize, 12usize), (22, 29), (39, 46), (56, 12)] {
+        assert!(context >= 5 && context % 17 == 5);
+        assert!(gap >= 12 && (2 * context + gap) % 17 == 5);
+        let (window, guide_b) = (2 * context + gap, context + gap);
+        assert_eq!(window % 17, 5);
+        assert!(guide_b > gap && guide_b < window);
+    }
+    for bad_context in [4usize, 20] {
+        assert!(
+            bad_context < 5 || bad_context % 17 != 5,
+            "accepted context {bad_context}"
+        );
+    }
+    for bad_gap in [11usize, 13] {
+        assert!(
+            bad_gap < 12 || (2 * 22 + bad_gap) % 17 != 5,
+            "accepted gap {bad_gap}"
+        );
+    }
+    // Director defaults pinned by the plan item are grid-legal: 22/29 -> window 73 = 4*17+5.
+    assert_eq!(2 * 22 + 29, 73);
+}
+
+#[test]
+fn h3_join_compile_emits_pinned_assembly_prompt() {
+    let files = json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"files",
+            "files":[{"filename":"takeA.mp4"},{"filename":"sub/takeB.mp4","trimStart":2.5,"trimEnd":10},
+                     {"filename":"takeC.mp4","trimStart":0,"trimEnd":null}],
+            "copyVideo":true,"filenamePrefix":"My_Join-1"}}});
+    let g = compile(&files).unwrap();
+    assert_eq!(g.as_object().unwrap().len(), 1);
+    assert_eq!(g["7"]["class_type"], json!("DaSiWaH3ClipAssemble"));
+    assert_eq!(g["7"]["inputs"]["filename_prefix"], json!("My_Join-1"));
+    let data: Value =
+        serde_json::from_str(g["7"]["inputs"]["assembly_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        data,
+        json!({"version":1,
+        "rows":[
+            {"kind":"media","filename":"takeA.mp4","trim_start":0.0,"trim_end":null},
+            {"kind":"media","filename":"sub/takeB.mp4","trim_start":2.5,"trim_end":10.0},
+            {"kind":"media","filename":"takeC.mp4","trim_start":0.0,"trim_end":null}],
+        "repair_transitions":false,"copy_video":true,"audio_policy":"preserve"})
+    );
+    let segments = json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"segments","session":"deas-ab12cd34","chain":["clip_1","clip_2"]}}});
+    let g = compile(&segments).unwrap();
+    let data: Value =
+        serde_json::from_str(g["7"]["inputs"]["assembly_data"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        data["rows"][0],
+        json!({"kind":"checkpoint","session":"deas-ab12cd34","clip_id":"clip_1"})
+    );
+    assert_eq!(data["copy_video"], json!(false));
+    assert_eq!(g["7"]["inputs"]["filename_prefix"], json!("H3_Joined"));
+    assert!(is_video(&segments) && is_join(&segments));
+    assert!(requirements(&segments).is_empty());
+    // A generation intent's strict h3 block rejects a stray join beside continuity/media.
+    let mut h = h3();
+    h["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"","outputMode":"segment"});
+    assert!(!is_join(&h));
+    compile(&h).unwrap();
+    h["h3"].as_object_mut().unwrap().insert(
+        "join".into(),
+        json!({"kind":"files","files":[{"filename":"a.mp4"}]}),
+    );
+    assert!(
+        compile(&h).is_err(),
+        "h3.join inside a generation intent must not silently pass"
+    );
+}
+
+#[test]
+fn h3_join_rejects_invalid_blocks() {
+    let base = || {
+        json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}]}}})
+    };
+    let cases: Vec<(Value, &str)> = vec![
+        (json!({"kind":"other"}), "kind"),
+        (json!({"kind":"files","files":[]}), "empty files"),
+        (
+            json!({"kind":"files","files":[{"filename":"../a.mp4"}]}),
+            "path escape",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"/abs/a.mp4"}]}),
+            "absolute path",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"C:/a.mp4"}]}),
+            "drive path",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a\0.mp4"}]}),
+            "NUL",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a.mp4","trimStart":-1}]}),
+            "negative trim",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a.mp4","trimStart":5,"trimEnd":5}]}),
+            "empty trim",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a.mp4","trimEnd":"x"}]}),
+            "non-numeric trim",
+        ),
+        (
+            json!({"kind":"segments","session":"_imports","chain":["clip_1"]}),
+            "reserved session",
+        ),
+        (
+            json!({"kind":"segments","session":"de-as ok","chain":["clip_1"]}),
+            "bad session",
+        ),
+        (
+            json!({"kind":"segments","session":"s","chain":[]}),
+            "empty chain",
+        ),
+        (
+            json!({"kind":"segments","session":"s","chain":["a b"]}),
+            "bad clip id",
+        ),
+        (
+            json!({"kind":"segments","session":"s","chain":["clip_1"],"copyVideo":"yes"}),
+            "copyVideo type",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a.mp4"}],"filenamePrefix":"a.b"}),
+            "prefix charset",
+        ),
+        (
+            json!({"kind":"files","files":[{"filename":"a.mp4"}],"filenamePrefix":""}),
+            "empty prefix",
+        ),
+    ];
+    for (join_block, why) in cases {
+        let mut i = base();
+        i["h3"]["join"] = join_block;
+        assert!(compile(&i).is_err(), "accepted {why}");
+    }
+    for (version, why) in [(json!(2), "version"), (Value::Null, "missing version")] {
+        let mut i = base();
+        if version.is_null() {
+            i.as_object_mut().unwrap().remove("version");
+        } else {
+            i["version"] = version;
+        }
+        assert!(compile(&i).is_err(), "accepted {why}");
+    }
+    for extra in ["continuity", "media"] {
+        let mut i = base();
+        i["h3"][extra] = json!({});
+        assert!(compile(&i).is_err(), "accepted h3.{extra} beside join");
+    }
+    let wide = json!({"filename": "a".repeat(700)});
+    let mut base_wide = base();
+    base_wide["h3"]["join"]["files"] = json!(vec![wide; 100]);
+    assert!(compile(&base_wide).is_err(), "accepted over-budget rows");
+    assert!(
+        validate(&base()).is_err(),
+        "generation validate() must not accept a join intent"
+    );
+}
+
+/// `cargo test --lib dump_join_graph -- --ignored --nocapture` prints the join prompt for
+/// `tools/validate_video_graphs.py` (node names, inputs and link types against the real checkout).
+#[test]
+#[ignore]
+fn dump_join_graph() {
+    println!(
+        "{}",
+        json!({"h3_join": compile(&json!({"recipeId":"h3-join","version":1,
+            "h3":{"join":{"kind":"files","files":[{"filename":"source.mp4","trimEnd":0.5},{"filename":"source.mp4","trimStart":0.5}]}}}))
+            .unwrap()})
+    );
+}
+
+fn face_block() -> Value {
+    json!({"samCheckpoint":"SAM3/sam3.1_multiplex_fp16.safetensors","prompt":"a detailed face","threshold":0.5,
+        "maxObjects":4,"detectInterval":1,"denoise":0.35,"cropFactor":2.5,"feather":6})
+}
+
+#[test]
+fn h3_face_refine_chains_after_decode_behind_the_baseline_gate() {
+    let baseline = compile(&h3()).unwrap();
+    let mut i = h3();
+    i["faceRefine"] = face_block();
+    let g = compile(&i).unwrap();
+    assert_eq!(g["FR"]["inputs"]["images"], json!(["SD", 0]));
+    assert_eq!(g["FR"]["inputs"]["audio"], json!(["SD", 1]));
+    assert_eq!(g["FR"]["inputs"]["fps"], json!(["D", 8]));
+    assert_eq!(g["FRG"]["inputs"]["model"], g["B"]["inputs"]["model"]);
+    assert_eq!(g["FRZ"]["inputs"]["sigmas"], json!(["Z", 0]));
+    // Generation guides stay out of the refine conditioning.
+    assert_eq!(g["FRG"]["inputs"]["conditioning"], json!(["FRC", 0]));
+    assert_eq!(
+        g["PG"]["inputs"],
+        json!({"baseline":["B7",1],"image":["FR",0]})
+    );
+    assert_eq!(g["7"]["inputs"]["images"], json!(["PG", 0]));
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
+    assert_eq!(g["B7"]["inputs"]["audio"], json!(["SD", 1]));
+    // Everything the generation graph already had is unchanged except the saver's image link.
+    for (k, v) in baseline.as_object().unwrap() {
+        if k != "7" {
+            assert_eq!(&g[k], v, "{k}");
+        }
+    }
+    let mut with_post = i.clone();
+    with_post["videoPost"] = json!({"upscaleModel":"2x.safetensors"});
+    let g = compile(&with_post).unwrap();
+    // TVE upscales the refined frames, still behind the one gate; B7 stays the raw decode.
+    let chain_input = g.as_object().unwrap().values().find(|n| {
+        n["inputs"].to_string().contains("[\"FR\",0]")
+            && n["class_type"] != "DEAS_VideoPostprocessGate"
+    });
+    assert!(chain_input.is_some(), "{g}");
+    assert_eq!(g["PG"]["inputs"]["baseline"], json!(["B7", 1]));
+    assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
+    assert!(requirements(&i).contains(&(
+        "checkpoints",
+        vec!["SAM3/sam3.1_multiplex_fp16.safetensors"]
+    )));
+    for bad in [
+        {
+            let mut b = i.clone();
+            b["latentUpscale"] = json!({"model":"x.safetensors","scale":2,"steps":4,"denoise":0.4});
+            b
+        },
+        {
+            let mut b = ltx();
+            b["faceRefine"] = face_block();
+            b
+        },
+        {
+            let mut b = i.clone();
+            b["faceRefine"]["denoise"] = json!(0);
+            b
+        },
+    ] {
+        assert!(compile(&bad).is_err(), "{bad}");
+    }
+}
+
+/// `cargo test --lib dump_face_refine_graphs -- --ignored --nocapture` prints both refine graphs for
+/// `tools/validate_video_graphs.py`.
+#[test]
+#[ignore]
+fn dump_face_refine_graphs() {
+    let mut i = h3();
+    i["faceRefine"] = face_block();
+    let standalone = json!({"recipeId":"h3-face-refine","version":1,"family":"minimax-h3","model":"MiniMaxH3/fl2va.safetensors",
+        "textEncoder":"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors","vae":"MiniMaxH3/video_vae.safetensors",
+        "audioVae":"MiniMaxH3/audio_vae.safetensors","sourceVideo":"source.mp4","startSeconds":0.0,"durationSeconds":1.0,
+        "seed":7,"steps":30,"sampler":"euler","scheduler":"simple","shiftVideo":12.0,"shiftAudio":3.0,"faceRefine":face_block()});
+    println!(
+        "{}",
+        json!({"h3_face_refine_chain":compile(&i).unwrap(),"h3_face_refine":compile(&standalone).unwrap()})
+    );
 }

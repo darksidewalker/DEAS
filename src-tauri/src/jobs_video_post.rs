@@ -10,7 +10,7 @@ pub(crate) const RTX_QUALITIES: [&str; 4] = ["Low", "Medium", "High", "Ultra"];
 pub(crate) const RTX_UPSCALE_MODES: [&str; 4] =
     ["VSR", "High Bitrate", "Streaming Medium", "Streaming Ultra"];
 pub(crate) const FRAME_GEN_MODES: [&str; 3] = ["LOW", "MEDIUM", "HIGH"];
-pub(crate) const POST_NODES: [&str; 7] = [
+pub(crate) const POST_NODES: [&str; 11] = [
     "UpscaleModelLoader",
     "ImageUpscaleWithModel",
     "DaSiWa_RTX_UpscalerRefiner",
@@ -18,7 +18,15 @@ pub(crate) const POST_NODES: [&str; 7] = [
     "FrameInterpolationModelLoader",
     "FrameInterpolate",
     "DaSiWa_SeamlessLoop",
+    "DaSiWaH3DeropePrepare",
+    "DaSiWaH3DeropeRecover",
+    "SplitSigmasDenoise",
+    // Window audio of a continued new-segment capture for De-rope.
+    "VAEDecodeAudio",
 ];
+/// De-rope oracle presets (DaSiWa De-rope Prepare) and Motion Lab's two inject fractions.
+pub(crate) const DEROPE_PRESETS: [&str; 3] = ["balanced", "max quality", "economy"];
+pub(crate) const DEROPE_INJECT: [f64; 2] = [0.48, 0.7];
 pub(crate) const LOOP_AUDIO: [(&str, &str); 2] =
     [("crossfade", "Crossfade"), ("beat", "Beat-aware")];
 const ENHANCE_FIELDS: [&str; 6] = [
@@ -52,9 +60,30 @@ fn multiplier_ok(v: &Value) -> bool {
 pub(crate) fn validate(p: &Value) -> Result<(), String> {
     if !keys_in(
         p,
-        &["upscaleModel", "rtx", "frameGeneration", "useMmap", "loop"],
+        &[
+            "upscaleModel",
+            "rtx",
+            "frameGeneration",
+            "useMmap",
+            "loop",
+            "derope",
+        ],
     ) {
-        return Err("videoPost needs upscaleModel, rtx, frameGeneration or loop".into());
+        return Err("videoPost needs upscaleModel, rtx, frameGeneration, loop or derope".into());
+    }
+    if let Some(d) = p.get("derope") {
+        let ok = keys_in(d, &["preset", "inject", "lora"])
+            && d["preset"]
+                .as_str()
+                .is_some_and(|v| DEROPE_PRESETS.contains(&v))
+            && d["inject"]
+                .as_f64()
+                .is_some_and(|v| DEROPE_INJECT.contains(&v))
+            && d.get("lora")
+                .is_none_or(|l| l.as_str().is_some_and(comfy_model_name));
+        if !ok {
+            return Err("Invalid videoPost.derope: {preset balanced|max quality|economy, inject 0.48|0.7, optional turbo lora}".into());
+        }
     }
     if let Some(l) = p.get("loop") {
         let audio = LOOP_AUDIO.iter().any(|(k, _)| l["audio"] == *k);
@@ -267,6 +296,9 @@ pub(crate) fn validate_enhance(i: &Value) -> Result<(), String> {
     {
         return Err("Unsafe output prefix".into());
     }
+    if i["videoPost"].get("derope").is_some() {
+        return Err("videoPost.derope re-renders a MiniMax H3 generation from its own latent; it is not a TVE stage".into());
+    }
     validate(&i["videoPost"])
 }
 
@@ -306,6 +338,7 @@ pub(crate) fn requirements(p: &Value) -> Vec<(&'static str, Vec<&str>)> {
                 .filter_map(|s| s["model"].as_str())
                 .collect(),
         ),
+        ("loras", p["derope"]["lora"].as_str().into_iter().collect()),
     ];
     fields
         .into_iter()

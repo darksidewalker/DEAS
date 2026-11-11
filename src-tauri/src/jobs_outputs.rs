@@ -311,6 +311,12 @@ impl Jobs {
 
     async fn output_local(&self, job_id: String, index: usize) -> Result<OutputPreview, String> {
         let job = self.selected_job(&job_id, index)?;
+        if crate::jobs_sam3_video::is_video_mask(&job.plan.intent) {
+            return Err(
+                "Mask-video previews use video playback, not image/Auto Refine output transfer"
+                    .into(),
+            );
+        }
         let _fetch = self
             .1
             .try_lock()

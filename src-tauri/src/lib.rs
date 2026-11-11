@@ -48,6 +48,8 @@ pub use api::native_negotiate_api;
 pub mod jobs;
 pub mod jobs_music;
 pub mod jobs_sam3;
+pub mod jobs_face_refine;
+pub mod jobs_sam3_video;
 pub mod jobs_video;
 pub mod jobs_video_post;
 pub use jobs::{
