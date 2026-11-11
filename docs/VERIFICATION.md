@@ -1,5 +1,15 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+
+## Release 0.2.23 (published)
+
+- GitHub release `v0.2.23` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.23), source commit `53c9146b946f0f55fa2c45c7d39a9ee2a4c936cc`; tag on gitea (annotated) and GitHub resolve to that commit. Local unsigned build — the *Verify DEAS* and *Release DEAS* workflows are disabled (`disabled_manually`), so no CI evidence exists for this release.
+- Assets (re-downloaded from GitHub, `sha256sum -c SHA256SUMS` OK):
+  - `deas-linux-amd64` `86ed8c3801a94cc3d1f9704f41e4d4fe9ed61bbaa05ea83c7976045e5f91c4f5` (glibc floor 2.39 from `objdump -T`; `ldd` without "not found"; embeds `index-DQqFcMml.js`)
+  - `deas.exe` `2495fa753784131b768ad9c6a5db5d7bfb2294dae176b914d9a955e23fe2400f` (cargo xwin MSVC cross-build; embeds the same frontend; not runtime-tested on Windows; no NSIS installer)
+  - `BUILD-MANIFEST.json` `9c2ab6cf1a9f4068b693e03fe3ea30d8ca2b9640d1bbcaf0d37cd29198fae349`
+- Gates on the release tree: typecheck + 153 core tests; full UI suite 1,746/1,747 with one `MediaLibrary.test.tsx` failure under load that passed 40/40 in isolation (file untouched this cycle; full suites earlier the same day 1,747/1,747); `cargo fmt --check` (after formatting a pre-existing module-order diff in `lib.rs`); release clippy `-D warnings`; `cargo test --locked -- --test-threads=1` 917 passed, 70 ignored; `cargo xwin check` and `cargo xwin clippy --all-targets -D warnings`.
+- Requires DaSiWa node pack 0.5.45 (`0ac6962`, pushed to gitea + GitHub) for De-rope Keep static background. Open acceptance unchanged: De-rope quality and the clip-B grey field, real GPU background preservation, native Linux/Windows UI checks (see PLAN).
 ## De-rope static-background preservation (0.2.23)
 
 - Feature scope: one default-OFF **Keep static background** switch in H3 De-rope. `videoPost.derope.keepBackground` is omitted when OFF; ON wires Recover's `baseline` to exactly Prepare's input frames (base decode or continuation window), plus `keep_background:true`. The additive pack 0.5.45 ABI appends optional baseline IMAGE / keep_background BOOLEAN, retaining output 0 IMAGE. Existing graph/default/audio/Original ownership stays unchanged when OFF. Native and UI admission check actual Recover input/output schemas; old packs keep ordinary De-rope available, while a remembered ON cannot silently degrade.
