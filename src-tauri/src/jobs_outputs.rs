@@ -576,7 +576,10 @@ fn export_file(path: &std::path::Path, bytes: &[u8], extension: &str) -> Result<
         .and_then(|s| s.to_str())
         .filter(|s| !s.chars().any(char::is_control))
         .ok_or("Invalid export filename")?;
-    let parent = Anchor::open(path.parent().ok_or("Missing export parent")?)?;
+    // Save dialogs return paths through bookmark symlinks (~/Videos -> /data/Videos); anchor the resolved folder.
+    let folder = std::fs::canonicalize(path.parent().ok_or("Missing export parent")?)
+        .map_err(|_| "The export folder is unavailable")?;
+    let parent = Anchor::open(&folder)?;
     parent.validate_directory(false)?;
     parent.absent(name)?;
     let temp = format!(".deas-{}.partial", uuid::Uuid::new_v4());

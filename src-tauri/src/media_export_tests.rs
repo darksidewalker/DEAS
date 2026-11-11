@@ -304,3 +304,31 @@ fn real_ffmpeg_remux_drops_tags_and_keeps_packets() {
     assert!(error.starts_with("FFmpeg could not remux"), "{error}");
     assert_eq!(fs::read_dir(out.path()).unwrap().count(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn export_folder_reached_through_a_symlink_bookmark_works() {
+    let (root, out) = dirs();
+    let source = root.path().join("a.png");
+    fs::write(&source, tagged_png()).unwrap();
+    let real = out.path().join("real");
+    fs::create_dir(&real).unwrap();
+    let bookmark = out.path().join("Videos");
+    std::os::unix::fs::symlink(&real, &bookmark).unwrap();
+    let done = export_clean(root.path(), &source, Some(&bookmark.join("a-clean.png")))
+        .unwrap()
+        .unwrap();
+    assert_eq!(done.path, bookmark.join("a-clean.png").to_string_lossy());
+    assert!(real.join("a-clean.png").is_file());
+    assert_eq!(fs::read_dir(&real).unwrap().count(), 1, "no temp left");
+    // The resolved folder still refuses replacing the source through the bookmark.
+    let inside = root.path().join("in");
+    fs::create_dir(&inside).unwrap();
+    let src = inside.join("b.png");
+    fs::write(&src, tagged_png()).unwrap();
+    let link = out.path().join("in-link");
+    std::os::unix::fs::symlink(&inside, &link).unwrap();
+    assert!(export_clean(root.path(), &src, Some(&link.join("b.png")))
+        .unwrap_err()
+        .contains("source"));
+}

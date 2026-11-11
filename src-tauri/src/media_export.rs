@@ -80,8 +80,12 @@ pub(crate) fn export_clean(
     {
         return Err(format!("Select a new absolute .{ext} file"));
     }
-    let parent_path = dest.parent().ok_or("Missing export folder")?;
-    if std::fs::canonicalize(parent_path).is_ok_and(|p| p.join(name) == canonical) {
+    // Save dialogs return paths through bookmark symlinks (~/Videos -> /data/Videos); anchor the
+    // resolved folder, as the no-clobber Anchor rejects symlink components by design.
+    let parent_path = std::fs::canonicalize(dest.parent().ok_or("Missing export folder")?)
+        .map_err(|_| "The export folder is unavailable")?;
+    let parent_path = parent_path.as_path();
+    if parent_path.join(name) == canonical {
         return Err("The clean copy cannot replace its source".into());
     }
     let parent = Anchor::open(parent_path)?;
@@ -310,14 +314,11 @@ pub async fn native_media_export_clean(
         let _guard = operations.enter()?;
         export_clean(&root, &source, selected.as_ref().map(|f| f.path()))
     });
-    crate::logs::push(
-        crate::logs::Source::Deas,
-        if result.is_ok() {
-            "INFO: Media operation=export-clean completed"
-        } else {
-            "ERROR: Media operation=export-clean failed; inspect the returned error"
-        },
-    );
+    let line = match &result {
+        Ok(_) => "INFO: Media operation=export-clean completed".to_string(),
+        Err(e) => format!("ERROR: Media operation=export-clean failed: {e}"),
+    };
+    crate::logs::push(crate::logs::Source::Deas, &line);
     result
 }
 

@@ -1370,11 +1370,14 @@ async fn exports_only_cached_original_to_explicit_new_private_png() {
     assert!(jobs
         .export_to("job-a", 0, Some(&bad_parent.join("x.png")))
         .is_err());
+    // A folder reached through a symlink bookmark (~/Videos -> /data/Videos) is resolved, not refused;
+    // the leaf symlink above stays refused.
     let parent_link = dir.path().join("linked");
     symlink(dir.path(), &parent_link).unwrap();
     assert!(jobs
-        .export_to("job-a", 0, Some(&parent_link.join("x.png")))
-        .is_err());
+        .export_to("job-a", 0, Some(&parent_link.join("y.png")))
+        .is_ok());
+    assert_eq!(std::fs::read(dir.path().join("y.png")).unwrap(), bytes);
     assert!(jobs
         .export_to("other", 0, Some(&dir.path().join("x.png")))
         .is_err());
@@ -1551,4 +1554,21 @@ async fn original_png_is_fetched_from_stored_metadata_and_cached() {
     let value = serde_json::to_value(result).unwrap();
     assert_eq!(value["mimeType"], "image/png");
     assert_eq!(value["jobId"], "job-a");
+}
+
+#[cfg(unix)]
+#[test]
+fn export_file_accepts_a_folder_reached_through_a_symlink_bookmark() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    let bookmark = dir.path().join("Videos");
+    std::os::unix::fs::symlink(&real, &bookmark).unwrap();
+    super::export_file(&bookmark.join("clip.mp4"), b"bytes", "mp4").unwrap();
+    assert_eq!(std::fs::read(real.join("clip.mp4")).unwrap(), b"bytes");
+    assert_eq!(std::fs::read_dir(&real).unwrap().count(), 1, "no temp left");
+    assert!(
+        super::export_file(&bookmark.join("clip.mp4"), b"new", "mp4").is_err(),
+        "never overwritten"
+    );
 }

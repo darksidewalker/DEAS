@@ -2,6 +2,7 @@
 
 ## 0.2.23 BETA (unreleased)
 
+- **Export into bookmark folders.** *Export without metadata* and the normal result export failed with "Parent components must be existing non-symlink directories" when the save dialog pointed into a folder reached through a symlink (e.g. `~/Videos → /data/Videos`); the export folder is now resolved before the no-clobber write. The Logs line for a failed clean export now carries the actual error instead of "inspect the returned error".
 - **Maximize button for videos.** The native Linux video player (preview, Media, references) gets a **Maximize video** control that fills the window with the same player — no reload, playback keeps running; the button or Escape restores it.
 - **Face refinement default strength 0.3** (was 0.35). Previously saved values are kept.
 - **Inpaint: Context padding next to *Inpaint only masked*.** The crop margin for masked-only inpaint was only reachable inside the SAM group of the Post-Processing dock and was mislabelled *Mask Shrink Grow* (it never grew the mask). It is now **Context padding (px)** directly below the checkbox in the settings (greyed while off), still shared with the SAM refine margin; the blur keeps being added so soft edges stay inside the crop. Saved values unchanged.
