@@ -8,7 +8,7 @@ This is the **single current plan** for DEAS: what is in place, what is still op
 - [PROJECT-RULES.md](PROJECT-RULES.md), [COMFYUI-RULES.md](COMFYUI-RULES.md) and [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md) govern how work is done; [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md) governs scope.
 - An open row here is **not** authorization to start it. New integrations and large slices need an explicit owner priority.
 
-Current working-tree source: **0.2.24 BETA** (unreleased; evidence in [VERIFICATION.md](VERIFICATION.md)). Latest tagged baseline: **0.2.23 BETA** (`v0.2.23`). The area table below is a 0.2.17 snapshot with subsequent changes described in the relevant open-work entries and changelog; its labels do not close acceptance gates. Earlier published baseline: **0.1.66** (tag `v0.1.66`).
+Current working-tree source: 0.2.24 development. Latest published release: **0.2.24 BETA** (`v0.2.24`, evidence in [VERIFICATION.md](VERIFICATION.md)). The area table below is a 0.2.17 snapshot with subsequent changes described in the relevant open-work entries and changelog; its labels do not close acceptance gates. Earlier published baseline: **0.1.66** (tag `v0.1.66`).
 
 ## 1. Evidence levels
 
