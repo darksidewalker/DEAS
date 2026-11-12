@@ -510,6 +510,45 @@ class CoreRefineTests(unittest.TestCase):
         self.assertEqual(seen, {})
         self.assertTrue(torch.equal(out, images))
 
+    def test_refine_primary_subject_refines_only_the_largest_tracked_face(self):
+        import torch
+        from types import SimpleNamespace
+        from comfy_extras import nodes_sam3, nodes_custom_sampler
+        from comfy_extras.nodes_minimax_h3 import temporal_shape
+        frames, h, w = 30, 64, 96
+        images = torch.full((frames, h, w, 3), 0.25)
+        small, big = torch.zeros(frames, h, w), torch.zeros(frames, h, w)
+        small[:, 5:9, 5:9] = 1
+        big[:, 30:44, 60:74] = 1
+        packed = torch.zeros(frames, 2, 2, 2, dtype=torch.uint8)
+        packed[:, 0, 0, 0] = 0b1  # object 0: 1 bit per frame
+        packed[:, 1, 0, :] = 0xFF  # object 1: 16 bits per frame
+        asked = []
+        def masks(track_data, object_indices):
+            asked.append(object_indices)
+            return SimpleNamespace(result=({"0": small, "1": big}[object_indices],))
+        class Vae:
+            def encode(self, pixels):
+                return torch.zeros(1, 24, temporal_shape(frames)[1], 48, 48)
+            def decode(self, latent):
+                return torch.ones(1, 39, 768, 768, 3)
+        sample = lambda **kw: SimpleNamespace(result=({"samples": kw["latent_image"]["samples"]},))
+        def run(subjects):
+            asked.clear()
+            with patch.object(window, "track_shot", return_value={"packed_masks": packed}), \
+                    patch.object(nodes_sam3.SAM3_TrackToMask, "execute", side_effect=masks), \
+                    patch.object(nodes_custom_sampler.SamplerCustomAdvanced, "execute", side_effect=sample):
+                return window.H3FaceRefine().refine(images, 24.0, None, None, 0.5, 4, 1, 0.0, None, None, None,
+                                                    None, Vae(), 2.5, 0, subjects=subjects)[0]
+        out = run("primary")
+        self.assertEqual(asked, ["1"])
+        self.assertTrue(torch.equal(out[:, 5:9, 5:9], images[:, 5:9, 5:9]))
+        self.assertAlmostEqual(out[:, 30:44, 60:74].mean().item(), 1.0, places=4)
+        run("all")
+        self.assertEqual(asked, ["0", "1"])
+        with self.assertRaisesRegex(ValueError, "subjects"):
+            run("everyone")
+
 
 if __name__ == "__main__":
     if "--comfy-root" in sys.argv:

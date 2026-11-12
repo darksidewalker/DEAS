@@ -1082,5 +1082,7 @@
   "studio.run.derope.inject.safe": "0,70 · plus sûr",
   "studio.run.derope.injectHint": "Part du planning relancée sur le clip ralenti : plus bas garde davantage l’original, plus haut laisse le modèle réinventer davantage.",
   "studio.faceRefine.minFace": "Taille minimale du visage (px)",
-  "studio.faceRefine.minFaceHint": "Les visages jamais plus grands que cette valeur gardent leurs pixels d’origine (0 = tous). Un visage minuscule est agrandi au canevas 768 et coûte une passe H3 complète pour peu de détail."
+  "studio.faceRefine.minFaceHint": "Les visages jamais plus grands que cette valeur gardent leurs pixels d’origine (0 = tous). Un visage minuscule est agrandi au canevas 768 et coûte une passe H3 complète pour peu de détail.",
+  "studio.faceRefine.primaryOnly": "Visage principal uniquement",
+  "studio.faceRefine.primaryOnlyHint": "N’affine que le plus grand visage suivi de chaque plan (le sujet principal) ; les autres visages gardent leurs pixels d’origine. Désactivé = tous les visages suivis."
 }

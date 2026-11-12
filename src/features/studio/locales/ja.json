@@ -1082,5 +1082,7 @@
   "studio.run.derope.inject.safe": "0.70 · より安全",
   "studio.run.derope.injectHint": "減速クリップで再実行するスケジュールの割合：低いほど元を保ち、高いほどモデルが作り直します。",
   "studio.faceRefine.minFace": "最小顔サイズ（px）",
-  "studio.faceRefine.minFaceHint": "この高さを一度も超えない顔は元のピクセルのままです（0＝すべて補正）。小さな顔は768の補正キャンバスに拡大され、少ない効果のためにH3を1回分使います。"
+  "studio.faceRefine.minFaceHint": "この高さを一度も超えない顔は元のピクセルのままです（0＝すべて補正）。小さな顔は768の補正キャンバスに拡大され、少ない効果のためにH3を1回分使います。",
+  "studio.faceRefine.primaryOnly": "メインの顔のみ",
+  "studio.faceRefine.primaryOnlyHint": "各ショットで追跡された最大の顔（主な被写体）だけを補正します。他の顔は元のピクセルのままです。オフ＝追跡されたすべての顔。"
 }

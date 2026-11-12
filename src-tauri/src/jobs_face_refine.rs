@@ -12,7 +12,7 @@ pub(crate) const ALLOW_NODES: [&str; 3] = [
     "MiniMaxH3ImageToVideo",
     "SplitSigmasDenoise",
 ];
-const BLOCK: [&str; 10] = [
+const BLOCK: [&str; 11] = [
     "samCheckpoint",
     "prompt",
     "threshold",
@@ -23,6 +23,7 @@ const BLOCK: [&str; 10] = [
     "cropFactor",
     "feather",
     "minFace",
+    "subjects",
 ];
 const RECIPE: [&str; 19] = [
     "recipeId",
@@ -61,7 +62,7 @@ pub(crate) fn validate(f: &Value) -> Result<(), String> {
     let ok = o.keys().all(|k| BLOCK.contains(&k.as_str()))
         && BLOCK
             .iter()
-            .filter(|k| !["sceneThreshold", "minFace"].contains(*k))
+            .filter(|k| !["sceneThreshold", "minFace", "subjects"].contains(*k))
             .all(|k| o.contains_key(*k))
         && f["samCheckpoint"].as_str().is_some_and(comfy_model_name)
         && f["prompt"]
@@ -79,7 +80,9 @@ pub(crate) fn validate(f: &Value) -> Result<(), String> {
         && finite(&f["cropFactor"], 1.2, 8.0)
         && f["feather"].as_u64().is_some_and(|n| n <= 256)
         && f.get("minFace")
-            .is_none_or(|n| n.as_u64().is_some_and(|n| n <= 4096));
+            .is_none_or(|n| n.as_u64().is_some_and(|n| n <= 4096))
+        && f.get("subjects")
+            .is_none_or(|s| s == "all" || s == "primary");
     if ok {
         Ok(())
     } else {
@@ -125,6 +128,9 @@ pub(crate) fn insert(
     });
     if let Some(n) = f.get("minFace") {
         inputs["min_face"] = n.clone();
+    }
+    if let Some(s) = f.get("subjects") {
+        inputs["subjects"] = s.clone();
     }
     if let Some(a) = audio {
         inputs["audio"] = a;
@@ -421,6 +427,28 @@ mod tests {
             &b,
         );
         assert_eq!(g["FR"]["inputs"]["min_face"], 96);
+        assert!(g["FR"]["inputs"].get("subjects").is_none());
+        // Optional subject scope: absent = every tracked face; only all/primary pass.
+        for (s, ok) in [
+            (json!("primary"), true),
+            (json!("all"), true),
+            (json!("largest"), false),
+            (json!(1), false),
+        ] {
+            let mut b = block();
+            b["subjects"] = s.clone();
+            assert_eq!(validate(&b).is_ok(), ok, "{s}");
+        }
+        b["subjects"] = json!("primary");
+        insert(
+            &mut g,
+            json!(["SD", 0]),
+            None,
+            json!(24),
+            json!(["SS", 0]),
+            &b,
+        );
+        assert_eq!(g["FR"]["inputs"]["subjects"], "primary");
         // Refine runs >= 2 steps: 4 steps at 0.35 (round(1.4) = 1) get a 6-step schedule (2 run),
         // 8 steps (3 run) keep the generation schedule; strength unchanged.
         for (steps, own) in [(4, Some(6)), (8, None), (2, Some(6)), (30, None)] {

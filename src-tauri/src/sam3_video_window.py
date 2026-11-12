@@ -484,6 +484,8 @@ class H3FaceRefine:
             # Faces never taller than this many pixels keep their original pixels (0 = refine all):
             # a tiny face upscaled to the 768 canvas costs a full H3 pass for little detail.
             "min_face": ("INT", {"default": 0, "min": 0, "max": 4096}),
+            # primary = per shot only the tracked object with the largest mask area (the main subject).
+            "subjects": (["all", "primary"], {"default": "all"}),
         }}
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "refine"
@@ -491,7 +493,7 @@ class H3FaceRefine:
 
     def refine(self, images, fps, sam_model, sam_conditioning, detection_threshold, max_objects,
                detect_interval, scene_threshold, noise, guider, sampler, sigmas, vae, crop_factor,
-               feather, audio=None, audio_vae=None, min_face=0):
+               feather, audio=None, audio_vae=None, min_face=0, subjects="all"):
         import torch
         import comfy.utils
         import comfy.nested_tensor
@@ -506,6 +508,8 @@ class H3FaceRefine:
             raise ValueError("DEAS_H3_FACE_REFINE: crop_factor >= 1.2 and feather 0..256 required")
         if audio is not None and audio_vae is None:
             raise ValueError("DEAS_H3_FACE_REFINE: audio needs the audio_vae input")
+        if subjects not in ("all", "primary"):
+            raise ValueError("DEAS_H3_FACE_REFINE: subjects must be 'all' or 'primary'")
         boundaries = shot_boundaries(images, scene_threshold or None, "DEAS_H3_FACE_REFINE")
         out = images.clone()
         for first, end in zip(boundaries, boundaries[1:]):
@@ -516,7 +520,13 @@ class H3FaceRefine:
             track = track_shot(images, first, end, sam_model, sam_conditioning, detection_threshold,
                                max_objects, detect_interval, "DEAS_H3_FACE_REFINE")
             packed = track.get("packed_masks")
-            for obj in range(0 if packed is None else packed.shape[1]):
+            objects = range(0 if packed is None else packed.shape[1])
+            if subjects == "primary" and len(objects) > 1:
+                # Set bits of the bit-packed tracker masks = mask area per object; argmax keeps the lower index on ties.
+                area = sum(((packed >> b) & 1).sum(dim=(0, 2, 3), dtype=torch.int64) for b in range(8))
+                objects = [int(area.argmax())]
+                _log.info("DEAS_H3FaceRefine shot=[%d,%d) subjects=primary object=%d of %d", first, end, objects[0], len(area))
+            for obj in objects:
                 mm.throw_exception_if_processing_interrupted()
                 mask = SAM3_TrackToMask.execute(track_data=track, object_indices=str(obj)).result[0].cpu() > 0.5
                 box = crop_box(mask, crop_factor)

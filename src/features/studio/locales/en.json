@@ -1082,5 +1082,7 @@
   "studio.run.derope.inject.safe": "0.70 · safer",
   "studio.run.derope.injectHint": "Share of the schedule re-run on the slowed clip: lower keeps more of the original, higher lets the model re-invent more.",
   "studio.faceRefine.minFace": "Minimum face size (px)",
-  "studio.faceRefine.minFaceHint": "Faces never taller than this keep their original pixels (0 = refine every face). A tiny face is upscaled to the 768 refine canvas and costs a full H3 pass for little detail."
+  "studio.faceRefine.minFaceHint": "Faces never taller than this keep their original pixels (0 = refine every face). A tiny face is upscaled to the 768 refine canvas and costs a full H3 pass for little detail.",
+  "studio.faceRefine.primaryOnly": "Main face only",
+  "studio.faceRefine.primaryOnlyHint": "Refine only the largest tracked face in each shot (the main subject); other faces keep their original pixels. Off = every tracked face."
 }

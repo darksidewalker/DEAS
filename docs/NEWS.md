@@ -1,5 +1,9 @@
 # News
 
+## 0.2.24 BETA (unreleased)
+
+- H3 face refinement can be limited to the main face of each shot (**Main face only**, off by default).
+
 ## 0.2.23 BETA
 
 - **De-rope (fast motion) for MiniMax H3:** an optional second pass that re-renders smeared whip-fast motion after the Original is saved, with a turbo-LoRA (6 steps) or generation-model pass; tick **Generation is distilled (turbo)** when your generation already uses a turbo checkpoint or turbo LoRA. Needs DaSiWa nodes 0.5.43+ (0.5.45 for Keep static background). Results vary with content; both switches default OFF.

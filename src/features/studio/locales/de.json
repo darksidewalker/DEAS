@@ -1082,5 +1082,7 @@
   "studio.run.derope.inject.safe": "0,70 · sicherer",
   "studio.run.derope.injectHint": "Anteil des Zeitplans, der auf dem verlangsamten Clip neu läuft: niedriger behält mehr vom Original, höher lässt das Modell mehr neu erfinden.",
   "studio.faceRefine.minFace": "Mindest-Gesichtsgröße (px)",
-  "studio.faceRefine.minFaceHint": "Gesichter, die nie größer als dieser Wert sind, behalten ihre Original-Pixel (0 = alle verfeinern). Ein winziges Gesicht wird auf das 768er-Raster hochskaliert und kostet einen vollen H3-Durchgang für wenig Detail."
+  "studio.faceRefine.minFaceHint": "Gesichter, die nie größer als dieser Wert sind, behalten ihre Original-Pixel (0 = alle verfeinern). Ein winziges Gesicht wird auf das 768er-Raster hochskaliert und kostet einen vollen H3-Durchgang für wenig Detail.",
+  "studio.faceRefine.primaryOnly": "Nur Hauptgesicht",
+  "studio.faceRefine.primaryOnlyHint": "Verfeinert pro Shot nur das größte getrackte Gesicht (das Hauptmotiv); andere Gesichter behalten ihre Original-Pixel. Aus = alle getrackten Gesichter."
 }

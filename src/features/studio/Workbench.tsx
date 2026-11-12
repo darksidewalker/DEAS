@@ -507,7 +507,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const fps=family?.video?.fixedFps?family.video.fps:video.fps;
  const frames=videoFamily?videoFrames(videoFamily,video.seconds,fps):0;
  const audioVae=video.audioVae||recommended?.audioVaes[0]||'';
- const faceRefineBlock:H3FaceRefineBlock={samCheckpoint,prompt:faceRefine.prompt.trim()||positive,threshold:samThreshold,maxObjects:samVideoMax,detectInterval:samVideoInterval,...(samVideoCuts?{sceneThreshold:samVideoSceneThreshold}:{}),denoise:faceRefine.denoise,cropFactor:faceRefine.cropFactor,feather:faceRefine.feather,...(faceRefine.minFace?{minFace:faceRefine.minFace}:{})};
+ const faceRefineBlock:H3FaceRefineBlock={samCheckpoint,prompt:faceRefine.prompt.trim()||positive,threshold:samThreshold,maxObjects:samVideoMax,detectInterval:samVideoInterval,...(samVideoCuts?{sceneThreshold:samVideoSceneThreshold}:{}),denoise:faceRefine.denoise,cropFactor:faceRefine.cropFactor,feather:faceRefine.feather,...(faceRefine.minFace?{minFace:faceRefine.minFace}:{}),...(faceRefine.primaryOnly?{subjects:'primary' as const}:{})};
  const faceRefineMissing=choices?faceRefineNodes.filter(node=>!choices.nodes.includes(node)):[];
  // Blockers shared by generation chaining and the explicit action (which also needs a source video).
  const faceRefineSetup=!native?t('studio.sam.native'):!endpoint.trim()?t('studio.samVideo.noBackend'):!choices?t('studio.sam.checking')

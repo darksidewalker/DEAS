@@ -56,6 +56,8 @@ export interface H3FaceRefineBlock {
   feather: number;
   /** Faces never taller than this (px) keep their pixels; absent = refine every face. */
   minFace?: number;
+  /** `primary` refines only the largest tracked face per shot; absent = every tracked face. */
+  subjects?: 'all' | 'primary';
 }
 /** Standalone refinement of an existing 24 fps video (native `jobs_face_refine::compile`). */
 export interface H3FaceRefineIntentV1 {
@@ -82,9 +84,10 @@ export interface H3FaceRefineIntentV1 {
 export const faceRefineNodes = ['DEAS_H3FaceRefine','DEAS_VideoPostprocessGate','CheckpointLoaderSimple','CLIPTextEncode','SAM3_VideoTrack','MiniMaxH3ImageToVideo','SplitSigmasDenoise'] as const;
 const between = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 export function isFaceRefineBlock(b: unknown): b is H3FaceRefineBlock {
-  const keys = ['samCheckpoint','prompt','threshold','maxObjects','detectInterval','sceneThreshold','denoise','cropFactor','feather','minFace'];
-  return record(b) && Object.keys(b).every(k => keys.includes(k)) && keys.every(k => k === 'sceneThreshold' || k === 'minFace' || Object.hasOwn(b, k))
+  const keys = ['samCheckpoint','prompt','threshold','maxObjects','detectInterval','sceneThreshold','denoise','cropFactor','feather','minFace','subjects'];
+  return record(b) && Object.keys(b).every(k => keys.includes(k)) && keys.every(k => ['sceneThreshold','minFace','subjects'].includes(k) || Object.hasOwn(b, k))
     && (!Object.hasOwn(b, 'minFace') || integer(b.minFace, 0, 4096))
+    && (!Object.hasOwn(b, 'subjects') || b.subjects === 'all' || b.subjects === 'primary')
     && typeof b.samCheckpoint === 'string' && name(b.samCheckpoint.replace(/\\/gu,'/'))
     && typeof b.prompt === 'string' && b.prompt.trim() !== '' && b.prompt.length <= 16384
     && between(b.threshold, 0, 1) && integer(b.maxObjects, 1, 64) && integer(b.detectInterval, 1, 2_147_483_647)

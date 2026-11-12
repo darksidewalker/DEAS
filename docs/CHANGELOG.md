@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.24 BETA (unreleased)
+
+- **Face refinement: Main face only.** A new default-OFF **Main face only** switch in the H3 face refinement controls refines only the largest tracked face of each shot (the main subject, measured by tracked mask area); other faces keep their original pixels and the choice is logged per shot. Saved settings without the switch keep refining every tracked face. Applies to the standalone refine and to refinement after H3 generation.
+
 ## 0.2.23 BETA
 
 - **Export into bookmark folders.** *Export without metadata* and the normal result export failed with "Parent components must be existing non-symlink directories" when the save dialog pointed into a folder reached through a symlink (e.g. `~/Videos → /data/Videos`); the export folder is now resolved before the no-clobber write. The Logs line for a failed clean export now carries the actual error instead of "inspect the returned error".

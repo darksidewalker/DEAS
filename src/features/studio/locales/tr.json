@@ -1082,5 +1082,7 @@
   "studio.run.derope.inject.safe": "0,70 · daha güvenli",
   "studio.run.derope.injectHint": "Yavaşlatılmış klipte yeniden çalıştırılan zamanlama payı: düşük değer orijinali daha çok korur, yüksek değer modelin daha çok yeniden üretmesine izin verir.",
   "studio.faceRefine.minFace": "En küçük yüz boyutu (px)",
-  "studio.faceRefine.minFaceHint": "Bu değerden hiç büyük olmayan yüzler orijinal piksellerini korur (0 = tüm yüzler). Çok küçük bir yüz 768 tuvaline büyütülür ve az ayrıntı için tam bir H3 geçişine mal olur."
+  "studio.faceRefine.minFaceHint": "Bu değerden hiç büyük olmayan yüzler orijinal piksellerini korur (0 = tüm yüzler). Çok küçük bir yüz 768 tuvaline büyütülür ve az ayrıntı için tam bir H3 geçişine mal olur.",
+  "studio.faceRefine.primaryOnly": "Yalnızca ana yüz",
+  "studio.faceRefine.primaryOnlyHint": "Her çekimde yalnızca izlenen en büyük yüzü (ana özne) iyileştirir; diğer yüzler orijinal piksellerini korur. Kapalı = izlenen tüm yüzler."
 }
