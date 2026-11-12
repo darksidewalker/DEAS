@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.24 BETA (unreleased)
+## 0.2.24 BETA
 
 - **Linux: external file drags no longer show a blocked cursor.** The native video layer above the web view stayed visible even with no video showing and swallowed every external drag before WebKit saw it (Comfy tab and all other drop zones). It is now shown only while a native video surface is visible.
 - **File drops in the Comfy tab.** Native workflow/image drops are forwarded as original files at the actual editor position, through ComfyUI’s own dragover/drop handlers. JSON and embedded-PNG workflows open normally; image drops on an existing upload node retain node-target behavior. Other tabs keep their native drops. Reads are ranged and bounded to one eighth of available RAM; errors are localized and reach Logs.

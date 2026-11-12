@@ -1,7 +1,7 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
 
-## Comfy native file-drop forwarding (0.2.24, unreleased)
+## Comfy native file-drop forwarding (0.2.24)
 
 - **Owner retest found a blocked cursor; root cause and fix.** A real cross-process GTK URI drag (private nested KWin/Xwayland session, separate GTK source window, KDE fake-input pointer; no access to the owner's desktop) reproduced it: the source reported `NO_TARGET`, Wry never emitted enter/over/drop. A plain GTK control target in the same session accepted the drag with COPY, isolating DEAS. Cause: `video_linux.rs` packs a full-window `GtkFixed` (native libmpv layer) into a `GtkOverlay` above WebKit and showed it unconditionally; overlay pass-through forwards clicks, not drag destinations. The layer is now `no_show_all` and shown only while at least one child surface has its own visible flag (`get_visible`, not ancestor-aware `is_visible`, which would have kept video hidden forever). After the fix the same physical gesture produced Wry enter → over ×24 → drop, ranged asset reads (2,253,249 bytes), dispatch and observed Comfy workflow import; the source ended with COPY and the file remained. Native video regression in the same session: libmpv frames with five distinct framebuffer hashes, gl_error 0, advancing clock, hide → reshow → close. Ignored GTK unit test `overlay_tests::native_video_layer_tracks_visible_surfaces` passed on the private display. Archive: `/data/GitHub/AI-Ressources/deas-verification/comfy-real-dnd/`. External drags *over* a visible native video remain blocked (pre-existing, not on the Comfy tab). Gates after the fix: strict all-target Clippy; serial native library suite 922 passed / 71 ignored. `bash build-linux.sh` passed; `artifacts/deas-linux-amd64` SHA-256 `b032351c49cd470a0a8eb77f28e0c1859b2565d9bb482c05e9afe8fc300b57c7`; relaunch required.
 
@@ -12,19 +12,19 @@
 - Final gates: typecheck; 155 core tests; full UI 87 files / 1,767 tests; focused Comfy/setup suites 80 tests; 6 native Logs tests; strict Clippy; Windows xwin all-target compile check; shared Chromium layout 467 checks; Comfy production-preview navigation/retention in all six locales/five widths (30 cases). Updated stale Comfy verifier fixtures for event metadata, Advanced experience and the two tab bands; production preview is required because the shipped CSP blocks Vite's inline dev preamble.
 - `bash build-linux.sh` passed; `artifacts/deas-linux-amd64` SHA-256 `a70d4ba76af754ba1133d093f8afc641e49eeeb99ff16c422c344363cfa63ce2`; final `index-v43TTrPp.js` verified embedded. Relaunch required. Physical file-manager drag gestures in the release app and Windows WebView2 runtime/scaled-display acceptance remain open; no commit/push performed.
 
-## Empty H3 face-refinement prompts (0.2.24, unreleased)
+## Empty H3 face-refinement prompts (0.2.24)
 
 - Removed the nonempty-string restriction in TS `isFaceRefineBlock` and Rust `jobs_face_refine::validate`. Both empty refinement/main prompts are accepted for automatic H3 I2V and standalone refinement, without replacing the user's conditioning. SAM's separate `face` detection text and all other validation remain unchanged. Installed Core `nodes_minimax_h3.py::MiniMaxH3ImageToVideo` forwards prompt directly to tokenization and has no nonempty-string guard.
 - Core regression failed before the fix and passed after it; typecheck and 155 core tests passed. Workbench/AudioEnhance/GlobalSearch: 512 tests passed, including the H3 I2V automatic toggle with both prompts empty. Full serial native library suite: 921 passed, 70 ignored; includes empty standalone conditioning, empty generation/refine I2V graphs and continued invalid-field rejection. Strict Clippy and targeted rustfmt passed. An earlier foreground native-suite attempt timed out at 180 seconds; the completed background rerun is the recorded proof.
 - Linux build passed, final `index-KTl0Fksc.js` verified embedded in `artifacts/deas-linux-amd64`; SHA-256 `1befcf86778a28d860388c817b60db04855f4b40b72cb59c3d1287c9999e1f38`. Relaunch required. No GPU inference/quality comparison or native Windows/WebKit click-through was run.
 
-## Audio category pipeline eligibility (0.2.24, unreleased)
+## Audio category pipeline eligibility (0.2.24)
 
 - Fixed unconditional Audio enhancement card availability: only music/audio and video pipelines can open it. Image pipelines show a localized reason even with mode OFF; remembered settings and in-progress install feedback are preserved. Automatic-audio restrictions for Wan remain unchanged.
 - Regression first failed on the old code (`inactive` instead of `unavailable`). Final targeted suites: 516 tests passed across Workbench, AudioEnhance, dockBadges and GlobalSearch; typecheck and 154 core tests passed. Covers text/image-to-image blocking, both music modes, H3 video availability, closure on pipeline changes and retained audio preferences without submission.
 - Linux build passed; `artifacts/deas-linux-amd64` SHA-256 `9bb1eecbd4a3c3fe2a5ae18cc441538ac4af01857b8aa96a88f9f45970ca8488`, final `index-BuQydhL6.js` verified embedded. Relaunch required. Native Windows/WebKit interaction was not rerun; no execution backend or layout logic changed.
 
-## Floating Post-Processing settings (0.2.24, unreleased)
+## Floating Post-Processing settings (0.2.24)
 
 - Cards open draggable non-modal settings above the workspace, with no backdrop or Tab trap, opaque theme background and independently scrolling content. Pipeline-incompatible cards are disabled with their reason visible; remembered preferences survive, and incompatible pipeline navigation closes an open category.
 - Typecheck, 154 core tests and the final full UI suite (86 files, 1,751 tests) passed. App TVE navigation now uses the standalone tab instead of the disabled image-pipeline post card.

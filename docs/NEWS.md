@@ -1,6 +1,6 @@
 # News
 
-## 0.2.24 BETA (unreleased)
+## 0.2.24 BETA
 
 - The Comfy tab accepts native workflow/image drops, including images dropped onto an existing node.
 
