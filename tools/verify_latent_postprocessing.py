@@ -215,6 +215,7 @@ def verify_case(browser, url, artifacts, family, installed):
         clean(page, errors)
         page.goto(url+'/tools/inpaint-fixture.html', wait_until='networkidle')
         page.locator('[data-dock-tab="post"]').click()
+        page.locator('[data-post-card="latent"]').click()
         toggle = page.locator('[data-latent-upscale-enabled]')
         expect(toggle).not_to_be_checked()
         toggle.check()

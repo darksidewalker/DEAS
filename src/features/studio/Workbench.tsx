@@ -173,7 +173,6 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
    postCardRefs.current[id]?.focus();
   }
  },[openPostCategory]);
- useEffect(()=>{if(planVisible||beginner)setOpenPostCategory(null);},[planVisible,beginner]);
  const [samTargetReveal,setSamTargetReveal]=useState(0);
  useLayoutEffect(()=>{if(!samTargetReveal||dockTab!=='post'||openPostCategory!=='sam')return;setSamTargetReveal(0);const target='.wb-post [data-sam="targets"]';revealTarget(target);document.querySelector<HTMLInputElement>(target)?.focus();},[samTargetReveal,dockTab,openPostCategory]);
  useLayoutEffect(()=>{if(focusDockTab.current){document.querySelector<HTMLButtonElement>(`[data-dock-tab="${dockTab}"]`)?.focus();focusDockTab.current=false;}},[dockTab]);
@@ -183,6 +182,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [queueWidth,setQueueWidth]=usePref('studio.layout.queueWidth',defaultLayout.queue,isNumber);
  const [settingsHidden,setSettingsHidden]=usePref('studio.layout.settingsHidden',false,isBoolean);
  const [dockHidden,setDockHidden]=usePref('studio.dock.hidden',false,isBoolean);
+ useEffect(()=>{if(planVisible||beginner)setOpenPostCategory(null);},[planVisible,beginner]);
  const [promptHeight,setPromptHeight]=usePref('beginner.layout.promptHeight',110,isNumber);
  const [promptHidden,setPromptHidden]=usePref('beginner.layout.promptHidden',false,isBoolean);
  const [bodyWidth,setBodyWidth]=useState(1000);
@@ -1705,6 +1705,7 @@ const promptTools=forgeContext&&<>
   latentSpikeGuard:videoFamily==='minimax-h3'&&latentEnabled&&!!(latentPref.advanced?.spikeGuard),
   samVideoCuts,
   faceRefine:faceRefine.auto&&!faceRefineAutoUnavailable,
+  faceRefinePrimaryOnly:faceRefine.auto&&!faceRefineAutoUnavailable&&!!faceRefine.primaryOnly,
   refineTiled:post&&postTiled&&!family?.temporalLatent&&!!choices?.nodes?.includes('DaSiWaTiledDiffusion'),
   derope:videoFamily==='minimax-h3'&&derope.enabled,
   deropeKeepBackground:videoFamily==='minimax-h3'&&derope.enabled&&deropePref.keepBackground,
@@ -1934,16 +1935,16 @@ const promptTools=forgeContext&&<>
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/></div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
     <div className="wb-post-cards" role="group" aria-label={t('studio.run.dock.post')}>
-     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
+     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
       <span className="wb-post-card-head">
        <strong className="wb-post-card-title">{cat.title}</strong>
        <span className="wb-post-card-badge" data-post-card-count={cat.id}>{t('studio.run.post.card.count',{count:String(cat.count)})}</span>
       </span>
       <span className="wb-post-card-meta">
        <span className="wb-post-card-status"><span aria-hidden="true">{cat.active?'●':cat.available?'○':'⊘'}</span> {t(cat.active?'studio.run.post.card.active':cat.available?'studio.run.post.card.inactive':'studio.run.post.card.unavailable')}</span>
-       <span className="wb-post-card-action">{t('studio.run.post.card.open')}</span>
+       <span className="wb-post-card-action" aria-hidden="true">{t('studio.run.post.card.open')}</span>
       </span>
-      {cat.reason&&<small className="wb-post-card-reason">{cat.reason}</small>}
+      {cat.reason&&<small className="wb-post-card-reason" id={`wb-post-reason-${cat.id}`}>{cat.reason}</small>}
      </button>)}
     </div>
     {openPostCategory!=='audio'&&(audioEnhance.installing||audioEnhance.error)&&<div className="wb-options" data-audio-enhance="post" data-audio-enhance-dock-feedback><AudioEnhanceInstallFeedback settings={audioEnhance}/></div>}
@@ -1954,7 +1955,7 @@ const promptTools=forgeContext&&<>
         <h2>{activePostCategory?.title}</h2>
         {activePostCategory&&<span className="wb-post-card-badge">{t(activePostCategory.active?'studio.run.post.card.active':activePostCategory.available?'studio.run.post.card.inactive':'studio.run.post.card.unavailable')} · {t('studio.run.post.card.count',{count:String(activePostCategory.count)})}</span>}
        </div>
-       <button ref={postOverlayCloseRef} type="button" data-post-overlay-close onClick={()=>closePostCategory(true)}>{t('studio.close')}</button>
+       <button ref={postOverlayCloseRef} type="button" className="wb-dock-action" data-post-overlay-close onClick={()=>closePostCategory(true)}>{t('studio.close')}</button>
       </header>
       <div className="wb-post-overlay-body">
        <div className="wb-post-category" data-post-category="audio" hidden={openPostCategory!=='audio'}>

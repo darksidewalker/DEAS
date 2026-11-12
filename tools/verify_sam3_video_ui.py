@@ -51,6 +51,7 @@ with sync_playwright() as p:
     page.add_init_script(INIT + '\n' + FIXTURE)
     page.goto(URL+'/tools/inpaint-fixture.html', wait_until='networkidle')
     page.locator('[data-dock-tab="post"]').click()
+    page.locator('[data-post-card="face-analysis"]').click()
     group = page.locator('[data-post-group="face-analysis"]')
     expect(group).to_be_visible()
     expect(group.locator('[data-sam-video="source"]')).to_contain_text('source.mp4')

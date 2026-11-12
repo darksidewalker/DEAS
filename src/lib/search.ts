@@ -296,7 +296,8 @@ export function revealTarget(target: string): RevealOutcome {
   window.setTimeout(() => element.classList.remove('search-flash'), 1400);
   const disabled = element.matches(':disabled') || !!element.querySelector(':disabled:not(option):not(optgroup)') || element.getAttribute('aria-disabled') === 'true';
   if (!disabled) {
-    const focusable = element.matches('input,select,textarea,button,[tabindex]') ? element : element.querySelector<HTMLElement>('input,select,textarea,button,[tabindex]');
+    // Container targets elsewhere (Options/Backend cards) must not focus an inner Reset/Remove button.
+    const focusable = element.matches('input,select,textarea,button,[tabindex]') ? element : postCategory ? element.querySelector<HTMLElement>('input,select,textarea,button,[tabindex]') : element;
     focusable?.focus?.();
     return { state: 'revealed' };
   }

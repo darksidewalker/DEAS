@@ -61,6 +61,7 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (entry: SearchEntry) 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation(); // the panel's own Escape handler would close a second time
       close();
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();

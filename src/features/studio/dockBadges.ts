@@ -43,6 +43,7 @@ export interface PostBadgeInput {
   latentSpikeGuard?: boolean;
   samVideoCuts?: boolean;
   faceRefine?: boolean;
+  faceRefinePrimaryOnly?: boolean;
   refineTiled?: boolean;
   derope?: boolean;
   deropeKeepBackground?: boolean;
@@ -57,7 +58,7 @@ export function postCategoryFunctions(p: PostBadgeInput): Record<PostCategoryId,
   return {
     audio: p.audio && p.audioMode !== 'off' ? ['audio'] : [],
     latent: p.video && p.latent ? ['latent', ...(p.latentSpikeGuard ? ['latent.spikeGuard'] : [])] : [],
-    'face-analysis': h3Video && p.faceRefine ? ['faceRefine', ...(p.samVideoCuts ? ['faceAnalysis.cuts'] : [])] : [],
+    'face-analysis': h3Video && p.faceRefine ? ['faceRefine', ...(p.samVideoCuts ? ['faceAnalysis.cuts'] : []), ...(p.faceRefinePrimaryOnly ? ['faceRefine.primaryOnly'] : [])] : [],
     sam: imageEligible && p.sam ? ['sam'] : [],
     refine: refineEligible && p.refine ? ['refine', ...(p.refineTiled ? ['refine.tiled'] : [])] : [],
     model: p.video && p.tve.upscaleModel ? ['upscale'] : [],
@@ -73,17 +74,3 @@ export function postCategoryFunctions(p: PostBadgeInput): Record<PostCategoryId,
   };
 }
 
-/** Post-processing stages that will run for the current pipeline. */
-export function activePost(p: PostBadgeInput): string[] {
-  const byCategory = postCategoryFunctions(p);
-  if (p.video) return [
-    ...byCategory.latent,
-    ...byCategory['face-analysis'],
-    ...byCategory.derope,
-    ...(p.tve.loop ? ['loop'] : []),
-    ...byCategory.model,
-    ...(['denoise', 'deblur', 'rtxUpscale', 'frameGen'] as const).filter(k => p.tve[k]),
-    ...byCategory.audio,
-  ];
-  return [...byCategory.refine, ...byCategory.sam, ...byCategory.audio];
-}
