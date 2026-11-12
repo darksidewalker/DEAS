@@ -31,6 +31,28 @@ test('bridge validates graphs, rejects overlapping loads and reports load failur
  r.app.loadGraphData.mockRejectedValueOnce(new Error('failed'));await r.send({type:'deas:load',id:'four',workflow,name:'a.png'});
  expect(r.parent.postMessage).toHaveBeenLastCalledWith({type:'deas:error',id:'four'},'tauri://localhost');
 });
+test('file drops preserve original files and hit coordinates, prime node dragover before drop and reject foreign input',async()=>{
+ const events:{type:string;dataTransfer:{files:File[]};clientX:number;clientY:number}[]=[];
+ const target={dispatchEvent:vi.fn(event=>{events.push(event);return true;})};
+ const previous=document.elementFromPoint;
+ Object.defineProperty(document,'elementFromPoint',{configurable:true,value:vi.fn(()=>target)});
+ vi.stubGlobal('DataTransfer',class {files:File[]=[];items={add:(file:File)=>this.files.push(file)};});
+ vi.stubGlobal('DragEvent',class {constructor(public type:string,options:object){Object.assign(this,options);}});
+ try{
+  const r=receiver(),file=new File(['original bytes'],'workflow.png',{type:'image/png'});
+  const message={type:'deas:drop',id:'d',files:[file],x:20,y:30};
+  await r.send(message,'https://evil.invalid');expect(events).toHaveLength(0);
+  for(const bad of [{...message,files:[]},{...message,files:[{}]},{...message,x:-1},{...message,y:Infinity}])await r.send(bad);
+  expect(events).toHaveLength(0);
+  await r.send(message);
+  expect(events.map(e=>e.type)).toEqual(['dragover','drop']);
+  expect(events[1].dataTransfer.files).toEqual([file]);
+  expect([events[1].clientX,events[1].clientY]).toEqual([20,30]);
+  expect(r.app.loadGraphData).not.toHaveBeenCalled();
+  expect(r.parent.postMessage).toHaveBeenLastCalledWith({type:'deas:dropped',id:'d'},'tauri://localhost');
+ }finally{vi.unstubAllGlobals();Object.defineProperty(document,'elementFromPoint',{configurable:true,value:previous});}
+});
+
 test('bridge disables backdrop blur inside the Comfy frame',()=>{
  receiver();document.dispatchEvent(new Event('DOMContentLoaded'));
  expect([...document.head.querySelectorAll('style')].some(s=>s.textContent?.includes('backdrop-filter:none!important'))).toBe(true);

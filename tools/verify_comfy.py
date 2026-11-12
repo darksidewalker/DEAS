@@ -19,10 +19,13 @@ fixture = r"""
 (() => {
 if(window.top!==window.self)return;
 localStorage.setItem('deas.locale.v1',LOCALE);
+localStorage.setItem('deas.pref.interface.experience',JSON.stringify('advanced'));
 localStorage.setItem('deas.pref.install.root',JSON.stringify('/fixture/env'));
 window.isTauri=true;window.__CALLS__=[];window.__BACKENDSTATE__='starting';
-window.__TAURI_INTERNALS__={convertFileSrc:p=>'asset://localhost/'+encodeURIComponent(p),invoke:async(c,a)=>{
+window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
+window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebview:{label:'main'}},transformCallback:()=>1,unregisterCallback:()=>{},convertFileSrc:p=>'asset://localhost/'+encodeURIComponent(p),invoke:async(c,a)=>{
  window.__CALLS__.push(c);
+ if(c==='plugin:event|listen'||c==='plugin:event|unlisten')return 1;
  if(c==='native_files_present')return [true];
  if(c==='native_install_plan')return {id:'reopen',reopenId:'checked',request:{storagePath:'/fixture/env',backend:'cpu',features:[],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
  if(c==='native_install_open')return {state:'succeeded',logs:[],error:null};
@@ -121,10 +124,11 @@ with sync_playwright() as p:
         assert not page.locator('.aio-setup-header').is_visible()
         assert not page.locator('.studio-workspace').is_visible()
         assert page.locator('.footer').is_visible()
-        assert page.locator('.aio-tabs').is_visible()
+        assert all(tab.is_visible() for tab in page.locator('.aio-tabs').all())
         frame_box = page.locator('.comfy-view iframe').bounding_box()
         footer_box = page.locator('.footer').bounding_box()
-        assert frame_box['height'] > 700, frame_box
+        comfy_box = page.locator('.comfy-view').bounding_box()
+        assert frame_box['height'] > 0 and abs(frame_box['y'] + frame_box['height'] - comfy_box['y'] - comfy_box['height']) <= 2, frame_box
         assert frame_box['y'] + frame_box['height'] <= 958
         assert footer_box['y'] + footer_box['height'] <= 961, footer_box
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight')

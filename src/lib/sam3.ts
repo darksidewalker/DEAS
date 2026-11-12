@@ -89,7 +89,7 @@ export function isFaceRefineBlock(b: unknown): b is H3FaceRefineBlock {
     && (!Object.hasOwn(b, 'minFace') || integer(b.minFace, 0, 4096))
     && (!Object.hasOwn(b, 'subjects') || b.subjects === 'all' || b.subjects === 'primary')
     && typeof b.samCheckpoint === 'string' && name(b.samCheckpoint.replace(/\\/gu,'/'))
-    && typeof b.prompt === 'string' && b.prompt.trim() !== '' && b.prompt.length <= 16384
+    && typeof b.prompt === 'string' && b.prompt.length <= 16384
     && between(b.threshold, 0, 1) && integer(b.maxObjects, 1, 64) && integer(b.detectInterval, 1, 2_147_483_647)
     && (!Object.hasOwn(b, 'sceneThreshold') || (between(b.sceneThreshold, 0, 1) && b.sceneThreshold > 0))
     && between(b.denoise, 0, 1) && b.denoise > 0 && between(b.cropFactor, 1.2, 8) && integer(b.feather, 0, 256);

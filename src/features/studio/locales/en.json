@@ -1098,5 +1098,6 @@
   "studio.run.post.reason.h3VideoOnly": "MiniMax H3 video pipelines only.",
   "studio.run.post.reason.latentOnly": "LTX-2 and MiniMax H3 video pipelines only.",
   "studio.run.post.reason.imageOnly": "Image pipelines only.",
+  "studio.run.post.reason.audioVideoOnly": "Audio or video pipelines only.",
   "studio.run.post.reason.audioManualOnly": "Manual audio enhancement remains available; automatic run post-processing needs an audio-capable video or music pipeline."
 }

@@ -11,6 +11,7 @@
   "setup.moveEnvironmentDone": "環境を {path} に移動しました。",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
+  "setup.comfy.dropError": "ファイルのドロップに失敗しました。ファイル、空きRAM、接続されたComfyUIエディターを確認してください。ログを参照してください。",
   "setup.comfy.title": "ComfyUI ワークフローエディター",
   "setup.backendStarting": "起動中…",
   "setup.backendStarted": "起動済み",

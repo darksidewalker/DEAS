@@ -128,8 +128,8 @@ pub use install::{
     native_install_status, native_install_update, native_torch_update_check,
 };
 pub use logs::{
-    native_logs, native_logs_beginner_error, native_logs_export, native_logs_people_image_error,
-    native_logs_reference_media_error,
+    native_logs, native_logs_beginner_error, native_logs_comfy_drop_error, native_logs_export,
+    native_logs_people_image_error, native_logs_reference_media_error,
 };
 
 use reqwest::Url;

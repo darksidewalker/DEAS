@@ -2,6 +2,13 @@
 
 ## 0.2.24 BETA (unreleased)
 
+- **Linux: external file drags no longer show a blocked cursor.** The native video layer above the web view stayed visible even with no video showing and swallowed every external drag before WebKit saw it (Comfy tab and all other drop zones). It is now shown only while a native video surface is visible.
+- **File drops in the Comfy tab.** Native workflow/image drops are forwarded as original files at the actual editor position, through ComfyUI’s own dragover/drop handlers. JSON and embedded-PNG workflows open normally; image drops on an existing upload node retain node-target behavior. Other tabs keep their native drops. Reads are ranged and bounded to one eighth of available RAM; errors are localized and reach Logs.
+
+- **H3 face refinement accepts empty prompts.** Automatic refinement (including Image to Video) and standalone refinement no longer require a nonempty refinement/main prompt. Empty conditioning is passed unchanged, with no invented prompt; other validation and SAM face detection remain unchanged.
+
+- **Audio enhancement respects the pipeline.** Its Post-Processing card is greyed out and blocked for image pipelines, with an explicit localized reason even when audio enhancement is OFF. Video/music pipelines retain access; remembered audio settings are preserved.
+
 - **H3 latent upscale: 2D upscaler and sharpness tiers.** With node pack 0.5.47+ the new `minimax_h3_latent_upscaler_2d_conv_v1` checkpoint runs in H3 latent upscale and is the preferred default model when installed (a saved choice is kept); the download popup offers it first. **☰ More upscaler options** gains **Sharpness (2D tier)** 1–6, default 1; it is greyed with a reason for 3D models or older packs, is sent only when changed and only to a supporting pack (native admission rejects it otherwise). Run Plan and Recent history carry it like the other options.
 - **Pipeline-incompatible Post-Processing cards are greyed out and blocked.** Their reasons remain visible and remembered values are retained. Switching to an incompatible pipeline closes the open category.
 - **Floating Post-Processing settings.** Category cards open a draggable non-modal overlay with independently scrolling controls, rather than expanding inside the dock. No backdrop or focus trap: the rest of the workspace remains interactive; Escape/Close returns focus to the card.

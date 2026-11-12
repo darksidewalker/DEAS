@@ -2745,6 +2745,18 @@ fn face_block() -> Value {
 }
 
 #[test]
+fn h3_i2v_face_refine_accepts_empty_generation_and_refine_prompts() {
+    let mut i = h3();
+    i["positivePrompt"] = json!("");
+    i["faceRefine"] = face_block();
+    i["faceRefine"]["prompt"] = json!("");
+    let g = compile(&i).unwrap();
+    assert_eq!(g["FRC"]["inputs"]["prompt"], json!(""));
+    assert_eq!(g["FRT"]["inputs"]["text"], json!("face"));
+    assert_eq!(g["FR"]["inputs"]["images"], json!(["SD", 0]));
+}
+
+#[test]
 fn h3_face_refine_chains_after_decode_behind_the_baseline_gate() {
     let baseline = compile(&h3()).unwrap();
     let mut i = h3();

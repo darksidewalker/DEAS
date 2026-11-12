@@ -1098,5 +1098,6 @@
   "studio.run.post.reason.h3VideoOnly": "仅限 MiniMax H3 视频管线。",
   "studio.run.post.reason.latentOnly": "仅限 LTX-2 与 MiniMax H3 视频管线。",
   "studio.run.post.reason.imageOnly": "仅限图像管线。",
+  "studio.run.post.reason.audioVideoOnly": "仅适用于音频或视频管线。",
   "studio.run.post.reason.audioManualOnly": "仍可使用手动音频增强；运行后自动处理需要支持音频的视频或音乐管线。"
 }

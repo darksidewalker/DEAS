@@ -11,6 +11,7 @@
   "setup.moveEnvironmentDone": "Environment moved to {path}.",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
+  "setup.comfy.dropError": "File drop failed. Check the file, available RAM and connected ComfyUI editor. See Logs.",
   "setup.comfy.title": "ComfyUI workflow editor",
   "setup.backendStarting": "Starting…",
   "setup.backendStarted": "Started",

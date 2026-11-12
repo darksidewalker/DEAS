@@ -227,6 +227,10 @@ struct State {
     players: HashMap<String, Surface>,
 }
 thread_local! {static STATE:RefCell<State>=RefCell::new(State::default());}
+// An empty visible GTK overlay intercepts external drags before WebKit receives them.
+fn sync_video_layer(fixed: &gtk::Fixed) {
+    fixed.set_visible(fixed.children().iter().any(|child| child.get_visible()));
+}
 pub fn install(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -240,6 +244,7 @@ pub fn install(app: &tauri::AppHandle) -> Result<(), String> {
             };
             let overlay = gtk::Overlay::new();
             let fixed = gtk::Fixed::new();
+            fixed.set_no_show_all(true);
             parent.remove(&web);
             overlay.add(&web);
             overlay.add_overlay(&fixed);
@@ -249,13 +254,13 @@ pub fn install(app: &tauri::AppHandle) -> Result<(), String> {
             let layer = fixed.clone();
             let visible = restore.clone();
             web.connect_drag_begin(move |_, _| {
-                visible.set(layer.is_visible());
+                visible.set(layer.get_visible());
                 layer.hide();
             });
             let layer = fixed.clone();
             web.connect_drag_end(move |_, _| {
                 if restore.replace(false) {
-                    layer.show();
+                    sync_video_layer(&layer);
                 }
             });
             overlay.set_hexpand(true);
@@ -340,6 +345,9 @@ pub fn update(id: &str, action: Action) -> Result<Value, String> {
         let mut state = s.borrow_mut();
         if matches!(action, Action::Close) {
             state.players.remove(id);
+            if let Some(fixed) = &state.fixed {
+                sync_video_layer(fixed);
+            }
             return Ok(Value::Null);
         }
         let surface = state.players.get(id).ok_or("Video preview closed")?;
@@ -392,9 +400,53 @@ pub fn update(id: &str, action: Action) -> Result<Value, String> {
             }
             Action::Close | Action::PreviewError => unreachable!(),
         };
+        if let Some(fixed) = &state.fixed {
+            sync_video_layer(fixed);
+        }
         Ok(Value::Null)
     })
 }
 pub fn shutdown() {
-    STATE.with(|s| s.borrow_mut().players.clear());
+    STATE.with(|s| {
+        let mut state = s.borrow_mut();
+        state.players.clear();
+        if let Some(fixed) = &state.fixed {
+            sync_video_layer(fixed);
+        }
+    });
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires a dedicated GTK display"]
+    fn native_video_layer_tracks_visible_surfaces() {
+        gtk::init().unwrap();
+        let overlay = gtk::Overlay::new();
+        let fixed = gtk::Fixed::new();
+        fixed.set_no_show_all(true);
+        overlay.add_overlay(&fixed);
+        overlay.show_all();
+        assert!(!fixed.get_visible());
+        let area = gtk::DrawingArea::new();
+        area.set_no_show_all(true);
+        fixed.put(&area, 0, 0);
+        sync_video_layer(&fixed);
+        assert!(!fixed.get_visible());
+        area.show();
+        sync_video_layer(&fixed);
+        assert!(fixed.get_visible());
+        area.hide();
+        sync_video_layer(&fixed);
+        assert!(!fixed.get_visible());
+        area.show();
+        sync_video_layer(&fixed);
+        assert!(fixed.get_visible());
+        unsafe {
+            area.destroy();
+        }
+        sync_video_layer(&fixed);
+        assert!(!fixed.get_visible());
+    }
 }

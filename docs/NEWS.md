@@ -2,6 +2,12 @@
 
 ## 0.2.24 BETA (unreleased)
 
+- The Comfy tab accepts native workflow/image drops, including images dropped onto an existing node.
+
+- H3 face refinement also works with empty main/refinement prompts; no replacement text is inserted.
+
+- Audio enhancement in Post-Processing is blocked for image pipelines; video/music access and saved settings are retained.
+
 - Post-Processing settings are grouped into category cards with status and active counts (contributed by @Arasberk). Settings float in draggable, non-blocking overlays; cards incompatible with the selected pipeline are greyed out and blocked, without losing saved values.
 - H3 face refinement can be limited to the main face of each shot (**Main face only**, off by default).
 

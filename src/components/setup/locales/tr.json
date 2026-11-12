@@ -11,6 +11,7 @@
   "setup.moveEnvironmentDone": "Ortam {path} konumuna taşındı.",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
+  "setup.comfy.dropError": "Dosya bırakma başarısız. Dosyayı, kullanılabilir RAM’i ve bağlı ComfyUI düzenleyicisini kontrol edin. Günlüklere bakın.",
   "setup.comfy.title": "ComfyUI iş akışı düzenleyicisi",
   "setup.backendStarting": "Başlatılıyor…",
   "setup.backendStarted": "Başlatıldı",

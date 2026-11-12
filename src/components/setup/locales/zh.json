@@ -11,6 +11,7 @@
   "setup.moveEnvironmentDone": "环境已移至 {path}。",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
+  "setup.comfy.dropError": "文件拖放失败。请检查文件、可用内存及已连接的 ComfyUI 编辑器。详情见日志。",
   "setup.comfy.title": "ComfyUI 工作流编辑器",
   "setup.backendStarting": "正在启动…",
   "setup.backendStarted": "已启动",

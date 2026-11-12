@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { startupPhase, startupReady } from '../../lib/startup';
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { comfyDropPoint, readComfyDropFiles, sendComfyDrop } from '../../lib/comfyDrop';
 import { useI18n } from '../../i18n/I18nProvider';
 import { initialSetupState, storageTarget, setupPlan, transitionSetup, validateBackend, type FeatureId, type InstallOptions, type NativeInstallPlan, type NativeInstallStatus, type NativeInstallDefaults, type NativeBackendStatus } from '../../lib/setup';
 import './setup.css';
@@ -91,6 +93,34 @@ export function AiOSetup({ experience='advanced',onExperience,beginnerPage='gene
  const comfyEndpoint=backendStatus?.state==='running'?backendStatus.endpoint??'':'';
  const [comfyLoaded,setComfyLoaded]=useState(false);
  const comfyFrame=useRef<HTMLIFrameElement>(null);
+ const [comfyDropError,setComfyDropError]=useState(false);
+ useEffect(()=>{
+  const activeFrame=comfyFrame.current;
+  if(!native||view!=='comfy'||!comfyEndpoint||!activeFrame)return;
+  let alive=true,unlisten:(()=>void)|undefined,drop:AbortController|null=null;
+  const reloaded=()=>{drop?.abort();drop=null;};
+  activeFrame.addEventListener('load',reloaded);
+  const failed=()=>{if(alive){setComfyDropError(true);void invoke('native_logs_comfy_drop_error').catch(()=>{});}};
+  void (async()=>getCurrentWebview().onDragDropEvent(e=>{
+   const frame=comfyFrame.current;
+   if(!alive||e.payload.type!=='drop'||!frame)return;
+   const payload=e.payload,point=comfyDropPoint(frame,payload.position);
+   if(!point||!payload.paths.length)return;
+   if(drop){failed();return;}
+   const controller=new AbortController();drop=controller;setComfyDropError(false);
+   void (async()=>{
+    try{
+     const files=await readComfyDropFiles(payload.paths,controller.signal);
+     if(!alive||controller.signal.aborted||comfyFrame.current!==frame)return;
+     const currentPoint=comfyDropPoint(frame,payload.position);
+     if(!currentPoint)return;
+     await sendComfyDrop(frame,comfyEndpoint,files,currentPoint,controller.signal);
+    }catch{if(!controller.signal.aborted)failed();}
+    finally{if(drop===controller)drop=null;}
+   })();
+  }))().then(stop=>{if(alive)unlisten=stop;else stop();},failed);
+  return()=>{alive=false;drop?.abort();activeFrame.removeEventListener('load',reloaded);unlisten?.();};
+ },[native,view,comfyEndpoint]);
  const handoff=useRef<AbortController|null>(null);
  useEffect(()=>()=>handoff.current?.abort(),[comfyEndpoint]);
  const openWorkflow=async(workflow:ComfyWorkflow,name:string)=>{
@@ -329,7 +359,7 @@ export function AiOSetup({ experience='advanced',onExperience,beginnerPage='gene
   {experience==='unset'&&onExperience&&<ExperienceWelcome onChoose={onExperience}/>}
   <div className={`aio-decision-area${side?'':' is-single'}`}>
   <div className="aio-left">
-  {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe ref={comfyFrame} title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
+  {comfyVisited.current&&<div className="comfy-view" hidden={view!=='comfy'}>{comfyDropError&&<p role="alert">{t('setup.comfy.dropError')}</p>}{(!comfyEndpoint||!comfyLoaded)&&<div className="comfy-loading" role="status"><span className="aio-spinner" aria-hidden="true"/>{t(comfyEndpoint?'setup.comfy.loading':'setup.comfy.waiting')}</div>}{comfyEndpoint&&<iframe ref={comfyFrame} title={t('setup.comfy.title')} src={comfyEndpoint} onLoad={()=>setComfyLoaded(true)} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" allow="clipboard-read; clipboard-write; fullscreen"/>}</div>}
   {status&&(status.state!=='succeeded'||status.error)&&view!=='comfy'&&(running||inBackend)&&<section className="aio-detail aio-status" aria-label={t('setup.installStatus')}><h3>{t('setup.installStatus')}</h3><p role="status">{running&&<span className="aio-spinner" aria-hidden="true"/>}{t(`setup.execution.${status.state}`)}{status.stepId&&` · ${status.stepId}`}</p>{status.logs.length>0&&<p className="aio-help aio-last-log">{status.logs[status.logs.length-1]}</p>}{status.error&&<p role="alert">{t('setup.technicalError')}: {status.error}</p>}{running&&<button disabled={busy} onClick={()=>void cancel()}>{t('setup.cancel')}</button>}</section>}
   {/* Once opened, the Studio stays mounted (hidden) so its panels keep their state across tab switches. */}
   {studioVisited.current&&<div className="aio-studio-host" hidden={view!=='studio'}><OpenComfyWorkflow.Provider value={comfyEndpoint?openWorkflow:null}>{studio}</OpenComfyWorkflow.Provider></div>}

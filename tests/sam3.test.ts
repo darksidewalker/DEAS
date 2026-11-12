@@ -1,9 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileSam3Mask, isSam3Intent, type Sam3MaskIntentV1 } from '../src/lib/sam3.ts';
+import { compileSam3Mask, isSam3Intent, isFaceRefineBlock, type Sam3MaskIntentV1 } from '../src/lib/sam3.ts';
 import type { RecipeAllowlist } from '../src/lib/execution.ts';
 const intent = (): Sam3MaskIntentV1 => ({ recipeId: 'sam3-mask', version: 1, checkpoint: 'sam3.1.safetensors', inputImage: 'source.png', width: 641, height: 479, outputPrefix: 'DEAS/mask', prompt: 'eyes', threshold: 0.5 });
 const allow: RecipeAllowlist = { nodes: ['CheckpointLoaderSimple', 'LoadImage', 'CLIPTextEncode', 'SAM3_Detect', 'MaskToImage', 'SaveImage', 'PrimitiveBoundingBox'], checkpoints: ['sam3.1.safetensors'], images: ['source.png'], samplers: [], schedulers: [] };
+
+test('H3 face refinement accepts empty prompts but retains field and numeric validation', () => {
+ const block = {samCheckpoint:'sam3.1.safetensors',prompt:'',threshold:0.5,maxObjects:4,detectInterval:1,denoise:0.3,cropFactor:2.5,feather:6};
+ for (const prompt of ['', '  ', 'a detailed face']) assert.ok(isFaceRefineBlock({...block,prompt}));
+ for (const prompt of [null, 1, 'x'.repeat(16385)]) assert.equal(isFaceRefineBlock({...block,prompt}),false);
+ const {prompt: _prompt,...missingPrompt}=block;
+ assert.equal(isFaceRefineBlock(missingPrompt),false);
+ assert.equal(isFaceRefineBlock({...block,denoise:0}),false);
+ assert.equal(isFaceRefineBlock({...block,feather:1.5}),false);
+});
 
 test('SAM3 text keeps all 200 detector queries per category and saves an unscaled RGB union', () => {
   const i = { ...intent(), prompt: '(eyes:1), feet' };

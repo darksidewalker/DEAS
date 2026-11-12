@@ -24,13 +24,23 @@
  let loading=false;
  window.addEventListener('message',async event=>{
   const data=event.data;
-  if(event.source!==window.parent||!allowed.has(event.origin)||!data||typeof data.id!=='string'||!['deas:probe','deas:load'].includes(data.type))return;
+  if(event.source!==window.parent||!allowed.has(event.origin)||!data||typeof data.id!=='string'||!['deas:probe','deas:load','deas:drop'].includes(data.type))return;
   const reply=type=>event.source.postMessage({type,id:data.id},event.origin);
   try{
    // Frontend 1.57+ no longer exposes comfyAPI.app, so its /scripts/app.js shim throws; the live app is window.app.
    const app=window.app?.canvas?window.app:(await import(new URL('/scripts/app.js',location.origin).href)).app;
    if(!app?.canvas)return;
    if(data.type==='deas:probe'){reply('deas:ready');return;}
+   if(data.type==='deas:drop'){
+    if(loading||!Array.isArray(data.files)||!data.files.length||!data.files.every(f=>f instanceof File)||!Number.isFinite(data.x)||!Number.isFinite(data.y)||data.x<0||data.y<0||data.x>=innerWidth||data.y>=innerHeight)throw Error('Invalid drop');
+    const transfer=new DataTransfer();
+    for(const file of data.files)transfer.items.add(file);
+    const target=document.elementFromPoint(data.x,data.y);
+    if(!target)throw Error('Drop target unavailable');
+    // Comfy's dragover sets dragOverNode; dropping alone would bypass node uploads.
+    for(const type of ['dragover','drop'])target.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,clientX:data.x,clientY:data.y,dataTransfer:transfer}));
+    reply('deas:dropped');return;
+   }
    const w=data.workflow;
    if(loading||!w||!Array.isArray(w.nodes)||!Array.isArray(w.links)||!w.nodes.every(n=>n&&typeof n.type==='string'&&['string','number'].includes(typeof n.id))||JSON.stringify(w).length>2*1024*1024||typeof data.name!=='string')throw Error('Invalid workflow');
    loading=true;

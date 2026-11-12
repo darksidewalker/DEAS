@@ -11,6 +11,7 @@
   "setup.moveEnvironmentDone": "Environnement déplacé vers {path}.",
   "installer.chain.gguf": "GGUF",
   "setup.tab.comfy": "Comfy",
+  "setup.comfy.dropError": "Échec du dépôt. Vérifiez le fichier, la RAM disponible et l’éditeur ComfyUI connecté. Consultez les journaux.",
   "setup.comfy.title": "Éditeur de workflows ComfyUI",
   "setup.backendStarting": "Démarrage…",
   "setup.backendStarted": "Démarré",

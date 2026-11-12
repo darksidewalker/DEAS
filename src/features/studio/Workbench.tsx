@@ -1719,8 +1719,8 @@ const promptTools=forgeContext&&<>
  const postCategories=postCategoryOrder.map(id=>{
   const count=postByCategory[id].length;
   const active=count>0;
-  const available=id==='audio'?true:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':isVideo;
-  const reason=id==='audio'?(!(isMusic||(isVideo&&videoFamily!=='wan'))&&audioEnhance.mode!=='off'?t('studio.run.post.reason.audioManualOnly'):'')
+  const available=id==='audio'?isMusic||isVideo:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':isVideo;
+  const reason=id==='audio'?(!isMusic&&!isVideo?t('studio.run.post.reason.audioVideoOnly'):isVideo&&videoFamily==='wan'&&audioEnhance.mode!=='off'?t('studio.run.post.reason.audioManualOnly'):'')
    :id==='latent'?(!latent?t('studio.run.post.reason.latentOnly'):latentProblems[0]??'')
    :id==='face-analysis'?(!(isVideo&&isH3Video(videoFamily))?t('studio.run.post.reason.h3VideoOnly'):faceRefine.auto&&faceRefineAutoUnavailable?faceRefineAutoUnavailable:'')
    :id==='sam'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):samEnabled&&samUnavailable?samUnavailable:'')

@@ -67,7 +67,7 @@ pub(crate) fn validate(f: &Value) -> Result<(), String> {
         && f["samCheckpoint"].as_str().is_some_and(comfy_model_name)
         && f["prompt"]
             .as_str()
-            .is_some_and(|p| !p.trim().is_empty() && p.len() <= 16384)
+            .is_some_and(|p| p.len() <= 16384)
         && finite(&f["threshold"], 0.0, 1.0)
         && f["maxObjects"].as_u64().is_some_and(|n| (1..=64).contains(&n))
         // Core io.Int's default upper bound is signed 32-bit.
@@ -256,6 +256,17 @@ mod tests {
     }
 
     #[test]
+    fn empty_face_prompts_reach_conditioning_without_replacement() {
+        for prompt in ["", "  "] {
+            let mut i = intent();
+            i["faceRefine"]["prompt"] = json!(prompt);
+            let g = crate::jobs::compile(&i).unwrap();
+            assert_eq!(g["FRC"]["inputs"]["prompt"], json!(prompt));
+            assert_eq!(g["FRT"]["inputs"]["text"], json!("face"));
+        }
+    }
+
+    #[test]
     fn standalone_graph_windows_with_audio_refines_behind_baseline_gate() {
         let g = crate::jobs::compile(&intent()).unwrap();
         assert_eq!(g["W"]["inputs"]["include_audio"], json!(true));
@@ -365,7 +376,8 @@ mod tests {
             assert!(compile(&i).is_err(), "{k}");
         }
         for (k, v) in [
-            ("prompt", json!("  ")),
+            ("prompt", json!(null)),
+            ("prompt", json!("x".repeat(16385))),
             ("denoise", json!(0)),
             ("denoise", json!(1.5)),
             ("cropFactor", json!(1.0)),

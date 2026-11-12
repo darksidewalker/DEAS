@@ -121,6 +121,18 @@ pub fn native_logs_reference_media_error() {
     );
 }
 
+/// Fixed local-editor drop diagnostic; never log file paths or workflow contents.
+#[tauri::command]
+pub fn native_logs_comfy_drop_error() {
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+        return;
+    }
+    *last = Some(std::time::Instant::now());
+    push(Source::Deas, "ERROR: Comfy file-drop: intake or editor dispatch failed; check the file, available RAM and connected editor (repeats limited to once per minute)");
+}
+
 /// Entries newer than `after` (0 = everything still retained).
 #[tauri::command]
 pub fn native_logs(after: u64) -> Vec<Entry> {
@@ -152,6 +164,22 @@ pub async fn native_logs_export(title: String, text: String) -> Result<bool, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comfy_drop_errors_are_shared_rate_limited_and_registered() {
+        native_logs_comfy_drop_error();
+        native_logs_comfy_drop_error();
+        let reports: Vec<_> = native_logs(0)
+            .into_iter()
+            .filter(|e| e.text.starts_with("ERROR: Comfy file-drop:"))
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, Source::Deas);
+        assert!(include_str!("main.rs").contains("deas::native_logs_comfy_drop_error,"));
+        assert!(
+            include_str!("../permissions/logs.toml").contains("\"native_logs_comfy_drop_error\"")
+        );
+    }
 
     #[test]
     fn beginner_catalog_errors_are_fixed_shared_and_rate_limited() {

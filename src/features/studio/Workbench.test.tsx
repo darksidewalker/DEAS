@@ -5299,6 +5299,28 @@ async function mountMusic(pipeline:'Music (Text to Music)'|'Music (Cover Music)'
 }
 const music=()=>({style:screen.getByRole('textbox',{name:'Style'}) as HTMLTextAreaElement,lyrics:screen.getByRole('textbox',{name:'Lyrics'}) as HTMLTextAreaElement});
 
+test.each(['Music (Text to Music)','Music (Cover Music)'] as const)('Audio enhancement card follows pipeline kind and retains preferences from %s',async(pipeline)=>{
+ localStorage.setItem('deas.pref.studio.audioEnhance.post.mode',JSON.stringify('clean'));
+ await mountMusic(pipeline);
+ dock('Post-Processing');
+ const card=()=>document.querySelector<HTMLButtonElement>('[data-post-card="audio"]')!;
+ expect(card().disabled).toBe(false);
+ fireEvent.click(card());
+ expect(card().getAttribute('aria-expanded')).toBe('true');
+ for(const imagePipeline of ['Text → Image','Image → Image']){
+  choosePipe(imagePipeline);
+  expect(card().disabled).toBe(true);
+  expect(card().dataset.postState).toBe('unavailable');
+  expect(card().dataset.postCount).toBe('0');
+  expect(card().title).toBe('Audio or video pipelines only.');
+  expect(card().getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(card());
+  expect(screen.queryByRole('dialog')).toBeNull();
+ }
+ expect(localStorage.getItem('deas.pref.studio.audioEnhance.post.mode')).toBe('"clean"');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('remembered image refinement does not require its baseline gate for music',async()=>{
  localStorage.setItem('deas.pref.studio.run.post','true');
  await mountMusic('Music (Text to Music)');
@@ -5911,8 +5933,8 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
  dock('Post-Processing');
  const cards=()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[data-post-card]'));
  expect(cards().map(c=>c.dataset.postCard)).toEqual(['audio','latent','face-analysis','sam','refine','model','derope','tve']);
- // On an image pipeline, remembered video settings (latent, derope, tve, model) stay unavailable with 0 active functions.
- for(const id of ['latent','face-analysis','model','derope','tve']){
+ // Audio/video categories stay unavailable on image pipelines, with 0 active functions.
+ for(const id of ['audio','latent','face-analysis','model','derope','tve']){
   const card=document.querySelector<HTMLButtonElement>(`[data-post-card="${id}"]`)!;
   expect(card.dataset.postState).toBe('unavailable');
   expect(card.dataset.postCount).toBe('0');
@@ -5962,6 +5984,7 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
  expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postState).toBe('unavailable');
  expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postCount).toBe('0');
  expect(refineCard.disabled).toBe(true);
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="audio"]')!.disabled).toBe(false);
  expect(screen.queryByRole('dialog')).toBeNull();
  expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('8');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
@@ -6067,8 +6090,9 @@ test('Post-Processing overlay allows Tab focus outside, ignores hidden dialogs, 
  fireEvent.click(within(getOverlay()).getByRole('button',{name:'Close'}));
  expect(document.activeElement).toBe(samCard);
 
- // H3 face-analysis: (1) auto off with remembered cuts = 0, (2) auto on and available = 2, (3) auto on but blocked = 0; card and dock agree and saved prefs stay intact.
- choosePipe('Text → Video');
+ // H3 I2V must allow automatic face refinement with both prompt fields empty.
+ choosePipe('Image → Video');
+ fireEvent.change(screen.getByRole('textbox',{name:/^Prompt$/}),{target:{value:''}});
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postState).toBe('inactive'));
  const faceCard=document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!;
  expect(faceCard.dataset.postCount).toBe('0');
@@ -6076,8 +6100,9 @@ test('Post-Processing overlay allows Tab focus outside, ignores hidden dialogs, 
  expect(localStorage.getItem('deas.pref.studio.run.samVideoCuts')).toBe('true');
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(false);
 
- // (2) Auto on and available: card and dock both report 2 active functions.
+ // (2) Auto on and available even without prompts: card and dock report 2 active functions.
  fireEvent.click(faceCard);
+ fireEvent.change(document.querySelector<HTMLTextAreaElement>('[data-face-refine="prompt"]')!,{target:{value:''}});
  const cutsCheckbox=document.querySelector<HTMLInputElement>('[data-sam-video="cuts"]')!;
  expect(cutsCheckbox.checked).toBe(true);
  const faceAutoCheckbox=await waitFor(()=>{
