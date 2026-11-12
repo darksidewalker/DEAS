@@ -5290,6 +5290,11 @@ test('remembered image refinement does not require its baseline gate for music',
  fireEvent.click(run);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('refine');
+ // The remembered refine settings stay visible but read-only while the category is unavailable.
+ fireEvent.click(screen.getByRole('tab',{name:/Post-Processing/}));
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
+ const remembered=screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}) as HTMLInputElement;
+ expect(remembered.checked).toBe(true);expect(remembered.matches(':disabled')).toBe(true);
 });
 
 test('text-to-music lists only YuE2 checkpoints, two music editors, no canvas/negative, and submits the music intent without uploads',async()=>{
@@ -5984,7 +5989,7 @@ test('Post-Processing overlay traps Tab focus when visible, ignores hidden dialo
  await waitFor(()=>expect(document.activeElement).toBe(autoRefineInput));
  expect(refineCard.getAttribute('aria-expanded')).toBe('true');
 
- // Tab and Shift+Tab wrap focus within the open modal overlay; a hidden dialog in another pane is ignored.
+ // The category panel is non-modal: it sits inside the dock, has no backdrop and never traps Tab, so Run/Stop and the side column stay usable.
  const hiddenHost=document.createElement('div');
  hiddenHost.hidden=true;
  const hiddenDialog=document.createElement('dialog');
@@ -5992,17 +5997,13 @@ test('Post-Processing overlay traps Tab focus when visible, ignores hidden dialo
  hiddenHost.appendChild(hiddenDialog);
  document.body.appendChild(hiddenHost);
  const getOverlay=()=>document.querySelector<HTMLElement>('.wb-post-overlay')!;
+ expect(getOverlay().closest('.wb-dock-panel')).not.toBeNull();
+ expect(getOverlay().getAttribute('aria-modal')).toBeNull();
+ expect(document.querySelector('.wb-post-overlay-backdrop')).toBeNull();
  const closeBtn=within(getOverlay()).getByRole('button',{name:'Close'});
  closeBtn.focus();
- fireEvent.keyDown(document,{key:'Tab',shiftKey:true});
- expect(getOverlay().contains(document.activeElement)).toBe(true);
- expect(document.activeElement).not.toBe(closeBtn);
- const lastFocused=document.activeElement as HTMLElement;
- fireEvent.keyDown(document,{key:'Tab'});
- expect(document.activeElement).toBe(closeBtn);
- lastFocused.focus();
- fireEvent.keyDown(document,{key:'Tab'});
- expect(document.activeElement).toBe(closeBtn);
+ expect(fireEvent.keyDown(document,{key:'Tab'})).toBe(true);
+ expect(fireEvent.keyDown(document,{key:'Tab',shiftKey:true})).toBe(true);
 
  // When the Studio pane is hidden, the Post overlay ignores Tab and Escape.
  const workbenchHost=document.querySelector<HTMLElement>('.workbench-host')!;

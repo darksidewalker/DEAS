@@ -1736,26 +1736,6 @@ const promptTools=forgeContext&&<>
    if(e.key==='Escape'&&!e.defaultPrevented){
     e.preventDefault();
     closePostCategory(true);
-    return;
-   }
-   if(e.key==='Tab'){
-    const focusables=Array.from(overlayEl.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])')).filter(el=>{
-     if(el.closest('[hidden]')||el.closest('fieldset:disabled')||el.getAttribute('aria-hidden')==='true')return false;
-     const details=el.closest('details');
-     return !details||details.open||el.tagName==='SUMMARY';
-    });
-    if(!focusables.length){e.preventDefault();return;}
-    const active=document.activeElement as HTMLElement|null;
-    if(!active||!overlayEl.contains(active)){
-     e.preventDefault();
-     (e.shiftKey?focusables[focusables.length-1]:focusables[0]).focus();
-    }else if(e.shiftKey&&active===focusables[0]){
-     e.preventDefault();
-     focusables[focusables.length-1].focus();
-    }else if(!e.shiftKey&&active===focusables[focusables.length-1]){
-     e.preventDefault();
-     focusables[0].focus();
-    }
    }
   };
   document.addEventListener('keydown',onKey);
@@ -1948,7 +1928,7 @@ const promptTools=forgeContext&&<>
      </button>)}
     </div>
     {openPostCategory!=='audio'&&(audioEnhance.installing||audioEnhance.error)&&<div className="wb-options" data-audio-enhance="post" data-audio-enhance-dock-feedback><AudioEnhanceInstallFeedback settings={audioEnhance}/></div>}
-    <div className="wb-post-overlay-backdrop" hidden={!openPostCategory} onMouseDown={e=>{if(e.target===e.currentTarget){e.preventDefault();closePostCategory(true);}}}>
+    <div className="wb-post-overlay-host" hidden={!openPostCategory}>
      <div ref={postOverlayRef} role="dialog" aria-label={activePostCategory?.title??t('studio.run.dock.post')} data-post-overlay={openPostCategory??undefined} className="wb-post-overlay">
       <header className="wb-post-overlay-header">
        <div className="wb-post-overlay-heading">
@@ -1991,7 +1971,7 @@ const promptTools=forgeContext&&<>
         {!isVideo&&!isMusic?samControls():<p className="field-help" data-post-unavailable="sam">{t('studio.run.post.reason.imageOnly')}</p>}
        </div>
        <div className="wb-post-category" data-post-category="refine" hidden={openPostCategory!=='refine'}>
-        {!isVideo?<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend>{(isMusic||h3Image||moss)&&<p className="field-help" data-post-unavailable="refine">{isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):t('studio.plan.imageOnly')}</p>}<div className="wb-options">
+        {!isVideo?<fieldset className="wb-group" data-post-group="refine" disabled={isMusic||h3Image||moss}><legend>{t('studio.run.post.group.refine')}</legend>{(isMusic||h3Image||moss)&&<p className="field-help" data-post-unavailable="refine">{isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):t('studio.plan.imageOnly')}</p>}<div className="wb-options">
          <div className="wb-option"><span><label className="wb-option-row"><input data-refine="auto" type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
          <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled&&!family?.temporalLatent} disabled={!!family?.temporalLatent||(!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion'))} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(family?.temporalLatent?'studio.run.post.tiledFamily':choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
          <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
