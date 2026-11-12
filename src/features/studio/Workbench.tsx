@@ -26,8 +26,8 @@ import { ModelMetadataTarget, ModelDeclaredBadge, useModelMetadataUpdates } from
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { componentFiles, componentFilesNamed, defaultComponentOverrides, isComponentOverrides, type ComponentFamily, type ComponentSlot } from '../../lib/modelComponents';
 import { ComponentPicker } from './ComponentPicker';
-import { AudioEnhance } from './AudioEnhance';
-import { activePost, activeWildcards, changedOptions } from './dockBadges';
+import { AudioEnhance, AudioEnhanceInstallFeedback } from './AudioEnhance';
+import { activeWildcards, changedOptions, postCategoryFunctions, postCategoryOrder, type PostCategoryId } from './dockBadges';
 import { useAudioEnhance } from './useAudioEnhance';
 import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
 import { DeropeControls, defaultDerope, deropeNodes, fromDerope, isDeropePref, withDerope } from './DeropeControls';
@@ -147,8 +147,35 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [savedDockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
  const dockTab=beginner?'media':savedDockTab;
  const focusDockTab=useRef(false);
+ const [openPostCategory,setOpenPostCategory]=useState<PostCategoryId|null>(null);
+ const openPostCategoryRef=useRef<PostCategoryId|null>(null);
+ openPostCategoryRef.current=openPostCategory;
+ const restorePostFocus=useRef<PostCategoryId|null>(null);
+ const postCardRefs=useRef<Partial<Record<PostCategoryId,HTMLButtonElement|null>>>({});
+ const postOverlayRef=useRef<HTMLDivElement>(null);
+ const postOverlayCloseRef=useRef<HTMLButtonElement>(null);
+ const focusPostOverlay=useRef(false);
+ const closePostCategory=useCallback((restoreFocus=true)=>{
+  const current=openPostCategoryRef.current;
+  if(current&&restoreFocus){
+   restorePostFocus.current=current;
+   postCardRefs.current[current]?.focus();
+  }
+  setOpenPostCategory(null);
+ },[]);
+ useLayoutEffect(()=>{
+  if(openPostCategory&&focusPostOverlay.current){
+   focusPostOverlay.current=false;
+   postOverlayCloseRef.current?.focus();
+  }else if(!openPostCategory&&restorePostFocus.current){
+   const id=restorePostFocus.current;
+   restorePostFocus.current=null;
+   postCardRefs.current[id]?.focus();
+  }
+ },[openPostCategory]);
+ useEffect(()=>{if(planVisible||beginner)setOpenPostCategory(null);},[planVisible,beginner]);
  const [samTargetReveal,setSamTargetReveal]=useState(0);
- useEffect(()=>{if(samTargetReveal){const target='.wb-post [data-sam="targets"]';revealTarget(target);document.querySelector<HTMLInputElement>(target)?.focus();}},[samTargetReveal]);
+ useLayoutEffect(()=>{if(!samTargetReveal||dockTab!=='post'||openPostCategory!=='sam')return;setSamTargetReveal(0);const target='.wb-post [data-sam="targets"]';revealTarget(target);document.querySelector<HTMLInputElement>(target)?.focus();},[samTargetReveal,dockTab,openPostCategory]);
  useLayoutEffect(()=>{if(focusDockTab.current){document.querySelector<HTMLButtonElement>(`[data-dock-tab="${dockTab}"]`)?.focus();focusDockTab.current=false;}},[dockTab]);
  const openWildcards=()=>{focusDockTab.current=true;setDockTab('wildcards');document.querySelector<HTMLButtonElement>('[data-dock-tab="wildcards"]')?.focus();};
  const [dockHeight,setDockHeight]=usePref('studio.dock.height',defaultLayout.dock,isNumber);
@@ -1663,10 +1690,79 @@ const promptTools=forgeContext&&<>
    </div>}<span id="project-actions-slot" hidden={beginner}/></div>);
  // How many settings in a dock tab are switched on / differ from default; nothing when all defaults.
  const wildcardChanges=activeWildcards(wildcardEnabled,wildcard),optionChanges=changedOptions(optionsPref);
- const postChanges=[...activePost({video:isVideo,audio:isMusic||(isVideo&&videoFamily!=='wan'),latent:latentEnabled,tve,refine:post,sam:samEnabled,audioMode:audioEnhance.mode}),...(isVideo&&derope.enabled?['derope']:[])];
+ const postByCategory=postCategoryFunctions({
+  video:isVideo,
+  audio:isMusic||(isVideo&&videoFamily!=='wan'),
+  latent:latentEnabled,
+  tve,
+  refine:post,
+  sam:samEnabled,
+  audioMode:audioEnhance.mode,
+  music:isMusic,
+  h3Video:isH3Video(videoFamily),
+  h3Image,
+  moss,
+  latentSpikeGuard:videoFamily==='minimax-h3'&&latentEnabled&&!!(latentPref.advanced?.spikeGuard),
+  samVideoCuts,
+  faceRefine:faceRefine.auto&&!faceRefineAutoUnavailable,
+  refineTiled:post&&postTiled&&!family?.temporalLatent&&!!choices?.nodes?.includes('DaSiWaTiledDiffusion'),
+  derope:videoFamily==='minimax-h3'&&derope.enabled,
+  deropeKeepBackground:videoFamily==='minimax-h3'&&derope.enabled&&deropePref.keepBackground,
+  deropeDistilled:videoFamily==='minimax-h3'&&derope.enabled&&deropePref.mode==='full'&&deropePref.distilled,
+ });
+ const postChanges=postCategoryOrder.flatMap(id=>postByCategory[id]);
+ const postCategories=postCategoryOrder.map(id=>{
+  const count=postByCategory[id].length;
+  const active=count>0;
+  const available=id==='audio'?true:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':isVideo;
+  const reason=id==='audio'?(!(isMusic||(isVideo&&videoFamily!=='wan'))&&audioEnhance.mode!=='off'?t('studio.run.post.reason.audioManualOnly'):'')
+   :id==='latent'?(!latent?t('studio.run.post.reason.latentOnly'):latentProblems[0]??'')
+   :id==='face-analysis'?(!(isVideo&&isH3Video(videoFamily))?t('studio.run.post.reason.h3VideoOnly'):faceRefine.auto&&faceRefineAutoUnavailable?faceRefineAutoUnavailable:'')
+   :id==='sam'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):samEnabled&&samUnavailable?samUnavailable:'')
+   :id==='refine'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):moss?t('studio.plan.imageOnly'):'')
+   :id==='derope'?(!(isVideo&&videoFamily==='minimax-h3')?t('studio.run.post.reason.h3VideoOnly'):'')
+   :!isVideo?t('studio.run.post.reason.videoOnly'):'';
+  const title=t(id==='audio'?'studio.audioEnhance.title':id==='latent'?'studio.run.post.group.latent':id==='face-analysis'?'studio.samVideo.title':id==='sam'?'studio.sam.title':id==='refine'?'studio.run.post.group.refine':id==='model'?'studio.run.post.model':id==='derope'?'studio.run.derope.title':'studio.tve.post.title');
+  return {id,title,count,active,available,reason};
+ });
+ const activePostCategory=openPostCategory?postCategories.find(c=>c.id===openPostCategory):undefined;
+ useEffect(()=>{
+  if(!openPostCategory||dockTab!=='post'||planVisible||beginner||dockHidden)return;
+  const onKey=(e:KeyboardEvent)=>{
+   const overlayEl=postOverlayRef.current;
+   if(!overlayEl||!overlayEl.isConnected||overlayEl.closest('[hidden], [data-collapsed]'))return;
+   if(Array.from(document.querySelectorAll<HTMLElement>('dialog[open], #global-search-panel, .wb-viewer, .wb-prompt-overlay, [data-run-stop-choice], .media-menu')).some(el=>!el.closest('[hidden]')))return;
+   if(e.key==='Escape'&&!e.defaultPrevented){
+    e.preventDefault();
+    closePostCategory(true);
+    return;
+   }
+   if(e.key==='Tab'){
+    const focusables=Array.from(overlayEl.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])')).filter(el=>{
+     if(el.closest('[hidden]')||el.closest('fieldset:disabled')||el.getAttribute('aria-hidden')==='true')return false;
+     const details=el.closest('details');
+     return !details||details.open||el.tagName==='SUMMARY';
+    });
+    if(!focusables.length){e.preventDefault();return;}
+    const active=document.activeElement as HTMLElement|null;
+    if(!active||!overlayEl.contains(active)){
+     e.preventDefault();
+     (e.shiftKey?focusables[focusables.length-1]:focusables[0]).focus();
+    }else if(e.shiftKey&&active===focusables[0]){
+     e.preventDefault();
+     focusables[focusables.length-1].focus();
+    }else if(!e.shiftKey&&active===focusables[focusables.length-1]){
+     e.preventDefault();
+     focusables[0].focus();
+    }
+   }
+  };
+  document.addEventListener('keydown',onKey);
+  return()=>document.removeEventListener('keydown',onKey);
+ },[openPostCategory,dockTab,planVisible,beginner,dockHidden,closePostCategory]);
  // aria-hidden keeps each tab's accessible name stable; the count stays visible and in the tooltip.
  const dockBadge=(n:number)=>n>0&&<small className="wb-dock-badge" aria-hidden="true" title={t('studio.run.dock.changed',{count:String(n)})}>{n}</small>;
- const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={()=>{focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?activeLoras.length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
+ const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?activeLoras.length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
  return <>
  <div className="studio-project-bar-host" hidden={beginner}><ProjectBar draft={projectDraft} busy={busy||!!current||nativeRefining||autoPlan||resolving} onRestore={restoreProject}/></div>
  {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
@@ -1738,7 +1834,7 @@ const promptTools=forgeContext&&<>
       {inpaint&&<>
        <label className="wb-field wb-wide" title={t('studio.run.maskGrowHelp')}><span><input type="checkbox" style={{width:'auto'}} checked={inpaintOnlyMasked} onChange={e=>setInpaintOnlyMasked(e.target.checked)}/>{t('studio.run.inpaintOnlyMasked')}</span></label>
         {num('maskGrow',maskGrow,n=>{if(isMaskGrow(n))setMaskGrow(n);},0,512,1,inpaintOnlyMasked?undefined:t('studio.run.maskGrowInactive'),true)}
-       <button type="button" className="wb-dock-action wb-wide" data-sam="mask" disabled={serialBlocked||admissionBlocked||samBusy} title={samUnavailable||undefined} onClick={()=>{focusDockTab.current=true;setDockTab('post');loadChoices();if(samTargets(samText).length)void maskWithSam();else setSamTargetReveal(n=>n+1);}}>{t('studio.sam.mask')}</button>
+       <button type="button" className="wb-dock-action wb-wide" data-sam="mask" disabled={serialBlocked||admissionBlocked||samBusy} title={samUnavailable||undefined} onClick={()=>{const hasTargets=samTargets(samText).length>0;focusDockTab.current=hasTargets;focusPostOverlay.current=false;setDockTab('post');loadChoices();if(hasTargets)void maskWithSam();else{setOpenPostCategory('sam');setSamTargetReveal(n=>n+1);}}}>{t('studio.sam.mask')}</button>
        {samStatus&&<p className="wb-wide" role="status">{samStatus}</p>}
        {num('maskBlur',maskBlur,n=>{if(isMaskBlur(n))setMaskBlur(n);},0,31,1,undefined,true)}
        {h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
@@ -1837,45 +1933,85 @@ const promptTools=forgeContext&&<>
    {dockTab==='presets'&&<div className="wb-dock-panel"><PresetPanel disabled={busy||!!current||autoPlan||resolving}/></div>}
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/></div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
-    <AudioEnhance scope="post" settings={audioEnhance} automatic={isMusic||isVideo&&videoFamily!=='wan'} source={shown&&terminalOutput(shown)&&shown.outputs[audioOutputIndex]&&(/\.(flac|wav|mp3|opus|ogg|m4a|webm|mkv|mp4|mov)$/i.test(shown.outputs[audioOutputIndex].filename))?{jobId:shown.id,index:audioOutputIndex}:undefined} name={shown?.outputs[audioOutputIndex]?.filename}/>
-    {latent&&<fieldset className="wb-group" data-post-group="latent"><legend>{t('studio.run.post.group.latent')}</legend><div className="wb-options">
-     <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
-     <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
-     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
-     {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
+    <div className="wb-post-cards" role="group" aria-label={t('studio.run.dock.post')}>
+     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
+      <span className="wb-post-card-head">
+       <strong className="wb-post-card-title">{cat.title}</strong>
+       <span className="wb-post-card-badge" data-post-card-count={cat.id}>{t('studio.run.post.card.count',{count:String(cat.count)})}</span>
+      </span>
+      <span className="wb-post-card-meta">
+       <span className="wb-post-card-status"><span aria-hidden="true">{cat.active?'●':cat.available?'○':'⊘'}</span> {t(cat.active?'studio.run.post.card.active':cat.available?'studio.run.post.card.inactive':'studio.run.post.card.unavailable')}</span>
+       <span className="wb-post-card-action">{t('studio.run.post.card.open')}</span>
+      </span>
+      {cat.reason&&<small className="wb-post-card-reason">{cat.reason}</small>}
+     </button>)}
     </div>
-     {videoFamily==='minimax-h3'&&(()=>{const a={...h3LatentDefaults,...latentPref.advanced};const set=(patch:H3LatentAdvanced)=>setLatentPref({...latentPref,advanced:{...latentPref.advanced,...patch}});
-       const num=(k:'cfg'|'memoryBudgetMb'|'guardSensitivity'|'guardStrength'|'memoryReservePct'|'continuityMaskStrength',min:number,max:number,step:number,hint?:string)=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><input data-latent-advanced={k} type="number" min={min} max={max} step={step} value={a[k]} onChange={e=>set({[k]:Number(e.target.value)})}/>{hint&&<small>{t(hint)}</small>}</label>;
-       const flag=(k:'spatialTiling'|'temporalChunking'|'spikeGuard'|'memoryPlanning'|'continuitySoftRefine',hint?:string)=><div className="wb-option" key={k}><label className="wb-option-row"><input data-latent-advanced={k} type="checkbox" checked={a[k]} onChange={e=>set({[k]:e.target.checked})}/>{t(`studio.run.latent.${k}`)}</label>{hint&&<small>{t(hint)}</small>}</div>;
-       const choose=(k:'scheduler'|'precision'|'guardMode',options:readonly string[])=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><select data-latent-advanced={k} value={a[k]} onChange={e=>set({[k]:e.target.value} as H3LatentAdvanced)}>{(options.includes(a[k])?options:[a[k],...options]).map(o=><option key={o} value={o}>{o}</option>)}</select></label>;
-       return <details className="wb-model-files" data-latent-upscale-more><summary aria-label={t('studio.run.latent.more')}>☰ {t('studio.run.latent.more')}</summary><div className="wb-options">
-        {num('cfg',0,20,0.1)}{choose('scheduler',choices?.schedulers??[h3LatentDefaults.scheduler])}{choose('precision',['auto','bf16','fp16','fp32'])}
-        {flag('spatialTiling')}{flag('temporalChunking')}
-        {flag('memoryPlanning','studio.run.latent.memoryPlanningHint')}{a.memoryPlanning&&num('memoryReservePct',0,100,5)}{num('memoryBudgetMb',0,131072,256,'studio.run.latent.memoryBudgetHint')}
-        {flag('spikeGuard','studio.run.latent.spikeGuardHint')}{a.spikeGuard&&<>{num('guardSensitivity',1.5,12,0.1)}{num('guardStrength',0,1,0.05)}{choose('guardMode',['burn_direction','both'])}</>}
-        {flag('continuitySoftRefine','studio.run.latent.continuityHint')}{a.continuitySoftRefine&&num('continuityMaskStrength',0,1,0.05)}
-        </div><button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
-       </details>;})()}
-     {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
-     <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
-    </fieldset>}
-    {isVideo&&isH3Video(videoFamily)&&<Sam3VideoControls value={samVideoSettings} onChange={v=>{setSamCheckpoint(v.checkpoint);setSamThreshold(v.threshold);setSamVideoStart(v.startSeconds);setSamVideoDuration(v.durationSeconds);setSamVideoMax(v.maxObjects);setSamVideoInterval(v.detectInterval);setSamVideoCuts(v.cuts);setSamVideoSceneThreshold(v.sceneThreshold);}} models={samModels} sourceName={samVideoSource?.media==='video'?samVideoSource.name:undefined} unavailable={samVideoUnavailable} busy={serialBlocked||admissionBlocked||scanning} onAnalyze={()=>void analyzeFaceMasks()} refine={{value:faceRefine,onChange:setFaceRefine,unavailable:faceRefineUnavailable,autoUnavailable:faceRefineAutoUnavailable,onRefine:()=>void refineFaces()}}/>}
-    {!isVideo&&!isMusic&&samControls()}
-    {!isVideo&&<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend><div className="wb-options">
-     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
-     <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled&&!family?.temporalLatent} disabled={!!family?.temporalLatent||(!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion'))} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(family?.temporalLatent?'studio.run.post.tiledFamily':choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
-     <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
-     <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
-     <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
-    </div></fieldset>}
-    {isVideo&&<>
-     <fieldset className="wb-group" data-post-group="model"><legend>{t('studio.run.post.model')}</legend><div className="wb-options">
-      <label className="wb-option"><select data-tve-post="upscaleModel" aria-label={t('studio.run.post.model')} value={tve.upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setTve({...tve,upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{tve.upscaleModel&&!choices?.upscaleModels?.includes(tve.upscaleModel)&&<option value={tve.upscaleModel}>{tve.upscaleModel}</option>}</select><small>{t('studio.run.post.group.modelHint')}</small></label>
-     </div></fieldset>
-     {videoFamily==='minimax-h3'&&<DeropeControls value={deropePref} onChange={setDerope} allow={choices} onRead={loadChoices} conflict={continuityOn&&plan.outputMode==='segment'&&nextStep(plan)?.continuity.sourceKind==='video'}/>}
-     <fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>
-    </>}
-    {!isVideo&&onOpenVideoPost&&<fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>}
+    {openPostCategory!=='audio'&&(audioEnhance.installing||audioEnhance.error)&&<div className="wb-options" data-audio-enhance="post" data-audio-enhance-dock-feedback><AudioEnhanceInstallFeedback settings={audioEnhance}/></div>}
+    <div className="wb-post-overlay-backdrop" hidden={!openPostCategory} onMouseDown={e=>{if(e.target===e.currentTarget){e.preventDefault();closePostCategory(true);}}}>
+     <div ref={postOverlayRef} role="dialog" aria-label={activePostCategory?.title??t('studio.run.dock.post')} data-post-overlay={openPostCategory??undefined} className="wb-post-overlay">
+      <header className="wb-post-overlay-header">
+       <div className="wb-post-overlay-heading">
+        <h2>{activePostCategory?.title}</h2>
+        {activePostCategory&&<span className="wb-post-card-badge">{t(activePostCategory.active?'studio.run.post.card.active':activePostCategory.available?'studio.run.post.card.inactive':'studio.run.post.card.unavailable')} · {t('studio.run.post.card.count',{count:String(activePostCategory.count)})}</span>}
+       </div>
+       <button ref={postOverlayCloseRef} type="button" data-post-overlay-close onClick={()=>closePostCategory(true)}>{t('studio.close')}</button>
+      </header>
+      <div className="wb-post-overlay-body">
+       <div className="wb-post-category" data-post-category="audio" hidden={openPostCategory!=='audio'}>
+        <AudioEnhance scope="post" settings={audioEnhance} hideInstallFeedback={openPostCategory!=='audio'} automatic={isMusic||isVideo&&videoFamily!=='wan'} source={shown&&terminalOutput(shown)&&shown.outputs[audioOutputIndex]&&(/\.(flac|wav|mp3|opus|ogg|m4a|webm|mkv|mp4|mov)$/i.test(shown.outputs[audioOutputIndex].filename))?{jobId:shown.id,index:audioOutputIndex}:undefined} name={shown?.outputs[audioOutputIndex]?.filename}/>
+       </div>
+       <div className="wb-post-category" data-post-category="latent" hidden={openPostCategory!=='latent'}>
+        {latent?<fieldset className="wb-group" data-post-group="latent"><legend>{t('studio.run.post.group.latent')}</legend><div className="wb-options">
+         <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
+         <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+         <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
+         {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
+        </div>
+         {videoFamily==='minimax-h3'&&(()=>{const a={...h3LatentDefaults,...latentPref.advanced};const set=(patch:H3LatentAdvanced)=>setLatentPref({...latentPref,advanced:{...latentPref.advanced,...patch}});
+           const num=(k:'cfg'|'memoryBudgetMb'|'guardSensitivity'|'guardStrength'|'memoryReservePct'|'continuityMaskStrength',min:number,max:number,step:number,hint?:string)=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><input data-latent-advanced={k} type="number" min={min} max={max} step={step} value={a[k]} onChange={e=>set({[k]:Number(e.target.value)})}/>{hint&&<small>{t(hint)}</small>}</label>;
+           const flag=(k:'spatialTiling'|'temporalChunking'|'spikeGuard'|'memoryPlanning'|'continuitySoftRefine',hint?:string)=><div className="wb-option" key={k}><label className="wb-option-row"><input data-latent-advanced={k} type="checkbox" checked={a[k]} onChange={e=>set({[k]:e.target.checked})}/>{t(`studio.run.latent.${k}`)}</label>{hint&&<small>{t(hint)}</small>}</div>;
+           const choose=(k:'scheduler'|'precision'|'guardMode',options:readonly string[])=><label className="wb-option" key={k}><span>{t(`studio.run.latent.${k}`)}</span><select data-latent-advanced={k} value={a[k]} onChange={e=>set({[k]:e.target.value} as H3LatentAdvanced)}>{(options.includes(a[k])?options:[a[k],...options]).map(o=><option key={o} value={o}>{o}</option>)}</select></label>;
+           return <details className="wb-model-files" data-latent-upscale-more><summary aria-label={t('studio.run.latent.more')}>☰ {t('studio.run.latent.more')}</summary><div className="wb-options">
+            {num('cfg',0,20,0.1)}{choose('scheduler',choices?.schedulers??[h3LatentDefaults.scheduler])}{choose('precision',['auto','bf16','fp16','fp32'])}
+            {flag('spatialTiling')}{flag('temporalChunking')}
+            {flag('memoryPlanning','studio.run.latent.memoryPlanningHint')}{a.memoryPlanning&&num('memoryReservePct',0,100,5)}{num('memoryBudgetMb',0,131072,256,'studio.run.latent.memoryBudgetHint')}
+            {flag('spikeGuard','studio.run.latent.spikeGuardHint')}{a.spikeGuard&&<>{num('guardSensitivity',1.5,12,0.1)}{num('guardStrength',0,1,0.05)}{choose('guardMode',['burn_direction','both'])}</>}
+            {flag('continuitySoftRefine','studio.run.latent.continuityHint')}{a.continuitySoftRefine&&num('continuityMaskStrength',0,1,0.05)}
+            </div><button type="button" className="wb-dock-action" data-latent-advanced-reset disabled={!h3LatentChanged(latentPref.advanced)} onClick={()=>setLatentPref({...latentPref,advanced:undefined})}>{t('studio.run.latent.reset')}</button>
+           </details>;})()}
+         {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
+         <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
+        </fieldset>:<p className="field-help" data-post-unavailable="latent">{t('studio.run.post.reason.latentOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="face-analysis" hidden={openPostCategory!=='face-analysis'}>
+        {isVideo&&isH3Video(videoFamily)?<Sam3VideoControls value={samVideoSettings} onChange={v=>{setSamCheckpoint(v.checkpoint);setSamThreshold(v.threshold);setSamVideoStart(v.startSeconds);setSamVideoDuration(v.durationSeconds);setSamVideoMax(v.maxObjects);setSamVideoInterval(v.detectInterval);setSamVideoCuts(v.cuts);setSamVideoSceneThreshold(v.sceneThreshold);}} models={samModels} sourceName={samVideoSource?.media==='video'?samVideoSource.name:undefined} unavailable={samVideoUnavailable} busy={serialBlocked||admissionBlocked||scanning} onAnalyze={()=>void analyzeFaceMasks()} refine={{value:faceRefine,onChange:setFaceRefine,unavailable:faceRefineUnavailable,autoUnavailable:faceRefineAutoUnavailable,onRefine:()=>void refineFaces()}}/>:<p className="field-help" data-post-unavailable="face-analysis">{t('studio.run.post.reason.h3VideoOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="sam" hidden={openPostCategory!=='sam'}>
+        {!isVideo&&!isMusic?samControls():<p className="field-help" data-post-unavailable="sam">{t('studio.run.post.reason.imageOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="refine" hidden={openPostCategory!=='refine'}>
+        {!isVideo?<fieldset className="wb-group" data-post-group="refine"><legend>{t('studio.run.post.group.refine')}</legend>{(isMusic||h3Image||moss)&&<p className="field-help" data-post-unavailable="refine">{isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):t('studio.plan.imageOnly')}</p>}<div className="wb-options">
+         <div className="wb-option"><span><label className="wb-option-row"><input data-refine="auto" type="checkbox" checked={post} onChange={e=>setPost(e.target.checked)}/>{t('studio.run.post.enabled')}</label></span><small>{t('studio.run.post.hint',{width:String(up(outputSize).width),height:String(up(outputSize).height)})}</small></div>
+         <div className="wb-option"><span><label className="wb-option-row"><input type="checkbox" checked={postTiled&&!family?.temporalLatent} disabled={!!family?.temporalLatent||(!!choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion'))} onChange={e=>setPostTiled(e.target.checked)}/>{t('studio.run.post.tiled')}</label></span><small>{t(family?.temporalLatent?'studio.run.post.tiledFamily':choices&&!choices.nodes?.includes('DaSiWaTiledDiffusion')?'studio.run.post.tiledMissing':'studio.run.post.tiledHint',{width:String(snap(modelSize.width)),height:String(snap(modelSize.height)),overlap:String(snap(Math.max(64,Math.min(modelSize.width,modelSize.height)/8)))})}</small></div>
+         <label className="wb-option"><span>{t('studio.run.post.denoise')}</span><input type="number" value={refineDenoise} min={0.05} max={1} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setRefineDenoise(clamp(n,0.05,1));}}/></label>
+         <label className="wb-option"><span>{t('studio.run.upscale')}</span><input type="number" value={upscale} min={1} max={4} step={0.25} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))setUpscale(clamp(n,1,4));}}/></label>
+         <label className="wb-option"><span>{t('studio.run.post.model')}</span><select value={upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setUpscaleModel(e.target.value)}><option value="">{t('studio.run.post.lanczos')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+        </div></fieldset>:<p className="field-help" data-post-unavailable="refine">{t('studio.run.post.reason.imageOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="model" hidden={openPostCategory!=='model'}>
+        {isVideo?<fieldset className="wb-group" data-post-group="model"><legend>{t('studio.run.post.model')}</legend><div className="wb-options">
+         <label className="wb-option"><select data-tve-post="upscaleModel" aria-label={t('studio.run.post.model')} value={tve.upscaleModel} onFocus={loadChoices} onPointerDown={loadChoices} onChange={e=>setTve({...tve,upscaleModel:e.target.value})}><option value="">{t('studio.tve.post.off')}</option>{(choices?.upscaleModels??[]).map(m=><option key={m} value={m}>{m}</option>)}{tve.upscaleModel&&!choices?.upscaleModels?.includes(tve.upscaleModel)&&<option value={tve.upscaleModel}>{tve.upscaleModel}</option>}</select><small>{t('studio.run.post.group.modelHint')}</small></label>
+        </div></fieldset>:<p className="field-help" data-post-unavailable="model">{t('studio.run.post.reason.videoOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="derope" hidden={openPostCategory!=='derope'}>
+        {isVideo&&videoFamily==='minimax-h3'?<DeropeControls value={deropePref} onChange={setDerope} allow={choices} onRead={loadChoices} conflict={continuityOn&&plan.outputMode==='segment'&&nextStep(plan)?.continuity.sourceKind==='video'}/>:<p className="field-help" data-post-unavailable="derope">{t('studio.run.post.reason.h3VideoOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="tve" hidden={openPostCategory!=='tve'}>
+        {isVideo?<fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} fps={fps} modelCard={false}/>{onOpenVideoPost&&<button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button>}</fieldset>:<><p className="field-help" data-post-unavailable="tve">{t('studio.run.post.reason.videoOnly')}</p>{onOpenVideoPost&&<fieldset className="wb-group" data-post-group="tve"><legend>{t('studio.tve.post.title')}</legend><button type="button" className="wb-dock-action" data-open-video-post onClick={onOpenVideoPost}>{t('studio.tve.open')}</button></fieldset>}</>}
+       </div>
+      </div>
+     </div>
+    </div>
    </section>}
 
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}

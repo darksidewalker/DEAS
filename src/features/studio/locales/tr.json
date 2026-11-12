@@ -1084,5 +1084,15 @@
   "studio.faceRefine.minFace": "En küçük yüz boyutu (px)",
   "studio.faceRefine.minFaceHint": "Bu değerden hiç büyük olmayan yüzler orijinal piksellerini korur (0 = tüm yüzler). Çok küçük bir yüz 768 tuvaline büyütülür ve az ayrıntı için tam bir H3 geçişine mal olur.",
   "studio.faceRefine.primaryOnly": "Yalnızca ana yüz",
-  "studio.faceRefine.primaryOnlyHint": "Her çekimde yalnızca izlenen en büyük yüzü (ana özne) iyileştirir; diğer yüzler orijinal piksellerini korur. Kapalı = izlenen tüm yüzler."
+  "studio.faceRefine.primaryOnlyHint": "Her çekimde yalnızca izlenen en büyük yüzü (ana özne) iyileştirir; diğer yüzler orijinal piksellerini korur. Kapalı = izlenen tüm yüzler.",
+  "studio.run.post.card.active": "Etkin",
+  "studio.run.post.card.inactive": "Devre dışı",
+  "studio.run.post.card.unavailable": "Bu iş hattı için kullanılamaz",
+  "studio.run.post.card.count": "{count} etkin",
+  "studio.run.post.card.open": "Ayarları aç",
+  "studio.run.post.reason.videoOnly": "Yalnızca video üretim iş hatları için.",
+  "studio.run.post.reason.h3VideoOnly": "Yalnızca MiniMax H3 video iş hatları için.",
+  "studio.run.post.reason.latentOnly": "Yalnızca LTX-2 ve MiniMax H3 video iş hatları için.",
+  "studio.run.post.reason.imageOnly": "Yalnızca görsel iş hatları için.",
+  "studio.run.post.reason.audioManualOnly": "Manuel ses iyileştirme kullanılabilir; otomatik son işleme için ses destekli bir video veya müzik iş hattı gerekir."
 }

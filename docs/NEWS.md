@@ -2,6 +2,7 @@
 
 ## 0.2.24 BETA (unreleased)
 
+- Post-Processing settings are grouped into category cards with status and active counts (contributed by @Arasberk).
 - H3 face refinement can be limited to the main face of each shot (**Main face only**, off by default).
 
 ## 0.2.23 BETA

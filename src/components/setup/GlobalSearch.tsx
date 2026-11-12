@@ -40,7 +40,14 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (entry: SearchEntry) 
     onNavigate(entry);
     // Studio and backend panes mount lazily after the tab switch; retry a few frames instead of guessing a delay.
     // A dock card exists only on its dock tab: select that tab first (the tab button is the user's own switch).
-    const dock = () => entry.dockTab && document.querySelector<HTMLButtonElement>(`[data-dock-tab="${entry.dockTab}"]:not([aria-selected="true"])`)?.click();
+    const dock = () => {
+      const tab = entry.dockTab ? document.querySelector<HTMLButtonElement>(`[data-dock-tab="${entry.dockTab}"]:not([aria-selected="true"])`) : null;
+      if (tab) {
+        tab.dataset.revealOpen = 'true';
+        tab.click();
+        delete tab.dataset.revealOpen;
+      }
+    };
     dock();
     let outcome = revealTarget(entry.target);
     for (let frame = 0; frame < 20 && outcome.state === 'missing'; frame++) {
@@ -81,7 +88,18 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (entry: SearchEntry) 
         </svg>
       </button>
       {open && (
-        <div id="global-search-panel" className="search-panel" role="dialog" aria-label={t('search.title')}>
+        <div
+          id="global-search-panel"
+          className="search-panel"
+          role="dialog"
+          aria-label={t('search.title')}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              close();
+            }
+          }}
+        >
           <input
             ref={input}
             type="search"

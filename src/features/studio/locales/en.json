@@ -1084,5 +1084,15 @@
   "studio.faceRefine.minFace": "Minimum face size (px)",
   "studio.faceRefine.minFaceHint": "Faces never taller than this keep their original pixels (0 = refine every face). A tiny face is upscaled to the 768 refine canvas and costs a full H3 pass for little detail.",
   "studio.faceRefine.primaryOnly": "Main face only",
-  "studio.faceRefine.primaryOnlyHint": "Refine only the largest tracked face in each shot (the main subject); other faces keep their original pixels. Off = every tracked face."
+  "studio.faceRefine.primaryOnlyHint": "Refine only the largest tracked face in each shot (the main subject); other faces keep their original pixels. Off = every tracked face.",
+  "studio.run.post.card.active": "Enabled",
+  "studio.run.post.card.inactive": "Inactive",
+  "studio.run.post.card.unavailable": "Unavailable for this pipeline",
+  "studio.run.post.card.count": "{count} active",
+  "studio.run.post.card.open": "Open settings",
+  "studio.run.post.reason.videoOnly": "Video generation pipelines only.",
+  "studio.run.post.reason.h3VideoOnly": "MiniMax H3 video pipelines only.",
+  "studio.run.post.reason.latentOnly": "LTX-2 and MiniMax H3 video pipelines only.",
+  "studio.run.post.reason.imageOnly": "Image pipelines only.",
+  "studio.run.post.reason.audioManualOnly": "Manual audio enhancement remains available; automatic run post-processing needs an audio-capable video or music pipeline."
 }

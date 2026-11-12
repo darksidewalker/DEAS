@@ -15,15 +15,75 @@ export function activeWildcards(enabled: boolean, rules: WildcardRules): string[
   return enabled ? ['enabled', ...authored] : [];
 }
 
+export type PostCategoryId = 'audio' | 'latent' | 'face-analysis' | 'sam' | 'refine' | 'model' | 'derope' | 'tve';
+
+export const postCategoryOrder: readonly PostCategoryId[] = [
+  'audio',
+  'latent',
+  'face-analysis',
+  'sam',
+  'refine',
+  'model',
+  'derope',
+  'tve',
+];
+
+export interface PostBadgeInput {
+  video: boolean;
+  audio: boolean;
+  latent: boolean;
+  tve: TvePref;
+  refine: boolean;
+  sam: boolean;
+  audioMode: string;
+  music?: boolean;
+  h3Video?: boolean;
+  h3Image?: boolean;
+  moss?: boolean;
+  latentSpikeGuard?: boolean;
+  samVideoCuts?: boolean;
+  faceRefine?: boolean;
+  refineTiled?: boolean;
+  derope?: boolean;
+  deropeKeepBackground?: boolean;
+  deropeDistilled?: boolean;
+}
+
+/** Active post-processing functions per category for the current pipeline. */
+export function postCategoryFunctions(p: PostBadgeInput): Record<PostCategoryId, string[]> {
+  const h3Video = p.video && (p.h3Video ?? true);
+  const imageEligible = !p.video && !p.music;
+  const refineEligible = imageEligible && !p.h3Image && !p.moss;
+  return {
+    audio: p.audio && p.audioMode !== 'off' ? ['audio'] : [],
+    latent: p.video && p.latent ? ['latent', ...(p.latentSpikeGuard ? ['latent.spikeGuard'] : [])] : [],
+    'face-analysis': h3Video && p.faceRefine ? ['faceRefine', ...(p.samVideoCuts ? ['faceAnalysis.cuts'] : [])] : [],
+    sam: imageEligible && p.sam ? ['sam'] : [],
+    refine: refineEligible && p.refine ? ['refine', ...(p.refineTiled ? ['refine.tiled'] : [])] : [],
+    model: p.video && p.tve.upscaleModel ? ['upscale'] : [],
+    derope: h3Video && p.derope ? [
+      'derope',
+      ...(p.deropeKeepBackground ? ['derope.keepBackground'] : []),
+      ...(p.deropeDistilled ? ['derope.distilled'] : []),
+    ] : [],
+    tve: p.video ? [
+      ...(p.tve.loop ? ['loop'] : []),
+      ...(['denoise', 'deblur', 'rtxUpscale', 'frameGen'] as const).filter(k => p.tve[k]),
+    ] : [],
+  };
+}
+
 /** Post-processing stages that will run for the current pipeline. */
-export function activePost(p: { video: boolean; audio: boolean; latent: boolean; tve: TvePref; refine: boolean; sam: boolean; audioMode: string }): string[] {
-  const audio = p.audio && p.audioMode !== 'off' ? ['audio'] : [];
+export function activePost(p: PostBadgeInput): string[] {
+  const byCategory = postCategoryFunctions(p);
   if (p.video) return [
-    ...(p.latent ? ['latent'] : []),
+    ...byCategory.latent,
+    ...byCategory['face-analysis'],
+    ...byCategory.derope,
     ...(p.tve.loop ? ['loop'] : []),
-    ...(p.tve.upscaleModel ? ['upscale'] : []),
+    ...byCategory.model,
     ...(['denoise', 'deblur', 'rtxUpscale', 'frameGen'] as const).filter(k => p.tve[k]),
-    ...audio,
+    ...byCategory.audio,
   ];
-  return [...(p.refine ? ['refine'] : []), ...(p.sam ? ['sam'] : []), ...audio];
+  return [...byCategory.refine, ...byCategory.sam, ...byCategory.audio];
 }

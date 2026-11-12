@@ -2,6 +2,7 @@
 
 ## 0.2.24 BETA (unreleased)
 
+- **Post-Processing as category cards** (contributed by @Arasberk). The Post-Processing dock shows one compact card per category (audio, latent upscale, H3 face analysis, SAM masking, refine/upscale, upscale model, De-rope, TVE) with a non-colour status mark, the number of active functions for the current pipeline (matching the dock badge) and an unavailable reason for other pipelines; a card opens that category's existing controls in an accessible overlay (focus kept inside, Escape/Close return focus to the card). Settings, drafts and running jobs are untouched by opening/closing; Ctrl+K opens the owning category before revealing a control, and audio install progress stays reachable after closing.
 - **Face refinement: Main face only.** A new default-OFF **Main face only** switch in the H3 face refinement controls refines only the largest tracked face of each shot (the main subject, measured by tracked mask area); other faces keep their original pixels and the choice is logged per shot. Saved settings without the switch keep refining every tracked face. Applies to the standalone refine and to refinement after H3 generation.
 
 ## 0.2.23 BETA
