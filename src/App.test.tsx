@@ -110,8 +110,8 @@ test('TVE mounts only on first visit, preserves source/output and image Post dra
    if(command==='native_recipe_prerequisites')return {baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic',version:1,allowlist:{nodes:[],checkpoints:[],loras:[],images:[],samplers:[],schedulers:[]},missingNodes:[],generationReady:false};
    return null; // App-level IPC on the desktop flag (update check, repo stars) is not TVE work.
   });
-  fireEvent.click(document.querySelector('[data-post-card="tve"]')!);
-  fireEvent.click(screen.getByRole('button',{name:'Open TVE video workspace'}));
+  expect(document.querySelector<HTMLButtonElement>('[data-post-card="tve"]')!.disabled).toBe(true);
+  fireEvent.click(screen.getByRole('tab',{name:'TVE'}));
   expect(vi.mocked(invoke).mock.calls.map(c=>String(c[0])).filter(c=>c.startsWith('native_video_post')||c.startsWith('native_workbench')||c==='native_recipe_prerequisites')).toEqual([]);
   expect(inspectBackend).not.toHaveBeenCalled();
   expect(forgeOpen).not.toHaveBeenCalled();

@@ -1,6 +1,14 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
 
+## Floating Post-Processing settings (0.2.24, unreleased)
+
+- Cards open draggable non-modal settings above the workspace, with no backdrop or Tab trap, opaque theme background and independently scrolling content. Pipeline-incompatible cards are disabled with their reason visible; remembered preferences survive, and incompatible pipeline navigation closes an open category.
+- Typecheck, 154 core tests and the final full UI suite (86 files, 1,751 tests) passed. App TVE navigation now uses the standalone tab instead of the disabled image-pipeline post card.
+- Chromium shared viewport gate: 467 checks passed. `tools/verify_sam3.py` passed: floating bounds at 1440/320, pointer passthrough outside the panel, header dragging, source-pixel SAM point/box masks, existing text/manual-refine checks and six locales/three widths. Wide screenshot visually inspected; no real model inference or live service changes.
+- `bash build-linux.sh` passed and staged `artifacts/deas-linux-amd64`, SHA-256 `09e2ea2df4e3fed54cb90227eee48a90bc2969af7d9c5e340367303f0036fd3a`; embeds the final frontend (`index-BIARa5ZE.js`, `index-ByBna8XW.css`). Relaunch required.
+- Native WebKitGTK / Windows WebView2 interaction, especially native video layering, remains unverified. No Rust execution logic changed; unrelated pre-existing native/execution test edits remain untouched.
+
 ## Release 0.2.23 (published)
 
 - GitHub release `v0.2.23` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.23), source commit `53c9146b946f0f55fa2c45c7d39a9ee2a4c936cc`; tag on gitea (annotated) and GitHub resolve to that commit. Local unsigned build — the *Verify DEAS* and *Release DEAS* workflows are disabled (`disabled_manually`), so no CI evidence exists for this release.

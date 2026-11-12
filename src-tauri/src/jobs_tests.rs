@@ -549,6 +549,20 @@ pub(super) fn intent() -> Value {
 }
 
 #[test]
+fn backend_listed_samplers_and_schedulers_compile_verbatim() {
+    let mut i = intent();
+    for (sampler, scheduler) in [("res_2s", "beta57"), ("res_multistep", "sgm_uniform")] {
+        i["sampler"] = json!(sampler);
+        i["scheduler"] = json!(scheduler);
+        let graph = compile(&i).unwrap();
+        assert_eq!(graph["5"]["inputs"]["sampler_name"], sampler);
+        assert_eq!(graph["5"]["inputs"]["scheduler"], scheduler);
+    }
+    i["scheduler"] = json!("beta57;rm");
+    assert!(compile(&i).unwrap_err().contains("sampler or scheduler"));
+}
+
+#[test]
 fn windows_model_identifiers_survive_compilation_without_relaxing_input_paths() {
     let mut i = intent();
     i["checkpoint"] = json!(r"SDXL\日本語 model.safetensors");

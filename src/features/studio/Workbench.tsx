@@ -153,6 +153,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const restorePostFocus=useRef<PostCategoryId|null>(null);
  const postCardRefs=useRef<Partial<Record<PostCategoryId,HTMLButtonElement|null>>>({});
  const postOverlayRef=useRef<HTMLDivElement>(null);
+ const postDrag=useRef({x:0,y:0});
  const postOverlayCloseRef=useRef<HTMLButtonElement>(null);
  const focusPostOverlay=useRef(false);
  const closePostCategory=useCallback((restoreFocus=true)=>{
@@ -1727,6 +1728,7 @@ const promptTools=forgeContext&&<>
   return {id,title,count,active,available,reason};
  });
  const activePostCategory=openPostCategory?postCategories.find(c=>c.id===openPostCategory):undefined;
+ useEffect(()=>{if(activePostCategory&&!activePostCategory.available)closePostCategory(false);},[activePostCategory?.id,activePostCategory?.available,closePostCategory]);
  useEffect(()=>{
   if(!openPostCategory||dockTab!=='post'||planVisible||beginner||dockHidden)return;
   const onKey=(e:KeyboardEvent)=>{
@@ -1915,7 +1917,7 @@ const promptTools=forgeContext&&<>
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/></div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
     <div className="wb-post-cards" role="group" aria-label={t('studio.run.dock.post')}>
-     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
+     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" disabled={!cat.available} title={cat.reason||undefined} data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
       <span className="wb-post-card-head">
        <strong className="wb-post-card-title">{cat.title}</strong>
        <span className="wb-post-card-badge" data-post-card-count={cat.id}>{t('studio.run.post.card.count',{count:String(cat.count)})}</span>
@@ -1930,7 +1932,17 @@ const promptTools=forgeContext&&<>
     {openPostCategory!=='audio'&&(audioEnhance.installing||audioEnhance.error)&&<div className="wb-options" data-audio-enhance="post" data-audio-enhance-dock-feedback><AudioEnhanceInstallFeedback settings={audioEnhance}/></div>}
     <div className="wb-post-overlay-host" hidden={!openPostCategory}>
      <div ref={postOverlayRef} role="dialog" aria-label={activePostCategory?.title??t('studio.run.dock.post')} data-post-overlay={openPostCategory??undefined} className="wb-post-overlay">
-      <header className="wb-post-overlay-header">
+      <header className="wb-post-overlay-header" onPointerDown={e=>{
+       if(e.button!==0||(e.target as HTMLElement).closest('button'))return;
+       const r=postOverlayRef.current!.getBoundingClientRect();
+       postDrag.current={x:e.clientX-r.left,y:e.clientY-r.top};
+       e.currentTarget.setPointerCapture(e.pointerId);
+      }} onPointerMove={e=>{
+       if(!e.currentTarget.hasPointerCapture(e.pointerId))return;
+       const panel=postOverlayRef.current!;
+       panel.style.setProperty('--post-x',`${e.clientX-postDrag.current.x}px`);
+       panel.style.setProperty('--post-y',`${e.clientY-postDrag.current.y}px`);
+      }} onPointerUp={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}}>
        <div className="wb-post-overlay-heading">
         <h2>{activePostCategory?.title}</h2>
         {activePostCategory&&<span className="wb-post-card-badge">{t(activePostCategory.active?'studio.run.post.card.active':activePostCategory.available?'studio.run.post.card.inactive':'studio.run.post.card.unavailable')} · {t('studio.run.post.card.count',{count:String(activePostCategory.count)})}</span>}

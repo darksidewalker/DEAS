@@ -54,6 +54,17 @@ with sync_playwright() as p:
     assert page.locator('.wb-side [data-open-post]').count() == 0
     page.locator('[data-sam="mask"]').click()
     expect(page.locator('.wb-post [data-sam="targets"]')).to_be_focused()
+    overlay = page.locator('.wb-post-overlay')
+    assert page.locator('.wb-post-overlay-host').evaluate('(e)=>getComputedStyle(e).position') == 'fixed'
+    assert page.locator('.wb-post-overlay-host').evaluate('(e)=>getComputedStyle(e).pointerEvents') == 'none'
+    assert overlay.evaluate('(e)=>getComputedStyle(e).pointerEvents') == 'auto'
+    for width in (1440, 320):
+        page.set_viewport_size({'width': width, 'height': 960})
+        box = overlay.bounding_box()
+        assert box and box['x'] >= 0 and box['x'] + box['width'] <= width, box
+        assert box['y'] >= 0 and box['y'] + box['height'] <= 960, box
+        assert overlay.locator('.wb-post-overlay-body').evaluate('(e)=>getComputedStyle(e).overflowY') == 'auto'
+    page.set_viewport_size({'width': 1440, 'height': 960})
     expect(page.locator('.wb-post [data-sam="targets"]')).to_have_class('search-flash')
     assert page.evaluate('window.__plans.length') == 0
     expect(page.locator('.wb-post [data-sam="model"]')).to_have_value('SAM3/sam3.1_multiplex_fp16.safetensors')
@@ -76,6 +87,14 @@ with sync_playwright() as p:
     assert refine['settings']=={'checkpoint':'SAM3/sam3.1_multiplex_fp16.safetensors','targets':[],'denoise':0.25,'margin':32,'threshold':0.5},refine['settings']
     assert [m['name'] for m in refine['masks']]==['eyes','feet','hands']
     assert all(m['png'][:8]==[137,80,78,71,13,10,26,10] for m in refine['masks'])
+    # Move the floating settings aside to expose the image without closing them.
+    header = overlay.locator('.wb-post-overlay-header').bounding_box()
+    assert header
+    page.mouse.move(header['x'] + 20, header['y'] + 10)
+    page.mouse.down()
+    page.mouse.move(1420, 90)
+    page.mouse.up()
+    assert overlay.bounding_box()['x'] > 700
     # Point and box travel through the same fitted source-pixel transform as brush paint.
     page.locator('[data-sam-tool="samPoint"]').click()
     r=page.get_by_test_id('editor-world').bounding_box();assert r

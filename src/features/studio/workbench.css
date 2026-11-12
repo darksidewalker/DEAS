@@ -360,7 +360,7 @@
 .wb-post-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
 /* Skin (border/background/colour, hover glow, active fill) comes from the shared button list in styles.css. */
 .wb-post-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:66px;padding:9px 10px;text-align:left;cursor:pointer}
-.wb-post-card[data-post-state="unavailable"]{opacity:.82}
+.wb-post-card:disabled{opacity:.45;cursor:not-allowed}
 .wb-post-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:6px}
 .wb-post-card-title{font-size:12px;line-height:1.3;overflow-wrap:anywhere}
 .wb-post-card-badge{flex:none;padding:1px 6px;border-radius:999px;border:1px solid rgb(var(--blue-rgb) / 0.3);background:rgb(var(--deep-rgb) / 0.65);color:var(--muted);font-size:10px;font-weight:600;white-space:nowrap}
@@ -370,9 +370,10 @@
 .wb-post-card-action{font-size:10px;color:var(--muted)}
 .wb-post-card-reason{margin:0;color:var(--muted);font-size:10px;line-height:1.3;overflow-wrap:anywhere}
 .wb-post-overlay-host[hidden],.wb-post-category[hidden]{display:none !important}
-.wb-post-overlay{display:flex;flex-direction:column;border:1px solid var(--line-2);border-radius:10px;background:var(--bg);color:var(--text)}
-.wb-post-overlay-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.wb-post-overlay-host{position:fixed;inset:0;z-index:10;pointer-events:none}
+.wb-post-overlay{position:absolute;--post-top:clamp(12px,var(--post-y,80px),max(12px,calc(100% - 160px)));top:var(--post-top);left:clamp(12px,var(--post-x,calc((100% - 640px)/2)),max(12px,calc(100% - 652px)));width:min(640px,calc(100% - 24px));max-height:min(calc(100% - 160px),calc(100% - var(--post-top) - 12px));pointer-events:auto;display:flex;flex-direction:column;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 8px 28px rgb(var(--shadow-rgb) / .45)}
+.wb-post-overlay-header{cursor:move;touch-action:none;user-select:none;flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
 .wb-post-overlay-heading{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .wb-post-overlay-heading h2{margin:0;font-size:14px}
-.wb-post-overlay-body{padding:12px;display:grid;gap:10px}
+.wb-post-overlay-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px;display:grid;gap:10px}
 @media (max-width:640px){.wb-post-cards{grid-template-columns:1fr}}

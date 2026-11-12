@@ -263,6 +263,14 @@ test('requires explicit verified capability and model allowlists, failing closed
   rejects(intent, { ...allowlist, schedulers: [] }, 'MISSING_CAPABILITY', 'scheduler');
 });
 
+test('any sampler/scheduler the backend lists reaches KSampler verbatim (no pinned subset)', () => {
+  for (const [sampler, scheduler] of [['res_2s', 'beta57'], ['res_multistep', 'sgm_uniform']]) {
+    const inputs = compileRecipe({ ...intent, sampler, scheduler }, { ...allowlist, samplers: ['euler', sampler], schedulers: ['normal', scheduler] }).graph['5'].inputs;
+    assert.equal(inputs.sampler_name, sampler);
+    assert.equal(inputs.scheduler, scheduler);
+  }
+});
+
 test('optional LoRAs chain after the checkpoint and must be verified', () => {
   const loras = [{ name: 'style/a.safetensors', strength: 0.8 }, { name: 'b.safetensors', strength: -1 }];
   const graph = compileRecipe({ ...intent, loras }, { ...allowlist, nodes: [...allowlist.nodes, 'LoraLoader'], loras: loras.map(l => l.name) }).graph;

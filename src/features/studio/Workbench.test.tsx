@@ -5290,11 +5290,13 @@ test('remembered image refinement does not require its baseline gate for music',
  fireEvent.click(run);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).not.toHaveProperty('refine');
- // The remembered refine settings stay visible but read-only while the category is unavailable.
+ // Incompatible cards are disabled without clearing remembered settings.
  fireEvent.click(screen.getByRole('tab',{name:/Post-Processing/}));
- fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
- const remembered=screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}) as HTMLInputElement;
- expect(remembered.checked).toBe(true);expect(remembered.matches(':disabled')).toBe(true);
+ const card=document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!;
+ expect(card.disabled).toBe(true);
+ fireEvent.click(card);
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(localStorage.getItem('deas.pref.studio.run.post')).toBe('true');
 });
 
 test('text-to-music lists only YuE2 checkpoints, two music editors, no canvas/negative, and submits the music intent without uploads',async()=>{
@@ -5895,6 +5897,9 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
   const card=document.querySelector<HTMLButtonElement>(`[data-post-card="${id}"]`)!;
   expect(card.dataset.postState).toBe('unavailable');
   expect(card.dataset.postCount).toBe('0');
+  expect(card.disabled).toBe(true);
+  fireEvent.click(card);
+  expect(card.getAttribute('aria-expanded')).toBe('false');
  }
  expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')).toBeNull();
  const before=captureStudioSettings();
@@ -5916,11 +5921,12 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
  expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('2');
  fireEvent.click(screen.getByRole('button',{name:'Close'}));
  expect(document.activeElement).toBe(refineCard);
- // Open TVE workspace action remains reachable inside the tve category overlay without mutating settings.
+ // Pipeline-incompatible categories cannot open or navigate to another workspace.
  fireEvent.click(document.querySelector('[data-post-card="tve"]')!);
- fireEvent.click(screen.getByRole('button',{name:'Open TVE video workspace'}));
- expect(onOpenVideoPost).toHaveBeenCalledTimes(1);
- fireEvent.click(screen.getByRole('button',{name:'Close'}));
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(onOpenVideoPost).not.toHaveBeenCalled();
+ // An open image category closes when switching to an incompatible video pipeline.
+ fireEvent.click(refineCard);
  // Switching to MiniMax H3 video activates the remembered video post-processing counts and deactivates image refine.
  localStorage.setItem('deas.pref.studio.run.samVideoCuts','true');
  localStorage.setItem('deas.pref.studio.run.faceRefine',JSON.stringify({auto:false,denoise:0.3,cropFactor:2.5,feather:6,prompt:''}));
@@ -5936,11 +5942,13 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(false);
  expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postState).toBe('unavailable');
  expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postCount).toBe('0');
+ expect(refineCard.disabled).toBe(true);
+ expect(screen.queryByRole('dialog')).toBeNull();
  expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('8');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
-test('Post-Processing overlay traps Tab focus when visible, ignores hidden dialogs, lets native dialogs handle Escape, supports Ctrl+K and SAM reveal, and keeps audio install feedback reachable on close',async()=>{
+test('Post-Processing overlay allows Tab focus outside, ignores hidden dialogs, lets native dialogs handle Escape, supports Ctrl+K and SAM reveal, and keeps audio install feedback reachable on close',async()=>{
  const sam='SAM3/sam3.1_multiplex_fp16.safetensors';
  localStorage.setItem('deas.pref.studio.run.samVideoCuts','true');
  localStorage.setItem('deas.pref.studio.run.faceRefine',JSON.stringify({auto:false,denoise:0.3,cropFactor:2.5,feather:6,prompt:'sharp face'}));
@@ -5989,7 +5997,7 @@ test('Post-Processing overlay traps Tab focus when visible, ignores hidden dialo
  await waitFor(()=>expect(document.activeElement).toBe(autoRefineInput));
  expect(refineCard.getAttribute('aria-expanded')).toBe('true');
 
- // The category panel is non-modal: it sits inside the dock, has no backdrop and never traps Tab, so Run/Stop and the side column stay usable.
+ // The floating category panel has no backdrop and never traps Tab; its DOM ancestry preserves search/reveal and hidden-pane handling.
  const hiddenHost=document.createElement('div');
  hiddenHost.hidden=true;
  const hiddenDialog=document.createElement('dialog');
