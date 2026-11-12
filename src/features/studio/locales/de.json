@@ -1082,5 +1082,15 @@
   "studio.run.derope.inject.safe": "0,70 · sicherer",
   "studio.run.derope.injectHint": "Anteil des Zeitplans, der auf dem verlangsamten Clip neu läuft: niedriger behält mehr vom Original, höher lässt das Modell mehr neu erfinden.",
   "studio.faceRefine.minFace": "Mindest-Gesichtsgröße (px)",
-  "studio.faceRefine.minFaceHint": "Gesichter, die nie größer als dieser Wert sind, behalten ihre Original-Pixel (0 = alle verfeinern). Ein winziges Gesicht wird auf das 768er-Raster hochskaliert und kostet einen vollen H3-Durchgang für wenig Detail."
+  "studio.faceRefine.minFaceHint": "Gesichter, die nie größer als dieser Wert sind, behalten ihre Original-Pixel (0 = alle verfeinern). Ein winziges Gesicht wird auf das 768er-Raster hochskaliert und kostet einen vollen H3-Durchgang für wenig Detail.",
+  "studio.run.post.card.active": "Aktiv",
+  "studio.run.post.card.inactive": "Inaktiv",
+  "studio.run.post.card.unavailable": "Für diese Pipeline nicht verfügbar",
+  "studio.run.post.card.count": "{count} aktiv",
+  "studio.run.post.card.open": "Einstellungen öffnen",
+  "studio.run.post.reason.videoOnly": "Nur für Video-Pipelines.",
+  "studio.run.post.reason.h3VideoOnly": "Nur für MiniMax-H3-Video-Pipelines.",
+  "studio.run.post.reason.latentOnly": "Nur für LTX-2- und MiniMax-H3-Video-Pipelines.",
+  "studio.run.post.reason.imageOnly": "Nur für Bild-Pipelines.",
+  "studio.run.post.reason.audioManualOnly": "Manuelle Audio-Verbesserung bleibt verfügbar; automatische Nachbearbeitung beim Lauf erfordert eine Video- oder Musik-Pipeline mit Audio."
 }

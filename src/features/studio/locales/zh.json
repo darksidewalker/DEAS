@@ -1082,5 +1082,15 @@
   "studio.run.derope.inject.safe": "0.70 · 更稳妥",
   "studio.run.derope.injectHint": "在放慢片段上重跑的调度比例：越低越保留原片，越高模型重新生成越多。",
   "studio.faceRefine.minFace": "最小人脸尺寸（px）",
-  "studio.faceRefine.minFaceHint": "从未超过此高度的人脸保留原始像素（0 = 精修全部）。极小的人脸会被放大到 768 画布，耗费一次完整 H3 计算却收效甚微。"
+  "studio.faceRefine.minFaceHint": "从未超过此高度的人脸保留原始像素（0 = 精修全部）。极小的人脸会被放大到 768 画布，耗费一次完整 H3 计算却收效甚微。",
+  "studio.run.post.card.active": "已启用",
+  "studio.run.post.card.inactive": "未启用",
+  "studio.run.post.card.unavailable": "当前管线不可用",
+  "studio.run.post.card.count": "{count} 项启用",
+  "studio.run.post.card.open": "打开设置",
+  "studio.run.post.reason.videoOnly": "仅限视频生成管线。",
+  "studio.run.post.reason.h3VideoOnly": "仅限 MiniMax H3 视频管线。",
+  "studio.run.post.reason.latentOnly": "仅限 LTX-2 与 MiniMax H3 视频管线。",
+  "studio.run.post.reason.imageOnly": "仅限图像管线。",
+  "studio.run.post.reason.audioManualOnly": "仍可使用手动音频增强；运行后自动处理需要支持音频的视频或音乐管线。"
 }

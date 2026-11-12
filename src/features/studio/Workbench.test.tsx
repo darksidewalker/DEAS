@@ -6,8 +6,9 @@ const askConfirm=()=>fireEvent.click(document.querySelector('dialog.confirm-dial
 const askCancel=()=>{const d=document.querySelector('dialog.confirm-dialog')!;fireEvent.click(d.querySelectorAll('button')[1]!);};
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { Workbench } from './Workbench';
+import { GlobalSearch } from '../../components/setup/GlobalSearch';
 import { defaultOptions } from './OptionsPanel';
-import { sam3VideoNodes, type Sam3VideoMaskIntentV1 } from '../../lib/sam3';
+import { faceRefineNodes, sam3VideoNodes, type Sam3VideoMaskIntentV1 } from '../../lib/sam3';
 import {normalizeAceDuration,defaultAceSettings,type AceStepFamily} from '../../lib/musicIntent';
 import { applyStudioSettings, captureStudioSettings, resetStudioPreferences } from '../../lib/preferences';
 import { aspects, resolutions } from '../../lib/resolution';
@@ -55,6 +56,7 @@ async function faceAnalysisFixture(missing='',source:'queue'|'rootless'|'none'='
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(source==='none'?[]:[sourceJob,{...sourceJob,id:'other-video',outputs:[{filename:'other.mp4',subfolder:'clips',type:'output'}]}]));
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));choosePipe('Text → Video');dock('Post-Processing');
+ fireEvent.click(document.querySelector('[data-post-card="face-analysis"]')!);
  await screen.findByRole('group',{name:'H3 face-mask analysis'});
  if(source!=='none'){await waitFor(()=>expect(document.querySelector('[data-job-id="source-video"]')).not.toBeNull());fireEvent.click(document.querySelector('[data-job-id="source-video"] .wb-queue-select')!);}
  await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam-video="checkpoint"]')!.value).toBe(missing==='checkpoint'?'':videoSam));
@@ -754,6 +756,7 @@ test.each([undefined,false,true])('De-rope keep background restores %s, gates Ru
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
  fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(document.querySelector('[data-post-card="derope"]')!);
  await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('disabled',true));
  expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('checked',saved??false);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',saved===true));
@@ -2533,7 +2536,8 @@ test.each([['anima','Anima'],['krea-2','Krea 2']])('tiled refine is refused with
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaTiledDiffusion']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'a.safetensors',family:familyId,path:'/m/a',size:1,info:null}]);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
- fireEvent.click(await screen.findByRole('tab',{name:/Post-Processing/}));
+ fireEvent.click( await screen.findByRole('tab',{name:/Post-Processing/}));
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  const box=await screen.findByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
  await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(true));
  expect(box).toHaveProperty('checked',false);
@@ -3016,6 +3020,7 @@ test('baseline-first readiness blocks only enabled refine and recovers when disa
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('tab',{name:/Post-Processing/}));
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
  expect(screen.queryByText(/Refine requires the DEAS baseline-first adapter/)).toBeNull();
@@ -3036,6 +3041,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy();
  expect(screen.getByRole('button',{name:'Upscale'})).toBeTruthy();
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  fireEvent.change(screen.getByLabelText('Upscale factor'),{target:{value:'2'}});
  expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Image to Image'}));
@@ -3076,6 +3082,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  cleanup();
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'Text → Image',selected:true});
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  const box=await screen.findByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
  await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(false));
  fireEvent.click(box);
@@ -5606,6 +5613,7 @@ test('dock tabs badge how many settings are active or changed from default',asyn
  expect(badge('wildcards')?.textContent).toBe('1');
  expect(badge('post')).toBeNull();
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  expect(badge('post')?.textContent).toBe('1');
 });
@@ -5854,4 +5862,253 @@ test('Export without metadata saves a clean copy from the queue menu and preview
  vi.mocked(isTauri).mockReturnValue(false);view.rerender(<I18nProvider><Workbench endpoint="http://new:7802/"/></I18nProvider>);
  expect(toolbar().disabled).toBe(true);expect(toolbar().title).toBe('Exporting without metadata requires a local file in the desktop app.');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('Post-Processing category cards show ordered status/counts, guard incompatible remembered settings, and open accessible overlays without side effects',async()=>{
+ localStorage.setItem('deas.pref.studio.run.derope',JSON.stringify({enabled:true,mode:'full',distilled:true,keepBackground:true,lora:'',preset:'balanced',inject:0.7}));
+ localStorage.setItem('deas.pref.studio.run.tve',JSON.stringify({...defaultTve,loop:true,denoise:true,upscaleModel:'4x-UltraSharp.pth'}));
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors',scale:2,steps:10,denoise:0.4,advanced:{...h3LatentDefaults,spikeGuard:true}}));
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},
+  {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3',path:'/m/h3',size:1,info:null},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/te',size:1,info:null},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors',path:'/m/vae',size:1,info:null},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors',path:'/m/avae',size:1,info:null},
+ ]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover','DaSiWaH3TiledUpscale'],deropeKeepBackground:true}});
+ const onOpenVideoPost=vi.fn();
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}} onOpenVideoPost={onOpenVideoPost}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
+ dock('Post-Processing');
+ const cards=()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[data-post-card]'));
+ expect(cards().map(c=>c.dataset.postCard)).toEqual(['audio','latent','face-analysis','sam','refine','model','derope','tve']);
+ // On an image pipeline, remembered video settings (latent, derope, tve, model) stay unavailable with 0 active functions.
+ for(const id of ['latent','face-analysis','model','derope','tve']){
+  const card=document.querySelector<HTMLButtonElement>(`[data-post-card="${id}"]`)!;
+  expect(card.dataset.postState).toBe('unavailable');
+  expect(card.dataset.postCount).toBe('0');
+ }
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')).toBeNull();
+ const before=captureStudioSettings();
+ const refineCard=document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!;
+ fireEvent.click(refineCard);
+ const dialog=screen.getByRole('dialog',{name:'Refine / Upscale'});
+ expect(document.activeElement).toBe(within(dialog).getByRole('button',{name:'Close'}));
+ expect(captureStudioSettings()).toEqual(before);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ fireEvent.keyDown(document,{key:'Escape'});
+ expect(screen.queryByRole('dialog',{name:'Refine / Upscale'})).toBeNull();
+ expect(document.activeElement).toBe(refineCard);
+ // Intentional edits inside the overlay update card state, count, and dock badge, and persist across close/reopen.
+ fireEvent.click(refineCard);
+ fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'}));
+ expect(refineCard.dataset.postState).toBe('active');
+ expect(refineCard.dataset.postCount).toBe('2');
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('2');
+ fireEvent.click(screen.getByRole('button',{name:'Close'}));
+ expect(document.activeElement).toBe(refineCard);
+ // Open TVE workspace action remains reachable inside the tve category overlay without mutating settings.
+ fireEvent.click(document.querySelector('[data-post-card="tve"]')!);
+ fireEvent.click(screen.getByRole('button',{name:'Open TVE video workspace'}));
+ expect(onOpenVideoPost).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'Close'}));
+ // Switching to MiniMax H3 video activates the remembered video post-processing counts and deactivates image refine.
+ localStorage.setItem('deas.pref.studio.run.samVideoCuts','true');
+ localStorage.setItem('deas.pref.studio.run.faceRefine',JSON.stringify({auto:false,denoise:0.3,cropFactor:2.5,feather:6,prompt:''}));
+ choosePipe('Text → Video');
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-post-card="derope"]')!.dataset.postCount).toBe('3'));
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="latent"]')!.dataset.postCount).toBe('2');
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="model"]')!.dataset.postCount).toBe('1');
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="tve"]')!.dataset.postCount).toBe('2');
+ // A remembered scene-cuts option does not count as a running function when face refinement is not enabled.
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postState).toBe('inactive');
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postCount).toBe('0');
+ expect(localStorage.getItem('deas.pref.studio.run.samVideoCuts')).toBe('true');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(false);
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postState).toBe('unavailable');
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!.dataset.postCount).toBe('0');
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('8');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('Post-Processing overlay traps Tab focus when visible, ignores hidden dialogs, lets native dialogs handle Escape, supports Ctrl+K and SAM reveal, and keeps audio install feedback reachable on close',async()=>{
+ const sam='SAM3/sam3.1_multiplex_fp16.safetensors';
+ localStorage.setItem('deas.pref.studio.run.samVideoCuts','true');
+ localStorage.setItem('deas.pref.studio.run.faceRefine',JSON.stringify({auto:false,denoise:0.3,cropFactor:2.5,feather:6,prompt:''}));
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null},
+  {category:'checkpoints',name:sam,family:'sam3',path:'/m/'+sam,size:1,info:null},
+  {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3',path:'/m/h3',size:1,info:null},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/te',size:1,info:null},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors',path:'/m/vae',size:1,info:null},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors',path:'/m/avae',size:1,info:null},
+ ]);
+ const fullAllowlist={...evidence.allowlist,checkpoints:[...evidence.allowlist.checkpoints,sam],nodes:[...evidence.allowlist.nodes,'SAM3_Detect',...sam3VideoNodes,...faceRefineNodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover'],deropeKeepBackground:true};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:fullAllowlist});
+ let releaseInstall!:()=>void;
+ let failInstall!:(err:Error)=>void;
+ let installCalls=0;
+ vi.mocked(invoke).mockImplementation(async(command)=>{
+  if(command==='native_audio_enhance_capabilities')return{clean:true,deep:false,stems:false,cuda:false,gpuRepair:false};
+  if(command==='native_audio_enhance_install_status')return{running:installCalls>0,mode:installCalls>0?'deep':null,stage:'downloading',downloaded:12,total:100};
+  if(command==='native_audio_enhance_install'){
+   installCalls+=1;
+   return new Promise<void>((resolve,reject)=>{releaseInstall=resolve;failInstall=reject;});
+  }
+  if(command==='native_audio_enhance_install_cancel')return null;
+  return{path:'/env/ComfyUI/output',parent:'/env/ComfyUI',entries:[{name:'source.png',path:'/env/ComfyUI/output/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false};
+ });
+ const view=render(<I18nProvider><GlobalSearch onNavigate={()=>{}}/><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
+
+ // Ctrl+K with a mounted Workbench switches to Post-Processing, opens the category overlay idempotently, and focuses the indexed control.
+ fireEvent.keyDown(window,{key:'k',ctrlKey:true});
+ fireEvent.change(screen.getByPlaceholderText('Find a control…'),{target:{value:'Refine / Upscale after every run'}});
+ fireEvent.click(screen.getByRole('button',{name:/Studio › Refine \/ Upscale › Refine \/ Upscale after every run/}));
+ const autoRefineInput=await waitFor(()=>{
+  const el=document.querySelector<HTMLInputElement>('.wb-post [data-refine="auto"]');
+  expect(el).not.toBeNull();
+  expect(document.activeElement).toBe(el);
+  return el!;
+ });
+ const refineCard=document.querySelector<HTMLButtonElement>('[data-post-card="refine"]')!;
+ expect(refineCard.getAttribute('aria-expanded')).toBe('true');
+ // Repeating Ctrl+K for the same indexed control while already open keeps the overlay open and refocuses the control.
+ fireEvent.keyDown(window,{key:'k',ctrlKey:true});
+ fireEvent.change(screen.getByPlaceholderText('Find a control…'),{target:{value:'Refine / Upscale after every run'}});
+ fireEvent.click(screen.getByRole('button',{name:/Studio › Refine \/ Upscale › Refine \/ Upscale after every run/}));
+ await waitFor(()=>expect(document.activeElement).toBe(autoRefineInput));
+ expect(refineCard.getAttribute('aria-expanded')).toBe('true');
+
+ // Tab and Shift+Tab wrap focus within the open modal overlay; a hidden dialog in another pane is ignored.
+ const hiddenHost=document.createElement('div');
+ hiddenHost.hidden=true;
+ const hiddenDialog=document.createElement('dialog');
+ hiddenDialog.open=true;
+ hiddenHost.appendChild(hiddenDialog);
+ document.body.appendChild(hiddenHost);
+ const getOverlay=()=>document.querySelector<HTMLElement>('.wb-post-overlay')!;
+ const closeBtn=within(getOverlay()).getByRole('button',{name:'Close'});
+ closeBtn.focus();
+ fireEvent.keyDown(document,{key:'Tab',shiftKey:true});
+ expect(getOverlay().contains(document.activeElement)).toBe(true);
+ expect(document.activeElement).not.toBe(closeBtn);
+ const lastFocused=document.activeElement as HTMLElement;
+ fireEvent.keyDown(document,{key:'Tab'});
+ expect(document.activeElement).toBe(closeBtn);
+ lastFocused.focus();
+ fireEvent.keyDown(document,{key:'Tab'});
+ expect(document.activeElement).toBe(closeBtn);
+
+ // When the Studio pane is hidden, the Post overlay ignores Tab and Escape.
+ const workbenchHost=document.querySelector<HTMLElement>('.workbench-host')!;
+ workbenchHost.hidden=true;
+ fireEvent.keyDown(document,{key:'Escape'});
+ expect(refineCard.getAttribute('aria-expanded')).toBe('true');
+ workbenchHost.hidden=false;
+
+ // When Ctrl+K is open above the category overlay, Escape closes only GlobalSearch and leaves the category overlay open.
+ fireEvent.keyDown(window,{key:'k',ctrlKey:true});
+ const searchInput=screen.getByPlaceholderText('Find a control…');
+ fireEvent.keyDown(searchInput,{key:'Escape'});
+ expect(document.querySelector('#global-search-panel')).toBeNull();
+ expect(refineCard.getAttribute('aria-expanded')).toBe('true');
+ fireEvent.keyDown(document,{key:'Escape'});
+ expect(refineCard.getAttribute('aria-expanded')).toBe('false');
+ expect(document.activeElement).toBe(refineCard);
+ hiddenHost.remove();
+
+ // Inpaint Add target mask consumes its reveal request once so reopening the SAM card focuses Close instead of stealing focus to targets.
+ fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ fireEvent.click(await screen.findByRole('button',{name:'source.png'}));adopt();
+ const srcImg=screen.getByRole('img',{name:'source.png'});
+ Object.defineProperties(srcImg,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(srcImg);
+ fireEvent.click(document.querySelector('[data-edit="inpaint"]')!);
+ fireEvent.click(document.querySelector('.wb-side [data-sam="mask"]')!);
+ const samTargetsInput=document.querySelector<HTMLInputElement>('.wb-post [data-sam="targets"]')!;
+ expect(document.activeElement).toBe(samTargetsInput);
+ const samCard=document.querySelector<HTMLButtonElement>('[data-post-card="sam"]')!;
+ fireEvent.click(within(getOverlay()).getByRole('button',{name:'Close'}));
+ expect(document.activeElement).toBe(samCard);
+ fireEvent.click(samCard);
+ expect(document.activeElement).toBe(within(getOverlay()).getByRole('button',{name:'Close'}));
+ fireEvent.click(within(getOverlay()).getByRole('button',{name:'Close'}));
+ expect(document.activeElement).toBe(samCard);
+
+ // H3 face-analysis: (1) auto off with remembered cuts = 0, (2) auto on and available = 2, (3) auto on but blocked = 0; card and dock agree and saved prefs stay intact.
+ choosePipe('Text → Video');
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postState).toBe('inactive'));
+ const faceCard=document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!;
+ expect(faceCard.dataset.postCount).toBe('0');
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')).toBeNull();
+ expect(localStorage.getItem('deas.pref.studio.run.samVideoCuts')).toBe('true');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(false);
+
+ // (2) Auto on and available: card and dock both report 2 active functions.
+ fireEvent.click(faceCard);
+ const cutsCheckbox=document.querySelector<HTMLInputElement>('[data-sam-video="cuts"]')!;
+ expect(cutsCheckbox.checked).toBe(true);
+ const faceAutoCheckbox=await waitFor(()=>{
+  const el=document.querySelector<HTMLInputElement>('[data-face-refine="auto"]')!;
+  expect(el.disabled).toBe(false);
+  return el;
+ });
+ fireEvent.click(faceAutoCheckbox);
+ expect(faceCard.dataset.postState).toBe('active');
+ expect(faceCard.dataset.postCount).toBe('2');
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')?.textContent).toBe('2');
+ expect(localStorage.getItem('deas.pref.studio.run.samVideoCuts')).toBe('true');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(true);
+ fireEvent.click(within(getOverlay()).getByRole('button',{name:'Close'}));
+ expect(document.activeElement).toBe(faceCard);
+
+ // (3) Auto on but blocked (missing faceRefineNodes): card and dock both report 0 while preserving saved preferences.
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:[...evidence.allowlist.checkpoints,sam]}});
+ view.rerender(<I18nProvider><GlobalSearch onNavigate={()=>{}}/><Workbench endpoint="http://127.0.0.1:7802/" roots={{models:'/m',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postCount).toBe('0'));
+ expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postState).toBe('inactive');
+ expect(document.querySelector('[data-post-card="face-analysis"] .wb-post-card-reason')?.textContent).toBeTruthy();
+ expect(document.querySelector('[data-dock-tab="post"] .wb-dock-badge')).toBeNull();
+ expect(localStorage.getItem('deas.pref.studio.run.samVideoCuts')).toBe('true');
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.faceRefine')!).auto).toBe(true);
+
+ // Native dialog handles its own Escape; once consented, closing the Audio overlay restores focus and keeps progress, cancel, and errors reachable in the Post dock.
+ const audioCard=document.querySelector<HTMLButtonElement>('[data-post-card="audio"]')!;
+ fireEvent.click(audioCard);
+ const deepInstallBtn=await waitFor(()=>{
+  const btn=document.querySelector<HTMLButtonElement>('[data-audio-enhance-install="deep"]');
+  expect(btn?.disabled).toBe(false);
+  return btn!;
+ });
+ fireEvent.click(deepInstallBtn);
+ expect(askDialog()).not.toBeNull();
+ // Escape keydown is ignored by the Post overlay while a native dialog is open; the native dialog's cancel event closes only the dialog.
+ const escEvent=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true});
+ document.dispatchEvent(escEvent);
+ expect(escEvent.defaultPrevented).toBe(false);
+ expect(audioCard.getAttribute('aria-expanded')).toBe('true');
+ fireEvent(askDialog()!,new Event('cancel',{cancelable:true}));
+ expect(askDialog()).toBeNull();
+ expect(audioCard.getAttribute('aria-expanded')).toBe('true');
+ expect(installCalls).toBe(0);
+
+ // Start install via the existing consent flow, then close the Audio overlay.
+ fireEvent.click(deepInstallBtn);
+ askConfirm();
+ await waitFor(()=>expect(installCalls).toBe(1));
+ expect(document.querySelector('[data-audio-enhance-install-status]')).not.toBeNull();
+ fireEvent.click(within(getOverlay()).getByRole('button',{name:'Close'}));
+ expect(audioCard.getAttribute('aria-expanded')).toBe('false');
+ expect(document.activeElement).toBe(audioCard);
+ expect(installCalls).toBe(1);
+ const dockStatus=document.querySelector('[data-audio-enhance-dock-feedback] [data-audio-enhance-install-status]');
+ const dockCancel=document.querySelector<HTMLButtonElement>('[data-audio-enhance-dock-feedback] [data-audio-enhance-install-cancel]');
+ expect(dockStatus).not.toBeNull();
+ expect(dockCancel).not.toBeNull();
+ fireEvent.click(dockCancel!);
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_audio_enhance_install_cancel'));
+ await act(async()=>{failInstall(new Error('network interrupted'));});
+ await waitFor(()=>expect(document.querySelector('[data-audio-enhance-dock-feedback] [role="alert"]')?.textContent).toContain('network interrupted'));
+ void releaseInstall;
 });

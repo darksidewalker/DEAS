@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { activePost, activeWildcards, changedOptions } from './dockBadges';
+import { activePost, activeWildcards, changedOptions, postCategoryFunctions, postCategoryOrder } from './dockBadges';
 import { defaultOptions } from './OptionsPanel';
 import { defaultTve } from './TvePostControls';
 import { defaultWildcard } from '../../lib/wildcard';
@@ -22,4 +22,54 @@ test('post counts the stages that run for the current pipeline',()=>{
  expect(activePost({...base,video:true,audio:false,audioMode:'off',latent:false,tve:{...defaultTve,loop:true}})).toEqual(['loop']);
  expect(activePost({...base,video:false,audio:false,audioMode:'off',latent:false,tve:{...defaultTve,loop:true}})).toEqual([]);
  expect(activePost({...base,video:true,audio:false,audioMode:'clean'})).toEqual([]);
+});
+test('post category function counts match nested switches and reconcile with the dock aggregate badge',()=>{
+ const h3Video={
+  video:true,audio:true,audioMode:'loudness',latent:true,latentSpikeGuard:true,
+  h3Video:true,samVideoCuts:true,faceRefine:true,
+  derope:true,deropeKeepBackground:true,deropeDistilled:true,
+  tve:{...defaultTve,loop:true,upscaleModel:'x.pth',denoise:true,rtxUpscale:true},
+  refine:true,refineTiled:true,sam:true,
+ };
+ const byCat=postCategoryFunctions(h3Video);
+ expect(byCat.audio).toEqual(['audio']);
+ expect(byCat.latent).toEqual(['latent','latent.spikeGuard']);
+ expect(byCat['face-analysis']).toEqual(['faceRefine','faceAnalysis.cuts']);
+ expect(byCat.derope).toEqual(['derope','derope.keepBackground','derope.distilled']);
+ expect(byCat.model).toEqual(['upscale']);
+ expect(byCat.tve).toEqual(['loop','denoise','rtxUpscale']);
+ expect(byCat.sam).toEqual([]);
+ expect(byCat.refine).toEqual([]);
+ expect(postCategoryOrder.flatMap(id=>byCat[id]).length).toBe(activePost(h3Video).length);
+
+ const cutsWithoutFaceRefine={...h3Video,faceRefine:false,samVideoCuts:true};
+ const cutsOnlyCat=postCategoryFunctions(cutsWithoutFaceRefine);
+ expect(cutsOnlyCat['face-analysis']).toEqual([]);
+ expect(activePost(cutsWithoutFaceRefine)).not.toContain('faceAnalysis.cuts');
+ expect(postCategoryOrder.flatMap(id=>cutsOnlyCat[id]).length).toBe(activePost(cutsWithoutFaceRefine).length);
+
+ const nonH3Video={...h3Video,h3Video:false,latent:false};
+ const nonH3Cat=postCategoryFunctions(nonH3Video);
+ expect(nonH3Cat.latent).toEqual([]);
+ expect(nonH3Cat['face-analysis']).toEqual([]);
+ expect(nonH3Cat.derope).toEqual([]);
+ expect(postCategoryOrder.flatMap(id=>nonH3Cat[id]).length).toBe(activePost(nonH3Video).length);
+
+ const image={...h3Video,video:false,audio:false,refine:true,refineTiled:true,sam:true};
+ const imgCat=postCategoryFunctions(image);
+ expect(imgCat.refine).toEqual(['refine','refine.tiled']);
+ expect(imgCat.sam).toEqual(['sam']);
+ expect(imgCat.latent).toEqual([]);
+ expect(imgCat.derope).toEqual([]);
+ expect(imgCat.tve).toEqual([]);
+ expect(postCategoryOrder.flatMap(id=>imgCat[id]).length).toBe(activePost(image).length);
+
+ const h3Image=postCategoryFunctions({...image,h3Image:true});
+ expect(h3Image.refine).toEqual([]);
+ expect(h3Image.sam).toEqual(['sam']);
+
+ const music=postCategoryFunctions({...image,music:true,audio:true,audioMode:'stems'});
+ expect(music.refine).toEqual([]);
+ expect(music.sam).toEqual([]);
+ expect(music.audio).toEqual(['audio']);
 });

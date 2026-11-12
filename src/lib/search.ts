@@ -84,6 +84,9 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.viewer.open', label: 'studio.run.viewer.prev', target: '[data-viewer-prev]', aliases: ['previous image', 'back', 'left arrow'], reason: 'studio.run.viewer.closed' },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.viewer.open', label: 'studio.run.viewer.next', target: '[data-viewer-next]', aliases: ['next image', 'forward', 'right arrow'], reason: 'studio.run.viewer.closed' },
   { view: studio, studioTab: 'generate', dockTab: 'media', tab: 'setup.tab.studio', section: 'studio.run.dock.media', label: 'media.intake.label', target: '#studio-dock [data-media-intake]', aliases: ['paste', 'clipboard', 'copy into input', 'screenshot', 'import'] },
+  { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.run.post.group.latent', label: 'studio.run.latent.enabled', target: '.wb-post [data-latent-upscale-enabled]', aliases: ['latent', 'upscale', 'LTX-2', 'MiniMax H3'], reason: 'studio.run.post.reason.latentOnly' },
+  { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.run.post.group.refine', label: 'studio.run.post.enabled', target: '.wb-post [data-refine="auto"]', aliases: ['refine', 'upscale', 'tiled'], reason: 'studio.run.post.reason.imageOnly' },
+  { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.run.dock.post', label: 'studio.run.post.model', target: '.wb-post [data-tve-post="upscaleModel"]', aliases: ['upscale', 'video upscale model'], reason: 'studio.run.post.reason.videoOnly' },
   { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.samVideo.title', label: 'studio.sam.model', target: '.wb-post [data-sam-video="checkpoint"]', aliases: ['H3', 'face', 'mask', 'video', 'analysis'], reason: 'studio.samVideo.hint' },
   { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.samVideo.title', label: 'studio.sam.threshold', target: '.wb-post [data-sam-video="threshold"]', aliases: ['H3', 'face', 'mask', 'video', 'analysis'], reason: 'studio.samVideo.hint' },
   { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.samVideo.title', label: 'studio.samVideo.startSeconds', target: '.wb-post [data-sam-video="startSeconds"]', aliases: ['H3', 'face', 'mask', 'video', 'analysis'], reason: 'studio.samVideo.hint' },
@@ -264,8 +267,26 @@ export interface RevealOutcome {
 /** Opens collapsed ancestors, scrolls to the control and flashes it; reports a currently disabled control. */
 export function revealTarget(target: string): RevealOutcome {
   if(target==='.experience-switch'||target.startsWith('[data-theme-action='))document.querySelector<HTMLButtonElement>('.studio-quick > button[aria-expanded="false"]')?.click();
+  if (target.startsWith('.wb-post') || target.startsWith('[data-audio-enhance="post"]') || target.startsWith('[data-post-card=')) {
+    const dock = document.querySelector<HTMLButtonElement>('[data-dock-tab="post"]:not([aria-selected="true"])');
+    if (dock) {
+      dock.dataset.revealOpen = 'true';
+      dock.click();
+      delete dock.dataset.revealOpen;
+    }
+  }
   const element = document.querySelector<HTMLElement>(target);
   if (!element) return { state: 'missing' };
+  const postCategory = element.closest<HTMLElement>('[data-post-category]');
+  if (postCategory?.dataset.postCategory) {
+    const card = document.querySelector<HTMLButtonElement>(`[data-post-card="${postCategory.dataset.postCategory}"]`);
+    if (card && (postCategory.hidden || card.getAttribute('aria-expanded') !== 'true')) {
+      card.dataset.revealOpen = 'true';
+      card.click();
+      delete card.dataset.revealOpen;
+    }
+  }
+  if (element.closest('[hidden]')) return { state: 'missing' };
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
     if (parent instanceof HTMLDetailsElement) parent.open = true;
   }
@@ -273,7 +294,11 @@ export function revealTarget(target: string): RevealOutcome {
   element.classList.add('search-flash');
   window.setTimeout(() => element.classList.remove('search-flash'), 1400);
   const disabled = element.matches(':disabled') || !!element.querySelector(':disabled:not(option):not(optgroup)') || element.getAttribute('aria-disabled') === 'true';
-  if (!disabled) return { state: 'revealed' };
+  if (!disabled) {
+    const focusable = element.matches('input,select,textarea,button,[tabindex]') ? element : element.querySelector<HTMLElement>('input,select,textarea,button,[tabindex]');
+    focusable?.focus?.();
+    return { state: 'revealed' };
+  }
   const title = element.getAttribute('title')?.trim();
   return { state: 'disabled', ...(title ? { title: title.slice(0, 160) } : {}) };
 }

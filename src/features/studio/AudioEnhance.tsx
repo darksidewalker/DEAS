@@ -6,7 +6,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { cancelAudioEnhance, exportEnhancedAudio, type AudioEnhanceMode, type AudioEnhanceProfile, type AudioEnhanceDevice, type AudioEnhanceSource } from '../../lib/audioEnhance';
 
 /** Explicit post-processing of a retained source/result. The original is never replaced. */
-type Props = { source?: AudioEnhanceSource; name?: string; scope: 'post' | 'tve'; disabled?: boolean; automatic?: boolean };
+type Props = { source?: AudioEnhanceSource; name?: string; scope: 'post' | 'tve'; disabled?: boolean; automatic?: boolean; hideInstallFeedback?: boolean };
 // Native install stages, localized; unknown stages fall back to the raw stage name.
 const STAGE_KEYS: Record<string, string> = { starting: 'studio.audioEnhance.stage.starting', downloading: 'studio.audioEnhance.stage.downloading', 'python-environment': 'studio.audioEnhance.stage.pythonEnvironment', packages: 'studio.audioEnhance.stage.packages', 'inference-check': 'studio.audioEnhance.stage.inferenceCheck', 'gpu-optional': 'studio.audioEnhance.stage.gpuOptional' };
 function installStageText(t: (key: string, params?: Record<string, string | number>) => string, status: { stage: string; downloaded: number; total: number }) {
@@ -15,6 +15,14 @@ function installStageText(t: (key: string, params?: Record<string, string | numb
   // shortcut: only downloads carry byte totals; other stages stay honestly indeterminate until a total source exists, then widen installProgress.
   return status.total > 0 ? t('studio.audioEnhance.installProgress', { stage, downloaded: status.downloaded, total: status.total }) : t('studio.audioEnhance.installStage', { stage });
 }
+export function AudioEnhanceInstallFeedback({ settings }: { settings: AudioEnhanceSettings }) {
+  const { t } = useI18n();
+  if (!settings.installing && !settings.error) return null;
+  return <>
+    {settings.installing && <><small role="status" data-audio-enhance-install-status>{t('studio.audioEnhance.installing', { mode: t(`studio.audioEnhance.${settings.installing}`) })}{settings.installStatus?.running && <> · {installStageText(t, settings.installStatus)}</>}</small><button type="button" className="wb-dock-action" data-audio-enhance-install-cancel onClick={() => void settings.cancelInstall()}>{t('studio.audioEnhance.installCancel')}</button></>}
+    {settings.error && <small role="alert">{settings.error}</small>}
+  </>;
+}
 export function AudioEnhance(props: Props & { settings?: AudioEnhanceSettings }) {
   return props.settings ? <AudioEnhanceControls {...props} settings={props.settings}/> : <StandaloneAudioEnhance {...props}/>;
 }
@@ -22,7 +30,7 @@ function StandaloneAudioEnhance(props: Props) {
   const settings = useAudioEnhance(props.scope);
   return <AudioEnhanceControls {...props} settings={settings}/>;
 }
-function AudioEnhanceControls({ source, name, scope, disabled = false, automatic = false, settings }: Props & { settings: AudioEnhanceSettings }) {
+function AudioEnhanceControls({ source, name, scope, disabled = false, automatic = false, hideInstallFeedback = false, settings }: Props & { settings: AudioEnhanceSettings }) {
   const { t } = useI18n();
   const { mode, setMode, profile, setProfile, device, setDevice, capabilities, checking, probe, available, installing } = settings;
   const [busy, setBusy] = useState(false);
@@ -69,8 +77,7 @@ function AudioEnhanceControls({ source, name, scope, disabled = false, automatic
       <div className="wb-option" data-audio-enhance-engines role="group" aria-label={t('studio.audioEnhance.engines')}><span>{t('studio.audioEnhance.engines')}</span>
       {(['deep', 'stems'] as const).map(value => { const repair = value === 'stems' && !!capabilities?.stems && !!capabilities.gpuRepair; return <button key={value} type="button" className="wb-dock-action" data-audio-enhance-install={value} disabled={!!capabilities?.[value] && !repair || busy || !!installing || checking || !isTauri()} onClick={() => setConsent(value)}>{t(repair ? 'studio.audioEnhance.repairGpu' : 'studio.audioEnhance.install', { mode: t(`studio.audioEnhance.${value}`) })}</button>; })}
       </div>
-      {installing && <><small role="status" data-audio-enhance-install-status>{t('studio.audioEnhance.installing', { mode: t(`studio.audioEnhance.${installing}`) })}{settings.installStatus?.running && <> · {installStageText(t, settings.installStatus)}</>}</small><button type="button" className="wb-dock-action" data-audio-enhance-install-cancel onClick={() => void settings.cancelInstall()}>{t('studio.audioEnhance.installCancel')}</button></>}
-      {settings.error && <small role="alert">{settings.error}</small>}
+      {!hideInstallFeedback && <AudioEnhanceInstallFeedback settings={settings}/>}
       {checking && <small role="status">{t('studio.audioEnhance.checking')}</small>}
       {busy && <small role="status">{t('studio.audioEnhance.processingSource', { name: operationName })}</small>}
       {name && <small data-audio-enhance-source>{name}</small>}

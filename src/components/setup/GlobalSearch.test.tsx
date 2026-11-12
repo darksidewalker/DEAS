@@ -93,6 +93,58 @@ test('an Options dock card selects its dock tab first, then reveals the card; Ba
   expect(matchEntries(searchIndex, 'frame', text).map((entry) => entry.target)).toContain('[data-frame-use]');
 });
 
+test('a Post-Processing nested control selects the Post dock, opens its category overlay idempotently, and focuses the control', async () => {
+  const dock = document.createElement('button');
+  dock.setAttribute('data-dock-tab', 'post');
+  dock.setAttribute('aria-selected', 'false');
+  const postRoot = document.createElement('div');
+  postRoot.className = 'wb-post';
+  postRoot.hidden = true;
+  const card = document.createElement('button');
+  card.setAttribute('data-post-card', 'derope');
+  card.setAttribute('aria-expanded', 'false');
+  const category = document.createElement('div');
+  category.setAttribute('data-post-category', 'derope');
+  category.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.setAttribute('data-derope', 'keep-background');
+  category.appendChild(input);
+  postRoot.append(card, category);
+  dock.addEventListener('click', () => {
+    dock.setAttribute('aria-selected', 'true');
+    postRoot.hidden = false;
+  });
+  let cardClicks = 0;
+  card.addEventListener('click', () => {
+    cardClicks += 1;
+    card.setAttribute('aria-expanded', 'true');
+    category.hidden = false;
+  });
+  document.body.append(dock, postRoot);
+  const onNavigate = mount();
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(screen.getByPlaceholderText('Find a control…'), { target: { value: 'keep static background' } });
+  fireEvent.click(screen.getByRole('button', { name: /Studio › De-rope \(fast motion\) › Keep static background/ }));
+  await waitFor(() => expect(input.classList.contains('search-flash')).toBe(true));
+  expect(dock.getAttribute('aria-selected')).toBe('true');
+  expect(card.getAttribute('aria-expanded')).toBe('true');
+  expect(category.hidden).toBe(false);
+  expect(cardClicks).toBe(1);
+  expect(document.activeElement).toBe(input);
+  expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ dockTab: 'post', target: '.wb-post [data-derope="keep-background"]' }));
+  // Repeating the search while the Post dock and category overlay are already open keeps the overlay open and refocuses the control.
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+  fireEvent.change(screen.getByPlaceholderText('Find a control…'), { target: { value: 'keep static background' } });
+  fireEvent.click(screen.getByRole('button', { name: /Studio › De-rope \(fast motion\) › Keep static background/ }));
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  expect(card.getAttribute('aria-expanded')).toBe('true');
+  expect(category.hidden).toBe(false);
+  expect(cardClicks).toBe(1);
+  dock.remove();
+  postRoot.remove();
+});
+
 test('matching uses the current language and English aliases, and stays read-only', () => {
   const text = (key: string) => `${bundledCatalog.dictionaries.en[key] ?? key} ${bundledCatalog.dictionaries.de[key] ?? key}`;
   expect(matchEntries(searchIndex, 'Ausführen', text).map((entry) => entry.target)).toContain('[data-run]');

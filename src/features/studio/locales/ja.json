@@ -1082,5 +1082,15 @@
   "studio.run.derope.inject.safe": "0.70 · より安全",
   "studio.run.derope.injectHint": "減速クリップで再実行するスケジュールの割合：低いほど元を保ち、高いほどモデルが作り直します。",
   "studio.faceRefine.minFace": "最小顔サイズ（px）",
-  "studio.faceRefine.minFaceHint": "この高さを一度も超えない顔は元のピクセルのままです（0＝すべて補正）。小さな顔は768の補正キャンバスに拡大され、少ない効果のためにH3を1回分使います。"
+  "studio.faceRefine.minFaceHint": "この高さを一度も超えない顔は元のピクセルのままです（0＝すべて補正）。小さな顔は768の補正キャンバスに拡大され、少ない効果のためにH3を1回分使います。",
+  "studio.run.post.card.active": "有効",
+  "studio.run.post.card.inactive": "無効",
+  "studio.run.post.card.unavailable": "このパイプラインでは利用不可",
+  "studio.run.post.card.count": "{count} 件有効",
+  "studio.run.post.card.open": "設定を開く",
+  "studio.run.post.reason.videoOnly": "動画生成パイプライン専用です。",
+  "studio.run.post.reason.h3VideoOnly": "MiniMax H3 動画パイプライン専用です。",
+  "studio.run.post.reason.latentOnly": "LTX-2 および MiniMax H3 動画パイプライン専用です。",
+  "studio.run.post.reason.imageOnly": "画像パイプライン専用です。",
+  "studio.run.post.reason.audioManualOnly": "手動の音声強化は引き続き利用できます。自動後処理には音声対応の動画または音楽パイプラインが必要です。"
 }
