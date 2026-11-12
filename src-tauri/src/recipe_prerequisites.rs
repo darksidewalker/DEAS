@@ -202,6 +202,12 @@ fn derope_keep_background_ready(nodes: &Value) -> bool {
         && input("keep_background")[0] == "BOOLEAN"
 }
 
+/// Node pack >= 0.5.47: 2D latent-upscaler sharpness tier (optional INT 1-6, `nodes_minimax_h3_tiled_upscale.py`).
+fn h3_latent_sharpness_ready(nodes: &Value) -> bool {
+    let spec = &nodes["DaSiWaH3TiledUpscale"]["input"]["optional"]["upscale_sharpness"];
+    spec[0] == "INT" && spec[1]["min"] == 1 && spec[1]["max"] == 6
+}
+
 fn image_postprocess_ready(nodes: &Value) -> bool {
     let metadata = nodes.get("DaSiWa_MetadataImageSaver").is_some()
         && nodes.get("DaSiWa_MetadataConfig").is_some();
@@ -414,6 +420,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "vaes":combo(nodes, "VAELoader", "vae_name")?,
             "videoPreviews":video_previews(nodes),
             "deropeKeepBackground":derope_keep_background_ready(nodes),
+            "h3LatentSharpness":h3_latent_sharpness_ready(nodes),
             "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
             "attention":options(nodes, "ModelAttentionBackend", "attention", option),
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
@@ -693,6 +700,19 @@ mod tests {
                 false
             );
         }
+    }
+
+    #[test]
+    fn h3_latent_sharpness_requires_the_tier_input() {
+        let base = crate::validate_base_url("http://127.0.0.1:8188").unwrap();
+        let mut info = nodes();
+        let ready =
+            |info: &Value| parse(&base, info).unwrap()["allowlist"]["h3LatentSharpness"] == true;
+        assert!(!ready(&info));
+        info["DaSiWaH3TiledUpscale"] = json!({"input":{"optional":{"upscale_sharpness":["INT",{"default":1,"min":1,"max":6}]}}});
+        assert!(ready(&info));
+        info["DaSiWaH3TiledUpscale"]["input"]["optional"]["upscale_sharpness"][1]["max"] = json!(4);
+        assert!(!ready(&info));
     }
 
     #[test]
@@ -1296,7 +1316,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "videos":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "deropeKeepBackground":false
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "deropeKeepBackground":false, "h3LatentSharpness":false
                 }, "missingNodes":[], "generationReady":false
             })
         );

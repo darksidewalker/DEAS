@@ -234,7 +234,7 @@ fn ltx_latent_model(name: &str) -> bool {
 }
 
 /// Optional `DaSiWaH3TiledUpscale` inputs (intent key, node input); omitted keys keep the node defaults.
-const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 14] = [
+const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 15] = [
     ("cfg", "cfg"),
     ("scheduler", "scheduler"),
     ("precision", "upscale_precision"),
@@ -249,6 +249,7 @@ const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 14] = [
     ("memoryReservePct", "memory_reserve_pct"),
     ("continuitySoftRefine", "continuity_soft_refine"),
     ("continuityMaskStrength", "continuity_mask_strength"),
+    ("sharpness", "upscale_sharpness"),
 ];
 
 fn valid_h3_latent_advanced(a: &Value) -> bool {
@@ -275,6 +276,7 @@ fn valid_h3_latent_advanced(a: &Value) -> bool {
         "guardStrength" | "continuityMaskStrength" => finite(v, 0.0, 1.0),
         "guardMode" => matches!(v.as_str(), Some("burn_direction" | "both")),
         "memoryReservePct" => finite(v, 0.0, 100.0),
+        "sharpness" => v.as_u64().is_some_and(|n| (1..=6).contains(&n)),
         _ => false,
     })
 }

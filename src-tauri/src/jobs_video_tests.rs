@@ -493,7 +493,7 @@ fn h3_latent_advanced_options_override_only_the_given_node_inputs() {
         "cfg":1.5,"scheduler":"beta","precision":"bf16","memoryBudgetMb":24000,
         "spatialTiling":false,"temporalChunking":false,"spikeGuard":true,"guardSensitivity":3.5,
         "guardStrength":0.5,"guardMode":"both","memoryPlanning":false,"memoryReservePct":10.0,
-        "continuitySoftRefine":true,"continuityMaskStrength":0.25
+        "continuitySoftRefine":true,"continuityMaskStrength":0.25,"sharpness":4
     });
     let g = compile(&i).unwrap();
     let u = &g["U"]["inputs"];
@@ -512,8 +512,14 @@ fn h3_latent_advanced_options_override_only_the_given_node_inputs() {
         ("memory_reserve_pct", json!(10.0)),
         ("continuity_soft_refine", json!(true)),
         ("continuity_mask_strength", json!(0.25)),
+        ("upscale_sharpness", json!(4)),
     ] {
         assert_eq!(u[input], value, "{input}");
+    }
+    for bad in [json!(0), json!(7), json!(2.5), json!("3")] {
+        let mut b = i.clone();
+        b["latentUpscale"]["advanced"] = json!({"sharpness": bad});
+        assert!(compile(&b).is_err(), "sharpness {bad}");
     }
     // Refine steps/denoise stay the upscaler's own values, never the generation steps.
     assert_eq!(u["steps"], json!(3));
@@ -523,6 +529,8 @@ fn h3_latent_advanced_options_override_only_the_given_node_inputs() {
     assert_eq!(compile(&i).unwrap(), plain);
     assert_eq!(plain["U"]["inputs"]["scheduler"], json!("simple"));
     assert_eq!(plain["U"]["inputs"]["memory_reserve_pct"], json!(5.0));
+    // Packs before 0.5.47 lack the input: unchanged sharpness is never emitted.
+    assert!(plain["U"]["inputs"].get("upscale_sharpness").is_none());
 }
 
 #[test]

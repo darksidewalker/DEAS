@@ -1530,6 +1530,11 @@ impl Jobs {
             {
                 return Err("De-rope Keep static background requires compatible Recover baseline IMAGE and keep_background BOOLEAN inputs with IMAGE output. Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
+            if intent["latentUpscale"]["advanced"].get("sharpness").is_some()
+                && allow["h3LatentSharpness"] != true
+            {
+                return Err("H3 latent upscale sharpness needs DaSiWa node pack 0.5.47 or newer (upscale_sharpness input). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+            }
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
             let video = crate::jobs_video::is_video(&intent);

@@ -2,6 +2,7 @@
 
 ## 0.2.24 BETA (unreleased)
 
+- **H3 latent upscale: 2D upscaler and sharpness tiers.** With node pack 0.5.47+ the new `minimax_h3_latent_upscaler_2d_conv_v1` checkpoint runs in H3 latent upscale and is the preferred default model when installed (a saved choice is kept); the download popup offers it first. **☰ More upscaler options** gains **Sharpness (2D tier)** 1–6, default 1; it is greyed with a reason for 3D models or older packs, is sent only when changed and only to a supporting pack (native admission rejects it otherwise). Run Plan and Recent history carry it like the other options.
 - **Pipeline-incompatible Post-Processing cards are greyed out and blocked.** Their reasons remain visible and remembered values are retained. Switching to an incompatible pipeline closes the open category.
 - **Floating Post-Processing settings.** Category cards open a draggable non-modal overlay with independently scrolling controls, rather than expanding inside the dock. No backdrop or focus trap: the rest of the workspace remains interactive; Escape/Close returns focus to the card.
 

@@ -824,6 +824,25 @@ test('H3 latent upscaler options sit in their own menu, keep separate refine ste
  view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
  await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:h3Model,scale:2,steps:4,denoise:0.2}));
 });
+test.each([[true,true],[false,false]])('H3 2D upscaler is the default model and sends sharpness only when the pack supports it (pack %s)',async(ready,sent)=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
+ ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
+ const d3='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors',d2='minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors';
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[d3,d2],h3LatentSharpness:ready}});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'',scale:2,steps:1,denoise:0.2,advanced:{sharpness:4}}));
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect((document.querySelector('[data-latent-upscale-model]') as HTMLSelectElement|null)?.value).toBe(d2));
+ expect((document.querySelector('[data-latent-advanced="sharpness"]') as HTMLInputElement).disabled).toBe(!ready);
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d2,scale:2,steps:1,denoise:0.2,...(sent?{advanced:{sharpness:4}}:{})}));
+});
 test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
