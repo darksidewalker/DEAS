@@ -1,3 +1,5 @@
+import { flushSync } from 'react-dom';
+
 /**
  * Static index for the global search: labels are existing locale keys and targets are stable DOM anchors.
  * Search only reads; navigation is the tab band's own switch (no setting is written, nothing is submitted).
@@ -35,6 +37,12 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'beginner.navigation', section: 'beginner.generate', label: 'beginner.generate', target: '[data-beginner-tab="generate"]', aliases: ['create', 'prompt', 'generate'] },
   { view: studio, studioTab: 'generate', beginnerTab: 'models', tab: 'beginner.navigation', section: 'beginner.models', label: 'beginner.models', target: '[data-beginner-tab="models"]', aliases: ['model library', 'discover models'] },
   { view: studio, studioTab: 'generate', beginnerTab: 'collection', tab: 'beginner.navigation', section: 'beginner.collection', label: 'beginner.collection', target: '[data-beginner-tab="collection"]', aliases: ['gallery', 'my creations'] },
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'beginner.navigation',section:'beginner.generate',label:'beginner.creationMode',target:'#beginner-mode',aliases:['image','video','music','pipeline'],reason:'beginner.switchHint'},
+  {view:studio,studioTab:'generate',beginnerTab:'models',tab:'beginner.navigation',section:'beginner.models',label:'beginner.mediaFilter',target:'.beginner-model-toolbar [data-model-media="music"]',aliases:['music models','YuE2','ACE-Step'],reason:'beginner.switchHint'},
+  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.music',label:'studio.music.planning',target:'[data-music-planning]',aliases:['ABC','music','planner'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.music',label:'studio.music.audioEncoder',target:'[data-music-encoder]',aliases:['SheetSage2','cover','encoder'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.music',label:'studio.music.abcSettings',target:'[data-music-abc-settings] summary',aliases:['ABC','music','planning settings'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.music',label:'studio.music.generationSettings',target:'[data-music-generation-settings] summary',aliases:['AR','music','generation settings'],reason:'studio.run.pipe.noRecipe'},
   { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'beginner.navigation', section: 'beginner.generate', label: 'studio.run.resolution.aspect', target: '[data-beginner-aspect]', aliases: ['format', 'ratio', 'portrait', 'landscape'] },
   { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'beginner.navigation', section: 'beginner.generate', label: 'studio.run.resolution.title', target: '[data-beginner-resolution]', aliases: ['quality', 'size', 'megapixels'] },
   { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'beginner.navigation', section: 'settings.button', label: 'settings.button', target: '.beginner-backend', aliases: ['engine', 'backend setup'] },
@@ -52,25 +60,34 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.settings', label: 'studio.recipe.sampler', target: '[data-pick="studio.recipe.sampler"]' },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.settings', label: 'studio.recipe.scheduler', target: '[data-pick="studio.recipe.scheduler"]' },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.settings', label: 'studio.run.seed', target: '[data-seed]' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.first', target: '[data-video-role="first"]', aliases: ["video", "first", "frame"], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.last', target: '[data-video-role="last"]', aliases: ["video", "last", "frame"], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.both', target: '[data-video-role="both"]', aliases: ["video", "both", "frame"], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.reference', target: '[data-video-role="reference"]', aliases: ["video", "reference", "input"], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.source', target: '[data-video-role="source"]', aliases: ["video", "source", "input"], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.first', target: '[data-video-role-remove="first"]', aliases: ['remove', 'clear', 'video', 'first'], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.last', target: '[data-video-role-remove="last"]', aliases: ['remove', 'clear', 'video', 'last'], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.roles.source', target: '[data-video-role-remove="source"]', aliases: ['remove', 'clear', 'video', 'source'], reason: 'studio.run.video.roles.pick' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock.references', label: 'studio.run.video.refmods', target: '[data-video-refmods-clear]', aliases: ['remove RefMods', 'clear', 'unsupported'], reason: 'studio.run.video.roles.unsupported' },
   // Music authoring
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.shift',target:'[data-ace-setting="shift"]',aliases:['ACE-Step','music','shift'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.lyricsStrength',target:'[data-ace-setting="lyricsStrength"]',aliases:['ACE-Step','music','lyricsStrength'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.bpm',target:'[data-ace-setting="bpm"]',aliases:['ACE-Step','music','bpm'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.bpm',target:'[data-ace-setting="bpm"]',aliases:['ACE-Step','music','bpm'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.timeSignature',target:'[data-ace-setting="timeSignature"]',aliases:['ACE-Step','music','timeSignature'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.language',target:'[data-ace-setting="language"]',aliases:['ACE-Step','music','language'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.keyScale',target:'[data-ace-setting="keyScale"]',aliases:['ACE-Step','music','keyScale'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.language',target:'[data-ace-setting="language"]',aliases:['ACE-Step','music','language'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.keyScale',target:'[data-ace-setting="keyScale"]',aliases:['ACE-Step','music','keyScale'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.generateAudioCodes',target:'[data-ace-setting="generateAudioCodes"]',aliases:['ACE-Step','music','generateAudioCodes'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.lmCfg',target:'[data-ace-setting="lmCfg"]',aliases:['ACE-Step','music','lmCfg'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.temperature',target:'[data-ace-setting="temperature"]',aliases:['ACE-Step','music','temperature'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.topP',target:'[data-ace-setting="topP"]',aliases:['ACE-Step','music','topP'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.topK',target:'[data-ace-setting="topK"]',aliases:['ACE-Step','music','topK'],reason:'studio.run.pipe.noRecipe'},
   {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.ace.minP',target:'[data-ace-setting="minP"]',aliases:['ACE-Step','music','minP'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.maxDuration',target:'[data-music-duration]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.style',target:'[data-music-prompt="style"]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.lyrics',target:'[data-music-prompt="lyrics"]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.textEncoder',target:'[data-run-component="textEncoders"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.textEncoder2',target:'[data-run-component="textEncoders2"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
-  {view:studio,studioTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.vae',target:'[data-run-component="vaes"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.maxDuration',target:'[data-music-duration]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.style',target:'[data-music-prompt="style"]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.music.lyrics',target:'[data-music-prompt="lyrics"]',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.textEncoder',target:'[data-run-component="textEncoders"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.textEncoder2',target:'[data-run-component="textEncoders2"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
+  {view:studio,studioTab:'generate',beginnerTab:'generate',tab:'setup.tab.studio',section:'studio.run.pipe.t2m',label:'studio.run.vae',target:'[data-run-component="vaes"] select',aliases:['ACE-Step','music'],reason:'studio.run.pipe.noRecipe'},
   // Studio · prompts and Run
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'search.section.prompts', label: 'studio.run.positive', target: '#run-positive', aliases: ['prompt', 'text'] },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'search.section.prompts', label: 'studio.run.negative', target: '#run-negative', aliases: ['prompt', 'exclude'] },
@@ -126,7 +143,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'studio.run.dock.loras', target: '[data-dock-tab="loras"]', aliases: ['lora'] },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'presets.title', target: '[data-dock-tab="presets"]', aliases: ['preset'] },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'wildcards.title', target: '[data-dock-tab="wildcards"]', aliases: ['wildcard'] },
-  { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'studio.run.dock.references', target: '[data-open-references]', aliases: ['reference', 'image', 'refmod', 'create refmod'], reason: 'search.reason.references' },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.dock', label: 'studio.run.dock.references', target: '[data-open-references]', aliases: ['reference', 'image', 'refmod', 'create refmod'], reason: 'search.reason.references' },
   // Studio · Options dock cards
   { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.attention', target: '[data-option="attention"]', aliases: ['sage', 'flash', 'kitchen'], reason: 'search.reason.backend' },
   { view: studio, studioTab: 'generate', dockTab: 'options', tab: 'setup.tab.studio', section: 'studio.run.dock.options', label: 'studio.run.opt.enhancedPreview', target: '[data-option="enhancedPreview"]', aliases: ['animated', 'temporal', 'tiny vae', 'video preview'], reason: 'search.reason.backend' },
@@ -198,6 +215,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'tve', tab: 'studio.tab.tve', section: 'studio.tve.post.title', label: 'studio.tve.post.multiplier', target: '[data-tve-post="multiplier"]', aliases: ['frame rate', 'fps'] },
   { view: studio, studioTab: 'monitor', tab: 'monitoring.tab', section: 'monitoring.generations', label: 'monitoring.col.duration', target: '[data-monitoring-headline]', aliases: ['duration', 'time', 'history'] },
   { view: studio, studioTab: 'monitor', tab: 'monitoring.tab', section: 'monitoring.system', label: 'monitoring.cpu', target: '[data-monitoring-metric="cpu"]', aliases: ['cpu', 'ram', 'gpu', 'vram', 'telemetry'] },
+  { view: studio, studioTab: 'generate', beginnerTab: 'generate', tab: 'setup.tab.studio', section: 'studio.music.source', label: 'studio.music.removeSource', target: '[data-music-source-remove]', aliases: ['music', 'cover', 'source', 'remove', 'clear', 'audio'], reason: 'studio.music.needsSource' },
   // Run Plan stages (a stage that the draft does not use is genuinely unavailable)
   { view: studio, studioTab: 'map', tab: 'studio.tab.map', section: 'studio.tab.map', label: 'studio.plan.model', target: '[data-plan-stage="model"]', aliases: ['checkpoint'], reason: 'search.reason.plan' },
   { view: studio, studioTab: 'map', tab: 'studio.tab.map', section: 'studio.tab.map', label: 'studio.plan.prompt', target: '[data-plan-stage="prompt"]', aliases: ['prompt'], reason: 'search.reason.plan' },
@@ -268,6 +286,9 @@ export interface RevealOutcome {
 
 /** Opens collapsed ancestors, scrolls to the control and flashes it; reports a currently disabled control. */
 export function revealTarget(target: string): RevealOutcome {
+  if(target==='#beginner-mode'||target.startsWith('[data-music-')||target.startsWith('[data-ace-'))flushSync(()=>document.querySelector<HTMLButtonElement>('[data-pane-toggle="settings"][aria-expanded="false"]')?.click());
+  if(target.startsWith('[data-music-prompt='))flushSync(()=>document.querySelector<HTMLButtonElement>('[data-pane-toggle="prompt"][aria-expanded="false"]')?.click());
+  if(target.startsWith('[data-video-role')||target==='[data-video-refmods-clear]')flushSync(()=>document.querySelector<HTMLButtonElement>('[data-open-references]')?.click());
   if(target==='.experience-switch'||target.startsWith('[data-theme-action='))document.querySelector<HTMLButtonElement>('.studio-quick > button[aria-expanded="false"]')?.click();
   if (target.startsWith('.wb-post') || target.startsWith('[data-audio-enhance="post"]') || target.startsWith('[data-post-card=')) {
     const dock = document.querySelector<HTMLButtonElement>('[data-dock-tab="post"]:not([aria-selected="true"])');

@@ -16,6 +16,8 @@ import { applyStudioSettings, captureStudioSettings, resetStudioPreferences } fr
 import { aspects, resolutions } from '../../lib/resolution';
 import type { HistoryRecord } from './history';
 import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
+import { revealTarget } from '../../lib/search';
+import type { LocalModel } from '../../lib/models';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, writeModelFamily } from '../../lib/models';
@@ -324,7 +326,7 @@ test('model metadata action enables an unknown supported file while GGUF stays u
  await waitFor(()=>expect(tile.getAttribute('aria-disabled')).toBe('false'));
  const picker=document.querySelector('[data-model-picker]') as HTMLSelectElement;
  expect(picker.value).toBe(gguf.name);
- expect([...document.querySelector<HTMLSelectElement>('[data-pipeline]')!.options].find(o=>o.value==='t2v')).toHaveProperty('disabled',true);
+ expect([...document.querySelector<HTMLSelectElement>('[data-pipeline]')!.options].find(o=>o.value==='video')).toHaveProperty('disabled',true);
  expect([...picker.options].find(o=>o.value===bad.name)).toBeUndefined();
  expect([...picker.options].find(o=>o.value===gguf.name)?.disabled).toBe(false);
  expect(tile.textContent).toContain('User-declared family');
@@ -391,14 +393,14 @@ test('checkpoint picker filters mixed inventories on image/video pipeline change
  fireEvent.change(picker,{target:{value:'unknown.safetensors'}});
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','  image draft\n');
  expect(screen.getByLabelText('Negative prompt')).toHaveProperty('value','');
- fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'t2v'}});
+ fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'video'}});
  expect(values()).toEqual(['video.safetensors']);expect(picker.value).toBe('video.safetensors');
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'video draft'}});
  fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'image'}});
  expect(values()).toEqual(['image.safetensors','unknown.safetensors']);expect(picker.value).toBe('unknown.safetensors');
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','  image draft\n');
  expect(screen.getByLabelText('Negative prompt')).toHaveProperty('value','');
- fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'t2v'}});
+ fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'video'}});
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','video draft');
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
@@ -1333,8 +1335,7 @@ test('beginner starting image row accepts a native OS drop',async()=>{
  vi.mocked(readImageMetadata).mockResolvedValue([]);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}} beginner/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-beginner-aspect]')).not.toBeNull());
- fireEvent.change(document.querySelector('#beginner-mode')!,{target:{value:'i2v'}});
- expect(document.querySelector('.beginner-preview-hint')!.textContent).toContain('Pick an image');
+ expect(document.querySelector<HTMLSelectElement>('#beginner-mode')!.value).toBe('image');
  expect(document.querySelector('.beginner-empty-preview')!.textContent).toContain('watch your imagination take shape here');
  const row=await waitFor(()=>{const el=document.querySelector('.beginner-input');if(!el)throw Error('no input row');return el;});
  vi.spyOn(row as HTMLElement,'getBoundingClientRect').mockReturnValue({left:20,top:20,right:320,bottom:80,width:300,height:60,x:20,y:20,toJSON:()=>({})});
@@ -1734,11 +1735,11 @@ test('Linux native input never creates a WebKit video decoder',async()=>{
  expect(view.container.querySelector('[data-native-video]')).not.toBeNull();
  vi.restoreAllMocks();
 });
-const adopt=()=>fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')!);
+const adopt=()=>fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]:not(:disabled)')!);
 const dock=(name:string)=>{if(document.querySelector('.references-overlay[open]'))fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Close'}));fireEvent.click(name==='References'?document.querySelector('[data-open-references]')!:screen.getByRole('tab',{name}));};
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
 // Text → Image and Image → Image are one Image pipeline; the picture to edit (adopt()) selects the edit mode.
-const pipe=(name:string)=>screen.getByRole('option',{name:name==='Text → Image'||name==='Image → Image'?'Image':name}) as HTMLOptionElement;
+const pipe=(name:string)=>screen.getByRole('option',{name:name==='Text → Image'||name==='Image → Image'?'Image':['Text → Video','Image → Video','Video → Video','Multi-reference → Video'].includes(name)?'Video':name.startsWith('Music (')?'Music':name}) as HTMLOptionElement;
 const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipe(name).value}});
 // HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
 const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={clearData:()=>{for(const key of Object.keys(store))delete store[key];},setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
@@ -2374,7 +2375,7 @@ test('selection changes do not erase an unrelated preparation error',async()=>{
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByText('Backend connection failed');
- fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:'t2v'}});
+ fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:'video'}});
  expect(screen.getByRole('alert').textContent).toContain('Backend connection failed');
 });
 
@@ -2494,7 +2495,7 @@ test('session video drafts restore video/audio references and trims without uplo
  const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Multi-reference → Video').disabled).toBe(false));choosePipe('Multi-reference → Video');
- const add=(name:string,media:string)=>fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify({name,media,path:'/input/'+name,src:'asset://localhost/'+name})}});
+ const add=(name:string,media:string)=>{fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify({name,media,path:'/input/'+name,src:'asset://localhost/'+name})}});fireEvent.click(document.querySelector('[data-video-role="reference"]')!);};
  add('clip.mp4','video');add('voice.wav','audio');add('picture.png','image');
  fireEvent.click(document.querySelector('[data-open-references]')!);fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
  fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
@@ -3559,7 +3560,7 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
  expect(pipe('Video → Video').disabled).toBe(false);
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
- choosePipe('Image → Video');
+ choosePipe('Image → Video');fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first frame'}));
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
  const ref=screen.getByRole('img',{name:'ref.png'});
  Object.defineProperties(ref,{naturalWidth:{value:1280},naturalHeight:{value:704}});fireEvent.load(ref);
@@ -3634,7 +3635,7 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  expect(document.querySelector('[data-open-prompt-forge]')).toBeNull();
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'first.png'}));adopt();
- await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');
+ await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));choosePipe('Image → Video');fireEvent.click(menuOf('first.png').getByRole('menuitem',{name:'Use as first frame'}));
  expect(document.querySelector('.wb-settings [data-ref-people]')).toBeNull();
  // The prompt's Forge link keeps the hammer (colour-inverted), not an arrow.
  expect(document.querySelector('.forge-hammer.forge-link svg')).toBeTruthy();
@@ -3669,7 +3670,7 @@ test('H3 frame people are opt-in, reach the Forge and reset on a new source pict
  fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
  expect(screen.getByRole('button',{name:'Character 2 in other.png'}).getAttribute('aria-pressed')).toBe('false');
  fireEvent.click(screen.getByRole('button',{name:'Return to Generate'}));
- choosePipe('Multi-reference → Video');
+ choosePipe('Multi-reference → Video');dock('References');fireEvent.click(document.querySelector('[data-video-role-remove="first"]')!);dock('Media');
  fireEvent.click(menuOf('first.png').getByRole('menuitem',{name:'Add as reference'}));
  fireEvent.click(document.querySelector('[data-open-prompt-forge]')!);
  fireEvent.click(screen.getByRole('button',{name:'Character 2 in first.png'}));
@@ -3712,11 +3713,10 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
  vi.mocked(readH3Session).mockImplementation(async()=>({latestId:null,clips:[{clipId:'chosen',parent:null,frames:124,completed:0,export:null},{clipId:'backend-import',parent:null,frames:192,completed:0,export:null,importedVideo:{sourceId:videoId,width:1024,height:768,modeFamily:ref2va?'ref2va':'fl2va'}},{clipId:'root1',parent:video?'backend-import':selected?'chosen':null,frames:124,completed:1,export:null},{clipId:'kid1',parent:'root1',frames:200,completed:2,export:null}]}));
  const view=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
- fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
  await waitFor(()=>expect(pipe('Image → Video').disabled).toBe(false));
- choosePipe(({t2v:'Text → Video',i2v:'Image → Video',v2v:'Video → Video',ref2v:'Multi-reference → Video'} as Record<string,string>)[pipeline]);
- const ref=screen.getByRole('img',{name:'ref.png'});
- Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);
+ choosePipe('Text → Video');
+ if(pipeline==='i2v'){fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first frame'}));const ref=screen.getByRole('img',{name:'ref.png'});Object.defineProperties(ref,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(ref);}
  if(pipeline==='v2v'){
   fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));adopt();loadVideo('clip.mp4');
   fireEvent.change(screen.getByLabelText('Width'),{target:{value:'1024'}});
@@ -3755,7 +3755,7 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
  if(pipeline==='v2v'&&selected){
   fireEvent.click(document.querySelector('[data-preview-close]')!);
   expect(document.querySelector('[data-editor-viewport]')).toBeNull();
-  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button',{name:'Run'}) as HTMLButtonElement).disabled).toBe(false); // closing the preview never removes its explicit reference role
  }
  fireEvent.click(screen.getByRole('button',{name:'Continuity · off'}));
  fireEvent.click(screen.getByRole('checkbox',{name:'Continuity active'}));
@@ -3920,14 +3920,14 @@ test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s re
  await waitFor(()=>expect(pipe('Multi-reference → Video').disabled).toBe(false));choosePipe('Multi-reference → Video');
  fireEvent.click(await screen.findByRole('button',{name}));adopt();
  const stage=screen.getByRole('region',{name:'Preview'});
- expect(stage.querySelector('[data-browsed-preview]')).toBeNull();
- expect(stage.querySelector(`.wb-current-preview ${media}`)).not.toBeNull();
+ expect(stage.querySelector('[data-browsed-preview]')).not.toBeNull(); // assigning a reference does not adopt it as a source
+ expect(stage.querySelector(`[data-browsed-preview] ${media}`)).not.toBeNull();
  expect(stage.querySelectorAll('[data-media-tools]')).toHaveLength(1);
  expect(stage.querySelector('.wb-current-preview figure [data-media-tools]')).toBeNull();
  const toolbar=stage.querySelector<HTMLElement>(':scope > [data-media-tools]')!;
- expect(within(toolbar).getByRole('button',{name:'Use as input'})).toBeTruthy();
+ expect(within(toolbar).queryByRole('button',{name:'Use as input'})).toBeNull();
  expect(within(stage).getAllByRole('button',{name:`Star ${name}`})).toHaveLength(1);
- expect(within(toolbar).getByRole('button',{name:'Add as reference'})).toBeTruthy();
+ expect(within(toolbar).getByRole('button',{name:`Remove reference ${name}`})).toBeTruthy();
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
 
@@ -3969,9 +3969,9 @@ test.each(['REF2VA','FL2VA'] as const)('HyperFlow %s follows the global pipeline
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
  choosePipe('Text → Video');
  // A checkpoint's name is not a request to change the user's data pipeline.
- expect(document.querySelector('[data-open-references]')).toBeNull();
- expect(screen.getByLabelText('Pipeline')).toHaveProperty('value','t2v');
- expect(pipe('Video → Video').disabled).toBe(true);
+ expect(document.querySelector('[data-open-references]')).not.toBeNull();
+ expect(screen.getByLabelText('Pipeline')).toHaveProperty('value','video');
+ expect(pipe('Video → Video').disabled).toBe(false);
  choosePipe(mode==='REF2VA'?'Multi-reference → Video':'Image → Video');
  fireEvent.change(screen.getByLabelText('Aspect ratio'),{target:{value:'4:3'}});
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
@@ -3996,7 +3996,7 @@ test.each(['REF2VA','FL2VA'] as const)('HyperFlow %s follows the global pipeline
   }
   fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
  }else{
-  expect(document.querySelector('[data-open-references]')).toBeNull();
+  expect(document.querySelector('[data-open-references]')).not.toBeNull();
   fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Use as first and last frame'}));
   const image=screen.getByRole('img',{name:'ref.png'});
   Object.defineProperties(image,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(image);
@@ -4074,7 +4074,7 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  await waitFor(()=>expect(pipe('Video → Video').disabled).toBe(false));
  expect(pipe('Multi-reference → Video').disabled).toBe(false);
  choosePipe('Video → Video');
- expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick a video from the Media dock as the source.');
+ expect(screen.getByLabelText('Pipeline')).toHaveProperty('value','video');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  await screen.findByRole('button',{name:'clip.mp4'});
  expect(menuOf('ref.png').queryByRole('menuitem',{name:'Use as source video'})).toBeNull();fireEvent.keyDown(window,{key:'Escape'});
@@ -4093,7 +4093,7 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  // Multi-reference: images only for LTX (no reference button on a video), placed at a second with a strength.
  choosePipe('Multi-reference → Video');
  expect(screen.queryByRole('button',{name:'Add as reference'})).toBeNull();
- expect(screen.getByText('Add at least one reference with its “Add as reference” button.')).toBeTruthy();
+ expect(screen.getByLabelText('Pipeline')).toHaveProperty('value','video');
  const blocked=menuOf('clip.mp4').getByRole('menuitem',{name:/Add as reference/}) as HTMLButtonElement;
  expect(blocked.disabled).toBe(true);expect(blocked.textContent).toContain('LTX takes images as references only.');
  fireEvent.keyDown(window,{key:'Escape'});
@@ -4110,7 +4110,7 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  expect(within(screen.getByRole('dialog',{name:'References'})).getByRole('alert').textContent).toBe('clip.mp4: LTX takes images as references only.');
  // The References tab button takes dock drops too (the Media tab is the drag source).
  const voice={name:'voice.wav',path:'/env/ComfyUI/input/voice.wav',media:'audio',src:'asset://localhost//env/ComfyUI/input/voice.wav'};
- fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(voice)}});
+ fireEvent.drop(document.querySelector('[data-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(voice)}});
  expect(within(screen.getByRole('dialog',{name:'References'})).getByRole('alert').textContent).toBe('voice.wav: LTX takes images as references only.');
  fireEvent.change(screen.getByLabelText('Second of ref.png'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('Strength of ref.png'),{target:{value:'0.5'}});
@@ -4124,9 +4124,9 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  const second=vi.mocked(runWorkbenchJob).mock.calls[1][1];
  expect(second).toMatchObject({family:'ltx-2',ltx:{keyframes:[{image:'ref.png',frame:24,strength:0.5}]}});
- expect(second).not.toHaveProperty('sourceVideo');
+ expect(second).toHaveProperty('sourceVideo','deas-input-u.mp4'); // source and guides coexist without losing either role
  fireEvent.click(menuOf('ref.png').getByRole('menuitem',{name:'Remove reference ref.png'}));
- expect(markOf('ref.png')).toBeUndefined();
+ expect(markOf('ref.png')).toBe('First frame'); // removing its guide leaves the independently assigned first-frame role
  // Leaving Multi-reference hides the References tab and falls back to Media.
  fireEvent.click(document.querySelector('[data-open-references]')!);dock('Media');choosePipe('Video → Video');
  expect(screen.queryByRole('tab',{name:'References'})).toBeNull();
@@ -4153,7 +4153,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'clip.mp4'}));adopt();
  loadVideo('clip.mp4');
- fireEvent.click(screen.getByRole('checkbox',{name:'Use the source sound'}));
+ dock('References');fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'video_audio'}});fireEvent.click(within(screen.getByRole('dialog',{name:'Edit clip.mp4'})).getByRole('button',{name:'Close'}));dock('Media');
  expect(screen.queryByText('MiniMax H3 runs these as REF2VA; pick a REF2VA checkpoint for best results.')).toBeNull();
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -4162,8 +4162,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
  // Multi-reference: the video (sound only), an image and an audio clip; slots count per lane.
  choosePipe('Multi-reference → Video');
- fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));adopt();
- fireEvent.click(await screen.findByRole('button',{name:'Add as reference'}));
+ fireEvent.click(screen.getByRole('button',{name:'clip.mp4'}));
  fireEvent.click(document.querySelector('[data-open-references]')!);
  fireEvent.click(screen.getByRole('button',{name:'Edit clip.mp4'}));
  fireEvent.change(screen.getByLabelText('Use of clip.mp4'),{target:{value:'audio'}});
@@ -4173,10 +4172,8 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  await screen.findByRole('button',{name:'voice.wav'});
  fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Add as reference'}));
  fireEvent.click(screen.getByRole('button',{name:'ref.png'}));adopt();
- const img=await screen.findByRole('img',{name:'ref.png'});
- Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
- fireEvent.click(screen.getAllByRole('button',{name:'Add as reference'})[0]);
- expect(document.querySelector('.wb-stage-mark')?.textContent).toBe('<Picture 1>');
+ expect(document.querySelector('[data-browsed-preview] img')?.getAttribute('alt')).toBe('ref.png');
+ expect(markOf('ref.png')).toBe('<Picture 1>');
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
@@ -5312,10 +5309,386 @@ test('history video first and last frames remain unresolved until each explicit 
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true);
  fireEvent.click(document.querySelector('[data-job-id="old-frame-result"] .wb-queue-select')!);
  fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Use as last frame'}));
- expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(true); // This LTX builder cannot resolve an old environment's frame handle.
+ expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false); // Explicit external frames upload on Run; history's unresolved name alone never does.
  fireEvent.click(screen.getByRole('button',{name:'same-last.png'}));fireEvent.click(within(document.querySelector<HTMLElement>('.wb-stage > [data-media-tools]')!).getByRole('button',{name:'Use as last frame'}));
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
  expect(checkRecipePrerequisites).toHaveBeenCalledTimes(probes);expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(JSON.stringify(original)).toBe(before);
+});
+
+// Role-based Video exercises the public controls; legacy preference tests above intentionally retain internal ids.
+async function roleVideoFixture(family:'ltx-2'|'minimax-h3'='ltx-2',extraModels=false,legacyPipeline='t2v'){
+ const ms:LocalModel[]=family==='ltx-2'?[...ltxModels]:[
+  {category:'diffusion_models',name:'h3.safetensors',path:'/m/h3',family:'minimax-h3',size:1,info:null},
+  {category:'text_encoders',name:'minimax_h3_encoder.safetensors',path:'/m/t',size:1,info:null},
+  {category:'vae',name:'h3_video_vae.safetensors',path:'/m/v',size:1,info:null},
+  {category:'vae',name:'h3_audio_vae.safetensors',path:'/m/a',size:1,info:null}];
+ if(extraModels)ms.push({...ms[0],name:'other.safetensors',path:'/m/other'});
+ vi.mocked(scanModels).mockResolvedValue(ms);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','DualCLIPLoader','VAELoader'],diffusionModels:ms.filter(m=>m.family).map(m=>m.name),textEncoders:ms.filter(m=>m.category==='text_encoders').map(m=>m.name),vaes:ms.filter(m=>m.category==='vae').map(m=>m.name),clipTypes:['ltxv','minimax']}});
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:'/input',parent:'/',entries:[],truncated:false});
+ vi.mocked(uploadInput).mockImplementation(async(_base,path)=>`uploaded/${path.split('/').at(-1)}`);
+ vi.mocked(runWorkbenchJob).mockImplementation(async(base,intent)=>({...heldJob('role-capture','failed',base),intent}));
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(legacyPipeline));
+ localStorage.setItem('deas.pref.studio.run.resolution','"fixed"');
+ localStorage.setItem('deas.pref.studio.run.width','1024');localStorage.setItem('deas.pref.studio.run.height','768');
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(ms[0].name));
+ return {view,props};
+}
+const roleFile=(name:string,media:'image'|'video'='image')=>({name,media,path:'/external/'+name,src:'asset:///'+name});
+function assignRole(name:string,role:'first'|'last'|'both'|'reference'|'source',media:'image'|'video'='image'){
+ fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(roleFile(name,media))}});
+ fireEvent.click(document.querySelector(`[data-video-role="${role}"]`)!);
+}
+function closeRoles(){fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Close'}));}
+test.each([
+ ['text','T2VA',[]],['first','I2VA',[{slot:0,image:'uploaded/frame.png'}]],
+ ['last','L2VA',[{slot:1,image:'uploaded/frame.png'}]],
+ ['both','FL2VA',[{slot:0,image:'uploaded/frame.png'},{slot:1,image:'uploaded/frame.png'}]],
+ ['reference','REF2VA',[]],
+] as const)('Video roles preserve the captured H3 %s intent shape',async(role,mode,references)=>{
+ await roleVideoFixture('minimax-h3');
+ expect([...document.querySelector<HTMLSelectElement>('[data-pipeline]')!.options].map(o=>o.value)).toEqual(['image','video','music']);
+ if(role!=='text'){assignRole('frame.png',role);closeRoles();}
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const intent=vi.mocked(runWorkbenchJob).mock.lastCall![1];
+ expect(intent).toMatchObject({family:'minimax-h3',h3:{mode,references}});
+ if(role==='reference')expect(intent).toMatchObject({h3:{media:[{type:'image',slot:0,file:'uploaded/frame.png'}]}});
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain(mode);
+});
+test('LTX retains independent source, first, last and ordered guides, uploading every external frame on explicit Run only',async()=>{
+ await roleVideoFixture();
+ assignRole('first.png','first');assignRole('last.png','last');assignRole('source.mp4','source','video');assignRole('guide.png','reference');
+ fireEvent.change(screen.getByLabelText('Second of guide.png'),{target:{value:'1'}});
+ fireEvent.change(screen.getByLabelText('Strength of guide.png'),{target:{value:'0.5'}});
+ closeRoles();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(uploadInput).mock.calls.map(c=>c[1]).sort()).toEqual(['/external/first.png','/external/last.png','/external/source.mp4','/external/guide.png'].sort());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'ltx-2',firstFrame:'uploaded/first.png',lastFrame:'uploaded/last.png',sourceVideo:'uploaded/source.mp4',ltx:{keyframes:[{image:'uploaded/guide.png',frame:24,strength:0.5}]}});
+});
+test('H3 disabled mixing preserves the existing frame and no picker preview adopts or submits',async()=>{
+ await roleVideoFixture('minimax-h3');assignRole('first.png','first');
+ fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(roleFile('preview.png'))}});
+ const reference=document.querySelector<HTMLButtonElement>('[data-video-role="reference"]')!;
+ expect(reference.disabled).toBe(true);expect(reference.title).toContain('cannot be mixed');fireEvent.click(reference);
+ expect(document.querySelector('[data-video-role-card="first"]')?.textContent).toContain('first.png');
+ expect(document.querySelectorAll('[data-ref]')).toHaveLength(0);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('all Video roles survive exact-model draft round trips and current prompts carry over',async()=>{
+ await roleVideoFixture('ltx-2',true);assignRole('first.png','first');assignRole('source.mp4','source','video');closeRoles();
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'edited prompt'}});
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:'other.safetensors'}});
+ assignRole('second.png','first');closeRoles();fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'current prompt'}});
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:'LTX2/ltx.safetensors'}});
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(document.querySelector('[data-video-role-card="first"]')?.textContent).toContain('first.png');
+ expect(document.querySelector('[data-video-role-card="source"]')?.textContent).toContain('source.mp4');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','current prompt');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('Beginner isolates and restores the Advanced independent source video and shows one Video choice',async()=>{
+ const {view,props}=await roleVideoFixture();assignRole('source.mp4','source','video');closeRoles();
+ view.rerender(<I18nProvider><Workbench {...props} beginner/></I18nProvider>);
+ expect([...document.querySelector<HTMLSelectElement>('#beginner-mode')!.options].filter(o=>o.value==='video')).toHaveLength(1);
+ fireEvent.click(document.querySelector('[data-open-references]')!);expect(document.querySelector('[data-video-role-card="source"]')).toBeNull();closeRoles();
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(document.querySelector('[data-video-role-card="source"]')?.textContent).toContain('source.mp4');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('pinned H3 Continuity refuses removing its last reference and preserves the source mode family',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'role-session',outputMode:'full',enabled:true,source:{clipId:'pinned',endpoint:evidence.baseUrl},steps:[]}));
+ await roleVideoFixture('minimax-h3',false,'ref2v');assignRole('guide.png','reference');closeRoles();
+ fireEvent.click(document.querySelector('[data-open-references]')!);fireEvent.click(screen.getByRole('button',{name:'Remove reference guide.png'}));
+ expect(document.querySelector('[data-ref="guide.png"]')).not.toBeNull();
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('search opens the empty Video roles editor without adopting media or submitting',async()=>{
+ await roleVideoFixture();
+ let outcome;act(()=>{outcome=revealTarget('[data-video-role="first"]');});
+ expect(outcome).toMatchObject({state:'disabled'});
+ expect(screen.getByRole('dialog',{name:'References'})).toBeTruthy();
+ expect(document.querySelector('[data-video-role-card]')).toBeNull();
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each(['i2v','ref2v','v2v'])('legacy Video preference %s remains readable and missing input never collapses to text mode',async pipeline=>{
+ await roleVideoFixture('ltx-2',false,pipeline);
+ expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','video');
+ expect(captureStudioSettings()['studio.run.pipeline']).toBe(pipeline);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('H3 RefMods survive switching to LTX, block unsupported Run and can be removed explicitly',async()=>{
+ const {view,props}=await roleVideoFixture('minimax-h3');
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ vi.mocked(readRefMods).mockResolvedValue([{name:'hero',kinds:['image'],description:'hero'}]);
+ fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));closeRoles();
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
+ view.rerender(<I18nProvider><Workbench {...props} roots={{models:'/m2',input:'/input'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:'LTX2/ltx.safetensors'}});
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(document.querySelector('[data-video-refmods-clear]')).not.toBeNull();
+ fireEvent.click(document.querySelector('[data-video-refmods-clear]')!);expect(document.querySelector('[data-video-refmods-clear]')).toBeNull();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+test('restored LTX source history is satisfied by its explicit independent video role, not the preview media slot',async()=>{
+ const {view,props}=await roleVideoFixture();assignRole('source.mp4','source','video');closeRoles();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const intent=vi.mocked(runWorkbenchJob).mock.lastCall![1];const original=recentHistoryRecord(intent as Parameters<typeof recentHistoryRecord>[0]);view.unmount();
+ const previous=vi.mocked(invoke).getMockImplementation()!;
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:previous(command,args));
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await openHistoryRecord();fireEvent.click(screen.getByRole('button',{name:'Apply partial settings'}));fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ assignRole('frame.png','first');assignRole('replacement.mp4','source','video');closeRoles();
+ expect(document.querySelector('[data-history-draft]')?.textContent).not.toContain('Reselect input');
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false);
+ expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+});
+
+test('LTX disables the ninth guide without replacing, reordering or uploading the existing eight',async()=>{
+ await roleVideoFixture();
+ for(let i=0;i<8;i++)assignRole(`guide-${i}.png`,'reference');
+ fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(roleFile('ninth.png'))}});
+ expect(document.querySelector<HTMLButtonElement>('[data-video-role="reference"]')!.disabled).toBe(true);
+ fireEvent.click(document.querySelector('[data-video-role="reference"]')!);
+ expect([...document.querySelectorAll('[data-ref]')].map(e=>e.getAttribute('data-ref'))).toEqual(Array.from({length:8},(_,i)=>`guide-${i}.png`));
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('a pinned REF2VA pack replacing a RefMod with media retains reference mode atomically',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'role-session',outputMode:'full',enabled:true,source:{clipId:'pinned',endpoint:evidence.baseUrl},steps:[]}));
+ await roleVideoFixture('minimax-h3',false,'ref2v');fireEvent.click(document.querySelector('[data-open-references]')!);
+ vi.mocked(readRefMods).mockResolvedValue([{name:'old-mod',kinds:['image'],description:'old'}]);
+ fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));
+ const previous=vi.mocked(invoke).getMockImplementation()!;
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items:[{type:'image',value:'new.png',_rank:0}],refmods:[]}):command==='native_media_describe'?[{name:'new.png',path:'/input/new.png',kind:'file',symlink:false,media:'image',size:1,modified:1}]:previous(command,args));
+ fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ await waitFor(()=>expect(document.querySelector('[data-ref="new.png"]')).not.toBeNull());
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
+ expect(document.querySelector('[data-refmod="old-mod"]')).toBeNull(); // the library option stays available; its authored row was removed
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each(['model','custom'] as const)('LTX source-only geometry becomes ready after first-frame removal at %s resolution through NativeVideo',async resolution=>{
+ const agent=vi.spyOn(navigator,'userAgent','get').mockReturnValue('Linux');
+ try{
+  await roleVideoFixture();
+  const previous=vi.mocked(invoke).getMockImplementation()!;
+  let ready=false;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command.startsWith('native_video_')?{position:0,duration:5,width:ready?640:0,height:ready?1280:0,paused:true,muted:false,volume:100}:previous(command,args));
+  assignRole('first.png','first');assignRole('source.mp4','source','video');
+  fireEvent.change(document.querySelector('[data-resolution]')!,{target:{value:resolution}});
+  fireEvent.change(document.querySelector('[data-aspect]')!,{target:{value:'auto'}});
+  fireEvent.click(document.querySelector('[data-video-role-remove="first"]')!);closeRoles();
+  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_video_open',expect.objectContaining({source:{path:'/external/source.mp4'}})));
+  ready=true;
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+  expect(document.querySelector('.wb-stage video')).toBeNull();
+  expect(uploadInput).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Run'}));
+  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+  const intent=vi.mocked(runWorkbenchJob).mock.lastCall![1];
+  expect(intent).toMatchObject({sourceVideo:'uploaded/source.mp4',...(resolution==='model'?{width:672,height:1344}:{width:736,height:1440})});expect(intent).not.toHaveProperty('firstFrame');
+ }finally{cleanup();agent.mockRestore();}
+});
+test('Wan exposes retained unsupported guide and source cards for explicit recovery without upload',async()=>{
+ const {view,props}=await roleVideoFixture();assignRole('first.png','first');assignRole('guide.png','reference');assignRole('source.mp4','source','video');closeRoles();
+ const wan:LocalModel={category:'diffusion_models',name:'wan_high.safetensors',path:'/m/wan',family:'wan',size:1,info:null};
+ vi.mocked(scanModels).mockResolvedValue([wan,{...wan,name:'wan_low.safetensors',path:'/m/wan-low'},{category:'text_encoders',name:'umt5_xxl_fp8.safetensors',path:'/m/umt5',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/wan-vae',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','VAELoader'],diffusionModels:[wan.name,'wan_low.safetensors'],textEncoders:['umt5_xxl_fp8.safetensors'],vaes:['wan_2.1_vae.safetensors'],clipTypes:['wan']}});
+ view.rerender(<I18nProvider><Workbench {...props} roots={{models:'/m-wan',input:'/input'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(wan.name));
+ fireEvent.change(document.querySelector('[data-model-picker]')!,{target:{value:wan.name}});
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(document.querySelector('[data-ref="guide.png"]')).not.toBeNull();
+ expect(document.querySelector('[data-video-role-card="source"]')?.textContent).toContain('source.mp4');
+ fireEvent.click(screen.getByRole('button',{name:'Clear'}));
+ expect(document.querySelector('[data-ref="guide.png"]')).toBeNull();
+ expect(document.querySelector('[data-video-role-card="source"]')).not.toBeNull();
+ fireEvent.click(document.querySelector('[data-video-role-remove="source"]')!);
+ expect(document.querySelector('[data-video-role-card="source"]')).toBeNull();
+ expect(document.querySelector('[data-video-role-card="first"]')?.textContent).toContain('first.png');
+ closeRoles();const frame=screen.getByRole('img',{name:'first.png'});Object.defineProperties(frame,{naturalWidth:{value:720},naturalHeight:{value:1280}});fireEvent.load(frame);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}),document.querySelector('.wb-stage')?.textContent??'').toHaveProperty('disabled',false));
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test('relocation repairs independent source and pending role picker before explicit uploads',async()=>{
+ await roleVideoFixture();assignRole('source.mp4','source','video');
+ fireEvent(window,new CustomEvent('deas-media-relocated',{detail:{oldPath:'/external/source.mp4',path:'/external/starred/source.mp4'}}));
+ // Reassign from the retained picker too: neither handle may resurrect the old path.
+ fireEvent.click(document.querySelector('[data-video-role="source"]')!);closeRoles();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(uploadInput).mock.calls.map(c=>c[1])).toEqual(['/external/starred/source.mp4']);
+});
+test('pinned REF2VA media-to-RefMod replacement is atomic and a refused pack leaves both lists intact',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'role-session',outputMode:'full',enabled:true,source:{clipId:'pinned',endpoint:evidence.baseUrl},steps:[]}));
+ await roleVideoFixture('minimax-h3',false,'ref2v');assignRole('old.png','reference');
+ const previous=vi.mocked(invoke).getMockImplementation()!;
+ let items:unknown[]=[];
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items,refmods:[{slot:1,name:'new-mod',strength:1}]}):command==='native_media_describe'?[{name:'bad.mp4',path:'/input/bad.mp4',kind:'file',symlink:false,media:'video',size:1,modified:1}]:previous(command,args));
+ fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ await waitFor(()=>expect(document.querySelector('[data-refmod="new-mod"]')).not.toBeNull());
+ expect(document.querySelector('[data-ref="old.png"]')).toBeNull();expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
+ // Four visual videos exceed the Director's final-state limit; no replacement row may leak through.
+ items=Array.from({length:4},(_,i)=>({type:'video',value:`bad-${i}.mp4`,_rank:i}));
+ let describes=0;
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items,refmods:[{slot:1,name:'refused-mod',strength:1}]}):command==='native_media_describe'?[{name:`bad-${describes}.mp4`,path:`/input/bad-${describes++}.mp4`,kind:'file',symlink:false,media:'video',size:1,modified:1}]:previous(command,args));
+ fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ await waitFor(()=>expect(document.querySelector('[role="alert"]')?.textContent).toContain('bad-3.mp4'));
+ expect(document.querySelector('[data-refmod="new-mod"]')).not.toBeNull();expect(document.querySelector('[data-refmod="refused-mod"]')).toBeNull();expect(document.querySelectorAll('[data-ref]')).toHaveLength(0);
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+
+const beginnerMusicProps={endpoint:'http://127.0.0.1:7801',root:'/env',roots:{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}};
+const beginnerView=(beginner=true,beginnerPage:'generate'|'models'|'collection'='generate')=><I18nProvider><Workbench {...beginnerMusicProps} beginner={beginner} beginnerPage={beginnerPage}/></I18nProvider>;
+
+test('beginner offers exactly Image Video Music with capability reasons and derives Image intent on explicit adopt and clear',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([{...yue2Models[1],family:'sdxl'}]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_star_status'?{starred:false,unavailable:null}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:(args as {path?:string})?.path??'/env/ComfyUI/output',parent:'/env',entries:mediaEntries,truncated:false});
+ vi.mocked(uploadInput).mockResolvedValue('beginner-input.png');
+ const view=render(beginnerView());
+ await waitFor(()=>expect(captureStudioSettings()['studio.run.cfg']).toBe(3.5));
+ const options=[...document.querySelector<HTMLSelectElement>('#beginner-mode')!.options];
+ expect(options.map(o=>[o.value,o.textContent])).toEqual([['image','Image'],['video','Video'],['music','Music']]);
+ expect(options.map(o=>o.disabled)).toEqual([false,true,true]);expect(options[1].title).not.toBe('');expect(options[2].title).not.toBe('');
+ view.rerender(beginnerView(true,'collection'));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+ expect(captureStudioSettings()['studio.run.pipeline']).toBe('t2i');
+ fireEvent.click(within(document.querySelector('.beginner-collection-actions')!).getByRole('button',{name:'Use as picture to edit'}));
+ view.rerender(beginnerView());
+ await waitFor(()=>expect(captureStudioSettings()['studio.run.pipeline']).toBe('i2i'));
+ const img=screen.getByRole('img',{name:'ref.png'});Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:1024}});fireEvent.load(img);
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'authored image'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('beginner-image','failed'),error:'fixture'});
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({inputImage:expect.any(String),positivePrompt:'authored image',steps:28,cfg:3.5});
+ fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ await waitFor(()=>expect(captureStudioSettings()['studio.run.pipeline']).toBe('t2i'));
+ expect(document.querySelector('[data-image-mode]')!.textContent).toBe('Text → Image');
+ expect(captureStudioSettings()['studio.run.positive']).toBe('authored image');
+ expect(captureStudioSettings()['studio.run.cfg']).toBe(3.5);
+});
+
+test('beginner music model use exposes texts and shared settings, submits exact text cover and cleared intents only on Run',async()=>{
+ const view=await mountMusic('Music (Text to Music)');
+ vi.mocked(uploadInput).mockResolvedValue('beginner-cover.wav');
+ view.rerender(beginnerView(true,'models'));
+ fireEvent.click(screen.getByRole('button',{name:'Music'}));
+ expect(screen.getAllByRole('button',{name:/Use this model/})).toHaveLength(1);
+ fireEvent.click(screen.getByRole('button',{name:/Use this model/}));
+ view.rerender(beginnerView());
+ expect(document.querySelector<HTMLSelectElement>('#beginner-mode')!.value).toBe('music');
+ expect(document.querySelector('[data-beginner-aspect]')).toBeNull();expect(document.querySelector('[data-num="steps"]')).toBeNull();
+ fireEvent.change(music().style,{target:{value:'handwritten style'}});fireEvent.change(music().lyrics,{target:{value:'[Verse]\nhandwritten lyrics'}});
+ for(const advanced of ['[data-music-planning]','[data-music-abc-settings]','[data-music-generation-settings]'])expect(document.querySelector(advanced)).toBeNull();
+ fireEvent.change(screen.getByLabelText('Maximum duration (seconds)'),{target:{value:'90'}});
+ const run=()=>screen.getByRole('button',{name:'Run'});
+ await waitFor(()=>expect(run()).toHaveProperty('disabled',false));fireEvent.click(run());
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({recipeId:'music-generation',family:'yue2',mode:'t2m',style:'handwritten style',lyrics:'[Verse]\nhandwritten lyrics',maxDuration:90,steps:32,cfg:1,sampler:'dpm_2',scheduler:'sgm_uniform'});
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('sourcePath');expect(uploadInput).not.toHaveBeenCalled();
+ view.rerender(beginnerView(true,'collection'));
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'voice.wav'}));
+ expect(captureStudioSettings()['studio.run.pipeline']).toBe('t2m');
+ fireEvent.click(within(document.querySelector('.beginner-collection-actions')!).getByRole('button',{name:'Use for music cover'}));
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+ view.rerender(beginnerView());
+ expect(document.querySelector('[data-music-mode]')!.textContent).toBe('Music (Cover Music)');
+ expect(screen.getByLabelText('SheetSage2 audio encoder')).toHaveProperty('value','sheetsage2_bf16.safetensors');
+ fireEvent.change(screen.getByLabelText('Maximum duration (seconds)'),{target:{value:'180'}});
+ await waitFor(()=>expect(run()).toHaveProperty('disabled',false));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({...musicJob('cover-beginner'),state:'failed',error:'fixture'}));
+ fireEvent.click(run());await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+ expect(vi.mocked(uploadInput).mock.calls.map(c=>c[1])).toEqual(['/env/ComfyUI/input/voice.wav']);
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({mode:'cover',planning:'melody',sourceAudio:'beginner-cover.wav',audioEncoder:'sheetsage2_bf16.safetensors',maxDuration:180,style:'handwritten style',lyrics:'[Verse]\nhandwritten lyrics'});
+ view.rerender(beginnerView(true,'collection'));
+ await screen.findByRole('button',{name:'voice.wav'});fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Remove cover source'}));
+ view.rerender(beginnerView());
+ expect(document.querySelector('[data-music-mode]')!.textContent).toBe('Music (Text to Music)');
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','90');
+ expect(uploadInput).toHaveBeenCalledTimes(1);
+ fireEvent.click(run());await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(3));
+ for(const key of ['sourceAudio','audioEncoder'])expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty(key);
+});
+
+test('beginner music authored drafts and source roles survive experience switches while Advanced technical settings stay isolated',async()=>{
+ localStorage.setItem('deas.pref.studio.run.negative',JSON.stringify('advanced negative'));
+ const view=await mountMusic('Music (Text to Music)');
+ fireEvent.change(music().style,{target:{value:'advanced style'}});
+ fireEvent.change(screen.getByLabelText('Seed'),{target:{value:'321'}});
+ view.rerender(beginnerView());
+ fireEvent.change(music().style,{target:{value:'beginner style'}});fireEvent.change(music().lyrics,{target:{value:''}});
+ fireEvent.change(screen.getByLabelText('Maximum duration (seconds)'),{target:{value:'75'}});
+ view.rerender(beginnerView(true,'collection'));
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'voice.wav'});fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ view.rerender(beginnerView(false));
+ await waitFor(()=>expect(music().style.value).toBe('beginner style'));
+ expect(music().lyrics.value).toBe('');expect(document.querySelector('[data-music-source]')!.textContent).toContain('voice.wav');
+ expect(document.querySelector('[data-music-mode]')!.textContent).toBe('Music (Cover Music)');
+ expect(captureStudioSettings()['studio.run.negative']).toBe('advanced negative');expect(screen.getByLabelText('Seed')).toHaveProperty('value','321');
+ fireEvent.click(document.querySelector('[data-music-source-remove]')!);
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','75');
+ view.rerender(beginnerView());view.rerender(beginnerView(false));
+ expect(document.querySelector('[data-music-source]')!.textContent).not.toContain('voice.wav');expect(document.querySelector('[data-music-mode]')!.textContent).toBe('Music (Text to Music)');
+ expect(music().style.value).toBe('beginner style');expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+
+test('beginner resolved ACE model use reuses conditioning controls and blocks cover assignment without losing YuE2 drafts',async()=>{
+ const ace=aceModel('ace-step-1-5-turbo'),unresolved=aceModel('ace-step-1-5');
+ const view=await mountMusic('Music (Text to Music)',false,musicEvidence({checkpoints:[yue2Models[0].name,ace.name,unresolved.name],nodes:[...evidence.allowlist.nodes,...musicNodes,...aceNodes]}),[...yue2Models,ace,unresolved]);
+ view.rerender(beginnerView());
+ fireEvent.change(music().style,{target:{value:'shared music'}});fireEvent.change(music().lyrics,{target:{value:'[Verse]\nshared'}});
+ fireEvent.change(screen.getByLabelText('Maximum duration (seconds)'),{target:{value:'85'}});
+ view.rerender(beginnerView(true,'collection'));fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'voice.wav'});fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ view.rerender(beginnerView(true,'models'));
+ const modelCard=(name:string)=>[...document.querySelectorAll<HTMLElement>('.beginner-model-card')].find(el=>el.textContent?.includes(name))!;
+ expect(within(modelCard('ace-step-1-5.safetensors')).getByRole('button',{name:/Use this model/})).toHaveProperty('disabled',true);
+ fireEvent.click(within(modelCard(ace.name)).getByRole('button',{name:/Use this model/}));view.rerender(beginnerView());
+ expect(captureStudioSettings()['studio.run.checkpoint']).toBe(ace.name);
+ expect(document.querySelector('[data-music-source]')!.textContent).not.toContain('voice.wav');
+ expect(document.querySelector('[data-music-planning]')).toBeNull();expect(document.querySelector('[data-music-encoder]')).toBeNull();
+ expect([...document.querySelectorAll<HTMLElement>('[data-ace-setting]')].map(el=>el.dataset.aceSetting)).toEqual(['bpm','language','keyScale']);
+ expect(screen.getByLabelText('Sampler')).toBeTruthy();
+ fireEvent.change(document.querySelector('[data-ace-setting="bpm"]')!,{target:{value:'137'}});
+ fireEvent.change(screen.getByLabelText('Maximum duration (seconds)'),{target:{value:'60'}});
+ fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'11'}});
+ view.rerender(beginnerView(true,'collection'));fireEvent.click(await screen.findByRole('button',{name:'voice.wav'}));
+ const use=within(document.querySelector('.beginner-collection-actions')!).getByRole('button',{name:'Use for music cover'});
+ expect(use).toHaveProperty('disabled',true);expect(use.title).not.toBe('');fireEvent.click(use);
+ view.rerender(beginnerView(false));
+ await waitFor(()=>expect(document.querySelector('[data-ace-setting="bpm"]')).toHaveProperty('value','137'));
+ expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','60');expect(screen.getByLabelText('Steps')).toHaveProperty('value','11');
+ view.rerender(beginnerView());
+ view.rerender(beginnerView(true,'models'));fireEvent.click(within(modelCard(yue2Models[0].name)).getByRole('button',{name:/Use this model/}));view.rerender(beginnerView());
+ expect(document.querySelector('[data-music-source]')!.textContent).toContain('voice.wav');expect(document.querySelector('[data-music-mode]')!.textContent).toBe('Music (Cover Music)');
+ fireEvent.click(document.querySelector('[data-music-source-remove]')!);expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','85');
+ view.rerender(beginnerView(true,'models'));fireEvent.click(within(modelCard(ace.name)).getByRole('button',{name:/Use this model/}));view.rerender(beginnerView());
+ expect(document.querySelector('[data-ace-setting="bpm"]')).toHaveProperty('value','137');expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','60');
+ expect(music().style.value).toBe('shared music');expect(music().lyrics.value).toBe('[Verse]\nshared');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ const run=screen.getByRole('button',{name:'Run'});await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'ace-step-1-5-turbo',mode:'t2m',planning:'off',maxDuration:60,steps:11,cfg:1,ace:{bpm:137},style:'shared music',lyrics:'[Verse]\nshared'});
+ for(const key of ['sourceAudio','audioEncoder','generation','abc'])expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty(key);
 });
 
 // ── YuE2 music ────────────────────────────────────────────────────────────────
@@ -5325,14 +5698,15 @@ const yue2Models=[
 const musicNodes=['YuE2GenerateABC','YuE2GenerateMusic','ConditioningZeroOut','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced','LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC'];
 const musicEvidence=(extra:Partial<typeof evidence.allowlist&{audioEncoders:string[];diffusionModels:string[];dualTextEncoders:string[];textEncoders:string[];vaes:string[]}>={})=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...musicNodes],checkpoints:['yue2_3b.safetensors','a.safetensors'],samplers:[...evidence.allowlist.samplers,'dpm_2'],schedulers:[...evidence.allowlist.schedulers,'sgm_uniform'],audioEncoders:['sheetsage2_bf16.safetensors'],...extra}});
 const musicJob=(id:string):JobStatus=>({id,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
-async function mountMusic(pipeline:'Music (Text to Music)'|'Music (Cover Music)',planVisible=false,allow=musicEvidence()){
- vi.mocked(scanModels).mockResolvedValue([...yue2Models]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow);
- if(planVisible)localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(pipeline==='Music (Cover Music)'?'cover':'t2m'));
+async function mountMusic(pipeline:'Music (Text to Music)'|'Music (Cover Music)',planVisible=false,allow=musicEvidence(),models:LocalModel[]=[...yue2Models]){
+ vi.mocked(scanModels).mockResolvedValue(models);vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow);
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(pipeline==='Music (Cover Music)'?'cover':'t2m'));
  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_star_status'?{starred:false,unavailable:null}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:(args as {path?:string})?.path??'/env/ComfyUI/input',parent:'/env',entries:mediaEntries,truncated:false});
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>musicJob('job-m'));
  const view=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" root="/env" planVisible={planVisible} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  if(planVisible){await waitFor(()=>expect(document.querySelector('[data-plan-intent]')?.textContent).toContain('music-generation'));return view;}
  await waitFor(()=>expect(pipe(pipeline).disabled).toBe(false));choosePipe(pipeline);
+ sessionModel('yue2_3b.safetensors');
  await waitFor(()=>expect((screen.getByRole('combobox',{name:'Checkpoint'}) as HTMLSelectElement).value).toBe('yue2_3b.safetensors'));
  return view;
 }
@@ -5404,6 +5778,54 @@ test('text-to-music lists only YuE2 checkpoints, two music editors, no canvas/ne
  for(const key of ['positivePrompt','negativePrompt','width','height','loras','options','sourceAudio','audioEncoder','imageFormat','refine'])expect(intent).not.toHaveProperty(key);
 });
 
+test('Music role selection shares text/settings, never adopts a preview, and submits text after explicit removal',async()=>{
+ await mountMusic('Music (Text to Music)');
+ expect([...document.querySelector<HTMLSelectElement>('[data-pipeline]')!.options].map(o=>o.value)).toEqual(['image','video','music']);
+ expect(document.querySelector('[data-music-source]')).not.toBeNull();
+ fireEvent.change(music().style,{target:{value:'  exact style  '}});fireEvent.change(music().lyrics,{target:{value:'[Verse]\nexact words'}});
+ fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'27'}});
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'voice.wav'}));
+ expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ expect(document.querySelector('[data-music-source]')?.textContent).not.toContain('voice.wav');
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));
+ expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Cover Music)');
+ expect(music().style.value).toBe('  exact style  ');expect(music().lyrics.value).toBe('[Verse]\nexact words');
+ fireEvent.change(screen.getByLabelText('Autoregressive guidance'),{target:{value:'1.5'}});
+ fireEvent.change(music().style,{target:{value:''}});fireEvent.change(music().lyrics,{target:{value:''}});
+ fireEvent.click(document.querySelector('[data-music-source-remove]')!);
+ expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ expect(music().style.value).toBe('');expect(music().lyrics.value).toBe('');
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','27');expect(screen.getByLabelText('Autoregressive guidance')).toHaveProperty('value','1.5');
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Remove cover source'}));
+ fireEvent.change(music().style,{target:{value:'text again'}});
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ const run=screen.getByRole('button',{name:'Run'});await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({mode:'t2m',style:'text again',lyrics:'',steps:27,generation:{cfgScale:1.5}});expect(uploadInput).not.toHaveBeenCalled();
+});
+
+test('Music per-model drafts keep distinct sources/settings through role toggles and relocation, including ACE recovery',async()=>{
+ const second={...yue2Models[0],name:'yue2_other.safetensors',path:'/m/checkpoints/yue2_other.safetensors'};
+ const ace=aceModel('ace-step-1-5-turbo');
+ await mountMusic('Music (Text to Music)',false,musicEvidence({checkpoints:[yue2Models[0].name,second.name,ace.name],nodes:[...evidence.allowlist.nodes,...musicNodes,...aceNodes]}),[...yue2Models,second,ace]);
+ fireEvent.change(music().style,{target:{value:'shared'}});
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));await screen.findByRole('button',{name:'voice.wav'});
+ fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'29'}});
+ sessionModel(second.name);expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');expect(document.querySelector('[data-music-source]')?.textContent).not.toContain('voice.wav');
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));fireEvent.change(screen.getByLabelText('Steps'),{target:{value:'31'}});
+ act(()=>window.dispatchEvent(new CustomEvent('deas-media-relocated',{detail:{oldPath:'/env/ComfyUI/input/voice.wav',path:'/env/ComfyUI/input/renamed.wav'}})));
+ sessionModel(yue2Models[0].name);expect(document.querySelector('[data-music-source]')?.textContent).toContain('renamed.wav');expect(screen.getByLabelText('Steps')).toHaveProperty('value','29');expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Cover Music)');
+ sessionModel(second.name);expect(document.querySelector('[data-music-source]')?.textContent).toContain('clip.mp4');expect(screen.getByLabelText('Steps')).toHaveProperty('value','31');
+ sessionModel(ace.name);expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ const unsupported=menuOf('voice.wav').getByRole('menuitem',{name:/Use for music cover/});expect(unsupported).toHaveProperty('disabled',true);expect(unsupported.textContent).toContain('No verified recipe');fireEvent.click(unsupported);fireEvent.keyDown(window,{key:'Escape'});
+ expect(document.querySelector('[data-music-source]')?.textContent).not.toContain('voice.wav');expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ const run=screen.getByRole('button',{name:'Run'});expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ sessionModel(second.name);expect(document.querySelector('[data-music-source]')?.textContent).toContain('clip.mp4');sessionModel(ace.name);
+ expect(document.querySelector('[data-music-source]')?.textContent).not.toContain('voice.wav');expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'ace-step-1-5-turbo',mode:'t2m',style:'shared'});expect(uploadInput).not.toHaveBeenCalled();
+});
+
 test('ABC Off drops the planner, switches AR guidance to 1.01 once, and keeps ABC values for returning to Full',async()=>{
  await mountMusic('Music (Text to Music)');
  fireEvent.change(music().style,{target:{value:'lofi'}});
@@ -5438,7 +5860,8 @@ test('cover mode stage toolbar offers the same "Use for music cover" action as t
 });
 
 test('cover needs an explicitly selected audio or video source, uploads it once on Run, and is immutable to later edits',async()=>{
- vi.mocked(uploadInput).mockImplementation(async(_b,path)=>`deas-input-${path.split('/').pop()}`);
+ let uploaded!:(name:string)=>void;
+ vi.mocked(uploadInput).mockImplementation(()=>new Promise<string>(resolve=>{uploaded=resolve;}));
  await mountMusic('Music (Cover Music)');
  fireEvent.change(music().style,{target:{value:'bossa nova'}});
  expect(screen.queryByLabelText('ABC Planning')).toBeNull();
@@ -5458,6 +5881,9 @@ test('cover needs an explicitly selected audio or video source, uploads it once 
  fireEvent.click(run);
  // Edits during the awaited upload belong to the next job.
  fireEvent.change(music().style,{target:{value:'changed after run'}});fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
+ fireEvent.click(document.querySelector('[data-music-source-remove]')!);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ await act(async()=>{uploaded('deas-input-voice.wav');});
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(uploadInput).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:7801','/env/ComfyUI/input/voice.wav');
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({recipeId:'music-generation',mode:'cover',planning:'melody',style:'bossa nova',sourceAudio:'deas-input-voice.wav',audioEncoder:'sheetsage2_bf16.safetensors',maxDuration:360});
@@ -5476,6 +5902,9 @@ test('music without the cover nodes still offers text-to-music, and a missing en
  const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
  await waitFor(()=>expect(run.title).toContain('SheetSage2AudioToABC'));
  expect(run.disabled).toBe(true);expect(run.title).toContain('LoadAudio');expect(run.title).toContain('Select an installed SheetSage2 audio encoder.');
+ fireEvent.click(document.querySelector('[data-music-source-remove]')!);
+ await waitFor(()=>expect(run.disabled).toBe(false));expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Text to Music)');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test('switching t2i → music → t2i keeps image prompts and music texts as separate drafts and blocks Forge handoff while authoring music',async()=>{
@@ -5564,13 +5993,16 @@ test('Recent history restores a music record into the cover pipeline with every 
  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_jobs_history'?{schemaVersion:1,records:[record],readOnly:false,error:null}:command==='native_media_star_status'?{starred:false,unavailable:null}:{path:(args as {path?:string})?.path??'/env/ComfyUI/input',parent:'/env',entries:mediaEntries,truncated:false});
  fireEvent.change(music().style,{target:{value:'current draft'}});
  await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);fireEvent.click(screen.getByRole('button',{name:'Close history'}));
- await waitFor(()=>expect((screen.getByRole('combobox',{name:'Pipeline'}) as HTMLSelectElement).value).toBe('cover'));
+ await waitFor(()=>expect((screen.getByRole('combobox',{name:'Pipeline'}) as HTMLSelectElement).value).toBe('music'));
+ expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Cover Music)');
  expect(music().style.value).toBe('historic style');expect(music().lyrics.value).toBe('[Verse]\nold words');
  expect(screen.getByLabelText('Seed')).toHaveProperty('value','777');expect(screen.getByLabelText('Steps')).toHaveProperty('value','20');
  expect(screen.getByLabelText('Maximum duration (seconds)')).toHaveProperty('value','200.04');
  expect((screen.getByLabelText('Autoregressive guidance') as HTMLInputElement).value).toBe('1.5');
  const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
  expect(run.disabled).toBe(true);expect(run.title).toContain('deas-input-old.wav');
+ choosePipe('Text → Image');choosePipe('Music (Text to Music)');
+ expect(document.querySelector('[data-music-mode]')?.textContent).toBe('Music (Cover Music)');expect(run.disabled).toBe(true);expect(run.title).toContain('deas-input-old.wav');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  await screen.findByRole('button',{name:'voice.wav'});
  fireEvent.click(menuOf('voice.wav').getByRole('menuitem',{name:'Use for music cover'}));

@@ -20,6 +20,20 @@ test('image/video uses declared capabilities, with no style categories or filena
  expect(installedMedia(models[3])).toBeUndefined();expect(filterInstalled(models,'all')).toHaveLength(4);
  expect(catalogModels(entries,'video').map(e=>e.id)).toEqual(['video']);
 });
+
+test('Music filter uses declared YuE2 and resolved ACE capabilities, never unresolved variants or image guides',async()=>{
+ const musicModels=['yue2','ace-step-1-5-turbo','ace-step-1-5'].map(family=>({...models[0],family,name:family+'.safetensors',path:'/m/'+family}));
+ expect(filterInstalled(musicModels,'music').map(m=>m.family)).toEqual(['yue2','ace-step-1-5-turbo']);
+ expect(installedMedia(musicModels[2])).toBeUndefined();
+ const use=vi.fn();render(<I18nProvider><BeginnerModels models={[...models,...musicModels]} onUse={use} onRefresh={()=>{}} reason={()=>''} loading={false}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Music'}));
+ expect(screen.getAllByRole('button',{name:/Use this model/})).toHaveLength(2);
+ fireEvent.click(screen.getAllByRole('button',{name:/Use this model/})[1]);expect(use).toHaveBeenCalledWith(musicModels[1]);
+ fireEvent.click(screen.getByRole('tab',{name:'Explore'}));await waitFor(()=>expect(readDownloadCatalog).toHaveBeenCalled());
+ expect(document.querySelectorAll('[data-guide]')).toHaveLength(0);expect(document.querySelectorAll('.beginner-model-card')).toHaveLength(0);
+ expect(invoke).not.toHaveBeenCalled();
+});
+
 test('onboarding choices and switch report the chosen experience',()=>{
  const choose=vi.fn();render(<I18nProvider><ExperienceWelcome onChoose={choose}/><ExperienceSwitch value="beginner" onChange={choose}/></I18nProvider>);
  fireEvent.click(screen.getByRole('button',{name:/A beginner/}));expect(choose).toHaveBeenCalledWith('beginner');

@@ -194,10 +194,10 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
   // video builder deliberately omits them. Preserve that distinction explicitly.
   for(const key of ['imageFormat','imageCompression'])if(key in intent.output)unsupported.push(`output.${key}`);
   if(family?.video?.fixedFps&&family.video.fps!==intent.frameRate)unsupported.push('frameRate');
-  pipeline=intent.sourceVideo?'v2v':intent.firstFrame?'i2v':'t2v';
+  pipeline=intent.sourceVideo?'v2v':intent.family==='ltx-2'&&intent.ltx.keyframes?.length?'ref2v':intent.firstFrame||intent.lastFrame?'i2v':'t2v';
   if(intent.firstFrame)source=resolve(intent.firstFrame);
   if(intent.lastFrame)lastFrame=resolve(intent.lastFrame);
-  if(intent.sourceVideo)unsupported.push('sourceVideo');
+  if(intent.sourceVideo){if(intent.family==='ltx-2')source??=resolve(intent.sourceVideo);else unsupported.push('sourceVideo');}
   if(intent.chunks!==undefined)unsupported.push('chunks');
   if(videoFrames(intent.family,intent.frames/intent.frameRate,intent.frameRate)!==intent.frames)unsupported.push('frames');
   if(intent.family==='ltx-2'&&intent.ltx.keyframes?.length)unsupported.push('ltx.keyframes');

@@ -162,9 +162,9 @@ export function ReferencePeople({r,label,onChange,endpoint,root,inputRoot,output
   :<details className="wb-ref-more" data-ref-people onToggle={e=>setOpen(e.currentTarget.open)}><summary>{t('forge.people')}</summary>{body}</details>;
 }
 
-export interface ReferencesPanelProps { endpoint?:string; root?:string; refs:VideoRef[]; onChange:(refs:VideoRef[])=>void; family:'ltx-2'|'minimax-h3'|'minimax-h3-hyperflow'; /** Video length: LTX reference seconds stay inside it. */ seconds:number; /** Adds references in order (dropped tiles/files, loaded packs); `replace` starts from an empty list. */ onAdd:(adds:RefAdd[],replace?:boolean)=>void; /** ComfyUI input folder: Director packs name files relative to it. */ inputRoot?:string; outputRoot?:string; label:(r:VideoRef,i:number)=>string; /** Append a Director label such as `<Picture 1>` to the prompt. */ onInsert:(label:string)=>void; /** H3 RefMod rows (Director slots 1–8 in order). */ refmods?:RefMod[]; onRefmods?:(rows:RefMod[])=>void; /** Reads the backend's RefMod library on demand. */ library?:()=>Promise<RefModEntry[]>; /** Enables *Create RefMod*: the H3 VAEs and the upload into the backend input folder. */ refmodCreate?:{vae:string;audioVae:string;upload:(path:string)=>Promise<string>} }
+export interface ReferencesPanelProps { endpoint?:string; root?:string; refs:VideoRef[]; onChange:(refs:VideoRef[])=>void; family:'ltx-2'|'minimax-h3'|'minimax-h3-hyperflow'; /** Video length: LTX reference seconds stay inside it. */ seconds:number; /** Adds references in order (dropped tiles/files, loaded packs); `replace` starts from an empty list. */ onAdd:(adds:RefAdd[],replace?:boolean)=>boolean|void; /** Optional atomic pack application; rows are the final RefMod list. */ onPack?:(adds:RefAdd[],rows:RefMod[],replace:boolean)=>boolean|void; /** ComfyUI input folder: Director packs name files relative to it. */ inputRoot?:string; outputRoot?:string; label:(r:VideoRef,i:number)=>string; /** Append a Director label such as `<Picture 1>` to the prompt. */ onInsert:(label:string)=>void; /** H3 RefMod rows (Director slots 1–8 in order). */ refmods?:RefMod[]; onRefmods?:(rows:RefMod[])=>void; /** Reads the backend's RefMod library on demand. */ library?:()=>Promise<RefModEntry[]>; /** Enables *Create RefMod*: the H3 VAEs and the upload into the backend input folder. */ refmodCreate?:{vae:string;audioVae:string;upload:(path:string)=>Promise<string>} }
 /** Multi-reference → Video editor in Director lanes; used inside the References overlay. */
-export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,label,onAdd,onInsert,inputRoot,outputRoot,refmods=[],onRefmods,library,refmodCreate}:ReferencesPanelProps){
+export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,label,onAdd,onPack,onInsert,inputRoot,outputRoot,refmods=[],onRefmods,library,refmodCreate}:ReferencesPanelProps){
  const {t}=useI18n();
  const box=useRef<HTMLDivElement>(null);const [error,setError]=useState('');const [hovering,setHovering]=useState(false);
  const [editing,setEditing]=useState<string|null>(null);
@@ -217,8 +217,9 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
    // Missing files are reported, never added (the Director checks existence the same way before loading).
    const found=await Promise.all(read.adds.map(a=>describeMedia([a.path]).then(([e])=>e?itemFromEntry(e):null,()=>null)));
    const adds=read.adds.flatMap(({path:_,...a},i)=>{const item=found[i];return item?[{item,...a}]:[];});
-   onAdd(adds,replace);
-   if(onRefmods&&(replace||read.refmods.length))onRefmods([...(replace?[]:refmods),...read.refmods.map(r=>({...r,kinds:entries?.find(e=>e.name===r.name)?.kinds}))].slice(0,8));
+   const rows=[...(replace?[]:refmods),...read.refmods.map(r=>({...r,kinds:entries?.find(e=>e.name===r.name)?.kinds}))].slice(0,8);
+   if(onPack){if(onPack(adds,rows,replace)===false)return;}
+   else{if(onAdd(adds,replace)===false)return;if(onRefmods&&(replace||read.refmods.length))onRefmods(rows);}
    const missing=read.adds.length-adds.length+read.invalid;
    setStatus(t('studio.run.video.packLoaded',{count:String(adds.length)})+(missing?` · ${t('studio.run.video.packMissing',{count:String(missing)})}`:''));
   }catch(e){setError(String(e));}

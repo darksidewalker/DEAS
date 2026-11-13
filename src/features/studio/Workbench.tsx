@@ -19,6 +19,8 @@ import { RunPlan } from './RunPlan';
 import { DownloadPanel } from '../downloads/DownloadPluginPanel';
 import { ContinuityOverlay } from './ContinuityOverlay';
 import { ReferencesOverlay } from './ReferencesOverlay';
+import { ReferenceThumbnail } from './ReferenceThumbnail';
+import { videoRoles, videoRoleBlock, videoRolePipeline, type VideoRole, type VideoRoles } from './videoRoles';
 import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource, type ContinuityPlan } from '../../lib/continuity';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels, type LocalModel } from '../../lib/models';
@@ -74,7 +76,7 @@ import type {BeginnerPage} from '../beginner/Experience';
 import { NativeVideo, nativeVideo } from './NativeVideo';
 import { TemporalPreview } from './TemporalPreview';
 /** Data-only family plugin (also read natively for header detection): loader, runnable pipelines, encoder/VAE file patterns, starting settings. */
-interface Family extends ComponentFamily { id:string; name:string; multiple?:number; temporalLatent?:boolean; imagePrompting?:'revision'|'qwen-image-2.1'|'krea-2'|'moss-image'|'minimax-h3'; loader:string; pipelines:string[]; clipType?:string; /** Two-encoder families (Flux.1, SD3): slot 2 is picked by its filename pattern. */ clip?:{loader:'single'|'dual';encoders?:string[]}; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]}; /** Per-variant recipe points (HyperFlow Flash). */ ggufLoader?:string; videoSigmaNode?:string; fixedSampler?:string; stepChoices?:number[]; defaultsNote?:string }
+interface Family extends ComponentFamily { id:string; name:string; multiple?:number; temporalLatent?:boolean; imagePrompting?:'revision'|'qwen-image-2.1'|'krea-2'|'moss-image'|'minimax-h3'; loader:string; pipelines:string[]; clipType?:string; /** Two-encoder families (Flux.1, SD3): slot 2 is picked by its filename pattern. */ clip?:{loader:'single'|'dual';encoders?:string[]}; textEncoders?:string[]; textProjections?:string[]; vaes?:string[]; audioVaes?:string[]; defaults?:{width:number;height:number;steps:number;cfg:number;sampler:string;scheduler:string}; sigmas?:number[]; loraFamily?:string; /** Video families: native fps/seconds, fixed fps (H3 is 24), Wan's high→low file-name pair. */ video?:VideoRoles&{fps:number;seconds:number;fixedFps?:boolean;lowModel?:[string,string]}; /** Per-variant recipe points (HyperFlow Flash). */ ggufLoader?:string; videoSigmaNode?:string; fixedSampler?:string; stepChoices?:number[]; defaultsNote?:string }
 /** Remembered video controls; family rows read only their own keys. */
 interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string; shiftHigh:number; shiftLow:number; refinerStep:number; shiftVideo:number; shiftAudio:number; audioVae:string; textProjection:string }
 interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number;advanced?:H3LatentAdvanced}
@@ -106,7 +108,7 @@ const videoPipelines:readonly string[]=['t2v','i2v','v2v','ref2v'];
 const outputKind=(p:string)=>videoPipelines.includes(p)?'video':p==='t2m'||p==='cover'?'music':'image';
 /** One Image pipeline: t2i/i2i stay internal ids (intents, projects, history) and share one draft; the picture to edit decides which. */
 const isImagePipe=(p:string)=>p==='t2i'||p==='i2i';
-const draftPipe=(p:string)=>p==='i2i'?'t2i':p;
+const draftPipe=(p:string)=>p==='i2i'?'t2i':p==='cover'?'t2m':videoPipelines.includes(p)?'t2v':p;
 const randomSeed=()=>Math.floor(Math.random()*2**32);
 /** WebKitGTK media needs a blob URL; asset fetches also need connect-src permission in the app CSP. */
 function useBlobSrc(src:string|undefined,active:boolean):{url?:string;error?:string}{
@@ -144,7 +146,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [media,setMedia]=useState<MediaItem|null>(null);
  const [browsed,setBrowsed]=useState<MediaItem|null>(null);
  const browsedBlob=useBlobSrc(browsed?.src,native&&browsed?.media!=='image'&&!linuxVideo);
- const mediaBlob=useBlobSrc(media?.src,native&&media?.media!=='image'&&!linuxVideo);const [mediaFault,setMediaFault]=useState('');
+ const [mediaFault,setMediaFault]=useState('');
  useEffect(()=>setMediaFault(''),[media?.src]);
  const [outputRevision,setOutputRevision]=useState(0);
  const [savedDockTab,setDockTab]=usePref('studio.dock.tab','media',oneOf(...dockTabs));
@@ -210,7 +212,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [musicGeneration,setMusicGeneration]=usePref('studio.run.music.generation',defaultMusicGeneration,isMusicGeneration);
  const [musicSource,setMusicSource]=useState<MediaItem|null>(null);
  const [musicAce,setMusicAce]=usePref('studio.run.music.ace',defaultAceSettings,isAceSettings);
- const [aceDuration,setAceDuration]=usePref('studio.run.music.aceDuration',120,isNumber);
+ const [aceDuration,setAceDuration]=usePref('studio.run.music.ace.duration',120,isNumber);
  const [aceProfilePref,setAceProfilePref]=usePref('studio.run.music.aceProfile','',isString);
  const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
  const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
@@ -310,6 +312,9 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const closeLatentDownload=()=>{setLatentDownload(null);void refreshChoices();};
  useEffect(()=>{if(!latentDownload)return;const dialog=latentDialog.current!;dialog.showModal();return()=>{if(dialog.open)dialog.close();};},[latentDownload]);
  const [lastFrame,setLastFrame]=useState<MediaItem|null>(null);
+ const [sourceVideo,setSourceVideo]=useState<MediaItem|null>(null);
+ const [sourceVideoSize,setSourceVideoSize]=useState<(Size&{src:string})|null>(null);
+ const [rolePick,setRolePick]=useState<MediaItem|null>(null);
  // H3 Image → Video with the picked image as last frame only (L2VA): holds that image's src while it is both input and last frame.
  const [lastOnlySrc,setLastOnlySrc]=useState<string|null>(null);
  // shortcut: source URLs identify frame pictures; use asset revisions when same-path edits are supported.
@@ -469,7 +474,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(!historyDraft||historySelectionContext===historyInputContext)return;
   setHistorySelectionContext(historyInputContext);setHistorySourceSelected(false);
   sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);setLastFrame(null);
-  setMusicSource(null);
+  setMusicSource(null);setSourceVideo(null);
   setImageRefs(values=>values.map(ref=>({...ref,item:{name:ref.item.name,media:'image',src:''}})));
  },[historyDraft,historySelectionContext,historyInputContext]);
  // Image pipelines stay clickable without an input; the missing picture only greys Run and names what to pick.
@@ -481,17 +486,21 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const isVideo=videoPipelines.includes(pipeline);
  const isMusic=isMusicPipeline(pipeline);
  // First/last-frame controls belong to text/image-to-video; H3 continuity supports every video pipeline.
- const frameVideo=pipeline==='t2v'||pipeline==='i2v';
+ const frameVideo=isVideo;
  const aspect=aspectPref==='auto'&&!mediaPipeline?'1:1':aspectPref;
  // Remembered picks are only valid while the folder still holds them and they fit the pipeline.
  /** The one Image pipeline accepts a model that can do text-to-image or editing. */
- const pipeBlocked=(m:LocalModel)=>isImagePipe(pipeline)?blocked(m,'t2i')&&blocked(m,'i2i'):blocked(m,pipeline);
+ const modeBlocked=(m:LocalModel,p:Pipeline)=>isImagePipe(p)?blocked(m,'t2i')&&blocked(m,'i2i'):videoPipelines.includes(p)?videoPipelines.map(v=>blocked(m,v as Pipeline)).every(Boolean)?blocked(m,p):'':isMusicPipeline(p)?blocked(m,'t2m')&&blocked(m,'cover'):blocked(m,p);
+ const pipeBlocked=(m:LocalModel)=>modeBlocked(m,pipeline);
  const usable=allModels.filter(m=>!pipeBlocked(m));
  const model=checkpointPref?(modelIdentity?usable.find(m=>m.name===checkpointPref&&identity(m)===modelIdentity):usable.find(m=>m.name===checkpointPref)):usable[0];
  const checkpoint=model?.name??'';
  const savedModel=allModels.find(m=>m.name===checkpointPref&&(!modelIdentity||identity(m)===modelIdentity));
- const unavailableModelReason=checkpointPref&&!model?(savedModel?t(blocked(savedModel,pipeline)):t('studio.quick.unavailable',{names:checkpointPref})):'';
+ const unavailableModelReason=checkpointPref&&!model?(savedModel?t(pipeBlocked(savedModel)):t('studio.quick.unavailable',{names:checkpointPref})):'';
  const family=familyOf(model);
+ const videoSource=sourceVideo??(!beginner&&pipeline==='v2v'&&media?.media==='video'?media:null);
+ const inputPreview=media??(isVideo?videoSource:null);
+ const mediaBlob=useBlobSrc(inputPreview?.src,native&&inputPreview?.media!=='image'&&!linuxVideo);
  const resolution=resolutionPref==='model'&&!family?.defaults?'fixed':resolutionPref;
  const aceProfile=isMusic?aceMusicProfile(family?.id):undefined;
  const aceSplit=!!aceProfile&&model?.category!=='checkpoints';
@@ -541,12 +550,21 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const continuityReferences=pipeline==='v2v'||pipeline==='ref2v';
  const continuationWithoutReferences=continuityAvailable&&continuityReferences&&!!nextStep(plan)?.continuity.sourceId&&!plan.useReferences;
  useEffect(()=>{if(!continuityAvailable||planVisible)setContinuityOpen(false);},[continuityAvailable,planVisible]);
- const needsInput=(pipeline==='i2i'||pipeline==='i2v')&&!inputImage?'studio.run.pipe.needsInput'
+ const lastOnly=isVideo&&!!media&&lastOnlySrc===media.src&&lastFrame?.src===media.src;
+ const firstFrame=isVideo&&!lastOnly&&media?.media==='image'?media:null;
+ const videoModeName=isH3Video(videoFamily)?pipeline==='ref2v'||pipeline==='v2v'?'REF2VA':firstFrame&&lastFrame?'FL2VA':firstFrame?'I2VA':lastFrame?'L2VA':'T2VA':t(`studio.run.pipe.${pipeline}`);
+ const needsInput=(pipeline==='i2i'||pipeline==='i2v')&&!inputImage&&!(isVideo&&(firstFrame?.path||(lastFrame?.path&&family?.video?.lastAlone)))?'studio.run.pipe.needsInput'
+  :isMusic&&(pipeline==='cover'||musicSource)&&model&&blocked(model,'cover')?blocked(model,'cover')
   :pipeline==='cover'&&!musicSource?.path?'studio.music.needsSource'
-  :pipeline==='v2v'&&!(media?.media==='video'&&media.path)?'studio.run.pipe.needsVideo'
+  :pipeline==='v2v'&&!videoSource?.path?'studio.run.pipe.needsVideo'
   :pipeline==='ref2v'&&!refs.length&&!(isH3Video(videoFamily)&&refmods.length)?'studio.run.pipe.needsRefs'
   :pipeline==='ref2v'&&videoFamily==='minimax-h3-hyperflow'&&refs.some(r=>r.item.media!=='image')?'studio.run.video.refImagesOnlyHyperflow'
-  :pipeline==='ref2v'?refsProblem(refs):'';
+  :isVideo&&((refmods.length&&!isH3Video(videoFamily))||(refs.length&&!family?.video?.roles.includes('reference'))||(sourceVideo&&!family?.video?.roles.includes('source')))?'studio.run.video.roles.unsupported'
+  :isVideo&&refs.some(r=>!family?.video?.referenceMedia.includes(r.item.media as 'image'|'video'|'audio'))?'studio.run.video.roles.unsupported'
+  :isVideo&&refs.length>(family?.video?.maxReferences??0)?'studio.run.video.refFull'
+  :isVideo&&!family?.video?.mixReferences&&(refs.length||refmods.length)&&(media?.media==='image'||lastFrame)?'studio.run.video.roles.mixing'
+  :isVideo&&(!family?.pipelines.includes('t2v')||lastFrame&&!family?.video?.lastAlone)&&!firstFrame?'studio.run.pipe.needsInput'
+  :isVideo?refsProblem(refs):'';
  const fps=family?.video?.fixedFps?family.video.fps:video.fps;
  const frames=videoFamily?videoFrames(videoFamily,video.seconds,fps):0;
  const audioVae=video.audioVae||recommended?.audioVaes[0]||'';
@@ -559,9 +577,6 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   :!isFaceRefineBlock(faceRefineBlock)?t('studio.faceRefine.invalid'):'';
  const faceRefineAutoUnavailable=faceRefineSetup;
  const textProjection=video.textProjection||recommended?.textProjections[0]||'';
- const lastFrameName=comfyName(lastFrame);
- const lastOnly=isH3Video(videoFamily)&&pipeline==='i2v'&&!!media&&lastOnlySrc===media.src&&lastFrame?.src===media.src;
- const firstFrame=pipeline==='i2v'&&!lastOnly&&media?.media==='image'?media:null;
  // LoRAs of another known family are hidden; unknown ones stay (their target cannot be checked).
  const loraModels=(models??[]).filter(m=>m.category==='loras'&&(!family||!m.family||m.family===(family.loraFamily??family.id))).sort(byName);
  // A custom schedule (Options tab text, else the model's own, e.g. Turbo) replaces steps/scheduler; image-to-image keeps its tail like AlignYourSteps does (round(steps·denoise) steps).
@@ -664,7 +679,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(family?.clipType&&!types?.includes(family.clipType))unavailable.push(`${loader}: ${family.clipType}`);
   }
  }
- const source=mediaSize&&mediaSize.src===media?.src?mediaSize:undefined;
+ const source=mediaSize&&mediaSize.src===media?.src?mediaSize:!media&&isVideo&&sourceVideoSize?.src===videoSource?.src?sourceVideoSize??undefined:undefined;
  const modelSize=family?.defaults??{width:1024,height:1024};
  // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
  const grid=qwenRefs?32:family?.multiple??16;
@@ -706,15 +721,16 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   :needsInput&&!continuing?needsInput
   :moss&&pipeline==='i2i'&&source&&!scaled?.resize&&(source.width%grid!==0||source.height%grid!==0)?'studio.run.moss.resize'
   :(!validCanvas(outputSize)||((moss||qwenRefs)&&(outputSize.width%grid!==0||outputSize.height%grid!==0)))?'studio.run.resolution.invalid'
-  :(pipeline==='i2i'||pipeline==='i2v'||pipeline==='v2v')&&!source&&!(continuing&&resolution==='fixed')?'studio.run.resolution.waiting'
-  :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&(firstRef||(pipeline!=='ref2v'&&media&&media.media!=='audio'))&&!autoSource?'studio.run.resolution.waiting':'';
+  :(pipeline==='i2i'||pipeline==='i2v'||pipeline==='v2v')&&!source&&!(isVideo&&resolution==='fixed')&&!(continuing&&resolution==='fixed')?'studio.run.resolution.waiting'
+  :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&(firstRef||(pipeline!=='ref2v'&&inputPreview&&inputPreview.media!=='audio'))&&!autoSource?'studio.run.resolution.waiting':'';
  const sizeError=sizeErrorFor();
  const continuitySizeError=sizeErrorFor(continuationWithoutReferences);
  const historyProblems=historyDraft?[
   ...historyDraft.unsupported,
   ...(!choices?['capabilities unvalidated']:[]),
-  ...(historyDraft.source&&(!(isMusicIntent(historyDraft.intent)?musicSource?.path:media)||!historySourceSelected)?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
-  ...(historyDraft.lastFrame&&(!lastFrame?.path||(!isH3Video(videoFamily)&&!lastFrameName))?[t('studio.history.missingInput',{name:historyDraft.lastFrame.name})]:[]),
+  ...(historyDraft.source&&(!(isMusicIntent(historyDraft.intent)?musicSource?.path:isVideoIntent(historyDraft.intent)&&historyDraft.intent.family==='ltx-2'&&historyDraft.intent.sourceVideo?videoSource?.path:media)||!historySourceSelected)?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
+  ...(isVideoIntent(historyDraft.intent)&&historyDraft.intent.firstFrame&&!firstFrame?.path?[t('studio.history.missingInput',{name:historyDraft.intent.firstFrame})]:[]),
+  ...(historyDraft.lastFrame&&!lastFrame?.path?[t('studio.history.missingInput',{name:historyDraft.lastFrame.name})]:[]),
   ...(historySelectionContext!==historyInputContext?['input context changed']:[]),
   ...(isVideoIntent(historyDraft.intent)&&videoFamily!==historyDraft.intent.family?['video.family']:[]),
   ...(isImageIntent(historyDraft.intent)&&imageRefs.length&&historyDraft.intent.imageReference&&referenceMethod!=='revision'?['imageReference.method']:[]),
@@ -771,7 +787,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  },[chatRender?.id]); // eslint-disable-line react-hooks/exhaustive-deps
  const ratio=aspect==='auto'?(source?source.width/source.height:1):aspect==='custom'?aspectWidth/aspectHeight:Number(aspect.split(':')[0])/Number(aspect.split(':')[1]);
  const swatchRatio=Number.isFinite(ratio)&&ratio>0?ratio:1;
- const readMediaSize=(width:number,height:number)=>{if(media&&width>0&&height>0)setMediaSize({src:media.src,width,height});};
+ const readMediaSize=(width:number,height:number)=>{if(inputPreview&&width>0&&height>0){const size={src:inputPreview.src,width,height};if(media)setMediaSize(size);if(inputPreview.src===videoSource?.src)setSourceVideoSize(size);}};
  // Unknown jobs the user already stopped must not hold the next generation back.
  const current=jobs.find(j=>j.state==='queued'||j.state==='running'||(j.state==='unknown'&&!stopped.current.has(j.id)));
  const admissionBlocked=stopping||(!recovered&&!localPreparations.current)||(frontendAdmitting&&!localPreparations.current);
@@ -921,12 +937,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  }
  /** Music intent from the independent music state only (no image `common` spread); `sourceAudio` is the uploaded name for covers. */
  function buildMusicIntent(naming:string,capturedSeed:number,sourceAudio?:string):MusicIntentV1{
+  if(aceProfile&&(pipeline!=='t2m'||musicSource))throw new Error(t(blocked(model!,'cover')||'studio.music.needsSource'));
   if(aceProfile)return {recipeId:'music-generation',version:1,family:family!.id as AceStepFamily,checkpoint,mode:'t2m',planning:'off',style:musicStyle,lyrics:musicLyrics,seed:capturedSeed,maxDuration:aceDuration,steps,cfg,sampler,scheduler,outputPrefix:naming,ace:structuredClone(musicAce),...(aceSplit?{diffusion:{textEncoder,textEncoder2,vae}}:{}),...(audioEnhance.intent?{audioEnhance:audioEnhance.intent}:{})};
   const base={recipeId:'music-generation',version:1,family:'yue2',checkpoint,style:musicStyle,lyrics:musicLyrics,seed:capturedSeed,steps,cfg,sampler,scheduler,generation:structuredClone(musicGeneration),outputPrefix:naming,...(audioEnhance.intent?{audioEnhance:audioEnhance.intent}:{})} as const;
   if(pipeline==='cover')return {...base,mode:'cover',planning:'melody',maxDuration:musicDuration.cover,sourceAudio:sourceAudio??'',audioEncoder:musicEncoder};
   return musicPlanning==='off'?{...base,mode:'t2m',planning:'off',maxDuration:musicDuration.t2m}:{...base,mode:'t2m',planning:musicPlanning,maxDuration:musicDuration.t2m,abc:structuredClone(musicAbc)};
  }
  async function runMusic(naming:string,capturedSeed:number){
+  if(needsInput){setError(t(needsInput));return;}
   const sourcePath=pipeline==='cover'?musicSource?.path:undefined;
   if(pipeline==='cover'&&(!sourcePath||!musicEncoder)){setError(t(sourcePath?'studio.music.needsEncoder':'studio.music.needsSource'));return;}
   // Snapshot everything before the first await; later edits belong to the next job.
@@ -953,15 +971,15 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    let intent:VideoIntentV1;
    // The Director's default canvas fit for DEAS stays implicit, so unchanged intents stay byte-identical.
    const scaling={inputScaling:h3Scaling}; // Always sent; default Fill and crop (matches the Rust fallback). Auto only preserves aspect when the canvas aspect already equals the frame aspect — core MiniMaxH3ImageToVideo plain-stretches the first_frame onto the canvas.
-   const last=frameVideo&&lastFrameName?{lastFrame:lastFrameName}:{};
+   const last=frameVideo&&lastFrame?.path?{lastFrame:nameOf(lastFrame)}:{};
    // Dock files outside the ComfyUI input/output folders (and every video, which core LoadVideo reads from the input root) are copied there.
    if(vf==='ltx-2'){
-    const source=pipeline==='v2v'&&media?.path?{sourceVideo:nameOf(media,true)}:{};
-    const keyframes=pipeline==='ref2v'?refs.map(r=>({image:nameOf(r.item),frame:Math.min(count-1,Math.round(r.second*fps)),strength:r.strength})):[];
-    intent={...base,...(pipeline==='i2v'?{firstFrame:inputImage}:{}),...last,...source,family:'ltx-2',...(latentEnabled?{latentUpscale:{model:latentModel,scale:2 as const}}:{}),ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{}),
+    const source=videoSource?.path?{sourceVideo:nameOf(videoSource,true)}:{};
+    const keyframes=refs.map(r=>({image:nameOf(r.item),frame:Math.min(count-1,Math.round(r.second*fps)),strength:r.strength}));
+    intent={...base,...(firstFrame?.path?{firstFrame:nameOf(firstFrame)}:{}),...last,...source,family:'ltx-2',...(latentEnabled?{latentUpscale:{model:latentModel,scale:2 as const}}:{}),ltx:{textProjection,audioVae,passes:video.passes,...(video.passes>1?{spatialUpscaler:video.upscaler}:{}),
      ...(keyframes.length?{keyframes}:{}),...('sourceVideo' in source?{sourceStrength}:{})}};
    }
-   else if(vf==='wan')intent={...base,firstFrame:inputImage,...last,family:'wan',wan:{lowModel:lowOf(model!,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
+   else if(vf==='wan')intent={...base,firstFrame:firstFrame?.path?nameOf(firstFrame):'',...last,family:'wan',wan:{lowModel:lowOf(model!,family),shiftHigh:video.shiftHigh,shiftLow:video.shiftLow,refinerStep:video.refinerStep}};
    else if(pipeline==='v2v'||pipeline==='ref2v'){
     // H3 has no video-to-video mode: both run REF2VA, the source video (with or without its sound) as a video reference.
     const includeReferences=!cont?.continuity.sourceId||!!plan.useReferences;
@@ -975,7 +993,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    else{
     // The Director owns H3 references; they must live in the backend input folder, so dock files are copied there explicitly.
     const refs:{slot:0|1;image:string}[]=[];
-    if(pipeline==='i2v'&&!lastOnly&&media?.path)refs.push({slot:0,image:nameOf(media,true)});
+    if(firstFrame?.path)refs.push({slot:0,image:nameOf(firstFrame,true)});
     if(lastFrame?.path)refs.push({slot:1,image:nameOf(lastFrame,true)});
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:vf,h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
@@ -999,7 +1017,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const draft={...structuredClone(buildVideoIntent(videoFamily,naming,out,identify,cont)),seed:capturedSeed};
    const names=new Map(await Promise.all([...uploads.keys()].map(async path=>[path,await uploadInput(endpoint,path)] as const)));
    // Replace only upload placeholders in the captured draft, never rebuild from controls after awaits.
-   const intent=JSON.parse(JSON.stringify(draft),(key,value:unknown)=>['image','file','sourceVideo'].includes(key)&&typeof value==='string'&&names.has(value)?names.get(value):value) as VideoIntentV1;
+   const intent=JSON.parse(JSON.stringify(draft),(key,value:unknown)=>['image','file','sourceVideo','firstFrame','lastFrame'].includes(key)&&typeof value==='string'&&names.has(value)?names.get(value):value) as VideoIntentV1;
    if(!activeRun(ticket))return;
    admitted=true;
    const job=await runWorkbenchJob(endpoint,Object.freeze(intent),ticket.admissionEpoch);
@@ -1194,7 +1212,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   setSelectedJob(j.id); // Preview only: restoring a job's settings is the explicit Reuse action.
  };
  const clearSource=()=>{setSelectedJob('');sourceEpoch.current++;setEditorSnapshot(undefined);setMedia(null);setLayers([]);setMasked(false);};
- const closePreview=()=>{if(browsed){setBrowsed(null);return;}clearSource();};
+ const closePreview=()=>{if(browsed){setBrowsed(null);return;}if(isVideo&&firstFrame){removeVideoRole('first');return;}clearSource();};
  const pairedOriginal=shown?.outputs.find(o=>o.role==='original');
  const pairedProcessed=shown?.outputs.find(o=>o.role==='processed');
  const originalItem=shown?sources[shown.id]:undefined;
@@ -1226,8 +1244,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(!move||typeof move.oldPath!=='string'||typeof move.path!=='string')return;
    const oldSrc=native?convertFileSrc(move.oldPath):move.oldPath,newSrc=native?convertFileSrc(move.path):move.path;
    const repair=(item:MediaItem|null)=>item?relocatedMediaItem(item,move):null;
-   setMedia(repair);setBrowsed(repair);setLastFrame(repair);
+   setMedia(repair);setBrowsed(repair);setLastFrame(repair);setSourceVideo(repair);setMusicSource(repair);setRolePick(repair);
    setMediaSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
+   setSourceVideoSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
+   setRefSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
+   setLastOnlySrc(value=>value===oldSrc?newSrc:value);
+   const repairSize=(size:(Size&{src:string})|null)=>size?.src===oldSrc?{...size,src:newSrc}:size;
+   for(const [key,draft] of drafts.current)drafts.current.set(key,{...draft,musicSource:repair(draft.musicSource),sourceVideo:repair(draft.sourceVideo),sourceVideoSize:repairSize(draft.sourceVideoSize),media:repair(draft.media),mediaSize:repairSize(draft.mediaSize),lastFrame:repair(draft.lastFrame),lastOnlySrc:draft.lastOnlySrc===oldSrc?newSrc:draft.lastOnlySrc,refs:draft.refs.map(r=>({...r,item:relocatedMediaItem(r.item,move)}))});
+   const advanced=advancedReferences.current;if(advanced){advanced.sourceVideo=repair(advanced.sourceVideo);advanced.lastFrame=repair(advanced.lastFrame);advanced.lastOnlySrc=advanced.lastOnlySrc===oldSrc?newSrc:advanced.lastOnlySrc;advanced.refs=advanced.refs.map(r=>({...r,item:relocatedMediaItem(r.item,move)}));}
    setSources(values=>Object.fromEntries(Object.entries(values).map(([key,item])=>[key,relocatedMediaItem(item,move)])));
    setRefs(values=>values.map(ref=>({...ref,item:relocatedMediaItem(ref.item,move)})));
    setFramePeople(values=>{if(!values[oldSrc])return values;const next={...values,[newSrc]:values[oldSrc]};delete next[oldSrc];return next;});
@@ -1295,29 +1319,76 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   :item.media==='image'&&item.src&&item.path?{image:'',size:outputSize,src:item.src,item}:null; // any other image (browsed dock file): upload by path, canvas-size target
  // Floating edit buttons over an editable image: a mode makes it the image-to-image source and opens that mode's controls on the left.
  const noEditModel=!allModels.some(m=>!blocked(m,'i2i'));
+ // Role edits share the existing media/reference drafts; only LTX's independent source needs another handle.
+ const roleReferenceCounts=useRef({refs:refs.length,mods:refmods.length});roleReferenceCounts.current={refs:refs.length,mods:refmods.length};
+ const videoRoleState=()=>({first:!!firstFrame,last:!!lastFrame,source:!!videoSource&&!!family?.video?.roles.includes('source'),references:refs.length+refmods.length+(pipeline==='v2v'&&!sourceVideo&&!family?.video?.roles.includes('source')&&!!videoSource?1:0)});
+ const videoModeBlocked=(changes:Partial<ReturnType<typeof videoRoleState>>)=>{
+  const state={...videoRoleState(),...changes};
+  return continuityAvailable&&(plan.source||plan.steps.some(s=>s.clipId))&&((state.references>0)!==(pipeline==='ref2v'||pipeline==='v2v'))?'studio.run.video.roles.continuity':'';
+ };
+ const updateVideoMode=(changes:Partial<ReturnType<typeof videoRoleState>>,edit:()=>void)=>{
+  const reason=videoModeBlocked(changes);if(reason){setError(t(reason));return false;}
+  const state={...videoRoleState(),...changes};
+  edit();const next=videoRolePipeline(state);
+  setPipeline(next==='t2v'&&!family?.pipelines.includes('t2v')?'i2v':next);return true;
+ };
+ const roleBlocked=(role:VideoRole,item:MediaItem|null,count=videoRoleState().references)=>{
+  const state={...videoRoleState(),references:count};
+  if(continuityAvailable&&(plan.source||plan.steps.some(s=>s.clipId))&&((role==='reference')!==(pipeline==='ref2v'||pipeline==='v2v')))return 'studio.run.video.roles.continuity';
+  return videoRoleBlock(family?.video,role,item,state);
+ };
+ const assignVideoRole=(role:VideoRole,item:MediaItem)=>{
+  const reason=role==='reference'?refBlock(item):roleBlocked(role,item);if(reason){setError(t(reason));return;}
+  if(role==='reference'){addRefs([{item}]);return;}
+  if(role==='source'){updateVideoMode({source:true},()=>{setSourceVideo(item);if(media?.media!=='image')select(item);if(historyDraft)setHistorySourceSelected(true);});return;}
+  if(role==='first'||role==='both')updateVideoMode({first:true,last:role==='both'||!!lastFrame&&lastFrame.src!==item.src},()=>{select(item);setLastOnlySrc(null);if(role==='both')setLastFrame(item);else if(lastFrame?.src===item.src)setLastFrame(null);});
+  else updateVideoMode({first:!!firstFrame&&firstFrame.src!==item.src,last:true},()=>{if(!firstFrame||firstFrame.src===item.src){select(item);setLastOnlySrc(item.src);}setLastFrame(item);});
+ };
+ const removeVideoRole=(role:'first'|'last'|'source')=>{
+  updateVideoMode({[role]:false},()=>{if(role==='first'){clearSource();setLastOnlySrc(null);}else if(role==='last'){setLastFrame(null);if(lastOnly){clearSource();setLastOnlySrc(null);}}else{setSourceVideo(null);if(media?.media==='video')clearSource();}});
+ };
+ const videoRoleEditor=()=><fieldset className="wb-group" data-video-roles><legend>{t('studio.run.video.roles.title')}</legend>
+  <p className="field-help">{rolePick?.name??t('studio.run.video.roles.pick')}</p>{rolePick&&<div className="reference-thumb"><ReferenceThumbnail reference={{item:rolePick,second:0,strength:1,mediaMode:'video'}}/></div>}
+  <div className="wb-ref-toolbar">{videoRoles.map(role=>{const reason=role==='reference'&&rolePick?refBlock(rolePick):roleBlocked(role,rolePick);return <button key={role} type="button" className="wb-dock-action" data-video-role={role} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>{if(rolePick)assignVideoRole(role,rolePick);}}>{t(`studio.run.video.roles.${role}`)}</button>;})}</div>
+  {([['first',firstFrame],['last',lastFrame],['source',sourceVideo??(family?.video?.roles.includes('source')?videoSource:null)]] as const).map(([role,item])=>item&&<div className="wb-ref" key={role} data-video-role-card={role}>
+   <div className="reference-thumb"><ReferenceThumbnail reference={{item,second:0,strength:1,mediaMode:'video'}}/></div>
+   <strong>{t(`studio.run.video.roles.${role}`)} · {item.name}</strong>
+   <button type="button" className="wb-dock-action" data-video-role-remove={role} aria-label={t('studio.run.video.roles.remove',{role:t(`studio.run.video.roles.${role}`)})} onClick={()=>removeVideoRole(role)}>✕</button>
+  </div>)}
+  {pipeline==='v2v'&&!sourceVideo&&!family?.video?.roles.includes('source')&&videoSource&&<div className="wb-ref"><strong>{t('studio.run.video.roles.reference')} · {videoSource.name}</strong><button type="button" className="wb-dock-action" aria-label={t('studio.run.video.roles.remove',{role:t('studio.run.video.roles.reference')})} onClick={()=>{updateVideoMode({references:refs.length+refmods.length},()=>{clearSource();setSourceVideo(null);});}}>✕</button></div>}
+ </fieldset>;
  // References: LTX keyframes are images; H3 REF2VA also takes videos and audio within the Director limits. Returns why an item cannot be added.
  const isRef=(item:MediaItem)=>refs.some(r=>r.item.src===item.src);
- const refBlock=(item:MediaItem,list=refs)=>videoFamily==='minimax-h3-hyperflow'&&item.media!=='image'?'studio.run.video.refImagesOnlyHyperflow':!isH3Video(videoFamily)?(item.media==='image'?'':'studio.run.video.refImagesOnly'):h3Full(list,item)?'studio.run.video.refFull':'';
+ const refBlock=(item:MediaItem,list=refs,mods=refmods)=>roleBlocked('reference',item,list.length+mods.length)||(!family?.video?.referenceMedia.includes(item.media as 'image'|'video'|'audio')?(isH3Video(videoFamily)?'studio.run.video.refImagesOnlyHyperflow':'studio.run.video.refImagesOnly'):isH3Video(videoFamily)&&h3Full(list,item)?'studio.run.video.refFull':'');
  // Adds in order; already referenced or path-less (browser) items are skipped, refused ones are named with the reason.
- const addRefs=(adds:RefAdd[],replace=false)=>{
-  let next=replace?[]:refs;const refused:string[]=[];
+ const addRefs=(adds:RefAdd[],replace=false,packMods?:RefMod[])=>{
+  const mods=packMods??refmods;
+  if(packMods&&mods.length&&(!isH3Video(videoFamily)||!family?.video?.mixReferences&&(firstFrame||lastFrame))){setError(t(isH3Video(videoFamily)?'studio.run.video.roles.mixing':'studio.run.video.roles.unsupported'));return false;}
+  const legacy=pipeline==='v2v'&&!sourceVideo&&!family?.video?.roles.includes('source')&&videoSource;
+  let next=replace?[]:legacy?[{item:legacy,second:0,strength:1,mediaMode:sourceAudio?'video_audio' as const:'video' as const},...refs]:refs;const refused:string[]=[];
   for(const {item,...rest} of adds){if(!item.path||next.some(r=>r.item.src===item.src))continue;
    const ref:VideoRef={item,second:next.length?video.seconds:0,strength:1,mediaMode:'video',...rest};
    // Limits count the reference as it will be used (a pack may bring a sound-only video).
-   const why=!isH3Video(videoFamily)||videoFamily==='minimax-h3-hyperflow'&&item.media!=='image'?refBlock(item,next):over(refCounts([...next,ref]))?'studio.run.video.refFull':'';
+   const why=refBlock(item,next,mods)||(isH3Video(videoFamily)&&over(refCounts([...next,ref]))?'studio.run.video.refFull':'');
    if(why)refused.push(`${item.name}: ${t(why)}`);else next=[...next,ref];}
-  setRefs(next);setError(refused.join(' · '));
+  if((replace||packMods)&&refused.length){setError(refused.join(' · '));return false;}
+  if(packMods){const why=(next.length&&!family?.video?.roles.includes('reference')||next.some(r=>!family?.video?.referenceMedia.includes(r.item.media as 'image'|'video'|'audio')))?'studio.run.video.roles.unsupported':isH3Video(videoFamily)?refsProblem(next):'';if(why){setError(t(why));return false;}}
+  if(next.length!==refs.length||replace||packMods){const changed=updateVideoMode({references:next.length+(packMods?mods.length:roleReferenceCounts.current.mods)},()=>{roleReferenceCounts.current.refs=next.length;setRefs(next);if(packMods){roleReferenceCounts.current.mods=mods.length;setRefmods(mods);}if(legacy){setSourceVideo(null);clearSource();}});if(!changed)return false;}setError(refused.join(' · '));return true;
  };
- const toggleRef=(item:MediaItem)=>isRef(item)?setRefs(refs.filter(r=>r.item.src!==item.src)):addRefs([{item}]);
+ const changeRefs=(next:VideoRef[])=>{updateVideoMode({references:next.length+roleReferenceCounts.current.mods},()=>{roleReferenceCounts.current.refs=next.length;setRefs(next);});};
+ const toggleRef=(item:MediaItem)=>isRef(item)?changeRefs(refs.filter(r=>r.item.src!==item.src)):addRefs([{item}]);
  // H3 badges are the Director's own prompt labels, so what the dock shows is what the prompt may reference.
  const refTags=directorTags(refs);
  const refLabel=(r:VideoRef,i:number)=>videoFamily==='ltx-2'?t('studio.run.video.mark.at',{second:String(r.second)}):refTags[i];
- const refsTab=pipeline==='ref2v'&&(videoFamily==='ltx-2'||isH3Video(videoFamily));
+ const refsTab=isVideo&&!!family?.video;
  useEffect(()=>{if(!refsTab||planVisible)setReferencesOpen(false);},[refsTab,planVisible]);
  // First/last-frame badges; one image in both roles gets both labels.
  const frameMarks=new Map<string,string>();
  for(const [item,key] of [[firstFrame,'forge.role.first-frame'],[lastFrame,'forge.role.last-frame']] as const)if(item?.path)frameMarks.set(item.path,frameMarks.has(item.path)?`${frameMarks.get(item.path)} + ${t(key)}`:t(key));
- const marks=new Map(pipeline==='ref2v'?refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]):pipeline==='v2v'&&media?.media==='video'&&media.path?[[media.path,t('studio.run.video.source')] as const]:pipeline==='cover'?(musicSource?.path?[[musicSource.path,t('studio.music.source')] as const]:[]):frameVideo?[...frameMarks]:imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
+ const marks=new Map(isVideo?[
+  ...frameMarks,...refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]),
+  ...(videoSource?.path?[[videoSource.path,t(family?.video?.roles.includes('source')?'studio.run.video.source':'studio.run.video.roles.reference')] as const]:[])
+ ]:pipeline==='cover'?(musicSource?.path?[[musicSource.path,t('studio.music.source')] as const]:[]):imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
  // H3 edits: <Picture 1> is the source, so the first picture added without a source becomes it.
  const addPromptRef=(item:MediaItem)=>{if(h3Refs&&(!media||media.path===item.path)){if(!media)select(item);return;}
   setImageRefs(v=>v.length>=refMax?v:[...v,{item:{...item},strength:0.6}]);
@@ -1326,20 +1397,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  /** Clearing <Picture 1> promotes the first reference to the source, so Picture 1 stays filled. */
  const useAsSource=(item:MediaItem)=>{const at=imageRefs.findIndex(r=>r.item.src===item.src);if(at>=0)setImageRefs(v=>h3Refs&&media?v.map((r,j)=>j===at?{...r,item:{...media}}:r):v.filter((_,j)=>j!==at));select(item);};
  const clearH3Source=()=>{const[first,...rest]=imageRefs;if(!first){clearSource();return;}setImageRefs(rest);select(first.item);};
- const inputActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),many:true,onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
+ const changeMusicSource=(item:MediaItem|null)=>{setMusicSource(item);if(item)setPipeline('cover');else if(model&&!blocked(model,'t2m'))setPipeline('t2m');if(historyDraft)setHistorySourceSelected(!!item);};
+ const inputActions=(item:MediaItem):MediaAction[]=>!item.path?[]:isVideo?[...(lastFrame?.src===item.src?[{label:t('studio.run.video.removeLast'),input:true,onClick:()=>removeVideoRole('last')}]:[]),...(isRef(item)?[{label:t('studio.run.video.removeRef',{name:item.name}),input:true,onClick:()=>toggleRef(item)}]:[]),...videoRoles.filter(role=>role==='reference'||(role==='source'?item.media==='video':item.media==='image')).map(role=>({label:t(`studio.run.video.${({first:'useFirst',last:'useLast',both:'useBoth',reference:'addRef',source:'useSource'} as const)[role]}`),input:true,onClick:()=>assignVideoRole(role,item),blocked:(role==='reference'?refBlock(item):roleBlocked(role,item))?t(role==='reference'?refBlock(item):roleBlocked(role,item)):undefined}))]
   // Cover sources are audio files or videos with an audio track (core LoadAudio reads the first stream); images cannot be covered.
-  :pipeline==='cover'&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),input:true,onClick:()=>{setMusicSource(null);if(historyDraft)setHistorySourceSelected(false);}}:{label:t('studio.music.useSource'),input:true,onClick:()=>{setMusicSource(item);if(historyDraft)setHistorySourceSelected(true);}}]
+  :isMusic&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),input:true,onClick:()=>changeMusicSource(null)}:{label:t('studio.music.useSource'),input:true,onClick:()=>changeMusicSource(item),blocked:model&&blocked(model,'cover')?t(blocked(model,'cover')):undefined}]
   :isImagePipe(pipeline)&&item.media==='image'?[
-   ...(beginner||media?.src===item.src?[]:[{label:t('studio.run.reference.useSource'),input:true,onClick:()=>useAsSource(item)}]),
+   ...(media?.src===item.src?[]:[{label:t('studio.run.reference.useSource'),input:true,onClick:()=>useAsSource(item)}]),
    ...(referenceMethod&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),many:true,onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=refMax&&t('studio.run.reference.max',{count:imageRefs.length,max:refMax}))||undefined}]:[])]
-  // Frame roles like the Director: first (i2v input), last, or the same image as both; t2v takes a last frame only.
-  // H3 can run on a last frame alone (L2VA), so there "last frame" moves the role off the input instead of adding it.
-  :frameVideo&&item.media==='image'?[
-   ...(pipeline==='i2v'?[{label:t('studio.run.video.useFirst'),input:true,onClick:()=>{select(item);setLastOnlySrc(null);if(lastFrame?.src===item.src)setLastFrame(null);}}]:[]),
-   lastFrame?.src===item.src?{label:t('studio.run.video.removeLast'),onClick:()=>{setLastFrame(null);setLastOnlySrc(null);}}
-    :{label:t('studio.run.video.useLast'),onClick:()=>{if(pipeline==='i2v'&&isH3Video(videoFamily)&&(lastOnly||!firstFrame||media?.src===item.src)){select(item);setLastOnlySrc(item.src);}setLastFrame(item);}},
-   ...(pipeline==='i2v'?[{label:t('studio.run.video.useBoth'),onClick:()=>{select(item);setLastOnlySrc(null);setLastFrame(item);}}]:[])]
-  :pipeline==='v2v'&&item.media==='video'?[{label:t('studio.run.video.useSource'),input:true,onClick:()=>select(item)}]:[];
+  :[];
  const mediaActions=(item:MediaItem):MediaAction[]=>[...inputActions(item),...(item.media==='image'?[{label:t('studio.sam.refine'),onClick:()=>void refineObjects(item),blocked:(!native||serialBlocked||admissionBlocked||isVideo||isMusic||!model||(!item.path&&item.src!==media?.src))?t('studio.sam.refineHelp'):samTargets(samText).length?samUnavailable||undefined:item.src===media?.src&&masked?undefined:t('studio.sam.needsTargets')}]:[]),...(item.path&&item.media!=='audio'?[{label:t('studio.run.metadata.apply'),onClick:()=>void applyFileSettings(item,'all'),blocked:samVideoOutput(item)?t('studio.samVideo.hint'):(!native||scanning||working||autoPlan||resolving||!!planRun.current)?t('studio.run.metadata.native'):undefined}]:[]),...(item.path?[{label:t('studio.run.exportClean.label'),more:true,hint:t('studio.run.exportClean.hint'),onClick:()=>void exportClean(item.path!),blocked:native?undefined:t('studio.run.exportClean.native')}]:[]),...(onAnalyze&&item.path&&(item.media==='image'||item.media==='video')?[{label:t('analysis.open'),more:true,onClick:()=>onAnalyze(item)}]:[])];
  // Metadata-free copy through the native save dialog; cancel (null) stays silent, the source file is never touched.
  const exportClean=async(path:string)=>{setMoreResult(null);try{const saved=await exportWithoutMetadata(path,t('studio.run.exportClean.title'));if(saved)setMoreResult(t('studio.run.exportClean.done',{path:saved.path}));}catch(e){setMoreResult(t('studio.run.exportClean.failed',{error:e instanceof Error?e.message:String(e)}));}};
@@ -1365,7 +1430,7 @@ const promptTools=forgeContext&&<>
  {forgeContext.mode==='REF2VA'&&<button type="button" data-prefill onClick={prefill}>{t('studio.run.prompt.prefill')}</button>}</>;
  const tools=(item:MediaItem,showStar=true)=>{const actions=mediaActions(item);const moreActions=actions.filter(a=>a.more).map(a=><button key={a.label} type="button" data-media-action data-media-export-clean={a.label===t('studio.run.exportClean.label')||undefined} disabled={!!a.blocked} title={a.blocked||a.hint} onClick={()=>selectMoreAction(true,a.onClick)}>{a.label}</button>);return <div className="wb-edit-tools wb-media-tools" data-media-tools role="toolbar" aria-label={t('studio.run.edit.title')}>
   {/* Keep per-file actions shared with the context menu; secondary actions live in More. */}
-  {!actions.some(a=>a.input)&&<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
+  {!isVideo&&!actions.some(a=>a.input)&&<button type="button" data-use-input onClick={()=>select(item)}>{t('studio.run.useInput')}</button>}
   {actions.filter(a=>!a.more).map(a=><button key={a.label} type="button" data-media-action data-media-settings={a.label===t('studio.run.metadata.apply')||undefined} data-media-export-clean={a.label===t('studio.run.exportClean.label')||undefined} data-use-input={a.input||undefined} disabled={!!a.blocked} title={a.blocked||a.hint} onClick={a.onClick}>{a.label}</button>)}
   {item.media==='image'&&editModes.map(m=><button key={m} type="button" data-edit={m} aria-pressed={pipeline==='i2i'&&edit===m&&media?.src===item.src} disabled={noEditModel} title={noEditModel?t('studio.run.noModels'):undefined} onClick={()=>{if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);setEdit(m);}}>{t(`studio.run.edit.${m}`)}</button>)}
  {/* More: Refine = the refine+upscale pass alone, Upscale = the upscale pass alone (no diffusion) — both use the Post-Processing settings on the shown image. Metadata actions mirror the dock's "use these settings" and add a prompt-only refill. */}
@@ -1395,7 +1460,7 @@ const promptTools=forgeContext&&<>
  const captureDraft=()=>{
   const settings=captureStudioSettings();
   for(const key of ['studio.run.checkpoint','studio.run.pipeline','studio.run.brush'])delete settings[key];
-  return {settings,media,mediaSize,layers:layers.map(copyImageLayer),editor:editorRef.current?.capture()??editorSnapshot,masked,lastFrame,lastOnlySrc,imageRefs,refs,refmods,framePeople,musicSource,historyDraft,historySelectionContext,historySourceSelected};
+  return {settings,pipeline,sourceVideo,sourceVideoSize,media,mediaSize,layers:layers.map(copyImageLayer),editor:editorRef.current?.capture()??editorSnapshot,masked,lastFrame,lastOnlySrc,imageRefs,refs,refmods,framePeople,musicSource,historyDraft,historySelectionContext,historySourceSelected};
  };
  const drafts=useRef(new Map<string,ReturnType<typeof captureDraft>>());
  const pipelineModels=useRef(new Map<string,string>());
@@ -1430,63 +1495,69 @@ const promptTools=forgeContext&&<>
   const saved=drafts.current.get(draftKey(p,m));
   // Only the checkpoint changed: its remembered settings return, the prompts on screen stay.
   // First visit to another checkpoint of the SAME family keeps the current settings instead of family defaults, so models can be compared side by side; family defaults still apply when the family (or pipeline) changes.
+  if(!saved&&isMusicPipeline(p)){setMusicSource(null);if(!blocked(m,'t2m'))setPipeline('t2m');}
+  if(!saved&&videoPipelines.includes(p)&&!isVideo&&!keepSource){sourceEpoch.current++;setMedia(null);setMediaSize(null);setLastFrame(null);setLastOnlySrc(null);setSourceVideo(null);setRefs([]);setRefmods([]);setLayers([]);setMasked(false);}
   if(saved)applyDraft(keepPrompts?{...saved,settings:{...saved.settings,'studio.run.positive':positive,'studio.run.negative':negative,[musicPromptPreferenceKeys[0]]:musicStyle,[musicPromptPreferenceKeys[1]]:musicLyrics}}:saved,keepSource);else if(defaults&&!(p===pipeline&&model&&identity(m)!==identity(model)&&familyOf(m)&&familyOf(m)===familyOf(model)))startingSettings(m);
  };
  const applyDraft=(saved:ReturnType<typeof captureDraft>,keepSource=false)=>{
   if(!applyStudioSettings(saved.settings))return;
   if(!keepSource){sourceEpoch.current++;setMedia(saved.media);setMediaSize(saved.mediaSize);setLayers(saved.layers.map(copyImageLayer));setEditorSnapshot(saved.editor);setMasked(saved.masked);}
-  setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setFramePeople(saved.framePeople);setMusicSource(saved.musicSource);
+  if(videoPipelines.includes(saved.pipeline)||isMusicPipeline(saved.pipeline))setPipeline(saved.pipeline);setSourceVideo(saved.sourceVideo);setSourceVideoSize(saved.sourceVideoSize);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setFramePeople(saved.framePeople);setMusicSource(saved.musicSource);
   setHistoryDraft(saved.historyDraft);setHistorySelectionContext(saved.historySelectionContext);setHistorySourceSelected(saved.historySourceSelected);
   setBrowsed(null);setSelectedJob('');
  };
  const pickModel=(m:LocalModel)=>switchDraft(pipeline,m,true,false,true);
- const beginnerPipelines=pipelines.filter(p=>['t2i','i2i','t2v','i2v'].includes(p));
- const beginnerTarget=(m:LocalModel)=>familyOf(m)?.defaults?beginnerPipelines.find(p=>!blocked(m,p)):undefined;
+ const beginnerTarget=(m:LocalModel)=>familyOf(m)?.defaults||m.family==='yue2'||aceMusicProfile(m.family)?pipelines.find(p=>!blocked(m,p)):undefined;
  const beginnerUse=(m:LocalModel)=>{const target=beginnerTarget(m);if(!target)return;
-  const prompt=positive;switchDraft(!blocked(m,pipeline)&&beginnerPipelines.includes(pipeline)?pipeline:target,m,true,false,true);
-  setPositive(prompt);onBeginnerPage?.('generate');
+  const next=!blocked(m,pipeline)?pipeline:target;
+  switchDraft(next,m,true,false,outputKind(next)===outputKind(pipeline));onBeginnerPage?.('generate');
  };
  const beginnerModelsOpened=useRef(false);if(beginner&&beginnerPage==='models')beginnerModelsOpened.current=true;
  const beginnerCollectionOpened=useRef(false);if(beginner&&beginnerPage==='collection')beginnerCollectionOpened.current=true;
  // Keep technical settings in a separate in-session draft. Prompts and the chosen model
  // are shared; entering beginner never runs, downloads or replaces a running job.
  const beginnerModelKey=useRef(''),beginnerSamplingEdited=useRef(false);
+ const beginnerMusicEdited=useRef(new Set<string>());
+ const musicSettingPreferenceKeys=['studio.run.music.planning','studio.run.music.maxDuration','studio.run.music.audioEncoder','studio.run.music.abc','studio.run.music.generation','studio.run.music.ace','studio.run.music.ace.duration','studio.run.music.aceProfile'];
+ const editMusic=<T,>(index:number,set:(value:T)=>void)=>(value:T)=>{if(beginner)beginnerMusicEdited.current.add(musicSettingPreferenceKeys[index]);set(value);};
  const previousBeginner=useRef(false),advancedSettings=useRef<Record<string,unknown>|null>(null);
- const advancedReferences=useRef<{imageRefs:typeof imageRefs;refs:typeof refs;refmods:typeof refmods;lastFrame:typeof lastFrame;lastOnlySrc:typeof lastOnlySrc;framePeople:typeof framePeople;plan:typeof plan}|null>(null);
+ const advancedReferences=useRef<{imageRefs:typeof imageRefs;refs:typeof refs;refmods:typeof refmods;lastFrame:typeof lastFrame;lastOnlySrc:typeof lastOnlySrc;sourceVideo:typeof sourceVideo;framePeople:typeof framePeople;plan:typeof plan}|null>(null);
  useEffect(()=>{
   if(beginner===previousBeginner.current)return;previousBeginner.current=beginner;
   if(beginner){
    const saved=captureStudioSettings();
-   const modeSharedPreferenceKeys=['studio.run.positive','studio.run.checkpoint','studio.run.pipeline','studio.run.aspect','studio.run.resolution'];// canvas size is authored intent, like prompt and model
+   const modeSharedPreferenceKeys=['studio.run.positive','studio.run.checkpoint','studio.run.pipeline','studio.run.aspect','studio.run.resolution',...musicPromptPreferenceKeys];// canvas size is authored intent, like prompt and model
    for(const key of modeSharedPreferenceKeys)delete saved[key];
-   advancedSettings.current=saved;beginnerSamplingEdited.current=false;
-   advancedReferences.current={imageRefs,refs,refmods,lastFrame,lastOnlySrc,framePeople,plan};
-   setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLastOnlySrc(null);setPlan(p=>({...p,enabled:false}));
+   advancedSettings.current=saved;beginnerSamplingEdited.current=false;beginnerMusicEdited.current.clear();
+   advancedReferences.current={imageRefs,refs,refmods,lastFrame,lastOnlySrc,sourceVideo,framePeople,plan};
+   setSourceVideo(null);setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLastOnlySrc(null);setPlan(p=>({...p,enabled:false}));
    setLoras(model&&beginnerLoraDraft.current?.model===identity(model)?beginnerLoraDraft.current.loras:[]);setNegative('');setPost(false);setTve(defaultTve);setDerope(defaultDerope);setH3Latent(defaultLatent);setLtxLatent(defaultLatent);setWildcardEnabled(false);setOptions(defaultOptions);setSeedMode('random');setEdit('resample');setTextEncoder('');setVae('');setComponentOverrides(defaultComponentOverrides);
-   if(!beginnerPipelines.includes(pipeline))pickPipeline('t2i');
    // Entering Beginner keeps the user's Steps/CFG; only a model change resets them to family starting values.
-   if(model){startingSettings(model);setSteps(steps);setCfg(cfg);}beginnerModelKey.current=model?identity(model):'';
+   if(model&&!isMusic){startingSettings(model);setSteps(steps);setCfg(cfg);}beginnerModelKey.current=model?identity(model):'';
   }else if(advancedSettings.current){
    // Steps/CFG the user typed in Beginner carry over; automatic family values never overwrite Advanced ones.
    if(beginnerSamplingEdited.current)Object.assign(advancedSettings.current,{'studio.run.steps':steps,'studio.run.cfg':cfg});
-   applyStudioSettings(advancedSettings.current);advancedSettings.current=null;const saved=advancedReferences.current;if(saved){setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setFramePeople(saved.framePeople);setPlan(saved.plan);advancedReferences.current=null;}}
+   const authored=captureStudioSettings();
+   if(beginnerMusicEdited.current.size&&aceProfile)beginnerMusicEdited.current.add(musicSettingPreferenceKeys[7]);
+   for(const key of beginnerMusicEdited.current)advancedSettings.current[key]=authored[key];
+   applyStudioSettings(advancedSettings.current);advancedSettings.current=null;const saved=advancedReferences.current;if(saved){setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setFramePeople(saved.framePeople);setSourceVideo(saved.sourceVideo);setPlan(saved.plan);advancedReferences.current=null;}}
  },[beginner]);
- useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{})});},[beginner,model?.path,model?.name,model?.family]);
+ useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{})});},[beginner,model?.path,model?.name,model?.family]);
  // Only authored intent is shared across restarts. Automatic beginner settings must
  // never overwrite the user's persisted advanced technical defaults.
- useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);writePref('studio.run.resolution',resolutionPref);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref]);
+ useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);writePref('studio.run.resolution',resolutionPref);writePref(musicPromptPreferenceKeys[0],musicStyle);writePref(musicPromptPreferenceKeys[1],musicLyrics);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref,musicStyle,musicLyrics]);
  const pickPipeline=(wanted:Pipeline,keepSource=false)=>{
-  if(isImagePipe(wanted)&&isImagePipe(pipeline))return; // already the Image pipeline; the picture to edit picks the mode
-  const no=(m:LocalModel)=>isImagePipe(wanted)?blocked(m,'t2i')&&blocked(m,'i2i'):!!blocked(m,wanted);
+  if(isImagePipe(wanted)&&isImagePipe(pipeline)||videoPipelines.includes(wanted)&&isVideo||isMusicPipeline(wanted)&&isMusic)return; // already the Image pipeline; the picture to edit picks the mode
+  const no=(m:LocalModel)=>modeBlocked(m,wanted);
   const previous=pipelineModels.current.get(JSON.stringify([scope,draftPipe(wanted)]));
   const next=allModels.find(m=>identity(m)===previous&&!no(m))??(model&&!no(model)?model:allModels.find(m=>!no(m)));
   // Image: the model's capability (H3 edits only) and the picture to edit pick t2i/i2i.
-  const p:Pipeline=isImagePipe(wanted)&&next?(blocked(next,'t2i')?'i2i':wanted):wanted;
+  const p:Pipeline=isImagePipe(wanted)&&next?(blocked(next,'t2i')?'i2i':wanted):videoPipelines.includes(wanted)&&next&&!familyOf(next)?.pipelines.includes(wanted)?'i2v':wanted;
   // Same output kind (image/video/music): the prompts on screen carry over; another kind restores its own draft.
   if(next)switchDraft(p,next,!model||identity(next)!==identity(model),keepSource,outputKind(p)===outputKind(pipeline));else setPipeline(p);
  };
  // The picture to edit decides the Image mode; models without text-to-image (H3) stay on edit.
- useEffect(()=>{if(beginner||!isImagePipe(pipeline)||!model)return;const want=media?.media==='image'||blocked(model,'t2i')?'i2i':'t2i';if(want!==pipeline)setPipeline(want);},[beginner,pipeline,media,model]);
+ useEffect(()=>{if(!isImagePipe(pipeline)||!model)return;const want=media?.media==='image'||blocked(model,'t2i')?'i2i':'t2i';if(want!==pipeline)setPipeline(want);},[beginner,pipeline,media,model]);
  useEffect(()=>{
   const layout=()=>{dragCleanup.current();setSettingsWidth(defaultLayout.settings);setQueueWidth(defaultLayout.queue);setDockHeight(defaultLayout.dock);setSettingsHidden(false);setDockHidden(false);setPromptHeight(110);setPromptHidden(false);};
   const defaults=()=>setAsk({message:t(project?'studio.quick.confirmProject':'studio.quick.confirm'),run:()=>{if(beginner){beginnerLoraDraft.current=null;writePref('beginner.loras',null);}drafts.current.clear();pipelineModels.current.clear();draftEpoch.current++;resetStudioPreferences();setResolution('model');const first=allModels.find(m=>!blocked(m,'t2i'));if(first){setCheckpoint(first.name);setModelIdentity(identity(first));startingSettings(first);}}});
@@ -1526,7 +1597,7 @@ const promptTools=forgeContext&&<>
     if(restoredFamily?.id!==family?.id){
      setTextEncoder('');setTextEncoder2('');setVae('');setVideo(defaultVideo);setOptions({...structuredClone(defaultOptions),outputNaming:optionsPref.outputNaming});
      setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setTve(defaultTve);setDerope(defaultDerope);setH3Latent({...h3Latent,enabled:false});setLtxLatent({...ltxLatent,enabled:false});
-     setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLoras([]);setWildcardEnabled(false);
+     setSourceVideo(null);setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLoras([]);setWildcardEnabled(false);
     }
     if(!restoredFamily?.pipelines.includes(pipeline)&&restoredFamily)setPipeline(restoredFamily.video?'t2v':'t2i');
     else if(!restoredFamily&&pipeline!=='t2i'&&pipeline!=='i2i')setPipeline('t2i');
@@ -1593,7 +1664,7 @@ const promptTools=forgeContext&&<>
   // autosave and unsaved-close protection. Native jobs and the queue are untouched.
   setHistoryDraft(value);setHistorySelectionContext(historyInputContext);setHistorySourceSelected(false);
   sourceEpoch.current++;setMedia(null);setMediaSize(null);setLayers([]);setMasked(false);setMusicSource(null);
-  setLastFrame(null);setLastOnlySrc(null);setBrowsed(null);setSelectedJob('');setRefs(value.videoRefs.map(v=>({item:{name:v.name,media:v.type,src:v.name},second:0,strength:v.strength,mediaMode:v.mediaMode??'video',...(v.trimStart!==undefined?{trimStart:v.trimStart}:{}),...(v.trimEnd!==undefined?{trimEnd:v.trimEnd}:{})})));setRefmods([]);setFramePeople({});setImageRefs([]);
+  setSourceVideo(null);setLastFrame(null);setLastOnlySrc(null);setBrowsed(null);setSelectedJob('');setRefs(value.videoRefs.map(v=>({item:{name:v.name,media:v.type,src:v.name},second:0,strength:v.strength,mediaMode:v.mediaMode??'video',...(v.trimStart!==undefined?{trimStart:v.trimStart}:{}),...(v.trimEnd!==undefined?{trimEnd:v.trimEnd}:{})})));setRefmods([]);setFramePeople({});setImageRefs([]);
   if(isMusicIntent(intent)){
    audioEnhance.restore(intent.audioEnhance);
    // Music restores only music state; image/video controls keep their current values.
@@ -1641,7 +1712,7 @@ const promptTools=forgeContext&&<>
  const naming=outputPrefix(outputNamingTemplate(optionsPref.outputNaming),{type:isMusic?'audio':isVideo?'video':'image',seed,model:checkpoint});
  // The plan shows the cover source by its dock name only; the upload handle exists after Run.
  const samControls=()=><Sam3Controls value={samValue} onChange={setSamValue} models={samModels} margin={maskGrow} onMargin={setMaskGrow} unavailable={samUnavailable} refineUnavailable={samTargets(samText).length?samUnavailable:undefined} status={samStatus} busy={serialBlocked||admissionBlocked} onRefine={()=>void refineObjects()} canRefine={!!media&&(masked||!!samTargets(samText).length)}/>;
- const preview=planVisible&&naming!==null?(isMusic?buildMusicIntent(naming,seed,musicSource?.name??''):isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
+ const preview=planVisible&&naming!==null?(isMusic?(aceProfile&&(pipeline!=='t2m'||musicSource)?null:buildMusicIntent(naming,seed,musicSource?.name??'')):isVideo?(videoFamily&&model&&split?buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,(item,force=false)=>(!force&&comfyName(item))||item.path||item.name):null):buildImageIntent(naming,optionsPref.output??defaultVideoOutput)):null;
  const previewDrop=useRef(async(_paths:string[])=>{});
  // The beginner starting-image row accepts image drops like picking one in the media panel.
  const beginnerImageDrop=useRef(async(_paths:string[])=>{});
@@ -1707,6 +1778,7 @@ const promptTools=forgeContext&&<>
  ])];
  // One Steps/CFG control set for Advanced and Beginner: same state, limits and fixed-schedule rule.
  const editSteps=(n:number)=>{if(beginner)beginnerSamplingEdited.current=true;setSteps(n);},editCfg=(n:number)=>{if(beginner)beginnerSamplingEdited.current=true;setCfg(n);};
+ const samplerField=family?.fixedSampler?<label className="wb-field"><span>{t('studio.recipe.sampler')}</span><select value={family.fixedSampler} disabled title={family.defaultsNote}><option value={family.fixedSampler}>{family.fixedSampler}</option></select></label>:pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices);
  const samplingFields=<>{family?.stepChoices?<label className="wb-field"><span>{t('studio.run.steps')}</span><select data-num="steps" value={steps} onChange={e=>editSteps(Number(e.target.value))}>{family.stepChoices.map(n=><option key={n} value={n}>{n}</option>)}</select></label>:num('steps',sigmas?sigmas.length-1:steps,editSteps,1,150,1,sigmas&&t('studio.run.customSchedule.hint'),true)}{num('cfg',cfg,editCfg,0,30,0.5,undefined,true)}</>;
  const playingPreview=temporalPreview&&!viewer&&!continuityOpen&&!referencesOpen&&!visionDownload&&!latentDownload&&!stopChoice?temporalPreview:undefined;
  // Only more queued work (jobs, preparations, a Run all sequence) needs the choice; a single run just stops.
@@ -1714,7 +1786,7 @@ const promptTools=forgeContext&&<>
  const stopCurrent=jobs.find(j=>j.id===stopChoice?.jobId);
  const stopCurrentReason=!stopCurrent?'studio.run.stop.noCurrent':!stopAvailable?'studio.run.stop.unsupported':stopCurrent.state==='unknown'?'studio.run.stop.unknown':!stoppable(stopCurrent)?'studio.run.stop.inactive':'';
  const runControls=(<div className="wb-run-actions">
-     <button ref={runButton} type="button" className="aio-confirm-button wb-run" data-run disabled={(beginner&&!family?.defaults)||!native||scanning||admissionBlocked||samBusy||nativeRefining||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||backendPending||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={beginner&&!family?.defaults?t('beginner.unknownFamily'):!native?t('studio.backendHelp'):backendPending?t('studio.run.backendPending'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t(why(pipeline)||'studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||nativeRefining||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" ref={stopTrigger} className="wb-run-stop" data-run-stop aria-haspopup={stopQueue>1?'menu':undefined} aria-expanded={stopQueue>1||stopChoice?!!stopChoice:undefined} disabled={stopping} aria-label={t('studio.run.stop.label')} title={t(stopQueue>1?'studio.run.stop.hint':'studio.run.stop.current')} onClick={()=>{if(stopQueue<=1){void stop();return;}setStopChoice(stopChoice?null:{jobId:(jobs.find(j=>j.state==='running')??current)?.id??''});}}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}{stopChoice&&<div ref={stopMenu} role="menu" data-run-stop-choice className="media-menu wb-stop-menu" aria-label={t('studio.run.stop.choose')}>
+     <button ref={runButton} type="button" className="aio-confirm-button wb-run" data-run disabled={(beginner&&!family?.defaults&&!(model&&beginnerTarget(model)))||!native||scanning||admissionBlocked||samBusy||nativeRefining||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||backendPending||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={beginner&&!family?.defaults&&!(model&&beginnerTarget(model))?t('beginner.unknownFamily'):!native?t('studio.backendHelp'):backendPending?t('studio.run.backendPending'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t(why(pipeline)||'studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||nativeRefining||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" ref={stopTrigger} className="wb-run-stop" data-run-stop aria-haspopup={stopQueue>1?'menu':undefined} aria-expanded={stopQueue>1||stopChoice?!!stopChoice:undefined} disabled={stopping} aria-label={t('studio.run.stop.label')} title={t(stopQueue>1?'studio.run.stop.hint':'studio.run.stop.current')} onClick={()=>{if(stopQueue<=1){void stop();return;}setStopChoice(stopChoice?null:{jobId:(jobs.find(j=>j.state==='running')??current)?.id??''});}}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}{stopChoice&&<div ref={stopMenu} role="menu" data-run-stop-choice className="media-menu wb-stop-menu" aria-label={t('studio.run.stop.choose')}>
     <button type="button" role="menuitem" data-run-stop-current disabled={!!stopCurrentReason||stopping} title={stopCurrentReason?t(stopCurrentReason):undefined} aria-describedby={stopCurrentReason?'studio-stop-current-reason':undefined} onClick={()=>{if(stopCurrent&&!stopCurrentReason){setStopChoice(null);void stopJob(stopCurrent);}}}>{t('studio.run.stop.current')}</button>{stopCurrentReason&&<small id="studio-stop-current-reason">{t(stopCurrentReason)}</small>}
     <button type="button" role="menuitem" data-run-stop-all disabled={stopping} onClick={()=>{setStopChoice(null);void stop();}}>{t('studio.run.stop.all')}</button>
    </div>}<span id="project-actions-slot" hidden={beginner}/></div>);
@@ -1777,6 +1849,10 @@ const promptTools=forgeContext&&<>
  const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?activeLoras.length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
  /** Image prompt references: count/limit chip and numbered thumbnails; shown under the prompt and in the References overlay. */
  const insertTag=(tag:string)=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag);
+ const pipelineOptions=(['image','video','music'] as const).map(id=>{const reason=id==='image'?(why('t2i')&&why('i2i')):id==='video'?(videoPipelines.every(p=>why(p as Pipeline))?'studio.run.pipe.noRecipe':''):(why('t2m')&&why('cover'));return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;});
+ const musicSourceFields=<>{isMusic&&<p className="wb-active" data-music-mode>{t(`studio.run.pipe.${pipeline}`)}</p>}
+    {isMusic&&<p className="wb-active" data-music-source><span>{t('studio.music.source')}</span><strong title={musicSource?.path}>{musicSource?.name??''}</strong>{(musicSource||pipeline==='cover')&&<button type="button" className="wb-dock-action" data-music-source-remove aria-label={t('studio.music.removeSource')} title={t('studio.music.removeSource')} onClick={()=>changeMusicSource(null)}>✕</button>}</p>}</>;
+ const musicSettings=aceProfile?<AceMusicSettings family={family!.id} version={aceProfile.version} value={musicAce} onChange={editMusic(5,setMusicAce)} duration={aceDuration} onDuration={editMusic(6,setAceDuration)} beginner={beginner}/>:isMusic?<MusicSettings pipeline={pipeline as 't2m'|'cover'} planning={musicPlanning} onPlanning={editMusic(0,p=>{setMusicPlanning(p);if(p==='off'&&musicGeneration.cfgScale===1)editMusic(4,setMusicGeneration)({...musicGeneration,cfgScale:1.01});})} maxDuration={pipeline==='cover'?musicDuration.cover:musicDuration.t2m} onMaxDuration={editMusic(1,n=>setMusicDuration({...musicDuration,[pipeline==='cover'?'cover':'t2m']:n}))} encoder={musicEncoder} encoders={musicEncoders} onEncoder={editMusic(2,setMusicEncoder)} onReadChoices={loadChoices} abc={musicAbc} onAbc={editMusic(3,setMusicAbc)} generation={musicGeneration} onGeneration={editMusic(4,setMusicGeneration)} beginner={beginner}/>:null;
  const imageRefBar=()=><>
   {imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:refMax})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}{referenceMethod==='minimax-h3'&&<> · {t('studio.run.reference.h3Tags')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
   {(imageRefs.length>0||(h3Refs&&!!media))&&<div className="wb-reference-strip wb-wide">
@@ -1796,11 +1872,11 @@ const promptTools=forgeContext&&<>
  return <>
  <div className="studio-project-bar-host" hidden={beginner}><ProjectBar draft={projectDraft} busy={busy||!!current||nativeRefining||autoPlan||resolving} onRestore={restoreProject}/></div>
  {planVisible&&<RunPlan intent={preview} pipeline={pipeline} notices={planNotices} outputRoot={outputDir} inputNotes={inputNotes}/>}
- {beginnerModelsOpened.current&&<div className="beginner-workspace" hidden={!beginner||beginnerPage!=='models'}><BeginnerModels models={allModels} root={root} modelsDir={modelsDir} loading={scanning} onRefresh={()=>void load()} onUse={beginnerUse} reason={m=>beginnerTarget(m)?'':!familyOf(m)?.defaults?t('beginner.unknownFamily'):t(blocked(m,'t2i'))}/></div>}
+ {beginnerModelsOpened.current&&<div className="beginner-workspace" hidden={!beginner||beginnerPage!=='models'}><BeginnerModels models={allModels} root={root} modelsDir={modelsDir} loading={scanning} onRefresh={()=>void load()} onUse={beginnerUse} reason={m=>beginnerTarget(m)?'':!familyOf(m)?.defaults&&m.family!=='yue2'&&!aceMusicProfile(m.family)?t('beginner.unknownFamily'):t(modeBlocked(m,pipeline)||'studio.run.pipe.noRecipe')}/></div>}
  {beginnerCollectionOpened.current&&<section className="beginner-collection" hidden={!beginner||beginnerPage!=='collection'} aria-label={t('beginner.collection')}>
   <div className="beginner-page-heading"><div><p className="eyebrow">{"DEAS · "}{t('beginner.collection')}</p><h1>{t('beginner.collectionTitle')}</h1><p>{t('beginner.collectionHint')}</p></div></div>
-  {browsed&&<><div className="beginner-collection-preview">{browsed.media==='image'?<img src={browsed.src} alt={browsed.name}/>:browsed.media==='video'?(browsed.path?<NativeVideo source={{path:browsed.path}} label={browsed.name} active onSize={readMediaSize}/>:<video src={browsed.src} controls/>):<audio src={browsed.src} controls/>}<button type="button" onClick={()=>setBrowsed(null)}>{t('beginner.close')} ×</button></div><div className="beginner-collection-actions"><button type="button" disabled={browsed.media!=='image'} onClick={()=>{if(!browsed)return;const item=browsed;if(pipeline!=='i2i')pickPipeline('i2i',true);select(item);onBeginnerPage?.('generate');}}>{t('studio.run.useInput')}</button><StarMediaButton item={browsed}/></div></>}
-  <MediaPanel selected={browsed} onSelect={setBrowsed} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}}/>
+  {browsed&&<><div className="beginner-collection-preview">{browsed.media==='image'?<img src={browsed.src} alt={browsed.name}/>:browsed.media==='video'?(browsed.path?<NativeVideo source={{path:browsed.path}} label={browsed.name} active onSize={readMediaSize}/>:<video src={browsed.src} controls/>):<audio src={browsed.src} controls/>}<button type="button" onClick={()=>setBrowsed(null)}>{t('beginner.close')} ×</button></div><div className="beginner-collection-actions">{inputActions(browsed).map(action=><button type="button" key={action.label} disabled={!!action.blocked} title={action.blocked} onClick={action.onClick}>{action.label}</button>)}<StarMediaButton item={browsed}/></div></>}
+  <MediaPanel selected={browsed} onSelect={setBrowsed} actions={mediaActions} marks={marks} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}}/>
  </section>}
  <div className={`workbench-host${beginner?' beginner-mode':''}`} hidden={planVisible||(beginner&&beginnerPage!=='generate')}>
 
@@ -1810,21 +1886,27 @@ const promptTools=forgeContext&&<>
    <aside id="studio-settings" className="wb-side" hidden={settingsHidden} style={{flexBasis:sideSize}}>
     {beginner?<section className="beginner-composer" aria-label={t('beginner.composer')}>
   <label className="beginner-control-label" htmlFor="beginner-mode">{t('beginner.creationMode')}</label>
-  <div className="beginner-mode-picker"><select id="beginner-mode" aria-label={t('beginner.creationMode')} value={pipeline} onChange={e=>pickPipeline(e.target.value as Pipeline)}>{!beginnerPipelines.includes(pipeline)&&<option value={pipeline}>{t(`studio.run.pipe.${pipeline}`)}</option>}{beginnerPipelines.map(p=><option value={p} key={p} disabled={!!why(p)}>{t(`studio.run.pipe.${p}`)}</option>)}</select></div>
+  <div className="beginner-mode-picker"><select id="beginner-mode" aria-label={t('beginner.creationMode')} value={isImagePipe(pipeline)?'image':isVideo?'video':'music'} onChange={e=>pickPipeline(e.target.value==='image'?'t2i':e.target.value==='video'?'t2v':'t2m')}>{pipelineOptions}</select></div>
+  {isVideo&&<p className="wb-active" data-video-mode>{t('studio.run.video.roles.mode',{mode:videoModeName})}</p>}
+  {isImagePipe(pipeline)&&<p className="wb-active" data-image-mode>{t(`studio.run.pipe.${pipeline}`)}</p>}
   <span className="beginner-control-label">{t('beginner.yourModel')}</span>
   <button type="button" className="beginner-selected-model" onClick={()=>onBeginnerPage?.('models')}><span className="beginner-model-monogram" aria-hidden="true">{(family?.name??'DEAS').slice(0,1)}</span><span><strong>{model?shortName(model.name):t('beginner.chooseModel')}</strong><small>{family?.name??t('beginner.browseModels')}</small></span><span className="beginner-change-model">{t('beginner.change')} ↗</span></button>
-  <div className="beginner-size-picker">
+  {musicSourceFields}
+  {isMusic?<div className="wb-controls">{musicSettings}</div>:<div className="beginner-size-picker">
    <label className="beginner-control-label" htmlFor="beginner-aspect">{t('studio.run.resolution.aspect')}<select id="beginner-aspect" data-beginner-aspect value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='custom'&&(a!=='auto'||mediaPipeline)).map(a=><option key={a} value={a}>{a==='auto'?t('studio.run.resolution.auto'):a}</option>)}</select></label>
    <label className="beginner-control-label" htmlFor="beginner-resolution">{t('studio.run.resolution.title')}<select id="beginner-resolution" data-beginner-resolution value={resolution} onChange={e=>setResolution(e.target.value)}>{['model',...Object.keys(resolutions)].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
   </div>
-  <div className="beginner-size-picker beginner-sampling">{samplingFields}</div>
-  <BeginnerLoras models={isGguf(model?.name??'')?[]:beginnerLoraModels} selected={activeLoras} onChange={changeBeginnerLoras} onRefresh={()=>void load()} disabled={scanning||!model||isGguf(model.name)} reason={model&&isGguf(model.name)?t('studio.run.gguf.lora'):undefined}/>
-  {(pipeline==='i2i'||pipeline==='i2v')&&<div className="beginner-input"><button type="button" onClick={()=>onBeginnerPage?.('collection')}>{t('beginner.chooseImage')}</button><p>{media?.name??t('beginner.inputHint')}</p></div>}
+  }
+  {(!isMusic||aceProfile)&&<div className="beginner-size-picker beginner-sampling">{samplingFields}{aceProfile&&samplerField}</div>}
+  {!isMusic&&<BeginnerLoras models={isGguf(model?.name??'')?[]:beginnerLoraModels} selected={activeLoras} onChange={changeBeginnerLoras} onRefresh={()=>void load()} disabled={scanning||!model||isGguf(model.name)} reason={model&&isGguf(model.name)?t('studio.run.gguf.lora'):undefined}/>}
+  {isVideo&&<button type="button" ref={referencesButton} className="wb-dock-action" data-open-references aria-haspopup="dialog" onClick={()=>setReferencesOpen(true)}>{t('studio.run.dock.references')}</button>}
+  {(isImagePipe(pipeline)||pipeline==='i2v'||isMusic)&&<div className="beginner-input"><button type="button" onClick={()=>onBeginnerPage?.('collection')}>{t(isMusic?'beginner.collection':'beginner.chooseImage')}</button><p>{isMusic?musicSource?.name??t('studio.music.needsSource'):media?.name??t('beginner.inputHint')}</p></div>}
   <div className="beginner-composer-footer"><p><span aria-hidden="true">✧</span> {t('beginner.settingsHint')}</p></div>
  </section>:<>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
-     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={isImagePipe(pipeline)?'image':pipeline} onChange={e=>{pickPipeline(e.target.value==='image'?(media?'i2i':'t2i'):e.target.value as Pipeline);}}>{(['image',...pipelines.filter(id=>!isImagePipe(id))] as const).map(id=>{const reason=id==='image'?(why('t2i')&&why('i2i')):why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
-     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={unavailableModelReason||checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
+     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={isImagePipe(pipeline)?'image':isVideo?'video':isMusic?'music':pipeline} onChange={e=>{pickPipeline(e.target.value==='image'?(media?'i2i':'t2i'):e.target.value==='video'?'t2v':e.target.value==='music'?'t2m':e.target.value as Pipeline);}}>{pipelineOptions}</select></label>
+     {isVideo&&<p className="wb-active" data-video-mode>{t('studio.run.video.roles.mode',{mode:videoModeName})}</p>}
+     <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={unavailableModelReason||checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!pipeBlocked(m));if(next)pickModel(next);}}>
       {!checkpointPref&&!checkpoint&&<option value="" disabled>{t('studio.run.noModels')}</option>}
       {unavailableModelReason&&<option value={checkpointPref} disabled title={unavailableModelReason}>{checkpointPref} — {unavailableModelReason}</option>}
       {usable.map(m=><option key={identity(m)} value={modelValue(m)} title={m.name}>{m.name}</option>)}
@@ -1832,11 +1914,11 @@ const promptTools=forgeContext&&<>
      {pipeline==='i2i'&&<p className="wb-active"><span>{t('studio.run.pipe.input')} · {t(`studio.run.edit.${edit}`)}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
      {imageRefsButton&&<button ref={referencesButton} type="button" className="wb-dock-action wb-wide" data-open-references aria-haspopup="dialog" aria-expanded={referencesOpen} title={t('studio.run.reference.max',{count:imageRefs.length,max:refMax})} onClick={()=>setReferencesOpen(true)} onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();}} onDrop={e=>{const item=draggedItem(e.dataTransfer);if(item?.media==='image'&&validReference(item)){e.preventDefault();addPromptRef(item);setReferencesOpen(true);}}}>{t('studio.run.dock.references')} · {imageRefs.length}</button>}
     {pipeline==='i2v'&&!lastOnly&&<p className="wb-active"><span>{t('studio.run.pipe.input')}</span><strong title={inputImage}>{fileName(inputImage)}</strong></p>}
-    {pipeline==='v2v'&&<p className="wb-active"><span>{t('studio.run.video.source')}</span><strong title={media?.path}>{media?.media==='video'?media.name:''}</strong></p>}
-    {pipeline==='cover'&&<p className="wb-active" data-music-source><span>{t('studio.music.source')}</span><strong title={musicSource?.path}>{musicSource?.name??''}</strong>{musicSource&&<button type="button" aria-label={t('studio.music.removeSource')} title={t('studio.music.removeSource')} onClick={()=>setMusicSource(null)}>✕</button>}</p>}
+    {pipeline==='v2v'&&<p className="wb-active"><span>{t('studio.run.video.source')}</span><strong title={media?.path}>{videoSource?.name??''}</strong></p>}
+    {musicSourceFields}
      <div className="wb-controls">
      {h3Image&&<p className="wb-resolution-hint wb-wide">{t('studio.run.h3EditHint')}</p>}
-     {aceProfile?<AceMusicSettings family={family!.id} version={aceProfile.version} value={musicAce} onChange={setMusicAce} duration={aceDuration} onDuration={setAceDuration}/>:isMusic?<MusicSettings pipeline={pipeline as 't2m'|'cover'} planning={musicPlanning} onPlanning={p=>{setMusicPlanning(p);if(p==='off'&&musicGeneration.cfgScale===1)setMusicGeneration({...musicGeneration,cfgScale:1.01});}} maxDuration={pipeline==='cover'?musicDuration.cover:musicDuration.t2m} onMaxDuration={n=>setMusicDuration({...musicDuration,[pipeline==='cover'?'cover':'t2m']:n})} encoder={musicEncoder} encoders={musicEncoders} onEncoder={setMusicEncoder} onReadChoices={loadChoices} abc={musicAbc} onAbc={setMusicAbc} generation={musicGeneration} onGeneration={setMusicGeneration}/>
+     {isMusic?musicSettings
      :inpaint?<>{num('denoise',h3Image?h3Denoise:strength,h3Image?setH3Denoise:setStrength,0,1,0.05,undefined,true)}<p className="wb-resolution-hint">{t('studio.run.edit.size',{width:String(outputSize.width),height:String(outputSize.height)})}</p></>:<>
       <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><span className="wb-aspect-picker"><span className="wb-aspect-swatch" aria-hidden="true"><span style={{width:18*Math.min(1,swatchRatio),height:18*Math.min(1,1/swatchRatio)}}/></span><select data-aspect value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='auto'||mediaPipeline).map(a=><option key={a} value={a}>{a==='auto'||a==='custom'?t(`studio.run.resolution.${a}`):a}</option>)}</select></span></label>
       <label className="wb-field"><span>{t('studio.run.resolution.title')}</span><select data-resolution value={resolution} onChange={e=>setResolution(e.target.value)}>{['fixed','model',...Object.keys(resolutions),'custom'].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
@@ -1855,11 +1937,11 @@ const promptTools=forgeContext&&<>
         {(pipeline!=='t2v'||!!lastFrame)&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select data-h3-scaling value={h3Scaling} title={t(`studio.run.resolution.hint.${h3ScalingKey[h3Scaling]}`)} onChange={e=>setH3Scaling(e.target.value as H3Scaling)}>{h3Scalings.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${h3ScalingKey[s]}`)}</option>)}</select></label><p className="wb-resolution-hint wb-wide">{t(`studio.run.resolution.hint.${h3ScalingKey[h3Scaling]}`)}</p></>}</>}
        {pipeline==='v2v'&&(videoFamily==='ltx-2'?num('video.sourceStrength',sourceStrength,n=>setSourceStrength(clamp(n,0,1)),0,1,0.05,undefined,true)
         :<label className="wb-field wb-wide"><span><input type="checkbox" style={{width:'auto'}} checked={sourceAudio} onChange={e=>setSourceAudio(e.target.checked)}/>{t('studio.run.video.sourceAudio')}</span></label>)}
-       {refsTab&&<button ref={referencesButton} type="button" className="wb-dock-action wb-wide" data-open-references aria-haspopup="dialog" aria-expanded={referencesOpen} onClick={()=>setReferencesOpen(true)} onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();}} onDrop={e=>{const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();addRefs([{item}]);setReferencesOpen(true);}}}>{t('studio.run.dock.references')} · {refs.length}</button>}
+       {refsTab&&<button ref={referencesButton} type="button" className="wb-dock-action wb-wide" data-open-references aria-haspopup="dialog" aria-expanded={referencesOpen} onClick={()=>setReferencesOpen(true)} onDragOver={e=>{if(e.dataTransfer.types.includes(MEDIA_DRAG))e.preventDefault();}} onDrop={e=>{const item=draggedItem(e.dataTransfer);if(item){e.preventDefault();setRolePick(item);setReferencesOpen(true);}}}>{t('studio.run.dock.references')} · {refs.length+refmods.length+(firstFrame?1:0)+(lastFrame?1:0)+(videoSource?1:0)}</button>}
        {isH3Video(videoFamily)&&(pipeline==='v2v'||pipeline==='ref2v')&&!/ref2va/i.test(checkpoint)&&<p className="wb-resolution-hint wb-wide">{t('studio.run.video.ref2vaHint')}</p>}
        {forgeContext&&onOpenPromptForge&&<button type="button" className="wb-dock-action wb-wide" data-open-prompt-forge onClick={onOpenPromptForge}>{t('studio.tab.forge')}</button>}
        {continuityAvailable&&<button ref={continuityButton} type="button" className="wb-dock-action wb-wide" data-continuity-open aria-haspopup="dialog" aria-expanded={continuityOpen} data-continuity-enabled={continuityOn} onClick={()=>setContinuityOpen(true)}>{t(continuityOn?'studio.run.dock.continuity':'studio.run.dock.continuityOff')}</button>}
-       {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} title={t('studio.run.cont.remove')} onClick={()=>setLastFrame(null)}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
+       {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} title={t('studio.run.cont.remove')} onClick={()=>removeVideoRole('last')}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
       </>}
       {pipeline==='i2i'&&!inpaint&&<><label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label><p className="wb-resolution-hint">{t(`studio.run.resolution.hint.${inputScaling}`)}</p>{num('denoise',h3Image?h3Denoise:denoise,h3Image?setH3Denoise:setDenoise,0,1,0.05,undefined,true)}{h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}</>}
       {inpaint&&<>
@@ -1871,7 +1953,7 @@ const promptTools=forgeContext&&<>
        {h3Image&&<>{num('video.shiftVideo',video.shiftVideo,n=>setVideo({...video,shiftVideo:clamp(n,0.01,100)}),0.01,100,0.5)}{num('video.shiftAudio',video.shiftAudio,n=>setVideo({...video,shiftAudio:clamp(n,0.01,100)}),0.01,100,0.5)}</>}
       </>}
       {samplingFields}
-      {family?.fixedSampler?<label className="wb-field"><span>{t('studio.recipe.sampler')}</span><select value={family.fixedSampler} disabled title={family.defaultsNote}><option value={family.fixedSampler}>{family.fixedSampler}</option></select></label>:pick('studio.recipe.sampler',sampler,choices?.samplers??[],setSampler,loadChoices)}
+      {samplerField}
       {sigmas?<label className="wb-field"><span>{t('studio.recipe.scheduler')}</span><select value="custom" disabled title={t('studio.run.customSchedule.hint')}><option value="custom">{t('studio.run.customSchedule')}</option></select></label>
        :pick('studio.recipe.scheduler',scheduler,choices?.schedulers??[],setScheduler,loadChoices)}
       <div className="wb-field wb-seed">
@@ -1916,8 +1998,8 @@ const promptTools=forgeContext&&<>
         :visibleOutputs.map(o=>outputItem(shown,o).media==='audio'?audioPlayer(outputItem(shown,o),fileSrc(shown,o)!,!browsed,true):isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[outputIndex])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{visibleOutputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&((shown.preview||playingPreview)?<figure className="media-preview" aria-busy="true">{playingPreview?<TemporalPreview key={shown.id} preview={playingPreview} active label={t('studio.run.working')} fallback={shown.preview}/>:shown.preview?<img src={shown.preview} alt={t('studio.run.working')}/>:null}{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}{eta(shown)}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}{eta(shown)}</>}</p>)}</div>
-     :media&&!editableSource?<figure className="media-preview">{media.media==='image'?<img className="wb-zoomable" src={media.src} alt={media.name} title={t('studio.run.viewer.open')} draggable={!!media.path} onDragStart={e=>{if(media.path)dragItem(e.dataTransfer,media);}} onClick={e=>openImage(e,media)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:media.media==='video'?linuxVideo?<NativeVideo source={{path:media.path??''}} label={media.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:media.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:audioPlayer(media,native?mediaBlob.url:media.src,!browsed)}
- <figcaption>{media.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
+     :inputPreview&&!editableSource?<figure className="media-preview">{inputPreview.media==='image'?<img className="wb-zoomable" src={inputPreview.src} alt={inputPreview.name} title={t('studio.run.viewer.open')} draggable={!!inputPreview.path} onDragStart={e=>{if(inputPreview.path)dragItem(e.dataTransfer,inputPreview);}} onClick={e=>openImage(e,inputPreview)} onLoad={e=>readMediaSize(e.currentTarget.naturalWidth,e.currentTarget.naturalHeight)}/>:inputPreview.media==='video'?linuxVideo?<NativeVideo source={{path:inputPreview.path??''}} label={inputPreview.name} active={!browsed} onSize={readMediaSize}/>:<video src={native?mediaBlob.url:inputPreview.src} controls onError={e=>setMediaFault(mediaError(e))} onLoadedMetadata={e=>readMediaSize(e.currentTarget.videoWidth,e.currentTarget.videoHeight)}/>:audioPlayer(inputPreview,native?mediaBlob.url:inputPreview.src,!browsed)}
+ <figcaption>{inputPreview.name}{(mediaBlob.error||mediaFault)&&<> · <span className="error-message">{mediaBlob.error??mediaFault}</span></>}</figcaption></figure>
       :!media?(beginner?<div className="beginner-empty-preview"><div className="beginner-preview-art" aria-hidden="true"><span/><svg viewBox="0 0 100 100" fill="none"><rect x="16" y="20" width="68" height="62" rx="10"/><path d="m22 65 20-21 16 16 11-12 12 16"/><circle cx="65" cy="37" r="6"/></svg><i>✧</i></div><span className="beginner-preview-kicker">{t('beginner.createEyebrow')}</span><h2>{t('beginner.previewTitle')}</h2><p>{t('beginner.createSubtitle')}</p>{hint&&<p className="beginner-preview-hint" role="status">{t(hint)}</p>}<span className="beginner-preview-bottom">{t('beginner.previewBottom')}</span></div>:<p className="empty-note" role={hint?'status':undefined}>{t(hint||'studio.run.empty')}</p>):null}
      </div>
      {viewer&&(()=>{const index=viewerList.findIndex(i=>i.src===viewer.src),go=(i:MediaItem)=>()=>setViewer({src:i.src,alt:i.name,item:i});return <ImageViewer src={viewer.src} alt={viewer.alt} item={viewer.item} onClose={()=>setViewer(null)} position={index<0?undefined:{index,total:viewerList.length}} onPrev={index>0?go(viewerList[index-1]):undefined} onNext={index>=0&&index<viewerList.length-1?go(viewerList[index+1]):undefined}/>;})()}
@@ -2060,7 +2142,7 @@ const promptTools=forgeContext&&<>
  {ask&&<ConfirmDialog message={ask.message} onDone={accepted=>{const run=ask.run;setAsk(null);if(accepted)run();}}/>}
  {visionDownload&&<dialog ref={visionDialog} data-vision-download className="continuity-overlay" aria-label={t("studio.run.reference.dlAsk")} onCancel={e=>{e.preventDefault();closeVisionDownload();}}><header className="continuity-overlay-header"><h2>{t("studio.run.reference.dlAsk")}</h2><button type="button" onClick={closeVisionDownload}>{t("studio.close")}</button></header><div className="wb-dock-panel"><p>{t("studio.run.latent.consent")}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={visionIds} filenameFilter={["clip_vision_g.safetensors"]} onStatus={visionDownloadStatus}/></div></dialog>}
  {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={latentIds} filenameFilter={latentDownload==='minimax-h3'?['minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors','minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors','MiniMax H3 Latent Upscaler.safetensors','minimax h3 latent upscaler.safetensors','minimax_h3_latent_upscaler.safetensors']:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors','LTX-2.3-Latent-Upscaler.safetensors']} onStatus={latentDownloadStatus}/></div></dialog>}
- {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={toggleRef} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}><ReferencesPanel endpoint={endpoint} root={root} refs={refs} onChange={setRefs} family={videoFamily as 'ltx-2'|'minimax-h3'|'minimax-h3-hyperflow'} seconds={video.seconds} label={refLabel} onAdd={addRefs} inputRoot={roots.input} outputRoot={outputDir} refmods={refmods} onRefmods={setRefmods} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} refmodCreate={native&&endpoint.trim()&&isH3Video(videoFamily)?{vae,audioVae,upload:path=>uploadInput(endpoint,path)}:undefined} onInsert={insertTag}/></ReferencesOverlay>}
+ {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay pickerHint={t('studio.run.video.roles.pick')} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={rolePick} onSelect={setRolePick} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}>{videoRoleEditor()}{refmods.length>0&&!isH3Video(videoFamily)&&<div className="wb-ref"><p>{t('studio.run.video.roles.unsupported')}</p><button type="button" className="wb-dock-action" data-video-refmods-clear onClick={()=>updateVideoMode({references:refs.length},()=>setRefmods([]))}>{t('studio.run.video.roles.remove',{role:t('studio.run.video.refmods')})}</button></div>}{(family?.video?.roles.includes('reference')||refs.length>0)&&<ReferencesPanel endpoint={endpoint} root={root} refs={refs} onChange={changeRefs} family={isH3Video(videoFamily)?videoFamily:'ltx-2'} seconds={video.seconds} label={refLabel} onAdd={addRefs} onPack={(adds,mods,replace)=>addRefs(adds,replace,mods)} inputRoot={roots.input} outputRoot={outputDir} refmods={refmods} onRefmods={next=>{if(next.length&&!family?.video?.mixReferences&&(firstFrame||lastFrame)){setError(t('studio.run.video.roles.mixing'));return;}updateVideoMode({references:roleReferenceCounts.current.refs+next.length},()=>{roleReferenceCounts.current.mods=next.length;setRefmods(next);});}} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} refmodCreate={native&&endpoint.trim()&&isH3Video(videoFamily)?{vae,audioVae,upload:path=>uploadInput(endpoint,path)}:undefined} onInsert={insertTag}/>}</ReferencesOverlay>}
  {referencesOpen&&imageRefsButton&&<ReferencesOverlay onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={item=>{if(item.path&&validReference(item))togglePromptRef(item as MediaItem&{path:string});}} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}><div className="wb-image-references" data-image-references>{imageRefBar()}</div></ReferencesOverlay>}
  {/* Keep H3 editors with their Workbench state; only their DOM lives in the retained Forge tab. */}
  {forgeHost&&forgeContext&&createPortal(<section className="forge-tab" aria-label={t('studio.tab.forge')} data-h3-forge-tab>

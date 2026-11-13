@@ -52,6 +52,33 @@ test('a hit switches tab, reveals and flashes the control; an unavailable hit sh
   expect(await screen.findByText('Requires a model from the backend', {}, { timeout: 3000 })).toBeTruthy();
 });
 
+test('Music source removal is searchable and expands hidden Settings without removing the source', async () => {
+ const settings=document.createElement('aside');settings.hidden=true;
+ const remove=document.createElement('button');remove.dataset.musicSourceRemove='';settings.append(remove);
+ const toggle=document.createElement('button');toggle.dataset.paneToggle='settings';toggle.setAttribute('aria-expanded','false');
+ toggle.onclick=()=>{settings.hidden=false;toggle.setAttribute('aria-expanded','true');};
+ const removed=vi.fn();remove.onclick=removed;document.body.append(settings,toggle);
+ mount();fireEvent.keyDown(window,{key:'k',ctrlKey:true});
+ fireEvent.change(screen.getByPlaceholderText('Find a control…'),{target:{value:'Remove cover source'}});
+ fireEvent.click(screen.getByRole('button',{name:/Studio › Cover source .* › Remove cover source/}));
+ await waitFor(()=>expect(remove.classList.contains('search-flash')).toBe(true));expect(settings.hidden).toBe(false);expect(removed).not.toHaveBeenCalled();
+ settings.remove();toggle.remove();
+});
+
+
+test('Music editors select Beginner Generate and reveal collapsed prompt and Settings without authoring', async()=>{
+ const settings=document.createElement('aside');settings.hidden=true;
+ const prompts=document.createElement('section');prompts.hidden=true;
+ const lyrics=document.createElement('textarea');lyrics.dataset.musicPrompt='lyrics';lyrics.value='authored lyrics';prompts.append(lyrics);
+ const toggles=['settings','prompt'].map((pane,i)=>{const toggle=document.createElement('button');toggle.dataset.paneToggle=pane;toggle.setAttribute('aria-expanded','false');toggle.onclick=()=>{(i?prompts:settings).hidden=false;toggle.setAttribute('aria-expanded','true');};return toggle;});
+ document.body.append(settings,prompts,...toggles);const onNavigate=mount();
+ fireEvent.keyDown(window,{key:'k',ctrlKey:true});fireEvent.change(screen.getByPlaceholderText('Find a control…'),{target:{value:'lyrics'}});
+ fireEvent.click(screen.getByRole('button',{name:/Studio › Music \(Text to Music\) › Lyrics No verified/}));
+ await waitFor(()=>expect(lyrics.classList.contains('search-flash')).toBe(true));expect(lyrics.value).toBe('authored lyrics');expect(prompts.hidden).toBe(false);expect(settings.hidden).toBe(false);
+ expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({beginnerTab:'generate',target:'[data-music-prompt="lyrics"]'}));
+ for(const el of [settings,prompts,...toggles])el.remove();
+});
+
 test('a disabled control shows its own explanation, then the entry reason', async () => {
   const cfg = document.createElement('input');
   cfg.setAttribute('data-num', 'cfg');
@@ -90,7 +117,8 @@ test('an Options dock card selects its dock tab first, then reveals the card; Ba
   expect(matchEntries(searchIndex, 'spellcheck', text).map((entry) => entry.target)).toContain('[data-prompt-tool="spellcheck"]');
   expect(matchEntries(searchIndex, 'torch.compile', text).map((entry) => entry.target)).toContain('[data-option="compile"]');
   expect(matchEntries(searchIndex, 'tagger', text).map((entry) => entry.target)).toContain('[data-analysis-tagger]');
-  expect(matchEntries(searchIndex, 'frame', text).map((entry) => entry.target)).toContain('[data-frame-use]');
+  expect(matchEntries(searchIndex, 'frame', text, searchIndex.length).map((entry) => entry.target)).toContain('[data-frame-use]');
+  for(const role of ['first','last','both','reference','source'])expect(matchEntries(searchIndex, role, text, searchIndex.length).map(entry=>entry.target)).toContain(`[data-video-role="${role}"]`);
 });
 
 test('a Post-Processing nested control selects the Post dock, opens its category overlay idempotently, and focuses the control', async () => {

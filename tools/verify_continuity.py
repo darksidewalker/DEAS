@@ -22,6 +22,11 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   if(command==='plugin:event|unlisten')return null;
   if(command==='native_workbench_current')return {jobs:[],preparing:0,capacity:20,stopAvailable:false,stopping:false,admissionEpoch:0};
   if(command==='native_llm_read')return {provider:'ollama',baseUrl:'http://127.0.0.1:11434'};
+  if(command==='native_wildcard_library')return JSON.stringify({categories:[]});
+  if(command==='native_audio_enhance_capabilities')return {};
+  if(command==='native_media_thumbnail')return null;
+  if(command==='native_media_star_status')return {starred:false,unavailable:null};
+  if(command==='native_media_star_notice')return null;
   if(command==='native_media_list')return {path:args.path,parent:null,entries:[],truncated:false};
   if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:[],checkpoints:[],loras:[],samplers:['euler'],schedulers:['simple']}};
   if(command==='native_forge'){

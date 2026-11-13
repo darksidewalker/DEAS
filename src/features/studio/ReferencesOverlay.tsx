@@ -4,7 +4,7 @@ import './continuity-overlay.css';
 import './references-overlay.css';
 
 /** Modal shell: the media picker beside an editor (video `ReferencesPanel` or the image reference bar). */
-export function ReferencesOverlay({ onClose, picker, children }: { onClose:()=>void; picker:ReactNode; children:ReactNode }) {
+export function ReferencesOverlay({ onClose, picker, children, pickerHint }: { onClose:()=>void; picker:ReactNode; children:ReactNode; pickerHint?:string }) {
  const {t}=useI18n();
  const dialog=useRef<HTMLDialogElement>(null),close=useRef<HTMLButtonElement>(null);
  const title=useId();
@@ -16,7 +16,7 @@ export function ReferencesOverlay({ onClose, picker, children }: { onClose:()=>v
  return <dialog ref={dialog} className="continuity-overlay references-overlay" aria-labelledby={title} onCancel={e=>{e.preventDefault();dismiss();}}>
   <header className="continuity-overlay-header"><h2 id={title}>{t('studio.run.dock.references')}</h2><button ref={close} type="button" onClick={dismiss}>{t('studio.close')}</button></header>
   <div className="references-overlay-body">
-   <section className="references-picker" aria-label={t('studio.run.dock.media')}><p className="media-help">{t('studio.run.video.pickerHint')}</p>{picker}</section>
+   <section className="references-picker" aria-label={t('studio.run.dock.media')}><p className="media-help">{pickerHint??t('studio.run.video.pickerHint')}</p>{picker}</section>
    <section className="references-editor" aria-label={t('studio.run.dock.references')}>{children}</section>
   </div>
  </dialog>;

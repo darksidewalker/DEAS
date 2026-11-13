@@ -11,6 +11,96 @@ import verify_workspace_layout as workspace
 collection = workspace.collection
 runner = workspace.runner
 
+
+BEGINNER_PIPELINES = r"""
+const beginnerInvoke=window.__TAURI_INTERNALS__.invoke;
+const beginnerModels=[
+ {name:'sdxl/fresh.safetensors',family:'sdxl',category:'checkpoints',path:'/fixture/models/sdxl/fresh.safetensors',size:42,info:null},
+ {name:'yue2.safetensors',family:'yue2',category:'checkpoints',path:'/fixture/models/yue2.safetensors',size:42,info:null},
+ {name:'ace-turbo.safetensors',family:'ace-step-1-5-turbo',category:'checkpoints',path:'/fixture/models/ace-turbo.safetensors',size:42,info:null}
+];
+window.__TAURI_INTERNALS__.invoke=async(c,a)=>{
+ if(c==='native_media_thumbnail'){f.calls.push({command:c,args:clone(a??{})});return a.path;}
+ if(c==='native_video_open'){f.calls.push({command:c,args:clone(a??{})});return null;}
+ if(c==='native_video_update'){f.calls.push({command:c,args:clone(a??{})});return a.action.kind==='status'?{position:0,duration:8,width:640,height:360,paused:true,muted:false,volume:100}:null;}
+ if(c==='native_models_scan'){f.calls.push({command:c,args:clone(a??{})});return clone(beginnerModels);}
+ if(c==='native_settings_read'){f.calls.push({command:c,args:clone(a??{})});return {models:'/fixture/models',input:'/fixture/input',output:'/fixture/output'};}
+ if(c==='native_recipe_prerequisites'){
+  const result=await beginnerInvoke(c,a);
+  result.allowlist.nodes.push('YuE2GenerateABC','YuE2GenerateMusic','ConditioningZeroOut','EmptyYuE2LatentAudio','VAEDecodeAudio','SaveAudioAdvanced','LoadAudio','AudioEncoderLoader','SheetSage2AudioToABC','LatentOperationTonemapReinhard','LatentApplyOperationCFG','ModelSamplingAuraFlow','TextEncodeAceStepAudio1.5','EmptyAceStep1.5LatentAudio');
+  result.allowlist.checkpoints=beginnerModels.map(m=>m.name);result.allowlist.samplers.push('dpm_2');result.allowlist.schedulers.push('sgm_uniform','simple');result.allowlist.audioEncoders=['sheetsage2.safetensors'];return result;
+ }
+ if(c==='native_media_list'){
+  f.calls.push({command:c,args:clone(a??{})});
+  return {path:a.path||'/fixture/input',parent:null,entries:[
+   {name:'source.png',path:'/fixture/input/source.png',kind:'file',media:'image',size:42,modified:1,symlink:false},
+   {name:'voice.wav',path:'/fixture/input/voice.wav',kind:'file',media:'audio',size:42,modified:1,symlink:false}],truncated:false};
+ }
+ return beginnerInvoke(c,a);
+};
+"""
+
+
+def pipeline_flow(page, shots):
+    switch_mode(page, 'beginner')
+    picker = page.locator('#beginner-mode')
+    assert picker.locator('option').evaluate_all('es=>es.map(e=>[e.value,e.textContent])') == [['image','Image'],['video','Video'],['music','Music']]
+    expect(picker.locator('option[value="video"]')).to_be_disabled()
+    assert picker.locator('option[value="video"]').get_attribute('title')
+    expect(picker.locator('option[value="music"]')).to_be_enabled()
+    # Browsing is never adoption. The explicit shared action is the only role edit.
+    page.locator('[data-beginner-tab="collection"]').click()
+    page.get_by_role('button', name='source.png', exact=True).click()
+    expect(page.locator('.beginner-collection-actions').get_by_role('button', name='Use as picture to edit', exact=True)).to_be_visible()
+    assert page.evaluate('JSON.parse(localStorage.getItem("deas.pref.studio.run.pipeline"))') == 't2i'
+    page.locator('.beginner-collection-actions').get_by_role('button', name='Use as picture to edit', exact=True).click()
+    page.locator('[data-beginner-tab="generate"]').click()
+    page.wait_for_function('JSON.parse(localStorage.getItem("deas.pref.studio.run.pipeline"))==="i2i"')
+    page.locator('[data-preview-close]').click()
+    page.wait_for_function('JSON.parse(localStorage.getItem("deas.pref.studio.run.pipeline"))==="t2i"')
+    picker.select_option('music')
+    page.locator('[data-beginner-tab="models"]').click()
+    page.locator('[data-model-media="music"]').click()
+    cards = page.locator('.beginner-model-card')
+    expect(cards).to_have_count(2)
+    cards.filter(has=page.get_by_role('heading', name='yue2', exact=True)).get_by_role('button', name='Use this model').click()
+    expect(picker).to_have_value('music')
+    style, lyrics = page.locator('[data-music-prompt="style"]'), page.locator('[data-music-prompt="lyrics"]')
+    for width,height in ((1440,960),(390,844)):
+        page.set_viewport_size({'width':width,'height':height})
+        style.fill('Handwritten Beginner style')
+        lyrics.fill('[Verse]\nHandwritten Beginner lyrics')
+        for control in (style, lyrics):
+            control.scroll_into_view_if_needed()
+            expect(control).to_be_visible()
+            assert control.bounding_box()['height'] >= 40
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+        page.screenshot(path=str(shots/f'beginner-music-{width}.png'))
+    page.set_viewport_size({'width':1440,'height':960})
+    expect(page.locator('[data-music-planning]')).to_have_count(0)
+    page.locator('[data-music-duration]').fill('90')
+    page.locator('[data-beginner-tab="collection"]').click()
+    page.get_by_role('button', name='voice.wav', exact=True).click()
+    page.locator('.beginner-collection-actions').get_by_role('button', name='Use for music cover', exact=True).click()
+    page.locator('[data-beginner-tab="generate"]').click()
+    expect(page.locator('[data-music-mode]')).to_have_text('Music (Cover Music)')
+    expect(page.locator('[data-music-encoder]')).to_have_value('sheetsage2.safetensors')
+    expect(page.locator('[data-music-source]')).to_contain_text('voice.wav')
+    # Quick Settings helper expects the ordinary prompt; music has two instead.
+    menu=page.locator('.studio-quick > button');menu.click()
+    page.locator('.experience-switch').get_by_role('switch').press('Space');page.keyboard.press('Escape')
+    expect(style).to_have_value('Handwritten Beginner style')
+    expect(lyrics).to_have_value('[Verse]\nHandwritten Beginner lyrics')
+    expect(page.locator('[data-music-source]')).to_contain_text('voice.wav')
+    page.locator('[data-music-source-remove]').click()
+    expect(page.locator('[data-music-mode]')).to_have_text('Music (Text to Music)')
+    expect(page.locator('[data-music-duration]')).to_have_value('90')
+    page.locator('[data-pipeline]').select_option('image')
+    expect(page.locator('[data-run-positive]')).to_have_value('Retained positive-only layout draft')
+    assert not page.evaluate('__collection.calls.filter(c=>/upload|_run$|_submit$/.test(c.command))')
+    return 'Image/Video/Music, explicit Image source/clear, YuE2 model/text/settings/cover/clear and experience retention'
+
+
 STYLE = r"""e=>{
  const s=getComputedStyle(e);
  return Object.fromEntries(['backgroundColor','backgroundImage','color','borderTopColor',
@@ -153,7 +243,7 @@ def snapshot(page, mode, width, mixed, shots):
 
 def verify(browser, url, shots):
     original = collection.FIXTURE
-    collection.FIXTURE += workspace.FIXTURE + r'''
+    collection.FIXTURE += workspace.FIXTURE + BEGINNER_PIPELINES + r'''
 localStorage.setItem('deas.pref.interface.experience', JSON.stringify('advanced'));
 '''
     checks = []
@@ -193,6 +283,8 @@ localStorage.setItem('deas.pref.interface.experience', JSON.stringify('advanced'
                     expect(collection.row(page, 'unknown3-held')).to_have_attribute('aria-current', 'true')
                     switch_mode(page, 'beginner')
                     expect(collection.row(page, 'unknown3-held')).to_have_attribute('aria-current', 'true')
+                if not mixed:
+                    checks.append({'pipelineFlow': pipeline_flow(page, shots)})
                 collection.assert_clean(page, errors)
                 forbidden = page.evaluate("__collection.calls.filter(c=>/(_start|_stop|_write|_send|_generate|_run|_submit|_cancel)$/.test(c.command))")
                 assert not forbidden, forbidden

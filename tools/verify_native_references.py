@@ -62,7 +62,7 @@ script = r'''
    const dialog=await until(()=>document.querySelector('.references-overlay:modal'),'modal');
    const inputFolder=Array.from(dialog.querySelectorAll('.references-picker button')).find(b=>b.textContent==='Input');assert(inputFolder,'input folder');inputFolder.click();
    if(AUDIO_NAME){
-    const audioTile=await until(()=>dialog.querySelector('.references-picker button[title="'+AUDIO_NAME+'"]'),'audio picker');audioTile.click();
+    const audioTile=await until(()=>dialog.querySelector('.references-picker button[title="'+AUDIO_NAME+'"]'),'audio picker');audioTile.click();await sleep(100);dialog.querySelector('[data-video-role="reference"]').click();
     const audioCard=await until(()=>dialog.querySelector('[data-ref="'+AUDIO_NAME+'"]'),'audio reference');
     const edit=audioCard.querySelector('[data-edit-reference]');edit.click();
     let editor=await until(()=>dialog.querySelector('.reference-editor-dialog:modal'),'audio editor');
@@ -82,7 +82,7 @@ script = r'''
     await report({phase:'passed',audio:AUDIO_NAME,duration:27,crop});
     await call('plugin:window|destroy',{label:'main'});return;
    }
-   const tile=await until(()=>dialog.querySelector('.references-picker button[title="clip.mp4"]'),'picker');tile.click();
+   const tile=await until(()=>dialog.querySelector('.references-picker button[title="clip.mp4"]'),'picker');tile.click();await sleep(100);dialog.querySelector('[data-video-role="reference"]').click();
    let card=await until(()=>dialog.querySelector('[data-ref="clip.mp4"]'),'reference');
    assert(!dialog.querySelector('[data-ref] video[controls], [data-ref] audio, [data-ref] [data-native-video]'),'overview has no players');
    let edit=card.querySelector('[data-edit-reference]');edit.focus();edit.click();

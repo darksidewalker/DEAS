@@ -60,6 +60,7 @@ with sync_playwright() as p:
             assert dialog.evaluate('(d)=>d.matches(":modal")')
             picker = dialog.locator('.references-picker')
             picker.get_by_role('button', name='clip.mp4', exact=True).click()
+            dialog.locator('[data-video-role="reference"]').click()
             card = dialog.locator('[data-ref="clip.mp4"]')
             expect(card).to_be_visible()
             # Overview thumbnails may be inert videos, but never live players.
@@ -130,6 +131,7 @@ with sync_playwright() as p:
             expect(dialog).to_be_visible()
             expect(edit).to_be_focused()
             picker.get_by_role('button', name='voice.wav', exact=True).click()
+            dialog.locator('[data-video-role="reference"]').click()
             sound_card = dialog.locator('[data-ref="voice.wav"]')
             sound_edit = sound_card.locator('[data-edit-reference]')
             sound_edit.click()

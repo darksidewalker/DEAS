@@ -2,6 +2,14 @@
 
 ## 0.2.25 BETA (unreleased)
 
+- **Beginner Music shows only the basics.** Beginner keeps Style/Lyrics, length, the Media source and, for ACE-Step 1.5, BPM, language and key/scale, plus Steps, CFG and Sampler for ACE models. ABC planning, generation/ABC sampling groups, shift, lyrics strength, time signature, audio-code generation and the code-LM CFG/temperature/top-p/top-k/min-p stay in Advanced; their current values still apply.
+
+- **Beginner uses the optimized pipelines too.** Its creation-mode picker now matches Image / Video / Music. Image source use/clear derives the edit mode; Beginner Models includes a Music filter for supported YuE2/ACE models. Music reuses the existing Style/Lyrics, duration/encoder controls and explicit Media source actions, with ACE cover assignment disabled. Authored edits survive experience switches while automatic Beginner values remain isolated from Advanced technical preferences.
+
+- **One Music pipeline.** Text to Music and Cover share one Music entry and per-model session draft. Explicitly assigning an audio/video source through the existing Media actions activates Cover; clearing it returns to supported text generation without changing Style/Lyrics or sampling settings. The derived mode and source stay visible, legacy unresolved covers remain blocked until reselection, and ACE-Step does not silently accept unsupported cover sources. Active/cached sources follow Star/Unstar relocation; source removal is searchable.
+
+- **One Video pipeline with explicit media roles.** Advanced and Beginner show a single Video entry. References assigns First frame, Last frame, Both, Reference or Source video according to the selected model; a badge shows the derived mode. H3 frame/reference mixing and pinned Continuity mode-family changes are refused without discarding media; LTX supports source video with frame/guide roles and at most eight guides. Video modes share a per-model session draft while internal IDs, intent schemas and existing history remain compatible. External frame uploads use the captured submitted draft. The role controls are available through global search and all six languages.
+
 - **Reference thumbnails drag to reorder.** Multi-reference → Video accepts dragging the preview image as well as the filename; lane boundaries and editable fields keep their existing behavior.
 - **Reference Insert label buttons use the shared theme skin**, both in the inline image reference strip and the References overlay.
 - **Visible video tile indicator.** The play badge in Media uses an opaque theme background, theme text and an accent outline so it stays visible over light and dark thumbnails.

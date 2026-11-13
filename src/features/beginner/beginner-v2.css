@@ -4,6 +4,8 @@
 .beginner-prompt-divider>.wb-pane-toggle{top:-4px;left:calc(50% - 9px)}
 .beginner-mode .wb-prompts{min-height:0;overflow:auto}
 .beginner-mode .wb-prompts>.wb-prompt{min-height:0}
+.beginner-mode .wb-prompts:has([data-music-field]){grid-template-columns:repeat(2,minmax(0,1fr))}
+.beginner-mode .wb-prompts [data-music-field]{min-height:80px}
 .beginner-mode .wb-prompts .prompt-textarea{flex:1;min-height:0;display:flex;flex-direction:column}
 .beginner-mode .wb-prompts .wb-prompt textarea{flex:1;min-height:0;height:100%}
 

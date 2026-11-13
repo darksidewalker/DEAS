@@ -278,7 +278,7 @@
     "ggufLoader": "HyperFlowGGUFLoader", "videoSigmaNode": "HyperFlowSigmas", "fixedSampler": "euler", "stepChoices": [4, 6, 8],
     "defaults": { "width": 1024, "height": 768, "steps": 6, "cfg": 1, "sampler": "euler", "scheduler": "simple" },
     "defaultsNote": "HyperFlow H3 Flash GGUF samples its own distilled schedule: 6 steps default (4 favours speed, 8 quality), euler at CFG 1 with no negative prompt, per the upstream README and its example workflows (docs/MODEL_DEFAULTS.md).",
-    "video": { "fps": 24, "seconds": 5, "fixedFps": true },
+    "video": { "fps": 24, "seconds": 5, "fixedFps": true , "roles": ["first", "last", "both", "reference"], "referenceMedia": ["image"], "mixReferences": false, "lastAlone": true, "maxReferences": 9 },
     "architectures": [], "bases": [],
     "model": [["hyperflow.gate"]], "lora": []
   },
@@ -287,7 +287,7 @@
     "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"],
     "defaults": { "width": 1024, "height": 768, "steps": 30, "cfg": 3, "sampler": "res_multistep", "scheduler": "simple" },
     "defaultsNote": "Base defaults follow the official Comfy-Org MiniMax H3 text-to-image template: 30 steps with res_multistep/simple (CFG via the guider path). 4 steps at CFG 1 is only correct with a 4-step turbo/lightning LoRA loaded; the official 8-step turbo LoRA runs 8 steps at CFG 1 (docs/MODEL_DEFAULTS.md).",
-    "video": {"fps": 24, "seconds": 5, "fixedFps": true},
+    "video": {"fps": 24, "seconds": 5, "fixedFps": true, "roles": ["first", "last", "both", "reference"], "referenceMedia": ["image", "video", "audio"], "mixReferences": false, "lastAlone": true, "maxReferences": 12 },
     "architectures": ["minimax-h3"], "bases": ["MiniMax H3"],
     "model": [["video.patch.proj", "audio.patch.proj"]],
     "lora": [["token.refiner"], ["blocks.0.adaln.proj"], ["audio.patch.proj"], ["blocks.49.mlp.fc"], ["blocks.49.attn.out.proj"]]
@@ -297,7 +297,7 @@
     "components": {"audioVaes": ["ltx-2.3-audio-vae"], "textProjections": ["ltx-2.3-text-projection"]},
     "clipType": "ltxv", "textEncoders": ["gemma"], "textProjections": ["text_projection"], "vaes": ["video_vae"], "audioVaes": ["audio_vae"],
     "defaults": {"width": 1280, "height": 704, "steps": 8, "cfg": 1, "sampler": "euler_cfg_pp", "scheduler": "linear_quadratic"},
-    "video": {"fps": 24, "seconds": 5},
+    "video": {"fps": 24, "seconds": 5, "roles": ["first", "last", "both", "reference", "source"], "referenceMedia": ["image"], "mixReferences": true, "lastAlone": true, "maxReferences": 8 },
     "architectures": ["lightricks-ltx-video-2", "ltx-2"], "bases": ["LTX 2.3", "LTX 2.0"],
     "model": [["audio.to.video.attn"]],
     "lora": [["audio.attn1.to.k"], ["transformer.blocks.0.attn1.to.k", "transformer.blocks.9.attn2.to.v"]]
@@ -307,7 +307,7 @@
     "components": {"textEncoders": ["umt5-xxl"], "vaes": ["wan-2.1-vae"]},
     "clipType": "wan", "textEncoders": ["umt5"], "vaes": ["wan_2.1_vae", "wan2.1_vae"],
     "defaults": { "width": 720, "height": 1280, "steps": 4, "cfg": 1, "sampler": "euler", "scheduler": "simple" },
-    "video": {"fps": 16, "seconds": 5, "lowModel": ["high", "low"]},
+    "video": {"fps": 16, "seconds": 5, "lowModel": ["high", "low"], "roles": ["first", "last", "both"], "referenceMedia": [], "mixReferences": true, "lastAlone": false, "maxReferences": 0 },
     "architectures": ["wan-2"], "bases": ["Wan 2.1", "Wan 2.2"],
     "model": [["blocks.0.cross.attn.k", "patch.embedding"]],
     "lora": [["blocks.0.cross.attn.k"]]

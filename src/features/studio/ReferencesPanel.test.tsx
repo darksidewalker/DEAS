@@ -161,6 +161,29 @@ test('Director reference packs: saved in the node\'s files format (type, then la
  expect(fromPack({items:[]},'/env/in')).toBeNull();
 });
 
+test('a refused role/pack replacement never clears the retained RefMods',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ const pack={dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items:[{type:'image',value:'a.png',_rank:0}],refmods:[]};
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_json_open'?JSON.stringify(pack):[{name:'a.png',path:'/in/a.png',kind:'file',symlink:false,media:'image',size:1,modified:1}]);
+ const onAdd=vi.fn(()=>false),onRefmods=vi.fn();
+ render(<I18nProvider><ReferencesPanel family="minimax-h3" seconds={5} refs={[ref('old.png','image')]} onChange={vi.fn()} onAdd={onAdd} inputRoot="/in" label={r=>r.item.name} onInsert={vi.fn()} refmods={[{name:'retained',strength:1,description:''}]} onRefmods={onRefmods}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ await waitFor(()=>expect(onAdd).toHaveBeenCalledTimes(1));
+ expect(onRefmods).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Remove reference old.png'})).toBeTruthy();
+});
+
+test.each(['accept','refuse','throw'] as const)('atomic pack callback owns the final pair without intermediate standalone callbacks (%s)',async outcome=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,items:[],refmods:[{slot:1,name:'new',strength:0.5}]}):[]);
+ const onAdd=vi.fn(),onRefmods=vi.fn(),onPack=vi.fn(()=>{if(outcome==='throw')throw Error('pack boundary failed');return outcome==='accept';});
+ render(<I18nProvider><ReferencesPanel family="minimax-h3" seconds={5} refs={[ref('old.png','image')]} onChange={vi.fn()} onAdd={onAdd} onPack={onPack} inputRoot="/in" label={r=>r.item.name} onInsert={vi.fn()} refmods={[{name:'old',strength:1,description:''}]} onRefmods={onRefmods}/></I18nProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ await waitFor(()=>expect(onPack).toHaveBeenCalledWith([],[expect.objectContaining({name:'new',strength:0.5})],true));
+ expect(onAdd).not.toHaveBeenCalled();expect(onRefmods).not.toHaveBeenCalled();
+ if(outcome==='throw')expect(screen.getByRole('alert').textContent).toContain('pack boundary failed');
+ if(outcome==='refuse')expect(screen.queryByRole('status')).toBeNull();
+});
+
 test('pack Save/Load go through the native JSON dialogs; missing files are reported, not added; Clear empties the list',async()=>{
  vi.mocked(isTauri).mockReturnValue(true);
  const pack={dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items:[{type:'image',value:'a.png',_rank:0},{type:'video',value:'gone.mp4',_rank:0,media_mode:'video_audio'}]};

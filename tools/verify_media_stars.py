@@ -195,7 +195,7 @@ def run_case(browser, width):
     results = [bottom_bounds(page, 'browsed-image', width)]
     menu_bounds(page, width, 'browsed')
     page.get_by_label('Fixture language', exact=True).select_option('de')
-    expect(preview_tools.locator('[data-use-input]')).to_have_text('Als Eingabe verwenden')
+    expect(preview_tools.locator('[data-use-input]')).to_have_text('Als zu bearbeitendes Bild verwenden')
     translated = bottom_bounds(page, 'browsed-image-German', width)
     if width == 390:
         assert len(translated['rows']) > 1, ('longer German controls must wrap', translated)
@@ -282,7 +282,8 @@ def run_case(browser, width):
     retained_geometry(page, editor, base)
     results.append(bottom_bounds(page, 'retained-after-result', width))
     # Last frame is image-only and needs the existing supported video family.
-    page.locator('.wb-pipeline select').select_option('i2v')
+    page.locator('.wb-pipeline select').select_option('video')
+    page.locator('.media-list').get_by_role('button', name='fixture.png', exact=True).click()
     # i2v image actions mirror the Media menu: first frame, last frame, both.
     last = page.locator('.wb-stage [data-media-tools]:visible [data-media-action]').nth(1)
     expect(last).to_be_enabled()
@@ -291,10 +292,11 @@ def run_case(browser, width):
     expect(last).not_to_have_text(label)
     results.append(bottom_bounds(page, 'image-last-frame-eligible', width))
     page.locator('.media-list').get_by_role('button', name='clip.webm', exact=True).click()
-    expect(stage_tools.locator('[data-edit], [data-view-full], [data-media-action]')).to_have_count(0)
-    stage_tools.locator('[data-use-input]').click()
+    expect(stage_tools.locator('[data-edit], [data-view-full]')).to_have_count(0)
+    expect(stage_tools.get_by_role('button', name='Use as source video', exact=True)).to_be_enabled()
+    stage_tools.get_by_role('button', name='Use as source video', exact=True).click()
     expect(page.locator('.wb-stage [data-native-video]:visible')).to_have_count(1)
-    expect(page.locator('.wb-stage [data-media-tools]:visible [data-edit], .wb-stage [data-media-tools]:visible [data-view-full], .wb-stage [data-media-tools]:visible [data-media-action]')).to_have_count(0)
+    expect(page.locator('.wb-stage [data-media-tools]:visible [data-edit], .wb-stage [data-media-tools]:visible [data-view-full]')).to_have_count(0)
     results.append(bottom_bounds(page, 'adopted-video', width, minimum_actions=1))
     assert not page.evaluate('window.__calls.some(c=>/native_job_prepare|native_job_submit|native_workbench_run|native_input_upload|native_mask_upload/.test(c.command))')
     assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
