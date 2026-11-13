@@ -3,6 +3,8 @@
 
 ## 0.2.26 work (unreleased)
 
+- **Quant Station Diffusers → H3 mode (cross-repo, numbers verified there).** Dry run on the real Regen LoRA: 258 modules (52 qkv / 52 out / 52 fc1 / 52 fc2 / 50 adaln curve), fused rank 1728 for qkv and 576 for the rest, names and shapes verified against the graviton header, exact estimate 8.77 GiB. SVD at energy 0.999: 2.35 GiB, median 3.15 % / worst 3.16 % relative error, 94 s CPU; with a rank cap of 512: 2.24 GiB, worst 5.92 %, 2 modules over 5 %. Both SVD outputs load in the owned ComfyUI env against a meta MiniMaxH3 model built from the graviton header: 258/258 targets patched, 0 unloaded keys. Exact-mode tensors sampled bit-identical to the DEAS converter output. Render quality unverified. Details in `/data/GitHub/dasiwa-quant-station/CHANGELOG.md` (worktree still uncommitted, mixed with a concurrent GRAVITON workstream).
+
 - **H3 picture-edit latent upscale — real GPU acceptance (closes the 0.2.25 gap).** Throwaway owned backend on 127.0.0.1:8199 (`systemd-run --user`, owned env ComfyUI `c5751c8`, DaSiWa nodes 0.5.47), RTX 5090, compiled `dump_h3_edit_graph` variants with real names: `dasiwa_minimax_h3_ref2va_v4_pruned_turbo_int8`, `qwen3vl_32b_minimax_h3_nvfp4_awq`, `minimax_h3_video_vae_fp16`, source 2528×1440 PNG, 8 steps euler/simple, shift 10/3, seed 42; upscale ×1.5, 1 refine step, denoise 0.2.
 
   | Variant | Result | Output | Wall time | Peak VRAM (whole GPU) |
