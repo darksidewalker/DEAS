@@ -1,6 +1,21 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
 
+## Release 0.2.25 (published)
+
+Published 2026-11-13 as `v0.2.25` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.25), rolling up the 0.2.25 section; tag on gitea and github resolves to source commit `9730fbbdb0f0ec93e1e2e14b3cf77d4710f37f5f` (tree `e4ed7f369a3cfae47b9ddfeb658afec9fee14330`). Local unsigned fallback build (`build-linux.sh --release`; Release/Verify workflows disabled), rustc 1.97.0, node v26.13.1.
+
+- Gates: `cargo fmt --check`, `cargo clippy --locked --release --lib --bins -D warnings`, serial `cargo test --locked -- --test-threads=1` (925 passed / 71 ignored), `cargo xwin check --all-targets`, `cargo xwin clippy --all-targets -D warnings`, `npm run test:core` 155/155, Vitest 88 files / 1821 tests on `5c5879c`; the two later frontend-only commits (`cd53e24`, `9730fbb`) re-ran tsc and Studio/Setup Vitest (42 files / 1207 tests). The default parallel `cargo test` race is tracked in PLAN §4.11.
+- Linux: glibc floor 2.39 (`objdump -T`), `ldd` with zero "not found", embedded `index-Ba_kA7YV.js` found in both binaries. Windows exe cross-built (benign `LNK4099`), not runtime-accepted.
+- Assets, hashed from the re-downloaded release (`gh release download`, `sha256sum -c SHA256SUMS` OK):
+
+```
+f44c93e1123f78d4c78a2d045e090fc7abd7dc6bf01fb1009be2d01c22eacaff  deas-linux-amd64
+58d056ff3b64ede4bd97289eb5402d0c3d524303613098d9e7ad6f7f16da9ae6  deas.exe
+76bdbfc5863b65cba0322cc4803fbbb49d540c33a59841cd35f76bd09dad1034  BUILD-MANIFEST.json
+0812e932824f849206832e9ecb6ed85b4b849e7549fffe429aadc0b5705ff37a  SHA256SUMS
+```
+
 ## H3 image latent upscale, reference paste-to-replace, preview toolbar wrap (0.2.25)
 
 - **H3 image latent upscale.** Source: `src-tauri/src/jobs.rs::h3_edit` (`U` after sampler `5`, `SEP.av_latent = ["U",0]`), image validation in `compile` (`latentUpscale` only with `h3Edit`, `family:"minimax-h3"`, no `inputMask`; shape/limits via `jobs_video::validate_latent_upscale`), `jobs_video::h3_upscale_node` (shared with the video `U`; Continuity/Director/VAE links added only there); `Workbench.tsx` (`h3MaskedEdit`, `latent`, `latentNodes` without the video gate for images, `buildImageIntent`, history restore), `RunPlan.tsx` (`latentUp`/`latentOut`), `history.ts`.
