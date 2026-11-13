@@ -4237,7 +4237,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(prompt().endsWith('[Shot 1] ')).toBe(true);
 });
 
-test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit: shifts instead of denoise, no refine pass',async()=>{
+test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit: shifts, denoise 1 by default, references from <Picture 2>, no refine pass',async()=>{
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -4246,6 +4246,8 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-e',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
  localStorage.setItem('deas.pref.studio.run.post',JSON.stringify(true)); // refine after every run is on, but H3 skips it
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LoadImage','MiniMaxH3ReferenceToVideo']}});
+ vi.mocked(uploadInput).mockImplementation(async(_endpoint,path)=>`deas-inputs/${path.split('/').at(-1)}`);
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  choosePipe('Image → Image');
@@ -4253,7 +4255,12 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
  const img=await screen.findByRole('img',{name:'ref.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
- expect(screen.queryByLabelText('Denoise')).toBeNull();
+ // Full regeneration by default; below 1 the encoded source is kept (still path).
+ expect((screen.getByLabelText('Denoise') as HTMLInputElement).value).toBe('1');
+ promptDrop('image','/outside/jacket.png');promptDrop('image','/outside/pose.png');
+ // <Picture 1> is the edited picture, so references are numbered from 2.
+ expect(Array.from(document.querySelectorAll('[data-reference-controls] .wb-reference-position')).map(e=>e.textContent)).toEqual(['2','3']);
+ expect(document.querySelector('[data-reference-chip]')!.textContent).toContain('<Picture 2>');
  // H3 has no refine pass: More keeps the Refine entry, disabled with its reason.
  expect(screen.getByRole('button',{name:'Refine'})).toMatchObject({disabled:true,title:expect.stringContaining('MiniMax H3')});
  fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
@@ -4261,7 +4268,7 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
- expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3}});
+ expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',denoise:1,diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3},nativeImageReference:{method:'minimax-h3',images:['deas-inputs/jacket.png','deas-inputs/pose.png']}});
  expect(intent).not.toHaveProperty('refine');
 });
 

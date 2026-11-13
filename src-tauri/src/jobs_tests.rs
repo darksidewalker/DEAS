@@ -2501,6 +2501,121 @@ fn minimax_h3_edits_the_crop_as_first_frame_and_composites_frame_zero_back() {
     );
 }
 
+fn h3_still_intent() -> Value {
+    let mut i = intent();
+    i["checkpoint"] = json!("MiniMaxH3/ref2va.safetensors");
+    i["diffusion"] = json!({"textEncoder":"qwen3vl_32b_minimax_h3.safetensors","clipType":"minimax","vae":"MiniMaxH3/video_vae.safetensors"});
+    i["h3Edit"] = json!({"shiftVideo":10,"shiftAudio":3});
+    (i["width"], i["height"], i["steps"], i["scheduler"]) =
+        (json!(1024), json!(768), json!(8), json!("simple"));
+    i["inputImage"] = json!("src.png");
+    i["denoise"] = json!(1);
+    i["nativeImageReference"] = json!({"method":"minimax-h3","images":["jacket.png","pose.png"]});
+    i
+}
+
+#[test]
+fn minimax_h3_references_take_the_still_path_with_the_source_as_picture_one() {
+    let i = h3_still_intent();
+    let g = compile(&i).unwrap();
+    for gone in ["2", "3", "4", "HE", "QI", "X"] {
+        assert!(g.get(gone).is_none(), "{gone} left in the H3 still graph");
+    }
+    assert_eq!(
+        g["HR"],
+        json!({"class_type":"MiniMaxH3ReferenceToVideo","inputs":{"clip":["C",0],"vae":["V",0],"prompt":"a cat","width":1024,"height":768,"length":5,"ref_image_size":"match",
+            "ref_images.ref_image_0":["8",0],"ref_images.ref_image_1":["RI0",0],"ref_images.ref_image_2":["RI1",0]}})
+    );
+    assert_eq!(g["RI1"]["inputs"]["image"], "pose.png");
+    assert_eq!(g["9"]["inputs"]["pixels"], json!(["8", 0]));
+    assert_eq!(g["AS"]["inputs"], json!({"av_latent":["HR",1]}));
+    assert_eq!(
+        g["AC"]["inputs"],
+        json!({"samples":["AS",1],"dim":"x","index":0,"amount":2})
+    );
+    assert_eq!(
+        g["CA"]["inputs"],
+        json!({"video_latent":["9",0],"audio_latent":["AC",0]})
+    );
+    assert_eq!(g["B"]["inputs"]["conditioning"], json!(["HR", 0]));
+    assert_eq!(g["5"]["inputs"]["latent_image"], json!(["CA", 0]));
+    assert_eq!(g["Z"]["inputs"]["denoise"], json!(1.0));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["F", 0]));
+    let mut saver = g.clone();
+    civitai_saver(
+        &mut saver,
+        &json!(["DaSiWa_MetadataImageSaver", "DaSiWa_MetadataConfig"]),
+        &i,
+    );
+    assert_eq!(saver["M"]["inputs"]["node_positive"], json!(["HR", 0]));
+    assert_eq!(saver["M"]["inputs"]["text_positive"], "a cat");
+    assert!(saver["M"]["inputs"].get("node_negative").is_none());
+    // Masked + partial denoise: the noise mask stays on the encoded crop, the intent denoise applies.
+    let mut masked = i.clone();
+    masked["denoise"] = json!(0.6);
+    masked["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    masked["inpaintCrop"] =
+        json!({"x":40,"y":20,"width":120,"height":80,"targetWidth":1024,"targetHeight":768});
+    let g = compile(&masked).unwrap();
+    assert_eq!(
+        g["HR"]["inputs"]["ref_images.ref_image_0"],
+        json!(["IS", 0])
+    );
+    assert_eq!(g["X"]["inputs"]["samples"], json!(["9", 0]));
+    assert_eq!(g["CA"]["inputs"]["video_latent"], json!(["X", 0]));
+    assert_eq!(g["Z"]["inputs"]["denoise"], json!(0.6));
+    assert_eq!(g["IR"]["inputs"]["image"], json!(["F", 0]));
+    assert_eq!(g["7"]["inputs"]["images"], json!(["Y", 0]));
+    let mut most = i.clone();
+    most["nativeImageReference"]["images"] =
+        json!((0..8).map(|n| format!("r{n}.png")).collect::<Vec<_>>());
+    assert_eq!(
+        compile(&most).unwrap()["HR"]["inputs"]["ref_images.ref_image_8"],
+        json!(["RI7", 0])
+    );
+    for (k, v) in [
+        (
+            "images",
+            json!((0..9).map(|n| format!("r{n}.png")).collect::<Vec<_>>()),
+        ),
+        ("images", json!(["../x.png"])),
+        ("method", json!("qwen-image-2.1")),
+    ] {
+        let mut bad = i.clone();
+        bad["nativeImageReference"][k] = v;
+        assert!(compile(&bad).unwrap_err().contains("nativeImageReference"));
+    }
+    let mut foreign = qwen_intent();
+    foreign["nativeImageReference"]["method"] = json!("minimax-h3");
+    assert!(
+        compile(&foreign).is_err(),
+        "minimax-h3 outside the minimax encoder"
+    );
+}
+
+/// Auto Refine passes (denoise 0.25 with a mask) used to regenerate the whole crop at denoise 1.
+#[test]
+fn minimax_h3_partial_denoise_without_references_keeps_the_mask_and_the_intent_denoise() {
+    let mut i = h3_still_intent();
+    i.as_object_mut().unwrap().remove("nativeImageReference");
+    i["denoise"] = json!(0.25);
+    i["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    let g = compile(&i).unwrap();
+    assert_eq!(g["Z"]["inputs"]["denoise"], json!(0.25));
+    assert_eq!(g["X"]["class_type"], "SetLatentNoiseMask");
+    assert_eq!(g["CA"]["inputs"]["video_latent"], json!(["X", 0]));
+    assert_eq!(
+        g["HR"]["inputs"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with("ref_images."))
+            .count(),
+        1
+    );
+    assert!(g.get("HE").is_none());
+}
+
 #[test]
 fn inpaint_crop_and_blur_use_model_resolution_and_restore_original_coordinates() {
     let mut i = intent();
@@ -4416,7 +4531,17 @@ fn dump_h3_edit_graph() {
     i["inputImage"] = json!("ref.png");
     i["denoise"] = json!(1);
     i["inputResize"] = json!({"width":1024,"height":768,"crop":"center"});
-    println!("{}", json!({"h3_edit": compile(&i).unwrap()}));
+    // Fixture names the validator swaps for installed models/inputs.
+    let mut refs = i.clone();
+    refs["nativeImageReference"] = json!({"method":"minimax-h3","images":["first.png","ref.png"]});
+    let mut masked = refs.clone();
+    masked.as_object_mut().unwrap().remove("inputResize");
+    masked["denoise"] = json!(0.6);
+    masked["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    println!(
+        "{}",
+        json!({"h3_edit": compile(&i).unwrap(), "h3_edit_refs": compile(&refs).unwrap(), "h3_edit_refs_mask": compile(&masked).unwrap()})
+    );
 }
 
 #[test]

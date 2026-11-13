@@ -37,8 +37,10 @@ pub use workbench::{native_workbench_current, native_workbench_poll, native_work
 
 const RESPONSE_LIMIT: usize = 1024 * 1024;
 /// MiniMax H3 image edit (the Director's "Image Inpaint" mode, built from the native node it calls).
-pub(crate) const H3_EDIT_NODES: [&str; 7] = [
+pub(crate) const H3_EDIT_NODES: [&str; 9] = [
     "MiniMaxH3ImageToVideo",
+    "MiniMaxH3ReferenceToVideo",
+    "LatentCut",
     "MiniMaxH3SigmaShift",
     "BasicScheduler",
     "BasicGuider",
@@ -647,11 +649,13 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
                 (Some("qwen-image-2.1"), Some("qwen_image"))
                     | (Some("krea-2"), Some("krea2"))
                     | (Some("moss-image"), Some("moss_image"))
+                    | (Some("minimax-h3"), Some("minimax"))
             )
             || r.as_object().is_none_or(|o| o.len() != 2)
             || !r["images"].as_array().is_some_and(|v| {
+                // H3: 9 core reference slots, the edited picture always takes <Picture 1>.
                 !v.is_empty()
-                    && v.len() <= 4
+                    && v.len() <= if r["method"] == "minimax-h3" { 8 } else { 4 }
                     && v.iter().all(|e| e.as_str().is_some_and(model_name))
             })
             || (r["method"] == "qwen-image-2.1"
@@ -659,7 +663,7 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
                     .iter()
                     .any(|k| i[*k].as_u64().is_none_or(|n| n % 32 != 0)))
     }) {
-        return Err("Invalid nativeImageReference: ordered 1..4 safe image names, method matching qwen-image-2.1/qwen_image, krea-2/krea2 or moss-image/moss_image; Qwen dimensions aligned to 32".into());
+        return Err("Invalid nativeImageReference: ordered 1..4 safe image names (1..8 for minimax-h3), method matching qwen-image-2.1/qwen_image, krea-2/krea2, moss-image/moss_image or minimax-h3/minimax; Qwen dimensions aligned to 32".into());
     }
     for (field, min, max, integer, alignment) in [
         ("seed", 0.0, 9_007_199_254_740_991.0, true, 1.0),
@@ -1074,7 +1078,8 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
             }
         }
     }
-    if let Some(r) = native_reference {
+    // H3 references are built inside `h3_edit` (MiniMaxH3ReferenceToVideo).
+    if let Some(r) = native_reference.filter(|r| r["method"] != "minimax-h3") {
         let qwen = r["method"] == "qwen-image-2.1";
         let mut inputs = json!({"clip":graph["2"]["inputs"]["clip"],
             "prompt":graph["2"]["inputs"]["text"],"negative_prompt":graph["3"]["inputs"]["text"]});
@@ -1117,6 +1122,11 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
 /// encoded becomes the first frame of a native 5-frame pass (prompt encoded by `MiniMaxH3ImageToVideo`, no negative),
 /// sampled with the H3 sigma shift, and frame 0 of the decode replaces the image decode. Mask, crop, layers and
 /// the composite stay as built, so only the painted area changes.
+///
+/// With references or a denoise below 1 it takes the still path instead: the picture is `<Picture 1>` of
+/// `MiniMaxH3ReferenceToVideo` (user references follow), and its H3 VAE encode (with the inpaint noise mask)
+/// joins the still audio latent (t=2, the core p-h3-image convention) as a 1-frame AV latent, so the intent
+/// denoise applies.
 fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
     let pixels = graph["9"]["inputs"]["pixels"].clone();
     let c = &i["inpaintCrop"];
@@ -1135,9 +1145,19 @@ fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
     let clip = graph["2"]["inputs"]["clip"].clone();
     let vae = graph["6"]["inputs"]["vae"].clone();
     let text = graph["2"]["inputs"]["text"].clone();
+    let refs = i["nativeImageReference"]["images"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let denoise = i["denoise"].as_f64().unwrap_or(1.0);
+    let still = !refs.is_empty() || denoise < 1.0;
     let g = graph.as_object_mut().unwrap();
-    for id in ["2", "3", "9", "X"] {
-        g.remove(id);
+    for id in if still {
+        &["2", "3"][..]
+    } else {
+        &["2", "3", "9", "X"]
+    } {
+        g.remove(*id);
     }
     // The decode feeds every former consumer of node 6 (saver, crop rescale, composite) through frame 0.
     for node in g.values_mut() {
@@ -1147,7 +1167,32 @@ fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
             }
         }
     }
-    g.insert("HE".into(), json!({"class_type":"MiniMaxH3ImageToVideo","inputs":{"clip":clip,"vae":vae,"prompt":text,"width":w,"height":hgt,"length":5,"first_frame":pixels}}));
+    let (cond, latent) = if still {
+        let mut inputs = json!({"clip":clip,"vae":vae,"prompt":text,"width":w,"height":hgt,"length":5,"ref_image_size":"match","ref_images.ref_image_0":pixels});
+        for (n, image) in refs.iter().enumerate() {
+            let id = format!("RI{n}");
+            g.insert(
+                id.clone(),
+                json!({"class_type":"LoadImage","inputs":{"image":image}}),
+            );
+            inputs[format!("ref_images.ref_image_{}", n + 1)] = json!([id, 0]);
+        }
+        g.insert(
+            "HR".into(),
+            json!({"class_type":"MiniMaxH3ReferenceToVideo","inputs":inputs}),
+        );
+        g.insert(
+            "AS".into(),
+            json!({"class_type":"LTXVSeparateAVLatent","inputs":{"av_latent":["HR",1]}}),
+        );
+        g.insert("AC".into(), json!({"class_type":"LatentCut","inputs":{"samples":["AS",1],"dim":"x","index":0,"amount":2}}));
+        let video = if g.contains_key("X") { "X" } else { "9" };
+        g.insert("CA".into(), json!({"class_type":"LTXVConcatAVLatent","inputs":{"video_latent":[video,0],"audio_latent":["AC",0]}}));
+        (json!(["HR", 0]), json!(["CA", 0]))
+    } else {
+        g.insert("HE".into(), json!({"class_type":"MiniMaxH3ImageToVideo","inputs":{"clip":clip,"vae":vae,"prompt":text,"width":w,"height":hgt,"length":5,"first_frame":pixels}}));
+        (json!(["HE", 0]), json!(["HE", 1]))
+    };
     g.insert("SS".into(), json!({"class_type":"MiniMaxH3SigmaShift","inputs":{"model":model,"shift_video":h["shiftVideo"],"shift_audio":h["shiftAudio"]}}));
     g.insert(
         "N".into(),
@@ -1157,12 +1202,12 @@ fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
         "Q".into(),
         json!({"class_type":"KSamplerSelect","inputs":{"sampler_name":i["sampler"]}}),
     );
-    g.insert("Z".into(), json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":1.0}}));
+    g.insert("Z".into(), json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":if still { json!(denoise) } else { json!(1.0) }}}));
     g.insert(
         "B".into(),
-        json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":["HE",0]}}),
+        json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":cond}}),
     );
-    g.insert("5".into(), json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["B",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":["HE",1]}}));
+    g.insert("5".into(), json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["B",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":latent}}));
     g.insert(
         "SEP".into(),
         json!({"class_type":"LTXVSeparateAVLatent","inputs":{"av_latent":["5",0]}}),
@@ -1281,10 +1326,13 @@ fn civitai_saver(graph: &mut Value, nodes: &Value, intent: &Value) {
         return;
     }
     graph["M"] = json!({"class_type":"DaSiWa_MetadataConfig","inputs":{"save_workflow":true,"model_hash":"","node_positive":["2",0],"node_negative":["3",0],"node_model":["1",0],"node_latent":["5",0]}});
-    if let Some(h3) = graph.get("HE") {
-        // The H3 edit removed both text encoders; the prompt is encoded by the I2V node, and there is no negative.
+    if let Some((id, h3)) = ["HE", "HR"]
+        .into_iter()
+        .find_map(|id| graph.get(id).map(|n| (id, n.clone())))
+    {
+        // The H3 edit removed both text encoders; the prompt is encoded by the I2V/reference node, and there is no negative.
         let prompt = h3["inputs"]["prompt"].clone();
-        graph["M"]["inputs"]["node_positive"] = json!(["HE", 0]);
+        graph["M"]["inputs"]["node_positive"] = json!([id, 0]);
         graph["M"]["inputs"]["text_positive"] = prompt;
         graph["M"]["inputs"]
             .as_object_mut()

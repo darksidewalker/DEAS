@@ -415,6 +415,8 @@
   "studio.run.reference.position": "参考图 {position}",
   "studio.run.reference.chip": "{name} 参考图",
   "studio.run.reference.max": "参考图片：{count}/{max}",
+  "studio.run.reference.h3Tags": "<Picture 1> 是被编辑的图片；参考图从 <Picture 2> 开始",
+  "studio.run.reference.h3Area": "MiniMax H3 参考编辑在至少 2 MP 的画布上效果最佳",
   "studio.run.reference.remove": "移除参考图",
   "studio.run.reference.vision": "CLIP 视觉模型",
   "studio.run.reference.needs": "需要一个 CLIP-ViT-bigG 视觉模型——请通过下载安装（Hugging Face：comfyanonymous/clip_vision_g）。",

@@ -415,6 +415,8 @@
   "studio.run.reference.position": "Referans {position}",
   "studio.run.reference.chip": "{name} referansı",
   "studio.run.reference.max": "Referans görseller: {count}/{max}",
+  "studio.run.reference.h3Tags": "<Picture 1> düzenlenen resimdir; referanslar <Picture 2> ile başlar",
+  "studio.run.reference.h3Area": "MiniMax H3 referanslı düzenleme en az 2 MP tuvalde en iyi sonucu verir",
   "studio.run.reference.remove": "Referansı kaldır",
   "studio.run.reference.vision": "CLIP-görüş modeli",
   "studio.run.reference.needs": "Bir CLIP-ViT-bigG görüş modeli gerekir — İndirmeler üzerinden kurun (Hugging Face: comfyanonymous/clip_vision_g).",

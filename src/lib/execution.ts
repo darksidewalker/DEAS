@@ -43,7 +43,7 @@ export interface DiagnosticImageIntentV1 {
   /** SDXL ReVision (checkpoint-loader families only): a reference picture from the backend input folder, encoded by a CLIP-vision model and blended into the positive conditioning at `strength`. */
   readonly imageReference?: { readonly visionModel: string; readonly images: readonly { readonly image: string; readonly strength: number }[] };
   /** Family-native conditioning; ordered references, no CLIP-vision model or strength. */
-  readonly nativeImageReference?: { readonly method: 'qwen-image-2.1' | 'krea-2' | 'moss-image'; readonly images: readonly string[] };
+  readonly nativeImageReference?: { readonly method: 'qwen-image-2.1' | 'krea-2' | 'moss-image' | 'minimax-h3'; readonly images: readonly string[] };
   /** Workbench Options: model patches (one attention backend, step cache, torch.compile) and tiled VAE. */
   readonly options?: RunOptions;
   /** Model-fixed schedule (steps + 1 values, descending to 0): ManualSigmas → SamplerCustomAdvanced replaces KSampler; `scheduler` is then unused. */
@@ -65,7 +65,10 @@ export const nativeImageReferenceEncoders = Object.freeze({
   'qwen-image-2.1': 'TextEncodeQwenImage21',
   'krea-2': 'DEAS_ImagePromptEncode',
   'moss-image': 'DEAS_ImagePromptEncode',
+  'minimax-h3': 'MiniMaxH3ReferenceToVideo',
 } as const);
+/** H3 has 9 core reference slots; the edited picture is always `<Picture 1>`. */
+export const nativeImageReferenceLimit = (method: string | undefined): number => method === 'minimax-h3' ? 8 : 4;
 
 export interface RunOptions {
   /** `ModelAttentionBackend` choice; exclusive with `sage`. */
@@ -297,10 +300,10 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     if (Object.hasOwn(input, 'imageReference') || !isRecord(d)
       || !isRecord(r) || Object.keys(r).length !== 2
       || !((r.method === 'qwen-image-2.1' && d.clipType === 'qwen_image')
-        || (r.method === 'krea-2' && d.clipType === 'krea2') || (r.method === 'moss-image' && d.clipType === 'moss_image'))
-      || !Array.isArray(r.images) || r.images.length < 1 || r.images.length > 4 || !Array.from(r.images).every(safeModel)
+        || (r.method === 'krea-2' && d.clipType === 'krea2') || (r.method === 'moss-image' && d.clipType === 'moss_image') || (r.method === 'minimax-h3' && d.clipType === 'minimax'))
+      || !Array.isArray(r.images) || r.images.length < 1 || r.images.length > nativeImageReferenceLimit(r.method as string) || !Array.from(r.images).every(safeModel)
       || (r.method === 'qwen-image-2.1' && ((input.width as number) % 32 !== 0 || (input.height as number) % 32 !== 0))) {
-      invalid('nativeImageReference', 'Invalid native image reference.', 'Use 1..4 safe image names and a method matching the diffusion encoder: qwen-image-2.1/qwen_image, krea-2/krea2 or moss-image/moss_image. Qwen dimensions must be aligned to 32.');
+      invalid('nativeImageReference', 'Invalid native image reference.', 'Use 1..4 safe image names (1..8 for minimax-h3) and a method matching the diffusion encoder: qwen-image-2.1/qwen_image, krea-2/krea2, moss-image/moss_image or minimax-h3/minimax. Qwen dimensions must be aligned to 32.');
     }
   }
   const prefix = input.outputPrefix;
@@ -531,7 +534,8 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
     if (graph['3'].class_type === 'CLIPTextEncode') graph['3']={...graph['3'],inputs:{...graph['3'].inputs,text:['WP',1]}};
     if (graph.M) graph.M={...graph.M,inputs:{...graph.M.inputs,text_positive:['WP',0],text_negative:['WP',1]}};
   }
-  if (intent.nativeImageReference) {
+  // MiniMax H3 references are part of the native H3 edit graph (jobs.rs::h3_edit), not a prompt-encoder swap.
+  if (intent.nativeImageReference && intent.nativeImageReference.method !== 'minimax-h3') {
     const graph = result.graph as Record<string, ApiNode>;
     const qwen = intent.nativeImageReference.method === 'qwen-image-2.1';
     const inputs: Record<string, string | number | boolean | ApiLink> = {

@@ -420,6 +420,8 @@
   "studio.run.reference.dlAsk": "No CLIP vision model installed. Download clip_vision_g (CLIP-ViT-bigG fp16, 3.7 GB) from Hugging Face into models/clip_vision?",
   "studio.run.reference.strength": "Reference strength",
   "studio.run.reference.max": "Reference pictures: {count} of {max}",
+  "studio.run.reference.h3Tags": "<Picture 1> is the picture you edit; references follow from <Picture 2>",
+  "studio.run.reference.h3Area": "MiniMax H3 reference edits work best on a canvas of at least 2 MP",
   "studio.run.negative": "Negative prompt",
   "studio.run.prompt.expand": "Expand {name} into a floating editor",
   "studio.run.prompt.close": "Close editor",

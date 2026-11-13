@@ -1,5 +1,9 @@
 # News
 
+## 0.2.25 BETA (unreleased)
+
+- MiniMax H3 Image → Image can use up to 8 reference pictures (`<Picture 2>` onward; the edited picture is `<Picture 1>`), plus a Denoise control (default 1.0). SAM Auto Refine on H3 now honours its denoise.
+
 ## 0.2.24 BETA
 
 - The Comfy tab accepts native workflow/image drops, including images dropped onto an existing node.
@@ -40,7 +44,7 @@
 - **Arrow keys in the full-window viewer** step through the finished pictures of the queue, Original and Processed included.
 - **Export without metadata…** saves a copy with no prompt, workflow or settings; pixels stay byte-identical, videos and audio are remuxed without re-encoding.
 - **Open in ComfyUI and the metadata pane work again with newer ComfyUI frontends** (frontend 1.57 changed its app export).
-- **Create RefMods from the References tab**, and RefMods in your own models folder are now found by the owned backend. [H3](VIDEO-MINIMAX-H3.md).
+- **Create RefMods from the References tab**, and RefMods in your own models folder are now found by the owned backend. [Studio](STUDIO.md).
 - **Stop asks only when there is more than one thing to stop**, and its first item stops the run that is generating.
 - **Switching between pipelines of the same kind keeps your prompt.**
 - **Chat can run on your local GGUF models**, and SAM Auto Refine shows its passes in the queue.

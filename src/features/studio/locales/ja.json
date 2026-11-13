@@ -415,6 +415,8 @@
   "studio.run.reference.position": "参照 {position}",
   "studio.run.reference.chip": "{name} を参照",
   "studio.run.reference.max": "参照画像：{count}/{max}",
+  "studio.run.reference.h3Tags": "<Picture 1> は編集する画像です。参照画像は <Picture 2> から続きます",
+  "studio.run.reference.h3Area": "MiniMax H3 の参照編集は 2 MP 以上のキャンバスで最もよく機能します",
   "studio.run.reference.remove": "参照を削除",
   "studio.run.reference.vision": "CLIPビジョンモデル",
   "studio.run.reference.needs": "CLIP-ViT-bigGビジョンモデルが必要です。ダウンロード（Hugging Face: comfyanonymous/clip_vision_g）でインストールしてください。",

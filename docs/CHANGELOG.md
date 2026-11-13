@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.25 BETA (unreleased)
+
+- **MiniMax H3 image edit with multiple references.** H3 Image → Image accepts up to 8 prompt references (`nativeImageReference` method `minimax-h3`). The edited picture is `<Picture 1>` and references follow from `<Picture 2>`; thumbnails show those numbers. With references, the edit runs through core `MiniMaxH3ReferenceToVideo` on a one-frame still AV latent (H3 VAE encode + still audio t=2 via `LatentCut` + `LTXVConcatAVLatent`) instead of the 5-frame first-frame pass; masks and *Inpaint only masked* keep working. Without references at denoise 1.0 the graph stays byte-identical. Only core nodes are used.
+- **H3 edits get a Denoise control.** Default 1.0 (full regeneration, the reference workflow's mode); below 1.0 keeps the composition. Stored separately from the other pipelines' denoise, so the H3 default stays 1.0. A Run Plan notice recommends at least 2 MP with references.
+- **Fix: SAM Auto Refine ignored its denoise on H3.** Every H3 pass regenerated the crop at denoise 1.0 and dropped the latent noise mask. H3 passes below 1.0 now take the still path, keep `SetLatentNoiseMask` and use the pass denoise (default 0.25).
+
 ## 0.2.24 BETA
 
 - **Linux: external file drags no longer show a blocked cursor.** The native video layer above the web view stayed visible even with no video showing and swallowed every external drag before WebKit saw it (Comfy tab and all other drop zones). It is now shown only while a native video surface is visible.

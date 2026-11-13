@@ -65,7 +65,7 @@ for family, g in graphs.items():
     text = json.dumps(g)
     for a, b in swap.items():
         text = text.replace(json.dumps(a)[1:-1], b.replace('\\', '\\\\'))
-    text = text.replace('"ref.png"', json.dumps(image)).replace('"first.png"', json.dumps(image)).replace('"deas-inputs/a.png"', json.dumps(image))
+    text = text.replace('"ref.png"', json.dumps(image)).replace('"first.png"', json.dumps(image)).replace('"deas-inputs/a.png"', json.dumps(image)).replace('"deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png"', json.dumps(image))
     g = json.loads(text)
     result = loop.run_until_complete(execution.validate_prompt('deas-probe', g, None))
     valid, error, outputs, node_errors = result[0], result[1], result[2], result[3]
