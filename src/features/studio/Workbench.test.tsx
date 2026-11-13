@@ -394,7 +394,7 @@ test('checkpoint picker filters mixed inventories on image/video pipeline change
  fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'t2v'}});
  expect(values()).toEqual(['video.safetensors']);expect(picker.value).toBe('video.safetensors');
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'video draft'}});
- fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'t2i'}});
+ fireEvent.change(document.querySelector('[data-pipeline]')!,{target:{value:'image'}});
  expect(values()).toEqual(['image.safetensors','unknown.safetensors']);expect(picker.value).toBe('unknown.safetensors');
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','  image draft\n');
  expect(screen.getByLabelText('Negative prompt')).toHaveProperty('value','');
@@ -1737,7 +1737,8 @@ test('Linux native input never creates a WebKit video decoder',async()=>{
 const adopt=()=>fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-use-input]')!);
 const dock=(name:string)=>{if(document.querySelector('.references-overlay[open]'))fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Close'}));fireEvent.click(name==='References'?document.querySelector('[data-open-references]')!:screen.getByRole('tab',{name}));};
 // The pipeline picker is one select at the top of the settings; disabled options name pipelines without a runnable model.
-const pipe=(name:string)=>screen.getByRole('option',{name}) as HTMLOptionElement;
+// Text → Image and Image → Image are one Image pipeline; the picture to edit (adopt()) selects the edit mode.
+const pipe=(name:string)=>screen.getByRole('option',{name:name==='Text → Image'||name==='Image → Image'?'Image':name}) as HTMLOptionElement;
 const choosePipe=(name:string)=>fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:pipe(name).value}});
 // HTML5 drag of a dock tile onto the editor: the tile's dragstart fills a DataTransfer the drop reads back.
 const dropTile=(name:string)=>{const store:Record<string,string>={};const dt={clearData:()=>{for(const key of Object.keys(store))delete store[key];},setData:(k:string,v:string)=>{store[k]=v;},getData:(k:string)=>store[k]??'',get types(){return Object.keys(store);}};
@@ -2373,7 +2374,7 @@ test('selection changes do not erase an unrelated preparation error',async()=>{
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByText('Backend connection failed');
- fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:'i2i'}});
+ fireEvent.change(screen.getByRole('combobox',{name:'Pipeline'}),{target:{value:'t2v'}});
  expect(screen.getByRole('alert').textContent).toContain('Backend connection failed');
 });
 
@@ -2396,7 +2397,8 @@ test('dock clicks preview only and preserve the adopted editor until explicit re
  expect(full.style.transform).not.toBe(before);
  fireEvent.keyDown(window,{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();bounds.mockRestore();
  expect(document.querySelector('[data-browsed-preview]')).not.toBeNull();
- expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
+ // Previewing does not make a picture to edit: the Image pipeline stays text to image.
+ expect(document.querySelector('[data-edit][aria-pressed="true"]')).toBeNull();expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
  adopt();const img=screen.getByRole('img',{name:'one.png'});
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
@@ -2442,18 +2444,11 @@ test('session drafts restore last edited controls and prompts per full model pat
  sessionModel('folder/a.safetensors');
  // The checkpoint's settings return; the prompts on screen stay.
  expect(captureStudioSettings()).toMatchObject(Object.fromEntries(Object.entries({...a,positive:'B draft',negative:'B negative'}).map(([key,value])=>['studio.run.'+key,value])));
- choosePipe('Image → Image');sessionSettings({positive:'i2i draft',steps:53});
- sessionModel('other/a.safetensors');sessionSettings({positive:'i2i B',steps:55});
- choosePipe('Text → Image');
- expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','folder/a.safetensors');
- expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i B'); // same output kind: the prompt on screen carries over
- expect(screen.getByLabelText('Steps')).toHaveProperty('value','37');
+ // Text → Image and Image → Image are one Image pipeline with one draft per model: nothing switches.
  choosePipe('Image → Image');
- expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','other/a.safetensors');
- expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i B');
- sessionModel('folder/a.safetensors');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i B');
- sessionModel('other/a.safetensors');choosePipe('Text → Image');sessionModel('other/a.safetensors');
- expect(screen.getByLabelText('Prompt')).toHaveProperty('value','i2i B');
+ expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','folder/a.safetensors');
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','B draft');
+ expect(screen.getByLabelText('Steps')).toHaveProperty('value','37');
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
 test('session draft cache resets on a fresh Workbench session without adding storage records',async()=>{
@@ -2883,14 +2878,12 @@ test.each([
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false});
  vi.mocked(pollWorkbench).mockResolvedValue(collection([{id:'job-2',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false}]));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input,output:'/env/ComfyUI/output'}}/></I18nProvider>);
- await screen.findByRole('option',{name:'Text → Image',selected:true});
+ await screen.findByRole('option',{name:'Image',selected:true});
  expect(pipe('Image → Image').disabled).toBe(false);
  for(const name of ['Text → Video','Image → Video','Video → Video','Multi-reference → Video'])expect(pipe(name).disabled).toBe(true);
  choosePipe('Image → Image');
- expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
- // The missing pick is named once, on the preview, not in the settings column.
- expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick an image from the Input or Output folder in the Media dock.');
- expect(screen.getAllByText('Pick an image from the Input or Output folder in the Media dock.').length).toBe(1);
+ // Without a picture to edit the Image pipeline is text to image: Run is open.
+ expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
  const ref=screen.getByRole('img',{name:'ref.png'});
@@ -2902,12 +2895,12 @@ test.each([
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'ref.png',denoise:0.4,checkpoint:'a.safetensors'});
- // ✕ on the preview drops the pick (and the shown job): the stage names the missing input again.
+ // ✕ on the preview drops the pick (and the shown job): the Image pipeline is back to text to image.
  fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
  expect(screen.queryByRole('img',{name:'ref.png'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Close preview'})).toBeNull();
  expect(screen.getByRole('button',{name:'ref.png'}).getAttribute('aria-current')).toBe('false');
- expect(within(screen.getByRole('region',{name:'Preview'})).getByRole('status').textContent).toBe('Pick an image from the Input or Output folder in the Media dock.');
+ expect(screen.queryByLabelText('Input scaling')).toBeNull();
 });
 
 test('IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view',async()=>{
@@ -2918,15 +2911,15 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
  let made=0;
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:`job-${++made}`,baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'succeeded',outputRoot:'/env/ComfyUI/output',outputs:[{filename:'DEAS_0001.png',subfolder:'',type:'output'}],error:null,generationReady:false,intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]} as JobStatus));
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
- await screen.findByRole('option',{name:'Text → Image',selected:true});
- fireEvent.click(await screen.findByRole('button',{name:'out.png'}));adopt();
- const img=screen.getByRole('img',{name:'out.png'});
- Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
+ await screen.findByRole('option',{name:'Image',selected:true});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByRole('img',{name:'DEAS_0001.png'});
- expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(true); // text pipeline: the render takes the stage
- choosePipe('Image → Image');
+ expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).not.toBe(false); // text to image: the render takes the stage
+ // Using a picture to edit switches the Image pipeline to editing.
+ fireEvent.click(screen.getByRole('button',{name:'out.png'}));adopt();
+ const img=screen.getByRole('img',{name:'out.png'});
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:640}});fireEvent.load(img);
  fireEvent.click(screen.getByRole('button',{name:/Succeeded/}));
  expect(document.querySelector('.wb-editor-host')?.hasAttribute('hidden')).toBe(false);
  expect(document.querySelector('.wb-stage')?.classList.contains('wb-split')).toBe(true);
@@ -2961,20 +2954,20 @@ test('a queue click only previews; Use these settings is the explicit restore',a
  choosePipe('Image → Image');sessionModel('folder/a.safetensors');sessionSettings({positive:'remembered i2i',steps:36});
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Run'}));
  await screen.findByRole('img',{name:'result.png'});fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
- choosePipe('Text → Image');sessionSettings({positive:'outgoing t2i',steps:49});fireEvent.click(screen.getByRole('button',{name:'Close preview'}));
+ choosePipe('Text → Image');sessionSettings({positive:'outgoing t2i',steps:49}); // ✕ above cleared the picture to edit: text to image
  const row=document.querySelector('[data-job-id="edit-job"] .wb-queue-select')!;
  fireEvent.click(row);
- expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','t2i');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','outgoing t2i');
+ expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','image');expect(screen.getByLabelText('Prompt')).toHaveProperty('value','outgoing t2i');
  expect(screen.getByLabelText('Steps')).toHaveProperty('value','49');
  fireEvent.contextMenu(row);
- expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','t2i');
+ expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','image');
  fireEvent.click(screen.getByRole('menuitem',{name:'Reuse prompt'}));
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','remembered i2i');
  expect(screen.getByLabelText('Steps')).toHaveProperty('value','49');
- expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','t2i');
+ expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','image');
  fireEvent.contextMenu(row);
  fireEvent.click(screen.getByRole('menuitem',{name:'Use these settings'}));
- await waitFor(()=>expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','i2i'));
+ await waitFor(()=>expect(document.querySelector('[data-pipeline]')).toHaveProperty('value','image'));
  await waitFor(()=>expect(screen.getByLabelText('Prompt')).toHaveProperty('value','remembered i2i'));
  expect(screen.getByLabelText('Steps')).toHaveProperty('value','36');
  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
@@ -3089,7 +3082,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
  expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({inputImage:'deas-inputs/shown.png',width:3968,height:2432});
  // Opt-in: every Run gets the refine pass at the upscaled grid size.
- choosePipe('Text → Image');expect(screen.getByRole('button',{name:'Refine'})).toBeTruthy(); // t2i checkpoints are image models too
+ for(let i=0;i<3&&screen.queryByLabelText('Input scaling');i++)fireEvent.click(screen.getByRole('button',{name:'Close preview'})); // no picture to edit: text to image
  fireEvent.click(screen.getByRole('checkbox',{name:'Refine / Upscale after every run'}));
  expect(screen.getByRole('tab',{name:'Post-Processing'}).querySelector('.wb-dock-badge')?.textContent).toBe('1');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));
@@ -3103,7 +3096,7 @@ test('IPC fixture: Post-process upscales the shown image alone, then the render;
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_ImagePostprocessGate','DaSiWaTiledDiffusion']}});
  cleanup();
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
- await screen.findByRole('option',{name:'Text → Image',selected:true});
+ await screen.findByRole('option',{name:'Image',selected:true});
  fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
  const box=await screen.findByRole('checkbox',{name:'Tiled refine (DaSiWa Tiled Diffusion)'});
  await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(false));
@@ -3376,7 +3369,7 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-3',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');
- expect((await screen.findByRole('button',{name:/h3\.safetensors/})).getAttribute('aria-disabled')).toBe('true'); // video family: no image recipe
+ expect((await screen.findByRole('button',{name:/h3\.safetensors/})).getAttribute('aria-disabled')).toBe('false'); // H3 edits pictures in the one Image pipeline
  expect(screen.getByRole('button',{name:/odd\.safetensors/}).getAttribute('aria-disabled')).toBe('true'); // unknown diffusion model
  fireEvent.click(screen.getByRole('button',{name:/k2\.safetensors/}));
  expect((screen.getByLabelText('Steps') as HTMLInputElement).value).toBe('8');
@@ -3423,21 +3416,22 @@ test('automatic aspect is confined to media pipelines and text pipelines ignore 
   {name:'portrait.mp4',path:'/env/input/portrait.mp4',kind:'file',symlink:false,media:'video',size:1,modified:2},
  ],truncated:false}));
  const {container}=render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
- await screen.findByRole('option',{name:'Text → Image',selected:true});
+ await screen.findByRole('option',{name:'Image',selected:true});
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  const aspectPicker=screen.getByLabelText('Aspect ratio') as HTMLSelectElement;
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  fireEvent.change(screen.getByLabelText('Resolution'),{target:{value:'model'}});
- fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));adopt();
+ // A preview alone is not a picture to edit: the Image pipeline stays text to image.
+ fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));
+ expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1024');
+ adopt();
  const image=screen.getByRole('img',{name:'wide.png'});
  Object.defineProperties(image,{naturalWidth:{value:1920},naturalHeight:{value:1080}});fireEvent.load(image);
- expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1024');
- choosePipe('Image → Image');
  expect(Array.from(aspectPicker.options,o=>o.value)).toContain('auto');
  expect(aspectPicker.value).toBe('auto');
  fireEvent.change(screen.getByLabelText('Input scaling'),{target:{value:'target'}});
  expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('1344');
- choosePipe('Text → Image');
+ fireEvent.click(screen.getByRole('button',{name:'Close preview'})); // clearing the picture to edit returns to text to image
  expect(Array.from(aspectPicker.options,o=>o.value)).not.toContain('auto');
  expect(aspectPicker.value).toBe('1:1');
  // Native: the stage video plays a blob of the asset bytes (WebKitGTK rejects asset:// media), fetched once per selection.
@@ -3527,7 +3521,7 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'wide.png',path:'/env/input/wide.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'resolution-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'fixture',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/input'}}/></I18nProvider>);
- await screen.findByRole('option',{name:'Text → Image',selected:true});
+ await screen.findByRole('option',{name:'Image',selected:true});
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'wide.png'}));adopt();
  choosePipe('Image → Image');
@@ -4298,6 +4292,13 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'Edit <Picture 1>:'}});
  fireEvent.click(within(dialog).getByRole('button',{name:'Insert <Picture 3> into the prompt'}));
  expect(screen.getByLabelText('Prompt')).toHaveProperty('value','Edit <Picture 1>: <Picture 3>');
+ // A reference card's "Use as picture to edit" swaps it with <Picture 1> (H3 keeps the old picture as that reference).
+ const cards=()=>Array.from(bar.querySelectorAll<HTMLElement>('[data-reference-controls]'));
+ fireEvent.click(cards()[1].querySelector<HTMLButtonElement>('[data-reference-make-source]')!);
+ expect(bar.querySelector<HTMLImageElement>('[data-reference-source] img')!.alt).toBe('ref.png');
+ expect(cards().map(c=>c.querySelector('img')!.alt)).toEqual(['coat.png','face.png']);
+ // One Image pipeline: no separate Text → Image / Image → Image entries.
+ expect(screen.queryByRole('option',{name:'Text → Image'})).toBeNull();expect(screen.queryByRole('option',{name:'Image → Image'})).toBeNull();
  fireEvent(dialog,new Event('cancel',{cancelable:true}));
  expect(screen.queryByRole('dialog',{name:'References'})).toBeNull();expect(document.activeElement).toBe(button);
  expect(button.textContent).toContain('2');
@@ -4329,7 +4330,7 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
  const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input',output:'/output'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
  await waitFor(()=>expect(scanModels).toHaveBeenCalled());
- if(family!=='image')choosePipe(family==='wan'?'Image → Video':'Text → Video');
+ if(family!=='image'){const name=family==='wan'?'Image → Video':'Text → Video';await waitFor(()=>expect(pipe(name).disabled).toBe(false));choosePipe(name);}
  if(family==='wan'){
   fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
   fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();

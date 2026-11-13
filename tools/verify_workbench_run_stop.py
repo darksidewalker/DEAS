@@ -270,8 +270,8 @@ def stop_case(browser, url, mode, screenshots, passed):
         load_model(page)
         page.locator('[data-run-positive]').fill('Valid draft')
         expect(page.locator('[data-run]')).to_be_enabled()
-        # A real missing-input validation blocks Run, not Stop for already-held jobs.
-        page.get_by_role('combobox', name='Pipeline', exact=True).select_option('i2i')
+        # A real canvas validation blocks Run, not Stop for already-held jobs.
+        page.get_by_label('Width', exact=True).fill('100')
         expect(page.locator('[data-run]')).to_be_disabled()
         stop = page.locator('[data-run-stop]')
         expect(stop).to_be_enabled()

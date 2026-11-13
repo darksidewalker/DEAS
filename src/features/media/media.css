@@ -69,4 +69,4 @@
 .media-mark { position: absolute; top: 4px; right: 4px; padding: 0 5px; border-radius: .3rem; background: var(--accent, #c8762c); color: var(--field); font-size: .62rem; font-weight: 600; pointer-events: none; white-space: nowrap; }
 .media-video-still { position: relative; display: block; flex: none; line-height: 0; }
 .media-library[data-view="list"] .media-video-badge { display: none; }
-.media-video-badge { position: absolute; right: 4px; bottom: 4px; padding: 0 .3rem; border-radius: .25rem; background: rgb(var(--shadow-rgb) / 0.7); color: #fff; font-size: .62rem; line-height: 1.1rem; pointer-events: none; }
+.media-video-badge { position: absolute; right: 4px; bottom: 4px; padding: 0 .3rem; border-radius: .25rem; border: 1px solid var(--blue-hi); background: var(--panel); color: var(--chalk); font-size: .62rem; line-height: 1.1rem; pointer-events: none; }

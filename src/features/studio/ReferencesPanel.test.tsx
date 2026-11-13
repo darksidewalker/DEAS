@@ -93,10 +93,16 @@ const card=(name:string)=>document.querySelector(`[data-ref="${name}"]`)!;
 test('dragging a card onto another of its lane moves it there; other lanes ignore it; a dock tile dropped on the tab is added',()=>{
  const {onChange,onAdd}=mount([ref('a.png','image'),ref('s.wav','audio'),ref('b.png','image')]);
  const none={types:[] as string[],getData:()=>''};
+ const transfer={setData:vi.fn(),effectAllowed:''};
+ fireEvent.dragStart(card('a.png').querySelector('.wb-ref-actions')!,{dataTransfer:transfer});
+ fireEvent.drop(card('b.png'),{dataTransfer:none});
+ expect(transfer.setData).not.toHaveBeenCalled();
+ expect(onChange).not.toHaveBeenCalled();
  fireEvent.dragStart(card('a.png').querySelector('strong')!,{dataTransfer:{setData:vi.fn(),effectAllowed:''}});
  fireEvent.drop(card('s.wav'),{dataTransfer:none});
  expect(onChange).not.toHaveBeenCalled();
- fireEvent.dragStart(card('a.png').querySelector('strong')!,{dataTransfer:{setData:vi.fn(),effectAllowed:''}});
+ expect(card('a.png').querySelector('.reference-thumb')?.getAttribute('draggable')).toBe('true');
+ fireEvent.dragStart(card('a.png').querySelector('.reference-thumb img')!,{dataTransfer:{setData:vi.fn(),clearData:vi.fn(),effectAllowed:''}});
  fireEvent.drop(card('b.png'),{dataTransfer:none});
  expect(onChange.mock.lastCall![0].map((r:VideoRef)=>r.item.name)).toEqual(['s.wav','b.png','a.png']);
  const tile=item('clip.mp4','video');

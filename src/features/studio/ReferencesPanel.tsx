@@ -260,19 +260,19 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
   {/* Keep unsupported saved rows visible so users can remove them. */}
   <div className="wb-lanes">{[...new Set([...lanes[family],...refs.map(laneOf)])].map(lane=><section key={lane} className="wb-lane" aria-label={t(`studio.run.dock.type.${lane}`)}>
    {h3&&<h4>{t(`studio.run.dock.type.${lane}`)}</h4>}
-   <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
-    {/* The name row is the drag handle, so text selection in the fields below keeps working. */}
-    <strong title={r.item.path} draggable onDragStart={e=>{dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}}>{!h3&&r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
+   <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} onDragStart={e=>{if(!(e.target instanceof Element)||!e.target.closest('strong[draggable], .reference-thumb'))return;dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
+    {/* Only the name and thumbnail are drag handles; fields keep text selection. */}
+    <strong title={r.item.path} draggable>{!h3&&r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
     <span className="wb-ref-actions">
      {h3&&<button type="button" data-edit-reference={r.item.src} aria-label={t('studio.run.video.editReference',{name:r.item.name})} onClick={()=>setEditing(r.item.src)}>{t('studio.run.video.edit')}</button>}
      <button type="button" aria-label={t('studio.run.video.moveEarlier',{name:r.item.name})} disabled={neighbour(n,-1)<0} onClick={()=>move(n,-1)}>←</button>
      <button type="button" aria-label={t('studio.run.video.moveLater',{name:r.item.name})} disabled={neighbour(n,1)<0} onClick={()=>move(n,1)}>→</button>
-     {h3&&<button type="button" aria-label={t('studio.run.video.insertLabel',{label:tags[n]})} title={t('studio.run.video.insertLabel',{label:tags[n]})} onClick={()=>onInsert(tags[n])}>{t('studio.run.video.insert')}</button>}
+     {h3&&<button type="button" className="wb-dock-action" aria-label={t('studio.run.video.insertLabel',{label:tags[n]})} title={t('studio.run.video.insertLabel',{label:tags[n]})} onClick={()=>onInsert(tags[n])}>{t('studio.run.video.insert')}</button>}
      <button type="button" aria-label={t('studio.run.video.removeRef',{name:r.item.name})} onClick={()=>onChange(refs.filter((_,m)=>m!==n))}>✕</button>
     </span>
     {!h3&&<><label><span>{t('studio.run.video.refSecond')}</span><input type="number" aria-label={t('studio.run.video.refSecondOf',{name:r.item.name})} min={0} max={seconds} step={0.1} value={r.second} onChange={e=>set(n,{second:Math.min(seconds,Math.max(0,Number(e.target.value)||0))})}/></label>
      <label><span>{t('studio.run.video.refStrength')}</span><input type="number" aria-label={t('studio.run.video.refStrengthOf',{name:r.item.name})} min={0} max={1} step={0.05} value={r.strength} onChange={e=>set(n,{strength:Math.min(1,Math.max(0,Number(e.target.value)||0))})}/></label></>}
-    {h3?<><div className="reference-thumb"><ReferenceThumbnail reference={r}/></div>
+    {h3?<><div className="reference-thumb" draggable><ReferenceThumbnail reference={r}/></div>
      <p className="reference-thumb-summary">{r.item.media==='image'?labels[n].startsWith('group-')?t('forge.role.group',{n:labelCharacters(labels[n]).join(' + ')}):t(`forge.role.${labels[n].replace(/-\d+$/,'')}`,{n:labels[n].slice(10)}):<>{r.item.media==='video'&&t(`studio.run.video.mode.${r.mediaMode}`)} · {t('studio.run.video.preview.selection',{start:(r.trimStart??0).toFixed(2),end:(r.trimEnd??r.sourceDuration)?.toFixed(2)??t('studio.run.video.preview.unknown'),seconds:referenceSeconds(r)?.toFixed(2)??t('studio.run.video.preview.unknown')})}</>}</p>
      {r.instructions&&<p className="reference-thumb-summary" title={r.instructions}>{r.instructions}</p>}
     </>:<ReferenceMedia reference={r} onChange={x=>set(n,x)}/>}

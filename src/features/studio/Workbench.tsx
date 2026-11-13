@@ -104,6 +104,9 @@ const isUnit=(v:unknown):v is number=>typeof v==='number'&&v>=0&&v<=1;
 const h3ScalingKey:Record<H3Scaling,string>={Off:'off',Auto:'h3auto',Target:'target',Fit:'fit','Fill and crop':'crop','Fit and pad':'pad','Long side with divisible crop':'long'};
 const videoPipelines:readonly string[]=['t2v','i2v','v2v','ref2v'];
 const outputKind=(p:string)=>videoPipelines.includes(p)?'video':p==='t2m'||p==='cover'?'music':'image';
+/** One Image pipeline: t2i/i2i stay internal ids (intents, projects, history) and share one draft; the picture to edit decides which. */
+const isImagePipe=(p:string)=>p==='t2i'||p==='i2i';
+const draftPipe=(p:string)=>p==='i2i'?'t2i':p;
 const randomSeed=()=>Math.floor(Math.random()*2**32);
 /** WebKitGTK media needs a blob URL; asset fetches also need connect-src permission in the app CSP. */
 function useBlobSrc(src:string|undefined,active:boolean):{url?:string;error?:string}{
@@ -481,7 +484,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const frameVideo=pipeline==='t2v'||pipeline==='i2v';
  const aspect=aspectPref==='auto'&&!mediaPipeline?'1:1':aspectPref;
  // Remembered picks are only valid while the folder still holds them and they fit the pipeline.
- const usable=allModels.filter(m=>!blocked(m,pipeline));
+ /** The one Image pipeline accepts a model that can do text-to-image or editing. */
+ const pipeBlocked=(m:LocalModel)=>isImagePipe(pipeline)?blocked(m,'t2i')&&blocked(m,'i2i'):blocked(m,pipeline);
+ const usable=allModels.filter(m=>!pipeBlocked(m));
  const model=checkpointPref?(modelIdentity?usable.find(m=>m.name===checkpointPref&&identity(m)===modelIdentity):usable.find(m=>m.name===checkpointPref)):usable[0];
  const checkpoint=model?.name??'';
  const savedModel=allModels.find(m=>m.name===checkpointPref&&(!modelIdentity||identity(m)===modelIdentity));
@@ -1319,11 +1324,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);};
  const togglePromptRef=(item:MediaItem&{path:string})=>{const at=imageRefs.findIndex(r=>r.item.path===item.path);if(at>=0){setImageRefs(v=>v.filter((_,j)=>j!==at));return;}addPromptRef(item);};
  /** Clearing <Picture 1> promotes the first reference to the source, so Picture 1 stays filled. */
+ const useAsSource=(item:MediaItem)=>{const at=imageRefs.findIndex(r=>r.item.src===item.src);if(at>=0)setImageRefs(v=>h3Refs&&media?v.map((r,j)=>j===at?{...r,item:{...media}}:r):v.filter((_,j)=>j!==at));select(item);};
  const clearH3Source=()=>{const[first,...rest]=imageRefs;if(!first){clearSource();return;}setImageRefs(rest);select(first.item);};
  const inputActions=(item:MediaItem):MediaAction[]=>!item.path?[]:pipeline==='ref2v'&&videoFamily?[isRef(item)?{label:t('studio.run.video.removeRef',{name:item.name}),onClick:()=>toggleRef(item)}:{label:t('studio.run.video.addRef'),many:true,onClick:()=>toggleRef(item),blocked:refBlock(item)&&t(refBlock(item))}]
   // Cover sources are audio files or videos with an audio track (core LoadAudio reads the first stream); images cannot be covered.
   :pipeline==='cover'&&(item.media==='audio'||item.media==='video')?[musicSource?.path===item.path?{label:t('studio.music.removeSource'),input:true,onClick:()=>{setMusicSource(null);if(historyDraft)setHistorySourceSelected(false);}}:{label:t('studio.music.useSource'),input:true,onClick:()=>{setMusicSource(item);if(historyDraft)setHistorySourceSelected(true);}}]
-  :referenceMethod&&item.media==='image'&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),many:true,onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=refMax&&t('studio.run.reference.max',{count:imageRefs.length,max:refMax}))||undefined}]
+  :isImagePipe(pipeline)&&item.media==='image'?[
+   ...(beginner||media?.src===item.src?[]:[{label:t('studio.run.reference.useSource'),input:true,onClick:()=>useAsSource(item)}]),
+   ...(referenceMethod&&validReference(item)?[imageRefs.some(r=>r.item.path===item.path)?{label:t('studio.run.reference.remove'),onClick:()=>togglePromptRef(item)}:{label:t('studio.run.reference.use'),many:true,onClick:()=>togglePromptRef(item),blocked:(imageRefs.length>=refMax&&t('studio.run.reference.max',{count:imageRefs.length,max:refMax}))||undefined}]:[])]
   // Frame roles like the Director: first (i2v input), last, or the same image as both; t2v takes a last frame only.
   // H3 can run on a last frame alone (L2VA), so there "last frame" moves the role off the input instead of adding it.
   :frameVideo&&item.media==='image'?[
@@ -1391,19 +1399,19 @@ const promptTools=forgeContext&&<>
  };
  const drafts=useRef(new Map<string,ReturnType<typeof captureDraft>>());
  const pipelineModels=useRef(new Map<string,string>());
- const draftKey=(p:Pipeline,m:LocalModel)=>JSON.stringify([scope,p,identity(m)]);
+ const draftKey=(p:Pipeline,m:LocalModel)=>JSON.stringify([scope,draftPipe(p),identity(m)]);
  const outgoingDraft=useRef<{scope:string;pipeline:Pipeline;model:LocalModel;capture:typeof captureDraft}|null>(null);
  const activeScope=useRef(scope),explicitScopeRestore=useRef(false);
- const rememberDraft=()=>{const outgoing=outgoingDraft.current;if(outgoing){drafts.current.set(JSON.stringify([outgoing.scope,outgoing.pipeline,identity(outgoing.model)]),outgoing.capture());pipelineModels.current.set(JSON.stringify([outgoing.scope,outgoing.pipeline]),identity(outgoing.model));}};
+ const rememberDraft=()=>{const outgoing=outgoingDraft.current;if(outgoing){drafts.current.set(JSON.stringify([outgoing.scope,draftPipe(outgoing.pipeline),identity(outgoing.model)]),outgoing.capture());pipelineModels.current.set(JSON.stringify([outgoing.scope,draftPipe(outgoing.pipeline)]),identity(outgoing.model));}};
  useLayoutEffect(()=>{
   if(activeScope.current!==scope){
    rememberDraft();draftEpoch.current++;outgoingDraft.current=null;activeScope.current=scope;
    if(!explicitScopeRestore.current){
-    const previous=pipelineModels.current.get(JSON.stringify([scope,pipeline]));
+    const previous=pipelineModels.current.get(JSON.stringify([scope,draftPipe(pipeline)]));
     setModelIdentity(previous??modelIdentity);
     if(previous){
      setCheckpoint((JSON.parse(previous) as string[])[2]);
-     const saved=drafts.current.get(JSON.stringify([scope,pipeline,previous]));
+     const saved=drafts.current.get(JSON.stringify([scope,draftPipe(pipeline),previous]));
      if(saved){applyDraft(saved);if(saved.historyDraft)setHistorySelectionContext('');} // Returning never rebinds explicit history sources.
     }
    }
@@ -1417,7 +1425,7 @@ const promptTools=forgeContext&&<>
  // A new or corrected variant gets its own profile; persisted overrides keep their binding.
  useLayoutEffect(()=>{if(aceProfile&&model&&aceProfilePref!==JSON.stringify([model.path,model.family])){startingSettings(model);setCheckpoint(model.name);setModelIdentity(identity(model));}},[aceProfile?.version,model?.path,model?.family,aceProfilePref]);
  const switchDraft=(p:Pipeline,m:LocalModel,defaults=false,keepSource=false,keepPrompts=false)=>{
-  if(p===pipeline&&model&&identity(m)===identity(model)){setCheckpoint(m.name);setModelIdentity(identity(m));if(!checkpointPref&&defaults)startingSettings(m);return;}
+  if(draftPipe(p)===draftPipe(pipeline)&&model&&identity(m)===identity(model)){if(p!==pipeline)setPipeline(p);setCheckpoint(m.name);setModelIdentity(identity(m));if(!checkpointPref&&defaults)startingSettings(m);return;}
   rememberDraft();draftEpoch.current++;setPipeline(p);setCheckpoint(m.name);setModelIdentity(identity(m));
   const saved=drafts.current.get(draftKey(p,m));
   // Only the checkpoint changed: its remembered settings return, the prompts on screen stay.
@@ -1467,12 +1475,18 @@ const promptTools=forgeContext&&<>
  // Only authored intent is shared across restarts. Automatic beginner settings must
  // never overwrite the user's persisted advanced technical defaults.
  useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);writePref('studio.run.resolution',resolutionPref);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref]);
- const pickPipeline=(p:Pipeline,keepSource=false)=>{
-  const previous=pipelineModels.current.get(JSON.stringify([scope,p]));
-  const next=allModels.find(m=>identity(m)===previous&&!blocked(m,p))??(model&&!blocked(model,p)?model:allModels.find(m=>!blocked(m,p)));
+ const pickPipeline=(wanted:Pipeline,keepSource=false)=>{
+  if(isImagePipe(wanted)&&isImagePipe(pipeline))return; // already the Image pipeline; the picture to edit picks the mode
+  const no=(m:LocalModel)=>isImagePipe(wanted)?blocked(m,'t2i')&&blocked(m,'i2i'):!!blocked(m,wanted);
+  const previous=pipelineModels.current.get(JSON.stringify([scope,draftPipe(wanted)]));
+  const next=allModels.find(m=>identity(m)===previous&&!no(m))??(model&&!no(model)?model:allModels.find(m=>!no(m)));
+  // Image: the model's capability (H3 edits only) and the picture to edit pick t2i/i2i.
+  const p:Pipeline=isImagePipe(wanted)&&next?(blocked(next,'t2i')?'i2i':wanted):wanted;
   // Same output kind (image/video/music): the prompts on screen carry over; another kind restores its own draft.
   if(next)switchDraft(p,next,!model||identity(next)!==identity(model),keepSource,outputKind(p)===outputKind(pipeline));else setPipeline(p);
  };
+ // The picture to edit decides the Image mode; models without text-to-image (H3) stay on edit.
+ useEffect(()=>{if(beginner||!isImagePipe(pipeline)||!model)return;const want=media?.media==='image'||blocked(model,'t2i')?'i2i':'t2i';if(want!==pipeline)setPipeline(want);},[beginner,pipeline,media,model]);
  useEffect(()=>{
   const layout=()=>{dragCleanup.current();setSettingsWidth(defaultLayout.settings);setQueueWidth(defaultLayout.queue);setDockHeight(defaultLayout.dock);setSettingsHidden(false);setDockHidden(false);setPromptHeight(110);setPromptHidden(false);};
   const defaults=()=>setAsk({message:t(project?'studio.quick.confirmProject':'studio.quick.confirm'),run:()=>{if(beginner){beginnerLoraDraft.current=null;writePref('beginner.loras',null);}drafts.current.clear();pipelineModels.current.clear();draftEpoch.current++;resetStudioPreferences();setResolution('model');const first=allModels.find(m=>!blocked(m,'t2i'));if(first){setCheckpoint(first.name);setModelIdentity(identity(first));startingSettings(first);}}});
@@ -1766,13 +1780,14 @@ const promptTools=forgeContext&&<>
  const imageRefBar=()=><>
   {imageRefs.length>0&&<p className="wb-active wb-wide" data-reference-chip><span>{t('studio.run.reference.max',{count:imageRefs.length,max:refMax})}{!referenceMethod&&<> · {t('studio.run.reference.inactive')}</>}{referenceMethod==='minimax-h3'&&<> · {t('studio.run.reference.h3Tags')}</>}</span>{revisionOk&&<>{pick('studio.run.reference.vision',refVision,choices?.visionModels??[],setRefVision,loadChoices)}{!(choices?.visionModels?.length??0)&&<span>{t('studio.run.reference.needs')}</span>}</>}</p>}
   {(imageRefs.length>0||(h3Refs&&!!media))&&<div className="wb-reference-strip wb-wide">
-      {h3Refs&&<div className="wb-reference-card" data-reference-source role="group" aria-label={t('studio.run.reference.sourceCard')}>
+      {h3Refs&&<div className="wb-reference-card" data-reference-source role="group" aria-label={t('studio.run.reference.sourceCard')} onDragOver={e=>{if(e.dataTransfer.types.includes(referenceDrag)||e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files')){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='copy';}}} onDrop={e=>{const ref=e.dataTransfer.types.includes(referenceDrag)?draggedReference.current?.item:null;const item=ref??promptImage(e.dataTransfer);if(item&&(ref||validReference(item))){e.preventDefault();e.stopPropagation();draggedReference.current=null;useAsSource(item);}}}>
        <div className="wb-reference-thumb">{media?<img src={media.src} alt={media.name} title={media.name} draggable={false}/>:<span role="status">{t('studio.run.reference.sourceEmpty')}</span>}<span className="wb-reference-position" title={t('studio.run.reference.sourceCard')}>{1}</span>{media&&<button type="button" className="wb-reference-remove" data-reference-source-remove aria-label={t('studio.run.reference.sourceRemove')} title={t('studio.run.reference.sourceRemove')} onClick={clearH3Source}>✕</button>}</div>
        <small>{t('studio.run.reference.sourceCard')}</small>
       </div>}
       {imageRefs.map((r,i)=><div key={`${i}:${r.item.path}`} className="wb-reference-card" data-reference-controls data-history-reference-unresolved={historyDraft&&!r.item.path?true:undefined} data-reference-position={i+1} role="group" aria-label={t('studio.run.reference.position',{position:i+1})} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.clearData();e.dataTransfer.setData(referenceDrag,String(i));e.dataTransfer.effectAllowed='move';draggedReference.current=r;}} onDragEnd={()=>{draggedReference.current=null;}} onDragOver={e=>{if(e.dataTransfer.types.includes(referenceDrag)&&draggedReference.current){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect=historyReferenceCompatible&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(promptImage(e.dataTransfer)))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(referenceDrag)){e.preventDefault();e.stopPropagation();moveReference(imageRefs.indexOf(draggedReference.current!),i);draggedReference.current=null;}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();replaceHistoryReference(i,promptImage(e.dataTransfer));}}}>
        <div className="wb-reference-thumb">{r.item.src?<img src={r.item.src} alt={r.item.name} title={r.item.name} draggable={false}/>:<span role="status" title={r.item.name}>{t('studio.history.missingInput',{name:r.item.name})}</span>}<span className="wb-reference-position" title={t('studio.run.reference.position',{position:i+1})}>{refTag(i)}</span><button type="button" className="wb-reference-remove" data-reference-remove aria-label={`${t('studio.run.reference.remove')} · ${i+1}`} title={t('studio.run.reference.remove')} onClick={()=>setImageRefs(v=>v.filter((_,j)=>j!==i))}>✕</button></div>
        {historyDraft&&!r.item.path&&<><small>{t('studio.history.referenceReselect')}</small><button type="button" data-history-reference-select={i} disabled={!historyReferenceCompatible||!validReference(browsed??media)} onClick={()=>replaceHistoryReference(i,browsed??media)}>{t('studio.history.referenceUseSelected',{position:i+1})}</button></>}
+       {isImagePipe(pipeline)&&!beginner&&<button type="button" className="wb-dock-action" data-reference-make-source onClick={()=>useAsSource(r.item)}>{t('studio.run.reference.useSource')}</button>}
        {h3Refs&&<button type="button" className="wb-dock-action" data-reference-insert onClick={()=>insertTag(`<Picture ${refTag(i)}>`)} aria-label={t('studio.run.video.insertLabel',{label:`<Picture ${refTag(i)}>`})} title={t('studio.run.video.insertLabel',{label:`<Picture ${refTag(i)}>`})}>{t('studio.run.video.insert')}</button>}
        {revisionOk&&num('reference.strength',r.strength,n=>setImageRefs(v=>v.map((e,j)=>j===i?{...e,strength:clamp(n,0,1)}:e)),0,1,0.05,undefined,true)}
       </div>)}
@@ -1808,7 +1823,7 @@ const promptTools=forgeContext&&<>
   <div className="beginner-composer-footer"><p><span aria-hidden="true">✧</span> {t('beginner.settingsHint')}</p></div>
  </section>:<>
     <section className="wb-settings" aria-label={t('studio.run.settings')}>
-     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={pipeline} onChange={e=>{pickPipeline(e.target.value as Pipeline);}}>{pipelines.map(id=>{const reason=why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
+     <label className="wb-field wb-pipeline"><span>{t('studio.run.pipeline')}</span><select data-pipeline value={isImagePipe(pipeline)?'image':pipeline} onChange={e=>{pickPipeline(e.target.value==='image'?(media?'i2i':'t2i'):e.target.value as Pipeline);}}>{(['image',...pipelines.filter(id=>!isImagePipe(id))] as const).map(id=>{const reason=id==='image'?(why('t2i')&&why('i2i')):why(id);return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;})}</select></label>
      <div className="wb-checkpoint"><label className="wb-field"><span>{t('studio.run.checkpoint')}{family&&<> · {family.name}</>}</span><select data-model-picker aria-label={t('studio.run.checkpoint')} title={unavailableModelReason||checkpointPref||checkpoint} value={model?modelValue(model):checkpointPref||checkpoint} onChange={e=>{const next=allModels.find(m=>modelValue(m)===e.target.value&&!blocked(m,pipeline));if(next)pickModel(next);}}>
       {!checkpointPref&&!checkpoint&&<option value="" disabled>{t('studio.run.noModels')}</option>}
       {unavailableModelReason&&<option value={checkpointPref} disabled title={unavailableModelReason}>{checkpointPref} — {unavailableModelReason}</option>}
@@ -2037,7 +2052,7 @@ const promptTools=forgeContext&&<>
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
-    {models&&dockTab==='models'&&(allModels.length===0?<p className="media-help">{t('studio.run.noModels')}</p>:<div className="media-browser">{folderTree(allModels)}<ul className="wb-tiles" data-run-checkpoint>{allModels.filter(match).sort(bySort).map(m=>tile(m,m===model,()=>pickModel(m),undefined,blocked(m,pipeline)))}</ul></div>)}
+    {models&&dockTab==='models'&&(allModels.length===0?<p className="media-help">{t('studio.run.noModels')}</p>:<div className="media-browser">{folderTree(allModels)}<ul className="wb-tiles" data-run-checkpoint>{allModels.filter(match).sort(bySort).map(m=>tile(m,m===model,()=>pickModel(m),undefined,pipeBlocked(m)))}</ul></div>)}
     {models&&dockTab==='loras'&&(loraNames.length===0?<p className="media-help">{t('studio.run.noLoras')}</p>:<div className="media-browser">{folderTree(loraModels)}<ul className="wb-tiles wb-loras">{loraModels.filter(match).sort(bySort).map(m=>{const on=loras.find(l=>l.name===m.name);return tile(m,!!on,()=>toggleLora(m.name,!on),on&&<input type="number" aria-label={t('studio.run.strength',{name:m.name})} value={on.strength} min={-10} max={10} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)setLoras(loras.map(l=>l.name===m.name?{...l,strength:n}:l));}}/>);})}</ul></div>)}
    </section>}
   </div>

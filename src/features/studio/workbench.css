@@ -302,8 +302,8 @@
 .wb-lane h4 { margin: 0; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .wb-lane ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .wb-ref-actions { display: flex; gap: 2px; }
-.wb-ref-actions button { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
-.wb-ref-actions button:hover:not(:disabled) { color: var(--accent, #c8762c); }
+.wb-ref-actions button:not(.wb-dock-action) { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
+.wb-ref-actions button:not(.wb-dock-action):hover:not(:disabled) { color: var(--accent, #c8762c); }
 .wb-ref-more .wb-ref-actions { flex-wrap: wrap; }
 .people-detector { display: grid; gap: 4px; min-width: 0; }
 .people-boxes { display: grid; gap: 4px; min-width: 0; }

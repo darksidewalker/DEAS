@@ -84,10 +84,7 @@ const styleReport=()=>[...document.querySelectorAll('.wb-settings select')].filt
 const mainControls=styleReport();
 check(mainControls.length>=6,'Missing ordinary Studio selectors');
 for(const c of mainControls)check(Math.abs(c.height-28.8)<1&&c.appearance==='none'&&c.chevron.includes('svg')&&c.top==='0px'&&c.bottom==='0px','Ordinary selector style mismatch '+JSON.stringify(c));
-await select(document.querySelector('[data-pipeline]'),'i2i');
-const scalingControls=styleReport();check(scalingControls.length>mainControls.length,'Image scaling selector not rendered');
-for(const c of scalingControls)check(Math.abs(c.height-28.8)<1&&c.appearance==='none'&&c.chevron.includes('svg')&&c.top==='0px'&&c.bottom==='0px','Scaling selector style mismatch '+JSON.stringify(c));
-await select(document.querySelector('[data-pipeline]'),'t2i');
+check([...document.querySelector('[data-pipeline]').options].some(o=>o.value==='image')&&![...document.querySelector('[data-pipeline]').options].some(o=>o.value==='i2i'),'Image pipeline must be one entry');
 await click('.wb-model-files > summary');check(menu.open&&menu.getBoundingClientRect().height>closedHeight+100,'Model files menu did not expand');
 check(switches.every(e=>e.getAttribute('aria-checked')==='false'),'Switches must default off');
 check(switches.every(e=>e.getAttribute('aria-label')?.length),'Missing accessible switch labels');

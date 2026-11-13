@@ -1,6 +1,13 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
 
+## Reference thumbnail drag and theme fixes (0.2.25, unreleased)
+
+- Multi-reference video thumbnails and filenames share the existing lane-local reorder handler; non-handle drags do not reorder. Regression failed before the fix, then ReferencesPanel passed all 48 tests.
+- Inline image-reference and overlay video-reference Insert label buttons use the shared `wb-dock-action` skin; local icon-button rules exclude that class. Media video badges use an opaque theme panel, theme text and accent border.
+- Typecheck and 155 core tests passed; full UI suite: 87 files / 1,768 tests passed. Chromium workspace layout: 467 checks passed. Final non-handle drag guard additionally verified by the 48-test ReferencesPanel run. Native GTK/WebKit and Windows interaction/appearance were not exercised.
+- Final Linux build succeeded and atomically staged `artifacts/deas-linux-amd64`; SHA-256: `8ff226fa700939ef52d41ed5839125b1f52ea0f21d19e96c6331e1e04f0cab72`. Restart required; no commit or publication performed.
+
 ## H3 image edit with references, still path (0.2.25, unreleased)
 
 Source: `src-tauri/src/jobs.rs::h3_edit` (still path when `nativeImageReference.method == "minimax-h3"` or denoise < 1), validation pair `minimax-h3`/`minimax` with 1..8 pictures in `compile`, `H3_EDIT_NODES` + `MiniMaxH3ReferenceToVideo`/`LatentCut`; `src/lib/execution.ts` (`nativeImageReferenceLimit`, method/encoder, no prompt-encoder swap for H3); `src/families/builtin.json` (`imagePrompting: "minimax-h3"`); `Workbench.tsx` (`studio.run.h3Denoise` default 1, `<Picture n+1>` badges, 2 MP notice). Core facts checked against the owned core `c5751c8`: `MiniMaxH3ReferenceToVideo` Autogrow keys `ref_images.ref_image_0..8` (min 0, max 9), `length` min 5; `_empty_av_latent` audio `[1,32,2,T]`; `LatentCut dim "x"` narrows the last axis; `LTXVConcatAVLatent` keeps a video `noise_mask` and fills audio ones.
