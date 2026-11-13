@@ -1118,7 +1118,8 @@
   "studio.run.post.card.open": "打开设置",
   "studio.run.post.reason.videoOnly": "仅限视频生成管线。",
   "studio.run.post.reason.h3VideoOnly": "仅限 MiniMax H3 视频管线。",
-  "studio.run.post.reason.latentOnly": "仅限 LTX-2 与 MiniMax H3 视频管线。",
+  "studio.run.post.reason.latentOnly": "仅限 LTX-2 与 MiniMax H3 视频，以及 MiniMax H3 图像编辑。",
+  "studio.run.post.reason.latentMasked": "不适用于局部重绘：H3 潜空间放大无法处理带蒙版的潜空间。请使用图生图或关闭放大。",
   "studio.run.post.reason.imageOnly": "仅限图像管线。",
   "studio.run.post.reason.audioVideoOnly": "仅适用于音频或视频管线。",
   "studio.run.post.reason.audioManualOnly": "仍可使用手动音频增强；运行后自动处理需要支持音频的视频或音乐管线。"

@@ -6,7 +6,7 @@ import type {ModelGuide} from './modelGuides';
 
 /** Beginner-only presentation of the existing native browse / plan / confirm flow.
  * Does not import a catalog, change Library preferences or add a download engine. */
-export function BeginnerModelDownload({guide,root,modelsDir,onStatus}:{guide:ModelGuide;root?:string;modelsDir?:string;onStatus:(status:DownloadStatus)=>void}){
+export function BeginnerModelDownload({guide,root,modelsDir,onStatus}:{guide:Pick<ModelGuide,'name'|'repo'|'files'|'target'>;root?:string;modelsDir?:string;onStatus:(status:DownloadStatus)=>void}){
  const {t}=useI18n();
  const [files,setFiles]=useState<DownloadResource[]>([]),[selected,setSelected]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(false);
  const [plan,setPlan]=useState<DownloadPlan|null>(null),[status,setStatus]=useState<DownloadStatus|null>(null),[authenticated,setAuthenticated]=useState(false),[more,setMore]=useState<string|null>(null);

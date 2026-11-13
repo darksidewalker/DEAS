@@ -252,6 +252,29 @@ const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 15] = [
     ("sharpness", "upscale_sharpness"),
 ];
 
+/// `DaSiWaH3TiledUpscale` over the house sampling nodes (`SS` model, `Q` sampler, `N` noise) with the
+/// intent's `latentUpscale` settings; the video path adds its Continuity/Director/VAE links.
+pub(crate) fn h3_upscale_node(i: &Value, conditioning: Value, latent: Value) -> Value {
+    let u = &i["latentUpscale"];
+    let mut node = json!({"class_type":"DaSiWaH3TiledUpscale","inputs":{
+        "model":["SS",0],"conditioning":conditioning,"latent":latent,"sampler":["Q",0],"noise":["N",0],"sampler_name":i["sampler"],
+        "scale":u["scale"],"upscale_model":u["model"],"steps":u["steps"],"denoise":u["denoise"],"seed":i["seed"],
+        "cfg":1.0,"scheduler":"simple","memory_budget_mb":0,"upscale_precision":"auto",
+        "continuity_soft_refine":false,"continuity_mask_strength":1.0,
+        "spatial_tiling":true,"temporal_chunking":true,"spike_guard":false,
+        "guard_sensitivity":4.3,"guard_strength":1.0,"guard_mode":"burn_direction",
+        "enforce_memory_budget":true,"memory_reserve_pct":5.0
+    }});
+    if let Some(a) = u.get("advanced") {
+        for (key, input) in H3_LATENT_ADVANCED_INPUTS {
+            if let Some(v) = a.get(key) {
+                node["inputs"][input] = v.clone();
+            }
+        }
+    }
+    node
+}
+
 fn valid_h3_latent_advanced(a: &Value) -> bool {
     let Some(o) = a.as_object() else {
         return false;
@@ -281,7 +304,7 @@ fn valid_h3_latent_advanced(a: &Value) -> bool {
     })
 }
 
-fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
+pub(crate) fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
     let Some(u) = i.get("latentUpscale") else {
         return Ok(());
     };
@@ -1809,25 +1832,24 @@ fn h3(i: &Value) -> Value {
             i,
         );
     }
-    if let Some(u) = i.get("latentUpscale") {
+    if i.get("latentUpscale").is_some() {
         // Segment capture keeps its only SegmentDecode on SP for exact, pre-upscale audio cropping;
         // the pack requires that audio directly on exporter 7. Core nodes decode/crop Processed.
-        g["U"] = json!({"class_type":"DaSiWaH3TiledUpscale","inputs":{
-            "model":["SS",0],"conditioning":["G",0],"latent":if refining {json!(["RC",0])} else {json!(["SP",0])},"continuity_context":["SP",1],
-            "director_guide":["D",0],"vae":["V",0],"sampler":["Q",0],"noise":["N",0],"sampler_name":i["sampler"],
-            "scale":u["scale"],"upscale_model":u["model"],"steps":u["steps"],"denoise":u["denoise"],"seed":i["seed"],
-            "cfg":1.0,"scheduler":"simple","memory_budget_mb":0,"upscale_precision":"auto",
-            "continuity_soft_refine":false,"continuity_mask_strength":1.0,
-            "spatial_tiling":true,"temporal_chunking":true,"spike_guard":false,
-            "guard_sensitivity":4.3,"guard_strength":1.0,"guard_mode":"burn_direction",
-            "enforce_memory_budget":true,"memory_reserve_pct":5.0
-        }});
-        if let Some(a) = u.get("advanced") {
-            for (key, input) in H3_LATENT_ADVANCED_INPUTS {
-                if let Some(v) = a.get(key) {
-                    g["U"]["inputs"][input] = v.clone();
-                }
-            }
+        g["U"] = h3_upscale_node(
+            i,
+            json!(["G", 0]),
+            if refining {
+                json!(["RC", 0])
+            } else {
+                json!(["SP", 0])
+            },
+        );
+        for (input, link) in [
+            ("continuity_context", json!(["SP", 1])),
+            ("director_guide", json!(["D", 0])),
+            ("vae", json!(["V", 0])),
+        ] {
+            g["U"]["inputs"][input] = link;
         }
         if segment_capture {
             // The render plan is derived at runtime from the prepared latent tensor and context;

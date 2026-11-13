@@ -79,6 +79,7 @@
   "beginner.notInstalled": "Not installed",
   "beginner.sourceCredits": "Source & image credits",
   "beginner.tagHint": "Try anime, photo or illustration. Tags describe possibilities, not exclusive categories.",
+  "beginner.aceComponents": "Bu müzik modeli metin kodlayıcılarına ve VAE dosyasına ayrı dosyalar olarak ihtiyaç duyar. Eksik olanları buradan indirin; kurulduklarında Run etkinleşir.",
   "beginner.downloadPick": "Bir model dosyası seçin. Planı inceleyip onaylayana kadar hiçbir şey indirilmez. Metin kodlayıcılar ve VAE dosyaları ayrıdır; Motor üretimden önce gereken bileşenleri denetler.",
   "beginner.downloadFile": "Model dosyası",
   "beginner.downloadChooseFile": "Dosya seç…",

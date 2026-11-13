@@ -1118,7 +1118,8 @@
   "studio.run.post.card.open": "Ayarları aç",
   "studio.run.post.reason.videoOnly": "Yalnızca video üretim iş hatları için.",
   "studio.run.post.reason.h3VideoOnly": "Yalnızca MiniMax H3 video iş hatları için.",
-  "studio.run.post.reason.latentOnly": "Yalnızca LTX-2 ve MiniMax H3 video iş hatları için.",
+  "studio.run.post.reason.latentOnly": "LTX-2 ve MiniMax H3 videosu ile MiniMax H3 resim düzenleme için.",
+  "studio.run.post.reason.latentMasked": "Inpaint ile kullanılamaz: H3 gizli alan büyütme maskeli gizli alanları işleyemez. Görüntüden görüntüye kullanın veya büyütmeyi kapatın.",
   "studio.run.post.reason.imageOnly": "Yalnızca görsel iş hatları için.",
   "studio.run.post.reason.audioVideoOnly": "Yalnızca ses veya video iş hatları.",
   "studio.run.post.reason.audioManualOnly": "Manuel ses iyileştirme kullanılabilir; otomatik son işleme için ses destekli bir video veya müzik iş hattı gerekir."

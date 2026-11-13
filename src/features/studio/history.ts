@@ -183,6 +183,10 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
    if(family?.clipType!==intent.diffusion.clipType)unsupported.push('diffusion.clipType');
   }
   if(intent.h3Edit&&modelFamily!=='minimax-h3')unsupported.push('h3Edit');
+  if(intent.latentUpscale){
+   if(!context.allow?.h3LatentUpscaleModels?.includes(intent.latentUpscale.model))unavailable.push(`latentUpscale: ${intent.latentUpscale.model}`);
+   if(!context.allow?.nodes.includes('DaSiWaH3TiledUpscale'))unavailable.push('DaSiWaH3TiledUpscale');
+  }
  }else{
   if(modelFamily!==intent.family)unavailable.push(`video family: ${intent.family}`);
   if(intent.latentUpscale){

@@ -24,6 +24,11 @@ window.__RESULT__={id:'u02-results',baseUrl:'http://127.0.0.1:7801/',promptId:'u
 window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
  const root='/env/ComfyUI/output',path=root+(window.__STARRED__?'/starred':'/raw')+'/image/2026-10-19/fixture.png';
  const record=value=>{window.__calls.push({command,args});return value;};
+ // Read-only startup/side panels (wildcards, audio enhance, thumbnails, spellcheck): inert answers.
+ if(command==='native_wildcard_library')return record({categories:[]});
+ if(command==='native_audio_enhance_capabilities')return record({});
+ if(command==='native_media_reference_thumbnail')return record(null);
+ if(command==='native_spellcheck_check')return record([]);
  if(command==='native_media_list'){
   const filePath=args.path.startsWith('/env/ComfyUI/input')?'/env/ComfyUI/input/fixture.png':path;
   const entries=args.path===root?['raw','starred'].map(name=>({name,path:root+'/'+name,kind:'directory',media:null,symlink:false,size:0,modified:1})):filePath.startsWith(args.path.replace(/\/$/,'')+'/')?[{name:'fixture.png',path:filePath,kind:'file',media:'image',symlink:false,size:100,modified:2},{name:'clip.webm',path:root+'/raw/video/clip.webm',kind:'file',media:'video',symlink:false,size:100,modified:1}]:[];
@@ -56,7 +61,9 @@ def png():
 
 def bottom_bounds(page, phase, width, minimum_actions=2):
     """Measure rectangles/hit targets, not declarations or mirrored CSS classes."""
-    tools = page.locator('.wb-stage [data-media-tools]:visible')
+    # Split view keeps the editor's own toolbar too; measure the stage header one there.
+    split = page.locator('.wb-stage.wb-split').count() > 0
+    tools = page.locator('.wb-stage > [data-media-tools]:visible' if split else '.wb-stage [data-media-tools]:visible')
     expect(tools).to_have_count(1)  # These phases show one media view at a time.
     tools.scroll_into_view_if_needed()
     metrics = tools.evaluate('''e=>{
@@ -82,7 +89,7 @@ def bottom_bounds(page, phase, width, minimum_actions=2):
     # The row lives inside the stage; in overlay mode it rides the header line with the Metadata pill.
     assert toolbar['x'] >= stage['x']-1 and toolbar['right'] <= stage['right']+1, (phase, width, 'stage', metrics)
     assert toolbar['y'] >= stage['y']-1 and toolbar['bottom'] <= stage['bottom']+1, (phase, width, 'stage', metrics)
-    if metrics['position'] == 'absolute':
+    if width > 900 and tools.evaluate("e=>e.parentElement.matches('.wb-stage')"):
         for peer in (metrics['pill'], metrics['close']):
             if peer:
                 assert abs(toolbar['y'] - peer['y']) <= 1, (phase, width, 'toolbar not on the pill line', metrics)
@@ -200,6 +207,10 @@ def run_case(browser, width):
     if width == 390:
         assert len(translated['rows']) > 1, ('longer German controls must wrap', translated)
     results.append(translated)
+    # A wrapped header toolbar must push the media down, never cover it, in every locale.
+    for locale in ('fr', 'ja', 'tr', 'zh'):
+        page.get_by_label('Fixture language', exact=True).select_option(locale)
+        results.append(bottom_bounds(page, f'browsed-image-{locale}', width))
     page.get_by_label('Fixture language', exact=True).select_option('en')
     box = image.bounding_box()
     # The square fixture has letterbox margins only in a nonsquare slot.
@@ -252,7 +263,8 @@ def run_case(browser, width):
     assert authoring_state(page) == before, 'video browsing changed generation authoring'
     expect(editor).not_to_be_visible()
     stage_tools = page.locator('.wb-stage > [data-media-tools]')
-    expect(stage_tools.locator('[data-edit], [data-view-full], [data-media-action]')).to_have_count(0)
+    # Generic video actions (settings reuse, clean export) stay; image-only role actions do not.
+    expect(stage_tools.locator('[data-edit], [data-view-full], [data-media-action]:not([data-media-settings]):not([data-media-export-clean])')).to_have_count(0)
     expect(stage_tools.locator('[data-use-input]')).to_have_count(1)
     player = preview.locator('[data-native-video]')
     expect(player).to_be_visible()
@@ -266,7 +278,9 @@ def run_case(browser, width):
     results.append(bottom_bounds(page, 'retained-after-video-browse', width))
     # A pre-existing multi-output job keeps its captured root and Star mapping.
     page.locator('[data-job-id="u02-results"] .wb-queue-select').first.click()
-    expect(editor).not_to_be_visible()
+    # Wide stages open a queue pick beside the open editor; narrow ones swap to it with a Return button.
+    split = page.locator('.wb-stage.wb-split').count() > 0
+    expect(editor).to_be_visible() if split else expect(editor).not_to_be_visible()
     result = page.locator('.wb-shown .media-preview')
     expect(result.locator('[data-media-content] img')).to_have_count(2)
     results.append(bottom_bounds(page, 'multi-output-result', width))
@@ -278,7 +292,8 @@ def run_case(browser, width):
         expect(stars.get_by_role('button', name='Unstar '+name, exact=True)).to_be_enabled()
         assert page.evaluate('(path)=>__calls.some(c=>c.command==="native_media_star"&&c.args.path===path)', '/captured/old/output/raw/original/'+name)
     assert not page.evaluate('__calls.some(c=>c.command==="native_media_star"&&c.args.path.startsWith("/env/ComfyUI/output/")&&c.args.path.includes("result-"))'), 'output Star rebased onto current environment'
-    page.locator('[data-editor-return]').click()
+    if not split:  # side by side, the editor never left
+        page.locator('[data-editor-return]').click()
     retained_geometry(page, editor, base)
     results.append(bottom_bounds(page, 'retained-after-result', width))
     # Last frame is image-only and needs the existing supported video family.

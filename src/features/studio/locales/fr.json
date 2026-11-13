@@ -1118,7 +1118,8 @@
   "studio.run.post.card.open": "Ouvrir les paramètres",
   "studio.run.post.reason.videoOnly": "Pipelines de génération vidéo uniquement.",
   "studio.run.post.reason.h3VideoOnly": "Pipelines vidéo MiniMax H3 uniquement.",
-  "studio.run.post.reason.latentOnly": "Pipelines vidéo LTX-2 et MiniMax H3 uniquement.",
+  "studio.run.post.reason.latentOnly": "Vidéo LTX-2 et MiniMax H3, et retouche d’image MiniMax H3.",
+  "studio.run.post.reason.latentMasked": "Pas avec Inpainting : l’agrandissement latent H3 ne traite pas les latents masqués. Utilisez Image vers image ou désactivez l’agrandissement.",
   "studio.run.post.reason.imageOnly": "Pipelines image uniquement.",
   "studio.run.post.reason.audioVideoOnly": "Pipelines audio ou vidéo uniquement.",
   "studio.run.post.reason.audioManualOnly": "L’amélioration audio manuelle reste disponible ; le post-traitement automatique au lancement nécessite un pipeline vidéo ou musical avec audio."

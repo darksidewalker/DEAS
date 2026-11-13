@@ -1,7 +1,18 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
 
-## Beginner optimized pipelines (0.2.25, unreleased)
+## H3 image latent upscale, reference paste-to-replace, preview toolbar wrap (0.2.25)
+
+- **H3 image latent upscale.** Source: `src-tauri/src/jobs.rs::h3_edit` (`U` after sampler `5`, `SEP.av_latent = ["U",0]`), image validation in `compile` (`latentUpscale` only with `h3Edit`, `family:"minimax-h3"`, no `inputMask`; shape/limits via `jobs_video::validate_latent_upscale`), `jobs_video::h3_upscale_node` (shared with the video `U`; Continuity/Director/VAE links added only there); `Workbench.tsx` (`h3MaskedEdit`, `latent`, `latentNodes` without the video gate for images, `buildImageIntent`, history restore), `RunPlan.tsx` (`latentUp`/`latentOut`), `history.ts`.
+  - Rust: `h3_image_latent_upscale_runs_after_the_sampler_and_refuses_masks` (plain graph unchanged, exact `U` links/settings incl. advanced mapping, no Director/VAE/Continuity inputs, still path conditioning `HR`, rejections for mask, non-H3, image upscale model, oversize canvas). Full `cargo test --lib -- --test-threads=1`: 925 passed, 71 ignored; clippy `-D warnings` and `cargo fmt --check` clean. The default parallel run fails ~50 jobs/cancel/observer tests with `Workbench jobs are in flight or unknown`; the same filter fails identically on committed `582deff`, so it is a pre-existing test-isolation race (tracked in PLAN §4.11), not this change.
+  - Offline graphs: ignored `dump_h3_edit_graph` now also prints `h3_edit_upscale` and `h3_edit_refs_upscale`; `tools/validate_video_graphs.py` against the owned core (`c5751c8`, DaSiWa nodes 0.5.47) → all five `valid=True outputs=['7']`.
+  - Frontend gates: full Vitest 88 files / 1820 tests, `npm run test:core`, `npm run typecheck`, `git diff --check` — all green.
+  - Vitest: `IPC fixture: MiniMax H3 picture edits offer the H3 latent upscale after sampling; Inpaint disables it with a reason` (intent carries `latentUpscale` with node defaults, Run enabled without `DEAS_VideoPostprocessGate`, Inpaint shows the masked reason). Not run: real GPU inference, VRAM/time, visible quality.
+- **Reference paste-to-replace.** `ReferencesPanel.tsx` paste handler: focus inside a picture card (`li.wb-ref[data-ref-src]`) replaces that card's `item` (label/instructions/details kept, `who`/`whoAxis`/`boxes` cleared); a video/audio card or the tab body adds. Component test `a picture pasted on a picture card replaces that file and keeps its settings; on a video card it is added`. Native clipboard paste not exercised.
+- **Preview toolbar wrap.** Cause: `.wb-stage > .wb-media-tools` was absolutely positioned over a fixed 30 px `padding-top`, so a second row covered the media (reproduced at German 1440 px, and in French the pill overlapped the reserved strip). Fix in `workbench.css`: the toolbar stays on the header line but is in flow (`order:-1`, negative top margin), the right reserve fits the longest localized Metadata pill, and split view gives it a full-width grid row. `tools/verify_media_stars.py` (Chromium, strict simulated IPC): 26 rendered-bound states at 1440/390 px incl. de/fr/ja/tr/zh browsed image, side-by-side multi-output result and retained editor — PASS; screenshot `multi-output-result-1440.png` inspected (toolbar row above both panes, no overlap). The script's stale expectations (generic video actions, side-by-side queue pick, unanswered newer read-only probes) were aligned to the current UI.
+- **`tools/verify_workbench_run_stop.py`**: `--selfcheck` PASS; browser run 18/18 cases PASS after preselecting Advanced (first-run dialog), answering `native_startup_ready`/spellcheck/wildcard/audio-capability probes inertly, using the Stop menu's **Stop all** when more than one item is active, and no longer expecting per-job partial-Stop issues as alerts (they go to the native log by design).
+
+## Beginner optimized pipelines (0.2.25)
 
 - Beginner now lists exactly Image / Video / Music through the same capability gates as Advanced. Image source adoption/clear derives the internal mode. Beginner Models classifies supported YuE2/resolved ACE as Music; unresolved identities remain blocked. Beginner Media uses the shared preview/context source actions, including capability-gated ACE cover refusal. Music reuses the existing Style/Lyrics, source, MusicSettings and AceMusicSettings components rather than a second execution path.
 - Experience isolation keeps automatic technical defaults separate; authored music texts (including empty fields) and explicit music-setting edits carry back to Advanced. Added regressions cover the optimized picker, image source lifecycle, music models and submissions, covers, search and experience return. Read-only independent Beginner review found no blocking defects.
@@ -9,7 +20,7 @@
 - Linux release-profile build succeeded and atomically staged `artifacts/deas-linux-amd64`, SHA-256 `3ed286da2bfd12710532adbec4a312a196488548bb252af749e653e42b8b1cd9`. Quit/relaunch required. The new Video/Music/Beginner work remains uncommitted; no further publication performed.
 - Not checked: actual GTK/WebKit/WebView2 interaction, real generation and audible audio/timing/cancellation. No model downloads or live-service restarts. The separately recorded pre-existing Image toolbar overlap remains open.
 
-## Role-based Music UI (0.2.25, unreleased)
+## Role-based Music UI (0.2.25)
 
 - Advanced now shows Image / Video / Music. Internal `t2m`/`cover` IDs, music intent/native contracts and saved history remain unchanged. `draftPipe` shares one music draft per model; `changeMusicSource` selects Cover only on an explicit audio/video source action and clears back to supported text generation without resetting authored Style/Lyrics or sampling controls.
 - Source selection uses existing Media menu/toolbar actions and the Settings source row, not a new editor. Active and cached sources follow relocation. Legacy unresolved covers remain blocked; unsupported ACE cover/source states are blocked in readiness and intent construction, with Run Plan avoiding an invalid builder call. Beginner remains unchanged.
@@ -17,7 +28,7 @@
 - Linux release-profile build succeeded and atomically staged `artifacts/deas-linux-amd64`; SHA-256 `7aa6b3bdf6c3d3db5741b2f4a5d2b18cb5be1db7695541daf4fb48752164db8c`. Full quit/relaunch is required. New Music and Video changes remain uncommitted/unpublished; preceding work is published as `49abb46`.
 - Not exercised: native Linux WebKitGTK/Windows WebView2 interaction, real YuE2 text/cover and ACE model generation, audio quality/timing/cancellation. No weights downloaded or live services restarted. The pre-existing Image toolbar overlap recorded below remains a separate open defect.
 
-## Role-based Video UI (0.2.25, unreleased)
+## Role-based Video UI (0.2.25)
 
 Source: `Workbench.tsx` retains internal pipeline IDs, consolidates the visible Video picker and per-model drafts, adds explicit role editing and captured upload naming; `videoRoles.ts` and `builtin.json` declare roles/limits; `history.ts` preserves unresolved inputs and LTX source reselection; `search.ts` opens the References overlay before revealing role controls. New regressions cover H3 modes, LTX combined source/frame/guides, legacy preferences, mixing, Continuity, external uploads and Beginner isolation.
 
@@ -29,14 +40,14 @@ Integration checkpoint before final review remedies:
 - Final Linux release-profile build succeeded and atomically staged `artifacts/deas-linux-amd64`; SHA-256 `e561ad850d2f1309bf42568651966444a46e5216a51a6be07a45a89e8c822346`. The running app needs a full quit/relaunch. This Video slice remains uncommitted; only preceding work was published as `49abb46` on both remotes.
 - No native GTK/WebKit/WebView2 interaction or real-model generation was exercised for this UI slice. Existing unsupported historical guide/chunk/Continuity restoration fields remain explicitly fail-closed. No model downloads, live-service restarts or publication of this new Video slice.
 
-## Reference thumbnail drag and theme fixes (0.2.25, unreleased)
+## Reference thumbnail drag and theme fixes (0.2.25)
 
 - Multi-reference video thumbnails and filenames share the existing lane-local reorder handler; non-handle drags do not reorder. Regression failed before the fix, then ReferencesPanel passed all 48 tests.
 - Inline image-reference and overlay video-reference Insert label buttons use the shared `wb-dock-action` skin; local icon-button rules exclude that class. Media video badges use an opaque theme panel, theme text and accent border.
 - Typecheck and 155 core tests passed; full UI suite: 87 files / 1,768 tests passed. Chromium workspace layout: 467 checks passed. Final non-handle drag guard additionally verified by the 48-test ReferencesPanel run. Native GTK/WebKit and Windows interaction/appearance were not exercised.
 - Final Linux build succeeded and atomically staged `artifacts/deas-linux-amd64`; SHA-256: `8ff226fa700939ef52d41ed5839125b1f52ea0f21d19e96c6331e1e04f0cab72`. Restart required; no commit or publication performed.
 
-## H3 image edit with references, still path (0.2.25, unreleased)
+## H3 image edit with references, still path (0.2.25)
 
 Source: `src-tauri/src/jobs.rs::h3_edit` (still path when `nativeImageReference.method == "minimax-h3"` or denoise < 1), validation pair `minimax-h3`/`minimax` with 1..8 pictures in `compile`, `H3_EDIT_NODES` + `MiniMaxH3ReferenceToVideo`/`LatentCut`; `src/lib/execution.ts` (`nativeImageReferenceLimit`, method/encoder, no prompt-encoder swap for H3); `src/families/builtin.json` (`imagePrompting: "minimax-h3"`); `Workbench.tsx` (`studio.run.h3Denoise` default 1, `<Picture n+1>` badges, 2 MP notice). Core facts checked against the owned core `c5751c8`: `MiniMaxH3ReferenceToVideo` Autogrow keys `ref_images.ref_image_0..8` (min 0, max 9), `length` min 5; `_empty_av_latent` audio `[1,32,2,T]`; `LatentCut dim "x"` narrows the last axis; `LTXVConcatAVLatent` keeps a video `noise_mask` and fills audio ones.
 
@@ -51,7 +62,7 @@ Source: `src-tauri/src/jobs.rs::h3_edit` (still path when `nativeImageReference.
   - Auto Refine-style masked crop pass (`inpaintCrop` 512² → 1024², face ellipse mask, blur 8): denoise 0.25 (new path) 8.1 s, mean abs diff 2.9/255 inside the mask, 0.007 outside, expression kept; denoise 1.0 (old 5-frame path) 10.1 s, 8.8/255 inside, mouth/expression visibly changed. No seam at the mask edge in either. This exercises the pass graph the Auto Refine job compiles, not the SAM detection + Workbench chaining end to end.
   - Device memory peak ~32.0 GB on every run (models resident). All outputs exactly 1280×1600.
 
-### References overlay, image mode (0.2.25, unreleased)
+### References overlay, image mode (0.2.25)
 
 `ReferencesOverlay.tsx` is now a modal shell (`onClose`, `picker`, `children`): video passes `ReferencesPanel`, image pipelines pass the shared `imageRefBar()` from `Workbench.tsx` (chip + numbered cards; H3 cards with **Insert label**). Button `[data-open-references]` for `t2i`/`i2i` with `imagePrompting` (same anchor as the video button, so the existing global-search entry reaches both). Picker selection reuses `togglePromptRef` (same path as the right-click entry). Tests: `ReferencesOverlay.test.tsx` (3: video modal via button/cancel, nested H3 edit, image-mode shell); `Workbench.test.tsx` H3 Image → Image test extended (button count, overlay bar with source card, picker click adds `<Picture 3>`, Insert label appends the tag, Escape returns focus to the button). Not checked: native WebKitGTK/WebView2 click-through and narrow-layout visuals of the overlay in image mode.
 
@@ -123,7 +134,7 @@ These acceptance items were ticked in `docs/PLAN.md` and removed from it; their 
 
 **4.11 Known defects (fixed in 0.2.25)**
 
-- **H3 SAM Auto Refine ignores its denoise (from reading the code, unconfirmed).** `jobs_auto_refine.rs:408` admits H3 images, but each pass compiles through `jobs.rs::h3_edit`, which always uses denoise 1.0 and removes `9` (VAEEncode) and `X` (SetLatentNoiseMask). The crop is therefore fully regenerated (only anchored by `first_frame`) instead of partially denoised at the Auto Refine default 0.25. Confirm with one H3 run, then fix through the still path (keep encode + mask, intent denoise); regression test: an H3 pass intent with denoise 0.25 emits `BasicScheduler.denoise` 0.25 and keeps `X`. Fixed in 0.2.25: see [the still-path section](#h3-image-edit-with-references-still-path-0225-unreleased).
+- **H3 SAM Auto Refine ignores its denoise (from reading the code, unconfirmed).** `jobs_auto_refine.rs:408` admits H3 images, but each pass compiles through `jobs.rs::h3_edit`, which always uses denoise 1.0 and removes `9` (VAEEncode) and `X` (SetLatentNoiseMask). The crop is therefore fully regenerated (only anchored by `first_frame`) instead of partially denoised at the Auto Refine default 0.25. Confirm with one H3 run, then fix through the still path (keep encode + mask, intent denoise); regression test: an H3 pass intent with denoise 0.25 emits `BasicScheduler.denoise` 0.25 and keeps `X`. Fixed in 0.2.25: see [the still-path section](#h3-image-edit-with-references-still-path-0225).
 
 ## Release 0.2.24 (published)
 

@@ -42,7 +42,9 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
  }
  const video=intent&&isVideoIntent(intent)?intent:null;
  const image=intent&&isImageIntent(intent)?intent:null;
- const videoSize=video?.latentUpscale?latentUpscaleSize(video.family,video,video.latentUpscale.scale):video;
+ // H3 picture edits carry the same latent upscale block as H3 video.
+ const latentUp=video?.latentUpscale?{family:video.family,base:video,u:video.latentUpscale}:image?.latentUpscale?{family:'minimax-h3' as const,base:image,u:image.latentUpscale}:null;
+ const latentOut=latentUp&&latentUpscaleSize(latentUp.family,latentUp.base,latentUp.u.scale);
  return <section className="feature-panel run-plan" aria-label={t('studio.tab.map')}>
   <div className="panel-heading"><h2>{t('studio.tab.map')}</h2><span>{t(`studio.run.pipe.${pipeline}`)}</span></div>
   <p>{t('studio.plan.notice')}</p>
@@ -88,11 +90,11 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
    </>)}
    {image?.refine&&stage('refine',<>{row('studio.run.resolution.title',size(image.refine))}{row('studio.run.post.denoise',image.refine.denoise)}{row('studio.run.steps',image.refine.sigmas?image.refine.sigmas.length-1:intent.steps)}{row('studio.run.post.model',image.refine.upscaleModel||t('studio.run.post.lanczos'))}
     {image.refine.sigmas&&row('studio.run.opt.sigmas',image.refine.sigmas.join(', '))}{image.refine.tiled&&row('studio.run.post.tiled',`${image.refine.tiled.tileWidth} × ${image.refine.tiled.tileHeight} · ${t('studio.plan.overlap')}: ${image.refine.tiled.overlap} px`)}</>)}
-   {video?.latentUpscale&&stage('latentUpscale',<>{row('studio.run.latent.model',video.latentUpscale.model)}{row('studio.run.upscale',video.latentUpscale.scale)}{row('studio.run.resolution.title',size(latentUpscaleSize(video.family,video,video.latentUpscale.scale)))}{video.family==='minimax-h3'&&<>{row('studio.run.latent.steps',video.latentUpscale.steps)}{row('studio.run.latent.denoise',video.latentUpscale.denoise)}{Object.entries(video.latentUpscale.advanced??{}).map(([k,v])=>row(`studio.run.latent.${k}`,typeof v==='boolean'?yesNo(v):v))}</>}<dd>{t('studio.run.latent.hint',{width:String(videoSize!.width),height:String(videoSize!.height)})}</dd></>)}
+   {latentUp&&latentOut&&stage('latentUpscale',<>{row('studio.run.latent.model',latentUp.u.model)}{row('studio.run.upscale',latentUp.u.scale)}{row('studio.run.resolution.title',size(latentOut))}{'steps' in latentUp.u&&<>{row('studio.run.latent.steps',latentUp.u.steps)}{row('studio.run.latent.denoise',latentUp.u.denoise)}{Object.entries(latentUp.u.advanced??{}).map(([k,v])=>row(`studio.run.latent.${k}`,typeof v==='boolean'?yesNo(v):v))}</>}<dd>{t('studio.run.latent.hint',{width:String(latentOut.width),height:String(latentOut.height)})}</dd></>)}
    {video&&video.family!=='wan'&&stage('audio',<>{row('studio.run.video.audioVae',video.family==='ltx-2'?video.ltx.audioVae:video.h3.audioVae)}<dd>{t('studio.plan.audioPending')}</dd></>)}
    {video?.videoPost&&stage('tve',<>{row('studio.tve.post.title',describeVideoPost(video.videoPost))}{row('studio.tve.fps',`${video.frameRate} → ${videoPostFrameRate(video.frameRate,video.videoPost)}`)}<dd>{t('studio.tve.post.baselineHint')}</dd></>)}
    {video?.audioEnhance&&stage('audioEnhance',<>{row('studio.audioEnhance.mode',t(`studio.audioEnhance.${video.audioEnhance.mode}`))}{row('studio.audioEnhance.profile',t(`studio.audioEnhance.${video.audioEnhance.profile}`))}{video.audioEnhance.mode==='stems'&&row('studio.audioEnhance.device',t(`studio.audioEnhance.device.${video.audioEnhance.device??'auto'}`))}<dd>{t('studio.audioEnhance.automatic')}</dd></>)}
-   {stage('output',<>{row('studio.run.resolution.title',size(videoSize??image?.refine??intent))}{row('settings.output',outputRoot)}{row('studio.run.opt.outputNaming',intent.outputPrefix)}
+   {stage('output',<>{row('studio.run.resolution.title',size(latentOut??video??image?.refine??intent))}{row('settings.output',outputRoot)}{row('studio.run.opt.outputNaming',intent.outputPrefix)}
     {video?<>{(['codec','container','bitDepth','quality','audioCodec','audioBitrate','saveFirstFrame','saveLastFrame'] as const).map(k=>row(`studio.run.opt.output.${k}`,typeof video.output[k]==='boolean'?yesNo(video.output[k] as boolean):video.output[k]==='Auto'?`${t('studio.run.opt.output.auto')} · ${unknown}`:video.output[k]))}</>:<>{row('studio.run.opt.output.imageFormat',image?.imageFormat??'png')}{row('studio.run.opt.output.imageCompression',image?.imageCompression??44)}</>}
     <dd>{t('studio.plan.outputPending')}</dd>
    </>)}

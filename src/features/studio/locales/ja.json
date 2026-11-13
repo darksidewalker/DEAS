@@ -1118,7 +1118,8 @@
   "studio.run.post.card.open": "設定を開く",
   "studio.run.post.reason.videoOnly": "動画生成パイプライン専用です。",
   "studio.run.post.reason.h3VideoOnly": "MiniMax H3 動画パイプライン専用です。",
-  "studio.run.post.reason.latentOnly": "LTX-2 および MiniMax H3 動画パイプライン専用です。",
+  "studio.run.post.reason.latentOnly": "LTX-2 と MiniMax H3 の動画、および MiniMax H3 の画像編集専用です。",
+  "studio.run.post.reason.latentMasked": "インペイントでは使えません。H3 潜在アップスケールはマスク付き潜在を処理できません。画像から画像を使うか、アップスケールをオフにしてください。",
   "studio.run.post.reason.imageOnly": "画像パイプライン専用です。",
   "studio.run.post.reason.audioVideoOnly": "音声または動画パイプラインのみ。",
   "studio.run.post.reason.audioManualOnly": "手動の音声強化は引き続き利用できます。自動後処理には音声対応の動画または音楽パイプラインが必要です。"

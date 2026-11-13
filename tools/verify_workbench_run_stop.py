@@ -19,6 +19,8 @@ from playwright.sync_api import expect, sync_playwright
 LOCALES = ('de', 'en', 'fr', 'ja', 'tr', 'zh')
 BROWSER_CASES = 18  # recovery, fixed, random, settled, partial, unreachable + 12 layouts
 FIXTURE = r"""
+// Skip the mandatory first-run experience dialog (Node selfcheck has no localStorage).
+globalThis.localStorage?.setItem('deas.pref.interface.experience', JSON.stringify('advanced'));
 window.isTauri=true;
 const clone=x=>structuredClone(x);
 const freeze=x=>{if(x&&typeof x==='object'){Object.values(x).forEach(freeze);Object.freeze(x);}return x;};
@@ -85,6 +87,12 @@ window.__TAURI_INTERNALS__={convertFileSrc:()=>png,invoke:async(command,input)=>
  if(command==='native_update_check')return {app:null,comfy:false,nodepack:false};
  if(command==='native_repo_stars')return {count:0,starred:null};
  if(command==='native_install_defaults')return {storagePath:'/fixture-unused',backend:'cpu',warnings:[]};
+ // Read-only startup/side-panel probes added after this fixture: inert answers, no mutation.
+ if(command==='native_startup_ready')return null;
+ if(command==='native_spellcheck_status')return {available:false,installed:false};
+ if(command==='native_spellcheck_check')return [];
+ if(command==='native_wildcard_library')return {categories:[]};
+ if(command==='native_audio_enhance_capabilities')return {};
  return fail('Unexpected command '+command);
 }};
 """
@@ -294,6 +302,9 @@ def stop_case(browser, url, mode, screenshots, passed):
         stop.focus()
         expect(stop).to_be_focused()
         stop.press('Enter')
+        # More than one active item: Stop opens its anchored menu; this case stops the whole queue.
+        if stop.get_attribute('aria-haspopup'):
+            page.locator('[data-run-stop-all]').click()
         page.wait_for_function('__runstop.stopping && typeof __runstop.releaseStop==="function"')
         expect(page.locator('[data-run]')).to_be_disabled()
         expect(stop).to_be_disabled()
@@ -306,15 +317,14 @@ def stop_case(browser, url, mode, screenshots, passed):
             identifier = 'unknown3-source' if mode == 'partial' else 'running2-held'
             state = 'unknown' if mode == 'partial' else 'running'
             expect(row(page, identifier)).to_have_attribute('data-state', state)
-            issue = 'Source ownership unresolved' if mode == 'partial' else 'Endpoint unreachable'
-            alert = page.locator('[data-workbench] [role="alert"]').filter(has_text=issue).first
-            expect(alert).to_be_visible()
-            expect(alert).to_contain_text(issue)
+            # Partial outcomes keep the retained row states; per-job issue details go to the native log only.
             mutations = page.evaluate('__runstop.mutations')
             # A UI may disable retry or re-read a retained result. Neither may re-mutate ownership.
             page.evaluate('__runstop.holdStop=false')
-            if stop.is_enabled():
+            if stop.count() and stop.is_enabled():  # Stop hides once no stoppable work remains
                 stop.click()
+                if stop.get_attribute('aria-haspopup'):
+                    page.locator('[data-run-stop-all]').click()
                 page.wait_for_function('!__runstop.stopping')
             assert page.evaluate('__runstop.mutations') == mutations
             expect(row(page, identifier)).to_have_attribute('data-state', state)

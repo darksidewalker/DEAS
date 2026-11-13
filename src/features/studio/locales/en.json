@@ -1118,7 +1118,8 @@
   "studio.run.post.card.open": "Open settings",
   "studio.run.post.reason.videoOnly": "Video generation pipelines only.",
   "studio.run.post.reason.h3VideoOnly": "MiniMax H3 video pipelines only.",
-  "studio.run.post.reason.latentOnly": "LTX-2 and MiniMax H3 video pipelines only.",
+  "studio.run.post.reason.latentOnly": "LTX-2 and MiniMax H3 video, and MiniMax H3 picture edits.",
+  "studio.run.post.reason.latentMasked": "Not with Inpaint: the H3 latent upscale cannot process masked latents. Use Image to Image or turn the upscale off.",
   "studio.run.post.reason.imageOnly": "Image pipelines only.",
   "studio.run.post.reason.audioVideoOnly": "Audio or video pipelines only.",
   "studio.run.post.reason.audioManualOnly": "Manual audio enhancement remains available; automatic run post-processing needs an audio-capable video or music pipeline."

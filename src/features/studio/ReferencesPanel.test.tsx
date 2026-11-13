@@ -141,6 +141,24 @@ test('a picture pasted inside the tab is saved into Input and added; text-field 
  expect(invoke).toHaveBeenCalledWith('native_media_paste',{bytes:[1,2],stamp:expect.stringMatching(/^\d{8}-\d{6}$/)});
 });
 
+test('a picture pasted on a picture card replaces that file and keeps its settings; on a video card it is added',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_paste'?'/env/in/pasted-20261108-153000.png'
+ :command==='native_media_describe'?(args as {paths:string[]}).paths.map(path=>({name:path.split('/').at(-1),path,kind:'file',symlink:false,media:'image',size:1,modified:1})):null);
+ const {onChange,onAdd}=mount([ref('a.png','image',{instructions:'keep face',label:'character-1',boxes:[{n:1,box:[0,0,1,1]}]}),ref('v.mp4','video')]);
+ await waitFor(()=>expect(os.drop).not.toBeNull());
+ const picture=Object.assign(new File(['x'],'shot.png',{type:'image/png'}),{arrayBuffer:async()=>new Uint8Array([1,2]).buffer});
+ const paste=(target:Element)=>{const e=new Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(e,'clipboardData',{value:{files:[picture]}});target.dispatchEvent(e);return e;};
+ const button=(name:string)=>document.querySelector(`li.wb-ref[data-ref="${name}"]`)!.querySelector('button')!;
+ expect(paste(button('a.png')).defaultPrevented).toBe(true);
+ await waitFor(()=>expect(onChange).toHaveBeenCalledTimes(1));
+ const [next]=onChange.mock.lastCall!;
+ expect(next[0]).toMatchObject({item:{name:'pasted-20261108-153000.png',media:'image'},instructions:'keep face',label:'character-1'});expect(next[0].boxes).toBeUndefined();
+ expect(next[1].item.name).toBe('v.mp4');expect(onAdd).not.toHaveBeenCalled();
+ paste(button('v.mp4'));
+ await waitFor(()=>expect(onAdd).toHaveBeenCalledWith([{item:expect.objectContaining({name:'pasted-20261108-153000.png'})}]));expect(onChange).toHaveBeenCalledTimes(1);
+});
+
 const at=(name:string,media:MediaItem['media'],dir='/env/in')=>({name,media,src:`asset://${dir}/${name}`,path:`${dir}/${name}`});
 const refAt=(name:string,media:MediaItem['media'],x:Partial<VideoRef>={},dir='/env/in'):VideoRef=>({item:at(name,media,dir),second:0,strength:1,mediaMode:'video',...x});
 

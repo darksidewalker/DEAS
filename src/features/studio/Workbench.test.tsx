@@ -4228,6 +4228,40 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  expect(prompt().endsWith('[Shot 1] ')).toBe(true);
 });
 
+test('IPC fixture: MiniMax H3 picture edits offer the H3 latent upscale after sampling; Inpaint disables it with a reason',async()=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v.safetensors',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-u',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
+ const h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
+ // No video gate: a picture edit has no paired Original/Processed product.
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LoadImage','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
+ render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
+ choosePipe('Image → Image');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
+ const img=(await screen.findAllByRole('img',{name:'ref.png'})).find(e=>e.classList.contains('wb-zoomable'))!;
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ fireEvent.click(screen.getByLabelText('Latent upscale after sampling'));
+ fireEvent.change(screen.getByLabelText('Latent upscale model'),{target:{value:h3Model}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
+ expect(intent).toMatchObject({family:'minimax-h3',h3Edit:{shiftVideo:expect.any(Number)},latentUpscale:{model:h3Model,scale:2,steps:1,denoise:0.2}});
+ // Inpaint feeds a masked latent, which the node refuses: the card explains instead of sending it.
+ fireEvent.click(screen.getByRole('tab',{name:'Media'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));
+ fireEvent.click(document.querySelector('.wb-stage > [data-media-tools] [data-edit="inpaint"]')!);
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(document.querySelector('[data-post-unavailable="latent"]')?.textContent).toContain('masked latents'));
+});
+
 test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit: shifts, denoise 1 by default, references from <Picture 2>, no refine pass',async()=>{
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
@@ -5650,6 +5684,20 @@ test('beginner music authored drafts and source roles survive experience switche
  expect(music().style.value).toBe('beginner style');expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
+
+test('beginner split ACE model without its text encoders offers the component download instead of a dependency warning',async()=>{
+ const ace=aceModel('ace-step-1-5-turbo','diffusion_models');
+ const view=await mountMusic('Music (Text to Music)',false,musicEvidence({diffusionModels:[ace.name],nodes:[...evidence.allowlist.nodes,...musicNodes,...aceNodes]}),[...yue2Models,ace,{category:'vae',name:'ace_1.5_vae.safetensors',path:'/m/vae/ace_1.5_vae.safetensors',size:1,info:null}]);
+ view.rerender(beginnerView(true,'models'));
+ const card=[...document.querySelectorAll<HTMLElement>('.beginner-model-card')].find(el=>el.textContent?.includes(ace.name))!;
+ fireEvent.click(within(card).getByRole('button',{name:/Use this model/}));view.rerender(beginnerView());
+ await waitFor(()=>expect(document.querySelector('[data-beginner-components]')).not.toBeNull());
+ // Only the missing encoders are offered (the VAE is installed), into text_encoders.
+ expect(document.querySelectorAll('[data-beginner-components] .beginner-base-download')).toHaveLength(1);
+ expect(document.body.textContent).not.toContain('Unavailable or incompatible selections');
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
 
 test('beginner resolved ACE model use reuses conditioning controls and blocks cover assignment without losing YuE2 drafts',async()=>{
  const ace=aceModel('ace-step-1-5-turbo'),unresolved=aceModel('ace-step-1-5');

@@ -1,6 +1,16 @@
 # News
 
-## 0.2.25 BETA (unreleased)
+## 0.2.25 BETA
+
+- Beginner **Music** shows only the basics (length, BPM, language, key, Steps/CFG/Sampler); split ACE-Step models without their text encoders get a download card instead of a dependency warning.
+
+- H3 SAM **Auto Refine** now honours its denoise, and reference thumbnails can be dragged to reorder.
+
+- **MiniMax H3 picture edits** can use the H3 **Latent upscale** after sampling (not with Inpaint).
+
+- In **References**, pasting a picture onto a picture card replaces that file and keeps its settings.
+
+- A wrapped preview toolbar no longer covers the picture.
 
 - Beginner now uses **Image / Video / Music** too, with usable music model selection, Style/Lyrics and cover-source controls.
 

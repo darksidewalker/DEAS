@@ -72,6 +72,7 @@ import { defaultWildcard, isWildcardRules, wildcardNode, parseWildcardLibrary, f
 import { containedImageHit, flattenImages, flattenLayer, visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
 import {BeginnerModels} from '../beginner/BeginnerModels';
+import {BeginnerModelDownload} from '../beginner/BeginnerModelDownload';
 import type {BeginnerPage} from '../beginner/Experience';
 import { NativeVideo, nativeVideo } from './NativeVideo';
 import { TemporalPreview } from './TemporalPreview';
@@ -530,7 +531,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const textEncoder2=textEncoder2Pref||recommendedSecond[0]||'';
  const vae=vaePref||recommended?.vaes[0]||'';
  const videoFamily=family?.video?family.id as VideoFamily:undefined;
- const latent=isVideo&&(videoFamily==='minimax-h3'||videoFamily==='ltx-2');
+ // H3 picture edits reuse the H3 video latent upscale; the node refuses masked latents, so Inpaint has none.
+ const h3MaskedEdit=pipeline==='i2i'&&family?.id==='minimax-h3'&&edit==='inpaint';
+ const latent=(isVideo||(pipeline==='i2i'&&family?.id==='minimax-h3'&&!h3MaskedEdit))&&(videoFamily==='minimax-h3'||videoFamily==='ltx-2');
  const latentPref=videoFamily==='minimax-h3'?h3Latent:ltxLatent;
  const setLatentPref=videoFamily==='minimax-h3'?setH3Latent:setLtxLatent;
  const latentChoices=latentModels(videoFamily,choices);
@@ -539,7 +542,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const latentSharpness=videoFamily==='minimax-h3'&&!!choices?.h3LatentSharpness&&/2d_conv/i.test(latentModel);
  const latentAdvanced=h3LatentChanged(latentSharpness?latentPref.advanced:(({sharpness:_unused,...rest})=>rest)(latentPref.advanced??{}));
  const latentEnabled=latent&&latentPref.enabled;
- const latentNodes=['DEAS_VideoPostprocessGate',...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
+ const latentNodes=[...(isVideo?['DEAS_VideoPostprocessGate']:[]),...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The backend may still be booting, or optional models were added since the last probe: re-read when their controls open.
  useEffect(()=>{if((latent&&dockTab==='post'||dockTab==='options')&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
@@ -802,7 +805,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const inputLayers=visibleImages(layers);
   const refineSigmas=only?.upscaleOnly?null:tail(refineDenoise); // Upscale alone: no diffusion tail, the pass is resize + model upscale.
   const wiredWildcard:typeof wildcard=wildcardEnabled?{...wildcard,...(Object.keys(wildcardVars.lib).length?{variables_json:JSON.stringify(wildcardVars.lib),variable_selections:JSON.stringify(prunePins(negative,wildcardVars.lib,prunePins(positive,wildcardVars.lib,parsePins(wildcard.variable_selections))))}:{})}:wildcard;
-  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:wiredWildcard}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,...(dualClip&&textEncoder2?{textEncoder2}:{}),clipType:family.clipType,vae,family:family.id}}:{}),...(family?{family:family.id}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio}}:{}),...(imageRefs.length&&referenceMethod?(referenceMethod==='revision'?{imageReference:{visionModel:refVision,images:imageRefs.map(r=>({image:comfyName(r.item)||r.item.path!,strength:r.strength}))}}:{nativeImageReference:{method:referenceMethod,images:imageRefs.map(r=>comfyName(r.item)||r.item.path!)}}):{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
+  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:wiredWildcard}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,...(dualClip&&textEncoder2?{textEncoder2}:{}),clipType:family.clipType,vae,family:family.id}}:{}),...(family?{family:family.id}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio},...(latentEnabled&&!only?{latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}}:{})}:{}),...(imageRefs.length&&referenceMethod?(referenceMethod==='revision'?{imageReference:{visionModel:refVision,images:imageRefs.map(r=>({image:comfyName(r.item)||r.item.path!,strength:r.strength}))}}:{nativeImageReference:{method:referenceMethod,images:imageRefs.map(r=>comfyName(r.item)||r.item.path!)}}):{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
   const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
   return Object.freeze(only
    ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:only.upscaleOnly?0:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
@@ -1701,7 +1704,7 @@ const promptTools=forgeContext&&<>
    setDenoise(intent.denoise??0.6);setInpaintDenoise(intent.denoise??0.8);setEdit(intent.inputMask?'inpaint':'resample');setMaskBlur(intent.maskBlur??0);setInpaintOnlyMasked(false);
    setRefVision(intent.imageReference?.visionModel??'');
    if(intent.wildcard){setWildcard(structuredClone(intent.wildcard));setWildcardEnabled(true);}
-   if(intent.h3Edit){setVideo({...defaultVideo,shiftVideo:intent.h3Edit.shiftVideo,shiftAudio:intent.h3Edit.shiftAudio});setH3Denoise(intent.denoise??1);}
+   if(intent.h3Edit){setVideo({...defaultVideo,shiftVideo:intent.h3Edit.shiftVideo,shiftAudio:intent.h3Edit.shiftAudio});setH3Denoise(intent.denoise??1);setH3Latent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...h3Latent,enabled:false});}
    if(intent.refine){setPost(true);setPostTiled(!!intent.refine.tiled);setUpscale(intent.refine.width/intent.width);setRefineDenoise(intent.refine.denoise);setUpscaleModel(intent.refine.upscaleModel??'');}
   }
   return true;
@@ -1769,11 +1772,16 @@ const promptTools=forgeContext&&<>
   setMedia(input?{name:input.id+'.png',path:input.path,src:convertFileSrc(input.path),media:'image'}:null);
   setMediaSize(input?{src:convertFileSrc(input.path),width:input.width,height:input.height}:null);
  };
+ // Beginner has no component pickers: missing ACE split files become a download card, not a dependency warning.
+ const aceMissing=beginner&&aceSplit&&family?[
+  ...(family.clip?.encoders??[]).filter(e=>!componentFilesNamed(models??[],[e]).length).map(e=>({file:`${e}.safetensors`,target:'text_encoders' as const})),
+  ...(split?.vaes.length?[]:(family.vaes??[]).slice(0,1).map(v=>({file:`${v}.safetensors`,target:'vae' as const}))),
+ ]:[];
  const stageWarnings=[...new Set([
   ...(historyDraft?.source&&!media?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
   ...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),
   ...(checkpointPref&&models&&!model?[t('studio.quick.unavailable',{names:checkpointPref}),...allModels.filter(m=>m.name===checkpointPref).map(m=>blocked(m,pipeline)).filter(Boolean).map(reason=>t(reason))]:[]),
-  ...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
+  ...(unavailable.length&&!aceMissing.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
   ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
  ])];
  // One Steps/CFG control set for Advanced and Beginner: same state, limits and fixed-schedule rule.
@@ -1819,7 +1827,7 @@ const promptTools=forgeContext&&<>
   const active=count>0;
   const available=id==='audio'?isMusic||isVideo:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':isVideo;
   const reason=id==='audio'?(!isMusic&&!isVideo?t('studio.run.post.reason.audioVideoOnly'):isVideo&&videoFamily==='wan'&&audioEnhance.mode!=='off'?t('studio.run.post.reason.audioManualOnly'):'')
-   :id==='latent'?(!latent?t('studio.run.post.reason.latentOnly'):latentProblems[0]??'')
+   :id==='latent'?(h3MaskedEdit?t('studio.run.post.reason.latentMasked'):!latent?t('studio.run.post.reason.latentOnly'):latentProblems[0]??'')
    :id==='face-analysis'?(!(isVideo&&isH3Video(videoFamily))?t('studio.run.post.reason.h3VideoOnly'):faceRefine.auto&&faceRefineAutoUnavailable?faceRefineAutoUnavailable:'')
    :id==='sam'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):samEnabled&&samUnavailable?samUnavailable:'')
    :id==='refine'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):moss?t('studio.plan.imageOnly'):'')
@@ -1892,6 +1900,7 @@ const promptTools=forgeContext&&<>
   <span className="beginner-control-label">{t('beginner.yourModel')}</span>
   <button type="button" className="beginner-selected-model" onClick={()=>onBeginnerPage?.('models')}><span className="beginner-model-monogram" aria-hidden="true">{(family?.name??'DEAS').slice(0,1)}</span><span><strong>{model?shortName(model.name):t('beginner.chooseModel')}</strong><small>{family?.name??t('beginner.browseModels')}</small></span><span className="beginner-change-model">{t('beginner.change')} ↗</span></button>
   {musicSourceFields}
+  {aceMissing.length>0&&<div className="beginner-input" data-beginner-components><p>{t('beginner.aceComponents')}</p>{(['text_encoders','vae'] as const).map(target=>{const files=aceMissing.filter(m=>m.target===target).map(m=>m.file);return files.length?<BeginnerModelDownload key={target+files.join()} guide={{name:family!.name,repo:'Comfy-Org/ace_step_1.5_ComfyUI_files',files,target}} root={root} modelsDir={modelsDir} onStatus={s=>{if(s.state==='succeeded'){void load();void refreshChoices(false);}}}/>:null;})}</div>}
   {isMusic?<div className="wb-controls">{musicSettings}</div>:<div className="beginner-size-picker">
    <label className="beginner-control-label" htmlFor="beginner-aspect">{t('studio.run.resolution.aspect')}<select id="beginner-aspect" data-beginner-aspect value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='custom'&&(a!=='auto'||mediaPipeline)).map(a=><option key={a} value={a}>{a==='auto'?t('studio.run.resolution.auto'):a}</option>)}</select></label>
    <label className="beginner-control-label" htmlFor="beginner-resolution">{t('studio.run.resolution.title')}<select id="beginner-resolution" data-beginner-resolution value={resolution} onChange={e=>setResolution(e.target.value)}>{['model',...Object.keys(resolutions)].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
@@ -2098,7 +2107,7 @@ const promptTools=forgeContext&&<>
            </details>;})()}
          {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
          <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
-        </fieldset>:<p className="field-help" data-post-unavailable="latent">{t('studio.run.post.reason.latentOnly')}</p>}
+        </fieldset>:<p className="field-help" data-post-unavailable="latent">{t(h3MaskedEdit?'studio.run.post.reason.latentMasked':'studio.run.post.reason.latentOnly')}</p>}
        </div>
        <div className="wb-post-category" data-post-category="face-analysis" hidden={openPostCategory!=='face-analysis'}>
         {isVideo&&isH3Video(videoFamily)?<Sam3VideoControls value={samVideoSettings} onChange={v=>{setSamCheckpoint(v.checkpoint);setSamThreshold(v.threshold);setSamVideoStart(v.startSeconds);setSamVideoDuration(v.durationSeconds);setSamVideoMax(v.maxObjects);setSamVideoInterval(v.detectInterval);setSamVideoCuts(v.cuts);setSamVideoSceneThreshold(v.sceneThreshold);}} models={samModels} sourceName={samVideoSource?.media==='video'?samVideoSource.name:undefined} unavailable={samVideoUnavailable} busy={serialBlocked||admissionBlocked||scanning} onAnalyze={()=>void analyzeFaceMasks()} refine={{value:faceRefine,onChange:setFaceRefine,unavailable:faceRefineUnavailable,autoUnavailable:faceRefineAutoUnavailable,onRefine:()=>void refineFaces()}}/>:<p className="field-help" data-post-unavailable="face-analysis">{t('studio.run.post.reason.h3VideoOnly')}</p>}

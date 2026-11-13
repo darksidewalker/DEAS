@@ -79,6 +79,7 @@
   "beginner.notInstalled": "Not installed",
   "beginner.sourceCredits": "Source & image credits",
   "beginner.tagHint": "Try anime, photo or illustration. Tags describe possibilities, not exclusive categories.",
+  "beginner.aceComponents": "Ce modèle musical a besoin de ses encodeurs de texte et de son VAE en fichiers séparés. Téléchargez ici ceux qui manquent ; Run se débloque une fois installés.",
   "beginner.downloadPick": "Choisissez un fichier de modèle. Rien ne se télécharge tant que vous n'avez pas examiné et confirmé le plan. Les encodeurs de texte et les fichiers VAE sont séparés ; Engine vérifie les composants requis avant la génération.",
   "beginner.downloadFile": "Fichier du modèle",
   "beginner.downloadChooseFile": "Choisir un fichier…",

@@ -4,7 +4,7 @@ import type {LocalModel} from '../../lib/models';
 export interface ModelGuide {
  id:string;name:string;family:string;tags:string[];aliases:string[];
  summary:string;prompting:string;note:string;image?:string;credit:string;source:string;
- repo:string;files:string[];target:'diffusion_models'|'checkpoints';
+ repo:string;files:string[];target:'diffusion_models'|'checkpoints'|'text_encoders'|'vae';
 }
 export const MODEL_GUIDES:readonly ModelGuide[]=[
  {id:'anima-base',name:'Anima Base v1.0',family:'anima',

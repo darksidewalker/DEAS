@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.2.25 BETA (unreleased)
+## 0.2.25 BETA
+
+- **Fix: Beginner Music showed a dependency warning for split ACE-Step models.** Beginner has no component pickers, so a split ACE-Step 1.5 model without its text encoders/VAE showed "Unavailable or incompatible selections: Text encoder, Second text encoder, Model files". Installed matching files are still picked automatically; missing ones now appear as a Beginner download card (Comfy-Org ACE-Step 1.5 files, review and confirm before anything downloads) instead of the warning, and the model list refreshes when the download finishes.
+- **H3 picture edits get the H3 latent upscale.** Image → Image with MiniMax H3 offers the Latent upscale card (off by default) with the same settings as H3 video; `DaSiWaH3TiledUpscale` runs after sampling and the picture comes out at the upscaled size (Run Plan shows it). Inpaint disables the card with the reason, because the upscaler refuses masked latents; the native compiler rejects such intents too.
+- **Paste replaces a reference picture.** In the References tab, Ctrl+V with focus on a picture card replaces that card's file and keeps its label, instructions and details (people boxes of the old picture are cleared). Pasting elsewhere in the tab still adds a new reference.
+- **Fix: wrapped preview toolbar covered the picture.** When the stage toolbar wraps to a second row (longer languages, narrow stages), it now pushes the media down instead of overlapping it; the reserve also fits the longest localized Metadata pill, and side-by-side editor/result view gives the toolbar its own full-width row.
+- **Verification scripts follow the current UI.** `verify_media_stars.py` checks the wrapped toolbar in all six languages and the side-by-side result view; `verify_workbench_run_stop.py` skips the first-run experience dialog, answers the newer read-only startup probes and uses the Stop menu's **Stop all**.
 
 - **Beginner Music shows only the basics.** Beginner keeps Style/Lyrics, length, the Media source and, for ACE-Step 1.5, BPM, language and key/scale, plus Steps, CFG and Sampler for ACE models. ABC planning, generation/ABC sampling groups, shift, lyrics strength, time signature, audio-code generation and the code-LM CFG/temperature/top-p/top-k/min-p stay in Advanced; their current values still apply.
 

@@ -169,6 +169,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
  const box=useRef<HTMLDivElement>(null);const [error,setError]=useState('');const [hovering,setHovering]=useState(false);
  const [editing,setEditing]=useState<string|null>(null);
  const add=useRef(onAdd);add.current=onAdd;
+ const latest=useRef({refs,onChange});latest.current={refs,onChange};
  // Native webviews deliver OS file drops as paths for the whole window; only drops over this tab add references.
  useEffect(()=>{
   if(!isTauri())return;
@@ -182,6 +183,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
   return()=>{alive=false;unlisten?.();};
  },[]);
  // Ctrl+V of a picture while focus is in this tab: saved into Input first (pastes have no path), then added like a drop.
+ // Pasting while focus is on a picture card replaces that card's file and keeps its settings (people boxes belong to the old picture).
  useEffect(()=>{
   if(!isTauri()||!inputRoot)return;
   const paste=(event:ClipboardEvent)=>{
@@ -189,7 +191,15 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
    if(event.defaultPrevented||!el||el.closest('[hidden]')||!(target instanceof Node)||!el.contains(target))return;
    const pictures=pastedPictures(event);if(!pictures.length)return;
    event.preventDefault();setError('');
-   void pasteToInput(pictures).then(describeMedia).then(entries=>add.current(entries.map(itemFromEntry).flatMap(item=>item?[{item}]:[])),err=>setError(String(err)));
+   const card=target instanceof Element?target.closest<HTMLElement>('li.wb-ref'):target.parentElement?.closest<HTMLElement>('li.wb-ref');
+   const replacing=latest.current.refs.find(r=>r.item.src===card?.dataset.refSrc&&r.item.media==='image')?.item.src;
+   void pasteToInput(pictures).then(describeMedia).then(entries=>{
+    const items=entries.map(itemFromEntry).flatMap(item=>item?[item]:[]);
+    const {refs:now,onChange:change}=latest.current,n=now.findIndex(r=>r.item.src===replacing);
+    if(n<0||items[0]?.media!=='image'){add.current(items.map(item=>({item})));return;}
+    change(now.map((r,m)=>m===n?{...r,item:items[0],who:undefined,whoAxis:undefined,boxes:undefined}:r));
+    if(items.length>1)add.current(items.slice(1).map(item=>({item})));
+   },err=>setError(String(err)));
   };
   document.addEventListener('paste',paste);return()=>document.removeEventListener('paste',paste);
  },[inputRoot]);
@@ -261,7 +271,7 @@ export function ReferencesPanel({endpoint='',root,refs,onChange,family,seconds,l
   {/* Keep unsupported saved rows visible so users can remove them. */}
   <div className="wb-lanes">{[...new Set([...lanes[family],...refs.map(laneOf)])].map(lane=><section key={lane} className="wb-lane" aria-label={t(`studio.run.dock.type.${lane}`)}>
    {h3&&<h4>{t(`studio.run.dock.type.${lane}`)}</h4>}
-   <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} onDragStart={e=>{if(!(e.target instanceof Element)||!e.target.closest('strong[draggable], .reference-thumb'))return;dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
+   <ul>{refs.map((r,n)=>laneOf(r)!==lane?null:<li key={r.item.src} className="wb-ref" data-ref={r.item.name} data-ref-src={r.item.src} onDragStart={e=>{if(!(e.target instanceof Element)||!e.target.closest('strong[draggable], .reference-thumb'))return;dragged.current=n;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.item.name);}} onDragEnd={()=>{dragged.current=-1;}} onDragOver={e=>{if(dragged.current>=0)e.preventDefault();}} onDrop={e=>dropOn(e,n)}>
     {/* Only the name and thumbnail are drag handles; fields keep text selection. */}
     <strong title={r.item.path} draggable>{!h3&&r.item.media==='image'&&<img src={r.item.src} alt="" loading="lazy" draggable={false}/>}<span className="media-mark">{label(r,n)}</span> {r.item.name}</strong>
     <span className="wb-ref-actions">

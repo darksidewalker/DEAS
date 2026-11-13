@@ -506,6 +506,15 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
                 .into(),
         );
     }
+    // `latentUpscale` (H3 edits only): DaSiWaH3TiledUpscale after the sampler, the same settings as H3 video.
+    // The node rejects masked source latents, so a mask (and with it Inpaint only masked) is refused here.
+    let latent_upscale = object.get("latentUpscale");
+    if latent_upscale.is_some() {
+        if h3.is_none() || mask.is_some() || i["family"] != "minimax-h3" {
+            return Err("latentUpscale on images needs an unmasked MiniMax H3 edit".into());
+        }
+        crate::jobs_video::validate_latent_upscale(i, "minimax-h3")?;
+    }
     // Workbench Options: model patches and tiled VAE; absent or empty compiles the plain graph.
     let options = object.get("options");
     let wildcard = object.get("wildcard");
@@ -561,6 +570,7 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
             + usize::from(crop.is_some())
             + usize::from(layers.is_some())
             + usize::from(family.is_some())
+            + usize::from(latent_upscale.is_some())
         || fields.iter().any(|key| !object.contains_key(*key))
     {
         return Err("Missing or unknown diagnostic intent fields".into());
@@ -1205,13 +1215,20 @@ fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
     g.insert("Z".into(), json!({"class_type":"BasicScheduler","inputs":{"model":["SS",0],"scheduler":i["scheduler"],"steps":i["steps"],"denoise":if still { json!(denoise) } else { json!(1.0) }}}));
     g.insert(
         "B".into(),
-        json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":cond}}),
+        json!({"class_type":"BasicGuider","inputs":{"model":["SS",0],"conditioning":cond.clone()}}),
     );
     g.insert("5".into(), json!({"class_type":"SamplerCustomAdvanced","inputs":{"noise":["N",0],"guider":["B",0],"sampler":["Q",0],"sigmas":["Z",0],"latent_image":latent}}));
     g.insert(
         "SEP".into(),
         json!({"class_type":"LTXVSeparateAVLatent","inputs":{"av_latent":["5",0]}}),
     );
+    if i.get("latentUpscale").is_some() {
+        g.insert(
+            "U".into(),
+            crate::jobs_video::h3_upscale_node(i, cond, json!(["5", 0])),
+        );
+        g.get_mut("SEP").unwrap()["inputs"]["av_latent"] = json!(["U", 0]);
+    }
     g.get_mut("6").unwrap()["inputs"]["samples"] = json!(["SEP", 0]);
     g.insert("F".into(), json!({"class_type":"ImageFromBatch","inputs":{"image":["6",0],"batch_index":0,"length":1}}));
     Ok(())

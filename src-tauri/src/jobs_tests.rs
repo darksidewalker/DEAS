@@ -4538,10 +4538,94 @@ fn dump_h3_edit_graph() {
     masked.as_object_mut().unwrap().remove("inputResize");
     masked["denoise"] = json!(0.6);
     masked["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    let mut upscaled = i.clone();
+    upscaled["family"] = json!("minimax-h3");
+    upscaled["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors","scale":1.5,"steps":4,"denoise":0.35});
+    let mut refs_upscaled = refs.clone();
+    refs_upscaled["family"] = json!("minimax-h3");
+    refs_upscaled["latentUpscale"] = upscaled["latentUpscale"].clone();
     println!(
         "{}",
-        json!({"h3_edit": compile(&i).unwrap(), "h3_edit_refs": compile(&refs).unwrap(), "h3_edit_refs_mask": compile(&masked).unwrap()})
+        json!({"h3_edit": compile(&i).unwrap(), "h3_edit_refs": compile(&refs).unwrap(), "h3_edit_refs_mask": compile(&masked).unwrap(),
+            "h3_edit_upscale": compile(&upscaled).unwrap(), "h3_edit_refs_upscale": compile(&refs_upscaled).unwrap()})
     );
+}
+
+#[test]
+fn h3_image_latent_upscale_runs_after_the_sampler_and_refuses_masks() {
+    let mut i = intent();
+    i["checkpoint"] = json!("MiniMaxH3/fl2va.safetensors");
+    i["diffusion"] = json!({"textEncoder":"qwen3vl.safetensors","clipType":"minimax","vae":"MiniMaxH3/video_vae.safetensors"});
+    i["h3Edit"] = json!({"shiftVideo":10,"shiftAudio":3});
+    (i["width"], i["height"]) = (json!(1024), json!(768));
+    i["inputImage"] = json!("ref.png");
+    i["denoise"] = json!(1);
+    i["family"] = json!("minimax-h3");
+    let plain = compile(&i).unwrap();
+    assert!(plain.get("U").is_none());
+    assert_eq!(plain["SEP"]["inputs"]["av_latent"], json!(["5", 0]));
+    i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_2d_conv_v1.safetensors","scale":1.5,"steps":4,"denoise":0.35,"advanced":{"sharpness":2,"spatialTiling":false}});
+    let g = compile(&i).unwrap();
+    let u = &g["U"]["inputs"];
+    assert_eq!(g["U"]["class_type"], "DaSiWaH3TiledUpscale");
+    assert_eq!(
+        (
+            &u["model"],
+            &u["conditioning"],
+            &u["latent"],
+            &u["sampler"],
+            &u["noise"]
+        ),
+        (
+            &json!(["SS", 0]),
+            &json!(["HE", 0]),
+            &json!(["5", 0]),
+            &json!(["Q", 0]),
+            &json!(["N", 0])
+        )
+    );
+    assert_eq!(
+        (
+            &u["scale"],
+            &u["steps"],
+            &u["denoise"],
+            &u["upscale_sharpness"],
+            &u["spatial_tiling"]
+        ),
+        (
+            &json!(1.5),
+            &json!(4),
+            &json!(0.35),
+            &json!(2),
+            &json!(false)
+        )
+    );
+    for absent in ["director_guide", "vae", "start_image", "continuity_context"] {
+        assert!(u.get(absent).is_none(), "{absent}");
+    }
+    assert_eq!(g["SEP"]["inputs"]["av_latent"], json!(["U", 0]));
+    // References switch to the still path; the upscale follows its conditioning.
+    let mut refs = i.clone();
+    refs["nativeImageReference"] = json!({"method":"minimax-h3","images":["first.png"]});
+    assert_eq!(
+        compile(&refs).unwrap()["U"]["inputs"]["conditioning"],
+        json!(["HR", 0])
+    );
+    let mut masked = i.clone();
+    masked["denoise"] = json!(0.6);
+    masked["inputMask"] = json!("deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png");
+    assert!(compile(&masked)
+        .unwrap_err()
+        .contains("unmasked MiniMax H3"));
+    let mut sdxl = intent();
+    sdxl["latentUpscale"] = i["latentUpscale"].clone();
+    assert!(compile(&sdxl).unwrap_err().contains("unmasked MiniMax H3"));
+    let mut bad = i.clone();
+    bad["latentUpscale"]["model"] = json!("4x_foolhardy.pth");
+    assert!(compile(&bad).unwrap_err().contains("Invalid latentUpscale"));
+    let mut big = i.clone();
+    big["latentUpscale"]["scale"] = json!(8.0);
+    assert!(compile(&big).unwrap_err().contains("exceeds"));
 }
 
 #[test]

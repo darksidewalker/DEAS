@@ -79,6 +79,7 @@
   "beginner.notInstalled": "Not installed",
   "beginner.sourceCredits": "Source & image credits",
   "beginner.tagHint": "Try anime, photo or illustration. Tags describe possibilities, not exclusive categories.",
+  "beginner.aceComponents": "此音乐模型需要单独的文本编码器和 VAE 文件。请在此下载缺失的文件；安装后即可使用 Run。",
   "beginner.downloadPick": "选择一个模型文件。在您查看并确认计划之前不会下载任何内容。文本编码器和VAE文件是独立的；Engine会在生成前检查所需组件。",
   "beginner.downloadFile": "模型文件",
   "beginner.downloadChooseFile": "选择文件…",

@@ -103,7 +103,8 @@
 .wb-stage .media-preview audio { align-self: end; width: 100%; }
 .wb-stage .media-preview > figcaption { min-height: 0; min-width: 0; overflow: auto; }
 /* Stage tools share the Metadata top offset without requiring CSS anchor support. */
-.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: absolute; top: 5px; left: 8px; right: 112px; bottom: auto; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
+/* In flow on the header line (old absolute box top:5px left:8px; the right reserve fits the longest localized Metadata pill + close): a wrapped second row pushes the media down instead of covering it. */
+.wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: relative; order: -1; flex: none; margin: -25px 130px 3px -4px; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; padding: 0; overflow: visible; pointer-events: none; }
 .wb-stage > .wb-media-tools > *, .wb-stage > .wb-edit-tools > * { pointer-events: auto; min-width: 0; max-width: 100%; }
 .wb-output-stars { display: inline-flex; flex-wrap: wrap; gap: .25rem; margin-right: .4rem; vertical-align: middle; }
 .wb-queue-output { position: relative; }
@@ -151,8 +152,10 @@
 .wb-editor-host[hidden] { display:none; }
 /* An explicit row: an implicit auto row grows to a large render's intrinsic height and the halves overflow each other. */
 .wb-stage.wb-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:10px; }
+.wb-stage.wb-split:has(> .wb-media-tools, > .wb-edit-tools) { grid-template-rows:auto minmax(0,1fr); }
+.wb-stage.wb-split > .wb-media-tools, .wb-stage.wb-split > .wb-edit-tools { grid-column:1 / -1; margin-bottom:-7px; }
 .wb-return-draft { align-self:flex-start; flex:none; margin-bottom:6px; padding:4px 8px; font-size:.75rem; }
-@media (max-width:900px) { .wb-stage { min-height: 18rem; } .wb-editor-host { min-height:360px; } .wb-stage.wb-split { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } }
+@media (max-width:900px) { .wb-stage { min-height: 18rem; } .wb-editor-host { min-height:360px; } .wb-stage.wb-split, .wb-stage.wb-split:has(> .wb-media-tools, > .wb-edit-tools) { grid-template-columns:minmax(0,1fr); grid-template-rows:none; } .wb-stage.wb-split > .wb-media-tools, .wb-stage.wb-split > .wb-edit-tools { margin-bottom:0; } }
 .wb-stage-warning { position: absolute; z-index: 8; top: 2.75rem; left: .75rem; right: .75rem; max-height: 50%; overflow: auto; padding: .65rem .8rem; border: 1px solid var(--danger-2); border-radius: .6rem; background: rgb(var(--danger-bg-rgb) / 0.922); color: var(--danger-text); box-shadow: 0 3px 12px rgb(var(--shadow-rgb) / 0.333); font-size: .8rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wb-stage-warning p { margin: 0; }
 .wb-stage-warning p + p { margin-top: .4rem; }
@@ -230,7 +233,7 @@
 /* Narrow panes scroll as content. Wrapped tools stay in flow, never over the role selector. */
 @media (max-width: 900px) {
  .wb-stage-warning { position: relative; inset: auto; flex: none; max-height: 12rem; }
- .wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: relative; inset: auto; flex: none; justify-content: flex-start; padding: 4px 0; }
+ .wb-stage > .wb-media-tools, .wb-stage > .wb-edit-tools { position: relative; inset: auto; flex: none; margin: 0; justify-content: flex-start; padding: 4px 0; }
 }
 .wb-prompt:has(.forge-anchor) textarea { padding-right: 36px; }
 

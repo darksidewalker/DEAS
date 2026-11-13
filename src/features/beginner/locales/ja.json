@@ -79,6 +79,7 @@
   "beginner.notInstalled": "Not installed",
   "beginner.sourceCredits": "Source & image credits",
   "beginner.tagHint": "Try anime, photo or illustration. Tags describe possibilities, not exclusive categories.",
+  "beginner.aceComponents": "この音楽モデルには、テキストエンコーダーと VAE が別ファイルとして必要です。不足しているものをここでダウンロードしてください。インストールされると Run が使えるようになります。",
   "beginner.downloadPick": "モデルファイルを1つ選択してください。計画を確認して承認するまでダウンロードは始まりません。テキストエンコーダーとVAEファイルは別枠で、Engineが生成前に必要コンポーネントを確認します。",
   "beginner.downloadFile": "モデルファイル",
   "beginner.downloadChooseFile": "ファイルを選択…",
