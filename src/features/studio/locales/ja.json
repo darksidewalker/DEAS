@@ -1010,6 +1010,8 @@
   "studio.music.off": "オフ",
   "studio.music.full": "フル — メロディとコード",
   "studio.music.melody": "メロディ",
+  "studio.music.aceMisplaced": "{name} は ACE-Step のオールインワン checkpoint（テキストエンコーダーと VAE を含む）ですが、checkpoints フォルダーにないため、ComfyUI はモデル部分しか読み込めません。ファイルを {folder} に移動して再スキャンしてください。追加のダウンロードは不要です。",
+  "studio.music.aceRescan": "モデルを再スキャン",
   "studio.music.maxDuration": "最大長（秒）",
   "studio.music.abcSettings": "ABC プランニング設定",
   "studio.music.generationSettings": "音楽生成設定",

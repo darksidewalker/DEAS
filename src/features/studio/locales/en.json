@@ -1010,6 +1010,8 @@
   "studio.music.off": "Off",
   "studio.music.full": "Full — melody and chords",
   "studio.music.melody": "Melody",
+  "studio.music.aceMisplaced": "{name} is an ACE-Step all-in-one checkpoint (text encoders and VAE included), but it is not in the checkpoints folder, so ComfyUI can only load its model part. Move the file to {folder} and rescan; no extra downloads are needed.",
+  "studio.music.aceRescan": "Rescan models",
   "studio.music.maxDuration": "Maximum duration (seconds)",
   "studio.music.abcSettings": "ABC planning settings",
   "studio.music.generationSettings": "Music generation settings",

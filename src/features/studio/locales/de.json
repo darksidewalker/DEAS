@@ -1010,6 +1010,8 @@
   "studio.music.off": "Aus",
   "studio.music.full": "Vollständig — Melodie und Akkorde",
   "studio.music.melody": "Melodie",
+  "studio.music.aceMisplaced": "{name} ist ein ACE-Step-All-in-One-Checkpoint (Text-Encoder und VAE enthalten), liegt aber nicht im Ordner checkpoints, daher kann ComfyUI nur den Modellteil laden. Verschiebe die Datei nach {folder} und lies die Modelle neu ein; zusätzliche Downloads sind nicht nötig.",
+  "studio.music.aceRescan": "Modelle neu einlesen",
   "studio.music.maxDuration": "Maximale Dauer (Sekunden)",
   "studio.music.abcSettings": "ABC-Planungseinstellungen",
   "studio.music.generationSettings": "Musikerzeugungs-Einstellungen",

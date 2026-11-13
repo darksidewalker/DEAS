@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.26 BETA (unreleased)
+
+- **ACE-Step all-in-one files in the wrong folder are recognized.** An ACE-Step AIO checkpoint (embedded text encoders and VAE) found in `unet/` or `diffusion_models/` is flagged by the model scan (`misplacedAllInOne`). Studio then says to move it to `checkpoints/` instead of listing missing text encoders, and Beginner shows that note with a Rescan button instead of offering a ~5 GB encoder download for parts the file already contains.
+- **Open-H3-Regenerate-2K LoRA converter (plan slice 1).** `tools/convert_open_h3_regenerate_lora.py` turns the Diffusers-layout merged LoRA (and, on curve-form checkpoints, the Sharp curve branches) into a ComfyUI-native MiniMax-H3 LoRA in bf16: q/k/v fused onto `qkv_proj` (block-diagonal), the `fc1` gate/value halves swapped, every target checked against the chosen checkpoint header, no overwrite. Local use only (MiniMax H3 Community License). Not yet wired into Studio.
+- **Fix: Rust job tests failed in the default parallel run.** Every test's job submission shared the app-wide compute permit, so concurrent tests saw each other as busy. `Jobs` now holds its own handle to the compute gate (production still shares the single global gate); `cargo test` passes in parallel again.
+
 ## 0.2.25 BETA
 
 - **The H3 face-mask analysis card is now named "H3 Face-Refiner"**, in the Post-Processing cards, its group heading and global search (all six languages).

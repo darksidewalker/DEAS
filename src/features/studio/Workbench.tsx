@@ -1773,7 +1773,10 @@ const promptTools=forgeContext&&<>
   setMediaSize(input?{src:convertFileSrc(input.path),width:input.width,height:input.height}:null);
  };
  // Beginner has no component pickers: missing ACE split files become a download card, not a dependency warning.
- const aceMissing=beginner&&aceSplit&&family?[
+ // An ACE all-in-one in unet/diffusion_models only needs moving: never offer downloads of what the file already holds.
+ const misplacedAio=isMusic&&!!model?.misplacedAllInOne;
+ const misplacedAioNote=misplacedAio?t('studio.music.aceMisplaced',{name:model!.name,folder:`${modelsDir??'models'}/checkpoints`}):'';
+ const aceMissing=beginner&&aceSplit&&family&&!misplacedAio?[
   ...(family.clip?.encoders??[]).filter(e=>!componentFilesNamed(models??[],[e]).length).map(e=>({file:`${e}.safetensors`,target:'text_encoders' as const})),
   ...(split?.vaes.length?[]:(family.vaes??[]).slice(0,1).map(v=>({file:`${v}.safetensors`,target:'vae' as const}))),
  ]:[];
@@ -1781,7 +1784,8 @@ const promptTools=forgeContext&&<>
   ...(historyDraft?.source&&!media?[t('studio.history.missingInput',{name:historyDraft.source.name})]:[]),
   ...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),
   ...(checkpointPref&&models&&!model?[t('studio.quick.unavailable',{names:checkpointPref}),...allModels.filter(m=>m.name===checkpointPref).map(m=>blocked(m,pipeline)).filter(Boolean).map(reason=>t(reason))]:[]),
-  ...(unavailable.length&&!aceMissing.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
+  ...(misplacedAio?[misplacedAioNote]:[]),
+  ...(unavailable.length&&!aceMissing.length&&!(beginner&&misplacedAio)?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),
   ...(error?[backendErrorText(error,t)]:[]),...(shown?.error?[backendErrorText(shown.error,t)]:[]),
  ])];
  // One Steps/CFG control set for Advanced and Beginner: same state, limits and fixed-schedule rule.
@@ -1900,6 +1904,7 @@ const promptTools=forgeContext&&<>
   <span className="beginner-control-label">{t('beginner.yourModel')}</span>
   <button type="button" className="beginner-selected-model" onClick={()=>onBeginnerPage?.('models')}><span className="beginner-model-monogram" aria-hidden="true">{(family?.name??'DEAS').slice(0,1)}</span><span><strong>{model?shortName(model.name):t('beginner.chooseModel')}</strong><small>{family?.name??t('beginner.browseModels')}</small></span><span className="beginner-change-model">{t('beginner.change')} ↗</span></button>
   {musicSourceFields}
+  {beginner&&misplacedAio&&<div className="beginner-input" data-beginner-misplaced-aio><p>{misplacedAioNote}</p><button type="button" disabled={scanning} onClick={()=>void load()}>{t('studio.music.aceRescan')}</button></div>}
   {aceMissing.length>0&&<div className="beginner-input" data-beginner-components><p>{t('beginner.aceComponents')}</p>{(['text_encoders','vae'] as const).map(target=>{const files=aceMissing.filter(m=>m.target===target).map(m=>m.file);return files.length?<BeginnerModelDownload key={target+files.join()} guide={{name:family!.name,repo:'Comfy-Org/ace_step_1.5_ComfyUI_files',files,target}} root={root} modelsDir={modelsDir} onStatus={s=>{if(s.state==='succeeded'){void load();void refreshChoices(false);}}}/>:null;})}</div>}
   {isMusic?<div className="wb-controls">{musicSettings}</div>:<div className="beginner-size-picker">
    <label className="beginner-control-label" htmlFor="beginner-aspect">{t('studio.run.resolution.aspect')}<select id="beginner-aspect" data-beginner-aspect value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='custom'&&(a!=='auto'||mediaPipeline)).map(a=><option key={a} value={a}>{a==='auto'?t('studio.run.resolution.auto'):a}</option>)}</select></label>

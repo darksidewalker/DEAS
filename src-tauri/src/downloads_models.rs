@@ -568,6 +568,9 @@ pub struct LocalModel {
     /// `truncated` when a safetensors header covers payload bytes the file does not hold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub integrity: Option<String>,
+    /// ACE-Step all-in-one (embedded text encoders + VAE) found outside `checkpoints/`: ComfyUI only loads it there.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub misplaced_all_in_one: bool,
 }
 
 fn is_model(path: &Path) -> bool {
@@ -795,6 +798,9 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         crate::model_families::detect_component(category, &header_path).map(str::to_owned);
     let integrity = crate::model_families::intact(&header_path)
         .and_then(|ok| (!ok).then(|| "truncated".to_owned()));
+    let misplaced_all_in_one = category != "checkpoints"
+        && family.as_deref().is_some_and(|f| f.starts_with("ace-step"))
+        && crate::model_families::ace_checkpoint_has_companions(&header_path);
     source.verify()?;
     if let Some(cache) = &cache {
         let current = Source::open(path)?;
@@ -819,6 +825,7 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         family_override,
         metadata_error,
         integrity,
+        misplaced_all_in_one,
         path: shown,
     })
 }
@@ -1568,6 +1575,44 @@ mod tests {
             Some("ace-step-1-5-turbo")
         )
         .is_err());
+    }
+
+    #[test]
+    fn ace_all_in_one_outside_checkpoints_is_flagged_misplaced() {
+        for (category, vae, text, misplaced) in [
+            ("unet", true, true, true),
+            ("diffusion_models", true, true, true),
+            ("checkpoints", true, true, false),
+            ("unet", false, true, false),
+            ("unet", true, false, false),
+        ] {
+            let (_root, path) = family_fixture(category);
+            let mut head =
+                serde_json::json!({"__metadata__":{"modelspec.architecture":"ace-step-1-5-turbo"}});
+            let tensor = serde_json::json!({"dtype":"F32","shape":[0],"data_offsets":[0,0]});
+            if vae {
+                head["vae.decoder.layers.0.bias"] = tensor.clone();
+            }
+            if text {
+                head["text_encoders.qwen3_06b.logit_scale"] = tensor;
+            }
+            let header = head.to_string();
+            let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+            bytes.extend(header.as_bytes());
+            std::fs::write(&path, bytes).unwrap();
+            let model = describe(category, path.parent().unwrap(), &path).unwrap();
+            assert_eq!(
+                model.misplaced_all_in_one, misplaced,
+                "{category} {vae} {text}"
+            );
+            assert_eq!(
+                serde_json::to_value(&model)
+                    .unwrap()
+                    .get("misplacedAllInOne")
+                    .is_some(),
+                misplaced
+            );
+        }
     }
 
     #[test]

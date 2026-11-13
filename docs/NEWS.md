@@ -1,5 +1,9 @@
 # News
 
+## 0.2.26 BETA (unreleased)
+
+- An ACE-Step all-in-one file placed in `unet/` or `diffusion_models/` now gets a clear "move it to checkpoints" note instead of a text-encoder download offer.
+
 ## 0.2.25 BETA
 
 - Beginner **Music** shows only the basics (length, BPM, language, key, Steps/CFG/Sampler); split ACE-Step models without their text encoders get a download card instead of a dependency warning.

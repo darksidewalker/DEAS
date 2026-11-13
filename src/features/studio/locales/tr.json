@@ -1010,6 +1010,8 @@
   "studio.music.off": "Kapalı",
   "studio.music.full": "Tam — melodi ve akorlar",
   "studio.music.melody": "Melodi",
+  "studio.music.aceMisplaced": "{name} bir ACE-Step hepsi bir arada checkpoint’idir (metin kodlayıcıları ve VAE dahil), ancak checkpoints klasöründe olmadığı için ComfyUI yalnızca model kısmını yükleyebilir. Dosyayı {folder} klasörüne taşıyın ve yeniden tarayın; ek indirme gerekmez.",
+  "studio.music.aceRescan": "Modelleri yeniden tara",
   "studio.music.maxDuration": "En fazla süre (saniye)",
   "studio.music.abcSettings": "ABC planlama ayarları",
   "studio.music.generationSettings": "Müzik üretim ayarları",

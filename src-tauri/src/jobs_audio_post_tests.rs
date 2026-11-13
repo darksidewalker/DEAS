@@ -57,6 +57,7 @@ async fn held_fixture_with(
         Arc::default(),
         Arc::default(),
         jobs.3.clone(),
+        jobs.4.clone(),
     ));
     let job = Job {
         id: id.clone(),

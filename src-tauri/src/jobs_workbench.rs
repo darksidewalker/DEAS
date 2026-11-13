@@ -187,6 +187,7 @@ impl Jobs {
             Arc::default(),
             Arc::default(),
             self.3.clone(),
+            self.4.clone(),
         ));
         {
             let mut session = self.lock()?;

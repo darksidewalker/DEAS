@@ -26,9 +26,30 @@ static COMPUTE: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
 /// Hold through native admission + inference, or backend admission + submit response.
 /// Never acquire this gate for Stop/cancel; busy callers defer rather than block a runtime.
 pub(crate) fn reserve_compute() -> Result<tokio::sync::OwnedSemaphorePermit, String> {
-    COMPUTE.clone().try_acquire_owned().map_err(|_| {
-        "RESOURCE_BUSY: Another native compute stage is active; retry after it finishes".into()
-    })
+    Compute(COMPUTE.clone()).reserve()
+}
+
+/// Jobs' handle on the compute gate: the app-wide gate in production; tests get a private
+/// gate per Jobs tree so parallel tests cannot see each other's submissions as busy.
+#[derive(Clone)]
+pub(crate) struct Compute(std::sync::Arc<tokio::sync::Semaphore>);
+
+impl Default for Compute {
+    fn default() -> Self {
+        #[cfg(not(test))]
+        return Self(COMPUTE.clone());
+        #[cfg(test)]
+        Self(std::sync::Arc::new(tokio::sync::Semaphore::new(1)))
+    }
+}
+
+impl Compute {
+    /// Same contract as `reserve_compute`.
+    pub(crate) fn reserve(&self) -> Result<tokio::sync::OwnedSemaphorePermit, String> {
+        self.0.clone().try_acquire_owned().map_err(|_| {
+            "RESOURCE_BUSY: Another native compute stage is active; retry after it finishes".into()
+        })
+    }
 }
 
 /// Native authority for admissions: only the approved owned environment may release memory.

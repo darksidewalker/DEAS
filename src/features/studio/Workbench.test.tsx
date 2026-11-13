@@ -5685,6 +5685,18 @@ test('beginner music authored drafts and source roles survive experience switche
 });
 
 
+test('beginner ACE all-in-one outside checkpoints explains the move instead of offering component downloads',async()=>{
+ const aio={...aceModel('ace-step-1-5-turbo','unet'),misplacedAllInOne:true};
+ const view=await mountMusic('Music (Text to Music)',false,musicEvidence({diffusionModels:[aio.name],nodes:[...evidence.allowlist.nodes,...musicNodes,...aceNodes]}),[...yue2Models,aio]);
+ view.rerender(beginnerView(true,'models'));
+ const card=[...document.querySelectorAll<HTMLElement>('.beginner-model-card')].find(el=>el.textContent?.includes(aio.name))!;
+ fireEvent.click(within(card).getByRole('button',{name:/Use this model/}));view.rerender(beginnerView());
+ await waitFor(()=>expect(document.querySelector('[data-beginner-misplaced-aio]')?.textContent).toContain('/m/checkpoints'));
+ expect(document.querySelector('[data-beginner-components]')).toBeNull();
+ expect(document.body.textContent).not.toContain('Unavailable or incompatible selections');
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+});
+
 test('beginner split ACE model without its text encoders offers the component download instead of a dependency warning',async()=>{
  const ace=aceModel('ace-step-1-5-turbo','diffusion_models');
  const view=await mountMusic('Music (Text to Music)',false,musicEvidence({diffusionModels:[ace.name],nodes:[...evidence.allowlist.nodes,...musicNodes,...aceNodes]}),[...yue2Models,ace,{category:'vae',name:'ace_1.5_vae.safetensors',path:'/m/vae/ace_1.5_vae.safetensors',size:1,info:null}]);

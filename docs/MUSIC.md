@@ -29,6 +29,8 @@ ACE-Step shares the native FLAC saver, job queue, optional audio post-processing
 
 ## Selecting a music pipeline
 
+An ACE-Step **all-in-one** file (text encoders and VAE embedded) must sit in `checkpoints/`: ComfyUI loads all-in-one files only from there. If the scan finds one in `unet/` or `diffusion_models/`, Studio says to move it (Beginner adds a **Rescan models** button) instead of asking for separate text encoders.
+
 In Beginner, choose **Music** under Creation mode or use a supported model from **Models → Music**. The same Style/Lyrics editors are available with only the basic music settings: length, the cover encoder when needed and, for ACE-Step, BPM, language, key/scale (1.5), Steps, CFG and Sampler. Planning, autoregressive/code-LM sampling and other tuning values stay in Advanced and keep their current values. Beginner **Media** exposes the existing cover-source actions in the preview and context menu. ACE-Step cover assignment stays disabled. Authored music text and edited music settings survive switching experiences; automatic Beginner technical defaults do not replace Advanced preferences.
 
 - **Music** sits next to **Image** and **Video** in the Pipeline picker. The source role determines Text to Music or Cover; clicking a file to preview it does not adopt a source or upload anything. Existing saved `t2m`/`cover` modes and history remain readable; an unresolved saved cover stays blocked until explicitly reselected or cleared.

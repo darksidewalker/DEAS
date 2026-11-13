@@ -54,6 +54,7 @@ pub struct Jobs(
     Arc<tokio::sync::Mutex<()>>,
     Arc<tokio::sync::Mutex<()>>,
     history::History,
+    crate::resources::Compute,
 );
 
 #[derive(Default)]
@@ -1907,7 +1908,9 @@ impl Jobs {
         // Shared compute gate: submission holds it until the backend has accepted the prompt,
         // so an audio admission decision cannot be invalidated by an interleaved start.
         // Acquired without blocking: backend Stop and cancel paths stay reachable either way.
-        let _compute = crate::resources::reserve_compute()
+        let _compute = self
+            .4
+            .reserve()
             .map_err(|_| "Workbench jobs are in flight or unknown".to_string())?;
         let client = client()?;
         // Consume before the first submission await: a lost response must never authorize a retry.

@@ -1010,6 +1010,8 @@
   "studio.music.off": "关闭",
   "studio.music.full": "完整 — 旋律与和弦",
   "studio.music.melody": "旋律",
+  "studio.music.aceMisplaced": "{name} 是 ACE-Step 一体化 checkpoint（包含文本编码器和 VAE），但它不在 checkpoints 文件夹中，因此 ComfyUI 只能加载其模型部分。请将文件移动到 {folder} 并重新扫描；无需额外下载。",
+  "studio.music.aceRescan": "重新扫描模型",
   "studio.music.maxDuration": "最长时长（秒）",
   "studio.music.abcSettings": "ABC 规划设置",
   "studio.music.generationSettings": "音乐生成设置",
