@@ -13,7 +13,7 @@ export function AceMusicSettings({family,version,value,onChange,duration,onDurat
   {!beginner&&number('shift',0,100,0.01)}
   {version==='1.0'?!beginner&&number('lyricsStrength',0,10,0.01):beginner?<>{number('bpm',10,300,1)}{select('language',aceLanguages)}{select('keyScale',aceKeyScales)}</>:<>
    {number('bpm',10,300,1)}{select('timeSignature',['2','3','4','6'])}{select('language',aceLanguages)}{select('keyScale',aceKeyScales)}
-   <label className="wb-field wb-wide" title={t('studio.music.ace.generateAudioCodesHint')}><span><input data-ace-setting="generateAudioCodes" type="checkbox" checked={value.generateAudioCodes} onChange={e=>onChange({...value,generateAudioCodes:e.target.checked})}/>{t('studio.music.ace.generateAudioCodes')}</span></label>
+   <label className="wb-field wb-wide" title={t('studio.music.ace.generateAudioCodesHint')}><span><input data-ace-setting="generateAudioCodes" type="checkbox" style={{width:'auto'}} checked={value.generateAudioCodes} onChange={e=>onChange({...value,generateAudioCodes:e.target.checked})}/>{t('studio.music.ace.generateAudioCodes')}</span></label>
    {number('lmCfg',0,100,0.1)}{number('temperature',0,2,0.01)}{number('topP',0,1,0.01)}{number('topK',0,100,1)}{number('minP',0,1,0.001)}
   </>}
  </>;
