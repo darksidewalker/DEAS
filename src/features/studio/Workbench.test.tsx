@@ -4253,7 +4253,7 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  choosePipe('Image → Image');
  fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
- const img=await screen.findByRole('img',{name:'ref.png'});
+ const img=(await screen.findAllByRole('img',{name:'ref.png'})).find(e=>e.classList.contains('wb-zoomable'))!;
  Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
  // Full regeneration by default; below 1 the encoded source is kept (still path).
  expect((screen.getByLabelText('Denoise') as HTMLInputElement).value).toBe('1');
@@ -4261,6 +4261,8 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  // <Picture 1> is the edited picture, so references are numbered from 2.
  expect(Array.from(document.querySelectorAll('[data-reference-controls] .wb-reference-position')).map(e=>e.textContent)).toEqual(['2','3']);
  expect(document.querySelector('[data-reference-chip]')!.textContent).toContain('<Picture 2>');
+ expect(document.querySelector<HTMLImageElement>('[data-reference-source] img')!.alt).toBe('ref.png');
+ expect(document.querySelector('[data-reference-source] .wb-reference-position')!.textContent).toBe('1');
  // H3 has no refine pass: More keeps the Refine entry, disabled with its reason.
  expect(screen.getByRole('button',{name:'Refine'})).toMatchObject({disabled:true,title:expect.stringContaining('MiniMax H3')});
  fireEvent.change(screen.getByLabelText('Shift video'),{target:{value:'11'}});
@@ -4270,6 +4272,35 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  const intent=vi.mocked(runWorkbenchJob).mock.calls[0][1];
  expect(intent).toMatchObject({recipeId:'checkpoint-text-to-image-diagnostic',checkpoint:'MiniMaxH3/h3.safetensors',inputImage:'ref.png',denoise:1,diffusion:{clipType:'minimax'},h3Edit:{shiftVideo:11,shiftAudio:3},nativeImageReference:{method:'minimax-h3',images:['deas-inputs/jacket.png','deas-inputs/pose.png']}});
  expect(intent).not.toHaveProperty('refine');
+ // <Picture 1> is the source card at the head of the bar; clearing it promotes the first reference.
+ const source=()=>document.querySelector<HTMLImageElement>('[data-reference-source] img')?.alt;
+ const badges=()=>Array.from(document.querySelectorAll('[data-reference-controls] .wb-reference-position')).map(e=>e.textContent);
+ fireEvent.click(document.querySelector('[data-reference-source-remove]')!);
+ expect(source()).toBe('jacket.png');expect(badges()).toEqual(['2']);
+ fireEvent.click(document.querySelector('[data-reference-source-remove]')!);
+ fireEvent.click(document.querySelector('[data-reference-source-remove]')!);
+ expect(document.querySelector('[data-reference-source]')).toBeNull();
+ // Without a source, the first picture added as reference becomes <Picture 1>.
+ promptDrop('image','/outside/face.png');
+ expect(source()).toBe('face.png');expect(badges()).toEqual([]);
+ promptDrop('image','/outside/coat.png');
+ expect(badges()).toEqual(['2']);
+ // References overlay (image mode): same bar and picker; a picker click adds like the right-click entry.
+ const button=document.querySelector<HTMLButtonElement>('[data-open-references]')!;
+ expect(button.textContent).toContain('1');
+ fireEvent.click(button);
+ const dialog=screen.getByRole('dialog',{name:'References'});
+ const bar=dialog.querySelector('[data-image-references]')!;
+ expect(bar.querySelector<HTMLImageElement>('[data-reference-source] img')!.alt).toBe('face.png');
+ fireEvent.click(within(within(dialog).getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await within(dialog).findByRole('button',{name:'ref.png'}));
+ expect(Array.from(bar.querySelectorAll('[data-reference-controls] .wb-reference-position')).map(e=>e.textContent)).toEqual(['2','3']);
+ fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'Edit <Picture 1>:'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Insert <Picture 3> into the prompt'}));
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','Edit <Picture 1>: <Picture 3>');
+ fireEvent(dialog,new Event('cancel',{cancelable:true}));
+ expect(screen.queryByRole('dialog',{name:'References'})).toBeNull();expect(document.activeElement).toBe(button);
+ expect(button.textContent).toContain('2');
 });
 
 

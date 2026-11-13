@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { ReferencesOverlay } from './ReferencesOverlay';
+import { ReferencesPanel } from './ReferencesPanel';
 vi.mock('@tauri-apps/api/core',()=>({isTauri:()=>false,invoke:vi.fn()}));
 const methods=Object.getOwnPropertyDescriptors(HTMLDialogElement.prototype);
 beforeEach(()=>{
@@ -18,7 +19,7 @@ afterEach(()=>{
 });
 test.each(['button','cancel'])('References opens a named modal, hosts selection and editing, and closes via %s',method=>{
  const onClose=vi.fn(),onChange=vi.fn();
- const {unmount}=render(<StrictMode><I18nProvider><ReferencesOverlay family="ltx-2" seconds={5} refs={[]} label={()=>''} onChange={onChange} onAdd={vi.fn()} onInsert={vi.fn()} onClose={onClose} picker={<button>{'Pick fixture'}</button>}/></I18nProvider></StrictMode>);
+ const {unmount}=render(<StrictMode><I18nProvider><ReferencesOverlay onClose={onClose} picker={<button>{'Pick fixture'}</button>}><ReferencesPanel family="ltx-2" seconds={5} refs={[]} label={()=>''} onChange={onChange} onAdd={vi.fn()} onInsert={vi.fn()}/></ReferencesOverlay></I18nProvider></StrictMode>);
  const dialog=screen.getByRole('dialog',{name:'References'}) as HTMLDialogElement;
  expect(dialog.open).toBe(true);expect(screen.getByRole('button',{name:'Pick fixture'})).toBeTruthy();
  expect(document.activeElement).toBe(screen.getByRole('button',{name:'Close'}));
@@ -37,7 +38,7 @@ test('H3 overview is compact; nested edit keeps changes, identity and outer moda
    {item:{name:'clip.mp4',path:'/in/clip.mp4',src:'asset://clip.mp4',media:'video'},second:0,strength:1,mediaMode:'video',trimStart:1,trimEnd:4},
    {item:{name:'other.png',src:'asset://other.png',media:'image'},second:0,strength:1,mediaMode:'video',instructions:'keep me'}
   ]);
-  return <ReferencesOverlay refs={refs} onChange={setRefs} family="minimax-h3" seconds={5} label={(_,i)=>String(i+1)} onAdd={vi.fn()} onInsert={vi.fn()} onClose={outerClose} picker={<button>{'Picker'}</button>}/>;
+  return <ReferencesOverlay onClose={outerClose} picker={<button>{'Picker'}</button>}><ReferencesPanel refs={refs} onChange={setRefs} family="minimax-h3" seconds={5} label={(_,i)=>String(i+1)} onAdd={vi.fn()} onInsert={vi.fn()}/></ReferencesOverlay>;
  }
  const pause=vi.spyOn(HTMLMediaElement.prototype,'pause').mockImplementation(()=>{});
  render(<I18nProvider><Harness/></I18nProvider>);
@@ -61,4 +62,13 @@ test('H3 overview is compact; nested edit keeps changes, identity and outer moda
  expect(screen.getByLabelText('End of clip.mp4')).toHaveProperty('value','4');
  expect(screen.getByLabelText('Use of clip.mp4')).toHaveProperty('value','audio');
  pause.mockRestore();
+});
+
+test('image mode hosts any editor beside the picker and keeps the shared modal contract',()=>{
+ const onClose=vi.fn();
+ render(<I18nProvider><ReferencesOverlay onClose={onClose} picker={<button>{'Picker'}</button>}><div data-image-references>{'bar'}</div></ReferencesOverlay></I18nProvider>);
+ const dialog=screen.getByRole('dialog',{name:'References'}) as HTMLDialogElement;
+ expect(dialog.querySelector('[data-image-references]')).toBeTruthy();expect(document.querySelector('[data-references]')).toBeNull();
+ const event=new Event('cancel',{cancelable:true});fireEvent(dialog,event);
+ expect(dialog.open).toBe(false);expect(onClose).toHaveBeenCalledTimes(1);
 });

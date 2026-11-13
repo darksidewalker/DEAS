@@ -2,7 +2,8 @@
 
 ## 0.2.25 BETA (unreleased)
 
-- MiniMax H3 Image → Image can use up to 8 reference pictures (`<Picture 2>` onward; the edited picture is `<Picture 1>`), plus a Denoise control (default 1.0). SAM Auto Refine on H3 now honours its denoise.
+- MiniMax H3 Image → Image can use up to 8 reference pictures (`<Picture 2>` onward; the edited picture is `<Picture 1>`), plus a Denoise control (default 1.0). SAM Auto Refine on H3 now honours its denoise. The reference bar shows the edited picture as card 1; the first reference added without one becomes it.
+- Image pipelines with prompt references get a **References** button that opens the reference overlay (Media picker + numbered bar), as video already had.
 
 ## 0.2.24 BETA
 

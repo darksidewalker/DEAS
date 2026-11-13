@@ -2,8 +2,14 @@
 
 ## 0.2.25 BETA (unreleased)
 
+- **Reference thumbnails drag to reorder.** Multi-reference → Video accepts dragging the preview image as well as the filename; lane boundaries and editable fields keep their existing behavior.
+- **Reference Insert label buttons use the shared theme skin**, both in the inline image reference strip and the References overlay.
+- **Visible video tile indicator.** The play badge in Media uses an opaque theme background, theme text and an accent outline so it stays visible over light and dark thumbnails.
+
 - **MiniMax H3 image edit with multiple references.** H3 Image → Image accepts up to 8 prompt references (`nativeImageReference` method `minimax-h3`). The edited picture is `<Picture 1>` and references follow from `<Picture 2>`; thumbnails show those numbers. With references, the edit runs through core `MiniMaxH3ReferenceToVideo` on a one-frame still AV latent (H3 VAE encode + still audio t=2 via `LatentCut` + `LTXVConcatAVLatent`) instead of the 5-frame first-frame pass; masks and *Inpaint only masked* keep working. Without references at denoise 1.0 the graph stays byte-identical. Only core nodes are used.
 - **H3 edits get a Denoise control.** Default 1.0 (full regeneration, the reference workflow's mode); below 1.0 keeps the composition. Stored separately from the other pipelines' denoise, so the H3 default stays 1.0. A Run Plan notice recommends at least 2 MP with references.
+- **References overlay for image pipelines.** Text → Image / Image → Image with an image-prompting family (MiniMax H3, Qwen Image 2.1, Krea 2, MOSS, SDXL ReVision) get a **References · N** button in the settings column, opening the same modal as video references: the Media picker beside the numbered reference bar (drag reorder, ✕, file name on hover, per-family limit 8 for H3 / 4 otherwise). A picker click adds or removes a reference exactly like the right-click entry; dropping a tile on the button adds it. H3 cards get **Insert label** for their `<Picture N>` tag. The right-click entry and prompt drop stay as shortcuts; intents are unchanged.
+- **H3 reference bar shows `<Picture 1>`.** For MiniMax H3 edits the reference bar now starts with the picture being edited (card **1**, "Picture to edit"), references follow as 2, 3 …. Without a picture to edit, the first picture added as a prompt reference becomes it; clearing it promotes the first reference, so Picture 1 stays filled. Adding the current source as a reference is ignored.
 - **Fix: SAM Auto Refine ignored its denoise on H3.** Every H3 pass regenerated the crop at denoise 1.0 and dropped the latent noise mask. H3 passes below 1.0 now take the still path, keep `SetLatentNoiseMask` and use the pass denoise (default 0.25).
 
 ## 0.2.24 BETA
