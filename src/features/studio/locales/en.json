@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "Frame-difference threshold",
   "studio.samVideo.cutsHint": "Heuristic RGB frame difference; not identity tracking.",
   "studio.samVideo.cutsAdapter": "DEAS_SAM3ShotMask is missing. Restart or update the owned backend, or turn off hard-cut detection.",
-  "studio.samVideo.title": "H3 face-mask analysis",
+  "studio.samVideo.title": "H3 Face-Refiner",
   "studio.faceRefine.auto": "Refine faces after H3 generation",
   "studio.faceRefine.autoHint": "Adds face refinement to every MiniMax H3 run: the unrefined video is saved first, then each tracked face is re-sampled and stitched back. Off by default.",
   "studio.faceRefine.denoise": "Refine strength",

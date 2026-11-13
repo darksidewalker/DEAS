@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "帧差阈值",
   "studio.samVideo.cutsHint": "启发式 RGB 帧差；并非身份跟踪。",
   "studio.samVideo.cutsAdapter": "缺少 DEAS_SAM3ShotMask。请重启或更新托管后端，或关闭硬切检测。",
-  "studio.samVideo.title": "H3 人脸遮罩分析",
+  "studio.samVideo.title": "H3 面部精修",
   "studio.faceRefine.auto": "H3 生成后精修人脸",
   "studio.faceRefine.autoHint": "为每次 MiniMax H3 运行添加人脸精修：先保存未精修的视频，再对每张跟踪到的人脸重新采样并贴回。默认关闭。",
   "studio.faceRefine.denoise": "精修强度",

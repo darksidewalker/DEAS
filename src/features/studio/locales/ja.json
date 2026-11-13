@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "フレーム差分しきい値",
   "studio.samVideo.cutsHint": "RGBフレーム差分によるヒューリスティック。人物同一性の追跡ではありません。",
   "studio.samVideo.cutsAdapter": "DEAS_SAM3ShotMask がありません。管理対象バックエンドを再起動・更新するか、カット検出をオフにしてください。",
-  "studio.samVideo.title": "H3 顔マスク解析",
+  "studio.samVideo.title": "H3 顔リファイナー",
   "studio.faceRefine.auto": "H3生成後に顔を補正",
   "studio.faceRefine.autoHint": "MiniMax H3の各実行に顔補正を追加します。補正前の動画を先に保存し、追跡した顔ごとに再サンプリングして合成します。既定はオフです。",
   "studio.faceRefine.denoise": "補正の強さ",

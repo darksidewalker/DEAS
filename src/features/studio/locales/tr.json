@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "Kare farkı eşiği",
   "studio.samVideo.cutsHint": "Sezgisel RGB kare farkı; kimlik takibi değildir.",
   "studio.samVideo.cutsAdapter": "DEAS_SAM3ShotMask eksik. Yönetilen arka ucu yeniden başlatın veya güncelleyin ya da kesme algılamayı kapatın.",
-  "studio.samVideo.title": "H3 yüz maskesi analizi",
+  "studio.samVideo.title": "H3 Yüz İyileştirici",
   "studio.faceRefine.auto": "H3 üretiminden sonra yüzleri iyileştir",
   "studio.faceRefine.autoHint": "Her MiniMax H3 çalışmasına yüz iyileştirme ekler: önce iyileştirilmemiş video kaydedilir, ardından izlenen her yüz yeniden örneklenip geri yerleştirilir. Varsayılan olarak kapalı.",
   "studio.faceRefine.denoise": "İyileştirme gücü",

@@ -61,7 +61,7 @@ async function faceAnalysisFixture(missing='',source:'queue'|'rootless'|'none'='
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));choosePipe('Text → Video');dock('Post-Processing');
  fireEvent.click(document.querySelector('[data-post-card="face-analysis"]')!);
- await screen.findByRole('group',{name:'H3 face-mask analysis'});
+ await screen.findByRole('group',{name:'H3 Face-Refiner'});
  if(source!=='none'){await waitFor(()=>expect(document.querySelector('[data-job-id="source-video"]')).not.toBeNull());fireEvent.click(document.querySelector('[data-job-id="source-video"] .wb-queue-select')!);}
  await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('[data-sam-video="checkpoint"]')!.value).toBe(missing==='checkpoint'?'':videoSam));
  return {view,sourceJob};
@@ -118,7 +118,7 @@ test('H3 missing optional shot adapter blocks only hard-cut analysis',async()=>{
  await faceAnalysisFixture('DEAS_SAM3ShotMask');const button=screen.getByRole('button',{name:'Analyze face masks'});
  await waitFor(()=>expect(button).toHaveProperty('disabled',false));
  fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',true);
- expect(within(screen.getByRole('group',{name:'H3 face-mask analysis'})).getByRole('status').textContent).toContain('DEAS_SAM3ShotMask');fireEvent.click(button);
+ expect(within(screen.getByRole('group',{name:'H3 Face-Refiner'})).getByRole('status').textContent).toContain('DEAS_SAM3ShotMask');fireEvent.click(button);
  fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',false);
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
@@ -126,7 +126,7 @@ test.each(['0','-0.1','1.01',''])('H3 hard-cut analysis rejects invalid frame di
  await faceAnalysisFixture();const button=screen.getByRole('button',{name:'Analyze face masks'});
  await waitFor(()=>expect(button).toHaveProperty('disabled',false));fireEvent.click(faceField('cuts'));
  fireEvent.change(faceField('sceneThreshold'),{target:{value}});expect(button).toHaveProperty('disabled',true);fireEvent.click(button);
- expect(within(screen.getByRole('group',{name:'H3 face-mask analysis'})).getByRole('status').textContent).toContain('frame-difference threshold > 0');
+ expect(within(screen.getByRole('group',{name:'H3 Face-Refiner'})).getByRole('status').textContent).toContain('frame-difference threshold > 0');
  fireEvent.click(faceField('cuts'));expect(button).toHaveProperty('disabled',false);
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
@@ -134,7 +134,7 @@ test.each([...sam3VideoNodes,'checkpoint','none','rootless'] as const)('H3 face 
  await faceAnalysisFixture(missing,missing==='none'?'none':missing==='rootless'?'rootless':'queue');
  const button=screen.getByRole('button',{name:'Analyze face masks'});
  expect(button).toHaveProperty('disabled',true);fireEvent.click(button);
- const group=screen.getByRole('group',{name:'H3 face-mask analysis'});
+ const group=screen.getByRole('group',{name:'H3 Face-Refiner'});
  expect(group.textContent).toContain(missing==='DEAS_SAM3VideoWindow'?'Restart or update':missing==='checkpoint'?'checkpoint':missing==='rootless'?'local video path':missing==='none'?'Select a video':missing);
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();expect(autoRefine).not.toHaveBeenCalled();
 });
@@ -166,7 +166,7 @@ test('H3 face analysis requires an explicit endpoint and never executes on a mis
  const {view}=await faceAnalysisFixture();
  view.rerender(<I18nProvider><Workbench endpoint="" roots={{models:'/m',output:'/out',input:'/in'}}/></I18nProvider>);
  expect(screen.getByRole('button',{name:'Analyze face masks'})).toHaveProperty('disabled',true);
- expect(screen.getByRole('group',{name:'H3 face-mask analysis'}).textContent).toContain('Select an owned backend endpoint');
+ expect(screen.getByRole('group',{name:'H3 Face-Refiner'}).textContent).toContain('Select an owned backend endpoint');
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('H3 face analysis Stop fences a pending source upload',async()=>{

@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "Bilddifferenz-Schwellenwert",
   "studio.samVideo.cutsHint": "Heuristische RGB-Bilddifferenz; keine Identitätsverfolgung.",
   "studio.samVideo.cutsAdapter": "DEAS_SAM3ShotMask fehlt. Eigenes Backend neu starten oder aktualisieren, oder Schnitterkennung ausschalten.",
-  "studio.samVideo.title": "H3-Gesichtsmasken-Analyse",
+  "studio.samVideo.title": "H3 Face-Refiner",
   "studio.faceRefine.auto": "Gesichter nach H3-Generierung verfeinern",
   "studio.faceRefine.autoHint": "Ergänzt jeden MiniMax-H3-Lauf um Gesichtsverfeinerung: Erst wird das unverfeinerte Video gespeichert, dann wird jedes verfolgte Gesicht neu berechnet und eingesetzt. Standardmäßig aus.",
   "studio.faceRefine.denoise": "Verfeinerungsstärke",

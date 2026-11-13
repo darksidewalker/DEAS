@@ -17,7 +17,7 @@
   "studio.samVideo.sceneThreshold": "Seuil de différence entre images",
   "studio.samVideo.cutsHint": "Différence RGB heuristique ; aucun suivi d’identité.",
   "studio.samVideo.cutsAdapter": "DEAS_SAM3ShotMask est absent. Redémarrez ou mettez à jour le backend géré, ou désactivez la détection des coupes.",
-  "studio.samVideo.title": "Analyse des masques de visages H3",
+  "studio.samVideo.title": "Affineur de visages H3",
   "studio.faceRefine.auto": "Affiner les visages après la génération H3",
   "studio.faceRefine.autoHint": "Ajoute l'affinage des visages à chaque exécution MiniMax H3 : la vidéo non affinée est enregistrée d'abord, puis chaque visage suivi est rééchantillonné et réintégré. Désactivé par défaut.",
   "studio.faceRefine.denoise": "Force d'affinage",

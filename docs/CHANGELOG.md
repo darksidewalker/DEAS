@@ -2,6 +2,7 @@
 
 ## 0.2.25 BETA
 
+- **The H3 face-mask analysis card is now named "H3 Face-Refiner"**, in the Post-Processing cards, its group heading and global search (all six languages).
 - **Fix: ACE-Step "Generate audio codes" checkbox sat above its label.** It now sits in front of the text like the other setting checkboxes.
 - **Fix: Beginner Music showed a dependency warning for split ACE-Step models.** Beginner has no component pickers, so a split ACE-Step 1.5 model without its text encoders/VAE showed "Unavailable or incompatible selections: Text encoder, Second text encoder, Model files". Installed matching files are still picked automatically; missing ones now appear as a Beginner download card (Comfy-Org ACE-Step 1.5 files, review and confirm before anything downloads) instead of the warning, and the model list refreshes when the download finishes.
 - **H3 picture edits get the H3 latent upscale.** Image → Image with MiniMax H3 offers the Latent upscale card (off by default) with the same settings as H3 video; `DaSiWaH3TiledUpscale` runs after sampling and the picture comes out at the upscaled size (Run Plan shows it). Inpaint disables the card with the reason, because the upscaler refuses masked latents; the native compiler rejects such intents too.
