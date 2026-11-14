@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.31 BETA
+
+- **Wildcard pictures show the prompt that actually ran.** The Media metadata pane now lists the evaluated positive/negative prompt at the top, and Media Analysis **Made with** shows it whole instead of a jumble of the base text, style and selection rules. Both read it from the A1111 `parameters` text the DaSiWa saver already writes; the embedded ComfyUI graph still keeps the base text and wildcard rules, so a rerun reproduces the same pick. Pictures without that text still show the graph pieces marked as partial, nothing is guessed.
+
 ## 0.2.30 BETA
 
 - **H3 regenerate without upscale.** Target resolution gains **Regenerate only, keep input resolution** (`Original`): the generated draft is refined at its exact current latent canvas, with no learned-upscaler requirement or resizing. The converted refiner LoRA and pinned three-step CFG-1 recipe remain required. Upscaler selection is hidden in this mode but its saved choice is retained; Run Plan and history preserve the mode and canvas. Native readiness probes the backend target choices and requires node pack 0.5.52 for Original; existing 1080P/2K/4K targets keep their model checks and behavior.

@@ -1,7 +1,26 @@
 import { expect, test, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { comfySampler, generationSettings, imageMetadataRows, readImageMetadata } from './imageMetadata';
+import { madeSummary } from './comfyMeta';
+import { compileRecipe } from './execution';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn()}));
+test('wildcard pictures show the executed prompt from the saver text, while the graph keeps the template for reruns',()=>{
+ const allow={nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage','DaSiWa_WildcardPresetPromptBuilder','DaSiWa_MetadataConfig','DaSiWa_MetadataImageSaver'],checkpoints:['fixture.safetensors'],samplers:['euler'],schedulers:['normal']};
+ const wildcard={style:'Booru',seed:7,reroll:3,token_budget:200,auto_reroll:false,selection_state:{'Character Selection/1 Girl/presets':{enabled:true,weight:1.2}}};
+ const graph=compileRecipe({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'manual base',negativePrompt:'blur',checkpoint:'fixture.safetensors',seed:42,width:512,height:512,steps:1,cfg:1,sampler:'euler',scheduler:'normal',outputPrefix:'p',wildcard},allow).graph as Record<string,{inputs:Record<string,unknown>}>;
+ expect(graph.WP.inputs.positive_input).toBe('manual base');
+ // Exact `parameters` written by the real DaSiWa saver for this graph (tools/verify_wildcard_node.py).
+ const saved:[string,string][]=[['prompt',JSON.stringify(graph)],['parameters','manual base, (1girl:1.2)\nNegative prompt: blur\nSteps: 1, Sampler: euler, CFG scale: 1.0, Seed: 42, Size: 1x1, Model: fixture.safetensors']];
+ expect(madeSummary(saved)).toMatchObject({prompt:'manual base, (1girl:1.2)',promptPartial:false,negative:'blur',negativePartial:false,seed:'42'});
+ expect(imageMetadataRows(saved).slice(0,2)).toEqual([['prompt','manual base, (1girl:1.2)'],['negative_prompt','blur']]);
+ expect(generationSettings(saved)).toMatchObject({positive:'manual base, (1girl:1.2)',negative:'blur'});
+ // Without saver text nothing is invented: the graph pieces stay marked partial and no prompt row appears.
+ expect(madeSummary([saved[0]])).toMatchObject({promptPartial:true});
+ expect(imageMetadataRows([saved[0]]).some(([key])=>key==='prompt')).toBe(false);
+ // A literal graph prompt is not duplicated by the saver text.
+ const plain:[string,string][]=[['prompt',JSON.stringify(compileRecipe({recipeId:'checkpoint-text-to-image-diagnostic',version:1,positivePrompt:'forest',negativePrompt:'blur',checkpoint:'fixture.safetensors',seed:42,width:512,height:512,steps:1,cfg:1,sampler:'euler',scheduler:'normal',outputPrefix:'p'},allow).graph)],['parameters','forest\nNegative prompt: blur\nSteps: 1, Seed: 42']];
+ expect(imageMetadataRows(plain).filter(([key])=>key==='prompt')).toEqual([]);
+});
 test('Swarm metadata stored under parameters becomes readable rows without losing extra fields or literal text',()=>{
  expect(imageMetadataRows([['parameters',JSON.stringify({sui_image_params:{prompt:'猫 <script>not markup</script>',model:'Krea2/model',seed:0,cfgscale:1,automaticvae:true},sui_extra_data:{generation_time:'13.31 sec gen',date:'2026-10-16'}})]]))
  .toEqual([['prompt','猫 <script>not markup</script>'],['model','Krea2/model'],['seed','0'],['cfgscale','1'],['automaticvae','true'],['generation_time','13.31 sec gen'],['date','2026-10-16']]);

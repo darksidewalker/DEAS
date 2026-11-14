@@ -33,6 +33,8 @@ export function parseMetadataJson(value:string):unknown {
 export function imageMetadataRows(entries:ImageMetadata):ImageMetadata {
  const rows:ImageMetadata=[];
  const hasPrompt=entries.some(([key])=>key.toLowerCase()==='prompt');
+ // A run-time prompt (wildcards) is no graph literal; only the saver's A1111 text holds what was executed.
+ const executed=generationSettings(entries.filter(([key])=>key.toLowerCase()==='parameters'));
  for(const [key,value] of entries){
   if(key.toLowerCase()==='workflow'&&hasPrompt)continue; // The API graph already contains the execution settings, not editor coordinates.
   let parsed:unknown;try{parsed=parseMetadataJson(value);}catch{rows.push([key,value]);continue;}
@@ -51,6 +53,7 @@ export function imageMetadataRows(entries:ImageMetadata):ImageMetadata {
     continue;
    }
    const fields:ImageMetadata=[];
+   if(executed?.positive&&settings?.positive===undefined)rows.push(['prompt',executed.positive],...(executed.negative!==undefined?[['negative_prompt',executed.negative]] as ImageMetadata:[]));
    for(const [id,node] of Object.entries(parsed))if(object(node)&&typeof node.class_type==='string'&&object(node.inputs)){
     for(const [name,v] of Object.entries(node.inputs)){
      // Linked outputs are graph wiring, not the value of the setting.

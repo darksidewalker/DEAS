@@ -192,8 +192,12 @@ export function comfyMeta(entries: ImageMetadata): ComfyMeta | null {
  *  parameters Generate's "Apply settings from file" reads. Null when there are no settings. */
 export function madeSummary(entries: ImageMetadata): ComfyMeta | null {
   const comfy = comfyMeta(entries);
-  if (comfy) return comfy;
   const s = generationSettings(entries);
+  // A run-time prompt (wildcards, concat) is only written whole by the saver's A1111 text; prefer it to graph pieces.
+  if (comfy && (comfy.promptPartial || comfy.negativePartial) && s?.positive) {
+    return { ...comfy, prompt: s.positive, promptPartial: false, negative: s.negative ?? null, negativePartial: false };
+  }
+  if (comfy) return comfy;
   if (!s) return null;
   const settings: Record<string, Value> = {};
   for (const [key, v] of [['steps', s.steps], ['cfg', s.cfg], ['sampler_name', s.sampler], ['scheduler', s.scheduler]] as const) if (v !== undefined) settings[key] = v;

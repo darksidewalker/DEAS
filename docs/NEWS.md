@@ -1,5 +1,9 @@
 # News
 
+## 0.2.31 BETA
+
+- Pictures made with wildcards now show the prompt that was actually used, both in the Media metadata pane and in Media Analysis **Made with**.
+
 ## 0.2.30 BETA
 
 - **H3 Hi-Res Regenerate → Target resolution → Regenerate only, keep input resolution** refines the generated draft without enlarging it or requiring an upscaler model. Needs node pack 0.5.52; the Regenerate LoRA is still required. The source picture’s resolution is not used to resize the generated draft.
