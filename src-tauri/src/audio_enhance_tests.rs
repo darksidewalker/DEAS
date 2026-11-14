@@ -1,10 +1,26 @@
 use super::*;
 
+fn process_file(
+    input: &Path,
+    target: &Path,
+    settings: &AudioSettings,
+    cancel: &AtomicBool,
+) -> Result<Value, String> {
+    super::process_file(
+        input,
+        target,
+        settings,
+        cancel,
+        Operation::Export(uuid::Uuid::new_v4()),
+    )
+}
+
 #[test]
 fn native_processing_logs_inspection_failure_without_private_input() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("private-prompt-and-path.wav");
-    let result = process_file(
+    let id = uuid::Uuid::new_v4();
+    let result = super::process_file(
         &input,
         &dir.path().join("out.flac"),
         &AudioSettings {
@@ -13,18 +29,91 @@ fn native_processing_logs_inspection_failure_without_private_input() {
             device: None,
         },
         &AtomicBool::new(false),
+        Operation::Export(id),
     );
     assert!(result.is_err());
     let lines: Vec<_> = crate::logs::after(0)
         .into_iter()
-        .filter(|e| e.text.contains("audio-enhance stage=inspect "))
+        .filter(|e| {
+            e.text.contains("audio-enhance stage=inspect ") && e.text.contains(&id.to_string())
+        })
         .collect();
     assert!(lines.iter().any(|e| e.text.contains("outcome=start")));
     assert!(lines
         .iter()
-        .any(|e| e.text.contains("outcome=failed elapsed_ms=")));
+        .all(|e| e.text.contains("operation=export operationId=")));
+    let ids: Vec<_> = lines
+        .iter()
+        .map(|e| {
+            let id = e
+                .text
+                .split("operationId=")
+                .nth(1)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap();
+            uuid::Uuid::parse_str(id).unwrap()
+        })
+        .collect();
+    assert!(ids.iter().all(|id| *id == ids[0]));
+    assert!(lines
+        .iter()
+        .any(|e| e.text.starts_with("ERROR:") && e.text.contains("outcome=failed elapsed_ms=")));
     assert!(lines.iter().all(|e| !e.text.contains("private-prompt")
         && !e.text.contains(&dir.path().display().to_string())));
+}
+
+#[test]
+fn automatic_audio_no_stream_is_inspection_evidence_not_a_processing_failure() {
+    let id = uuid::Uuid::new_v4();
+    let error = "AUDIO_NO_STREAM: private source has no audio";
+    let result = stage::<()>(Operation::Job(Some(id)), "inspect", || Err(error.into()));
+    assert_eq!(result.unwrap_err(), error);
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("operationId={id}")))
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|entry| entry.text.starts_with("INFO:")));
+    assert!(lines
+        .iter()
+        .any(|entry| entry.text.contains("outcome=no-audio")));
+    assert!(lines.iter().all(|entry| !entry.text.contains("private")));
+}
+
+#[test]
+fn native_audio_stage_diagnostics_preserve_results_and_privacy() {
+    let id = uuid::Uuid::new_v4();
+    let operation = Operation::Export(id);
+    assert_eq!(stage(operation, "verify", || Ok(7)), Ok(7));
+    for error in [
+        CANCELLED,
+        "private-error: /private/prompt.wav secret lyrics",
+    ] {
+        let result = stage::<()>(operation, "engine", || Err(error.into()));
+        assert_eq!(result.unwrap_err(), error);
+    }
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|e| e.text.contains(&format!("operationId={id}")))
+        .collect();
+    for (outcome, severity) in [
+        ("succeeded", "INFO:"),
+        ("cancelled", "INFO:"),
+        ("failed", "ERROR:"),
+    ] {
+        assert!(lines.iter().any(
+            |e| e.text.starts_with(severity) && e.text.contains(&format!("outcome={outcome} "))
+        ));
+    }
+    assert!(lines.iter().all(|e| !e.text.contains("private-error")
+        && !e.text.contains("/private")
+        && !e.text.contains("secret lyrics")));
+    assert_eq!(
+        Operation::Job(None).to_string(),
+        "operation=audio-post operationId=none job=none"
+    );
 }
 
 const GENERATION_TAGS: &[(&str, &str)] = &[
@@ -428,6 +517,7 @@ fn audio_real_ffmpeg_clean_remux_and_failure_preservation() {
             device: None,
         },
         &AtomicBool::new(false),
+        Operation::Export(uuid::Uuid::new_v4()),
     )
     .unwrap_err();
     assert!(error.starts_with("AUDIO_CHANGED:"), "{error}");

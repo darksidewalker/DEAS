@@ -299,9 +299,13 @@ pub(super) async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<
                                 _ => report_failure(Failure::Decode, &client_id),
                             }
                         }
-                        Some("executing" | "executed" | "execution_cached")
-                            if prompt_id.is_some()
-                                && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
+                        Some(
+                            "executing"
+                            | "executed"
+                            | "execution_cached"
+                            | "dasiwa_h3_regenerate_stage",
+                        ) if prompt_id.is_some()
+                            && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
                         {
                             if !publish(&weak, &cancel, |live| {
                                 live.stages.event(

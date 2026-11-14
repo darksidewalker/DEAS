@@ -2112,6 +2112,18 @@ impl Jobs {
                         .as_object()
                         .is_some_and(|e| !e.is_empty());
                 if (status.is_success() || status == reqwest::StatusCode::BAD_REQUEST) && rejected {
+                    {
+                        let mut live = job.live.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(errors) = value["node_errors"].as_object() {
+                            for node in errors
+                                .keys()
+                                .filter(|node| job.plan.graph.get(*node).is_some())
+                            {
+                                live.stages
+                                    .event("submission_rejected", &json!({"node_id":node}));
+                            }
+                        }
+                    }
                     job.state = "failed";
                     job.error = Some(bounded(&format!(
                         "Backend rejected diagnostic: error={}, node_errors={}",

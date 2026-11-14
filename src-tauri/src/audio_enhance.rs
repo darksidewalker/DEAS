@@ -47,19 +47,39 @@ pub(crate) fn validate_settings(settings: &AudioSettings) -> Result<(), String> 
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Operation {
+    Export(uuid::Uuid),
+    Job(Option<uuid::Uuid>),
+}
+
+impl std::fmt::Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Export(id) => write!(f, "operation=export operationId={id}"),
+            Self::Job(id) => {
+                let id = id.map_or_else(|| "none".into(), |id| id.to_string());
+                write!(f, "operation=audio-post operationId={id} job={id}")
+            }
+        }
+    }
+}
+
 pub(crate) fn process_file(
     input: &Path,
     target: &Path,
     settings: &AudioSettings,
     cancel: &AtomicBool,
+    operation: Operation,
 ) -> Result<Value, String> {
     process_retained(
-        stage("inspect", || {
+        stage(operation, "inspect", || {
             Input::open_with_cancel(input.to_owned(), cancel)
         })?,
         target,
         settings,
         cancel,
+        operation,
     )
 }
 
@@ -68,8 +88,9 @@ fn process_retained(
     target: &Path,
     settings: &AudioSettings,
     cancel: &AtomicBool,
+    operation: Operation,
 ) -> Result<Value, String> {
-    stage("processing", || {
+    stage(operation, "processing", || {
         validate_settings(settings)?;
         if settings.mode == "off" {
             return Err("AUDIO_MODE: Off does not process media".into());
@@ -98,26 +119,39 @@ fn process_retained(
                 Err(_) => std::thread::sleep(Duration::from_millis(50)),
             }
         };
-        process_mode(input, target, settings, cancel)
+        process_mode(input, target, settings, cancel, operation)
     })
 }
 
-fn stage<T>(name: &'static str, action: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+fn stage<T>(
+    operation: Operation,
+    name: &'static str,
+    action: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
     let started = std::time::Instant::now();
     crate::logs::push(
         crate::logs::Source::Deas,
-        &format!("INFO: audio-enhance stage={name} outcome=start elapsed_ms=0"),
+        &format!("INFO: audio-enhance stage={name} outcome=start elapsed_ms=0 {operation}"),
     );
     let result = action();
     let outcome = match &result {
         Ok(_) => "succeeded",
         Err(error) if error.starts_with("AUDIO_CANCELLED:") => "cancelled",
+        // Silent video is an expected automatic no-op; the caller still decides whether to skip.
+        Err(error)
+            if name == "inspect"
+                && matches!(operation, Operation::Job(_))
+                && error.starts_with("AUDIO_NO_STREAM:") =>
+        {
+            "no-audio"
+        }
         Err(_) => "failed",
     };
+    let severity = if outcome == "failed" { "ERROR" } else { "INFO" };
     crate::logs::push(
         crate::logs::Source::Deas,
         &format!(
-            "INFO: audio-enhance stage={name} outcome={outcome} elapsed_ms={}",
+            "{severity}: audio-enhance stage={name} outcome={outcome} elapsed_ms={} {operation}",
             started.elapsed().as_millis()
         ),
     );
@@ -535,6 +569,7 @@ fn process(
             device: None,
         },
         cancel,
+        Operation::Export(uuid::Uuid::new_v4()),
     )
 }
 
@@ -543,6 +578,7 @@ fn process_mode(
     target: &Path,
     settings: &AudioSettings,
     cancel: &AtomicBool,
+    operation: Operation,
 ) -> Result<Value, String> {
     use crate::downloads::fs::Anchor;
     input.recheck()?;
@@ -617,11 +653,11 @@ fn process_mode(
                         "pcm_s16le",
                     ])
                     .arg(&wav);
-                stage("decode", || {
+                stage(operation, "decode", || {
                     run_tool(decode, Duration::from_secs(6 * 60 * 60), cancel, None)
                         .map_err(tool_error)
                 })?;
-                let enhanced = stage("engine", || {
+                let enhanced = stage(operation, "engine", || {
                     crate::audio_runtime::enhance(
                         &wav,
                         &dir,
@@ -706,7 +742,7 @@ fn process_mode(
         }
         let (muxer, _) = input.muxer();
         command.args(["-f", muxer]);
-        stage("encode-mux", || {
+        stage(operation, "encode-mux", || {
             if matches!(muxer, "mp4" | "mov") {
                 // MP4/MOV writers must seek back to patch their index, which a pipe cannot take:
                 // encode to the private workspace, then stream the finished bytes into the anchor.
@@ -750,7 +786,7 @@ fn process_mode(
         if !parent.owns_partial(&temp, &file) {
             return Err("AUDIO_WRITE: Temporary output changed".into());
         }
-        stage("verify", || {
+        stage(operation, "verify", || {
             validate_product(
                 &input,
                 &target
@@ -789,7 +825,7 @@ fn process_mode(
         if cancel.load(Ordering::Relaxed) {
             return Err(CANCELLED.into());
         }
-        stage("publish", || parent.publish(&temp, name))?;
+        stage(operation, "publish", || parent.publish(&temp, name))?;
         Ok(json!({"path":target,"size":size,"sha256":format!("{:x}", hash.finalize())}))
     })();
     if parent.owns_partial(&temp, &file) {
@@ -809,11 +845,7 @@ pub async fn native_audio_enhance_export(
         Ok(None) => log(id, "chooser-cancelled", "INFO"),
         Ok(Some(_)) => log(id, "published", "INFO"),
         Err(error) if error.starts_with("AUDIO_CANCELLED:") => log(id, "cancelled", "INFO"),
-        Err(error) => {
-            // Fixed error class only: no source paths, names, OS errors or tool output.
-            let kind = error.split(':').next().unwrap_or("validation");
-            log(id, kind, "ERROR");
-        }
+        Err(_) => log(id, "failed", "ERROR"),
     }
     result
 }
@@ -835,8 +867,11 @@ async fn export(
     } else {
         jobs.audio_source(request.job_id.as_deref().unwrap(), request.index.unwrap())?
     };
+    let operation = Operation::Export(id);
     let input = tauri::async_runtime::spawn_blocking(move || {
-        stage("inspect", || Input::open_with_cancel(path, &CANCEL))
+        stage(operation, "inspect", || {
+            Input::open_with_cancel(path, &CANCEL)
+        })
     })
     .await
     .map_err(|_| "AUDIO_SOURCE: Inspection worker failed")??;
@@ -878,6 +913,7 @@ async fn export(
                 device: request.device,
             },
             &CANCEL,
+            operation,
         );
         log(
             id,

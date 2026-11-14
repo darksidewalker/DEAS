@@ -125,6 +125,72 @@ use tokio_tungstenite::tungstenite::Message;
 const WATCHDOG: Duration = Duration::from_secs(5);
 
 #[tokio::test]
+async fn watch_regenerate_subphases_require_owned_prompt_and_regenerate_node() {
+    let mut server = fixture().await;
+    let jobs = Jobs::default();
+    let (status, mut peer) = server.diagnostic(&jobs, 126).await;
+    let id = status["id"].as_str().unwrap();
+    let prompt = status["promptId"].as_str().unwrap();
+    {
+        let session = jobs.lock().unwrap();
+        let job = session.job.as_ref().unwrap();
+        job.live.lock().unwrap().stages = super::stages::Stages::new(
+            id,
+            &json!({"U":{"class_type":"DaSiWaH3HiResRegenerate"},"5":{"class_type":"KSampler"}}),
+        );
+    }
+    let data = json!({"prompt_id":prompt,"node":"U","phase":"refine","outcome":"started",
+        "pass":1,"chunk":1,"chunks":1,"elapsed_ms":0,"steps":3,"cfg":1.0});
+    peer.send(Message::Text(
+        json!({"type":"dasiwa_h3_regenerate_stage","data":data})
+            .to_string()
+            .into(),
+    ))
+    .await;
+    peer.send(Message::Text(
+        json!({"type":"execution_start","data":{"prompt_id":prompt}})
+            .to_string()
+            .into(),
+    ))
+    .await;
+    let mut foreign = data.clone();
+    foreign["prompt_id"] = json!("foreign");
+    let mut wrong_node = data.clone();
+    wrong_node["node"] = json!("5");
+    let mut completed = data.clone();
+    completed["outcome"] = json!("completed");
+    completed["elapsed_ms"] = json!(12);
+    for data in [foreign, wrong_node, data.clone(), data, completed] {
+        peer.send(Message::Text(
+            json!({"type":"dasiwa_h3_regenerate_stage","data":data})
+                .to_string()
+                .into(),
+        ))
+        .await;
+    }
+    peer.ping().await;
+    let logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("execution-stage job={id} ")))
+        .collect();
+    assert_eq!(
+        logs.len(),
+        2,
+        "only the owned start and completion, no replay spam"
+    );
+    assert!(logs[0].text.contains("phase=refine event=started"));
+    assert!(logs[0].text.contains("steps=3 cfg=1"));
+    assert!(logs[1].text.contains("phase=refine event=completed"));
+    assert_eq!(
+        jobs.current().unwrap()["state"],
+        "queued",
+        "telemetry is not job authority"
+    );
+    jobs.lock().unwrap().job.as_ref().unwrap().stop_observer();
+    peer.closed().await;
+}
+
+#[tokio::test]
 async fn watch_execution_stage_logs_owned_nodes_once_without_tick_spam() {
     let mut server = fixture().await;
     let jobs = Jobs::default();

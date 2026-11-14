@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.29 BETA
+
+- **H3 Hi-Res Regenerate internal phases.** With DaSiWa node pack 0.5.51, Logs now identify LoRA preparation, each latent-upscale resolution pass/window (4K via 2K) and each refinement window, with dimensions, three-step CFG-1 settings and elapsed wall time. Directed events are scoped to the owning prompt and known regenerate node, validated and bounded/deduplicated; internal telemetry never changes lifecycle authority or claims a whole node completed. Older node packs keep graph-level logging.
+
+- **More complete processing diagnostics.** Model options now identify LoRA, attention, cache, compile, feed-forward chunking and sampler/schedule setup instead of generic preparation. Bounded structured settings cover latent-upscale guards/sharpness, face-refinement geometry/tracking, De-rope, RTX quality/chunking/mmap, interpolation/loop and music sampling controls without logging prompts, lyrics, seeds or model paths. Backend node-validation rejections are distinct from execution failures.
+- **Correlated native processing logs.** Shared audio stages carry the manual export or automatic job UUID; genuine failures use ERROR, while silent-video inspection remains a non-error followed by the caller’s skip. Auto Refine retains its current SAM/render job ID through failure/cancellation and includes series/pass in wait diagnostics. Processing behavior and public commands are unchanged.
+
 ## 0.2.28 BETA
 
 - **Models added while DEAS runs are found without a restart.** Post-Processing cards and dock tabs re-read the backend model lists on every open (previously only before the first read, so a missing upscaler/SAM file stayed missing). Studio re-scans the model folders when the window regains focus — at most every 10 s, only while Studio is visible, no watcher or polling. The model scan now runs off the main thread, so a scan no longer freezes the UI.

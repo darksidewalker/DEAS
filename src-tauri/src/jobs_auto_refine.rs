@@ -282,18 +282,32 @@ impl Jobs {
         Ok(())
     }
 
-    async fn refine_wait(&self, held: &Jobs, id: &str, epoch: u64) -> Result<Value, String> {
+    async fn refine_wait(
+        &self,
+        held: &Jobs,
+        id: &str,
+        epoch: u64,
+        context: &str,
+    ) -> Result<Value, String> {
         loop {
             self.refine_fence(epoch)?;
             let current = held.current()?;
             match current["state"].as_str() {
                 Some("succeeded") => return Ok(current),
                 Some("cancelled") => {
-                    log("cancelled", Some(id), false);
+                    crate::logs::push(
+                        crate::logs::Source::Deas,
+                        &format!("INFO: origin=auto-refine operation=cancelled {context} job={id}"),
+                    );
                     return Err("Auto Refine cancelled; no further job submitted".into());
                 }
                 Some("failed" | "unknown") | None => {
-                    log("await-terminal", Some(id), true);
+                    crate::logs::push(
+                        crate::logs::Source::Deas,
+                        &format!(
+                            "ERROR: origin=auto-refine operation=await-terminal {context} job={id}"
+                        ),
+                    );
                     return Err(
                         "Auto Refine job failed, cancelled or is unknown; no retry submitted"
                             .into(),
@@ -307,12 +321,15 @@ impl Jobs {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn refine_run(
         &self,
         engine: &crate::install::Engine,
         base: &str,
         intent: Value,
         epoch: u64,
+        context: &str,
+        pass_job: &mut Option<String>,
     ) -> Result<(Arc<Jobs>, Value), String> {
         self.refine_fence(epoch)?;
         let job = self
@@ -321,10 +338,11 @@ impl Jobs {
         let id = job["id"]
             .as_str()
             .ok_or("Auto Refine job identity missing")?;
+        *pass_job = Some(id.to_owned());
         let held = self
             .workbench_job(id)?
             .ok_or("Auto Refine job no longer held")?;
-        let terminal = self.refine_wait(&held, id, epoch).await?;
+        let terminal = self.refine_wait(&held, id, epoch, context).await?;
         Ok((held, terminal))
     }
 
@@ -362,7 +380,7 @@ impl Jobs {
                 .as_str()
                 .ok_or("Auto Refine source identity missing")?
                 .to_owned();
-            let terminal = self.refine_wait(&held, &id, epoch).await?;
+            let terminal = self.refine_wait(&held, &id, epoch, &format!("series={series} pass=0/{passes}")).await?;
             // Authoritative immutable generation settings, not subsequently edited UI settings.
             intent = terminal["intent"].clone();
             if intent["imageFormat"].as_str().is_some_and(|f| f != "png") {
@@ -433,6 +451,8 @@ impl Jobs {
         for (index, task) in tasks.iter().enumerate() {
             let pass_started = std::time::Instant::now();
             let pass_index = index + 1;
+            let context = format!("series={series} pass={pass_index}/{passes}");
+            let mut pass_job = None;
             let mask_source = if task.is_some() { "explicit" } else { "sam" };
             crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=pass series={series} pass={pass_index}/{passes} mask_source={mask_source} outcome=start elapsed_ms=0 source_width={} source_height={}", size.0, size.1));
             let pass_result: Result<bool, String> = async {
@@ -446,7 +466,7 @@ impl Jobs {
                     let sam = json!({"recipeId":"sam3-mask","version":1,"checkpoint":settings.checkpoint,
                         "inputImage":source,"width":size.0,"height":size.1,
                         "outputPrefix":"raw/auto-refine-mask","prompt":target,"threshold":settings.threshold});
-                    let (held, job) = self.refine_run(&engine, &base_url, sam, epoch).await?;
+                    let (held, job) = self.refine_run(&engine, &base_url, sam, epoch, &context, &mut pass_job).await?;
                     self.refine_output(&held, &job, epoch).await?
                 }
             };
@@ -461,7 +481,7 @@ impl Jobs {
                 skipped += 1;
                 log(
                     "empty-mask-skip",
-                    last.as_ref().and_then(|j| j["id"].as_str()),
+                    pass_job.as_deref(),
                     false,
                 );
                 return Ok(false);
@@ -479,7 +499,7 @@ impl Jobs {
                 settings.denoise,
                 index + 1 < tasks.len(),
             )?;
-            let (held, job) = self.refine_run(&engine, &base_url, pass, epoch).await?;
+            let (held, job) = self.refine_run(&engine, &base_url, pass, epoch, &context, &mut pass_job).await?;
             let pixels = self.refine_output(&held, &job, epoch).await?;
             if (pixels.width, pixels.height) != size {
                 return Err("Auto Refine changed the source canvas".into());
@@ -494,7 +514,7 @@ impl Jobs {
                 Err(error) if self.refine_fence(epoch).is_err() || error.starts_with("Auto Refine cancelled") => "cancelled",
                 Err(_) => "failed",
             };
-            let id = if matches!(pass_result, Ok(true)) { last.as_ref().and_then(|j| j["id"].as_str()).unwrap_or("none") } else { "none" };
+            let id = pass_job.as_deref().unwrap_or("none");
             crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=pass series={series} pass={pass_index}/{passes} mask_source={mask_source} job={id} outcome={outcome} elapsed_ms={}", pass_started.elapsed().as_millis()));
             pass_result?;
         }
@@ -652,6 +672,70 @@ pub async fn native_auto_refine(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn auto_refine_wait_failure_keeps_series_pass_and_job() {
+        let intent = super::super::tests::intent();
+        let (base, server) = super::super::tests::server(|path, _| {
+            if path.contains("/object_info ") {
+                return (200, json!({"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["sd/model.safetensors"]]}}},
+                    "CLIPTextEncode":{},"EmptyLatentImage":{},"KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}},"VAEDecode":{},"SaveImage":{}}).to_string());
+            }
+            assert!(path.contains("/prompt "), "{path}");
+            (0, String::new()) // Lost reply leaves a held unknown job, not a retry.
+        }).await;
+        let jobs = Jobs::default();
+        let after = crate::logs::after(0).last().map_or(0, |entry| entry.seq);
+        let mut pass_job = None;
+        let result = jobs
+            .refine_run(
+                &crate::install::Engine::default(),
+                &base,
+                intent,
+                0,
+                "series=test-series pass=2/3",
+                &mut pass_job,
+            )
+            .await;
+        server.abort();
+        assert!(result.is_err());
+        let snapshot = jobs.workbench_current().unwrap();
+        let id = snapshot["jobs"][0]["id"].as_str().unwrap();
+        assert_eq!(snapshot["jobs"][0]["state"], "unknown");
+        assert_eq!(pass_job.as_deref(), Some(id));
+        let lines = crate::logs::after(after);
+        let line = lines
+            .iter()
+            .find(|e| e.text.contains("operation=await-terminal") && e.text.contains(id))
+            .unwrap();
+        assert!(
+            line.text.contains("series=test-series pass=2/3"),
+            "{}",
+            line.text
+        );
+        assert!(!line.text.contains("sd/model") && !line.text.contains(&base));
+        let held = jobs.workbench_job(id).unwrap().unwrap();
+        for (state, operation) in [("failed", "await-terminal"), ("cancelled", "cancelled")] {
+            held.lock().unwrap().job.as_mut().unwrap().state = state;
+            let context = format!("series=test-{state} pass=2/3");
+            assert!(jobs.refine_wait(&held, id, 0, &context).await.is_err());
+            assert!(crate::logs::after(after).iter().any(|entry| entry
+                .text
+                .contains(&format!("operation={operation} {context} job={id}"))));
+        }
+    }
+
+    #[test]
+    fn auto_refine_pass_completion_retains_current_job_on_error_or_skip() {
+        // Guard the async orchestration wiring, including failures after output fetch.
+        let source = include_str!("jobs_auto_refine.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains("let mut pass_job = None;"));
+        assert_eq!(source.matches("&mut pass_job").count(), 2);
+        assert!(source.contains("let id = pass_job.as_deref().unwrap_or(\"none\");"));
+    }
 
     #[tokio::test]
     async fn native_processing_logs_refine_pass_geometry_and_empty_mask() {

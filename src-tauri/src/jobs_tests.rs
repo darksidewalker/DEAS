@@ -3627,6 +3627,11 @@ async fn post_ambiguity_keeps_native_id_without_retry_or_success_claim() {
         let plan_id = plan["id"].as_str().unwrap().to_owned();
         let job = jobs.submit(plan_id.clone(),true).await.unwrap();
         assert_eq!(job["state"],expected,"{job}");
+        if expected == "failed" {
+            let marker = format!("execution-stage job={} node=5 stage=sampling event=rejected", job["id"].as_str().unwrap());
+            assert!(crate::logs::native_logs(0).iter().any(|entry| entry.text.contains(&marker)),
+                "submission rejection must identify the graph node without claiming execution");
+        }
         assert!(job["promptId"].is_null());
         assert!(canonical_uuid(job["id"].as_str().unwrap()));
         assert_eq!(job["outputs"],json!([]));

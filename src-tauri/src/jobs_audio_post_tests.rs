@@ -1,5 +1,40 @@
 use super::*;
 
+#[test]
+fn audio_post_diagnostics_use_failure_severity_and_safe_job_ids() {
+    let id = uuid::Uuid::new_v4().to_string();
+    for outcome in [
+        "start",
+        "failed",
+        "cancelled",
+        "succeeded",
+        "retry-resource-busy",
+        "skip-no-audio",
+    ] {
+        log(&id, outcome, 2, Duration::from_millis(7));
+    }
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|e| e.text.contains("origin=audio-post") && e.text.contains(&id))
+        .collect();
+    assert_eq!(lines.len(), 6);
+    for line in lines {
+        let severity = if line.text.contains("outcome=failed ") {
+            "ERROR:"
+        } else {
+            "INFO:"
+        };
+        assert!(line.text.starts_with(severity), "{}", line.text);
+    }
+    log("/private/prompt.wav\nsecret", "failed", 0, Duration::ZERO);
+    assert!(crate::logs::after(0).iter().any(|e| e
+        .text
+        .starts_with("ERROR: origin=audio-post job=none outcome=failed ")));
+    assert!(crate::logs::after(0)
+        .iter()
+        .all(|e| !e.text.contains("/private/prompt.wav")));
+}
+
 fn intent() -> Value {
     let mut intent = crate::jobs_music::tests::full();
     intent["audioEnhance"] = json!({"mode":"clean","profile":"mix"});
@@ -189,9 +224,12 @@ async fn automatic_audio_clean_holds_job_then_retains_pair_and_history_without_f
         && e.text.contains("outcome=succeeded elapsed_ms=")));
     for stage in ["inspect", "processing", "encode-mux", "verify", "publish"] {
         assert!(
-            lines.iter().any(|e| e.text.contains(&format!(
-                "audio-enhance stage={stage} outcome=succeeded elapsed_ms="
-            ))),
+            lines
+                .iter()
+                .any(|e| e.text.contains(&format!("operationId={id} job={id}"))
+                    && e.text.contains(&format!(
+                        "audio-enhance stage={stage} outcome=succeeded elapsed_ms="
+                    ))),
             "missing stage {stage}"
         );
     }
@@ -377,6 +415,16 @@ async fn automatic_audio_silent_video_is_noop_without_receipt_or_pair() {
         .iter()
         .any(|e| e.text.contains("outcome=succeeded elapsed_ms=")));
     assert!(lines.iter().all(|e| !e.text.contains("silent.mkv")));
+    let inspect: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|entry| {
+            entry.text.contains("audio-enhance stage=inspect") && entry.text.contains(id)
+        })
+        .collect();
+    assert!(inspect
+        .iter()
+        .any(|entry| entry.text.contains("outcome=no-audio")));
+    assert!(inspect.iter().all(|entry| entry.text.starts_with("INFO:")));
     assert!(done["outputs"][0].get("role").is_none());
     assert_eq!(std::fs::read(&source).unwrap(), before);
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);

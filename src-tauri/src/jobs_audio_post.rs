@@ -213,7 +213,13 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
         let mut attempt = 0_u8;
         let started = std::time::Instant::now();
         let processed_stage = loop {
-            match crate::audio_enhance::process_file(&source, &stage, &settings, cancel) {
+            match crate::audio_enhance::process_file(
+                &source,
+                &stage,
+                &settings,
+                cancel,
+                crate::audio_enhance::Operation::Job(uuid::Uuid::parse_str(&job.id).ok()),
+            ) {
                 Ok(_) => break Ok(()),
                 Err(error)
                     if error.contains("RESOURCE_BUSY")
@@ -297,10 +303,11 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
 
 fn log(id: &str, outcome: &str, attempt: u8, elapsed: Duration) {
     let id = uuid::Uuid::parse_str(id).map_or_else(|_| "none".into(), |id| id.to_string());
+    let severity = if outcome == "failed" { "ERROR" } else { "INFO" };
     crate::logs::push(
         crate::logs::Source::Deas,
         &format!(
-            "INFO: origin=audio-post job={id} outcome={outcome} elapsed_ms={} attempt={attempt}",
+            "{severity}: origin=audio-post job={id} outcome={outcome} elapsed_ms={} attempt={attempt}",
             elapsed.as_millis()
         ),
     );
