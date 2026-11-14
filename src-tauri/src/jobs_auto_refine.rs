@@ -350,6 +350,11 @@ impl Jobs {
         epoch: u64,
     ) -> Result<Value, String> {
         let _operation = Operation(self.clone());
+        let series = uuid::Uuid::new_v4();
+        let started = std::time::Instant::now();
+        let passes = masks.len() + settings.targets.len();
+        crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=series series={series} outcome=start elapsed_ms=0 passes={passes}"));
+        let result: Result<Value, String> = async {
         let mut last = None;
         let manual = source.is_none();
         let mut current = if let Some(held) = source {
@@ -426,6 +431,11 @@ impl Jobs {
         self.refine_slots_ok(tasks.len())?;
         let mut targets = settings.targets.iter();
         for (index, task) in tasks.iter().enumerate() {
+            let pass_started = std::time::Instant::now();
+            let pass_index = index + 1;
+            let mask_source = if task.is_some() { "explicit" } else { "sam" };
+            crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=pass series={series} pass={pass_index}/{passes} mask_source={mask_source} outcome=start elapsed_ms=0 source_width={} source_height={}", size.0, size.1));
+            let pass_result: Result<bool, String> = async {
             self.refine_fence(epoch)?;
             let source = native_mask_upload(base_url.clone(), encode_png(&current)?).await?;
             self.refine_fence(epoch)?;
@@ -454,9 +464,10 @@ impl Jobs {
                     last.as_ref().and_then(|j| j["id"].as_str()),
                     false,
                 );
-                continue;
+                return Ok(false);
             };
             let (tw, th) = crop_target(width, height, area, grid)?;
+            crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=crop series={series} pass={pass_index}/{passes} mask_source={mask_source} x={x} y={y} width={width} height={height} target_width={tw} target_height={th}"));
             self.refine_fence(epoch)?;
             let mask = native_mask_upload(base_url.clone(), encode_png(&mask)?).await?;
             let pass = pass_intent(
@@ -475,9 +486,33 @@ impl Jobs {
             }
             current = pixels;
             last = Some(job);
+            Ok(true)
+            }.await;
+            let outcome = match &pass_result {
+                Ok(true) => "succeeded",
+                Ok(false) => "skip-empty-mask",
+                Err(error) if self.refine_fence(epoch).is_err() || error.starts_with("Auto Refine cancelled") => "cancelled",
+                Err(_) => "failed",
+            };
+            let id = if matches!(pass_result, Ok(true)) { last.as_ref().and_then(|j| j["id"].as_str()).unwrap_or("none") } else { "none" };
+            crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=pass series={series} pass={pass_index}/{passes} mask_source={mask_source} job={id} outcome={outcome} elapsed_ms={}", pass_started.elapsed().as_millis()));
+            pass_result?;
         }
         self.refine_fence(epoch)?;
         Ok(json!({"job":last,"skipped":skipped}))
+        }.await;
+        let outcome = match &result {
+            Ok(_) => "succeeded",
+            Err(error)
+                if self.refine_fence(epoch).is_err()
+                    || error.starts_with("Auto Refine cancelled") =>
+            {
+                "cancelled"
+            }
+            Err(_) => "failed",
+        };
+        crate::logs::push(crate::logs::Source::Deas, &format!("INFO: origin=auto-refine stage=series series={series} outcome={outcome} elapsed_ms={} passes={passes}", started.elapsed().as_millis()));
+        result
     }
 }
 
@@ -617,6 +652,165 @@ pub async fn native_auto_refine(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn native_processing_logs_refine_pass_geometry_and_empty_mask() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for empty in [true, false] {
+            let pixels = Pixels {
+                width: 512,
+                height: 512,
+                rgb: vec![if empty { 0 } else { 255 }; 512 * 512 * 3],
+            };
+            let png = encode_png(&pixels).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let source_png = png.clone();
+            // Loopback fixture accepts the source upload, then rejects the mask upload before any graph submission.
+            let server = tokio::spawn(async move {
+                for request in 0..if empty { 2 } else { 3 } {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut bytes = Vec::new();
+                    let (head_end, length) = loop {
+                        let mut buffer = [0; 4096];
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        assert!(n > 0 && bytes.len() < 2 << 20);
+                        bytes.extend_from_slice(&buffer[..n]);
+                        if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let head = String::from_utf8_lossy(&bytes[..end]);
+                            let length = head
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length: ")
+                                        .and_then(|v| v.parse::<usize>().ok())
+                                })
+                                .unwrap_or(0);
+                            break (end + 4, length);
+                        }
+                    };
+                    while bytes.len() < head_end + length {
+                        let mut buffer = [0; 4096];
+                        let n = socket.read(&mut buffer).await.unwrap();
+                        assert!(n > 0 && bytes.len() < 2 << 20);
+                        bytes.extend_from_slice(&buffer[..n]);
+                    }
+                    let (status, body) = match request {
+                        0 => (200, source_png.clone()),
+                        1 => {
+                            let body = String::from_utf8_lossy(&bytes[head_end..]);
+                            let filename = body
+                                .split("filename=\"")
+                                .nth(1)
+                                .unwrap()
+                                .split('"')
+                                .next()
+                                .unwrap();
+                            (
+                                200,
+                                json!({"name":filename,"subfolder":"deas-masks"})
+                                    .to_string()
+                                    .into_bytes(),
+                            )
+                        }
+                        _ => (500, b"private-backend-error".to_vec()),
+                    };
+                    socket.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+                    socket.write_all(&body).await.unwrap();
+                }
+            });
+            let mut intent = super::super::tests::intent();
+            intent["inputImage"] = json!("deas-inputs/00000000-0000-0000-0000-000000000001.png");
+            intent["width"] = json!(512);
+            intent["height"] = json!(512);
+            let jobs = Jobs::default();
+            let after = crate::logs::after(0).last().map_or(0, |entry| entry.seq);
+            let result = tokio::time::timeout(
+                Duration::from_secs(10),
+                jobs.refine_execute(
+                    crate::install::Engine::default(),
+                    base,
+                    intent,
+                    AutoRefineSettings {
+                        checkpoint: String::new(),
+                        targets: vec![],
+                        denoise: 0.25,
+                        margin: 0,
+                        threshold: 0.5,
+                    },
+                    None,
+                    vec![RefineMask {
+                        name: "private-mask".into(),
+                        png,
+                    }],
+                    0,
+                ),
+            )
+            .await
+            .unwrap();
+            server.abort();
+            assert_eq!(result.is_ok(), empty, "{result:?}");
+            let lines: Vec<_> = crate::logs::after(after)
+                .into_iter()
+                .filter(|e| e.text.contains("origin=auto-refine"))
+                .collect();
+            assert!(lines.iter().any(|e| e.text.contains("stage=pass ")
+                && e.text.contains("pass=1/1 mask_source=explicit")
+                && e.text.contains("source_width=512 source_height=512")));
+            if empty {
+                assert!(lines
+                    .iter()
+                    .any(|e| e.text.contains("outcome=skip-empty-mask elapsed_ms=")));
+                assert!(lines.iter().any(|e| e.text.contains("stage=series ")
+                    && e.text.contains("outcome=succeeded elapsed_ms=")));
+            } else {
+                assert!(lines.iter().any(|e| e.text.contains("stage=crop ")
+                    && e.text
+                        .contains("x=0 y=0 width=512 height=512 target_width=")
+                    && e.text.contains("target_height=")));
+                assert!(lines.iter().any(|e| e.text.contains("stage=pass ")
+                    && e.text.contains("outcome=failed elapsed_ms=")));
+            }
+            assert!(lines
+                .iter()
+                .all(|e| !e.text.contains("private-") && !e.text.contains("deas-inputs/")));
+        }
+    }
+
+    #[tokio::test]
+    async fn native_processing_logs_refine_series_failure_without_private_intent() {
+        let jobs = Jobs::default();
+        let result = jobs
+            .refine_execute(
+                crate::install::Engine::default(),
+                "private-endpoint".into(),
+                json!({"inputImage":"private-image", "positivePrompt":"private-prompt"}),
+                AutoRefineSettings {
+                    checkpoint: "private-model".into(),
+                    targets: vec!["private-target".into()],
+                    denoise: 0.25,
+                    margin: 32,
+                    threshold: 0.5,
+                },
+                None,
+                vec![],
+                0,
+            )
+            .await;
+        assert!(result.is_err());
+        let lines: Vec<_> = crate::logs::after(0)
+            .into_iter()
+            .filter(|e| e.text.contains("origin=auto-refine stage=series "))
+            .collect();
+        assert!(lines
+            .iter()
+            .any(|e| e.text.contains("outcome=start") && e.text.contains("passes=1")));
+        assert!(lines
+            .iter()
+            .any(|e| e.text.contains("outcome=failed elapsed_ms=")));
+        assert!(lines.iter().all(|e| !e.text.contains("private-")));
+        assert!(!jobs.lock().unwrap().auto_refine);
+    }
 
     /// Uses only an explicitly supplied isolated ComfyUI; never starts/stops services or downloads weights.
     /// DEAS_SAM_TEST_URL=http://127.0.0.1:56525 cargo test --lib auto_refine_live -- --ignored --nocapture

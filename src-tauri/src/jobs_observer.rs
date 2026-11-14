@@ -299,6 +299,19 @@ pub(super) async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<
                                 _ => report_failure(Failure::Decode, &client_id),
                             }
                         }
+                        Some("executing" | "executed" | "execution_cached")
+                            if prompt_id.is_some()
+                                && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
+                        {
+                            if !publish(&weak, &cancel, |live| {
+                                live.stages.event(
+                                    event["type"].as_str().unwrap_or_default(),
+                                    &event["data"],
+                                );
+                            }) {
+                                break;
+                            }
+                        }
                         Some("progress")
                             if event["data"]["prompt_id"].is_null()
                                 || (prompt_id.is_some()
@@ -316,7 +329,13 @@ pub(super) async fn watch(base: &reqwest::Url, client_id: &str, live: Arc<Mutex<
                             if prompt_id.is_some()
                                 && event["data"]["prompt_id"].as_str() == prompt_id.as_deref() =>
                         {
-                            publish(&weak, &cancel, |live| live.temporal = None);
+                            publish(&weak, &cancel, |live| {
+                                live.stages.event(
+                                    event["type"].as_str().unwrap_or_default(),
+                                    &event["data"],
+                                );
+                                live.temporal = None;
+                            });
                             break;
                         }
                         _ => {}

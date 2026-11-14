@@ -30,8 +30,11 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
    try {
     const el=modes.current.audioOnly?surface.current.parentElement!:surface.current,r=el.getBoundingClientRect();
     // shortcut: hide clipped/occluded surfaces rather than paint native pixels over web controls.
+    // Floating panels (role=dialog, non-modal) can cover an edge without hitting the five probe points below.
+    const overlaps=(o:Element)=>{const b=o.getBoundingClientRect();return b.width>0&&b.height>0&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top;};
     const visible=r.width>0&&r.height>0&&r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight&&
      !document.hidden&&Array.from(document.querySelectorAll('dialog[open], [aria-modal="true"]')).every(modal=>modal.contains(el))&&
+     Array.from(document.querySelectorAll('[role="dialog"]')).every(panel=>panel.contains(el)||!overlaps(panel))&&
      [[r.left+1,r.top+1],[r.right-1,r.top+1],[r.left+1,r.bottom-1],[r.right-1,r.bottom-1],[r.left+r.width/2,r.top+r.height/2]].every(([x,y])=>el.contains(document.elementFromPoint(x,y)));
     const bounds={x:Math.max(0,Math.round(r.left)),y:Math.max(0,Math.round(r.top)),width:Math.round(r.width),height:Math.round(r.height),visible,...(modes.current.audioOnly?{audioOnly:true}:{})};
     const key=JSON.stringify(bounds);

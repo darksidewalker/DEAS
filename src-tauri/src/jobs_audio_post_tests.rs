@@ -183,6 +183,18 @@ async fn automatic_audio_clean_holds_job_then_retains_pair_and_history_without_f
     );
     let done = settle(&held).await;
     assert_eq!(done["state"], "succeeded", "{done}");
+    let lines = crate::logs::after(0);
+    assert!(lines.iter().any(|e| e.text.contains("origin=audio-post")
+        && e.text.contains(&id)
+        && e.text.contains("outcome=succeeded elapsed_ms=")));
+    for stage in ["inspect", "processing", "encode-mux", "verify", "publish"] {
+        assert!(
+            lines.iter().any(|e| e.text.contains(&format!(
+                "audio-enhance stage={stage} outcome=succeeded elapsed_ms="
+            ))),
+            "missing stage {stage}"
+        );
+    }
     assert_eq!(done["outputs"].as_array().unwrap().len(), 2);
     assert_eq!(done["outputs"][0]["role"], "processed");
     assert_eq!(done["outputs"][1]["role"], "original");
@@ -353,6 +365,18 @@ async fn automatic_audio_silent_video_is_noop_without_receipt_or_pair() {
     assert_eq!(done["state"], "succeeded", "{done}");
     assert_eq!(done["outputs"].as_array().unwrap().len(), 1);
     assert_eq!(done["outputs"][0]["filename"], "silent.mkv");
+    let id = done["id"].as_str().unwrap();
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|e| e.text.contains("origin=audio-post") && e.text.contains(id))
+        .collect();
+    assert!(lines
+        .iter()
+        .any(|e| e.text.contains("outcome=skip-no-audio elapsed_ms=")));
+    assert!(lines
+        .iter()
+        .any(|e| e.text.contains("outcome=succeeded elapsed_ms=")));
+    assert!(lines.iter().all(|e| !e.text.contains("silent.mkv")));
     assert!(done["outputs"][0].get("role").is_none());
     assert_eq!(std::fs::read(&source).unwrap(), before);
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -413,6 +437,17 @@ async fn automatic_audio_failure_keeps_original_handle_and_history() {
     held.start_audio_observer();
     let done = settle(&held).await;
     assert_eq!(done["state"], "failed", "{done}");
+    let id = done["id"].as_str().unwrap();
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|e| e.text.contains("origin=audio-post") && e.text.contains(id))
+        .collect();
+    assert!(lines.iter().any(|e| e.text.contains("outcome=start")));
+    assert!(lines
+        .iter()
+        .any(|e| e.text.contains("outcome=failed elapsed_ms=")));
+    assert!(lines.iter().all(|e| !e.text.contains("original.flac")
+        && !e.text.contains(&dir.path().display().to_string())));
     assert_eq!(done["outputs"][0]["filename"], "original.flac");
     assert_eq!(done["outputs"][0]["role"], "original");
     assert_eq!(

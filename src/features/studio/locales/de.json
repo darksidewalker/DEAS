@@ -1140,15 +1140,15 @@
   "studio.run.post.reason.imageOnly": "Nur für Bild-Pipelines.",
   "studio.run.post.reason.audioVideoOnly": "Nur Audio- oder Video-Pipelines.",
   "studio.run.post.reason.audioManualOnly": "Manuelle Audio-Verbesserung bleibt verfügbar; automatische Nachbearbeitung beim Lauf erfordert eine Video- oder Musik-Pipeline mit Audio.",
-  "studio.run.regenerate.title": "H3 Regenerate 2K",
+  "studio.run.regenerate.title": "H3 Hi-Res Regenerate",
   "studio.run.regenerate.enabled": "Nach dem Sampling in höherer Auflösung neu generieren",
   "studio.run.regenerate.hint": "Endformat: {width} × {height}. Gelerntes Upscaling, danach 3 Verfeinerungsschritte mit der Regenerate-LoRA; Originalvideo und Audio bleiben erhalten.",
   "studio.run.regenerate.latentOn": "Latent-Upscale ist aktiv. Es kann nur eines von beiden laufen; schalte es zuerst aus.",
-  "studio.run.latent.regenerateOn": "H3 Regenerate 2K ist aktiv und ersetzt dieses Upscaling. Schalte es zuerst aus.",
+  "studio.run.latent.regenerateOn": "H3 Hi-Res Regenerate ist aktiv und ersetzt dieses Upscaling. Schalte es zuerst aus.",
   "studio.run.regenerate.lora": "Regenerate-LoRA",
   "studio.run.regenerate.noLora": "Keine konvertierte LoRA gefunden",
   "studio.run.regenerate.target": "Zielauflösung",
-  "studio.run.regenerate.nodeMissing": "Node {name} fehlt: benötigt DaSiWa-Nodepack 0.5.49 (Backend → Upgrade → ComfyUI und Node-Packs).",
+  "studio.run.regenerate.nodeMissing": "Node {name} fehlt: benötigt DaSiWa-Nodepack 0.5.50 (Backend → Upgrade → ComfyUI und Node-Packs).",
   "studio.run.regenerate.loraMissing": "Keine konvertierte Open-H3-Regenerate-2K-LoRA gefunden. Konvertiere sie in Quant Station mit „Diffusers → H3“ und lege sie in models/loras ab.",
   "studio.run.regenerate.model": "Upscaling-Modell für Regenerate"
 }

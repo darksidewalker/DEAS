@@ -1140,15 +1140,15 @@
   "studio.run.post.reason.imageOnly": "Yalnızca görsel iş hatları için.",
   "studio.run.post.reason.audioVideoOnly": "Yalnızca ses veya video iş hatları.",
   "studio.run.post.reason.audioManualOnly": "Manuel ses iyileştirme kullanılabilir; otomatik son işleme için ses destekli bir video veya müzik iş hattı gerekir.",
-  "studio.run.regenerate.title": "H3 Regenerate 2K",
+  "studio.run.regenerate.title": "H3 Hi-Res Regenerate",
   "studio.run.regenerate.enabled": "Örneklemeden sonra daha yüksek çözünürlükte yeniden üret",
   "studio.run.regenerate.hint": "Son boyut: {width} × {height}. Öğrenilmiş büyütme, ardından regenerate LoRA ile 3 iyileştirme adımı; özgün video ve ses korunur.",
   "studio.run.regenerate.latentOn": "Latent büyütme açık. İkisinden yalnızca biri çalışabilir; önce onu kapatın.",
-  "studio.run.latent.regenerateOn": "H3 Regenerate 2K açık ve bu büyütmenin yerini alıyor. Önce onu kapatın.",
+  "studio.run.latent.regenerateOn": "H3 Hi-Res Regenerate açık ve bu büyütmenin yerini alıyor. Önce onu kapatın.",
   "studio.run.regenerate.lora": "Regenerate LoRA",
   "studio.run.regenerate.noLora": "Dönüştürülmüş LoRA bulunamadı",
   "studio.run.regenerate.target": "Hedef çözünürlük",
-  "studio.run.regenerate.nodeMissing": "{name} düğümü eksik: DaSiWa düğüm paketi 0.5.49 gerekir (Backend → Yükselt → ComfyUI ve düğüm paketleri).",
+  "studio.run.regenerate.nodeMissing": "{name} düğümü eksik: DaSiWa düğüm paketi 0.5.50 gerekir (Backend → Yükselt → ComfyUI ve düğüm paketleri).",
   "studio.run.regenerate.loraMissing": "Dönüştürülmüş Open-H3-Regenerate-2K LoRA bulunamadı. Quant Station’da “Diffusers → H3” ile dönüştürün ve models/loras klasörüne koyun.",
   "studio.run.regenerate.model": "Regenerate büyütme modeli"
 }

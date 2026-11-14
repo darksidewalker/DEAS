@@ -77,6 +77,8 @@ impl Jobs {
     }
 
     pub(super) fn start_audio_post(&self, job: Job, cancel: Arc<AtomicBool>) {
+        let started = std::time::Instant::now();
+        log(&job.id, "start", 0, started.elapsed());
         let jobs = self.clone();
         tokio::spawn(async move {
             let id = job.id.clone();
@@ -126,6 +128,7 @@ impl Jobs {
                     job.error = Some("AUDIO_WORKER: Audio stage failed; original preserved".into());
                 }
             }
+            log(&id, job.state, 0, started.elapsed());
             job.history_outputs = job.outputs.clone();
             job.stop_observer_if_terminal();
             jobs.3.observe(job);
@@ -208,6 +211,7 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
         // The automatic stage never interrupts other work: a busy compute gate or busy
         // owned queue defers it; after bounded waits the baseline stays and the stage fails.
         let mut attempt = 0_u8;
+        let started = std::time::Instant::now();
         let processed_stage = loop {
             match crate::audio_enhance::process_file(&source, &stage, &settings, cancel) {
                 Ok(_) => break Ok(()),
@@ -217,6 +221,7 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
                         && !cancel.load(Ordering::Relaxed) =>
                 {
                     attempt += 1;
+                    log(&job.id, "retry-resource-busy", attempt, started.elapsed());
                     std::thread::sleep(Duration::from_secs(5));
                 }
                 Err(error) if extension != "flac" && error.starts_with("AUDIO_NO_STREAM:") => {
@@ -227,6 +232,7 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
         };
         if let Err(error) = processed_stage {
             if extension != "flac" && error.starts_with("AUDIO_NO_STREAM:") {
+                log(&job.id, "skip-no-audio", attempt, started.elapsed());
                 continue;
             }
             return Err(error);
@@ -287,4 +293,15 @@ fn process(job: &Job, cancel: &AtomicBool, outputs: &mut Vec<Value>) -> Result<(
         outputs.insert(0, processed);
     }
     Ok(())
+}
+
+fn log(id: &str, outcome: &str, attempt: u8, elapsed: Duration) {
+    let id = uuid::Uuid::parse_str(id).map_or_else(|_| "none".into(), |id| id.to_string());
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!(
+            "INFO: origin=audio-post job={id} outcome={outcome} elapsed_ms={} attempt={attempt}",
+            elapsed.as_millis()
+        ),
+    );
 }

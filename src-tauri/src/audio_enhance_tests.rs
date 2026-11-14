@@ -1,5 +1,32 @@
 use super::*;
 
+#[test]
+fn native_processing_logs_inspection_failure_without_private_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("private-prompt-and-path.wav");
+    let result = process_file(
+        &input,
+        &dir.path().join("out.flac"),
+        &AudioSettings {
+            mode: "clean".into(),
+            profile: "mix".into(),
+            device: None,
+        },
+        &AtomicBool::new(false),
+    );
+    assert!(result.is_err());
+    let lines: Vec<_> = crate::logs::after(0)
+        .into_iter()
+        .filter(|e| e.text.contains("audio-enhance stage=inspect "))
+        .collect();
+    assert!(lines.iter().any(|e| e.text.contains("outcome=start")));
+    assert!(lines
+        .iter()
+        .any(|e| e.text.contains("outcome=failed elapsed_ms=")));
+    assert!(lines.iter().all(|e| !e.text.contains("private-prompt")
+        && !e.text.contains(&dir.path().display().to_string())));
+}
+
 const GENERATION_TAGS: &[(&str, &str)] = &[
     (
         "prompt",

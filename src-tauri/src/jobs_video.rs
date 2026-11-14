@@ -73,7 +73,7 @@ const H3_INPUT_SCALING: [&str; 7] = [
 pub(crate) const VIDEO_NODES: [&str; 40] = [
     "ModelPreviewOverrideKJ",
     "DaSiWaH3TiledUpscale",
-    "DaSiWaH3Regenerate2K",
+    "DaSiWaH3HiResRegenerate",
     "DualCLIPLoader",
     "LoraLoaderModelOnly",
     "RandomNoise",
@@ -215,12 +215,12 @@ pub(crate) fn latent_upscale_size(i: &Value) -> (u64, u64) {
     (dimension("width"), dimension("height"))
 }
 
-/// H3 Regenerate 2K targets: the reference's landscape grids (1080P/4K on whole latent patches).
+/// H3 Hi-Res Regenerate targets: the reference's landscape grids (1080P/4K on whole latent patches).
 pub(crate) const REGENERATE_TARGETS: [&str; 3] = ["1080P", "2K", "4K"];
 
-/// Canvas of `DaSiWaH3Regenerate2K`: the 16:9 grid for drafts within 5 % of 16:9 (orientation kept),
+/// Canvas of `DaSiWaH3HiResRegenerate`: the 16:9 grid for drafts within 5 % of 16:9 (orientation kept),
 /// else the draft aspect at the target's short side. shortcut: copy of the pack's
-/// `regenerate_size` (node pack 0.5.49); on pack drift only the planned size is off, the render is the pack's.
+/// `regenerate_size` (node pack 0.5.50); on pack drift only the planned size is off, the render is the pack's.
 pub(crate) fn regenerate_size(width: u64, height: u64, target: &str) -> (u64, u64) {
     let (long, short) = match target {
         "1080P" => (1920, 1088),
@@ -252,7 +252,7 @@ fn valid_regenerate(r: &Value) -> bool {
         && r.get("spatialTiling").is_none_or(Value::is_boolean)
 }
 
-/// `DaSiWaH3Regenerate2K` in place of the Enhanced Upscale node: the refiner LoRA goes on a clone of
+/// `DaSiWaH3HiResRegenerate` in place of the Enhanced Upscale node: the refiner LoRA goes on a clone of
 /// the loaded base (node `1`, or the card's own `model`) with the Workbench options but without the
 /// generation LoRAs, because the merged regenerate LoRA already carries Turbo and Sharp.
 fn h3_regenerate_node(g: &mut Value, i: &Value, conditioning: Value, latent: Value) -> Value {
@@ -276,7 +276,7 @@ fn h3_regenerate_node(g: &mut Value, i: &Value, conditioning: Value, latent: Val
         "MiniMaxChunkFeedForward",
         "seq_threshold",
     );
-    json!({"class_type":"DaSiWaH3Regenerate2K","inputs":{"model":model,"conditioning":conditioning,"latent":latent,
+    json!({"class_type":"DaSiWaH3HiResRegenerate","inputs":{"model":model,"conditioning":conditioning,"latent":latent,
         "lora_name":r["lora"],"strength":1.0,"upscale_model":u["model"],"target":r["target"],"seed":i["seed"],
         "noise":["N",0],"spatial_tiling":r.get("spatialTiling").cloned().unwrap_or(json!(true))}})
 }
@@ -381,7 +381,7 @@ pub(crate) fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), Str
     };
     let settings = match family {
         "ltx-2" => keys_in(u, &["model", "scale"]) && u["scale"].as_f64() == Some(2.0),
-        // Regenerate 2K replaces the upscale settings with its pinned recipe; H3 video only.
+        // Hi-Res Regenerate replaces the upscale settings with its pinned recipe; H3 video only.
         "minimax-h3" if u.get("regenerate").is_some() => {
             is_video(i)
                 && keys_in(u, &["model", "regenerate"])

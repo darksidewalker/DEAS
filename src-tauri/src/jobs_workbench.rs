@@ -4,15 +4,54 @@ use super::*;
 const WORKBENCH_LIMIT: usize = 20;
 pub(super) const MAX_ADMISSION_EPOCH: u64 = (1_u64 << 53) - 1;
 
-// Shared Workbench failure log limiter: once per minute.
-static WORKBENCH_FAILURE_LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+// Fixed categories keep the shared limiter bounded without hiding a different failure.
+static WORKBENCH_FAILURE_LAST: Mutex<std::collections::BTreeMap<&'static str, std::time::Instant>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 /// Test-only: log assertions run in one process sharing this limiter.
 #[cfg(test)]
 pub(super) fn reset_workbench_failure_logging() {
-    *WORKBENCH_FAILURE_LAST
+    WORKBENCH_FAILURE_LAST
         .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+fn failure_category(error: &str) -> &'static str {
+    match error.split(':').next().unwrap_or_default() {
+        "MODEL_FAMILY_MISMATCH" => return "model-family",
+        "MODEL_COMPONENT_MISMATCH" => return "model-component",
+        "MODEL_INTEGRITY_INVALID" | "MODEL_METADATA_INVALID" => return "model-integrity",
+        _ => {}
+    }
+    if error.starts_with("MODEL_") {
+        "model-validation"
+    } else if error.starts_with("AUDIO_") {
+        "audio-validation"
+    } else if error == "Explicit Workbench submission confirmation is required" {
+        "confirmation"
+    } else if [
+        "Invalid Workbench admission epoch",
+        "Stale Workbench admission epoch",
+        "Workbench Stop",
+        "Workbench preparation discarded",
+        "Workbench queue capacity",
+        "Auto Refine owns Workbench",
+        "An exclusive diagnostic operation",
+    ]
+    .iter()
+    .any(|prefix| error.starts_with(prefix))
+    {
+        "admission"
+    } else if error.starts_with("Invalid ")
+        || error.starts_with("Missing ")
+        || error.starts_with("Unsupported ")
+        || error.starts_with("Expected ")
+    {
+        "intent-validation"
+    } else {
+        "preparation"
+    }
 }
 
 impl Session {
@@ -124,15 +163,19 @@ impl Jobs {
             .await;
         match &result {
             Ok(job) => report_job("run", job),
-            Err(_) => {
+            Err(error) => {
+                let category = failure_category(error);
                 let mut last = WORKBENCH_FAILURE_LAST
                     .lock()
                     .unwrap_or_else(|e| e.into_inner());
-                if last.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
-                    *last = Some(std::time::Instant::now());
+                if last
+                    .get(category)
+                    .is_none_or(|at| at.elapsed() >= Duration::from_secs(60))
+                {
+                    last.insert(category, std::time::Instant::now());
                     crate::logs::push(
                         crate::logs::Source::Deas,
-                        "ERROR: Workbench run: preparation or admission failed; see operation result (repeats limited to once per minute)",
+                        &format!("ERROR: Workbench run: category={category}; preparation or admission failed; see operation result (repeats limited to once per minute per category)"),
                     );
                 }
             }

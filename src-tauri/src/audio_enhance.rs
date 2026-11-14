@@ -54,7 +54,9 @@ pub(crate) fn process_file(
     cancel: &AtomicBool,
 ) -> Result<Value, String> {
     process_retained(
-        Input::open_with_cancel(input.to_owned(), cancel)?,
+        stage("inspect", || {
+            Input::open_with_cancel(input.to_owned(), cancel)
+        })?,
         target,
         settings,
         cancel,
@@ -67,35 +69,59 @@ fn process_retained(
     settings: &AudioSettings,
     cancel: &AtomicBool,
 ) -> Result<Value, String> {
-    validate_settings(settings)?;
-    if settings.mode == "off" {
-        return Err("AUDIO_MODE: Off does not process media".into());
-    }
-    static PROCESSING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(CANCELLED.into());
+    stage("processing", || {
+        validate_settings(settings)?;
+        if settings.mode == "off" {
+            return Err("AUDIO_MODE: Off does not process media".into());
         }
-        match PROCESSING.try_lock() {
-            Ok(guard) => break guard,
-            Err(std::sync::TryLockError::WouldBlock) => {
-                std::thread::sleep(Duration::from_millis(50))
+        static PROCESSING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(CANCELLED.into());
             }
-            Err(_) => return Err("AUDIO_PROCESS: Audio coordinator unavailable".into()),
-        }
+            match PROCESSING.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(50))
+                }
+                Err(_) => return Err("AUDIO_PROCESS: Audio coordinator unavailable".into()),
+            }
+        };
+        // Shared native compute gate: admissions and inference run while no other compute
+        // stage or owned-backend release request can interleave. Stop/cancel never waits on it.
+        let _compute = loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(CANCELLED.into());
+            }
+            match crate::resources::reserve_compute() {
+                Ok(permit) => break permit,
+                Err(_) => std::thread::sleep(Duration::from_millis(50)),
+            }
+        };
+        process_mode(input, target, settings, cancel)
+    })
+}
+
+fn stage<T>(name: &'static str, action: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let started = std::time::Instant::now();
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!("INFO: audio-enhance stage={name} outcome=start elapsed_ms=0"),
+    );
+    let result = action();
+    let outcome = match &result {
+        Ok(_) => "succeeded",
+        Err(error) if error.starts_with("AUDIO_CANCELLED:") => "cancelled",
+        Err(_) => "failed",
     };
-    // Shared native compute gate: admissions and inference run while no other compute
-    // stage or owned-backend release request can interleave. Stop/cancel never waits on it.
-    let _compute = loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(CANCELLED.into());
-        }
-        match crate::resources::reserve_compute() {
-            Ok(permit) => break permit,
-            Err(_) => std::thread::sleep(Duration::from_millis(50)),
-        }
-    };
-    process_mode(input, target, settings, cancel)
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!(
+            "INFO: audio-enhance stage={name} outcome={outcome} elapsed_ms={}",
+            started.elapsed().as_millis()
+        ),
+    );
+    result
 }
 
 static EXPORTING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
@@ -591,16 +617,20 @@ fn process_mode(
                         "pcm_s16le",
                     ])
                     .arg(&wav);
-                run_tool(decode, Duration::from_secs(6 * 60 * 60), cancel, None)
-                    .map_err(tool_error)?;
-                let enhanced = crate::audio_runtime::enhance(
-                    &wav,
-                    &dir,
-                    &settings.mode,
-                    &settings.profile,
-                    settings.device.as_deref(),
-                    cancel,
-                )?;
+                stage("decode", || {
+                    run_tool(decode, Duration::from_secs(6 * 60 * 60), cancel, None)
+                        .map_err(tool_error)
+                })?;
+                let enhanced = stage("engine", || {
+                    crate::audio_runtime::enhance(
+                        &wav,
+                        &dir,
+                        &settings.mode,
+                        &settings.profile,
+                        settings.device.as_deref(),
+                        cancel,
+                    )
+                })?;
                 let actual = Input::open_with_cancel(enhanced.clone(), cancel)?;
                 if (decoded_duration(&actual, cancel)? - duration).abs() > 0.05 {
                     return Err(
@@ -676,37 +706,40 @@ fn process_mode(
         }
         let (muxer, _) = input.muxer();
         command.args(["-f", muxer]);
-        if matches!(muxer, "mp4" | "mov") {
-            // MP4/MOV writers must seek back to patch their index, which a pipe cannot take:
-            // encode to the private workspace, then stream the finished bytes into the anchor.
-            let staged = work.path().join(format!("container.{muxer}"));
-            command.arg(&staged);
-            run_tool(command, Duration::from_secs(6 * 60 * 60), cancel, None)
-                .map_err(tool_error)?;
-            if cancel.load(Ordering::Relaxed) {
-                return Err(CANCELLED.into());
-            }
-            std::io::copy(
-                &mut File::open(&staged)
-                    .map_err(|_| "AUDIO_WRITE: Cannot read staged container")?,
-                &mut file
-                    .try_clone()
-                    .map_err(|_| "AUDIO_WRITE: Cannot open output stream")?,
-            )
-            .map_err(|_| "AUDIO_WRITE: Cannot stream enhanced output")?;
-        } else {
-            command.arg("pipe:1");
-            run_tool(
-                command,
-                Duration::from_secs(6 * 60 * 60),
-                cancel,
-                Some(
-                    file.try_clone()
+        stage("encode-mux", || {
+            if matches!(muxer, "mp4" | "mov") {
+                // MP4/MOV writers must seek back to patch their index, which a pipe cannot take:
+                // encode to the private workspace, then stream the finished bytes into the anchor.
+                let staged = work.path().join(format!("container.{muxer}"));
+                command.arg(&staged);
+                run_tool(command, Duration::from_secs(6 * 60 * 60), cancel, None)
+                    .map_err(tool_error)?;
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(CANCELLED.into());
+                }
+                std::io::copy(
+                    &mut File::open(&staged)
+                        .map_err(|_| "AUDIO_WRITE: Cannot read staged container")?,
+                    &mut file
+                        .try_clone()
                         .map_err(|_| "AUDIO_WRITE: Cannot open output stream")?,
-                ),
-            )
-            .map_err(tool_error)?;
-        }
+                )
+                .map_err(|_| "AUDIO_WRITE: Cannot stream enhanced output")?;
+            } else {
+                command.arg("pipe:1");
+                run_tool(
+                    command,
+                    Duration::from_secs(6 * 60 * 60),
+                    cancel,
+                    Some(
+                        file.try_clone()
+                            .map_err(|_| "AUDIO_WRITE: Cannot open output stream")?,
+                    ),
+                )
+                .map_err(tool_error)?;
+            }
+            Ok(())
+        })?;
         input.recheck()?;
         file.sync_all()
             .map_err(|_| "AUDIO_WRITE: Cannot sync enhanced output")?;
@@ -717,14 +750,16 @@ fn process_mode(
         if !parent.owns_partial(&temp, &file) {
             return Err("AUDIO_WRITE: Temporary output changed".into());
         }
-        validate_product(
-            &input,
-            &target
-                .parent()
-                .ok_or("AUDIO_TARGET: Missing parent")?
-                .join(&temp),
-            cancel,
-        )?;
+        stage("verify", || {
+            validate_product(
+                &input,
+                &target
+                    .parent()
+                    .ok_or("AUDIO_TARGET: Missing parent")?
+                    .join(&temp),
+                cancel,
+            )
+        })?;
         input.recheck()?;
         if !parent.owns_partial(&temp, &file) {
             return Err("AUDIO_WRITE: Temporary output changed during validation".into());
@@ -754,7 +789,7 @@ fn process_mode(
         if cancel.load(Ordering::Relaxed) {
             return Err(CANCELLED.into());
         }
-        parent.publish(&temp, name)?;
+        stage("publish", || parent.publish(&temp, name))?;
         Ok(json!({"path":target,"size":size,"sha256":format!("{:x}", hash.finalize())}))
     })();
     if parent.owns_partial(&temp, &file) {
@@ -800,10 +835,11 @@ async fn export(
     } else {
         jobs.audio_source(request.job_id.as_deref().unwrap(), request.index.unwrap())?
     };
-    let input =
-        tauri::async_runtime::spawn_blocking(move || Input::open_with_cancel(path, &CANCEL))
-            .await
-            .map_err(|_| "AUDIO_SOURCE: Inspection worker failed")??;
+    let input = tauri::async_runtime::spawn_blocking(move || {
+        stage("inspect", || Input::open_with_cancel(path, &CANCEL))
+    })
+    .await
+    .map_err(|_| "AUDIO_SOURCE: Inspection worker failed")??;
     let extension = input.extension();
     let selected = rfd::AsyncFileDialog::new()
         .set_title(&request.title)

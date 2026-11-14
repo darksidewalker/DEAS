@@ -1,11 +1,19 @@
 # News
 
-## 0.2.27 BETA (unreleased)
+## 0.2.28 BETA
 
-- New **H3 Regenerate 2K** card under Post-Processing for MiniMax H3 videos: regenerates the draft at 1080P, 2K or 4K with the Open-H3-Regenerate-2K LoRA (convert it in Quant Station first). Needs DaSiWa node pack 0.5.49.
+- Models you drop into the model folders while DEAS runs now show up without a restart: Post-Processing cards re-read the model lists when opened, and Studio re-scans the folders when you switch back to the DEAS window (at most every 10 s, no background watcher). Scanning no longer freezes the window.
+- **H3 Regenerate 2K** is now called **H3 Hi-Res Regenerate**, because it targets 1080P, 2K and 4K. Update the node pack to 0.5.50 (Backend → Upgrade → ComfyUI and node packs).
+- The Post-Processing panel no longer disappears behind a playing video on Linux and opens vertically centred.
+- The Open-H3-Regenerate-2K LoRA converter can now leave out the bundled Turbo part (`--drop turbo`), for Turbo checkpoints that already carry it.
+- Processing logs now name each stage (sampling, upscale, De-rope, face refinement, audio treatment, saving …) per job, so a slow or failing step is visible in Logs.
+
+## 0.2.27 BETA (untagged; shipped in 0.2.28)
+
+- New **H3 Hi-Res Regenerate** card under Post-Processing for MiniMax H3 videos: regenerates the draft at 1080P, 2K or 4K with the Open-H3-Regenerate-2K LoRA (convert it in Quant Station first). Needs DaSiWa node pack 0.5.50.
 - Model choices now explain compatibility and availability consistently, with concrete damaged-file, stale-metadata, missing-loader and missing-companion hints. Library download actions remain explicit; no background hashing, automatic download or silent model substitution was added. See [model checks](STUDIO.md#contextual-model-checks).
 
-## 0.2.26 BETA (unreleased)
+## 0.2.26 BETA (untagged; shipped in 0.2.28)
 
 - An ACE-Step all-in-one file placed in `unet/` or `diffusion_models/` now gets a clear "move it to checkpoints" note instead of a text-encoder download offer.
 

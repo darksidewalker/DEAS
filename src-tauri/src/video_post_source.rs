@@ -55,20 +55,59 @@ pub async fn native_video_post_upload(
     base_url: String,
     source_id: String,
 ) -> Result<String, String> {
-    crate::validate_base_url(&base_url)?;
-    let source = SESSION.lock().map_err(|_| INVALID)?.source(&source_id)?;
-    let path = source
-        .path()
-        .to_str()
-        .ok_or("Video path must be UTF-8")?
-        .to_owned();
-    crate::jobs::upload_input(&base_url, &path, true).await
+    let started = std::time::Instant::now();
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        "INFO: origin=video-post stage=upload outcome=start elapsed_ms=0",
+    );
+    let result = async {
+        crate::validate_base_url(&base_url)?;
+        let source = SESSION.lock().map_err(|_| INVALID)?.source(&source_id)?;
+        let path = source
+            .path()
+            .to_str()
+            .ok_or("Video path must be UTF-8")?
+            .to_owned();
+        crate::jobs::upload_input(&base_url, &path, true).await
+    }
+    .await;
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        &format!(
+            "INFO: origin=video-post stage=upload outcome={} elapsed_ms={}",
+            if result.is_ok() {
+                "succeeded"
+            } else {
+                "failed"
+            },
+            started.elapsed().as_millis()
+        ),
+    );
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn native_processing_logs_upload_validation_without_private_values() {
+        assert!(
+            native_video_post_upload("private-endpoint".into(), "private-source".into())
+                .await
+                .is_err()
+        );
+        let lines: Vec<_> = crate::logs::after(0)
+            .into_iter()
+            .filter(|e| e.text.contains("origin=video-post stage=upload "))
+            .collect();
+        assert!(lines.iter().any(|e| e.text.contains("outcome=start")));
+        assert!(lines
+            .iter()
+            .any(|e| e.text.contains("outcome=failed elapsed_ms=")));
+        assert!(lines.iter().all(|e| !e.text.contains("private-")));
+    }
 
     fn metadata(name: &str) -> VideoSourceInspection {
         VideoSourceInspection {

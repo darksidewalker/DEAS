@@ -2873,7 +2873,7 @@ fn h3_regenerate_replaces_the_upscale_node_on_a_lora_free_base_chain() {
     let i = regenerate_intent();
     let g = compile(&i).unwrap();
     let u = &g["U"]["inputs"];
-    assert_eq!(g["U"]["class_type"], "DaSiWaH3Regenerate2K");
+    assert_eq!(g["U"]["class_type"], "DaSiWaH3HiResRegenerate");
     assert_eq!(
         u["lora_name"],
         "open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors"

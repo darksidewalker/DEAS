@@ -185,6 +185,30 @@ class ConvertTest(unittest.TestCase):
             self.run_convert("o.safetensors", curve=False)
         self.assertFalse((self.dir / "o.safetensors").exists())
 
+    def test_drop_keeps_only_the_other_rank_parts(self):
+        ranks = {}
+        for k, t in self.src.items():
+            if k.endswith(".lora_A.weight"):
+                r = t.shape[0]  # 3 or 4: refiner 1 / turbo 1 / sharp rest
+                ranks[k.removeprefix("transformer.").rsplit(".lora_", 1)[0]] = {
+                    "rank": r, "parts": {"refiner": 1, "turbo": 1, "sharp": r - 2}}
+        (self.dir / "module_ranks.json").write_text(json.dumps(ranks))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            conv.main([str(self.dir / "lora.safetensors"), str(self.dir / "o.safetensors"), "--drop", "turbo"])
+        out = load_file(self.dir / "o.safetensors")
+        self.assertIn("dropped part(s): turbo", buf.getvalue())
+        kept = {}
+        for k, t in self.src.items():  # turbo is rank row/column 1 of every module
+            keep = [i for i in range(t.shape[0 if ".lora_A." in k else 1]) if i != 1]
+            kept[k] = t[keep] if ".lora_A." in k else t[:, keep]
+        for module, d in expected_deltas(kept).items():
+            err = ((delta(out, module) - d).norm() / d.norm()).item()
+            self.assertLess(err, 1e-2, module)
+        with self.assertRaisesRegex(ValueError, "unknown part"):
+            conv.convert(str(self.dir / "lora.safetensors"), str(self.dir / "p.safetensors"), drop=("hyperflow",))
+        self.assertFalse((self.dir / "p.safetensors").exists())
+
     def test_cli_exit_on_existing_output(self):
         (self.dir / "o.safetensors").write_bytes(b"keep")
         with self.assertRaises(SystemExit) as cm:

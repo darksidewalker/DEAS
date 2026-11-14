@@ -19,7 +19,7 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post stage and held metadata 
  expect(view.container.textContent).toContain('post.safetensors');expect(view.container.textContent).toContain('1536 × 1024');
  expect(JSON.stringify(video)).toBe(original);
 });
-test('H3 Regenerate 2K stage shows upscaler, LoRA, target and the regenerate canvas instead of scale/steps',()=>{
+test('H3 Hi-Res Regenerate stage shows upscaler, LoRA, target and the regenerate canvas instead of scale/steps',()=>{
  localStorage.setItem('deas.locale.v1','en');
  const video:VideoIntentV1={recipeId:'video-generation',version:1,positivePrompt:'film',negativePrompt:'',model:'model',textEncoder:'text',vae:'v',seed:7,width:1344,height:768,frames:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/7',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},family:'minimax-h3',h3:{mode:'T2VA',audioVae:'audio',shiftVideo:10,shiftAudio:3,references:[]},latentUpscale:{model:'up3d.safetensors',regenerate:{lora:'regen_h3.safetensors',target:'1080P',spatialTiling:false}}};
  const view=render(<I18nProvider><RunPlan pipeline="t2v" intent={video} notices={[]}/></I18nProvider>);

@@ -1140,15 +1140,15 @@
   "studio.run.post.reason.imageOnly": "画像パイプライン専用です。",
   "studio.run.post.reason.audioVideoOnly": "音声または動画パイプラインのみ。",
   "studio.run.post.reason.audioManualOnly": "手動の音声強化は引き続き利用できます。自動後処理には音声対応の動画または音楽パイプラインが必要です。",
-  "studio.run.regenerate.title": "H3 Regenerate 2K",
+  "studio.run.regenerate.title": "H3 Hi-Res Regenerate",
   "studio.run.regenerate.enabled": "サンプリング後に高解像度で再生成",
   "studio.run.regenerate.hint": "最終サイズ：{width} × {height}。学習済みアップスケールの後、Regenerate LoRA で 3 ステップのリファインを行い、元の動画と音声を保持します。",
   "studio.run.regenerate.latentOn": "潜在アップスケールが有効です。同時に使えるのはどちらか一方だけです。先にオフにしてください。",
-  "studio.run.latent.regenerateOn": "H3 Regenerate 2K が有効で、このアップスケールを置き換えます。先にオフにしてください。",
+  "studio.run.latent.regenerateOn": "H3 Hi-Res Regenerate が有効で、このアップスケールを置き換えます。先にオフにしてください。",
   "studio.run.regenerate.lora": "Regenerate LoRA",
   "studio.run.regenerate.noLora": "変換済み LoRA が見つかりません",
   "studio.run.regenerate.target": "目標解像度",
-  "studio.run.regenerate.nodeMissing": "ノード {name} がありません: DaSiWa ノードパック 0.5.49 が必要です（バックエンド → アップグレード → ComfyUI とノードパック）。",
+  "studio.run.regenerate.nodeMissing": "ノード {name} がありません: DaSiWa ノードパック 0.5.50 が必要です（バックエンド → アップグレード → ComfyUI とノードパック）。",
   "studio.run.regenerate.loraMissing": "変換済みの Open-H3-Regenerate-2K LoRA が見つかりません。Quant Station の「Diffusers → H3」で変換し、models/loras に置いてください。",
   "studio.run.regenerate.model": "Regenerate 用アップスケールモデル"
 }

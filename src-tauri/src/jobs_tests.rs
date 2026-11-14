@@ -972,6 +972,45 @@ async fn sam3_workbench_validation_failures_use_shared_redacted_logs() {
     assert!(!log.text.contains("secret-token") && !log.text.contains("private prompt"));
 }
 
+#[tokio::test]
+async fn workbench_failure_categories_do_not_suppress_each_other_or_expose_inputs() {
+    workbench::reset_workbench_failure_logging();
+    let before = crate::logs::native_logs(0).last().map_or(0, |e| e.seq);
+    let jobs = Jobs::default();
+    for (confirmed, epoch) in [
+        (false, 0),
+        (false, 0),
+        (true, workbench::MAX_ADMISSION_EPOCH + 1),
+    ] {
+        assert!(jobs
+            .workbench_run(
+                "https://user:secret@private.invalid/?token=secret".into(),
+                json!({"prompt":"secret"}),
+                confirmed,
+                epoch,
+                None
+            )
+            .await
+            .is_err());
+    }
+    let logs: Vec<_> = crate::logs::native_logs(before)
+        .into_iter()
+        .filter(|e| e.text.starts_with("ERROR: Workbench run:"))
+        .collect();
+    assert_eq!(
+        logs.len(),
+        2,
+        "rate-limit by category, not the whole operation"
+    );
+    assert!(logs
+        .iter()
+        .any(|e| e.text.contains("category=confirmation")));
+    assert!(logs.iter().any(|e| e.text.contains("category=admission")));
+    assert!(logs
+        .iter()
+        .all(|e| !e.text.contains("secret") && !e.text.contains("private.invalid")));
+}
+
 fn nodes() -> Value {
     json!({"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["sd/model.safetensors"]]}}},
         "CLIPTextEncode":{},"EmptyLatentImage":{},"KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}},"VAEDecode":{},"SaveImage":{},
@@ -1448,7 +1487,10 @@ async fn workbench_failures_reach_shared_logs_without_private_intent() {
     // rate-limited and must appear exactly once for both runs.
     let notices: Vec<_> = reports
         .iter()
-        .filter(|e| e.text.starts_with("ERROR: Workbench run: preparation"))
+        .filter(|e| {
+            e.text
+                .starts_with("ERROR: Workbench run: category=preparation")
+        })
         .collect();
     assert_eq!(notices.len(), 1, "start={start}; reports={reports:?}");
     assert!(!reports.is_empty(), "start={start}; reports={reports:?}");
@@ -1860,7 +1902,9 @@ async fn h3_regenerate_prepare_names_the_node_pack_and_requires_the_lora() {
         let mut info = all.clone();
         match case {
             "old pack" => {
-                info.as_object_mut().unwrap().remove("DaSiWaH3Regenerate2K");
+                info.as_object_mut()
+                    .unwrap()
+                    .remove("DaSiWaH3HiResRegenerate");
             }
             "no lora" => {
                 info["LoraLoader"]["input"]["required"]["lora_name"] =
@@ -1879,7 +1923,7 @@ async fn h3_regenerate_prepare_names_the_node_pack_and_requires_the_lora() {
         let result = Jobs::default().prepare(base, intent.clone()).await;
         match case {
             "ok" => assert!(result.is_ok(), "{result:?}"),
-            "old pack" => assert!(result.unwrap_err().contains("node pack 0.5.49"), "{case}"),
+            "old pack" => assert!(result.unwrap_err().contains("node pack 0.5.50"), "{case}"),
             _ => assert!(
                 result
                     .unwrap_err()

@@ -113,6 +113,19 @@ test('own modal is allowed while background or occluded native surfaces stay hid
  await act(async()=>{window.dispatchEvent(new Event('resize'));});await waitFor(()=>bounds(false));
  ui.unmount();
 });
+test('a floating non-modal panel over only an edge of the surface hides it until it moves away',async()=>{
+ const surfaceRect={left:10,top:10,right:210,bottom:110,width:200,height:100,x:10,y:10,toJSON:()=>({})};
+ const panel=document.createElement('div');panel.setAttribute('role','dialog');document.body.append(panel);
+ let panelRect={...surfaceRect,left:190,right:400,width:210}; // covers the right edge, misses every probe point
+ vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){return (this===panel?panelRect:surfaceRect) as DOMRect;});
+ Object.defineProperty(document,'elementFromPoint',{configurable:true,value:vi.fn(()=>document.querySelector('.native-video-surface'))});
+ const ui=render(view());
+ const bounds=(visible:boolean)=>expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:expect.objectContaining({kind:'bounds',visible})}));
+ await waitFor(()=>bounds(false));
+ vi.mocked(invoke).mockClear();panelRect={...surfaceRect,left:300,right:500};
+ panel.setAttribute('style','left:300px');await waitFor(()=>bounds(true));
+ ui.unmount();panel.remove();
+});
 test('inactive preview does not open; failures remain visible',async()=>{
  const ui=render(view('/clip.webm',false));expect(invoke).not.toHaveBeenCalled();
  vi.mocked(invoke).mockRejectedValueOnce('Install libmpv.so.2');ui.rerender(view());

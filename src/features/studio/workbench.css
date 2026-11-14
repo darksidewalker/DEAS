@@ -375,6 +375,8 @@
 .wb-post-overlay-host[hidden],.wb-post-category[hidden]{display:none !important}
 .wb-post-overlay-host{position:fixed;inset:0;z-index:10;pointer-events:none}
 .wb-post-overlay{position:absolute;--post-top:clamp(12px,var(--post-y,80px),max(12px,calc(100% - 160px)));top:var(--post-top);left:clamp(12px,var(--post-x,calc((100% - 640px)/2)),max(12px,calc(100% - 652px)));width:min(640px,calc(100% - 24px));max-height:min(calc(100% - 160px),calc(100% - var(--post-top) - 12px));pointer-events:auto;display:flex;flex-direction:column;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 8px 28px rgb(var(--shadow-rgb) / .45)}
+/* Opens vertically centred; once dragged it keeps the dragged --post-x/--post-y position. */
+.wb-post-overlay:not([data-moved]){top:50%;transform:translateY(-50%);max-height:calc(100% - 24px)}
 .wb-post-overlay-header{cursor:move;touch-action:none;user-select:none;flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
 .wb-post-overlay-heading{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .wb-post-overlay-heading h2{margin:0;font-size:14px}

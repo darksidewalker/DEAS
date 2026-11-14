@@ -1271,8 +1271,9 @@ pub async fn native_model_family_write(
     result
 }
 
+// async + blocking pool: a sync command runs on the main thread and would freeze the UI during the header reads.
 #[tauri::command]
-pub fn native_models_scan(
+pub async fn native_models_scan(
     root: String,
     extra_roots: Option<Vec<String>>,
 ) -> Result<Vec<LocalModel>, String> {
@@ -1280,7 +1281,9 @@ pub fn native_models_scan(
     if let Some(extra) = extra_roots {
         roots.extend(extra.iter().map(PathBuf::from));
     }
-    scan_roots(&roots)
+    tauri::async_runtime::spawn_blocking(move || scan_roots(&roots))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn native_model_info(

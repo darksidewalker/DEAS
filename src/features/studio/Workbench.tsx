@@ -86,7 +86,7 @@ interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string;
 interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number;advanced?:H3LatentAdvanced}
 const defaultLatent:LatentPref={enabled:false,model:'',scale:2,steps:1,denoise:0.2};
 const isLatentPref=(v:unknown):v is LatentPref=>{const p=v as LatentPref;return !!p&&typeof p.enabled==='boolean'&&typeof p.model==='string'&&[p.scale,p.steps,p.denoise].every(Number.isFinite);};
-/** H3 Regenerate 2K card; `model` is the latent upscaler (the card's own diffusion model is not offered yet). */
+/** H3 Hi-Res Regenerate card; `model` is the latent upscaler (the card's own diffusion model is not offered yet). */
 interface RegeneratePref {enabled:boolean;lora:string;target:H3RegenerateTarget;model:string;spatialTiling:boolean}
 const defaultRegenerate:RegeneratePref={enabled:false,lora:'',target:'2K',model:'',spatialTiling:true};
 const isRegeneratePref=(v:unknown):v is RegeneratePref=>{const p=v as RegeneratePref;return !!p&&typeof p.enabled==='boolean'&&typeof p.lora==='string'&&typeof p.model==='string'&&typeof p.spatialTiling==='boolean'&&h3RegenerateTargets.includes(p.target);};
@@ -567,7 +567,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const latentNodes=[...(isVideo?['DEAS_VideoPostprocessGate']:[]),...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The backend may still be booting, or optional models were added since the last probe: re-read when their controls open.
- useEffect(()=>{if((latent&&dockTab==='post'||dockTab==='options')&&native&&endpoint.trim())void refreshChoices(false);},[latent,dockTab,native,endpoint,refreshChoices]);
+ // Re-read on every open: files placed into model folders after the first read must appear without a restart.
+ useEffect(()=>{if((dockTab==='post'||dockTab==='options')&&native&&endpoint.trim())void refreshChoices(false);},[dockTab,native,endpoint,refreshChoices]);
  // Before the capability probe answers, `latentChoices` is empty: that is "backend pending", not a missing model.
  const latentProblems=!latentEnabled?[]:[...(!choices?[]:[...latentNodes.filter(n=>!choices.nodes.includes(n)),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[])]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=isH3Video(videoFamily)&&isVideo;
@@ -762,7 +763,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const regenerateCanvas=regenerateSize(outputSize.width,outputSize.height,regeneratePref.target);
  // Before the capability probe answers there is nothing to report yet (same as latentProblems).
  const regenerateProblems=!regenerateEnabled?[]:[...(!choices?[]:[
-  ...['DEAS_VideoPostprocessGate','DaSiWaH3Regenerate2K'].filter(n=>!choices.nodes.includes(n)).map(name=>t('studio.run.regenerate.nodeMissing',{name})),
+  ...['DEAS_VideoPostprocessGate','DaSiWaH3HiResRegenerate'].filter(n=>!choices.nodes.includes(n)).map(name=>t('studio.run.regenerate.nodeMissing',{name})),
   ...(!regenerateLoras.includes(regenerateLora)?[t('studio.run.regenerate.loraMissing')]:[]),
   ...(!latentChoices.includes(regenerateModel)?[t('studio.run.latent.missing',{name:regenerateModel||t('studio.run.latent.model')})]:[])]),
   ...(!validCanvas(regenerateCanvas)?[t('studio.run.resolution.invalid')]:[])];
@@ -1201,6 +1202,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  };
  // The shared shell owns viewport sizing; observe this pane only to bound dock resizing.
  const shell=useRef<HTMLDivElement>(null);const [bodyHeight,setBodyHeight]=useState(600);
+ // Files are dropped into model folders while DEAS is in the background: re-scan on window refocus, at most every 10 s, only when Studio is visible.
+ const loadOnFocus=useRef(load);loadOnFocus.current=load;
+ useEffect(()=>{let last=0;const refocus=()=>{if(Date.now()-last<10000||shell.current?.closest('[hidden]'))return;last=Date.now();void loadOnFocus.current();};window.addEventListener('focus',refocus);return()=>window.removeEventListener('focus',refocus);},[]);
  useEffect(()=>{if(browsed)shell.current?.querySelectorAll<HTMLMediaElement>('.wb-current-preview video, .wb-current-preview audio').forEach(el=>{if(!el.paused)el.pause();});},[browsed?.src]);
  useLayoutEffect(()=>{
   const measure=()=>{const el=shell.current;if(el?.clientWidth)setBodyWidth(el.clientWidth);if(el?.clientHeight)setBodyHeight(el.clientHeight);};measure();
@@ -2112,7 +2116,7 @@ const promptTools=forgeContext&&<>
     {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/></div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
     <div className="wb-post-cards" role="group" aria-label={t('studio.run.dock.post')}>
-     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" disabled={!cat.available} title={cat.reason||undefined} data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);loadChoices();}}>
+     {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" disabled={!cat.available} title={cat.reason||undefined} data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);if(native&&endpoint.trim())void refreshChoices(false);}}>
       <span className="wb-post-card-head">
        <strong className="wb-post-card-title">{cat.title}</strong>
        <span className="wb-post-card-badge" data-post-card-count={cat.id}>{t('studio.run.post.card.count',{count:String(cat.count)})}</span>
@@ -2135,6 +2139,7 @@ const promptTools=forgeContext&&<>
       }} onPointerMove={e=>{
        if(!e.currentTarget.hasPointerCapture(e.pointerId))return;
        const panel=postOverlayRef.current!;
+       panel.dataset.moved='';
        panel.style.setProperty('--post-x',`${e.clientX-postDrag.current.x}px`);
        panel.style.setProperty('--post-y',`${e.clientY-postDrag.current.y}px`);
       }} onPointerUp={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}}>

@@ -1002,7 +1002,7 @@ const h3VideoFiles=()=>[
  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},
  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
 ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null}));
-test('H3 Regenerate 2K card blocks Run on missing node/LoRA, builds the pinned intent and excludes Latent upscale',async()=>{
+test('H3 Hi-Res Regenerate card blocks Run on missing node/LoRA, builds the pinned intent and excludes Latent upscale',async()=>{
  vi.mocked(scanModels).mockResolvedValue(h3VideoFiles());
  const d3='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors',d2='minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors',lora='H3/open_h3_regenerate_2k_h3.safetensors';
  const allow=(extraNodes:string[],loras:string[])=>({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale',...extraNodes],h3LatentUpscaleModels:[d2,d3],loras}});
@@ -1015,8 +1015,8 @@ test('H3 Regenerate 2K card blocks Run on missing node/LoRA, builds the pinned i
  fireEvent.click(document.querySelector('[data-regenerate-enabled]')!);
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  const card=document.querySelector('[data-post-category="regenerate"]')!;
- expect(card.textContent).toContain('DaSiWaH3Regenerate2K');expect(card.textContent).toContain('0.5.49');expect(card.textContent).toContain('Diffusers → H3');
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow(['DaSiWaH3Regenerate2K'],['style.safetensors',lora]));
+ expect(card.textContent).toContain('DaSiWaH3HiResRegenerate');expect(card.textContent).toContain('0.5.50');expect(card.textContent).toContain('Diffusers → H3');
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow(['DaSiWaH3HiResRegenerate'],['style.safetensors',lora]));
  fireEvent.click(screen.getByRole('tab',{name:'Options'}));
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
@@ -1046,7 +1046,7 @@ test('H3 Regenerate 2K card blocks Run on missing node/LoRA, builds the pinned i
  view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
  expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d2,scale:2,steps:1,denoise:0.2});
 });
-test('H3 Regenerate 2K is offered for H3 video only',async()=>{
+test('H3 Hi-Res Regenerate is offered for H3 video only',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.regenerate.h3',JSON.stringify({enabled:true,lora:'r.safetensors',target:'2K',model:'',spatialTiling:true}));
@@ -1058,13 +1058,13 @@ test('H3 Regenerate 2K is offered for H3 video only',async()=>{
  fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
  await waitFor(()=>expect(document.querySelector('[data-post-unavailable="regenerate"]')?.textContent).toBe('MiniMax H3 video pipelines only.'));
 });
-test('history restores H3 Regenerate 2K and turns the classic latent upscale off, and vice versa',async()=>{
+test('history restores H3 Hi-Res Regenerate and turns the classic latent upscale off, and vice versa',async()=>{
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-remembered.safetensors',scale:3,steps:2,denoise:0.3}));
  const files=h3VideoFiles();
  const h3Record=(latentUpscale:H3LatentUpscale|H3RegenerateUpscale)=>recentHistoryRecord({recipeId:'video-generation',version:1,family:'minimax-h3',positivePrompt:'historic h3',negativePrompt:'',model:files[0].name,textEncoder:files[1].name,vae:files[2].name,seed:19,width:1344,height:768,frames:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},h3:{mode:'T2VA',audioVae:files[3].name,shiftVideo:10,shiftAudio:3,references:[]},latentUpscale});
  let records=[h3Record({model:'up.safetensors',regenerate:{lora:'regen.safetensors',target:'1080P',spatialTiling:false}})];
  vi.mocked(scanModels).mockResolvedValue(files);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','DaSiWaH3Regenerate2K'],h3LatentUpscaleModels:['up.safetensors'],loras:['regen.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','DaSiWaH3HiResRegenerate'],h3LatentUpscaleModels:['up.safetensors'],loras:['regen.safetensors']}});
  vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records,readOnly:false,error:null}:{path:'/env/input',parent:'/env',entries:[],truncated:false});
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
@@ -2782,6 +2782,29 @@ test.each([['anima','Anima'],['krea-2','Krea 2']])('tiled refine is refused with
  await waitFor(()=>expect(box.hasAttribute('disabled')).toBe(true));
  expect(box).toHaveProperty('checked',false);
  expect(screen.getByText(/cannot run on it/)).toBeTruthy();
+});
+test('post-processing cards re-read backend model lists on every open, not only before the first read',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a',size:1,info:null}]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('tab',{name:/Post-Processing/}));
+ await waitFor(()=>expect(document.querySelector('[data-post-card="refine"]')).not.toBeNull());
+ await act(async()=>{});
+ const before=vi.mocked(checkRecipePrerequisites).mock.calls.length;
+ fireEvent.click(document.querySelector('[data-post-card="refine"]')!);
+ await waitFor(()=>expect(vi.mocked(checkRecipePrerequisites).mock.calls.length).toBe(before+1));
+});
+test('window refocus re-scans model folders, throttled, so files added outside DEAS appear without a restart',async()=>{
+ const a={category:'checkpoints',name:'a.safetensors',path:'/m/a',size:1,info:null};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);vi.mocked(scanModels).mockResolvedValue([a]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelectorAll('[data-model-picker] option')).toHaveLength(1));
+ vi.mocked(scanModels).mockResolvedValue([a,{...a,name:'b.safetensors',path:'/m/b'}]);
+ const before=vi.mocked(scanModels).mock.calls.length;
+ fireEvent.focus(window);
+ await waitFor(()=>expect(document.querySelectorAll('[data-model-picker] option')).toHaveLength(2));
+ fireEvent.focus(window);await act(async()=>{});
+ expect(vi.mocked(scanModels).mock.calls.length).toBe(before+1);
 });
 test('session cache distinguishes same names in separate categories and absolute model roots',async()=>{
  const files=[{...sessionModels[0],name:'same.safetensors',path:'/one/same.safetensors'},{...sessionModels[0],name:'same.safetensors',category:'diffusion_models',family:'qwen-image-2.1',path:'/two/same.safetensors'},{...sessionModels[0],name:'same.safetensors',path:'/three/same.safetensors'}];

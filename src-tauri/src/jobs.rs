@@ -24,6 +24,8 @@ mod observer;
 pub(crate) mod preview;
 #[path = "jobs_refmod.rs"]
 mod refmod;
+#[path = "jobs_stages.rs"]
+mod stages;
 #[path = "jobs_stop.rs"]
 mod stop;
 pub use refmod::{native_h3_refmod_cancel, native_h3_refmod_status, native_h3_refmod_submit};
@@ -271,6 +273,7 @@ struct Job {
 /// Display-only sampler progress and latest preview pushed over the job's own websocket.
 #[derive(Default)]
 struct Live {
+    stages: stages::Stages,
     value: u64,
     max: u64,
     preview: Option<String>,
@@ -289,6 +292,9 @@ impl Job {
     fn stop_observer(&self) {
         // Cleanup does not consume display data, including after an optional view failure.
         let mut live = self.live.lock().unwrap_or_else(|error| error.into_inner());
+        if self.terminal() {
+            live.stages.finish(self.state);
+        }
         live.observer.cancel();
         live.temporal = None;
     }
@@ -1698,9 +1704,9 @@ impl Jobs {
                 return Err("H3 latent upscale sharpness needs DaSiWa node pack 0.5.47 or newer (upscale_sharpness input). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
             if intent["latentUpscale"].get("regenerate").is_some()
-                && !allow["nodes"].as_array().is_some_and(|n| n.contains(&json!("DaSiWaH3Regenerate2K")))
+                && !allow["nodes"].as_array().is_some_and(|n| n.contains(&json!("DaSiWaH3HiResRegenerate")))
             {
-                return Err("H3 Regenerate 2K needs DaSiWa node pack 0.5.49 or newer (DaSiWaH3Regenerate2K). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+                return Err("H3 Hi-Res Regenerate needs DaSiWa node pack 0.5.50 or newer (DaSiWaH3HiResRegenerate). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
@@ -2078,6 +2084,7 @@ impl Jobs {
             let mut live = job.live.lock().unwrap_or_else(|e| e.into_inner());
             live.preview_nodes = preview::nodes(&job.plan.graph);
             live.preview_job = job.id.clone();
+            live.stages = stages::Stages::new(&job.id, &job.plan.graph);
         }
         // Connect before POST so this client's progress/preview frames are not missed.
         watch(&job.plan.base, &job.client_id, job.live.clone()).await;
@@ -2430,6 +2437,15 @@ async fn poll_present(job: &mut Job) -> Result<bool, String> {
             .as_array()
             .ok_or("Malformed history status messages")?;
         job.metadata = execution_metadata(messages, prompt_id);
+        {
+            let mut live = job.live.lock().unwrap_or_else(|error| error.into_inner());
+            for message in messages {
+                if message[1]["prompt_id"].as_str() == Some(prompt_id) {
+                    live.stages
+                        .event(message[0].as_str().unwrap_or_default(), &message[1]);
+                }
+            }
+        }
         if let Ok(partial) = outputs(entry) {
             if !partial.is_empty() {
                 job.history_outputs = partial;

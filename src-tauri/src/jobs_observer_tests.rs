@@ -124,6 +124,139 @@ use tokio_tungstenite::tungstenite::Message;
 
 const WATCHDOG: Duration = Duration::from_secs(5);
 
+#[tokio::test]
+async fn watch_execution_stage_logs_owned_nodes_once_without_tick_spam() {
+    let mut server = fixture().await;
+    let jobs = Jobs::default();
+    let (status, mut peer) = server.diagnostic(&jobs, 123).await;
+    let id = status["id"].as_str().unwrap();
+    for event in [
+        json!({"type":"executing","data":{"prompt_id":"own","node":"5"}}),
+        json!({"type":"execution_start","data":{"prompt_id":"own"}}),
+        json!({"type":"executing","data":{"prompt_id":"foreign","node":"5"}}),
+        json!({"type":"executing","data":{"prompt_id":"own","node":"5"}}),
+        json!({"type":"executing","data":{"prompt_id":"own","node":"5"}}),
+        json!({"type":"progress","data":{"prompt_id":"own","node":"5","value":1,"max":20}}),
+    ] {
+        peer.send(Message::Text(event.to_string().into())).await;
+    }
+    peer.ping().await;
+    let entries: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("execution-stage job={id} ")))
+        .collect();
+    assert_eq!(entries.len(), 1, "one log for the owned node start");
+    assert!(entries[0]
+        .text
+        .contains("node=5 stage=sampling event=started"));
+    assert!(entries[0].text.contains("steps=20"));
+    assert_eq!(
+        jobs.current().unwrap()["state"],
+        "queued",
+        "display observation is not authoritative"
+    );
+    jobs.lock().unwrap().job.as_ref().unwrap().stop_observer();
+    peer.closed().await;
+}
+
+#[tokio::test]
+async fn watch_execution_stage_history_fallback_reports_failure_and_unobserved_not_skipped() {
+    let mut server = fixture().await;
+    let jobs = Jobs::default();
+    let (status, mut peer) = server.diagnostic(&jobs, 124).await;
+    let id = status["id"].as_str().unwrap();
+    let prompt = status["promptId"].as_str().unwrap();
+    {
+        let mut evidence = server.evidence.lock().unwrap();
+        evidence.terminal.insert(124, "failed");
+        evidence.messages.insert(124, json!([
+            ["execution_cached", {"prompt_id":prompt,"nodes":["1"]}],
+            ["executing", {"prompt_id":"foreign","node":"6"}],
+            ["execution_error", {"prompt_id":prompt,"node_id":"5","exception_message":"private prompt", "node_type":"private"}]
+        ]));
+    }
+    assert_eq!(jobs.status(id.into()).await.unwrap()["state"], "failed");
+    peer.closed().await;
+    jobs.status(id.into()).await.unwrap();
+    let logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("execution-stage job={id} ")))
+        .collect();
+    assert_eq!(
+        logs.iter()
+            .filter(|entry| entry.text.contains("event=failed"))
+            .count(),
+        1
+    );
+    let summary: Vec<_> = logs
+        .iter()
+        .filter(|entry| entry.text.contains("event=summary"))
+        .collect();
+    assert_eq!(summary.len(), 1);
+    assert!(summary[0].text.contains("outcome=failed"));
+    assert!(summary[0].text.contains("cached=1"));
+    assert!(summary[0].text.contains("decode:1"));
+    assert!(summary[0].text.contains("save:1"));
+    assert!(summary[0].text.contains("not-observed="));
+    assert!(logs.iter().all(|entry| !entry.text.contains("private")
+        && !entry.text.contains("event=started")
+        && !entry.text.contains("event=skipped")));
+}
+
+#[tokio::test]
+async fn watch_execution_stage_cached_completed_and_failure_are_prompt_owned() {
+    let mut server = fixture().await;
+    let jobs = Jobs::default();
+    let (status, mut peer) = server.diagnostic(&jobs, 125).await;
+    let id = status["id"].as_str().unwrap();
+    let prompt = status["promptId"].as_str().unwrap();
+    for event in [
+        json!({"type":"execution_error","data":{"prompt_id":"foreign","node_id":"5"}}),
+        json!({"type":"execution_cached","data":{"prompt_id":prompt,"nodes":["1"]}}),
+        json!({"type":"execution_start","data":{"prompt_id":prompt}}),
+        json!({"type":"execution_error","data":{"prompt_id":"foreign","node_id":"5"}}),
+        json!({"type":"execution_cached","data":{"prompt_id":"foreign","nodes":["2"]}}),
+        json!({"type":"executed","data":{"prompt_id":"foreign","node":"3"}}),
+        json!({"type":"execution_cached","data":{"prompt_id":prompt,"nodes":["1","1","unknown"]}}),
+        json!({"type":"executed","data":{"prompt_id":prompt,"node":"6","output":{"text":"private prompt"}}}),
+        json!({"type":"execution_error","data":{"prompt_id":prompt,"node_id":"5","node_type":"private","exception_message":"private prompt"}}),
+    ] {
+        peer.send(Message::Text(event.to_string().into())).await;
+    }
+    peer.closed().await;
+    assert_eq!(jobs.current().unwrap()["state"], "queued");
+    {
+        let mut evidence = server.evidence.lock().unwrap();
+        evidence.terminal.insert(125, "failed");
+        evidence.messages.insert(
+            125,
+            json!([
+                ["execution_cached", {"prompt_id":prompt,"nodes":["1"]}],
+                ["execution_error", {"prompt_id":prompt,"node_id":"5"}]
+            ]),
+        );
+    }
+    jobs.status(id.into()).await.unwrap();
+    let logs: Vec<_> = crate::logs::native_logs(0)
+        .into_iter()
+        .filter(|entry| entry.text.contains(&format!("execution-stage job={id} ")))
+        .collect();
+    assert_eq!(
+        logs.len(),
+        4,
+        "cached, completed, failed and summary; history replay adds no duplicates"
+    );
+    assert!(logs
+        .iter()
+        .any(|entry| entry.text.contains("node=6 stage=decode event=completed")));
+    assert!(logs
+        .iter()
+        .any(|entry| entry.text.contains("node=1 stage=model-load event=cached")));
+    assert!(logs
+        .iter()
+        .all(|entry| !entry.text.contains("private") && !entry.text.contains("event=started")));
+}
+
 pub(super) async fn finished(mut completed: channel::Receiver<bool>) {
     tokio::time::timeout(WATCHDOG, completed.wait_for(|done| *done))
         .await
@@ -256,6 +389,7 @@ pub(super) async fn attach_observer(job: &Job) -> Peer {
 
 #[derive(Default)]
 struct HttpEvidence {
+    messages: HashMap<u64, Value>,
     tuples: HashMap<String, (u64, Value)>,
     terminal: HashMap<u64, &'static str>,
     absent: HashSet<u64>,
@@ -445,6 +579,7 @@ async fn fixture() -> Fixture {
                                 "failed" => ("error", false, json!([["execution_error",{"prompt_id":id}]])),
                                 _ => unreachable!(),
                             };
+                            let messages = state.messages.get(seed).cloned().unwrap_or(messages);
                             json!({id:{"prompt":tuple,"outputs":{"7":{"images":[{"filename":format!("out-{seed}.png"),"subfolder":"","type":"output"}]}},"status":{"completed":completed,"status_str":status,"messages":messages}}})
                         } else {
                             json!({})
