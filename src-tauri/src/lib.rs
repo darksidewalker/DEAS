@@ -61,6 +61,7 @@ pub use jobs::{
     native_workbench_cancel_pending, native_workbench_current, native_workbench_interrupt_running,
     native_workbench_poll, native_workbench_run, native_workbench_stop,
 };
+pub mod model_check;
 pub mod model_families;
 pub mod recipe_prerequisites;
 pub mod wildcard;

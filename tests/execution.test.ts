@@ -21,6 +21,13 @@ const qwenAllowlist: RecipeAllowlist = {
   diffusionModels: [intent.checkpoint], textEncoders: [qwenDiffusion.textEncoder], clipTypes: ['qwen_image'], vaes: [qwenDiffusion.vae], images: nativeReference.images,
 };
 
+test('shared model checks reject corrupt local evidence without changing unknown backend-only graphs',()=>{
+ const file={category:'checkpoints',name:intent.checkpoint,path:'/models/source',size:1,info:null};
+ const baseline=compileRecipe(intent,allowlist);
+ assert.deepEqual(compileRecipe(intent,allowlist,[file]),baseline);
+ assert.throws(()=>compileRecipe(intent,allowlist,[{...file,integrity:'truncated'}]),{code:'INVALID_INPUT'});
+ assert.throws(()=>compileRecipe(intent,allowlist,[{...file,metadataError:'stale'}]),{code:'INVALID_INPUT'});
+});
 test('optional De-rope capability accepts absent/boolean values but not coercions', () => {
   const baseline=compileRecipe(intent,allowlist);
   for(const deropeKeepBackground of [false,true])assert.deepEqual(compileRecipe(intent,{...allowlist,deropeKeepBackground}),baseline);

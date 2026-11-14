@@ -25,6 +25,19 @@ async function open(){mount();click('Library');await screen.findByRole('option',
 async function browse(){await open();fireEvent.change(screen.getByLabelText('Curated source'),{target:{value:'curated'}});click('Browse resources');await screen.findByLabelText('Remote file');}
 async function pick(){await browse();fireEvent.click(screen.getByLabelText('Remote file'));click('Choose existing parent folder');await screen.findByText('/parent');fireEvent.change(screen.getByLabelText('New subfolder'),{target:{value:'new'}});}
 const tab=(name:string)=>fireEvent.click(screen.getByRole('tab',{name}));
+it('installed advice exposes missing companions and opens their Library category without download or selection',async()=>{
+ const model={category:'diffusion_models',name:'renamed.safetensors',path:'/models/model',size:1,info:null,family:'anima'};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_models_scan'?[model]:c==='native_model_scan_status'?{id:'',state:'idle'}:null);
+ render(<I18nProvider><DownloadPanel embedded installTarget="/env"/></I18nProvider>);
+ await screen.findByRole('tab',{name:'Installed'});tab('Installed');
+ fireEvent.click(await screen.findByRole('button',{name:model.name}));
+ const companion=await screen.findByRole('button',{name:'Library · Text encoder'});
+ expect(screen.getByText('qwen_3_600m · qwen3_06b · qwen_3_06b · qwen3-0.6b')).toBeTruthy();
+ fireEvent.click(companion);
+ expect(screen.getByRole('tab',{name:'Catalog'}).getAttribute('aria-selected')).toBe('true');
+ expect(vi.mocked(invoke).mock.calls.some(([c])=>['native_model_info','native_download_browse','native_download_plan','native_download_start'].includes(c as string))).toBe(false);
+});
+
 it('embedded targeted offer browses once, filters exact filename and waits for Library consent',async()=>{
  const selected={...resource,id:'wanted',label:'wanted.safetensors',locator:'nested/wanted.safetensors'};
  vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_download_browse'?{resources:[selected,{...resource,id:'other',label:'other.pth',locator:'other.pth'}],warnings:[],nextCursor:null}:c==='native_files_present'?[false]:c==='native_download_plan'?{id:'p',target:'/configured/latent_upscale_models',resources:[selected],canExecute:true,warnings:[],totalKnownBytes:23,unknownSizeCount:0}:{state:c==='native_download_status'?'idle':'running',completed:0,total:1,bytesDownloaded:0,error:null});
@@ -263,7 +276,7 @@ it('sorts catalog cards and files newest first, then by name, with missing dates
  fireEvent.click(sortButton('Name'));expect(sortButton('Name').getAttribute('aria-pressed')).toBe('true');expect(sortButton('Newest').getAttribute('aria-pressed')).toBe('false');
  expect(cards()).toEqual(['Alpha','Beta','Zulu']);expect(rows()).toEqual(['Alpha','Beta','Zulu']);
  fireEvent.click(sortButton('Name'));expect(sortButton('Name').textContent).toBe('Name ↓');expect(cards()).toEqual(['Zulu','Beta','Alpha']);
- expect((screen.getByLabelText('Zulu') as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole('checkbox',{name:'Zulu'}) as HTMLInputElement).checked).toBe(false);
 });
 it('shows loading and a browse failure inside the clicked card picker',async()=>{
  let fail!:(e:unknown)=>void;vi.mocked(invoke).mockImplementation(async c=>c==='native_download_catalog'?catalog:c==='native_auth_status'?[]:c==='native_download_browse'?new Promise((_,reject)=>{fail=reject;}):{state:'idle',completed:0,total:0,bytesDownloaded:0,error:null});

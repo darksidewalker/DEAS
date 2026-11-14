@@ -1,4 +1,5 @@
 import type { LocalModel } from './models';
+import {checkModel} from './modelCheck.ts';
 
 export const componentSlots=['textEncoders','vaes','audioVaes','textProjections'] as const;
 export type ComponentSlot=typeof componentSlots[number];
@@ -14,7 +15,7 @@ export function componentFiles(models:readonly LocalModel[],family:ComponentFami
  const categories=slot==='vaes'||slot==='audioVaes'?['vae']:['text_encoders','clip'];
  const patterns=family[slot]??[],identities=family.components?.[slot]??[];
  const rank=(model:LocalModel)=>{const i=model.component?identities.indexOf(model.component):patterns.findIndex(pattern=>(model.name.split(/[\\/]/).pop()??'').toLowerCase().includes(pattern));return i===-1?patterns.length+identities.length+1:i;};
- const unique=new Map(models.filter(model=>categories.includes(model.category)&&!model.integrity&&(slot==='textEncoders'||!/\.gguf$/i.test(model.name))&&(all||(model.component
+ const unique=new Map(models.filter(model=>categories.includes(model.category)&&checkModel(model).compatibility!=='blocked'&&(slot==='textEncoders'||!/\.gguf$/i.test(model.name))&&(all||(model.component
   ?identities.includes(model.component)
   :patterns.some(pattern=>(model.name.split(/[\\/]/).pop()??'').toLowerCase().includes(pattern)))))
   .map(model=>[model.name,model]as const));
@@ -24,5 +25,5 @@ export function componentFiles(models:readonly LocalModel[],family:ComponentFami
 /** Second encoder of a dual-loader family: a filename hint only, never a header-compatibility claim. */
 export function componentFilesNamed(models:readonly LocalModel[],patterns:readonly string[],all=false):string[] {
  const wanted=(model:LocalModel)=>patterns.some(pattern=>(model.name.split(/[\\/]/).pop()??'').toLowerCase().includes(pattern));
- return [...new Set(models.filter(model=>['text_encoders','clip'].includes(model.category)&&!model.integrity&&!/\.gguf$/i.test(model.name)&&(all||wanted(model))).map(model=>model.name))].sort((a,b)=>a.localeCompare(b));
+ return [...new Set(models.filter(model=>['text_encoders','clip'].includes(model.category)&&checkModel(model).compatibility!=='blocked'&&!/\.gguf$/i.test(model.name)&&(all||wanted(model))).map(model=>model.name))].sort((a,b)=>a.localeCompare(b));
 }

@@ -2,7 +2,8 @@ import { useContext, useEffect, useRef, useState, type ClipboardEvent, type Drag
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
-import { analysisError, analysisOverview, cancelAnalysisSetup, cancelDescribe, convertTagger, describePicture, modelFolders, pickMedia, setupAnalysis, stagePicture, tagPicture, tagsAsPrompt, type AnalysisOverview, type Reading, type TagResult } from '../../lib/analysis';
+import { ModelAdvice } from '../../components/ModelAdvice';
+import { checkTagger, analysisError, analysisOverview, cancelAnalysisSetup, cancelDescribe, convertTagger, describePicture, modelFolders, pickMedia, setupAnalysis, stagePicture, tagPicture, tagsAsPrompt, type AnalysisOverview, type Reading, type TagResult } from '../../lib/analysis';
 import { embeddedWorkflow, OpenComfyWorkflow, type ComfyWorkflow } from '../../lib/comfyWorkflow';
 import { nativeModelId } from '../../lib/forge';
 import { imageMetadataRows, readImageMetadata, type ImageMetadata } from '../../lib/imageMetadata';
@@ -114,7 +115,8 @@ export function Analysis({ active = true, endpoint = '', roots, root, incoming, 
   const unusable = overview?.unusable ?? [];
   const chosen = tagger === 'all' && taggers.length > 1 ? 'all' : (taggers.find(x => x.id === tagger) ?? taggers[0])?.id ?? '';
   const current = taggers.find(x => x.id === chosen);
-  const ready = !!overview?.runtimeReady && taggers.length > 0;
+  const taggerCheck = checkTagger(overview, chosen);
+  const ready = !!overview && taggerCheck.compatibility !== 'blocked' && taggerCheck.availability === 'available';
   // A different tagger starts from its own thresholds (WD's 0.35/0.85 hid animetimm characters).
   useEffect(() => { setGeneral(null); setCharacter(null); }, [chosen]);
 
@@ -328,6 +330,7 @@ export function Analysis({ active = true, endpoint = '', roots, root, incoming, 
 
     <div className="forge-card analysis-results">
       <div className="forge-card-head"><h3 className="forge-card-title">{t('analysis.tags')}</h3></div>
+      {overview && <ModelAdvice check={taggerCheck}/>}
       {!overview ? <p className="forge-note">{t('analysis.loading')}</p>
         : !ready ? <div className="analysis-setup" data-analysis-setup>
           <p>{t('analysis.setupBody')}</p>

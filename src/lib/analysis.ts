@@ -1,4 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { checkModel } from './modelCheck';
 
 /** Media Analysis (ported from PromptForge): image taggers run on the CPU by DEAS's private analysis runtime. */
 export interface Tagger { id: string; name: string; model: string; labels: string; place: string; tags: number; categories: boolean; generalThreshold: number; characterThreshold: number }
@@ -9,6 +10,12 @@ export interface AnalysisInstall { running: boolean; stage: string; downloaded: 
 /** `runtimeSize`/`toolsSize`: what Set up and a conversion download, roughly. */
 export interface AnalysisOverview { runtimeReady: boolean; install: AnalysisInstall; taggers: Tagger[]; unusable: UnusableTagger[]; defaultSize: number; runtimeSize: number; toolsSize: number }
 export interface TagResult { tagger: string; rating: Record<string, number>; general: [string, number][]; character: [string, number][]; ms: number }
+
+/** Discovery validates the ONNX/labels pair, not a successful runtime model load. */
+export function checkTagger(overview: AnalysisOverview | null, selected: string) {
+  const available = overview ? [...overview.taggers.map(tagger => tagger.id), ...(overview.taggers.length > 1 ? ['all'] : [])] : undefined;
+  return checkModel(undefined, { name: selected, available, specialized: overview ? { ready: overview.runtimeReady && !!available?.includes(selected), reason: overview.runtimeReady ? 'analysis.noneFound' : 'analysis.setupRuntime', evidence: 'tagger-discovery' } : undefined });
+}
 
 /** The model folders to look in: the shared one, the environment's own and any extra roots. */
 export const modelFolders = (models?: string, extra: string[] = [], root?: string) =>

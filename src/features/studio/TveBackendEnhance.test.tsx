@@ -7,7 +7,7 @@ import { defaultTve, describeVideoPost, fromVideoPost, isTvePref, toVideoPost } 
 import type { VideoPostInspection } from '../../lib/videoPost';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
-beforeEach(() => { localStorage.setItem(LOCALE_STORAGE_KEY, 'en'); vi.mocked(isTauri).mockReturnValue(true); });
+beforeEach(() => { Object.defineProperty(window, '__TAURI_INTERNALS__', {configurable:true,value:{invoke}}); localStorage.setItem(LOCALE_STORAGE_KEY, 'en'); vi.mocked(isTauri).mockReturnValue(true); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.resetAllMocks(); });
 const source: VideoPostInspection = { sourceId: 'src-1', name: 'clip.mp4', width: 1280, height: 720, fpsNumerator: 24, fpsDenominator: 1, durationSeconds: 3, pixelFormat: 'yuv420p', fieldOrder: 'progressive', colorTransfer: 'bt709', audioStreams: 1, subtitleStreams: 0, blockers: [], timingVerified: false, processingReady: false };
 
@@ -44,6 +44,88 @@ test.each(['clean', 'deep', 'stems'] as const)('TVE cannot upload or submit when
   fireEvent.click(document.querySelector('[data-tve-enhance]')!);
   expect(invoke).not.toHaveBeenCalledWith('native_video_post_upload', expect.anything());
   expect(invoke).not.toHaveBeenCalledWith('native_workbench_run', expect.anything());
+});
+
+test.each([
+  { pref: { upscaleModel: 'gone.safetensors' }, selector: 'upscaleModel' },
+  { pref: { frameGen: true, engine: 'rife', rifeModel: 'gone.safetensors' }, selector: 'rifeModel' },
+  { pref: { loop: true, loopBackend: 'rife', loopModel: 'gone.safetensors' }, selector: 'loopModel' },
+])('backend-listed missing $selector blocks TVE before upload without changing the selection', async ({ pref, selector }) => {
+  localStorage.setItem('deas.pref.studio.tve.post', JSON.stringify({ ...defaultTve, ...pref }));
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'native_recipe_prerequisites') return { allowlist: { nodes: ['UpscaleModelLoader', 'FrameInterpolate', 'DaSiWa_SeamlessLoop'], upscaleModels: [], frameInterpolationModels: [] } };
+    if (command === 'native_audio_enhance_capabilities') return { clean: true, deep: false, stems: false };
+    return { running: false, mode: '', stage: '', downloaded: 0, total: 0 };
+  });
+  await act(async () => { render(<I18nProvider><TveBackendEnhance endpoint="http://127.0.0.1:7801/" source={source}/></I18nProvider>); });
+  await act(async () => { fireEvent.focus(document.querySelector(`[data-tve-post="${selector}"]`)!); });
+  expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', true);
+  expect(document.querySelector(`[data-tve-post="${selector}"]`)).toHaveProperty('value', 'gone.safetensors');
+  fireEvent.click(document.querySelector('[data-tve-enhance]')!);
+  expect(invoke).not.toHaveBeenCalledWith('native_video_post_upload', expect.anything());
+  expect(invoke).not.toHaveBeenCalledWith('native_workbench_run', expect.anything());
+});
+
+test('backend-listed TVE model remains usable without local header evidence', async () => {
+  localStorage.setItem('deas.pref.studio.tve.post', JSON.stringify({ ...defaultTve, upscaleModel: 'listed.safetensors' }));
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'native_recipe_prerequisites') return { allowlist: { nodes: ['UpscaleModelLoader'], upscaleModels: ['listed.safetensors'], frameInterpolationModels: [] } };
+    if (command === 'native_audio_enhance_capabilities') return { clean: true, deep: false, stems: false };
+    return { running: false, mode: '', stage: '', downloaded: 0, total: 0 };
+  });
+  await act(async () => { render(<I18nProvider><TveBackendEnhance endpoint="http://127.0.0.1:7801/" source={source}/></I18nProvider>); });
+  await act(async () => { fireEvent.focus(document.querySelector('[data-tve-post="upscaleModel"]')!); });
+  expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', false);
+  expect(vi.mocked(invoke).mock.calls.map(([command]) => command).sort()).toEqual(['native_audio_enhance_capabilities', 'native_audio_enhance_install_status', 'native_recipe_prerequisites']);
+});
+
+test.each([
+  { frameGen: false, engine: 'rife', rifeModel: 'gone.safetensors' },
+  { loop: false, loopBackend: 'rife', loopModel: 'gone.safetensors' },
+])('disabled model stages do not block an unrelated denoise stage: %j', async pref => {
+  localStorage.setItem('deas.pref.studio.tve.post', JSON.stringify({ ...defaultTve, ...pref, denoise: true }));
+  vi.mocked(invoke).mockResolvedValue({ running: false });
+  await act(async () => { render(<I18nProvider><TveBackendEnhance endpoint="http://a/" source={source}/></I18nProvider>); });
+  expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', false);
+  expect(document.querySelector('[data-model-check]')).toBeNull();
+});
+
+test.each([null, { nodes: ['UpscaleModelLoader'] }, { nodes: [], upscaleModels: ['listed.safetensors'] }])('a selected TVE model requires current model and loader discovery: %j', async allowlist => {
+  localStorage.setItem('deas.pref.studio.tve.post', JSON.stringify({ ...defaultTve, upscaleModel: 'listed.safetensors' }));
+  vi.mocked(invoke).mockResolvedValue({ allowlist, running: false });
+  await act(async () => { render(<I18nProvider><TveBackendEnhance endpoint="http://a/" source={source}/></I18nProvider>); });
+  if (allowlist) await act(async () => { fireEvent.focus(document.querySelector('[data-tve-post="upscaleModel"]')!); });
+  expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', true);
+  fireEvent.click(document.querySelector('[data-tve-enhance]')!);
+  expect(invoke).not.toHaveBeenCalledWith('native_video_post_upload', expect.anything());
+  expect(invoke).not.toHaveBeenCalledWith('native_workbench_run', expect.anything());
+});
+
+test.each([true, false])('endpoint B can discover while A is pending and ignores A late completion (A first=%s)', async aFirst => {
+  localStorage.setItem('deas.pref.studio.tve.post', JSON.stringify({ ...defaultTve, upscaleModel: 'b.safetensors' }));
+  const pending: Record<string, (value: unknown) => void> = {};
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_recipe_prerequisites'
+    ? new Promise(resolve => { pending[(args as {baseUrl: string}).baseUrl] = resolve; })
+    : Promise.resolve({ running: false }));
+  const view = render(<I18nProvider><TveBackendEnhance endpoint="http://a/" source={source}/></I18nProvider>);
+  await act(async () => { fireEvent.focus(document.querySelector('[data-tve-post="upscaleModel"]')!); });
+  view.rerender(<I18nProvider><TveBackendEnhance endpoint="http://b/" source={source}/></I18nProvider>);
+  await act(async () => { fireEvent.focus(document.querySelector('[data-tve-post="upscaleModel"]')!); });
+  expect(Object.keys(pending)).toEqual(['http://a/', 'http://b/']);
+  const finishA = () => pending['http://a/']({ allowlist: { nodes: [], upscaleModels: ['a.safetensors'] } });
+  const finishB = () => pending['http://b/']({ allowlist: { nodes: ['UpscaleModelLoader'], upscaleModels: ['b.safetensors'] } });
+  if (aFirst) {
+    await act(async () => { finishA(); });
+    expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', true);
+    await act(async () => { fireEvent.focus(document.querySelector('[data-tve-post="upscaleModel"]')!); });
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'native_recipe_prerequisites')).toHaveLength(2);
+    await act(async () => { finishB(); });
+  } else {
+    await act(async () => { finishB(); });
+    await act(async () => { finishA(); });
+  }
+  expect(document.querySelector('[data-tve-enhance]')).toHaveProperty('disabled', false);
+  expect(document.querySelector('[data-tve-post="upscaleModel"]')?.textContent).not.toContain('a.safetensors');
 });
 
 test('controls round-trip through the intent block and omit disabled stages', () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
+import { ModelAdvice } from '../../components/ModelAdvice';
 import { useAudioEnhance, type AudioEnhanceSettings } from './useAudioEnhance';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { cancelAudioEnhance, exportEnhancedAudio, type AudioEnhanceMode, type AudioEnhanceProfile, type AudioEnhanceDevice, type AudioEnhanceSource } from '../../lib/audioEnhance';
@@ -72,6 +73,7 @@ function AudioEnhanceControls({ source, name, scope, disabled = false, automatic
         <small data-audio-enhance-device-status>{t(capabilities?.cuda ? 'studio.audioEnhance.cudaCompatible' : 'studio.audioEnhance.cudaUnavailable')}</small>
         <small>{t('studio.audioEnhance.deviceHint')}</small>
       </>}
+      {mode !== 'off' && <ModelAdvice check={settings.check}/>}
       {automatic && <small>{t('studio.audioEnhance.automatic')}</small>}
       <small>{t('studio.audioEnhance.hint')}</small>
       <div className="wb-option" data-audio-enhance-engines role="group" aria-label={t('studio.audioEnhance.engines')}><span>{t('studio.audioEnhance.engines')}</span>

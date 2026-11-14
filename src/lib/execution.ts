@@ -1,4 +1,7 @@
 import families from '../families/builtin.json' with { type: 'json' };
+import {checkModel} from './modelCheck.ts';
+import type {LocalModel} from './models';
+import {isComponentOverrides,type ComponentSlot} from './modelComponents.ts';
 import { safeOutputPrefix } from './outputNaming.ts';
 import { isWildcardRules, wildcardNode, type WildcardRules } from './wildcard.ts';
 import type { H3LatentUpscale } from './videoIntent.ts';
@@ -39,6 +42,7 @@ export interface DiagnosticImageIntentV1 {
   readonly diffusion?: { readonly textEncoder: string; readonly textEncoder2?: string; readonly clipType: string; readonly vae: string; /** Family id when several families share a CLIP type (Chroma / Chroma Radiance). */ readonly family?: string };
   /** Family id for checkpoint-loader families whose recipe points (latent, patch) differ from the plain graph. */
   readonly family?: string;
+  readonly componentOverrides?:Record<ComponentSlot,boolean>;
   /** MiniMax H3 image edit (native compiler only): sigma shifts; the native graph samples the source as the first frame of a 5-frame pass. */
   readonly h3Edit?: { readonly shiftVideo: number; readonly shiftAudio: number };
   /** H3 edits only (native compiler): DaSiWaH3TiledUpscale after the sampler, same settings as H3 video; never with a mask. */
@@ -315,8 +319,9 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
 }
 
 /** Pure compilation only: allowlists must be verified by the caller, not user declarations. */
-export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe {
+export function compileRecipe(input: unknown, verified: unknown, models:readonly LocalModel[]=[]): CompiledRecipe {
   const intent = validateIntent(input);
+  if(intent.componentOverrides!==undefined&&!isComponentOverrides(intent.componentOverrides))throw new RecipeCompileError('INVALID_INTENT','componentOverrides','Invalid component override flags.','Supply the four boolean slot flags.');
   if (!isRecord(verified) || ['deropeKeepBackground','h3LatentSharpness'].some(k=>verified[k]!==undefined&&typeof verified[k]!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
     Object.hasOwn(verified, key) && Array.isArray(verified[key]) && Array.from(verified[key]).every((v: unknown) => typeof v === 'string' && v.length > 0))) {
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
@@ -568,9 +573,9 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   const emitted = Object.freeze([...new Set(Object.values(result.graph).map(node => node.class_type))]);
   for (const node of emitted) {
-    if (!allowlist.nodes.includes(node)) throw new RecipeCompileError('MISSING_CAPABILITY', node, node === 'DEAS_ImagePostprocessGate' ? 'Refine requires the DEAS lazy gate and a compatible post-save saver output; update the owned backend or disable post-processing.' : 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
+    if (checkModel(undefined,{loaders:allowlist.nodes,requiredLoaders:[node]}).availability==='missing') throw new RecipeCompileError('MISSING_CAPABILITY', node, node === 'DEAS_ImagePostprocessGate' ? 'Refine requires the DEAS lazy gate and a compatible post-save saver output; update the owned backend or disable post-processing.' : 'Required built-in node is unavailable.', 'Verify a compatible backend with this built-in node before compiling.');
   }
-  if (!(d ? (isGguf(intent.checkpoint) ? allowlist.ggufDiffusionModels : allowlist.diffusionModels) ?? [] : allowlist.checkpoints).includes(intent.checkpoint)) throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
+  if (checkModel(undefined,{name:intent.checkpoint,available:d?(isGguf(intent.checkpoint)?allowlist.ggufDiffusionModels:allowlist.diffusionModels)??[]:allowlist.checkpoints}).availability==='missing') throw new RecipeCompileError('MISSING_MODEL', 'checkpoint', 'Checkpoint is not in the verified model list.', 'Select an exact checkpoint identifier from the verified backend model list.');
   if (d && !((isGguf(d.textEncoder) ? allowlist.ggufTextEncoders : allowlist.textEncoders)?.includes(d.textEncoder) && allowlist.vaes?.includes(d.vae) && (isGguf(d.textEncoder) ? allowlist.ggufClipTypes : allowlist.clipTypes)?.includes(d.clipType))) throw new RecipeCompileError('MISSING_MODEL', 'diffusion', 'Text encoder, VAE or CLIP type is not in the verified backend lists.', 'Select files and a CLIP type the backend lists.');
   if (d?.textEncoder2) {
     const gguf = isGguf(d.textEncoder) || isGguf(d.textEncoder2);
@@ -587,6 +592,21 @@ export function compileRecipe(input: unknown, verified: unknown): CompiledRecipe
   }
   for (const [field, available] of [['sampler', allowlist.samplers], ['scheduler', allowlist.schedulers]] as const) {
     if (!available.includes(intent[field])) throw new RecipeCompileError('MISSING_CAPABILITY', field, 'Choice is not verified on this backend.', 'Select a choice available in the verified backend capability list.');
+  }
+  const family=families.find(f=>f.id===(d?.family??intent.family));
+  const selected:[string|undefined,readonly string[],ComponentSlot?][]=[
+    [intent.checkpoint,d?['diffusion_models','unet']:['checkpoints']],
+    [d?.textEncoder,['text_encoders','clip'],'textEncoders'],[d?.textEncoder2,['text_encoders','clip'],'textEncoders'],[d?.vae,['vae'],'vaes'],
+    [intent.imageReference?.visionModel,['clip_vision']],
+    ...[intent.upscaleModel,intent.refine?.upscaleModel].map(name=>[name,['upscale_models']] as [string|undefined,string[]]),
+    ...loras.map(l=>[l.name,['loras']] as [string,string[]])
+  ];
+  for(const [name,categories,slot] of selected){
+    if(!name)continue;
+    const local=models.find(m=>m.name===name&&categories.includes(m.category));
+    const expected=slot&&!intent.componentOverrides?.[slot]?(family as {components?:Partial<Record<ComponentSlot,string[]>>}|undefined)?.components?.[slot]:undefined;
+    const check=checkModel(local,{name,component:expected});
+    if(check.compatibility==='blocked')throw new RecipeCompileError('INVALID_INPUT',slot??'model',check.reasons.map(r=>r.code).join(', '),'Repair model metadata or select an intact compatible file.');
   }
   (result as { requiredNodes: readonly string[] }).requiredNodes = emitted;
   for (const node of Object.values(result.graph)) {

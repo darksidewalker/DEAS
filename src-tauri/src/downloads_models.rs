@@ -531,9 +531,9 @@ impl CachedMetadata {
         }) || self.family_override.as_ref().is_some_and(|f| {
             f.is_empty()
                 || f.len() > 64
-                || !f
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                || !f.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
+                })
         }) {
             return Err("Invalid model declaration/fingerprint".into());
         }
@@ -544,6 +544,8 @@ impl CachedMetadata {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check: Option<crate::model_check::ModelCheck>,
     pub category: String,
     /// Path relative to the category folder, the way ComfyUI names models.
     pub name: String,
@@ -680,23 +682,43 @@ fn checked_metadata(category: &str, path: &Path) -> Result<Option<CachedMetadata
 }
 
 /// Resolve only the owned backend's registered namespace, in backend search order.
-/// No headers, hashes, provider requests or machine-wide path search.
+/// Reinspect cheap headers and source-bound metadata; never hash or contact providers.
+#[cfg(test)]
 pub(crate) fn validate_selected(roots: &[PathBuf], field: &str, name: &str) -> Result<(), String> {
     validate_selected_family(roots, field, name, None)
 }
 
+#[cfg(test)]
 pub(crate) fn validate_selected_family(
     roots: &[PathBuf],
     field: &str,
     name: &str,
     family: Option<&str>,
 ) -> Result<(), String> {
-    let categories: &[&str] = match field {
-        "checkpoints" => &["checkpoints"],
-        "diffusionModels" | "ggufDiffusionModels" => &["diffusion_models", "unet"],
-        "loras" => &["loras"],
-        _ => return Ok(()),
+    let slot = match field {
+        "vaes" => Some("vaes"),
+        "audioVaes" => Some("audioVaes"),
+        "textProjections" => Some("textProjections"),
+        "textEncoders" | "dualTextEncoders" | "ggufTextEncoders" | "ggufDualTextEncoders" => {
+            Some("textEncoders")
+        }
+        _ => None,
     };
+    validate_selected_context(roots, field, name, family, slot, false)
+}
+
+pub(crate) fn validate_selected_context(
+    roots: &[PathBuf],
+    field: &str,
+    name: &str,
+    family: Option<&str>,
+    slot: Option<&str>,
+    component_override: bool,
+) -> Result<(), String> {
+    let categories = crate::model_check::categories(field);
+    if categories.is_empty() {
+        return Ok(());
+    }
     // Backend names can contain either separator, never absolute paths/traversal/ADS.
     let parts: Vec<_> = name.split(['/', '\\']).collect();
     if parts
@@ -724,33 +746,83 @@ pub(crate) fn validate_selected_family(
                 Err(e) => return Err(format!("MODEL_METADATA_INVALID: {e}")),
                 Ok(_) => {}
             }
-            let cache = checked_metadata(category, &path)
+            let selected_source = Source::open(&path)?;
+            let model = describe(category, path.parent().unwrap(), &path)
                 .map_err(|e| format!("MODEL_METADATA_INVALID: {name}: {e}"))?;
+            selected_source.verify()?;
+            if model.metadata_error.is_some() {
+                return Err(format!("MODEL_METADATA_INVALID: {name}"));
+            }
+            if model.integrity.is_some() {
+                return Err(format!("MODEL_INTEGRITY_INVALID: {name}"));
+            }
+            if model
+                .check
+                .as_ref()
+                .is_some_and(|c| c.compatibility == "blocked")
+            {
+                return Err(format!("MODEL_EVIDENCE_CONFLICT: {name}"));
+            }
             if let Some(expected) = family {
-                let source = Source::open(&path)?;
-                let detected = cache
-                    .as_ref()
-                    .and_then(|c| c.family_override.clone())
-                    .or_else(|| {
-                        crate::model_families::detect_with_evidence(
-                            category,
-                            &source.dir.path.join(&source.name),
-                            None,
-                        )
-                        .0
-                    });
-                let checkpoint_parts = field != "checkpoints"
+                if let Some(slot) = slot {
+                    if !component_override
+                        && model.component.as_deref().is_some_and(|id| {
+                            crate::model_families::component_matches(expected, slot, id)
+                                == Some(false)
+                        })
+                    {
+                        return Err(format!("MODEL_COMPONENT_MISMATCH: {name}"));
+                    }
+                    selected_source.verify()?;
+                    return Ok(());
+                }
+                if ![
+                    "checkpoints",
+                    "diffusionModels",
+                    "ggufDiffusionModels",
+                    "loras",
+                ]
+                .contains(&field)
+                {
+                    selected_source.verify()?;
+                    return Ok(());
+                }
+                let source = &selected_source;
+                let detected = model.family_override.clone().or_else(|| {
+                    crate::model_families::detect_with_evidence(
+                        category,
+                        &source.dir.path.join(&source.name),
+                        None,
+                    )
+                    .0
+                });
+                let checkpoint_parts = !expected.starts_with("ace-step")
+                    || field != "checkpoints"
                     || crate::model_families::ace_checkpoint_has_companions(
                         &source.dir.path.join(&source.name),
                     );
                 source.verify()?;
-                if detected.as_deref() != Some(expected) {
-                    return Err("MODEL_FAMILY_MISMATCH: ACE intent does not match source-bound model identity".into());
+                if detected.as_deref().is_some_and(|id| {
+                    if field == "loras" {
+                        crate::model_families::lora_family(id)
+                            != crate::model_families::lora_family(expected)
+                    } else {
+                        id != expected
+                    }
+                }) || (field != "loras"
+                    && expected.starts_with("ace-step")
+                    && detected.is_none())
+                {
+                    return Err(
+                        "MODEL_FAMILY_MISMATCH: intent does not match source-bound model identity"
+                            .into(),
+                    );
                 }
                 if !checkpoint_parts {
                     return Err("MODEL_COMPONENTS_MISSING: ACE checkpoint needs embedded text encoders and VAE; put split weights in diffusion_models and select their components".into());
                 }
             }
+            selected_source.verify()?;
             return Ok(());
         }
     }
@@ -796,8 +868,8 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
     });
     let component =
         crate::model_families::detect_component(category, &header_path).map(str::to_owned);
-    let integrity = crate::model_families::intact(&header_path)
-        .and_then(|ok| (!ok).then(|| "truncated".to_owned()));
+    let structural_integrity = crate::model_families::intact(&header_path);
+    let integrity = structural_integrity.and_then(|ok| (!ok).then(|| "truncated".to_owned()));
     let misplaced_all_in_one = category != "checkpoints"
         && family.as_deref().is_some_and(|f| f.starts_with("ace-step"))
         && crate::model_families::ace_checkpoint_has_companions(&header_path);
@@ -809,7 +881,18 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
             return Err("Model changed during scan".into());
         }
     }
-    Ok(LocalModel {
+    let (header_family, header_evidence) =
+        crate::model_families::detect_with_evidence(category, &header_path, None);
+    let header_family = header_family
+        .filter(|_| header_evidence != Some(crate::model_families::FamilyEvidence::Unresolved));
+    // Reuse the base classifier without reinterpreting a provider label as a header.
+    let provider_family = info
+        .as_ref()
+        .and_then(|i| i.civitai.as_ref()?.base.as_deref())
+        .and_then(|base| crate::model_families::from_base(category, base));
+    source.verify()?;
+    let mut model = LocalModel {
+        check: None,
         category: category.into(),
         name: path
             .strip_prefix(base)
@@ -827,7 +910,14 @@ fn describe(category: &str, base: &Path, path: &Path) -> Result<LocalModel, Stri
         integrity,
         misplaced_all_in_one,
         path: shown,
-    })
+    };
+    model.check = Some(crate::model_check::describe(
+        &model,
+        header_family.as_deref(),
+        provider_family.as_deref(),
+        structural_integrity,
+    ));
+    Ok(model)
 }
 
 fn walk(category: &str, base: &Path, dir: &Path, depth: usize, out: &mut Vec<LocalModel>) {
@@ -1496,6 +1586,210 @@ mod tests {
         assert_no_owned_temps(&first.path().join("checkpoints"));
     }
 
+    #[test]
+    fn model_check_compatible_variant_provider_and_lora_declaration() {
+        let (root, path) = family_fixture("diffusion_models");
+        let variant = path.with_file_name("qwen_image_2.1_turbo.safetensors");
+        let header = br#"{"__metadata__":{"modelspec.architecture":"qwen-image-2.1"},"fixture.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#;
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        bytes.extend(0f32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::rename(&path, &variant).unwrap();
+        let mut info = fixture_info(&variant);
+        info.civitai = Some(civitai_info(&serde_json::json!({"id":1,"modelId":2,"name":"v1","model":{"name":"fixture","type":"Checkpoint"},"baseModel":"Qwen Image 2.1"})).unwrap());
+        write_info(&variant, &info);
+        let model = scan(root.path()).unwrap().remove(0);
+        assert_eq!(model.family.as_deref(), Some("qwen-image-2.1-turbo"));
+        assert_eq!(model.info.as_ref().unwrap().sha256, info.sha256);
+        let check = model.check.unwrap();
+        assert_eq!(check.integrity, "headerChecked");
+        assert_eq!(check.identity, "sha256");
+        assert!(check.evidence.iter().any(|e| e == "header"));
+        assert!(check.evidence.iter().any(|e| e == "provider"));
+        assert_ne!(check.compatibility, "blocked");
+        assert!(validate_selected_family(
+            &[root.path().into()],
+            "diffusionModels",
+            "qwen_image_2.1_turbo.safetensors",
+            Some("qwen-image-2.1-turbo")
+        )
+        .is_ok());
+
+        let (root, path) = family_fixture("loras");
+        std::fs::write(
+            &path,
+            2u64.to_le_bytes()
+                .into_iter()
+                .chain(*b"{}")
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert!(write_family(&path, Some("qwen-image-2.1-turbo")).is_err());
+        write_family(&path, Some("qwen-image-2.1")).unwrap();
+        assert!(validate_selected_family(
+            &[root.path().into()],
+            "loras",
+            "unknown.safetensors",
+            Some("qwen-image-2.1-turbo")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn model_check_declaration_cannot_hide_incompatible_header() {
+        let (root, path) = family_fixture("diffusion_models");
+        write_family(&path, Some("anima")).unwrap();
+        assert!(validate_selected_family(
+            &[root.path().into()],
+            "diffusionModels",
+            "unknown.safetensors",
+            Some("anima")
+        )
+        .unwrap_err()
+        .contains("MODEL_EVIDENCE_CONFLICT"));
+    }
+
+    #[test]
+    fn model_check_reports_integrity_and_metadata_without_hashing_or_claiming_gguf_payload() {
+        let (root, path) = family_fixture("vae");
+        let reads = HASH_READS.with(|n| n.get());
+        std::fs::write(&path, b"partial").unwrap();
+        write_cache_bytes(&sidecar(&path), b"{broken");
+        let model = scan(root.path()).unwrap().remove(0);
+        let check = model.check.unwrap();
+        assert_eq!(check.compatibility, "blocked");
+        assert_eq!(serde_json::to_value(&check).unwrap()["integrity"], "broken");
+        assert!(check.reasons.iter().any(|r| r.code == "metadata"));
+        assert!(check.reasons.iter().any(|r| r.code == "integrity"));
+        let gguf = path.with_extension("gguf");
+        std::fs::rename(&path, &gguf).unwrap();
+        let model = describe("vae", gguf.parent().unwrap(), &gguf).unwrap();
+        assert!(model.integrity.is_none());
+        let check = model.check.unwrap();
+        assert_eq!(check.compatibility, "unknown");
+        assert_eq!(
+            serde_json::to_value(&check).unwrap()["integrity"],
+            "unchecked"
+        );
+        assert_eq!(HASH_READS.with(|n| n.get()), reads);
+    }
+
+    #[test]
+    fn model_check_selected_structural_family_integrity_and_unknown_gates() {
+        let (root, path) = family_fixture("diffusion_models");
+        assert!(validate_selected_family(
+            &[root.path().into()],
+            "diffusionModels",
+            "unknown.safetensors",
+            Some("anima")
+        )
+        .is_err());
+        std::fs::write(&path, b"partial").unwrap();
+        assert!(validate_selected(
+            &[root.path().into()],
+            "diffusionModels",
+            "unknown.safetensors"
+        )
+        .unwrap_err()
+        .contains("MODEL_INTEGRITY_INVALID"));
+        let (_root, checkpoint) = family_fixture("checkpoints");
+        std::fs::write(&checkpoint, b"legacy checkpoint").unwrap();
+        let unknown = checkpoint.with_extension("ckpt");
+        std::fs::rename(checkpoint, &unknown).unwrap();
+        assert!(validate_selected(&[_root.path().into()], "checkpoints", "unknown.ckpt").is_ok());
+    }
+
+    #[test]
+    fn model_check_selected_companion_integrity_and_metadata_gates() {
+        for (category, field) in [
+            ("vae", "vaes"),
+            ("text_encoders", "textEncoders"),
+            ("clip", "ggufDualTextEncoders"),
+            ("clip_vision", "visionModels"),
+            ("upscale_models", "upscaleModels"),
+            ("audio_encoders", "audioEncoders"),
+        ] {
+            let (root, path) = family_fixture(category);
+            let roots = [root.path().into()];
+            write_cache_bytes(&sidecar(&path), b"{broken");
+            assert!(
+                validate_selected(&roots, field, "unknown.safetensors").is_err(),
+                "{field} metadata"
+            );
+            std::fs::remove_file(sidecar(&path)).unwrap();
+            std::fs::write(&path, b"partial safetensors").unwrap();
+            assert!(
+                validate_selected(&roots, field, "unknown.safetensors")
+                    .unwrap_err()
+                    .contains("MODEL_INTEGRITY_INVALID"),
+                "{field} integrity"
+            );
+            assert!(validate_selected(&roots, field, "backend-only.safetensors").is_ok());
+        }
+    }
+
+    #[test]
+    fn model_check_unknown_and_manual_family_are_not_header_proof() {
+        let (root, path) = family_fixture("checkpoints");
+        let header = br#"{"fixture.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#;
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        bytes.extend(0f32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        for declared in [false, true] {
+            if declared {
+                write_family(&path, Some("sdxl")).unwrap();
+            }
+            let model = scan(root.path()).unwrap().remove(0);
+            let check = model.check.unwrap();
+            assert_eq!(check.identity, "unverified");
+            assert_eq!(check.compatibility, "unknown");
+            assert!(!check.evidence.iter().any(|e| e == "header"));
+            assert_eq!(check.evidence.iter().any(|e| e == "declaration"), declared);
+            assert!(validate_selected_family(
+                &[root.path().into()],
+                "checkpoints",
+                "unknown.safetensors",
+                Some("sdxl")
+            )
+            .is_ok());
+        }
+    }
+
+    #[test]
+    fn model_check_scan_separates_identity_structure_and_stale_cache() {
+        let (root, path) = family_fixture("checkpoints");
+        let header = br#"{"__metadata__":{"modelspec.architecture":"stable-diffusion-xl"},"fixture.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}"#;
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        bytes.extend(0f32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        let mut info = fixture_info(&path);
+        info.civitai = Some(civitai_info(&serde_json::json!({"id":1,"modelId":2,"name":"v1","model":{"name":"fixture","type":"Checkpoint"},"baseModel":"SD1.5"})).unwrap());
+        write_info(&path, &info);
+        let row = serde_json::to_value(scan(root.path()).unwrap().remove(0)).unwrap();
+        assert_eq!(row["check"]["identity"], "sha256");
+        assert_eq!(row["check"]["compatibility"], "blocked");
+        assert!(
+            validate_selected(&[root.path().into()], "checkpoints", "unknown.safetensors")
+                .unwrap_err()
+                .contains("MODEL_EVIDENCE_CONFLICT")
+        );
+        assert!(row["check"]["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["code"] == "conflict"));
+        let replacement = path.with_extension("new");
+        std::fs::copy(&path, &replacement).unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        let row = serde_json::to_value(scan(root.path()).unwrap().remove(0)).unwrap();
+        assert_eq!(row["check"]["identity"], "unverified");
+        assert_eq!(row["check"]["availability"], "available");
+        assert!(row["info"].is_null());
+    }
+
     fn family_fixture(category: &str) -> (tempfile::TempDir, PathBuf) {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(category);
@@ -1552,6 +1846,8 @@ mod tests {
         )
         .unwrap_err()
         .contains("MODEL_FAMILY_MISMATCH"));
+        // A declaration may resolve unknown evidence, not replace a known SDXL architecture.
+        std::fs::write(&path, [2u64.to_le_bytes().as_slice(), b"{}"].concat()).unwrap();
         write_family(&path, Some("ace-step-1-5-turbo")).unwrap();
         assert!(validate_selected_family(
             &roots,
@@ -1575,6 +1871,93 @@ mod tests {
             Some("ace-step-1-5-turbo")
         )
         .is_err());
+    }
+
+    #[test]
+    fn model_check_unresolved_generic_ace_preserves_manual_resolution_without_header_proof() {
+        use crate::model_families::FamilyEvidence;
+        for architecture in [None, Some("ace-step")] {
+            let (root, path) = family_fixture("diffusion_models");
+            let mut head = serde_json::json!({
+                "encoder.lyric_encoder.layers.0.input_layernorm.weight": {
+                    "dtype": "F32", "shape": [2048], "data_offsets": [0, 8192]
+                }
+            });
+            if let Some(architecture) = architecture {
+                head["__metadata__"] = serde_json::json!({"modelspec.architecture": architecture});
+            }
+            let header = head.to_string();
+            let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+            bytes.extend(header.as_bytes());
+            bytes.resize(bytes.len() + 8192, 0);
+            std::fs::write(&path, bytes).unwrap();
+            let automatic = scan(root.path()).unwrap().remove(0);
+            assert_eq!(automatic.detected_family.as_deref(), Some("ace-step"));
+            assert_eq!(automatic.family_evidence, Some(FamilyEvidence::Unresolved));
+            let check = automatic.check.as_ref().unwrap();
+            assert_eq!(check.integrity, "headerChecked");
+            assert!(!check.evidence.iter().any(|e| e == "header"));
+            let declared = write_family(&path, Some("ace-step-1-5-turbo")).unwrap();
+            assert_eq!(declared.family.as_deref(), Some("ace-step-1-5-turbo"));
+            assert_eq!(
+                declared.family_override.as_deref(),
+                Some("ace-step-1-5-turbo")
+            );
+            assert_eq!(declared.detected_family, automatic.detected_family);
+            assert_eq!(declared.family_evidence, automatic.family_evidence);
+            let check = declared.check.as_ref().unwrap();
+            assert_eq!(check.compatibility, "unknown");
+            assert!(check.evidence.iter().any(|e| e == "declaration"));
+            assert!(!check.evidence.iter().any(|e| e == "header"));
+            assert!(!check.reasons.iter().any(|r| r.code == "conflict"));
+            assert_eq!(scan(root.path()).unwrap()[0], declared);
+            assert!(validate_selected_family(
+                &[root.path().into()],
+                "diffusionModels",
+                "unknown.safetensors",
+                Some("ace-step-1-5-turbo")
+            )
+            .is_ok());
+            assert_eq!(write_family(&path, None).unwrap(), automatic);
+        }
+    }
+
+    #[test]
+    fn model_check_ace_structural_conflicts_still_block_manual_resolution() {
+        use crate::model_families::FamilyEvidence;
+        for (architecture, evidence) in [
+            ("ace-step-1-0", FamilyEvidence::Header),
+            ("ace-step-1-5-turbo", FamilyEvidence::Conflict),
+        ] {
+            let (root, path) = family_fixture("diffusion_models");
+            let head = serde_json::json!({
+                "__metadata__": {"modelspec.architecture": architecture},
+                "genre_embedder.weight": {
+                    "dtype": "F32", "shape": [2560, 768],
+                    "data_offsets": [0, 2560 * 768 * 4]
+                }
+            });
+            let header = head.to_string();
+            let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+            bytes.extend(header.as_bytes());
+            bytes.resize(bytes.len() + 2560 * 768 * 4, 0);
+            std::fs::write(&path, bytes).unwrap();
+            let declared = write_family(&path, Some("ace-step-1-5-turbo")).unwrap();
+            assert_eq!(declared.family_evidence, Some(evidence));
+            let check = declared.check.as_ref().unwrap();
+            assert_eq!(check.integrity, "headerChecked");
+            assert_eq!(check.compatibility, "blocked");
+            assert!(check.reasons.iter().any(|r| r.code == "conflict"));
+            assert_eq!(scan(root.path()).unwrap()[0], declared);
+            assert!(validate_selected_family(
+                &[root.path().into()],
+                "diffusionModels",
+                "unknown.safetensors",
+                Some("ace-step-1-5-turbo")
+            )
+            .unwrap_err()
+            .contains("MODEL_EVIDENCE_CONFLICT"));
+        }
     }
 
     #[test]
@@ -1766,8 +2149,8 @@ mod tests {
     fn selected_declarations_use_exact_namespace_root_order_and_no_hashes() {
         let (primary, path) = family_fixture("diffusion_models");
         let (extra, extra_path) = family_fixture("unet");
-        write_family(&path, Some("anima")).unwrap();
-        write_family(&extra_path, Some("anima")).unwrap();
+        write_family(&path, Some("sdxl")).unwrap();
+        write_family(&extra_path, Some("sdxl")).unwrap();
         let roots = vec![primary.path().into(), extra.path().into()];
         let hashes = HASH_READS.with(|n| n.get());
         // A corrupt same-name extra does not shadow the first backend match.
@@ -2011,6 +2394,45 @@ mod tests {
         assert_eq!(json[0]["component"], "wan-2.1-vae");
         assert!(json[0].get("family").is_none());
         assert!(json[1].get("component").is_none());
+        let roots = [root.path().into()];
+        assert!(
+            validate_selected_family(&roots, "vaes", "renamed.safetensors", Some("anima")).is_ok()
+        );
+        assert!(validate_selected_family(
+            &roots,
+            "vaes",
+            "renamed.safetensors",
+            Some("moss-image")
+        )
+        .unwrap_err()
+        .contains("MODEL_COMPONENT_MISMATCH"));
+        assert!(validate_selected_context(
+            &roots,
+            "vaes",
+            "renamed.safetensors",
+            Some("moss-image"),
+            Some("vaes"),
+            true
+        )
+        .is_ok());
+        write_cache_bytes(&sidecar(&path), b"{broken");
+        assert!(validate_selected_context(
+            &roots,
+            "vaes",
+            "renamed.safetensors",
+            Some("moss-image"),
+            Some("vaes"),
+            true
+        )
+        .is_err());
+        assert!(validate_selected_family(
+            &roots,
+            "vaes",
+            "renamed.safetensors",
+            Some("moss-image")
+        )
+        .unwrap_err()
+        .contains("MODEL_METADATA_INVALID"));
     }
 
     #[cfg(target_os = "linux")]

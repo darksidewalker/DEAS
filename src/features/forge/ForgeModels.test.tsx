@@ -26,6 +26,8 @@ test('native model discovery lists provider-qualified models and diagnostics wit
   await waitFor(() => expect(result.current.usable.map(m => m.id)).toEqual(['ollama:qwen:latest', 'openai:remote']));
   expect(result.current.usable.map(m => m.label)).toEqual(['Qwen', 'Remote']);
   expect(result.current.model).toBe('ollama:qwen:latest');
+  expect(result.current.check).toMatchObject({ identity: 'unverified', compatibility: 'unknown', availability: 'available' });
+  expect(result.current.check.evidence).toContain('llm-discovery');
   expect(result.current.list!.models.find(m => m.id.startsWith('local:'))?.disabled).toBe(true);
   expect(Object.values(result.current.list!.errors)).toEqual(['Optional endpoint unavailable']);
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_llm_models', { root: '/env' }]]);

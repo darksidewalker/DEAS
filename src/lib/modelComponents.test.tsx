@@ -37,6 +37,11 @@ test('a truncated safetensors is never offered for automatic selection', () => {
   expect(componentFiles(files,{textEncoders:['minimax_h3']},'textEncoders')).toEqual(['minimax_h3_text_encoder.safetensors']);
 });
 
+test('metadata and evidence conflicts exclude components even from explicit All files',()=>{
+ const files=[{...model('vae','wan_2.1_vae.safetensors','wan-2.1-vae'),metadataError:'stale'}, {...model('vae','wan_2.1_vae_conflict.safetensors','wan-2.1-vae'),familyEvidence:'conflict' as const}];
+ expect(componentFiles(files,family,'vaes',true)).toEqual([]);
+});
+
 test('component overrides default off and restored values require every boolean flag', () => {
  expect(Object.values(defaultComponentOverrides).every(value=>value===false)).toBe(true);
  expect(isComponentOverrides({...defaultComponentOverrides,textEncoders:true})).toBe(true);

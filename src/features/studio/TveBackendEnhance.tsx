@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
+import { checkModel } from '../../lib/modelCheck';
+import { ModelAdvice } from '../../components/ModelAdvice';
 import type { RecipeAllowlist } from '../../lib/execution';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { pollWorkbench, readCurrentWorkbench, runWorkbenchJob, type JobStatus } from '../../lib/jobs';
@@ -25,12 +27,14 @@ export function TveBackendEnhance({ endpoint, source, disabled = false }: { endp
   const [busy, setBusy] = useState(false);
   const live = useRef(true);
   const reading = useRef(false);
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
-  useEffect(() => { setChoices(null); }, [endpoint]);
+  const choicesEpoch = useRef(0);
+  useEffect(() => { live.current = true; return () => { live.current = false; choicesEpoch.current++; }; }, []);
+  useEffect(() => { choicesEpoch.current++; reading.current = false; setChoices(null); }, [endpoint]);
   const loadChoices = () => {
     if (!isTauri() || choices || reading.current || !endpoint.trim()) return;
     reading.current = true;
-    void checkRecipePrerequisites(endpoint).then(v => { if (live.current) setChoices(v.allowlist); }, () => undefined).finally(() => { reading.current = false; });
+    const epoch = choicesEpoch.current;
+    void checkRecipePrerequisites(endpoint).then(v => { if (live.current && epoch === choicesEpoch.current) setChoices(v.allowlist); }, () => undefined).finally(() => { if (epoch === choicesEpoch.current) reading.current = false; });
   };
   // Follow the submitted job through the shared native session until it settles. The TVE panel owns its
   // own poll: `native_workbench_current` only replays the last snapshot, so a queued job never advanced
@@ -48,7 +52,12 @@ export function TveBackendEnhance({ endpoint, source, disabled = false }: { endp
   }, [job?.id, job?.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const videoPost = toVideoPost(tve);
   const fps = source ? source.fpsNumerator / source.fpsDenominator : undefined;
-  const ready = !!source?.sourceId && !!videoPost && !!endpoint.trim() && isTauri() && !busy && !disabled && audioEnhance.ready && !(tve.frameGen && tve.engine === 'rife' && !tve.rifeModel) && !(tve.loop && tve.loopBackend === 'rife' && !tve.loopModel);
+  const modelChecks = [
+    { name: tve.upscaleModel, available: choices?.upscaleModels, loader: 'UpscaleModelLoader' },
+    ...(tve.frameGen && tve.engine === 'rife' ? [{ name: tve.rifeModel, available: choices?.frameInterpolationModels, loader: 'FrameInterpolate' }] : []),
+    ...(tve.loop && tve.loopBackend === 'rife' ? [{ name: tve.loopModel, available: choices?.frameInterpolationModels, loader: 'DaSiWa_SeamlessLoop' }] : []),
+  ].filter(slot => slot.name).map(slot => checkModel(undefined, { name: slot.name, available: slot.available, loaders: choices?.nodes, requiredLoaders: [slot.loader] }));
+  const ready = !!source?.sourceId && !!videoPost && !!endpoint.trim() && isTauri() && !busy && !disabled && audioEnhance.ready && !modelChecks.some(check => check.availability !== 'available' || check.compatibility === 'blocked') && !(tve.frameGen && tve.engine === 'rife' && !tve.rifeModel) && !(tve.loop && tve.loopBackend === 'rife' && !tve.loopModel);
   async function run() {
     if (!ready || !source?.sourceId || !videoPost) return;
     const audio = audioEnhance.intent ? { ...audioEnhance.intent } : undefined;
@@ -71,6 +80,7 @@ export function TveBackendEnhance({ endpoint, source, disabled = false }: { endp
     <h3>{t('studio.tve.backend')}</h3>
     <p className="field-help">{t('studio.tve.backendHint')}</p>
     <TvePostControls value={tve} onChange={setTve} allow={choices} onRead={loadChoices} disabled={disabled || busy} fps={fps}/>
+    {modelChecks.map((check, index) => <ModelAdvice key={index} check={check}/>)}
     <div className="tve-options">
       {choose('codec', videoCodecs)}{choose('container', videoContainers)}{choose('bitDepth', bitDepths)}
       <label>{t('studio.run.opt.output.quality')}<input type="number" data-tve-output="quality" min={0} max={51} step={1} value={output.quality} onChange={e => { const n = Number(e.target.value); if (Number.isInteger(n) && n >= 0 && n <= 51) setOutput({ ...output, quality: n }); }}/></label>

@@ -29,6 +29,10 @@ const MAX_VALUES: u64 = 1 << 20;
 struct Family {
     id: String,
     loader: String,
+    #[serde(default, rename = "loraFamily")]
+    lora_family: Option<String>,
+    #[serde(default)]
+    components: std::collections::HashMap<String, Vec<String>>,
     #[serde(default)]
     forge: Option<String>,
     #[serde(default, rename = "clipType")]
@@ -175,6 +179,48 @@ fn families() -> &'static [Family] {
         serde_json::from_str(include_str!("../../src/families/builtin.json"))
             .expect("bundled family plugin is valid")
     })
+}
+
+pub(crate) fn lora_family(id: &str) -> &str {
+    families()
+        .iter()
+        .find(|f| f.id == id)
+        .and_then(|f| f.lora_family.as_deref())
+        .unwrap_or(id)
+}
+
+pub(crate) fn component_matches(id: &str, slot: &str, component: &str) -> Option<bool> {
+    let components = families()
+        .iter()
+        .find(|f| f.id == id)?
+        .components
+        .get(slot)?;
+    Some(components.iter().any(|id| id == component))
+}
+
+/// Structural agreement does not make two variants' execution recipes interchangeable.
+pub(crate) fn structurally_compatible(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    if left.starts_with("ace-step") && right.starts_with("ace-step") {
+        return ace_step::architecture(left) != 0
+            && ace_step::architecture(left) == ace_step::architecture(right);
+    }
+    let find = |id: &str| families().iter().find(|f| f.id == id);
+    find(left)
+        .zip(find(right))
+        .is_some_and(|(l, r)| l.architectures.iter().any(|a| r.architectures.contains(a)))
+}
+
+pub(crate) fn from_base(category: &str, base: &str) -> Option<String> {
+    if !["checkpoints", "diffusion_models", "unet", "loras"].contains(&category) {
+        return None;
+    }
+    families()
+        .iter()
+        .find(|f| f.file_match.is_empty() && f.bases.iter().any(|b| b.eq_ignore_ascii_case(base)))
+        .map(|f| f.id.clone())
 }
 
 /// Declarations select existing recipe families, never companion architectures or new loaders.
@@ -966,6 +1012,44 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, bytes).unwrap();
         path
+    }
+
+    #[test]
+    fn compatibility_projections_keep_second_encoders_and_architecture_boundaries() {
+        assert_eq!(
+            component_matches("flux", "textEncoders", "clip-l"),
+            Some(true)
+        );
+        assert_eq!(
+            component_matches("flux", "textEncoders", "t5xxl"),
+            Some(true)
+        );
+        assert_eq!(
+            component_matches("hidream", "textEncoders", "t5xxl"),
+            Some(true)
+        );
+        assert_eq!(
+            component_matches("ltx-2", "textProjections", "ltx-2.3-text-projection"),
+            Some(true)
+        );
+        assert_eq!(
+            component_matches("anima", "textEncoders", "qwen3-vl-8b"),
+            Some(false)
+        );
+        assert!(structurally_compatible(
+            "qwen-image-2.1-turbo",
+            "qwen-image-2.1"
+        ));
+        assert!(!structurally_compatible("flux", "flux2"));
+        assert!(!structurally_compatible("chroma", "chroma-radiance"));
+        assert!(structurally_compatible(
+            "ace-step-1-5",
+            "ace-step-1-5-turbo"
+        ));
+        assert!(!structurally_compatible(
+            "ace-step-1-5",
+            "ace-step-1-5-xl-turbo"
+        ));
     }
 
     #[test]

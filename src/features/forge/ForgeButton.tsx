@@ -6,6 +6,8 @@ import { useI18n } from '../../i18n/I18nProvider';
 import { cancelForge, forgeError, forgeH3, forgeModels, labelCharacters, nativeForgeCancel, nativeForgeWrite, nativeTarget, nativeWriteModel, readCast, writePrompt, type ForgeModels, type H3Continuity, type H3Reference } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
 import { discoverLlmModels, hasLlmConfiguration, requestLlmSetup } from '../../lib/llm';
+import { checkModel } from '../../lib/modelCheck';
+import { ModelAdvice } from '../../components/ModelAdvice';
 import './forge.css';
 
 /** Read-only native discovery by default; video/node-pack tools also need their metadata. */
@@ -71,15 +73,17 @@ export function useForgeModels(endpoint: string, root?: string, active = true, n
   // The list empties on every reload (tab switch, backend start), which is not a model change.
   const settled = useRef('');
   if (current) settled.current = current;
-  return { list, error, load, rev, usable, model: current, settledModel: settled.current, serverOnly: !nodepack && !localGguf, setModel };
+  const check = checkModel(undefined, { name: current, available: list ? usable.map(m => m.id) : undefined, remote: !!current && !current.startsWith('local:'), specialized: list ? { ready: !!current, reason: current ? undefined : 'forge.noModels', evidence: 'llm-discovery' } : undefined });
+  return { check, list, error, load, rev, usable, model: current, settledModel: settled.current, serverOnly: !nodepack && !localGguf, setModel };
 }
 
 export function ModelSelect({ forge }: { forge: ReturnType<typeof useForgeModels> }) {
   const { t } = useI18n();
   return <label className="forge-field"><span>{t('forge.model')}</span>
-    <select data-forge-model value={forge.model} disabled={!forge.usable.length} onChange={e => forge.setModel(e.target.value)}>
+    <select data-forge-model aria-label={t('forge.model')} value={forge.model} disabled={!forge.usable.length} onChange={e => forge.setModel(e.target.value)}>
       {forge.usable.length ? forge.usable.map(m => <option key={m.id} value={m.id}>{m.label}</option>) : <option value="">{forge.error ? '—' : t(forge.list ? forge.serverOnly ? 'forge.noServer' : 'forge.noModels' : 'forge.loading')}</option>}
     </select>
+    {forge.list && <ModelAdvice check={forge.check}/>}
     {forge.list && Object.values(forge.list.errors).map(text => <small key={text} className="forge-warning">{t(text)}</small>)}
     {forge.error && <span className="error-message" role="alert">{t(forge.error)} <button type="button" data-forge-retry onClick={forge.load}>{t('forge.retry')}</button></span>}
   </label>;

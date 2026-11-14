@@ -90,7 +90,61 @@ struct Plan {
 struct LocalModels {
     roots: Vec<std::path::PathBuf>,
     selected: Vec<(String, String)>,
-    music_family: Option<String>,
+    context: Value,
+}
+
+#[cfg(test)]
+#[test]
+fn model_check_job_revalidates_image_family_from_immutable_context() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("diffusion_models");
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("model.safetensors");
+    let header = br#"{"__metadata__":{"modelspec.architecture":"stable-diffusion-xl"}}"#;
+    let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+    bytes.extend(header);
+    std::fs::write(&path, bytes).unwrap();
+    let models = LocalModels {
+        roots: vec![root.path().into()],
+        selected: vec![("diffusionModels".into(), "model.safetensors".into())],
+        context: json!({"diffusion":{"family":"anima"}}),
+    };
+    assert!(models
+        .validate()
+        .unwrap_err()
+        .contains("MODEL_FAMILY_MISMATCH"));
+    let loras = root.path().join("loras");
+    std::fs::create_dir(&loras).unwrap();
+    std::fs::copy(path, loras.join("style.safetensors")).unwrap();
+    let mut lora_models = models;
+    lora_models.selected = vec![("loras".into(), "style.safetensors".into())];
+    assert!(lora_models
+        .validate()
+        .unwrap_err()
+        .contains("MODEL_FAMILY_MISMATCH"));
+    assert_eq!(
+        crate::model_families::lora_family("qwen-image-2.1-turbo"),
+        "qwen-image-2.1"
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn model_check_explicit_component_overrides_are_bounded_and_graph_neutral() {
+    let original = tests::intent();
+    let graph = compile(&original).unwrap();
+    let mut draft = original;
+    draft["componentOverrides"] =
+        json!({"textEncoders":true,"vaes":false,"audioVaes":false,"textProjections":false});
+    assert_eq!(compile(&draft).unwrap(), graph);
+    for invalid in [
+        json!(true),
+        json!({"vaes":true}),
+        json!({"textEncoders":true,"vaes":"true","audioVaes":false,"textProjections":false}),
+    ] {
+        draft["componentOverrides"] = invalid;
+        assert!(compile(&draft).unwrap_err().contains("componentOverrides"));
+    }
 }
 
 pub(crate) fn is_gguf(name: &str) -> bool {
@@ -144,16 +198,47 @@ impl LocalModels {
     fn validate(&self) -> Result<(), String> {
         if !self.roots.is_empty() {
             for (field, name) in &self.selected {
-                if let Some(family) = self.music_family.as_deref().filter(|_| field != "loras") {
-                    crate::downloads::models::validate_selected_family(
-                        &self.roots,
-                        field,
-                        name,
-                        Some(family),
-                    )?;
-                } else {
-                    crate::downloads::models::validate_selected(&self.roots, field, name)?;
-                }
+                let family = self.context["diffusion"]["family"]
+                    .as_str()
+                    .or_else(|| self.context["family"].as_str())
+                    .filter(|_| {
+                        field != "checkpoints"
+                            || self.context["faceRefine"]["samCheckpoint"].as_str() != Some(name)
+                            || self.context["checkpoint"].as_str() == Some(name)
+                            || self.context["model"].as_str() == Some(name)
+                    });
+                let nested_name = |key: &str| {
+                    self.context
+                        .as_object()
+                        .is_some_and(|i| i.values().any(|v| v[key].as_str() == Some(name)))
+                };
+                let slot = match field.as_str() {
+                    "vaes" if nested_name("audioVae") => Some("audioVaes"),
+                    "vaes" => Some("vaes"),
+                    "textEncoders"
+                    | "dualTextEncoders"
+                    | "ggufTextEncoders"
+                    | "ggufDualTextEncoders"
+                        if nested_name("textProjection") =>
+                    {
+                        Some("textProjections")
+                    }
+                    "textEncoders"
+                    | "dualTextEncoders"
+                    | "ggufTextEncoders"
+                    | "ggufDualTextEncoders" => Some("textEncoders"),
+                    _ => None,
+                };
+                let component_override =
+                    slot.is_some_and(|slot| self.context["componentOverrides"][slot] == true);
+                crate::downloads::models::validate_selected_context(
+                    &self.roots,
+                    field,
+                    name,
+                    family,
+                    slot,
+                    component_override,
+                )?;
             }
         }
         Ok(())
@@ -314,6 +399,17 @@ async fn get(client: &reqwest::Client, base: &reqwest::Url, path: &str) -> Resul
 }
 
 pub(crate) fn compile(i: &Value) -> Result<Value, String> {
+    if let Some(overrides) = i.get("componentOverrides") {
+        let slots = ["textEncoders", "vaes", "audioVaes", "textProjections"];
+        if overrides.as_object().is_none_or(|o| o.len() != slots.len())
+            || slots.iter().any(|slot| !overrides[*slot].is_boolean())
+        {
+            return Err("Invalid componentOverrides: four explicit slot booleans required".into());
+        }
+        let mut recipe = i.clone();
+        recipe.as_object_mut().unwrap().remove("componentOverrides");
+        return compile(&recipe);
+    }
     if audio_post::settings(i)?.is_some() {
         let mut recipe = i.clone();
         recipe.as_object_mut().unwrap().remove("audioEnhance");
@@ -1797,13 +1893,13 @@ impl Jobs {
                 if !available.iter().any(|name| name.as_str() == Some(model)) {
                     return Err(format!("Diagnostic {field} are not available on this backend: {model}"));
                 }
+                if !video {
+                    required.push((field, vec![model]));
+                }
             }
-            let mut local_models = LocalModels { roots, selected: vec![], music_family: intent["family"].as_str().filter(|f| music && f.starts_with("ace-step")).map(str::to_owned) };
+            let mut local_models = LocalModels { roots, selected: vec![], context: intent.clone() };
             for (field, required) in required {
-                if matches!(
-                    field,
-                    "checkpoints" | "diffusionModels" | "ggufDiffusionModels" | "loras"
-                ) {
+                if !crate::model_check::categories(field).is_empty() {
                     local_models.selected.extend(required.iter().map(|name| (field.to_owned(), (*name).to_owned())));
                 }
                 let available = allow[field]

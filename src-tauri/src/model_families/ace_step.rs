@@ -1,6 +1,18 @@
 //! Header-first ACE-Step architecture and conservative training-variant identity.
 use super::{FamilyEvidence, TensorShapes};
 
+pub(super) fn architecture(id: &str) -> u8 {
+    if id.starts_with("ace-step-1-0") {
+        1
+    } else if id.starts_with("ace-step-1-5-xl") {
+        3
+    } else if id.starts_with("ace-step-1-5") {
+        2
+    } else {
+        0
+    }
+}
+
 /// Signatures: ComfyUI b5a43215 comfy/model_detection.py (genre_embedder / lyric_encoder).
 /// Shapes corroborated with HTTP-range-only Comfy-Org headers:
 /// ACE-Step@ea4f3d349e84d5c098cc8e8b904a30fde59fc99a/all_in_one/ace_step_v1_3.5b.safetensors;
@@ -70,17 +82,7 @@ pub(super) fn classify(
     if metadata.is_none() && structural.is_none() && !legacy {
         return None;
     }
-    let identity = |id: &str| {
-        if id.starts_with("ace-step-1-0") {
-            1
-        } else if id.starts_with("ace-step-1-5-xl") {
-            3
-        } else if id.starts_with("ace-step-1-5") {
-            2
-        } else {
-            0
-        }
-    };
+    let identity = architecture;
     if v1 && (regular || xl)
         || metadata
             .zip(structural)

@@ -74,6 +74,7 @@ window.__TAURI_INTERNALS__={convertFileSrc:path=>{f.paths.push(path);return png;
  }
  if(command==='native_recipe_prerequisites')return {baseUrl:args.baseUrl.replace(/\/$/,'')+'/',recipeId:'checkpoint-text-to-image-diagnostic',version:1,
   allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['sdxl/fresh.safetensors'],loras:[],samplers:['euler'],schedulers:['normal']},missingNodes:[],generationReady:false};
+ if(command==='native_audio_enhance_capabilities')return {clean:false,deep:false,stems:false};
  if(command==='native_media_star_status')return {starred:false,unavailable:null};
  if(command==='native_media_list')return {path:args.path||'/fixture-unused',parent:null,entries:[],truncated:false};
  if(command==='native_install_plan')return {id:'fixture-plan',request:args.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};

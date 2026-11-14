@@ -5,6 +5,7 @@ import { I18nProvider } from '../../i18n/I18nProvider';
 import { aspects } from '../../lib/resolution';
 import type { ForgeCanvasContext } from '../../lib/forgeCanvas';
 import type { NativeResult, NativeWrite } from '../../lib/forge';
+import {checkModel} from '../../lib/modelCheck';
 import { NativeForge } from './NativeForge';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true), convertFileSrc: (path: string) => path }));
@@ -14,7 +15,7 @@ const result: NativeResult = { segments: [{ label: 'Positive prompt', body: 'wri
 const writes = () => vi.mocked(invoke).mock.calls.filter(([command]) => command === 'native_forge_write').map(([, args]) => (args as { request: NativeWrite }).request);
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; };
 function view({ target = 'illustrious', root = '/env', model = 'openai:qwen', settledModel = model, brief = 'a city', detail = 5, canvasContext = context, onSend = vi.fn<Parameters<typeof NativeForge>[0]['onSend']>() }: { target?: string; root?: string; model?: string; settledModel?: string; brief?: string; detail?: number; canvasContext?: ForgeCanvasContext; onSend?: Parameters<typeof NativeForge>[0]['onSend'] } = {}) {
-  const forge = { model, usable: [{ id: model, label: model }], setModel: vi.fn(), list: null, error: '', load: vi.fn(), rev: 0, settledModel, serverOnly: true };
+  const forge = { check:checkModel(undefined), model, usable: [{ id: model, label: model }], setModel: vi.fn(), list: null, error: '', load: vi.fn(), rev: 0, settledModel, serverOnly: true };
   return <I18nProvider><NativeForge root={root} canvasContext={canvasContext} target={target} forge={forge} brief={brief} setBrief={vi.fn()} detail={detail} setDetail={vi.fn()} creativity={5} setCreativity={vi.fn()} onSend={onSend}/></I18nProvider>;
 }
 const tile = (choice: string) => document.querySelector(`[data-forge-tile="aspect:${choice}"]`)!;

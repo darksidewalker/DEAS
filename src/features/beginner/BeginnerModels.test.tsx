@@ -10,7 +10,7 @@ import {MODEL_GUIDES,baseGuide,matchesGuide} from './modelGuides';
 import type {LocalModel} from '../../lib/models';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(async()=>null),isTauri:()=>true}));
 vi.mock('../../lib/downloads',async original=>({...await original<typeof import('../../lib/downloads')>(),readDownloadCatalog:vi.fn()}));
-vi.mock('../downloads/DownloadPluginPanel',()=>({DownloadPanel:({initialEntryId}:{initialEntryId:string})=><div data-real-download-entry={initialEntryId}/> }));
+vi.mock('../downloads/DownloadPluginPanel',()=>({DownloadPanel:({initialEntryId,initialCategory}:{initialEntryId:string;initialCategory?:string})=><div data-real-download-entry={initialEntryId} data-real-download-category={initialCategory}/> }));
 const models:LocalModel[]=[{name:'Krea.safetensors',category:'diffusion_models',path:'/m/krea',size:10,info:null,family:'krea-2'},{name:'MOSS.safetensors',category:'diffusion_models',path:'/m/moss',size:10,info:null,family:'moss-image'},{name:'video.safetensors',category:'diffusion_models',path:'/m/video',size:10,info:null,family:'minimax-h3'},{name:'unknown.safetensors',category:'checkpoints',path:'/m/unknown',size:10,info:null}];
 const entries=[{id:'moss',label:'MOSS',providerId:'hf',scope:'repo' as const,locator:'provider/model',kind:'model',target:'diffusion_models',media:'image' as const},{id:'video',label:'Video',providerId:'hf',scope:'repo' as const,locator:'provider/video',kind:'model',target:'diffusion_models',media:'video' as const}];
 beforeEach(()=>{localStorage.clear();localStorage.setItem('deas.locale.v1','en');vi.mocked(readDownloadCatalog).mockResolvedValue({version:1,providers:[],entries});});
@@ -46,6 +46,14 @@ test('installed selection uses exact model identity; Explorer hands off to the e
  expect(document.querySelector('[data-real-download-entry]')).toBeNull();
  fireEvent.click(within(screen.getByRole('heading',{name:'MOSS'}).closest('article')!).getByRole('button',{name:/Download this model/}));expect(document.querySelector('[data-real-download-entry]')?.getAttribute('data-real-download-entry')).toBe('moss');
  expect(invoke).not.toHaveBeenCalled();
+});
+
+test('installed cards show contextual advice and companion links never select or download',async()=>{
+ const use=vi.fn();render(<I18nProvider><BeginnerModels models={[models[0]]} onUse={use} onRefresh={()=>{}} reason={()=>''} loading={false}/></I18nProvider>);
+ expect(document.querySelector('[data-model-companion="textEncoders"]')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Library · Text encoder'}));
+ expect(document.querySelector('[data-real-download-category]')?.getAttribute('data-real-download-category')).toBe('text_encoders');
+ expect(use).not.toHaveBeenCalled();expect(invoke).not.toHaveBeenCalled();
 });
 
 test('style tags are non-exclusive and search is accent-insensitive with multiple terms',()=>{

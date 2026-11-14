@@ -14,7 +14,8 @@ const metadataInvoke=window.__TAURI_INTERNALS__.invoke;
 const unknown={category:'diffusion_models',name:'nested/unknown.safetensors',path:'/fixture/models/diffusion_models/nested/unknown.safetensors',size:42,info:null};
 const invalid={...unknown,category:'checkpoints',name:'nested/retired.safetensors',path:'/fixture/models/checkpoints/nested/retired.safetensors',detectedFamily:'sdxl',metadataError:'Unknown model family',info:{sha256:'a'.repeat(64),size:42,fetchedAt:1,civitai:{modelId:2,versionId:1,modelName:'Fixture',versionName:'v1'}}};
 const ace={...unknown,name:'nested/acestep_v1.5_turbo.safetensors',path:'/fixture/models/diffusion_models/nested/acestep_v1.5_turbo.safetensors',family:'ace-step-1-5-turbo',detectedFamily:'ace-step-1-5-turbo',familyEvidence:'filename'};
-f.models=[unknown,invalid,ace];
+const broken={...invalid,name:'broken.safetensors',path:'/fixture/models/checkpoints/broken.safetensors',family:'sdxl',metadataError:undefined,integrity:'truncated',check:{identity:'sha256',compatibility:'blocked',availability:'available',evidence:['header','sha256'],reasons:[{code:'integrity'}]}};
+f.models=[unknown,invalid,ace,broken];
 window.__TAURI_INTERNALS__.invoke=async(c,a)=>{
  if(c==='native_download_catalog'){f.calls.push({command:c,args:clone(a??{})});return {version:1,providers:[],entries:[]};}
  if(c==='native_model_scan_status'){f.calls.push({command:c,args:clone(a??{})});return {state:'idle',completed:0,total:0,remaining:0,failed:0};}
@@ -61,6 +62,7 @@ def verify(browser, url, shots):
         page.get_by_role('tab', name='Library', exact=True).click()
         page.locator('[data-library-tab="installed"]').click()
         library = page.get_by_role('button', name='nested/retired.safetensors', exact=True)
+        expect(library).to_contain_text('Blocked')
         library.click(button='right')
         page.get_by_role('menuitem', name='Edit meta…').click()
         expect(dialog.get_by_role('alert')).to_be_visible()
@@ -69,6 +71,9 @@ def verify(browser, url, shots):
         page.locator('[data-node="studio"]').click()
         expect(page.get_by_role('button', name='nested/retired.safetensors', exact=True)).to_have_attribute('aria-disabled', 'false')
         checks.append('Library reset repairs invalid metadata and updates mounted Studio')
+        broken_tile = page.get_by_role('button', name='broken.safetensors', exact=True)
+        expect(broken_tile).to_have_attribute('aria-disabled', 'true')
+        checks.append('hash-identified broken file remains blocked in Studio and explained in Library')
         ace_tile = page.get_by_role('button', name='nested/acestep_v1.5_turbo.safetensors', exact=True)
         ace_tile.press('Shift+F10')
         page.get_by_role('menuitem', name='Edit meta…').click()
@@ -95,6 +100,7 @@ def verify(browser, url, shots):
                 assert bounds['x'] >= 0 and bounds['right'] <= width + 1, (locale, width, bounds)
                 assert bounds['bottom'] <= 901 and bounds['scroll'] <= bounds['client'] + 1, (locale, width, bounds)
                 assert 'modelMeta.' not in dialog.inner_text()
+                assert 'modelCheck.' not in page.locator('[data-node="studio"]').inner_text()
                 if locale in ('de', 'en') and width in (1440, 320):
                     page.screenshot(path=str(shots/f'metadata-{locale}-{width}.png'))
                 dialog.press('Escape')

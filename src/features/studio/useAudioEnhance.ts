@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { oneOf, usePref } from '../../lib/preferences';
+import { checkModel } from '../../lib/modelCheck';
 import { cancelAudioEnhanceInstall, installAudioEnhance, readAudioEnhanceInstallStatus, readAudioEnhanceCapabilities, type AudioEnhanceInstallStatus, type AudioEnhanceCapabilities, type AudioEnhanceIntent, type AudioEnhanceMode, type AudioEnhanceProfile, type AudioEnhanceDevice } from '../../lib/audioEnhance';
 
 /** One live selection for both the controls and immutable submission snapshot. */
@@ -62,9 +63,16 @@ export function useAudioEnhance(scope: 'post' | 'tve') {
     catch (failure) { if (live.current) setError(String(failure)); }
     finally { installingLock.current = false; if (live.current) { setInstalling(null); void readInstallStatus(); } }
   }
-  const available = mode !== 'off' && !checking && !activeInstall && !!capabilities?.[mode] && (mode !== 'deep' || profile === 'speech') && (mode !== 'stems' || device !== 'cuda' || capabilities?.cuda === true);
+  const engineReady = mode !== 'off' && !checking && !activeInstall && !!capabilities?.[mode] && (mode !== 'deep' || profile === 'speech') && (mode !== 'stems' || device !== 'cuda' || capabilities?.cuda === true);
+  const reason = !capabilities ? error || 'studio.audioEnhance.checking'
+    : checking || activeInstall ? 'studio.audioEnhance.checking'
+    : mode === 'deep' && profile !== 'speech' ? 'studio.audioEnhance.speechOnly'
+    : mode === 'stems' && device === 'cuda' && capabilities.cuda !== true ? 'studio.audioEnhance.cudaUnavailable'
+    : mode === 'clean' ? 'studio.audioEnhance.toolsMissing' : 'studio.audioEnhance.modelsMissing';
+  const check = checkModel(undefined, { name: mode, specialized: mode === 'off' ? undefined : { ready: engineReady, reason: engineReady ? undefined : reason, evidence: capabilities ? 'audio-capability-probe' : undefined } });
+  const available = engineReady && check.compatibility !== 'blocked';
   const intent: AudioEnhanceIntent | undefined = mode === 'off' ? undefined : { mode, profile, ...(mode === 'stems' ? { device } : {}) };
-  return { mode, setMode, profile, setProfile, device, setDevice, capabilities, checking, installing: activeInstall, installStatus, readInstallStatus, cancelInstall, error, probe, install, available, ready: mode === 'off' || available, intent,
+  return { check, mode, setMode, profile, setProfile, device, setDevice, capabilities, checking, installing: activeInstall, installStatus, readInstallStatus, cancelInstall, error, probe, install, available, ready: mode === 'off' || available, intent,
     restore(value?: AudioEnhanceIntent) { setMode(value?.mode ?? 'off'); setProfile(value?.profile ?? 'mix'); setDevice(value?.device ?? 'auto'); } };
 }
 export type AudioEnhanceSettings = ReturnType<typeof useAudioEnhance>;

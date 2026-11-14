@@ -40,6 +40,23 @@ test.each(['post', 'tve'] as const)('optional engines stay visible and installed
   expect(invoke).not.toHaveBeenCalledWith('native_audio_enhance_install', expect.anything());
 });
 
+test('audio advice uses the existing capability probe without claiming model identity or successful load', async () => {
+  const { result } = renderHook(() => useAudioEnhance('post'));
+  act(() => result.current.setMode('stems'));
+  await act(async () => {});
+  expect(result.current.check).toMatchObject({ identity: 'unverified', compatibility: 'blocked' });
+  expect(result.current.available).toBe(false);
+  vi.mocked(invoke).mockResolvedValue({ clean: true, deep: false, stems: true, cuda: false });
+  await act(async () => { await result.current.probe(); });
+  expect(result.current.check).toMatchObject({ identity: 'unverified', compatibility: 'unknown' });
+  expect(result.current.check.evidence).toContain('audio-capability-probe');
+  expect(result.current.available).toBe(true);
+  act(() => result.current.setDevice('cuda'));
+  expect(result.current.check.compatibility).toBe('blocked');
+  expect(result.current.available).toBe(false);
+  expect(vi.mocked(invoke).mock.calls.every(([command]) => command === 'native_audio_enhance_capabilities')).toBe(true);
+});
+
 test('defaults off, disables unavailable engines and requires a source', async () => {
   await mount();
   expect(mode().value).toBe('off');
