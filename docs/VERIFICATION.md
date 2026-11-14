@@ -1,5 +1,17 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.2.28 (published)
+
+Published 2026-11-14 as `v0.2.28` (https://github.com/darksidewalker/DEAS/releases/tag/v0.2.28), rolling up the untagged 0.2.26 and 0.2.27 sections; tag on gitea and github resolves to source commit `fccfdc7ffb7df9474d9ff2b8ececaa2b1c44b306` (tree `34a33a3f54a06d4e6846036ca94b322d30f9ee7a`). Built locally in a detached worktree at that commit with `build-linux.sh --release` (rustc 1.97.0, node v26.13.1); GitHub Actions workflows are disabled. Requires DaSiWa node pack 0.5.50 for H3 Hi-Res Regenerate (published `79df939`).
+
+- Gates on the release tree: `npm run typecheck`, `test:core` 157/157, Vitest 1877/1877, `cargo clippy --locked --release --lib --bins -D warnings`, serial `cargo test --locked -- --test-threads=1` (959 passed / 71 ignored), `cargo xwin check --all-targets`, `cargo xwin clippy --all-targets -D warnings`. `cargo fmt --check` first flagged two test-file line wraps; `cargo fmt` fixed them (whitespace only) and `--check` passed before the commit.
+- Linux: glibc floor 2.39 (`objdump -T`), `ldd` with zero "not found", embedded `index-BfnZ8sVw.js` found in both binaries. Windows exe cross-built (benign `LNK4099`), not runtime-accepted.
+- Assets, hashed from the re-downloaded release (`gh release download`, `sha256sum -c SHA256SUMS` OK):
+  - `deas-linux-amd64` `7e80c8c83ad073c35185dc0af3e74db676e6456f8438509017a7bc38c4588ffc`
+  - `deas.exe` `5d75f0bafaae7dcfb893db972f275ba195f6a60f051141ef6b6af2b83f4a9c6c`
+  - `BUILD-MANIFEST.json` `ca1f14ab19db56133fa8c272c92cbd4bbf21df7b4c0349ad4b84d6550a869fc9`
+  - `SHA256SUMS` `6fc035d51adc65fc2f8a6b539e53628959cc637ad99f95d5c4f2e7f6ee75286e`
+
 ## Shared model checks and contextual helper — 0.2.27 (shipped in 0.2.28)
 
 Implemented source paths: native `model_check.rs` coordinates the existing `downloads_models` inspector and the single `model_families` registry; `jobs::LocalModels` retains selected family/companion context and repeats the checks across preparation/submission/observer awaits. Frontend `lib/modelCheck.ts` projects the same result into Studio, components, optional local-evidence compiler validation, Library/Beginner/download cards, TVE, Forge/Chat LLM discovery, analysis taggers and audio readiness. `modelComponents.ts` excludes structural/integrity/metadata failures consistently, including All files; explicit component override flags remain graph-neutral. `modelCompanionAdvice` uses existing family patterns and component matching, category recovery uses the existing consent UI. The bundled catalog currently has no encoder/VAE entries with trusted file association: no provider/repository label is invented as a verified download match. Existing curated ACE/vision/latent download routes are retained.
