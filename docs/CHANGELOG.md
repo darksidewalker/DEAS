@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.32 BETA
+
+- **H3 Continuity capture works together with Seamless loop.** With New segment only, the node pack rejected the job before sampling because the checkpoint export took the loop's retimed audio instead of the Segment Decode's; with the full timeline the looped, shorter ending did not match the saved latent. The checkpoint now saves the Original (unlooped decode with its own audio), and the looped Processed video is still produced. Captures without a loop keep publishing the Processed video as before.
+
 ## 0.2.31 BETA
 
 - **Wildcard pictures show the prompt that actually ran.** The Media metadata pane now lists the evaluated positive/negative prompt at the top, and Media Analysis **Made with** shows it whole instead of a jumble of the base text, style and selection rules. Both read it from the A1111 `parameters` text the DaSiWa saver already writes; the embedded ComfyUI graph still keeps the base text and wildcard rules, so a rerun reproduces the same pick. Pictures without that text still show the graph pieces marked as partial, nothing is guessed.

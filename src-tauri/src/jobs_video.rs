@@ -1965,7 +1965,14 @@ fn h3(i: &Value) -> Value {
             );
         }
     }
-    g["P"] = json!({"class_type":"DaSiWaH3ContinuityPublish","inputs":{"filename":["7",1],"ticket":["SP",2]}});
+    // A seamless loop retimes the Processed ending (trim/crossfade), and the pack requires the checkpoint
+    // export to match the saved latent with audio straight from its decode: capture the Original instead.
+    let exporter = if i["videoPost"].get("loop").is_some() {
+        "B7"
+    } else {
+        "7"
+    };
+    g["P"] = json!({"class_type":"DaSiWaH3ContinuityPublish","inputs":{"filename":[exporter,1],"ticket":["SP",2]}});
     g
 }
 

@@ -3035,3 +3035,45 @@ fn h3_regenerate_size_follows_the_reference_grids() {
         assert_eq!(regenerate_size(w, h, target), expected, "{w}x{h} {target}");
     }
 }
+
+#[test]
+fn h3_capture_with_seamless_loop_publishes_the_original() {
+    for (mode, upscale) in [
+        ("segment", false),
+        ("segment", true),
+        ("full", false),
+        ("full", true),
+    ] {
+        let mut i = h3();
+        i["h3"]["mode"] = json!("REF2VA");
+        i["h3"]["references"] = json!([]);
+        i["h3"]["media"] = json!([]);
+        i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","capture":true,"action":"turn","outputMode":mode,"sourceFrames":243});
+        if upscale {
+            i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+        }
+        i["videoPost"] = json!({"rtx":{"denoise":"High"}});
+        // Without a loop the Processed export stays the checkpoint (unchanged behaviour).
+        assert_eq!(
+            compile(&i).unwrap()["P"]["inputs"]["filename"],
+            json!(["7", 1])
+        );
+        i["videoPost"]["loop"] =
+            json!({"backend":"rife","model":"rife_v4.26.safetensors","audio":"beat"});
+        let g = compile(&i).unwrap();
+        // The pack (h3_continuity/validation.py) needs the export's audio straight from the decode and
+        // its duration equal to the saved latent; the loop's retimed audio stays on Processed only.
+        assert_eq!(
+            g["P"]["inputs"]["filename"],
+            json!(["B7", 1]),
+            "{mode} upscale={upscale}"
+        );
+        assert_eq!(g["7"]["inputs"]["audio"], json!(["PG", 1]));
+        assert_eq!(g["PG"]["inputs"]["audio"], json!(["LP", 1]));
+        assert_eq!(g["B7"]["inputs"]["pingpong"], json!(false));
+        if mode == "segment" {
+            assert_eq!(g["B7"]["inputs"]["images"], json!(["SD", 0]));
+            assert_eq!(g["B7"]["inputs"]["audio"], json!(["SD", 1]));
+        }
+    }
+}

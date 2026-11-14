@@ -1,5 +1,9 @@
 # News
 
+## 0.2.32 BETA
+
+- H3 Continuity capture and Seamless loop can now be used together: the checkpoint keeps the unlooped Original, the looped video is still saved.
+
 ## 0.2.31 BETA
 
 - Pictures made with wildcards now show the prompt that was actually used, both in the Media metadata pane and in Media Analysis **Made with**.
