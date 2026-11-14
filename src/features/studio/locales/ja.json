@@ -1148,6 +1148,9 @@
   "studio.run.regenerate.lora": "Regenerate LoRA",
   "studio.run.regenerate.noLora": "変換済み LoRA が見つかりません",
   "studio.run.regenerate.target": "目標解像度",
+  "studio.run.regenerate.original": "再生成のみ、入力解像度を維持",
+  "studio.run.regenerate.originalHint": "生成されたドラフトの {width} × {height} を拡大せず維持します。再生成により細部が再解釈される場合があります。",
+  "studio.run.regenerate.originalUnavailable": "再生成のみには、Original ターゲット対応の DaSiWa ノードパック 0.5.52 以降が必要です。",
   "studio.run.regenerate.nodeMissing": "ノード {name} がありません: DaSiWa ノードパック 0.5.50 が必要です（バックエンド → アップグレード → ComfyUI とノードパック）。",
   "studio.run.regenerate.loraMissing": "変換済みの Open-H3-Regenerate-2K LoRA が見つかりません。Quant Station の「Diffusers → H3」で変換し、models/loras に置いてください。",
   "studio.run.regenerate.model": "Regenerate 用アップスケールモデル"

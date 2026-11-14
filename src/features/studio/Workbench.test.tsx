@@ -1046,6 +1046,47 @@ test('H3 Hi-Res Regenerate card blocks Run on missing node/LoRA, builds the pinn
  view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
  expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d2,scale:2,steps:1,denoise:0.2});
 });
+test.each([true,false])('H3 Original bypasses learned upscalers only with node target support (%s)',async supported=>{
+ const lora='H3/regenerate.safetensors',saved='remembered-up.safetensors';
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.regenerate.h3',JSON.stringify({enabled:true,lora,target:'Original',model:saved,spatialTiling:true}));
+ vi.mocked(scanModels).mockResolvedValue(h3VideoFiles());
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3HiResRegenerate'],h3LatentUpscaleModels:[],h3RegenerateOriginal:supported,loras:[lora]}});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ if(!supported){
+  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+  await waitFor(()=>expect(document.querySelector('[data-post-category="regenerate"]')?.textContent).toContain('0.5.52'));
+  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+  expect(runWorkbenchJob).not.toHaveBeenCalled();return;
+ }
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
+ expect(document.querySelector('[data-regenerate-model]')).toBeNull();
+ const target=document.querySelector('[data-regenerate-target]') as HTMLSelectElement;
+ expect(target.value).toBe('Original');
+ expect(target.selectedOptions[0].textContent).toBe('Regenerate only, keep input resolution');
+ expect(document.querySelector('[data-regenerate-enabled]')!.closest('label')!.textContent).toBe('Regenerate only, keep input resolution');
+ expect(document.querySelector('[data-post-category="regenerate"]')?.textContent).toContain('may reinterpret details');
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ const plan=JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!);
+ expect(plan.latentUpscale).toEqual({model:'interpolation',regenerate:{lora,target:'Original'}});
+ const stage=document.querySelector('[data-plan-stage="latentUpscale"]')!;
+ expect(stage.textContent).toContain('Regenerate only, keep input resolution');
+ expect(stage.textContent).toContain(`${plan.width} × ${plan.height}`);
+ expect(stage.textContent).not.toContain('interpolation');
+ expect(stage.textContent).toContain('may reinterpret details');
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.change(document.querySelector('[data-regenerate-target]')!,{target:{value:'2K'}});
+ expect(document.querySelector('[data-regenerate-model]')).toHaveProperty('value',saved);
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.regenerate.h3')!).model).toBe(saved);
+ fireEvent.change(document.querySelector('[data-regenerate-target]')!,{target:{value:'Original'}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('original-regenerate','queued',evidence.baseUrl));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({latentUpscale:plan.latentUpscale});
+});
 test('H3 Hi-Res Regenerate is offered for H3 video only',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
@@ -1058,11 +1099,12 @@ test('H3 Hi-Res Regenerate is offered for H3 video only',async()=>{
  fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
  await waitFor(()=>expect(document.querySelector('[data-post-unavailable="regenerate"]')?.textContent).toBe('MiniMax H3 video pipelines only.'));
 });
-test('history restores H3 Hi-Res Regenerate and turns the classic latent upscale off, and vice versa',async()=>{
+test.each(['1080P','Original'] as const)('history restores H3 Hi-Res Regenerate %s without replacing a saved upscaler with the sentinel',async target=>{
+ localStorage.setItem('deas.pref.studio.run.regenerate.h3',JSON.stringify({enabled:false,lora:'',target:'2K',model:'up.safetensors',spatialTiling:true}));
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-remembered.safetensors',scale:3,steps:2,denoise:0.3}));
  const files=h3VideoFiles();
  const h3Record=(latentUpscale:H3LatentUpscale|H3RegenerateUpscale)=>recentHistoryRecord({recipeId:'video-generation',version:1,family:'minimax-h3',positivePrompt:'historic h3',negativePrompt:'',model:files[0].name,textEncoder:files[1].name,vae:files[2].name,seed:19,width:1344,height:768,frames:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},h3:{mode:'T2VA',audioVae:files[3].name,shiftVideo:10,shiftAudio:3,references:[]},latentUpscale});
- let records=[h3Record({model:'up.safetensors',regenerate:{lora:'regen.safetensors',target:'1080P',spatialTiling:false}})];
+ let records=[h3Record({model:target==='Original'?'interpolation':'up.safetensors',regenerate:{lora:'regen.safetensors',target,spatialTiling:false}})];
  vi.mocked(scanModels).mockResolvedValue(files);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','DaSiWaH3HiResRegenerate'],h3LatentUpscaleModels:['up.safetensors'],loras:['regen.safetensors']}});
  vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records,readOnly:false,error:null}:{path:'/env/input',parent:'/env',entries:[],truncated:false});
@@ -1070,7 +1112,7 @@ test('history restores H3 Hi-Res Regenerate and turns the classic latent upscale
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
  await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);
  fireEvent.click(screen.getByRole('button',{name:'Close history'}));
- expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.regenerate.h3')!)).toEqual({enabled:true,lora:'regen.safetensors',target:'1080P',model:'up.safetensors',spatialTiling:false});
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.regenerate.h3')!)).toEqual({enabled:true,lora:'regen.safetensors',target,model:'up.safetensors',spatialTiling:false});
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.latent.h3')!)).toMatchObject({enabled:false,model:'h3-remembered.safetensors'});
  expect(runWorkbenchJob).not.toHaveBeenCalled();
  view.unmount();

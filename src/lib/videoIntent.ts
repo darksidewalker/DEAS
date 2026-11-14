@@ -80,8 +80,8 @@ export const h3LatentChanged=(a:H3LatentAdvanced|undefined):H3LatentAdvanced|und
  return Object.keys(changed).length?changed as H3LatentAdvanced:undefined;
 };
 export interface H3LatentUpscale { model:string; scale:number; steps:number; denoise:number; advanced?:H3LatentAdvanced; regenerate?:never }
-export type H3RegenerateTarget='1080P'|'2K'|'4K';
-export const h3RegenerateTargets:readonly H3RegenerateTarget[]=['1080P','2K','4K'];
+export type H3RegenerateTarget='1080P'|'2K'|'4K'|'Original';
+export const h3RegenerateTargets:readonly H3RegenerateTarget[]=['1080P','2K','4K','Original'];
 /** `DaSiWaH3HiResRegenerate` (H3 video only): its pinned recipe replaces scale/steps/denoise/advanced. */
 export interface H3RegenerateUpscale { model:string; regenerate:{lora:string;target:H3RegenerateTarget;spatialTiling?:boolean;model?:string}; scale?:never; steps?:never; denoise?:never; advanced?:never }
 export interface LtxLatentUpscale { model:string; scale:2; regenerate?:never }
@@ -91,9 +91,10 @@ export function latentUpscaleSize(family:VideoFamily,size:{width:number;height:n
  const edge=(n:number)=>family==='ltx-2'?n*2:Math.max(32,roundHalfEven(n*scale/32)*32);
  return {width:edge(size.width),height:edge(size.height)};
 }
-const regenerateGrids:Record<H3RegenerateTarget,[number,number]>={'1080P':[1920,1088],'2K':[2560,1440],'4K':[3840,2176]};
+const regenerateGrids:Record<Exclude<H3RegenerateTarget,'Original'>,[number,number]>={'1080P':[1920,1088],'2K':[2560,1440],'4K':[3840,2176]};
 /** Mirror of native `regenerate_size`: the target grid within 5 % of its aspect (orientation kept), else the draft aspect at the target's short side. */
 export function regenerateSize(width:number,height:number,target:H3RegenerateTarget){
+ if(target==='Original')return {width,height};
  const [long,short]=regenerateGrids[target],min=Math.max(1,Math.min(width,height));
  if(Math.abs(Math.max(width,height)/min/(long/short)-1)<=0.05)return height>width?{width:short,height:long}:{width:long,height:short};
  const edge=(n:number)=>roundHalfEven(n*short/min/32)*32;

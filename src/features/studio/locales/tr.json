@@ -1148,6 +1148,9 @@
   "studio.run.regenerate.lora": "Regenerate LoRA",
   "studio.run.regenerate.noLora": "Dönüştürülmüş LoRA bulunamadı",
   "studio.run.regenerate.target": "Hedef çözünürlük",
+  "studio.run.regenerate.original": "Yalnızca yeniden üret, giriş çözünürlüğünü koru",
+  "studio.run.regenerate.originalHint": "Üretilen taslağı büyütmeden {width} × {height} boyutunda tutar; yeniden üretim ayrıntıları yeniden yorumlayabilir.",
+  "studio.run.regenerate.originalUnavailable": "Yalnızca yeniden üretim için Original hedefini destekleyen DaSiWa düğüm paketi 0.5.52 veya üzeri gerekir.",
   "studio.run.regenerate.nodeMissing": "{name} düğümü eksik: DaSiWa düğüm paketi 0.5.50 gerekir (Backend → Yükselt → ComfyUI ve düğüm paketleri).",
   "studio.run.regenerate.loraMissing": "Dönüştürülmüş Open-H3-Regenerate-2K LoRA bulunamadı. Quant Station’da “Diffusers → H3” ile dönüştürün ve models/loras klasörüne koyun.",
   "studio.run.regenerate.model": "Regenerate büyütme modeli"

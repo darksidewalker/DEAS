@@ -1868,6 +1868,69 @@ async fn derope_keep_background_prepare_rejects_missing_old_or_incompatible_reco
 }
 
 #[tokio::test]
+async fn h3_regenerate_original_prepare_skips_upscaler_but_requires_supported_target_and_lora() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["latentUpscale"] = json!({"model":"interpolation", "regenerate":{
+        "lora":"open_h3_regenerate_native.safetensors", "target":"Original"}});
+    let graph = compile(&intent).unwrap();
+    let mut all = nodes();
+    for node in graph.as_object().unwrap().values() {
+        let class = node["class_type"].as_str().unwrap();
+        if all.get(class).is_none() {
+            all[class] = json!({});
+        }
+    }
+    all["DaSiWa_EnhancedVideoCombine"]["output"] = json!(["IMAGE", "STRING"]);
+    all["DEAS_VideoPostprocessGate"] = json!({"input":{"required":{"baseline":["IMAGE,STRING"],"image":["IMAGE",{"lazy":true}]},"optional":{"audio":["AUDIO",{"lazy":true}]}},"output":["IMAGE","AUDIO"]});
+    for (field, names) in crate::jobs_video::requirements(&intent) {
+        if names.is_empty() {
+            continue;
+        }
+        let (node, input) = match field {
+            "diffusionModels" => ("UNETLoader", "unet_name"),
+            "textEncoders" => ("CLIPLoader", "clip_name"),
+            "clipTypes" => ("CLIPLoader", "type"),
+            "vaes" => ("VAELoader", "vae_name"),
+            "images" => ("LoadImage", "image"),
+            "loras" => ("LoraLoader", "lora_name"),
+            _ => unreachable!("unexpected file requirement {field}"),
+        };
+        all[node]["input"]["required"][input] = json!([names]);
+    }
+    all["KSampler"]["input"]["required"]["sampler_name"] = json!([[intent["sampler"]]]);
+    all["KSampler"]["input"]["required"]["scheduler"] = json!([[intent["scheduler"]]]);
+    all["DaSiWaH3HiResRegenerate"]["input"]["required"]["target"] =
+        json!([["1080P", "2K", "4K", "Original"]]);
+    for case in ["ok", "old target schema", "missing lora"] {
+        let mut info = all.clone();
+        if case == "old target schema" {
+            info["DaSiWaH3HiResRegenerate"]["input"]["required"]["target"] =
+                json!([["1080P", "2K", "4K"]]);
+        }
+        if case == "missing lora" {
+            info["LoraLoader"]["input"]["required"]["lora_name"] = json!([[]]);
+        }
+        let (base, task) = server(move |path, _| {
+            assert_eq!(
+                path, "GET /comfy/object_info HTTP/1.1",
+                "must not execute while preparing"
+            );
+            (200, info.to_string())
+        })
+        .await;
+        let result = Jobs::default().prepare(base, intent.clone()).await;
+        match case {
+            "ok" => assert!(result.is_ok(), "{result:?}"),
+            "old target schema" => assert!(result.unwrap_err().contains("0.5.52")),
+            _ => assert!(result
+                .unwrap_err()
+                .contains("open_h3_regenerate_native.safetensors")),
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn h3_regenerate_prepare_names_the_node_pack_and_requires_the_lora() {
     let mut intent = crate::jobs_video::tests::h3();
     intent["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",

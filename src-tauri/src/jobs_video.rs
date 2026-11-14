@@ -216,12 +216,15 @@ pub(crate) fn latent_upscale_size(i: &Value) -> (u64, u64) {
 }
 
 /// H3 Hi-Res Regenerate targets: the reference's landscape grids (1080P/4K on whole latent patches).
-pub(crate) const REGENERATE_TARGETS: [&str; 3] = ["1080P", "2K", "4K"];
+pub(crate) const REGENERATE_TARGETS: [&str; 4] = ["1080P", "2K", "4K", "Original"];
 
 /// Canvas of `DaSiWaH3HiResRegenerate`: the 16:9 grid for drafts within 5 % of 16:9 (orientation kept),
 /// else the draft aspect at the target's short side. shortcut: copy of the pack's
 /// `regenerate_size` (node pack 0.5.50); on pack drift only the planned size is off, the render is the pack's.
 pub(crate) fn regenerate_size(width: u64, height: u64, target: &str) -> (u64, u64) {
+    if target == "Original" {
+        return (width, height);
+    }
     let (long, short) = match target {
         "1080P" => (1920, 1088),
         "4K" => (3840, 2176),
@@ -375,6 +378,10 @@ fn valid_h3_latent_advanced(a: &Value) -> bool {
     })
 }
 
+pub(crate) fn regenerate_only(i: &Value) -> bool {
+    i["family"] == "minimax-h3" && i["latentUpscale"]["regenerate"]["target"] == "Original"
+}
+
 pub(crate) fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), String> {
     let Some(u) = i.get("latentUpscale") else {
         return Ok(());
@@ -396,13 +403,16 @@ pub(crate) fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), Str
         }
         _ => false,
     };
-    if !settings
-        || !u["model"].as_str().is_some_and(if family == "minimax-h3" {
+    let model_valid = if regenerate_only(i) {
+        u["model"] == "interpolation"
+    } else {
+        u["model"].as_str().is_some_and(if family == "minimax-h3" {
             h3_latent_model
         } else {
             ltx_latent_model
         })
-    {
+    };
+    if !settings || !model_valid {
         return Err("Invalid latentUpscale: learned .safetensors/.sft model and family-specific settings required".into());
     }
     let (w, h) = latent_upscale_size(i);
@@ -2047,7 +2057,7 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
         ),
         (
             "h3LatentUpscaleModels",
-            (family == "minimax-h3")
+            (family == "minimax-h3" && !regenerate_only(i))
                 .then(|| i["latentUpscale"]["model"].as_str())
                 .flatten()
                 .into_iter()

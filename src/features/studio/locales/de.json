@@ -1148,6 +1148,9 @@
   "studio.run.regenerate.lora": "Regenerate-LoRA",
   "studio.run.regenerate.noLora": "Keine konvertierte LoRA gefunden",
   "studio.run.regenerate.target": "Zielauflösung",
+  "studio.run.regenerate.original": "Nur regenerieren, Eingangsauflösung behalten",
+  "studio.run.regenerate.originalHint": "Behält den generierten Entwurf bei {width} × {height} ohne Hochskalierung; die Regenerierung kann Details neu interpretieren.",
+  "studio.run.regenerate.originalUnavailable": "Nur regenerieren benötigt das DaSiWa Node-Pack ab 0.5.52 mit Unterstützung für das Ziel Original.",
   "studio.run.regenerate.nodeMissing": "Node {name} fehlt: benötigt DaSiWa-Nodepack 0.5.50 (Backend → Upgrade → ComfyUI und Node-Packs).",
   "studio.run.regenerate.loraMissing": "Keine konvertierte Open-H3-Regenerate-2K-LoRA gefunden. Konvertiere sie in Quant Station mit „Diffusers → H3“ und lege sie in models/loras ab.",
   "studio.run.regenerate.model": "Upscaling-Modell für Regenerate"

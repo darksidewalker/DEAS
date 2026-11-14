@@ -191,7 +191,7 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
   if(modelFamily!==intent.family)unavailable.push(`video family: ${intent.family}`);
   if(intent.latentUpscale){
    const models=intent.family==='minimax-h3'?context.allow?.h3LatentUpscaleModels:context.allow?.latentUpscaleModels;
-   if(!models?.includes(intent.latentUpscale.model))unavailable.push(`latentUpscale: ${intent.latentUpscale.model}`);
+   if(intent.latentUpscale.regenerate?.target!=='Original'&&!models?.includes(intent.latentUpscale.model))unavailable.push(`latentUpscale: ${intent.latentUpscale.model}`);
    const regenerate=intent.latentUpscale.regenerate;
    if(regenerate&&!context.allow?.loras?.includes(regenerate.lora))unavailable.push(`lora: ${regenerate.lora}`);
    for(const node of regenerate?['DaSiWaH3HiResRegenerate']:intent.family==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])if(!context.allow?.nodes.includes(node))unavailable.push(node);

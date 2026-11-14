@@ -1,5 +1,10 @@
 # News
 
+## 0.2.30 BETA
+
+- **H3 Hi-Res Regenerate → Target resolution → Regenerate only, keep input resolution** refines the generated draft without enlarging it or requiring an upscaler model. Needs node pack 0.5.52; the Regenerate LoRA is still required. The source picture’s resolution is not used to resize the generated draft.
+- The Post-Processing overlay no longer grows a horizontal scrollbar for long model names or warnings; scrolling on short windows still keeps every control reachable.
+
 ## 0.2.28 BETA
 
 - Models you drop into the model folders while DEAS runs now show up without a restart: Post-Processing cards re-read the model lists when opened, and Studio re-scans the folders when you switch back to the DEAS window (at most every 10 s, no background watcher). Scanning no longer freezes the window.

@@ -1708,6 +1708,9 @@ impl Jobs {
             {
                 return Err("H3 Hi-Res Regenerate needs DaSiWa node pack 0.5.50 or newer (DaSiWaH3HiResRegenerate). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
+            if crate::jobs_video::regenerate_only(&intent) && allow["h3RegenerateOriginal"] != true {
+                return Err("H3 regenerate only at input resolution needs DaSiWa node pack 0.5.52 or newer (Original target). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+            }
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
             let video = crate::jobs_video::is_video(&intent);
@@ -1889,7 +1892,8 @@ impl Jobs {
                         .collect(),
                 ),
             ]);
-            if let Some(model) = intent["latentUpscale"]["model"].as_str() {
+            if let Some(model) = intent["latentUpscale"]["model"].as_str()
+                .filter(|_| !crate::jobs_video::regenerate_only(&intent)) {
                 let field = if intent["family"] == "minimax-h3" {
                     "h3LatentUpscaleModels"
                 } else {

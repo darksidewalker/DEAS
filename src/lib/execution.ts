@@ -95,6 +95,7 @@ export const clipLoaderName = (name: string, dual = false) => `${dual ? 'DualCLI
 export interface RecipeAllowlist {
   readonly deropeKeepBackground?: boolean;
   readonly h3LatentSharpness?: boolean;
+  readonly h3RegenerateOriginal?: boolean;
   readonly videoPreviews?: Record<string, import('./videoPreview').VideoPreviewConfig>;
   readonly nodes: readonly string[];
   readonly checkpoints: readonly string[];
@@ -322,7 +323,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
 export function compileRecipe(input: unknown, verified: unknown, models:readonly LocalModel[]=[]): CompiledRecipe {
   const intent = validateIntent(input);
   if(intent.componentOverrides!==undefined&&!isComponentOverrides(intent.componentOverrides))throw new RecipeCompileError('INVALID_INTENT','componentOverrides','Invalid component override flags.','Supply the four boolean slot flags.');
-  if (!isRecord(verified) || ['deropeKeepBackground','h3LatentSharpness'].some(k=>verified[k]!==undefined&&typeof verified[k]!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
+  if (!isRecord(verified) || ['deropeKeepBackground','h3LatentSharpness','h3RegenerateOriginal'].some(k=>verified[k]!==undefined&&typeof verified[k]!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
     Object.hasOwn(verified, key) && Array.isArray(verified[key]) && Array.from(verified[key]).every((v: unknown) => typeof v === 'string' && v.length > 0))) {
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }

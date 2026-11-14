@@ -34,6 +34,8 @@ test('optional De-rope capability accepts absent/boolean values but not coercion
   for(const deropeKeepBackground of ['true',1,null])assert.throws(()=>compileRecipe(intent,{...allowlist,deropeKeepBackground}),{code:'INVALID_ALLOWLIST'});
   for(const h3LatentSharpness of [false,true])assert.deepEqual(compileRecipe(intent,{...allowlist,h3LatentSharpness}),baseline);
   for(const h3LatentSharpness of ['true',1,null])assert.throws(()=>compileRecipe(intent,{...allowlist,h3LatentSharpness}),{code:'INVALID_ALLOWLIST'});
+  for(const h3RegenerateOriginal of [false,true])assert.deepEqual(compileRecipe(intent,{...allowlist,h3RegenerateOriginal}),baseline);
+  for(const h3RegenerateOriginal of ['true',1,null])assert.throws(()=>compileRecipe(intent,{...allowlist,h3RegenerateOriginal}),{code:'INVALID_ALLOWLIST'});
 });
 
 test('Qwen native references encode both prompts in order and use the exact first-reference empty latent', () => {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.30 BETA
+
+- **H3 regenerate without upscale.** Target resolution gains **Regenerate only, keep input resolution** (`Original`): the generated draft is refined at its exact current latent canvas, with no learned-upscaler requirement or resizing. The converted refiner LoRA and pinned three-step CFG-1 recipe remain required. Upscaler selection is hidden in this mode but its saved choice is retained; Run Plan and history preserve the mode and canvas. Native readiness probes the backend target choices and requires node pack 0.5.52 for Original; existing 1080P/2K/4K targets keep their model checks and behavior.
+- **Post-Processing overlay: no unnecessary horizontal scrollbar.** Long selected model names and missing-model warnings no longer force the settings grid wider than its card. Controls and text stay within the panel at desktop and narrow widths; viewport-limited vertical scrolling and keyboard/wheel access are retained.
+
 ## 0.2.29 BETA
 
 - **H3 Hi-Res Regenerate internal phases.** With DaSiWa node pack 0.5.51, Logs now identify LoRA preparation, each latent-upscale resolution pass/window (4K via 2K) and each refinement window, with dimensions, three-step CFG-1 settings and elapsed wall time. Directed events are scoped to the owning prompt and known regenerate node, validated and bounded/deduplicated; internal telemetry never changes lifecycle authority or claims a whole node completed. Older node packs keep graph-level logging.

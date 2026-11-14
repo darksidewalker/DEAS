@@ -1148,6 +1148,9 @@
   "studio.run.regenerate.lora": "LoRA de régénération",
   "studio.run.regenerate.noLora": "Aucune LoRA convertie trouvée",
   "studio.run.regenerate.target": "Résolution cible",
+  "studio.run.regenerate.original": "Régénérer uniquement, conserver la résolution d’entrée",
+  "studio.run.regenerate.originalHint": "Conserve le brouillon généré à {width} × {height} sans agrandissement ; la régénération peut réinterpréter les détails.",
+  "studio.run.regenerate.originalUnavailable": "La régénération seule nécessite le pack de nœuds DaSiWa 0.5.52 ou ultérieur prenant en charge la cible Original.",
   "studio.run.regenerate.nodeMissing": "Nœud {name} manquant : nécessite le pack de nœuds DaSiWa 0.5.50 (Backend → Mettre à niveau → ComfyUI et packs de nœuds).",
   "studio.run.regenerate.loraMissing": "Aucune LoRA Open-H3-Regenerate-2K convertie trouvée. Convertissez-la dans Quant Station avec « Diffusers → H3 » et placez-la dans models/loras.",
   "studio.run.regenerate.model": "Modèle d’agrandissement pour la régénération"

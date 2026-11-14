@@ -421,6 +421,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "videoPreviews":video_previews(nodes),
             "deropeKeepBackground":derope_keep_background_ready(nodes),
             "h3LatentSharpness":h3_latent_sharpness_ready(nodes),
+            "h3RegenerateOriginal":!options(nodes, "DaSiWaH3HiResRegenerate", "target", |s| s == "Original").is_empty(),
             "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
             "attention":options(nodes, "ModelAttentionBackend", "attention", option),
             "sage":options(nodes, "PathchSageAttentionKJ", "sage_attention", option),
@@ -466,6 +467,24 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn h3_regenerate_original_requires_backend_target_choice() {
+        let base = reqwest::Url::parse("http://127.0.0.1:8188/").unwrap();
+        let mut info = nodes();
+        for schema in [
+            json!([["1080P", "2K", "4K"]]),
+            json!([["1080P", "2K", "4K", "Original"]]),
+            json!(["COMBO",{"options":["Original"]}]),
+        ] {
+            info["DaSiWaH3HiResRegenerate"]["input"]["required"]["target"] = schema.clone();
+            let expected = schema.to_string().contains("Original");
+            assert_eq!(
+                parse(&base, &info).unwrap()["allowlist"]["h3RegenerateOriginal"],
+                json!(expected)
+            );
+        }
+    }
 
     #[test]
     fn video_preview_discovery_uses_only_compatible_backend_listed_decoders() {
@@ -1316,7 +1335,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "videos":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "deropeKeepBackground":false, "h3LatentSharpness":false
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "deropeKeepBackground":false, "h3LatentSharpness":false, "h3RegenerateOriginal":false
                 }, "missingNodes":[], "generationReady":false
             })
         );

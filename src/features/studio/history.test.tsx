@@ -35,12 +35,13 @@ test.each(['ltx-2','minimax-h3'] as const)('history retains exact latent post ch
  expect(restored.unavailable).toContain(family==='ltx-2'?'LTXVLatentUpsampler':'DaSiWaH3TiledUpscale');
  expect(JSON.stringify(video)).toBe(before);expect(invoke).not.toHaveBeenCalled();
 });
-test('history discloses a missing H3 Hi-Res Regenerate LoRA and node instead of the tiled upscaler',()=>{
+test.each(['2K','Original'] as const)('history checks Regenerate %s dependencies without requiring a sentinel model',target=>{
  const {imageFormat,imageCompression,...output}=defaultVideoOutput;void imageFormat;void imageCompression;
- const video:JobIntent={recipeId:'video-generation',version:1,positivePrompt:'film',negativePrompt:'',model:'model',textEncoder:'text',vae:'v',seed:7,width:768,height:512,frames:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/7',output,family:'minimax-h3',h3:{mode:'T2VA',audioVae:'audio',shiftVideo:10,shiftAudio:3,references:[]},latentUpscale:{model:'up.safetensors',regenerate:{lora:'regen.safetensors',target:'2K'}}};
+ const video:JobIntent={recipeId:'video-generation',version:1,positivePrompt:'film',negativePrompt:'',model:'model',textEncoder:'text',vae:'v',seed:7,width:768,height:512,frames:124,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/7',output,family:'minimax-h3',h3:{mode:'T2VA',audioVae:'audio',shiftVideo:10,shiftAudio:3,references:[]},latentUpscale:{model:target==='Original'?'interpolation':'up.safetensors',regenerate:{lora:'regen.safetensors',target}}};
  const restored=historyRestore(record(video),context);
  expect(restored.intent).toEqual(video);
- expect(restored.unavailable).toEqual(expect.arrayContaining(['latentUpscale: up.safetensors','lora: regen.safetensors','DaSiWaH3HiResRegenerate']));
+ expect(restored.unavailable).toEqual(expect.arrayContaining([...(target==='Original'?[]:['latentUpscale: up.safetensors']),'lora: regen.safetensors','DaSiWaH3HiResRegenerate']));
+ expect(restored.unavailable).not.toContain('latentUpscale: interpolation');
  expect(restored.unavailable).not.toContain('DaSiWaH3TiledUpscale');
 });
 

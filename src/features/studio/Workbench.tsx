@@ -563,6 +563,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // shortcut: name filter for the converted Open-H3-Regenerate-2K LoRA; upgrade to header metadata if converter names vary.
  const regenerateLoras=(choices?.loras??[]).filter(l=>/regenerat/i.test(l));
  const regenerateLora=regeneratePref.lora||regenerateLoras[0]||'';
+ const regenerateOriginal=regeneratePref.target==='Original';
  const regenerateModel=regeneratePref.model||latentChoices.find(m=>/3d_conv/i.test(m))||latentChoices[0]||'';
  const latentNodes=[...(isVideo?['DEAS_VideoPostprocessGate']:[]),...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
@@ -765,7 +766,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const regenerateProblems=!regenerateEnabled?[]:[...(!choices?[]:[
   ...['DEAS_VideoPostprocessGate','DaSiWaH3HiResRegenerate'].filter(n=>!choices.nodes.includes(n)).map(name=>t('studio.run.regenerate.nodeMissing',{name})),
   ...(!regenerateLoras.includes(regenerateLora)?[t('studio.run.regenerate.loraMissing')]:[]),
-  ...(!latentChoices.includes(regenerateModel)?[t('studio.run.latent.missing',{name:regenerateModel||t('studio.run.latent.model')})]:[])]),
+   ...(regenerateOriginal&&!choices.h3RegenerateOriginal?[t('studio.run.regenerate.originalUnavailable')]:[]),
+   ...(!regenerateOriginal&&!latentChoices.includes(regenerateModel)?[t('studio.run.latent.missing',{name:regenerateModel||t('studio.run.latent.model')})]:[])]),
   ...(!validCanvas(regenerateCanvas)?[t('studio.run.resolution.invalid')]:[])];
  unavailable.push(...regenerateProblems);
  const sizeErrorFor=(continuing=false)=>isMusic?needsInput:inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
@@ -1049,7 +1051,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:vf,h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
-   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&regenerateEnabled)intent={...intent,latentUpscale:{model:regenerateModel,regenerate:{lora:regenerateLora,target:regeneratePref.target,...(regeneratePref.spatialTiling?{}:{spatialTiling:false})}}};
+   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&regenerateEnabled)intent={...intent,latentUpscale:{model:regenerateOriginal?'interpolation':regenerateModel,regenerate:{lora:regenerateLora,target:regeneratePref.target,...(regeneratePref.spatialTiling?{}:{spatialTiling:false})}}};
    if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}};
    if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    return intent;
@@ -1744,7 +1746,7 @@ const promptTools=forgeContext&&<>
    if(intent.family==='minimax-h3'){
     const u=intent.latentUpscale;
     setH3Latent(u&&!u.regenerate?{...defaultLatent,...u,enabled:true}:{...h3Latent,enabled:false});
-    setRegenerate(u?.regenerate?{...regeneratePref,enabled:true,model:u.model,lora:u.regenerate.lora,target:u.regenerate.target,spatialTiling:u.regenerate.spatialTiling??true}:{...regeneratePref,enabled:false});
+    setRegenerate(u?.regenerate?{...regeneratePref,enabled:true,model:u.regenerate.target==='Original'?regeneratePref.model:u.model,lora:u.regenerate.lora,target:u.regenerate.target,spatialTiling:u.regenerate.spatialTiling??true}:{...regeneratePref,enabled:false});
    }
    if(intent.family==='ltx-2')setLtxLatent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...ltxLatent,enabled:false});
   }
@@ -2179,10 +2181,10 @@ const promptTools=forgeContext&&<>
        </div>
        <div className="wb-post-category" data-post-category="regenerate" hidden={openPostCategory!=='regenerate'}>
         {regenerateAvailable?<fieldset className="wb-group" data-post-group="regenerate"><legend>{t('studio.run.regenerate.title')}</legend><div className="wb-options">
-         <div className="wb-option"><label className="wb-option-row"><input data-regenerate-enabled type="checkbox" checked={regenerateEnabled} disabled={latentEnabled} onChange={e=>setRegenerate({...regeneratePref,enabled:e.target.checked,lora:regenerateLora,model:regenerateModel})}/>{t('studio.run.regenerate.enabled')}</label><small>{t('studio.run.regenerate.hint',{width:String(regenerateCanvas.width),height:String(regenerateCanvas.height)})}</small>{latentEnabled&&<small data-regenerate-latent-on>{t('studio.run.regenerate.latentOn')}</small>}</div>
+         <div className="wb-option"><label className="wb-option-row"><input data-regenerate-enabled type="checkbox" checked={regenerateEnabled} disabled={latentEnabled} onChange={e=>setRegenerate({...regeneratePref,enabled:e.target.checked,lora:regenerateLora,model:regenerateModel})}/>{t(regenerateOriginal?'studio.run.regenerate.original':'studio.run.regenerate.enabled')}</label><small>{t(regenerateOriginal?'studio.run.regenerate.originalHint':'studio.run.regenerate.hint',{width:String(regenerateCanvas.width),height:String(regenerateCanvas.height)})}</small>{latentEnabled&&<small data-regenerate-latent-on>{t('studio.run.regenerate.latentOn')}</small>}</div>
          <label className="wb-option"><span>{t('studio.run.regenerate.lora')}</span><select data-regenerate-lora value={regenerateLora} onChange={e=>setRegenerate({...regeneratePref,lora:e.target.value})}>{!regenerateLoras.includes(regenerateLora)&&<option value={regenerateLora}>{regenerateLora||t('studio.run.regenerate.noLora')}</option>}{regenerateLoras.map(l=><option key={l} value={l}>{l}</option>)}</select></label>
-         <label className="wb-option"><span>{t('studio.run.regenerate.model')}</span><select data-regenerate-model value={regenerateModel} onChange={e=>setRegenerate({...regeneratePref,model:e.target.value})}>{!latentChoices.includes(regenerateModel)&&<option value={regenerateModel}>{regenerateModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
-         <label className="wb-option"><span>{t('studio.run.regenerate.target')}</span><select data-regenerate-target value={regeneratePref.target} onChange={e=>setRegenerate({...regeneratePref,target:e.target.value as H3RegenerateTarget})}>{h3RegenerateTargets.map(o=><option key={o} value={o}>{o}</option>)}</select></label>
+         {!regenerateOriginal&&<label className="wb-option"><span>{t('studio.run.regenerate.model')}</span><select data-regenerate-model value={regenerateModel} onChange={e=>setRegenerate({...regeneratePref,model:e.target.value})}>{!latentChoices.includes(regenerateModel)&&<option value={regenerateModel}>{regenerateModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>}
+          <label className="wb-option"><span>{t('studio.run.regenerate.target')}</span><select data-regenerate-target value={regeneratePref.target} onChange={e=>setRegenerate({...regeneratePref,target:e.target.value as H3RegenerateTarget})}>{h3RegenerateTargets.map(o=><option key={o} value={o}>{o==='Original'?t('studio.run.regenerate.original'):o}</option>)}</select></label>
          <div className="wb-option"><label className="wb-option-row"><input data-regenerate-tiling type="checkbox" checked={regeneratePref.spatialTiling} onChange={e=>setRegenerate({...regeneratePref,spatialTiling:e.target.checked})}/>{t('studio.run.latent.spatialTiling')}</label></div>
         </div>
          {regenerateProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}

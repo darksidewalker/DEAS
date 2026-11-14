@@ -8,6 +8,11 @@ test('post upscale canvas follows H3 Python ties-even 32 rounding and fixed LTX 
  assert.deepEqual(video.latentUpscaleSize('minimax-h3',{width:96,height:160},1.5),{width:128,height:256});
  assert.deepEqual(video.latentUpscaleSize('ltx-2',{width:768,height:512},2),{width:1536,height:1024});
 });
+test('H3 Original regenerate appends its protocol target and preserves exact input dimensions',()=>{
+ assert.deepEqual(video.h3RegenerateTargets,['1080P','2K','4K','Original']);
+ for(const [width,height] of [[1344,768],[767,1345],[513,513]])assert.deepEqual(video.regenerateSize(width,height,'Original'),{width,height});
+ assert.deepEqual(video.latentOutputSize('minimax-h3',{width:1344,height:768},{model:'interpolation',regenerate:{lora:'r.safetensors',target:'Original'}}),{width:1344,height:768});
+});
 test('H3 Hi-Res Regenerate canvas mirrors native regenerate_size',()=>{
  const cases:[number,number,video.H3RegenerateTarget,number,number][]=[[1344,768,'2K',2560,1440],[1344,768,'1080P',1920,1088],[1344,768,'4K',3840,2176],[768,1344,'2K',1440,2560],[768,768,'2K',1440,1440],[1024,768,'2K',1920,1440]];
  for(const [w,h,target,width,height] of cases)assert.deepEqual(video.regenerateSize(w,h,target),{width,height},`${w}x${h} ${target}`);

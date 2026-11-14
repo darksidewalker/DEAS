@@ -2869,6 +2869,41 @@ fn regenerate_intent() -> Value {
 }
 
 #[test]
+fn h3_regenerate_original_preserves_canvas_without_learned_upscaler() {
+    let mut i = regenerate_intent();
+    i["height"] = json!(992);
+    i["latentUpscale"] = json!({"model":"interpolation", "regenerate":{
+        "lora":"open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors", "target":"Original"}});
+    let g = compile(&i).unwrap();
+    assert_eq!(latent_upscale_size(&i), (1344, 992));
+    assert_eq!(regenerate_size(1344, 992, "Original"), (1344, 992));
+    assert_eq!(g["U"]["inputs"]["target"], "Original");
+    assert_eq!(g["U"]["inputs"]["upscale_model"], "interpolation");
+    assert!(requirements(&i)
+        .iter()
+        .filter(|(field, _)| *field == "h3LatentUpscaleModels")
+        .all(|(_, names)| names.is_empty()));
+    assert!(requirements(&i)
+        .iter()
+        .any(|(field, names)| *field == "loras"
+            && names.contains(&"open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors")));
+    let mut old_target = i.clone();
+    old_target["latentUpscale"]["regenerate"]["target"] = json!("2K");
+    assert!(
+        compile(&old_target)
+            .unwrap_err()
+            .contains("Invalid latentUpscale"),
+        "interpolation is not a learned upscaler for the old targets"
+    );
+    let mut no_lora = i.clone();
+    no_lora["latentUpscale"]["regenerate"]
+        .as_object_mut()
+        .unwrap()
+        .remove("lora");
+    assert!(compile(&no_lora).is_err());
+}
+
+#[test]
 fn h3_regenerate_replaces_the_upscale_node_on_a_lora_free_base_chain() {
     let i = regenerate_intent();
     let g = compile(&i).unwrap();
