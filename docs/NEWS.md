@@ -2,6 +2,8 @@
 
 ## 0.2.26 BETA (unreleased)
 
+- New **H3 Regenerate 2K** card under Post-Processing for MiniMax H3 videos: regenerates the draft at 1080P, 2K or 4K with the Open-H3-Regenerate-2K LoRA (convert it in Quant Station first). Needs DaSiWa node pack 0.5.49.
+
 - An ACE-Step all-in-one file placed in `unet/` or `diffusion_models/` now gets a clear "move it to checkpoints" note instead of a text-encoder download offer.
 
 ## 0.2.25 BETA

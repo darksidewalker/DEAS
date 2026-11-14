@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isImageIntent, type JobIntent } from '../../lib/jobs';
 import { isAceMusicIntent, isMusicIntent } from '../../lib/musicIntent';
-import { isVideoIntent, latentUpscaleSize, videoPostFrameRate } from '../../lib/videoIntent';
+import { isVideoIntent, latentOutputSize, videoPostFrameRate } from '../../lib/videoIntent';
 import { describeVideoPost } from './TvePostControls';
 
 /** Authoring preview only: native preparation remains the validation/compilation authority. */
@@ -44,7 +44,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
  const image=intent&&isImageIntent(intent)?intent:null;
  // H3 picture edits carry the same latent upscale block as H3 video.
  const latentUp=video?.latentUpscale?{family:video.family,base:video,u:video.latentUpscale}:image?.latentUpscale?{family:'minimax-h3' as const,base:image,u:image.latentUpscale}:null;
- const latentOut=latentUp&&latentUpscaleSize(latentUp.family,latentUp.base,latentUp.u.scale);
+ const latentOut=latentUp&&latentOutputSize(latentUp.family,latentUp.base,latentUp.u);
  return <section className="feature-panel run-plan" aria-label={t('studio.tab.map')}>
   <div className="panel-heading"><h2>{t('studio.tab.map')}</h2><span>{t(`studio.run.pipe.${pipeline}`)}</span></div>
   <p>{t('studio.plan.notice')}</p>
@@ -90,7 +90,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
    </>)}
    {image?.refine&&stage('refine',<>{row('studio.run.resolution.title',size(image.refine))}{row('studio.run.post.denoise',image.refine.denoise)}{row('studio.run.steps',image.refine.sigmas?image.refine.sigmas.length-1:intent.steps)}{row('studio.run.post.model',image.refine.upscaleModel||t('studio.run.post.lanczos'))}
     {image.refine.sigmas&&row('studio.run.opt.sigmas',image.refine.sigmas.join(', '))}{image.refine.tiled&&row('studio.run.post.tiled',`${image.refine.tiled.tileWidth} × ${image.refine.tiled.tileHeight} · ${t('studio.plan.overlap')}: ${image.refine.tiled.overlap} px`)}</>)}
-   {latentUp&&latentOut&&stage('latentUpscale',<>{row('studio.run.latent.model',latentUp.u.model)}{row('studio.run.upscale',latentUp.u.scale)}{row('studio.run.resolution.title',size(latentOut))}{'steps' in latentUp.u&&<>{row('studio.run.latent.steps',latentUp.u.steps)}{row('studio.run.latent.denoise',latentUp.u.denoise)}{Object.entries(latentUp.u.advanced??{}).map(([k,v])=>row(`studio.run.latent.${k}`,typeof v==='boolean'?yesNo(v):v))}</>}<dd>{t('studio.run.latent.hint',{width:String(latentOut.width),height:String(latentOut.height)})}</dd></>)}
+   {latentUp&&latentOut&&stage('latentUpscale',<>{row('studio.run.latent.model',latentUp.u.model)}{latentUp.u.regenerate?<>{row('studio.run.regenerate.lora',latentUp.u.regenerate.lora)}{row('studio.run.regenerate.target',latentUp.u.regenerate.target)}{latentUp.u.regenerate.spatialTiling!==undefined&&row('studio.run.latent.spatialTiling',yesNo(latentUp.u.regenerate.spatialTiling))}</>:row('studio.run.upscale',latentUp.u.scale)}{row('studio.run.resolution.title',size(latentOut))}{'steps' in latentUp.u&&<>{row('studio.run.latent.steps',latentUp.u.steps)}{row('studio.run.latent.denoise',latentUp.u.denoise)}{Object.entries(latentUp.u.advanced??{}).map(([k,v])=>row(`studio.run.latent.${k}`,typeof v==='boolean'?yesNo(v):v))}</>}<dd>{t('studio.run.latent.hint',{width:String(latentOut.width),height:String(latentOut.height)})}</dd></>)}
    {video&&video.family!=='wan'&&stage('audio',<>{row('studio.run.video.audioVae',video.family==='ltx-2'?video.ltx.audioVae:video.h3.audioVae)}<dd>{t('studio.plan.audioPending')}</dd></>)}
    {video?.videoPost&&stage('tve',<>{row('studio.tve.post.title',describeVideoPost(video.videoPost))}{row('studio.tve.fps',`${video.frameRate} → ${videoPostFrameRate(video.frameRate,video.videoPost)}`)}<dd>{t('studio.tve.post.baselineHint')}</dd></>)}
    {video?.audioEnhance&&stage('audioEnhance',<>{row('studio.audioEnhance.mode',t(`studio.audioEnhance.${video.audioEnhance.mode}`))}{row('studio.audioEnhance.profile',t(`studio.audioEnhance.${video.audioEnhance.profile}`))}{video.audioEnhance.mode==='stems'&&row('studio.audioEnhance.device',t(`studio.audioEnhance.device.${video.audioEnhance.device??'auto'}`))}<dd>{t('studio.audioEnhance.automatic')}</dd></>)}

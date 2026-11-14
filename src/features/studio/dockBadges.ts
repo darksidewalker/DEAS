@@ -15,11 +15,12 @@ export function activeWildcards(enabled: boolean, rules: WildcardRules): string[
   return enabled ? ['enabled', ...authored] : [];
 }
 
-export type PostCategoryId = 'audio' | 'latent' | 'face-analysis' | 'sam' | 'refine' | 'model' | 'derope' | 'tve';
+export type PostCategoryId = 'audio' | 'latent' | 'regenerate' | 'face-analysis' | 'sam' | 'refine' | 'model' | 'derope' | 'tve';
 
 export const postCategoryOrder: readonly PostCategoryId[] = [
   'audio',
   'latent',
+  'regenerate',
   'face-analysis',
   'sam',
   'refine',
@@ -41,6 +42,8 @@ export interface PostBadgeInput {
   h3Image?: boolean;
   moss?: boolean;
   latentSpikeGuard?: boolean;
+  regenerate?: boolean;
+  regenerateTilingOff?: boolean;
   samVideoCuts?: boolean;
   faceRefine?: boolean;
   faceRefinePrimaryOnly?: boolean;
@@ -58,6 +61,7 @@ export function postCategoryFunctions(p: PostBadgeInput): Record<PostCategoryId,
   return {
     audio: p.audio && p.audioMode !== 'off' ? ['audio'] : [],
     latent: p.video && p.latent ? ['latent', ...(p.latentSpikeGuard ? ['latent.spikeGuard'] : [])] : [],
+    regenerate: h3Video && p.regenerate ? ['regenerate', ...(p.regenerateTilingOff ? ['regenerate.tilingOff'] : [])] : [],
     'face-analysis': h3Video && p.faceRefine ? ['faceRefine', ...(p.samVideoCuts ? ['faceAnalysis.cuts'] : []), ...(p.faceRefinePrimaryOnly ? ['faceRefine.primaryOnly'] : [])] : [],
     sam: imageEligible && p.sam ? ['sam'] : [],
     refine: refineEligible && p.refine ? ['refine', ...(p.refineTiled ? ['refine.tiled'] : [])] : [],

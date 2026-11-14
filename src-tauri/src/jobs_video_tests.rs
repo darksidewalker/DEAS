@@ -2123,9 +2123,28 @@ fn dump_video_graphs() {
     hf["steps"] = json!(6);
     hf["h3"]["references"] = json!([]);
     hf["h3"]["mode"] = json!("T2VA");
+    let mut regen = regenerate_intent();
+    regen["loras"] = json!([]);
+    regen.as_object_mut().unwrap().remove("options");
+    let mut regen_fixes = regen.clone();
+    regen_fixes["latentUpscale"]["regenerate"]["model"] =
+        json!("MiniMaxH3/minimax_h3_fl2va_pruned_bf16.safetensors");
+    regen_fixes["videoPost"] = json!({"derope":{"preset":"balanced","inject":0.48}});
+    regen_fixes["faceRefine"] = face_block();
+    let continued = |mode: &str| {
+        let mut i = regen.clone();
+        i["h3"]["mode"] = json!("REF2VA");
+        i["h3"]["references"] = json!([]);
+        i["h3"]["media"] = json!([]);
+        i["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","sourceFrames":243,"capture":true,"action":"turn","outputMode":mode});
+        i
+    };
+    let (regen_full, regen_segment) = (continued("full"), continued("segment"));
     println!(
         "{}",
-        json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap(),"hyperflow":compile(&hf).unwrap()})
+        json!({"ltx":compile(&l).unwrap(),"wan":compile(&w).unwrap(),"h3":compile(&h3()).unwrap(),"ltx_v2v":compile(&v2v).unwrap(),"h3_ref2va":compile(&r).unwrap(),"hyperflow":compile(&hf).unwrap(),
+            "h3_regenerate":compile(&regen).unwrap(),"h3_regenerate_own_model_fixes":compile(&regen_fixes).unwrap(),
+            "h3_regenerate_continuity_full":compile(&regen_full).unwrap(),"h3_regenerate_continuity_segment":compile(&regen_segment).unwrap()})
     );
 }
 
@@ -2837,4 +2856,147 @@ fn dump_face_refine_graphs() {
         "{}",
         json!({"h3_face_refine_chain":compile(&i).unwrap(),"h3_face_refine":compile(&standalone).unwrap()})
     );
+}
+
+fn regenerate_intent() -> Value {
+    let mut i = h3();
+    i["width"] = json!(1344);
+    i["loras"] = json!([{"name":"MiniMaxH3/turbo/turbo.safetensors","strength":1.0}]);
+    i["options"] = json!({"attention":"sage"});
+    i["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+        "regenerate":{"lora":"open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors","target":"2K"}});
+    i
+}
+
+#[test]
+fn h3_regenerate_replaces_the_upscale_node_on_a_lora_free_base_chain() {
+    let i = regenerate_intent();
+    let g = compile(&i).unwrap();
+    let u = &g["U"]["inputs"];
+    assert_eq!(g["U"]["class_type"], "DaSiWaH3Regenerate2K");
+    assert_eq!(
+        u["lora_name"],
+        "open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors"
+    );
+    assert_eq!(
+        (
+            u["target"].clone(),
+            u["strength"].clone(),
+            u["spatial_tiling"].clone()
+        ),
+        (json!("2K"), json!(1.0), json!(true))
+    );
+    assert_eq!(u["upscale_model"], i["latentUpscale"]["model"]);
+    assert_eq!(
+        (u["noise"].clone(), u["seed"].clone()),
+        (json!(["N", 0]), i["seed"].clone())
+    );
+    for (input, link) in [
+        ("continuity_context", json!(["SP", 1])),
+        ("director_guide", json!(["D", 0])),
+        ("vae", json!(["V", 0])),
+        ("conditioning", json!(["G", 0])),
+        ("latent", json!(["SP", 0])),
+    ] {
+        assert_eq!(u[input], link, "{input}");
+    }
+    // Workbench options on the base, generation LoRAs (Turbo) only on the sampling chain.
+    assert_eq!(u["model"], json!(["RA", 0]));
+    assert_eq!(g["RA"]["inputs"]["model"], json!(["1", 0]));
+    assert!(g.get("RL1").is_none() && g.get("L1").is_some());
+    assert!(u.get("scale").is_none() && u.get("denoise").is_none());
+    assert_eq!(latent_upscale_size(&i), (2560, 1440));
+    let mut baseline = std::collections::BTreeSet::new();
+    fn deps(g: &Value, id: &str, seen: &mut std::collections::BTreeSet<String>) {
+        if !seen.insert(id.to_owned()) {
+            return;
+        }
+        for v in g[id]["inputs"].as_object().unwrap().values() {
+            if let Some(dep) = v
+                .as_array()
+                .filter(|a| a.len() == 2 && a[1].is_number())
+                .and_then(|a| a[0].as_str())
+                .filter(|d| g.get(*d).is_some())
+            {
+                deps(g, dep, seen);
+            }
+        }
+    }
+    deps(&g, "B7", &mut baseline);
+    assert!(
+        !baseline.contains("U") && !baseline.contains("RA"),
+        "baseline pulls the regenerate pass"
+    );
+    assert_eq!(g["SD"]["inputs"]["latent"], json!(["U", 0]));
+    // Own base model: loaded beside the generation model, still without the generation LoRAs.
+    let mut own = regenerate_intent();
+    own["latentUpscale"]["regenerate"]["model"] =
+        json!("MiniMaxH3/minimax_h3_fl2va_pruned_bf16.safetensors");
+    own["latentUpscale"]["regenerate"]["spatialTiling"] = json!(false);
+    let g = compile(&own).unwrap();
+    assert_eq!(
+        g["RM"]["inputs"]["unet_name"],
+        "MiniMaxH3/minimax_h3_fl2va_pruned_bf16.safetensors"
+    );
+    assert_eq!(g["RA"]["inputs"]["model"], json!(["RM", 0]));
+    assert_eq!(g["U"]["inputs"]["spatial_tiling"], false);
+    let required = requirements(&own);
+    assert!(required.contains(&(
+        "loras",
+        vec!["open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors"]
+    )));
+    assert!(required.contains(&(
+        "diffusionModels",
+        vec!["MiniMaxH3/minimax_h3_fl2va_pruned_bf16.safetensors"]
+    )));
+    assert!(required.contains(&(
+        "h3LatentUpscaleModels",
+        vec!["minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"]
+    )));
+}
+
+#[test]
+fn h3_regenerate_rejects_mixed_or_invalid_settings() {
+    for (path, value) in [
+        ("scale", json!(2.0)),
+        ("denoise", json!(0.2)),
+        ("advanced", json!({"cfg":1.0})),
+    ] {
+        let mut i = regenerate_intent();
+        i["latentUpscale"][path] = value;
+        assert!(
+            compile(&i).unwrap_err().contains("Invalid latentUpscale"),
+            "{path}"
+        );
+    }
+    for (key, value) in [
+        ("target", json!("8K")),
+        ("lora", json!("../evil.safetensors")),
+        ("lora", json!("regen.ckpt")),
+        ("model", json!("MiniMaxH3/model.gguf")),
+        ("spatialTiling", json!("yes")),
+        ("strength", json!(0.5)),
+    ] {
+        let mut i = regenerate_intent();
+        i["latentUpscale"]["regenerate"][key] = value;
+        assert!(
+            compile(&i).unwrap_err().contains("Invalid latentUpscale"),
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn h3_regenerate_size_follows_the_reference_grids() {
+    for ((w, h, target), expected) in [
+        ((1344, 768, "2K"), (2560, 1440)),
+        ((1344, 768, "1080P"), (1920, 1088)),
+        ((1344, 768, "4K"), (3840, 2176)),
+        ((1024, 576, "2K"), (2560, 1440)),
+        ((768, 1344, "2K"), (1440, 2560)),
+        ((768, 768, "2K"), (1440, 1440)),
+        ((1024, 768, "2K"), (1920, 1440)),
+    ] {
+        assert_eq!(regenerate_size(w, h, target), expected, "{w}x{h} {target}");
+    }
 }

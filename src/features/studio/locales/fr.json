@@ -1124,5 +1124,16 @@
   "studio.run.post.reason.latentMasked": "Pas avec Inpainting : l’agrandissement latent H3 ne traite pas les latents masqués. Utilisez Image vers image ou désactivez l’agrandissement.",
   "studio.run.post.reason.imageOnly": "Pipelines image uniquement.",
   "studio.run.post.reason.audioVideoOnly": "Pipelines audio ou vidéo uniquement.",
-  "studio.run.post.reason.audioManualOnly": "L’amélioration audio manuelle reste disponible ; le post-traitement automatique au lancement nécessite un pipeline vidéo ou musical avec audio."
+  "studio.run.post.reason.audioManualOnly": "L’amélioration audio manuelle reste disponible ; le post-traitement automatique au lancement nécessite un pipeline vidéo ou musical avec audio.",
+  "studio.run.regenerate.title": "H3 Regenerate 2K",
+  "studio.run.regenerate.enabled": "Régénérer en plus haute résolution après l’échantillonnage",
+  "studio.run.regenerate.hint": "Dimensions finales : {width} × {height}. Agrandissement appris, puis 3 étapes d’affinage avec la LoRA de régénération ; vidéo originale et audio conservés.",
+  "studio.run.regenerate.latentOn": "L’upscale latent est activé. Un seul des deux peut s’exécuter ; désactivez-le d’abord.",
+  "studio.run.latent.regenerateOn": "H3 Regenerate 2K est activé et remplace cet agrandissement. Désactivez-le d’abord.",
+  "studio.run.regenerate.lora": "LoRA de régénération",
+  "studio.run.regenerate.noLora": "Aucune LoRA convertie trouvée",
+  "studio.run.regenerate.target": "Résolution cible",
+  "studio.run.regenerate.nodeMissing": "Nœud {name} manquant : nécessite le pack de nœuds DaSiWa 0.5.49 (Backend → Mettre à niveau → ComfyUI et packs de nœuds).",
+  "studio.run.regenerate.loraMissing": "Aucune LoRA Open-H3-Regenerate-2K convertie trouvée. Convertissez-la dans Quant Station avec « Diffusers → H3 » et placez-la dans models/loras.",
+  "studio.run.regenerate.model": "Modèle d’agrandissement pour la régénération"
 }

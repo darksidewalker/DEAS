@@ -36,6 +36,9 @@ test('post category function counts match nested switches and reconcile with the
  const byCat=postCategoryFunctions(h3Video);
  expect(byCat.audio).toEqual(['audio']);
  expect(byCat.latent).toEqual(['latent','latent.spikeGuard']);
+ expect(byCat.regenerate).toEqual([]);
+ expect(postCategoryFunctions({...h3Video,regenerate:true,regenerateTilingOff:true}).regenerate).toEqual(['regenerate','regenerate.tilingOff']);
+ expect(postCategoryFunctions({...h3Video,h3Video:false,regenerate:true}).regenerate).toEqual([]);
  expect(byCat['face-analysis']).toEqual(['faceRefine','faceAnalysis.cuts']);
  expect(postCategoryFunctions({...h3Video,faceRefinePrimaryOnly:true})['face-analysis']).toEqual(['faceRefine','faceAnalysis.cuts','faceRefine.primaryOnly']);
  expect(byCat.derope).toEqual(['derope','derope.keepBackground','derope.distilled']);

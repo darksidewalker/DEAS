@@ -70,9 +70,10 @@ const H3_INPUT_SCALING: [&str; 7] = [
     "Long side with divisible crop",
 ];
 /// Every class the three graphs can emit; prepare() checks each against object_info.
-pub(crate) const VIDEO_NODES: [&str; 39] = [
+pub(crate) const VIDEO_NODES: [&str; 40] = [
     "ModelPreviewOverrideKJ",
     "DaSiWaH3TiledUpscale",
+    "DaSiWaH3Regenerate2K",
     "DualCLIPLoader",
     "LoraLoaderModelOnly",
     "RandomNoise",
@@ -196,6 +197,10 @@ pub(crate) fn learned_latent_model(name: &str) -> bool {
 
 /// Post-upscale pixel canvas; H3 uses Python round's ties-to-even 32-pixel grid.
 pub(crate) fn latent_upscale_size(i: &Value) -> (u64, u64) {
+    if let Some(target) = i["latentUpscale"]["regenerate"]["target"].as_str() {
+        let n = |key: &str| i[key].as_u64().unwrap_or(0);
+        return regenerate_size(n("width"), n("height"), target);
+    }
     let dimension = |key: &str| {
         let n = i[key].as_u64().unwrap_or(0);
         let Some(u) = i.get("latentUpscale") else {
@@ -208,6 +213,72 @@ pub(crate) fn latent_upscale_size(i: &Value) -> (u64, u64) {
         }
     };
     (dimension("width"), dimension("height"))
+}
+
+/// H3 Regenerate 2K targets: the reference's landscape grids (1080P/4K on whole latent patches).
+pub(crate) const REGENERATE_TARGETS: [&str; 3] = ["1080P", "2K", "4K"];
+
+/// Canvas of `DaSiWaH3Regenerate2K`: the 16:9 grid for drafts within 5 % of 16:9 (orientation kept),
+/// else the draft aspect at the target's short side. shortcut: copy of the pack's
+/// `regenerate_size` (node pack 0.5.49); on pack drift only the planned size is off, the render is the pack's.
+pub(crate) fn regenerate_size(width: u64, height: u64, target: &str) -> (u64, u64) {
+    let (long, short) = match target {
+        "1080P" => (1920, 1088),
+        "4K" => (3840, 2176),
+        _ => (2560, 1440),
+    };
+    let (min, max) = (width.min(height).max(1) as f64, width.max(height) as f64);
+    if (max / min / (long as f64 / short as f64) - 1.0).abs() <= 0.05 {
+        return if height > width {
+            (short, long)
+        } else {
+            (long, short)
+        };
+    }
+    let scaled = |n: u64| ((n as f64 * short as f64 / min / 32.0).round_ties_even() as u64) * 32;
+    (scaled(width), scaled(height))
+}
+
+fn valid_regenerate(r: &Value) -> bool {
+    keys_in(r, &["lora", "target", "model", "spatialTiling"])
+        && r["lora"]
+            .as_str()
+            .is_some_and(|l| comfy_model_name(l) && l.ends_with(".safetensors"))
+        && pick(r, "target", &REGENERATE_TARGETS)
+        && r.get("model").is_none_or(|m| {
+            m.as_str()
+                .is_some_and(|m| comfy_model_name(m) && !crate::jobs::is_gguf(m))
+        })
+        && r.get("spatialTiling").is_none_or(Value::is_boolean)
+}
+
+/// `DaSiWaH3Regenerate2K` in place of the Enhanced Upscale node: the refiner LoRA goes on a clone of
+/// the loaded base (node `1`, or the card's own `model`) with the Workbench options but without the
+/// generation LoRAs, because the merged regenerate LoRA already carries Turbo and Sharp.
+fn h3_regenerate_node(g: &mut Value, i: &Value, conditioning: Value, latent: Value) -> Value {
+    let u = &i["latentUpscale"];
+    let r = &u["regenerate"];
+    let base = match r.get("model") {
+        Some(m) => {
+            g["RM"] = unet_loader(i["family"].as_str().unwrap_or_default(), m);
+            json!(["RM", 0])
+        }
+        None => json!(["1", 0]),
+    };
+    let mut plain = i.clone();
+    plain["loras"] = json!([]);
+    let model = model_chain(
+        g,
+        "R",
+        base,
+        None,
+        &plain,
+        "MiniMaxChunkFeedForward",
+        "seq_threshold",
+    );
+    json!({"class_type":"DaSiWaH3Regenerate2K","inputs":{"model":model,"conditioning":conditioning,"latent":latent,
+        "lora_name":r["lora"],"strength":1.0,"upscale_model":u["model"],"target":r["target"],"seed":i["seed"],
+        "noise":["N",0],"spatial_tiling":r.get("spatialTiling").cloned().unwrap_or(json!(true))}})
 }
 
 pub(crate) fn h3_latent_model(name: &str) -> bool {
@@ -310,6 +381,12 @@ pub(crate) fn validate_latent_upscale(i: &Value, family: &str) -> Result<(), Str
     };
     let settings = match family {
         "ltx-2" => keys_in(u, &["model", "scale"]) && u["scale"].as_f64() == Some(2.0),
+        // Regenerate 2K replaces the upscale settings with its pinned recipe; H3 video only.
+        "minimax-h3" if u.get("regenerate").is_some() => {
+            is_video(i)
+                && keys_in(u, &["model", "regenerate"])
+                && valid_regenerate(&u["regenerate"])
+        }
         "minimax-h3" => {
             keys_in(u, &["model", "scale", "steps", "denoise", "advanced"])
                 && finite(&u["scale"], 1.0, 8.0)
@@ -1835,15 +1912,16 @@ fn h3(i: &Value) -> Value {
     if i.get("latentUpscale").is_some() {
         // Segment capture keeps its only SegmentDecode on SP for exact, pre-upscale audio cropping;
         // the pack requires that audio directly on exporter 7. Core nodes decode/crop Processed.
-        g["U"] = h3_upscale_node(
-            i,
-            json!(["G", 0]),
-            if refining {
-                json!(["RC", 0])
-            } else {
-                json!(["SP", 0])
-            },
-        );
+        let latent = if refining {
+            json!(["RC", 0])
+        } else {
+            json!(["SP", 0])
+        };
+        g["U"] = if i["latentUpscale"].get("regenerate").is_some() {
+            h3_regenerate_node(&mut g, i, json!(["G", 0]), latent)
+        } else {
+            h3_upscale_node(i, json!(["G", 0]), latent)
+        };
         for (input, link) in [
             ("continuity_context", json!(["SP", 1])),
             ("director_guide", json!(["D", 0])),
@@ -1989,6 +2067,12 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
     ];
     if i["enhancedPreview"]["decoder"] == "vae" {
         required.push(("vaes", strs(&[&i["enhancedPreview"]["model"]])));
+    }
+    let regenerate = &i["latentUpscale"]["regenerate"];
+    for (field, key) in [("loras", "lora"), ("diffusionModels", "model")] {
+        if let Some(name) = regenerate[key].as_str() {
+            required.push((field, vec![name]));
+        }
     }
     required.extend(crate::jobs_video_post::requirements(&i["videoPost"]));
     if let Some(sam) = i["faceRefine"]["samCheckpoint"].as_str() {

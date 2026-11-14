@@ -1826,6 +1826,72 @@ async fn derope_keep_background_prepare_rejects_missing_old_or_incompatible_reco
 }
 
 #[tokio::test]
+async fn h3_regenerate_prepare_names_the_node_pack_and_requires_the_lora() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["latentUpscale"] = json!({"model":"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+        "regenerate":{"lora":"open_h3_regenerate_2k_native_svd.safetensors","target":"2K"}});
+    let graph = compile(&intent).unwrap();
+    let mut all = nodes();
+    for node in graph.as_object().unwrap().values() {
+        let class = node["class_type"].as_str().unwrap();
+        if all.get(class).is_none() {
+            all[class] = json!({});
+        }
+    }
+    all["DaSiWa_EnhancedVideoCombine"]["output"] = json!(["IMAGE", "STRING"]);
+    all["DEAS_VideoPostprocessGate"] = json!({"input":{"required":{"baseline":["IMAGE,STRING"],"image":["IMAGE",{"lazy":true}]},"optional":{"audio":["AUDIO",{"lazy":true}]}},"output":["IMAGE","AUDIO"]});
+    for (field, names) in crate::jobs_video::requirements(&intent) {
+        let (node, input) = match field {
+            "diffusionModels" => ("UNETLoader", "unet_name"),
+            "textEncoders" => ("CLIPLoader", "clip_name"),
+            "clipTypes" => ("CLIPLoader", "type"),
+            "vaes" => ("VAELoader", "vae_name"),
+            "images" => ("LoadImage", "image"),
+            "h3LatentUpscaleModels" => ("DaSiWaH3TiledUpscale", "upscale_model"),
+            "loras" => ("LoraLoader", "lora_name"),
+            _ if names.is_empty() => continue,
+            _ => unreachable!("{field}"),
+        };
+        all[node]["input"]["required"][input] = json!([names]);
+    }
+    all["KSampler"]["input"]["required"]["sampler_name"] = json!([[intent["sampler"]]]);
+    all["KSampler"]["input"]["required"]["scheduler"] = json!([[intent["scheduler"]]]);
+    for case in ["ok", "old pack", "no lora"] {
+        let mut info = all.clone();
+        match case {
+            "old pack" => {
+                info.as_object_mut().unwrap().remove("DaSiWaH3Regenerate2K");
+            }
+            "no lora" => {
+                info["LoraLoader"]["input"]["required"]["lora_name"] =
+                    json!([["other.safetensors"]])
+            }
+            _ => {}
+        }
+        let (base, task) = server(move |path, _| {
+            assert_eq!(
+                path, "GET /comfy/object_info HTTP/1.1",
+                "prepare must not execute"
+            );
+            (200, info.to_string())
+        })
+        .await;
+        let result = Jobs::default().prepare(base, intent.clone()).await;
+        match case {
+            "ok" => assert!(result.is_ok(), "{result:?}"),
+            "old pack" => assert!(result.unwrap_err().contains("node pack 0.5.49"), "{case}"),
+            _ => assert!(
+                result
+                    .unwrap_err()
+                    .contains("open_h3_regenerate_2k_native_svd.safetensors"),
+                "{case}"
+            ),
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn video_postprocess_prepare_requires_the_baseline_first_gate() {
     let plain = crate::jobs_video::tests::ltx();
     let mut post = plain.clone();

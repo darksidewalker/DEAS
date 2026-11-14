@@ -1,4 +1,4 @@
-import { isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, videoPostFrameRate } from '../../lib/videoIntent';
+import { isVideoEnhanceIntent, isVideoIntent, latentOutputSize, videoPostFrameRate } from '../../lib/videoIntent';
 import { describeVideoPost } from './TvePostControls';
 import { isAceMusicIntent, isMusicIntent } from '../../lib/musicIntent';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
@@ -57,7 +57,7 @@ export function GenerationMetadata({job,media=null,onRestore}:{job:JobStatus|nul
    {extensionSeconds!==undefined&&row('studio.run.cont.seconds',extensionSeconds)}{row('studio.run.seed',v.seed)}{row('studio.run.steps',v.steps)}{row('studio.run.cfg',v.cfg)}{row('studio.recipe.sampler',v.sampler)}{row('studio.recipe.scheduler',v.scheduler)}{row('studio.run.textEncoder',v.textEncoder)}{row('studio.run.vae',v.vae)}
    {!!v.loras?.length&&row('studio.run.loras',v.loras.map(l=>`${l.name} (${l.strength})`).join(', '))}{(v.firstFrame||v.lastFrame)&&row('studio.run.pipe.input',[v.firstFrame,v.lastFrame].filter(Boolean).join(' → '))}
    {row('studio.run.video.settings',JSON.stringify(v.family==='ltx-2'?v.ltx:v.family==='wan'?v.wan:{...v.h3,references:v.h3.references.map(r=>r.image)}))}
-   {v.latentUpscale&&<>{row('studio.run.latent.model',v.latentUpscale.model)}{row('studio.run.dock.post',JSON.stringify(v.latentUpscale))}{row('studio.run.latent.enabled',`${latentUpscaleSize(v.family,v,v.latentUpscale.scale).width} × ${latentUpscaleSize(v.family,v,v.latentUpscale.scale).height}`)}</>}
+   {v.latentUpscale&&<>{row('studio.run.latent.model',v.latentUpscale.model)}{row('studio.run.dock.post',JSON.stringify(v.latentUpscale))}{row('studio.run.latent.enabled',`${latentOutputSize(v.family,v,v.latentUpscale).width} × ${latentOutputSize(v.family,v,v.latentUpscale).height}`)}</>}
    {audioRow}
    {v.videoPost&&row('studio.tve.post.title',`${describeVideoPost(v.videoPost)} · ${videoPostFrameRate(v.frameRate,v.videoPost)} fps`)}
    {timing}{job?.appVersion&&row('studio.run.metadata.version',job?.appVersion)}

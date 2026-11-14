@@ -1601,6 +1601,11 @@ impl Jobs {
             {
                 return Err("H3 latent upscale sharpness needs DaSiWa node pack 0.5.47 or newer (upscale_sharpness input). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
+            if intent["latentUpscale"].get("regenerate").is_some()
+                && !allow["nodes"].as_array().is_some_and(|n| n.contains(&json!("DaSiWaH3Regenerate2K")))
+            {
+                return Err("H3 Regenerate 2K needs DaSiWa node pack 0.5.49 or newer (DaSiWaH3Regenerate2K). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+            }
             let diffusion = &intent["diffusion"];
             let split = diffusion.is_object();
             let video = crate::jobs_video::is_video(&intent);

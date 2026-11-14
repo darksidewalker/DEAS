@@ -9,7 +9,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isGguf, clipLoaderName, nativeImageReferenceEncoders, nativeImageReferenceLimit, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
 import { autoRefine, loadDiagnosticJobOutput, waitForWorkbenchJob, stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
-import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3Scalings, isH3Video, isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, videoFrames, type H3LatentAdvanced, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
+import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3RegenerateTargets, h3Scalings, isH3Video, isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, regenerateSize, videoFrames, type H3LatentAdvanced, type H3RegenerateTarget, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, musicBounds, musicMaxDuration, type AbcSettings, type MusicGenerationSettings, type MusicIntentV1, type MusicPlanning } from '../../lib/musicIntent';
 import { MusicPrompts, type MusicField } from './MusicPrompts';
 import { MusicSettings } from './MusicSettings';
@@ -83,6 +83,10 @@ interface VideoPref { seconds:number; fps:number; passes:1|2|3; upscaler:string;
 interface LatentPref {enabled:boolean;model:string;scale:number;steps:number;denoise:number;advanced?:H3LatentAdvanced}
 const defaultLatent:LatentPref={enabled:false,model:'',scale:2,steps:1,denoise:0.2};
 const isLatentPref=(v:unknown):v is LatentPref=>{const p=v as LatentPref;return !!p&&typeof p.enabled==='boolean'&&typeof p.model==='string'&&[p.scale,p.steps,p.denoise].every(Number.isFinite);};
+/** H3 Regenerate 2K card; `model` is the latent upscaler (the card's own diffusion model is not offered yet). */
+interface RegeneratePref {enabled:boolean;lora:string;target:H3RegenerateTarget;model:string;spatialTiling:boolean}
+const defaultRegenerate:RegeneratePref={enabled:false,lora:'',target:'2K',model:'',spatialTiling:true};
+const isRegeneratePref=(v:unknown):v is RegeneratePref=>{const p=v as RegeneratePref;return !!p&&typeof p.enabled==='boolean'&&typeof p.lora==='string'&&typeof p.model==='string'&&typeof p.spatialTiling==='boolean'&&h3RegenerateTargets.includes(p.target);};
 const latentModels=(family:VideoFamily|undefined,allow:RecipeAllowlist|null)=>(family==='minimax-h3'?allow?.h3LatentUpscaleModels:allow?.latentUpscaleModels)?.filter(m=>{
  const file=m.split(/[/\\]/).pop()!.toLowerCase();
  return /\.(safetensors|sft)$/.test(m)&&(family==='minimax-h3'?!/ltx/i.test(m):file.startsWith('ltx')&&file.includes('spatial')&&file.includes('upscal'));
@@ -295,6 +299,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const audioEnhance=useAudioEnhance('post');
  const [h3Latent,setH3Latent]=usePref('studio.run.latent.h3',defaultLatent,isLatentPref);
  const [ltxLatent,setLtxLatent]=usePref('studio.run.latent.ltx',defaultLatent,isLatentPref);
+ const [regeneratePref,setRegenerate]=usePref('studio.run.regenerate.h3',defaultRegenerate,isRegeneratePref);
  const [latentDownload,setLatentDownload]=useState<VideoFamily|null>(null);
  const latentDialog=useRef<HTMLDialogElement>(null);
  const [visionDownload,setVisionDownload]=useState(false);
@@ -542,6 +547,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const latentSharpness=videoFamily==='minimax-h3'&&!!choices?.h3LatentSharpness&&/2d_conv/i.test(latentModel);
  const latentAdvanced=h3LatentChanged(latentSharpness?latentPref.advanced:(({sharpness:_unused,...rest})=>rest)(latentPref.advanced??{}));
  const latentEnabled=latent&&latentPref.enabled;
+ // Regenerate replaces the H3 video latent upscale; a stale pair of enabled prefs resolves to the classic upscale.
+ const regenerateAvailable=isVideo&&videoFamily==='minimax-h3';
+ const regenerateEnabled=regenerateAvailable&&regeneratePref.enabled&&!latentEnabled;
+ // shortcut: name filter for the converted Open-H3-Regenerate-2K LoRA; upgrade to header metadata if converter names vary.
+ const regenerateLoras=(choices?.loras??[]).filter(l=>/regenerat/i.test(l));
+ const regenerateLora=regeneratePref.lora||regenerateLoras[0]||'';
+ const regenerateModel=regeneratePref.model||latentChoices.find(m=>/3d_conv/i.test(m))||latentChoices[0]||'';
  const latentNodes=[...(isVideo?['DEAS_VideoPostprocessGate']:[]),...(videoFamily==='minimax-h3'?['DaSiWaH3TiledUpscale']:['LatentUpscaleModelLoader','LTXVLatentUpsampler'])];
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The backend may still be booting, or optional models were added since the last probe: re-read when their controls open.
@@ -720,6 +732,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const outputSize=(inpaint||(moss&&pipeline==='i2i'&&!scaled?.resize))&&source?source:(scaled?.size??canvas);
  const latentSize=latentEnabled&&videoFamily?latentUpscaleSize(videoFamily,outputSize,latentPref.scale):outputSize;
  if(latentEnabled&&!validCanvas(latentSize))unavailable.push(t('studio.run.resolution.invalid'));
+ const regenerateCanvas=regenerateSize(outputSize.width,outputSize.height,regeneratePref.target);
+ // Before the capability probe answers there is nothing to report yet (same as latentProblems).
+ const regenerateProblems=!regenerateEnabled?[]:[...(!choices?[]:[
+  ...['DEAS_VideoPostprocessGate','DaSiWaH3Regenerate2K'].filter(n=>!choices.nodes.includes(n)).map(name=>t('studio.run.regenerate.nodeMissing',{name})),
+  ...(!regenerateLoras.includes(regenerateLora)?[t('studio.run.regenerate.loraMissing')]:[]),
+  ...(!latentChoices.includes(regenerateModel)?[t('studio.run.latent.missing',{name:regenerateModel||t('studio.run.latent.model')})]:[])]),
+  ...(!validCanvas(regenerateCanvas)?[t('studio.run.resolution.invalid')]:[])];
+ unavailable.push(...regenerateProblems);
  const sizeErrorFor=(continuing=false)=>isMusic?needsInput:inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
   :needsInput&&!continuing?needsInput
   :moss&&pipeline==='i2i'&&source&&!scaled?.resize&&(source.width%grid!==0||source.height%grid!==0)?'studio.run.moss.resize'
@@ -1001,6 +1021,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     const mode=refs.length===0?'T2VA':refs.length===2?'FL2VA':refs[0].slot===0?'I2VA':'L2VA';
     intent={...base,family:vf,h3:{mode,audioVae,shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio,references:refs,...(cont?{continuity:cont.continuity}:{}),...(refs.length?scaling:{})}};
    }
+   if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&regenerateEnabled)intent={...intent,latentUpscale:{model:regenerateModel,regenerate:{lora:regenerateLora,target:regeneratePref.target,...(regeneratePref.spatialTiling?{}:{spatialTiling:false})}}};
    if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}};
    if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    return intent;
@@ -1689,7 +1710,11 @@ const promptTools=forgeContext&&<>
   setPost(false);setPostTiled(false);setUpscale(1);setUpscaleModel('');setInputScaling('off');setEdit('resample');
   if(isVideoIntent(intent)){
    setTve(fromVideoPost(intent.videoPost));setDerope(fromDerope(intent.videoPost?.derope));audioEnhance.restore(intent.audioEnhance);
-   if(intent.family==='minimax-h3')setH3Latent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...h3Latent,enabled:false});
+   if(intent.family==='minimax-h3'){
+    const u=intent.latentUpscale;
+    setH3Latent(u&&!u.regenerate?{...defaultLatent,...u,enabled:true}:{...h3Latent,enabled:false});
+    setRegenerate(u?.regenerate?{...regeneratePref,enabled:true,model:u.model,lora:u.regenerate.lora,target:u.regenerate.target,spatialTiling:u.regenerate.spatialTiling??true}:{...regeneratePref,enabled:false});
+   }
    if(intent.family==='ltx-2')setLtxLatent(intent.latentUpscale?{...defaultLatent,...intent.latentUpscale,enabled:true}:{...ltxLatent,enabled:false});
   }
   setWildcardEnabled(false);setRefVision('');setVideo(defaultVideo);setH3Scaling('Fill and crop');setSourceStrength(1);setSourceAudio(false);
@@ -1817,6 +1842,8 @@ const promptTools=forgeContext&&<>
   h3Image,
   moss,
   latentSpikeGuard:videoFamily==='minimax-h3'&&latentEnabled&&!!(latentPref.advanced?.spikeGuard),
+  regenerate:regenerateEnabled,
+  regenerateTilingOff:regenerateEnabled&&!regeneratePref.spatialTiling,
   samVideoCuts,
   faceRefine:faceRefine.auto&&!faceRefineAutoUnavailable,
   faceRefinePrimaryOnly:faceRefine.auto&&!faceRefineAutoUnavailable&&!!faceRefine.primaryOnly,
@@ -1829,15 +1856,16 @@ const promptTools=forgeContext&&<>
  const postCategories=postCategoryOrder.map(id=>{
   const count=postByCategory[id].length;
   const active=count>0;
-  const available=id==='audio'?isMusic||isVideo:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':isVideo;
+  const available=id==='audio'?isMusic||isVideo:id==='latent'?latent:id==='face-analysis'?isVideo&&isH3Video(videoFamily):id==='sam'?!isVideo&&!isMusic:id==='refine'?!isVideo&&!isMusic&&!h3Image&&!moss:id==='derope'?isVideo&&videoFamily==='minimax-h3':id==='regenerate'?regenerateAvailable:isVideo;
   const reason=id==='audio'?(!isMusic&&!isVideo?t('studio.run.post.reason.audioVideoOnly'):isVideo&&videoFamily==='wan'&&audioEnhance.mode!=='off'?t('studio.run.post.reason.audioManualOnly'):'')
    :id==='latent'?(h3MaskedEdit?t('studio.run.post.reason.latentMasked'):!latent?t('studio.run.post.reason.latentOnly'):latentProblems[0]??'')
    :id==='face-analysis'?(!(isVideo&&isH3Video(videoFamily))?t('studio.run.post.reason.h3VideoOnly'):faceRefine.auto&&faceRefineAutoUnavailable?faceRefineAutoUnavailable:'')
    :id==='sam'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):samEnabled&&samUnavailable?samUnavailable:'')
    :id==='refine'?(isVideo||isMusic?t('studio.run.post.reason.imageOnly'):h3Image?t('studio.run.h3EditHint'):moss?t('studio.plan.imageOnly'):'')
    :id==='derope'?(!(isVideo&&videoFamily==='minimax-h3')?t('studio.run.post.reason.h3VideoOnly'):'')
+   :id==='regenerate'?(!regenerateAvailable?t('studio.run.post.reason.h3VideoOnly'):regenerateProblems[0]??'')
    :!isVideo?t('studio.run.post.reason.videoOnly'):'';
-  const title=t(id==='audio'?'studio.audioEnhance.title':id==='latent'?'studio.run.post.group.latent':id==='face-analysis'?'studio.samVideo.title':id==='sam'?'studio.sam.title':id==='refine'?'studio.run.post.group.refine':id==='model'?'studio.run.post.model':id==='derope'?'studio.run.derope.title':'studio.tve.post.title');
+  const title=t(id==='audio'?'studio.audioEnhance.title':id==='latent'?'studio.run.post.group.latent':id==='face-analysis'?'studio.samVideo.title':id==='sam'?'studio.sam.title':id==='refine'?'studio.run.post.group.refine':id==='model'?'studio.run.post.model':id==='derope'?'studio.run.derope.title':id==='regenerate'?'studio.run.regenerate.title':'studio.tve.post.title');
   return {id,title,count,active,available,reason};
  });
  const activePostCategory=openPostCategory?postCategories.find(c=>c.id===openPostCategory):undefined;
@@ -2092,7 +2120,7 @@ const promptTools=forgeContext&&<>
        </div>
        <div className="wb-post-category" data-post-category="latent" hidden={openPostCategory!=='latent'}>
         {latent?<fieldset className="wb-group" data-post-group="latent"><legend>{t('studio.run.post.group.latent')}</legend><div className="wb-options">
-         <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small></div>
+         <div className="wb-option"><label className="wb-option-row"><input data-latent-upscale-enabled type="checkbox" checked={latentPref.enabled} disabled={regenerateEnabled} onChange={e=>{setLatentPref({...latentPref,enabled:e.target.checked,model:latentPref.model||latentModel});if(e.target.checked&&choices&&!latentChoices.includes(latentModel))setLatentDownload(videoFamily!);}}/>{t('studio.run.latent.enabled')}</label><small>{t('studio.run.latent.hint',{width:String(latentSize.width),height:String(latentSize.height)})}</small>{regenerateEnabled&&<small data-latent-regenerate-on>{t('studio.run.latent.regenerateOn')}</small>}</div>
          <label className="wb-option"><span>{t('studio.run.latent.model')}</span><select data-latent-upscale-model value={latentModel} onChange={e=>setLatentPref({...latentPref,model:e.target.value})}>{!latentChoices.includes(latentModel)&&<option value={latentModel}>{latentModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
          <label className="wb-option"><span>{t('studio.run.upscale')}</span><input data-latent-upscale-scale type="number" min={1} max={8} step={0.25} disabled={videoFamily==='ltx-2'} value={videoFamily==='ltx-2'?2:latentPref.scale} onChange={e=>setLatentPref({...latentPref,scale:Number(e.target.value)})}/></label>
          {videoFamily==='minimax-h3'&&<><label className="wb-option"><span>{t('studio.run.latent.steps')}</span><input data-latent-upscale-steps type="number" min={1} max={100} step={1} value={latentPref.steps} onChange={e=>setLatentPref({...latentPref,steps:Number(e.target.value)})}/><small>{t('studio.run.latent.stepsHint')}</small></label><label className="wb-option"><span>{t('studio.run.latent.denoise')}</span><input data-latent-upscale-denoise type="number" min={0} max={1} step={0.05} value={latentPref.denoise} onChange={e=>setLatentPref({...latentPref,denoise:Number(e.target.value)})}/></label></>}
@@ -2113,6 +2141,17 @@ const promptTools=forgeContext&&<>
          {latentProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
          <button type="button" className="wb-dock-action" data-latent-upscale-offer onClick={()=>setLatentDownload(videoFamily!)}>{t('studio.run.latent.download')}</button>
         </fieldset>:<p className="field-help" data-post-unavailable="latent">{t(h3MaskedEdit?'studio.run.post.reason.latentMasked':'studio.run.post.reason.latentOnly')}</p>}
+       </div>
+       <div className="wb-post-category" data-post-category="regenerate" hidden={openPostCategory!=='regenerate'}>
+        {regenerateAvailable?<fieldset className="wb-group" data-post-group="regenerate"><legend>{t('studio.run.regenerate.title')}</legend><div className="wb-options">
+         <div className="wb-option"><label className="wb-option-row"><input data-regenerate-enabled type="checkbox" checked={regenerateEnabled} disabled={latentEnabled} onChange={e=>setRegenerate({...regeneratePref,enabled:e.target.checked,lora:regenerateLora,model:regenerateModel})}/>{t('studio.run.regenerate.enabled')}</label><small>{t('studio.run.regenerate.hint',{width:String(regenerateCanvas.width),height:String(regenerateCanvas.height)})}</small>{latentEnabled&&<small data-regenerate-latent-on>{t('studio.run.regenerate.latentOn')}</small>}</div>
+         <label className="wb-option"><span>{t('studio.run.regenerate.lora')}</span><select data-regenerate-lora value={regenerateLora} onChange={e=>setRegenerate({...regeneratePref,lora:e.target.value})}>{!regenerateLoras.includes(regenerateLora)&&<option value={regenerateLora}>{regenerateLora||t('studio.run.regenerate.noLora')}</option>}{regenerateLoras.map(l=><option key={l} value={l}>{l}</option>)}</select></label>
+         <label className="wb-option"><span>{t('studio.run.regenerate.model')}</span><select data-regenerate-model value={regenerateModel} onChange={e=>setRegenerate({...regeneratePref,model:e.target.value})}>{!latentChoices.includes(regenerateModel)&&<option value={regenerateModel}>{regenerateModel||t('studio.run.latent.choose')}</option>}{latentChoices.map(m=><option key={m} value={m}>{m}</option>)}</select></label>
+         <label className="wb-option"><span>{t('studio.run.regenerate.target')}</span><select data-regenerate-target value={regeneratePref.target} onChange={e=>setRegenerate({...regeneratePref,target:e.target.value as H3RegenerateTarget})}>{h3RegenerateTargets.map(o=><option key={o} value={o}>{o}</option>)}</select></label>
+         <div className="wb-option"><label className="wb-option-row"><input data-regenerate-tiling type="checkbox" checked={regeneratePref.spatialTiling} onChange={e=>setRegenerate({...regeneratePref,spatialTiling:e.target.checked})}/>{t('studio.run.latent.spatialTiling')}</label></div>
+        </div>
+         {regenerateProblems.map(problem=><p role="status" key={problem}>{problem}</p>)}
+        </fieldset>:<p className="field-help" data-post-unavailable="regenerate">{t('studio.run.post.reason.h3VideoOnly')}</p>}
        </div>
        <div className="wb-post-category" data-post-category="face-analysis" hidden={openPostCategory!=='face-analysis'}>
         {isVideo&&isH3Video(videoFamily)?<Sam3VideoControls value={samVideoSettings} onChange={v=>{setSamCheckpoint(v.checkpoint);setSamThreshold(v.threshold);setSamVideoStart(v.startSeconds);setSamVideoDuration(v.durationSeconds);setSamVideoMax(v.maxObjects);setSamVideoInterval(v.detectInterval);setSamVideoCuts(v.cuts);setSamVideoSceneThreshold(v.sceneThreshold);}} models={samModels} sourceName={samVideoSource?.media==='video'?samVideoSource.name:undefined} unavailable={samVideoUnavailable} busy={serialBlocked||admissionBlocked||scanning} onAnalyze={()=>void analyzeFaceMasks()} refine={{value:faceRefine,onChange:setFaceRefine,unavailable:faceRefineUnavailable,autoUnavailable:faceRefineAutoUnavailable,onRefine:()=>void refineFaces()}}/>:<p className="field-help" data-post-unavailable="face-analysis">{t('studio.run.post.reason.h3VideoOnly')}</p>}

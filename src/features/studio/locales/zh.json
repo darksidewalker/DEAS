@@ -1124,5 +1124,16 @@
   "studio.run.post.reason.latentMasked": "不适用于局部重绘：H3 潜空间放大无法处理带蒙版的潜空间。请使用图生图或关闭放大。",
   "studio.run.post.reason.imageOnly": "仅限图像管线。",
   "studio.run.post.reason.audioVideoOnly": "仅适用于音频或视频管线。",
-  "studio.run.post.reason.audioManualOnly": "仍可使用手动音频增强；运行后自动处理需要支持音频的视频或音乐管线。"
+  "studio.run.post.reason.audioManualOnly": "仍可使用手动音频增强；运行后自动处理需要支持音频的视频或音乐管线。",
+  "studio.run.regenerate.title": "H3 Regenerate 2K",
+  "studio.run.regenerate.enabled": "采样后以更高分辨率重新生成",
+  "studio.run.regenerate.hint": "最终尺寸：{width} × {height}。先进行学习式放大，再用 Regenerate LoRA 精修 3 步；保留原始视频和音频。",
+  "studio.run.regenerate.latentOn": "潜空间放大已开启。两者只能运行其一，请先将其关闭。",
+  "studio.run.latent.regenerateOn": "H3 Regenerate 2K 已开启并将替代此放大。请先将其关闭。",
+  "studio.run.regenerate.lora": "Regenerate LoRA",
+  "studio.run.regenerate.noLora": "未找到已转换的 LoRA",
+  "studio.run.regenerate.target": "目标分辨率",
+  "studio.run.regenerate.nodeMissing": "缺少节点 {name}：需要 DaSiWa 节点包 0.5.49（后端 → 升级 → ComfyUI 和节点包）。",
+  "studio.run.regenerate.loraMissing": "未找到已转换的 Open-H3-Regenerate-2K LoRA。请在 Quant Station 中用“Diffusers → H3”转换，并放入 models/loras。",
+  "studio.run.regenerate.model": "Regenerate 放大模型"
 }
