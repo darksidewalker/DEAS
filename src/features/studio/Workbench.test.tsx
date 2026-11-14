@@ -35,7 +35,10 @@ vi.mock('../../lib/jobs',()=>({autoRefine:vi.fn(),waitForWorkbenchJob:vi.fn(),st
 const collection=(jobs:JobStatus[]=[],preparing=0)=>({jobs,preparing,capacity:20,stopAvailable:true,admissionEpoch:0,stopping:false});
 const evidence={baseUrl:'http://127.0.0.1:7801/',recipeId:'checkpoint-text-to-image-diagnostic' as const,version:1 as const,missingNodes:[],generationReady:false as const,
  allowlist:{nodes:['CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage'],checkpoints:['a.safetensors','b.safetensors'],loras:['style.safetensors'],samplers:['euler','euler_ancestral','euler_cfg_pp','er_sde','dpmpp_2m','dpm_2','res_multistep','uni_pc','lcm'],schedulers:['normal','simple','linear_quadratic','karras','sgm_uniform','beta']}};
+const videoEvidence={...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader'],diffusionModels:['LTX2/ltx.safetensors','h3.safetensors','MiniMaxH3/h3.safetensors','MiniMaxH3/h3_ref2va.safetensors']}};
+const refsEvidence={...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader'],diffusionModels:['qwen.safetensors','anima.safetensors']}};
 beforeEach(()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value(this:HTMLDialogElement){this.open=true;}});
  nativeDrops.clear();nativeDropFailure.sync=false;nativeDropFailure.async=false;
  vi.mocked(stopWorkbench).mockResolvedValue({...collection(),admissionEpoch:1,outcome:'empty',discarded:0,issues:[]});
@@ -310,6 +313,117 @@ test('SAM automatic refinement keeps polling so its native passes show in the qu
  await waitFor(()=>expect(autoRefine).toHaveBeenCalledTimes(1));
  await waitFor(()=>expect(document.querySelector('[data-job-id="refine-pass"]')).not.toBeNull(),{timeout:5000});
 });
+test('dual encoder advice belongs to each effective filename, including automatic selection',async()=>{
+ localStorage.setItem('deas.pref.studio.run.textEncoder2',JSON.stringify('broken-t5.safetensors'));
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'flux.safetensors',family:'flux',path:'/m/flux',size:1,info:null},
+  {category:'text_encoders',name:'clip_l.safetensors',component:'clip-l',path:'/m/clip',size:1,info:null},
+  {category:'text_encoders',name:'broken-t5.safetensors',component:'t5xxl',integrity:'truncated',path:'/m/t5',size:1,info:null},
+  {category:'vae',name:'ae.safetensors',component:'flux-vae',path:'/m/vae',size:1,info:null}
+ ]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['flux.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader','DualCLIPLoader','VAELoader']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('flux.safetensors'));
+ expect(document.querySelector('[data-run-component="textEncoders"] [data-model-check]')?.getAttribute('data-model-check')).toBe('suitable');
+ expect(document.querySelector('[data-run-component="textEncoders2"] [data-model-check]')?.getAttribute('data-model-check')).toBe('blocked');
+ expect(document.querySelector('[data-run-component="textEncoders2"]')?.textContent).toContain('File integrity check failed');
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each(['integrity','conflict'] as const)('shared model helper keeps a saved %s checkpoint blocked without replacement',async issue=>{
+ const file={category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null,...(issue==='integrity'?{integrity:'truncated'}:{check:{identity:'sha256' as const,compatibility:'blocked' as const,availability:'available' as const,evidence:['header','provider'],reasons:[{code:'conflict'}]}})};
+ localStorage.setItem('deas.pref.studio.run.checkpoint',JSON.stringify(file.name));
+ vi.mocked(scanModels).mockResolvedValue([file]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain(file.name));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ expect(document.querySelector('[data-model-check="blocked"]')).not.toBeNull();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+test.each([false,true])('shared model helper checks an enabled auxiliary upscaler, not a disabled saved choice (%s)',async enabled=>{
+ localStorage.setItem('deas.pref.studio.run.post',JSON.stringify(enabled));
+ localStorage.setItem('deas.pref.studio.run.upscaleModel',JSON.stringify('broken-up.safetensors'));
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a',size:1,info:null},{category:'upscale_models',name:'broken-up.safetensors',path:'/m/up',size:1,info:null,integrity:'truncated'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_ImagePostprocessGate'],upscaleModels:['broken-up.safetensors']}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',enabled);
+ if(enabled)expect(screen.getByRole('alert').textContent).toContain('broken-up.safetensors');
+});
+test.each((['music','video'] as const).flatMap(pipeline=>(['upscaler','sam'] as const).map(stage=>({pipeline,stage}))))('inactive image $stage does not block $pipeline Run or change saved choices',async({pipeline,stage})=>{
+ const name=stage==='sam'?'SAM3/sam3.1_multiplex_fp16.safetensors':'broken-up.safetensors';
+ const saved=stage==='sam'?{samEnabled:true,samCheckpoint:name,samTargets:'hands'}:{post:true,upscaleModel:name};
+ for(const [key,value] of Object.entries(saved))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ const bad:LocalModel={category:stage==='sam'?'checkpoints':'upscale_models',name,path:'/m/'+name,size:1,info:null,integrity:'truncated'};
+ const ready=pipeline==='music'?musicEvidence({samplers:evidence.allowlist.samplers,schedulers:evidence.allowlist.schedulers}):videoEvidence;
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...ready,allowlist:{...ready.allowlist,upscaleModels:[name]}});
+ vi.mocked(scanModels).mockResolvedValue([...(pipeline==='music'?yue2Models:ltxModels),bad]);
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(pipeline==='music'?'t2m':'t2v'));
+ localStorage.setItem('deas.pref.studio.audioEnhance.post.mode',JSON.stringify('off'));
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('inactive-stage','failed'));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ if(pipeline==='music')fireEvent.change(await screen.findByRole('textbox',{name:'Style'}),{target:{value:'instrumental'}});
+ const run=screen.getByRole('button',{name:'Run'});
+ await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({recipeId:pipeline==='music'?'music-generation':'video-generation'});
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('refine');expect(autoRefine).not.toHaveBeenCalled();
+ for(const [key,value] of Object.entries(saved))expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.'+key)!)).toEqual(value);
+});
+
+test.each([false,true])('automatic SAM model protection applies to expert image Run, not beginner (%s)',async beginner=>{
+ const sam='SAM3/sam3.1_multiplex_fp16.safetensors';
+ for(const [key,value] of Object.entries({samEnabled:true,samCheckpoint:sam,samTargets:'hands'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ vi.mocked(scanModels).mockResolvedValue([{...yue2Models[1],family:'sdxl'},{category:'checkpoints',name:sam,path:'/m/sam',size:1,info:null,integrity:'truncated'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'SAM3_Detect'],checkpoints:[...evidence.allowlist.checkpoints,sam]}});
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('beginner-no-sam','failed'));
+ render(<I18nProvider><Workbench beginner={beginner} endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker], #beginner-mode')).not.toBeNull());
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',!beginner));
+ if(beginner){fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));}
+ else {expect(screen.getByRole('alert').textContent).toContain(sam);expect(runWorkbenchJob).not.toHaveBeenCalled();}
+ expect(autoRefine).not.toHaveBeenCalled();expect(localStorage.getItem('deas.pref.studio.run.samEnabled')).toBe('true');expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.samCheckpoint')!)).toBe(sam);
+});
+
+test.each([false,true])('H3 image edit ignores unsupported saved image post/upscaler (backend lists file=%s)',async listed=>{
+ const upscaler='broken-up.safetensors';
+ for(const [key,value] of Object.entries({pipeline:'i2i',post:true,upscaleModel:upscaler}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'h3.safetensors',path:'/m/h3',family:'minimax-h3',size:1,info:null},
+  {category:'text_encoders',name:'minimax_h3_encoder.safetensors',path:'/m/t',size:1,info:null},
+  {category:'vae',name:'h3_video_vae.safetensors',path:'/m/v',size:1,info:null},
+  {category:'vae',name:'h3_audio_vae.safetensors',path:'/m/a',size:1,info:null},
+  {category:'upscale_models',name:upscaler,path:'/m/up',size:1,info:null,integrity:'truncated'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,upscaleModels:listed?[upscaler]:[]}});
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
+ vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('h3-no-image-post','failed'));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));choosePipe('Image → Image');
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await screen.findByRole('button',{name:'ref.png'}));adopt();
+ const img=(await screen.findAllByRole('img',{name:'ref.png'})).find(e=>e.classList.contains('wb-zoomable'))!;
+ Object.defineProperties(img,{naturalWidth:{value:1024},naturalHeight:{value:768}});fireEvent.load(img);
+ const run=screen.getByRole('button',{name:'Run'});await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'minimax-h3',h3Edit:expect.any(Object)});
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).not.toHaveProperty('refine');
+ expect(localStorage.getItem('deas.pref.studio.run.post')).toBe('true');expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.upscaleModel')!)).toBe(upscaler);
+});
+
+test('enabled video upscaler still blocks Run for a damaged model with image post disabled',async()=>{
+ const name='broken-up.safetensors';
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify('t2v'));
+ localStorage.setItem('deas.pref.studio.run.tve',JSON.stringify({...defaultTve,upscaleModel:name}));
+ localStorage.setItem('deas.pref.studio.audioEnhance.post.mode',JSON.stringify('off'));
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels,{category:'upscale_models',name,path:'/m/up',size:1,info:null,integrity:'truncated'}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,upscaleModels:[name]}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('File integrity check failed'));
+ expect(screen.getByRole('alert').textContent).toContain(name);
+ const run=screen.getByRole('button',{name:'Run'});expect(run).toHaveProperty('disabled',true);fireEvent.click(run);expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('model metadata action enables an unknown supported file while GGUF stays usable',async()=>{
  const unknown={category:'diffusion_models',name:'unknown.safetensors',path:'/m/unknown.safetensors',size:1,info:null};
  const bad={...unknown,name:'bad.safetensors',path:'/m/bad.safetensors',family:'anima',metadataError:'invalid sidecar'};
@@ -462,6 +576,25 @@ test.each(['node','file','encoder','vae','plain-base'])('GGUF Run stays blocked 
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
+test.each((['checkpoints','diffusion_models'] as const).flatMap(category=>(['file','loader'] as const).map(missing=>({category,missing}))))('main $category model blocks Run when backend $missing evidence is missing',async({category,missing})=>{
+ const split=category==='diffusion_models',name=split?'anima.safetensors':'a.safetensors',loader=split?'UNETLoader':'CheckpointLoaderSimple';
+ const main={category,name,family:split?'anima':'sdxl',path:'/m/'+name,size:1,info:null};
+ vi.mocked(scanModels).mockResolvedValue([main,{category:'text_encoders',name:'qwen_3_600m.safetensors',path:'/m/e',size:1,info:null},{category:'vae',name:'wan_2.1_vae.safetensors',path:'/m/v',size:1,info:null}]);
+ const ready={...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader'],checkpoints:split?[]:[name],diffusionModels:split?[name]:[]}};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...ready,allowlist:{...ready.allowlist,...(missing==='file'?{checkpoints:[],diffusionModels:[]}:{nodes:ready.allowlist.nodes.filter(n=>n!==loader)})}});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ await screen.findByRole('option',{name});
+ await waitFor(()=>expect(document.querySelector('[data-model-availability]')?.getAttribute('data-model-availability')).toBe('missing'));
+ const run=screen.getByRole('button',{name:'Run'});
+ expect(run).toHaveProperty('disabled',true);
+ expect(screen.getByRole('alert').textContent).toContain(missing==='file'?name:loader);
+ fireEvent.click(run);expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(ready);
+ dock('Models');fireEvent.click(document.querySelector('[data-run-load]')!);
+ await waitFor(()=>expect(run).toHaveProperty('disabled',false));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('Wan LOW metadata errors remain visible dependencies of the selected HIGH model',async()=>{
  localStorage.setItem('deas.pref.studio.run.pipeline','"i2v"');
  const file={category:'diffusion_models',name:'wan_high.gguf',path:'/m/wan_high.gguf',size:1,info:null,family:'wan'};
@@ -473,14 +606,16 @@ test('Wan LOW metadata errors remain visible dependencies of the selected HIGH m
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
-test.each(['metadata','gguf'])('selected LoRA %s errors block Run rather than silently dropping the adapter' ,async issue=>{
+test.each(['metadata','gguf','integrity','conflict'])('selected LoRA %s errors block Run rather than silently dropping the adapter' ,async issue=>{
  const name=issue==='gguf'?'bad.gguf':'bad.safetensors';
  localStorage.setItem('deas.pref.studio.run.loras',JSON.stringify([{name,strength:1}]));
- vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null},{category:'loras',name,path:'/m/'+name,size:1,info:null,...(issue==='metadata'?{metadataError:'invalid metadata'}:{family:'sdxl',familyOverride:'sdxl'})}]);
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',size:1,info:null},{category:'loras',name,path:'/m/'+name,size:1,info:null,...(issue==='metadata'?{metadataError:'invalid metadata'}:issue==='integrity'?{integrity:'truncated'}:issue==='conflict'?{familyEvidence:'conflict' as const}:{family:'sdxl',familyOverride:'sdxl'})}]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);expect(screen.getByRole('alert').textContent).toContain(name);
+ if(issue==='integrity')expect(screen.getByRole('alert').textContent).toContain('File integrity check failed');
+ if(issue==='conflict')expect(screen.getByRole('alert').textContent).toContain('Header and identity evidence conflict');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 const heldJob=(id:string,state:JobStatus['state'],baseUrl='http://original:7801/'):JobStatus=>({id,state,baseUrl,promptId:'p-'+id,outputs:[],error:null,generationReady:false});
@@ -488,7 +623,7 @@ test('automatic audio readiness blocks video while probe is pending/missing; Off
  let resolve!: (value:unknown)=>void;
  localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify('t2v'));
  localStorage.setItem('deas.pref.studio.audioEnhance.post.mode',JSON.stringify('stems'));
- vi.mocked(scanModels).mockResolvedValue([...ltxModels]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_audio_enhance_capabilities'?new Promise(r=>{resolve=r;}):{path:'/out',parent:'/',entries:[],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
@@ -513,7 +648,7 @@ test.each((['ltx-2','minimax-h3','yue2'] as const).flatMap(family=>(['off','clea
   {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})):[...ltxModels];
  vi.mocked(scanModels).mockResolvedValue(files);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(musicFamily?musicEvidence():evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(musicFamily?musicEvidence():videoEvidence);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_audio_enhance_capabilities'?{clean:true,deep:true,stems:true,cuda:true}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:'/out',parent:'/',entries:[],truncated:false});
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('audio-chain','failed'),error:'fixture'});
  localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify(musicFamily?'t2m':'t2v'));
@@ -555,7 +690,7 @@ test.each((['ltx-2','minimax-h3'] as const).flatMap(family=>([undefined,true,fal
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  if(typeof preference==='boolean')localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,enhancedPreview:preference}));
  vi.mocked(scanModels).mockResolvedValue(files);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,videoPreviews:preference==='missing'?{}:{[family]:config}}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,videoPreviews:preference==='missing'?{}:{[family]:config}}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('preview-run','failed'),error:'fixture'});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
@@ -589,7 +724,7 @@ test('enhanced preview follows only the selected running video and cleans up on 
  const jobs=[running,other,...inactive,image];
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection(jobs));vi.mocked(pollWorkbench).mockResolvedValue(collection(jobs));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,videoPreviews:{'ltx-2':config}}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,videoPreviews:{'ltx-2':config}}});
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/input',parent:'/',entries:[mediaEntries[0]],truncated:false});
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  const props={endpoint:evidence.baseUrl,roots:{models:'/m',input:'/input'}};
@@ -633,12 +768,12 @@ test('enhanced preview capability refresh preserves saved OFF without computatio
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.options',JSON.stringify({...defaultOptions,enhancedPreview:false}));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('tab',{name:'Options'}));
  expect(screen.getByRole('switch',{name:'Enhanced preview'})).toHaveProperty('disabled',true);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,videoPreviews:{'ltx-2':{decoder:'tiny',model:'taeltx.safetensors'}}}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,videoPreviews:{'ltx-2':{decoder:'tiny',model:'taeltx.safetensors'}}}});
  fireEvent.click(screen.getByRole('tab',{name:'Media'}));fireEvent.click(screen.getByRole('tab',{name:'Options'}));
  await waitFor(()=>expect(screen.getByRole('switch',{name:'Enhanced preview'})).toHaveProperty('disabled',false));
  expect(screen.getByRole('switch',{name:'Enhanced preview'})).toHaveProperty('checked',false);
@@ -656,7 +791,7 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})):[...ltxModels];
  vi.mocked(scanModels).mockResolvedValue(files);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors',h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
- const compatible={...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:[ltx,h3Model,'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'],h3LatentUpscaleModels:[h3Model,ltx,'interpolation']}};
+ const compatible={...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:[ltx,h3Model,'ltx-2.3-temporal-upscaler-x2-1.0.safetensors'],h3LatentUpscaleModels:[h3Model,ltx,'interpolation']}};
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...compatible,allowlist:{...compatible.allowlist,nodes:compatible.allowlist.nodes.filter(n=>n!=='DEAS_VideoPostprocessGate')}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('latent','failed'),error:'fixture'});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
@@ -692,7 +827,7 @@ test.each(['ltx-2','minimax-h3'] as const)('latent post-processing is opt-in, fa
 
 test('TVE post stages are opt-in on video pipelines, badge-marked, and travel as videoPost into Run Plan and Run',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWa_RTX_UpscalerRefiner','DaSiWa_RTX_FrameGeneration','FrameInterpolate'],upscaleModels:['2x-AnimeSharpV4_RCAN.safetensors'],frameInterpolationModels:['rife_v4.26.safetensors'],rtxUpscaleModes:['Off','VSR','High Bitrate']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DaSiWa_RTX_UpscalerRefiner','DaSiWa_RTX_FrameGeneration','FrameInterpolate'],upscaleModels:['2x-AnimeSharpV4_RCAN.safetensors'],frameInterpolationModels:['rife_v4.26.safetensors'],rtxUpscaleModes:['Off','VSR','High Bitrate']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('tve','failed'),error:'fixture'});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
@@ -722,8 +857,8 @@ test('TVE post stages are opt-in on video pipelines, badge-marked, and travel as
 
 test('Seamless loop is a default-off post stage gated on the audio-aware node and travels as videoPost.loop',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- const allow={...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'FrameInterpolate'],frameInterpolationModels:['rife49.pth','rife_v4.26.safetensors']};
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:allow});
+ const allow={...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'FrameInterpolate'],frameInterpolationModels:['rife49.pth','rife_v4.26.safetensors']};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:allow});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
@@ -734,7 +869,7 @@ test('Seamless loop is a default-off post stage gated on the audio-aware node an
  await waitFor(()=>expect(toggle.disabled).toBe(true)); // Installed pack without the audio-aware loop.
  expect(document.querySelector('[data-tve-post="loop"]')?.textContent).toContain('0.5.41');
  view.unmount();
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...allow,nodes:[...allow.nodes,'DaSiWa_SeamlessLoop']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...allow,nodes:[...allow.nodes,'DaSiWa_SeamlessLoop']}});
  const next=render(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-plan-intent]')?.textContent).toContain('video-generation'));
  expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!)).not.toHaveProperty('videoPost');
@@ -755,8 +890,8 @@ test.each([undefined,false,true])('De-rope keep background restores %s, gates Ru
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.derope',JSON.stringify({enabled:true,mode:'full',lora:'',preset:'balanced',inject:0.7,...(saved===undefined?{}:{keepBackground:saved})}));
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
- const allow={...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover']};
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:allow});
+ const allow={...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover']};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:allow});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
  fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
@@ -764,7 +899,7 @@ test.each([undefined,false,true])('De-rope keep background restores %s, gates Ru
  await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('disabled',true));
  expect(screen.getByRole('checkbox',{name:'Keep static background'})).toHaveProperty('checked',saved??false);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',saved===true));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...allow,deropeKeepBackground:true}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...allow,deropeKeepBackground:true}});
  fireEvent.click(screen.getByRole('tab',{name:'Options'}));
  await waitFor(()=>expect(document.querySelector('[data-dock-tab="options"]')?.getAttribute('aria-selected')).toBe('true'));
  fireEvent.click(screen.getByRole('tab',{name:'Post-Processing'}));
@@ -801,7 +936,7 @@ test('H3 latent upscaler options sit in their own menu, keep separate refine ste
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null}));
  vi.mocked(scanModels).mockResolvedValue(files);
  const h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,schedulers:['simple','beta'],nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,schedulers:['simple','beta'],nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:h3Model,scale:2,steps:1,denoise:0.2}));
@@ -834,7 +969,7 @@ test.each([[true,true],[false,false]])('H3 2D upscaler is the default model and 
   {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
  ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
  const d3='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors',d2='minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors';
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[d3,d2],h3LatentSharpness:ready}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[d3,d2],h3LatentSharpness:ready}});
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'',scale:2,steps:1,denoise:0.2,advanced:{sharpness:4}}));
@@ -848,7 +983,7 @@ test.each([[true,true],[false,false]])('H3 2D upscaler is the default model and 
 test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
- const allow=(latentUpscaleModels:string[])=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels}});
+ const allow=(latentUpscaleModels:string[])=>({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels}});
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow([]));
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -870,7 +1005,7 @@ const h3VideoFiles=()=>[
 test('H3 Regenerate 2K card blocks Run on missing node/LoRA, builds the pinned intent and excludes Latent upscale',async()=>{
  vi.mocked(scanModels).mockResolvedValue(h3VideoFiles());
  const d3='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors',d2='minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors',lora='H3/open_h3_regenerate_2k_h3.safetensors';
- const allow=(extraNodes:string[],loras:string[])=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale',...extraNodes],h3LatentUpscaleModels:[d2,d3],loras}});
+ const allow=(extraNodes:string[],loras:string[])=>({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale',...extraNodes],h3LatentUpscaleModels:[d2,d3],loras}});
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow([],['style.safetensors']));
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
@@ -953,7 +1088,7 @@ test('latent family preferences persist independently and never replace an expli
  localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:false,model:'ltx-missing.safetensors',scale:2,steps:1,denoise:0.2}));
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-missing.safetensors',scale:3,steps:2,denoise:0.3}));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels,{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3',path:'/m/h3',size:1,info:null}]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,latentUpscaleModels:['ltx-present.safetensors'],h3LatentUpscaleModels:['h3-present.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,latentUpscaleModels:['ltx-present.safetensors'],h3LatentUpscaleModels:['h3-present.safetensors']}});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
  fireEvent.click(document.querySelector('[data-dock-tab="post"]')!);
@@ -976,7 +1111,7 @@ test('latent H3 segment capture is allowed in Continuity with the core baseline 
  localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:'h3-post.safetensors',scale:2,steps:1,denoise:0.2}));
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]}));
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:['h3-post.safetensors']}});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('button',{name:'Continuity'}));
@@ -991,6 +1126,7 @@ test('Continuity is off by default: planner runs are blocked, ordinary Run stays
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  const stored={session:'test',outputMode:'segment',steps:[{id:'one',seconds:5,action:''}]};
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify(stored));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},{category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},{category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},{category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
@@ -1017,13 +1153,13 @@ test('late latent capability replies from an old endpoint cannot enable the new 
  localStorage.setItem('deas.pref.studio.run.latent.ltx',JSON.stringify({enabled:true,model:'ltx-post.safetensors',scale:2,steps:1,denoise:0.2}));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  let finish!:(value:Awaited<ReturnType<typeof checkRecipePrerequisites>>)=>void;
- vi.mocked(checkRecipePrerequisites).mockImplementation(url=>url.includes('old')?new Promise(resolve=>{finish=resolve;}):Promise.resolve(evidence));
+ vi.mocked(checkRecipePrerequisites).mockImplementation(url=>url.includes('old')?new Promise(resolve=>{finish=resolve;}):Promise.resolve(videoEvidence));
  const props={roots:{models:'/m'}};
  const view=render(<I18nProvider><Workbench {...props} endpoint="http://old:7801"/></I18nProvider>);
  await waitFor(()=>expect(finish).toBeTypeOf('function'));
  view.rerender(<I18nProvider><Workbench {...props} endpoint="http://new:7801"/></I18nProvider>);
  await act(async()=>{});
- await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-post.safetensors']}}));
+ await act(async()=>finish({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-post.safetensors']}}));
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(document.querySelector('.wb-stage-warning')?.textContent).toContain('LatentUpscaleModelLoader');
  expect(runWorkbenchJob).not.toHaveBeenCalled();
@@ -1040,7 +1176,7 @@ test('a pending capability probe is not a missing latent upscale model',async()=
  // Backend still answering: Run is disabled by the pending notice alone, the selected model is not reported missing.
  expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
  expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
- await act(async()=>finish({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors']}}));
+ await act(async()=>finish({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors']}}));
  expect(document.body.textContent).not.toContain('Missing compatible latent upscale model');
 });
 
@@ -1050,7 +1186,7 @@ test.each(['cancel','download'] as const)('missing latent model opens the actual
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const filename='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';
  let installed=false,started=false;
- vi.mocked(checkRecipePrerequisites).mockImplementation(async()=>({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:installed?[filename]:[]}}));
+ vi.mocked(checkRecipePrerequisites).mockImplementation(async()=>({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:installed?[filename]:[]}}));
  const file={id:'file',label:filename,locator:filename,downloadable:true,kind:'file',url:'https://huggingface.co/file',size:1};
  vi.mocked(invoke).mockImplementation(async c=>{
   if(c==='native_download_catalog')return {version:1,providers:[{id:'huggingface',kind:'huggingface',label:'Hugging Face',origin:'https://huggingface.co',scopes:['repo'],anonymousNotice:''}],entries:[{id:'ltx-latent-upscaler',label:'LTX',providerId:'huggingface',scope:'repo',locator:'models:Lightricks/LTX-2.3',kind:'repo',target:'latent_upscale_models'}]};
@@ -1254,7 +1390,7 @@ test.each(['/new-env/output','/old-env/output'])('recovered image Post-process t
  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({inputImage:'deas-inputs/original.png'});
 });
 test('More stays on a selected image in a video pipeline, between Inpaint and the star, with only its passes disabled',async()=>{
- vi.mocked(scanModels).mockResolvedValue([...ltxModels]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(scanModels).mockResolvedValue([...ltxModels]);vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  vi.mocked(invoke).mockResolvedValue({path:'/out',parent:'/',entries:[{name:'still.png',path:'/out/still.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
@@ -1503,7 +1639,7 @@ test.each(['all','prompt','stale'] as const)('video More reuses validated saved 
  const bare={...heldJob('history-file','succeeded'),outputRoot:'/out',outputs:old.outputs};
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([bare]));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,textEncoders:ltxModels.filter(m=>m.category==='text_encoders').map(m=>m.name),vaes:ltxModels.filter(m=>m.category==='vae').map(m=>m.name)}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,textEncoders:ltxModels.filter(m=>m.category==='text_encoders').map(m=>m.name),vaes:ltxModels.filter(m=>m.category==='vae').map(m=>m.name)}});
  const previous=vi.mocked(invoke).getMockImplementation()!;
  let resolve!:(value:unknown)=>void;
  const snapshot={schemaVersion:1,records:[old],readOnly:false,error:null};
@@ -1870,7 +2006,7 @@ test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('nati
  const method=family==='qwen-image-2.1-turbo'?'qwen-image-2.1':family;
  const width=method==='qwen-image-2.1'?1024:1008;
  vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image'],visionModels:['clip_vision_g.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image'],visionModels:['clip_vision_g.safetensors']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('qwen-reference','failed'));
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  localStorage.setItem('deas.pref.studio.run.width','1008');localStorage.setItem('deas.pref.studio.run.height','1008');
@@ -1941,7 +2077,7 @@ function reorderReferences(from:number,to:number){
 }
 test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('reference thumbnails reorder, renumber and submit captured positions (%s)',async family=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage'],clipTypes:['moss_image']}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('reordered-reference','failed'));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -1990,7 +2126,7 @@ test.each([
 ])('reference controls are localized and duplicate attachments remain independent (%s)',async(locale,position)=>{
  localStorage.setItem('deas.locale.v1',locale);localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes]}});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
  const item={name:'same.png',src:'asset://localhost/same.png',path:'/outside/same.png',media:'image'};
@@ -2006,7 +2142,7 @@ test.each([
 });
 test('ReVision uploads ordered external references with captured vision model and strengths despite authoring edits',async()=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],visionModels:['first.safetensors','second.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,'CLIPVisionLoader','LoadImage','CLIPVisionEncode','unCLIPConditioning'],visionModels:['first.safetensors','second.safetensors']}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"a.safetensors"');
  localStorage.setItem('deas.pref.studio.run.imageRef.vision','"first.safetensors"');
  vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('revision-snapshot','failed'));
@@ -2034,7 +2170,7 @@ test('ReVision uploads ordered external references with captured vision model an
 test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('native references coexist with the image-to-image source (%s)',async family=>{
  const method=family==='qwen-image-2.1-turbo'?'qwen-image-2.1':family,width=method==='qwen-image-2.1'?992:1008;
  vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','VAEEncode'],clipTypes:['moss_image']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes,'DEAS_ImagePromptEncode','UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','VAEEncode'],clipTypes:['moss_image']}});
  vi.mocked(invoke).mockImplementation(async()=>({path:'/env/input',parent:'/env',entries:[{name:'source.png',path:'/env/input/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/ref.png');
  vi.mocked(runWorkbenchJob).mockResolvedValue(heldJob('qwen-i2i','failed'));
@@ -2050,7 +2186,7 @@ test.each(['qwen-image-2.1','qwen-image-2.1-turbo','krea-2','moss-image'])('nati
 });
 test('native reference upload failure never submits an unresolved local filename',async()=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes]}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  vi.mocked(uploadInput).mockRejectedValueOnce(new Error('Reference upload failed'));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -2061,7 +2197,7 @@ test('native reference upload failure never submits an unresolved local filename
 });
 test.each(['krea-2','moss-image'])('native adapter references require the installed image-prompt node (%s)',async family=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels(family));
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','LoadImage'],clipTypes:['moss_image']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,'UNETLoader','CLIPLoader','VAELoader','EmptyFlux2LatentImage','LoadImage'],clipTypes:['moss_image']}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
@@ -2075,7 +2211,7 @@ test.each(['krea-2','moss-image'])('native adapter references require the instal
 });
 test.each(referenceNodes)('native prompt reference blocks Run when %s is missing',async missing=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes.filter(n=>n!==missing)]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes.filter(n=>n!==missing)]}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));promptDrop();
@@ -2085,7 +2221,7 @@ test.each(referenceNodes)('native prompt reference blocks Run when %s is missing
 });
 test('retains inactive reference chips across unsupported family changes and never submits without them',async()=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes]}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));promptDrop();
@@ -2101,7 +2237,7 @@ test('retains inactive reference chips across unsupported family changes and nev
 });
 test.each([['audio','/outside/a.wav'],['video','/outside/a.mp4'],['image',''],['image','relative.png'],['image',123]])('prompt rejects invalid reference media/path (%s %s)',async(media,path)=>{
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes]}});
  localStorage.setItem('deas.pref.studio.run.checkpoint','"qwen.safetensors"');
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false));
@@ -2401,7 +2537,7 @@ test('missing remembered model and LoRAs are explicit blockers, never silently s
  expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 test('dependency warnings follow corrected selections after a blocked post-process and reopen',async()=>{
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['k2.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','k2.safetensors','krea-2'),m('text_encoders','qwen3vl_4b.safetensors'),m('vae','qwen_image_vae.safetensors')]);
  vi.mocked(invoke).mockImplementation(async()=>({path:'/out',parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
@@ -2437,7 +2573,7 @@ test('dependency warnings follow corrected selections after a blocked post-proce
 });
 
 test('pending model refresh validates the latest selection, not the selection at scan start',async()=>{
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['k2.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  const models=[{category:'diffusion_models',name:'k2.safetensors',family:'krea-2',path:'/m/k2',size:1,info:null},{category:'text_encoders',name:'qwen3vl_4b.safetensors',path:'/m/encoder',size:1,info:null},{category:'vae',name:'qwen_image_vae.safetensors',path:'/m/vae',size:1,info:null}];
  vi.mocked(scanModels).mockResolvedValue(models);
  localStorage.setItem('deas.pref.studio.run.vae','"minimax_h3_video_vae.safetensors"');
@@ -2454,7 +2590,7 @@ test('pending model refresh validates the latest selection, not the selection at
 });
 
 test('selection changes do not erase an unrelated preparation error',async()=>{
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['base.safetensors']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'base.safetensors',path:'/m/base',size:1,info:null}]);
  vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('Backend connection failed'));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -2792,6 +2928,7 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  expect((screen.getByRole('checkbox',{name:'Active for generation'}) as HTMLInputElement).checked).toBe(false);
 });
 test('Options naming persists and resolves the submitted seed/model, rejecting unsafe templates before preparation',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['folder/My Model.safetensors']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'folder/My Model.safetensors',path:'/m/checkpoints/folder/My Model.safetensors',size:1,info:null}]);
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'naming-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -2814,6 +2951,7 @@ test('Options naming persists and resolves the submitted seed/model, rejecting u
  dock('Options');expect((screen.getByRole('textbox',{name:'Output naming'}) as HTMLInputElement).value).toBe('../%seed%');
 });
 test('seed controls restore submitted seeds, preserve mode on New and wrap exact integer steps',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['seed.safetensors']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'seed-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
@@ -2865,6 +3003,7 @@ test('seed history caps at ten, deduplicates submitted values and ignores failed
  localStorage.setItem('deas.pref.studio.run.recentSeeds',JSON.stringify([1,2,3,4,5,6,7,8,9,10]));
  localStorage.setItem('deas.pref.studio.run.seed','12');
  localStorage.setItem('deas.pref.studio.run.seedMode',JSON.stringify('fixed'));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['seed.safetensors']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'seed.safetensors',path:'/m/checkpoints/seed.safetensors',size:1,info:null}]);
  vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('prepare failed'));
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:String(Math.random()),baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false}));
@@ -2991,7 +3130,7 @@ test.each([
 });
 
 test('IPC fixture: with an edit draft open, a queue pick opens beside the editor; a render opens in a zoomable full view',async()=>{
- // Own prerequisites: the module default throws (backend not ready); never inherit a previous test's mock.
+ // Own prerequisites rather than inheriting a previous test's mock.
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/checkpoints/a.safetensors',size:1,info:null,family:'sdxl'}]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:[{name:'out.png',path:'/env/ComfyUI/output/out.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
@@ -3032,7 +3171,7 @@ test('IPC fixture: with an edit draft open, a queue pick opens beside the editor
 });
 
 test('a queue click only previews; Use these settings is the explicit restore',async()=>{
- vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(scanModels).mockResolvedValue(sessionModels);vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:sessionModels.map(m=>m.name)}});
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/',entries:[{name:'source.png',path:'/out/source.png',kind:'file',symlink:false,media:'image',size:1,modified:1}],truncated:false}));
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({...heldJob('edit-job','succeeded'),baseUrl:evidence.baseUrl,outputRoot:'/out',outputs:[{filename:'result.png',subfolder:'',type:'output'}],intent:vi.mocked(runWorkbenchJob).mock.lastCall![1]}));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',output:'/out'}}/></I18nProvider>);
@@ -3372,7 +3511,7 @@ test('companion files are collapsed below the other settings and preserve their 
 });
 
 test('Anima recommends renamed header-detected companions and ignores misleading known-incompatible names',async()=>{
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['anima.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  const m=(category:string,name:string,family?:string,component?:string)=>({category,name,family,component,path:'/m/'+name,size:1,info:null});
  const encoder='dasiwaAnima_luminousLabyrinthV1_txt.safetensors',vae='provider-renamed-vae.safetensors';
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',encoder,undefined,'qwen3-0.6b'),m('vae',vae,undefined,'wan-2.1-vae'),m('text_encoders','qwen_3_600m-impostor.safetensors',undefined,'qwen3-vl-8b')]);
@@ -3392,7 +3531,7 @@ test('companion overrides are independently selectable without inferred matches,
  const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+category+'/'+name,size:1,info:null});
  const renamed='dasiwaAnima_luminousLabyrinthV1_txt.safetensors';
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','anima.safetensors','anima'),m('text_encoders',renamed),m('vae','custom-vae.safetensors'),m('checkpoints','not-an-encoder.safetensors')]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['anima.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'component-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
  const mount=()=>render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  const view=mount();await screen.findByRole('combobox',{name:'Text encoder'});
@@ -3409,7 +3548,7 @@ test('companion overrides are independently selectable without inferred matches,
  fireEvent.click(vaeSwitch);fireEvent.change(vae,{target:{value:'custom-vae.safetensors'}});
  expect(runWorkbenchJob).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'anima.safetensors',diffusion:{textEncoder:renamed,clipType:'stable_diffusion',vae:'custom-vae.safetensors'}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({checkpoint:'anima.safetensors',componentOverrides:{textEncoders:true,vaes:true,audioVaes:false,textProjections:false},diffusion:{textEncoder:renamed,clipType:'stable_diffusion',vae:'custom-vae.safetensors'}});
  fireEvent.click(encoderSwitch);
  expect((encoder as HTMLSelectElement).value).toBe(renamed); // never silently replace the manual choice
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(true);
@@ -3424,7 +3563,7 @@ test('audio VAE and text-projection overrides submit exact manual choices and ne
  const m=(category:string,name:string,family?:string)=>({category,name,family,path:'/m/'+name,size:1,info:null});
  let files=[m('diffusion_models','ltx.safetensors','ltx-2'),m('text_encoders','gemma.safetensors'),m('text_encoders','text_projection.safetensors'),m('text_encoders','custom-projection.safetensors'),m('vae','video_vae.safetensors'),m('vae','audio_vae.safetensors'),m('vae','custom-audio.safetensors')];
  vi.mocked(scanModels).mockImplementation(async()=>files);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['ltx.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'video-components-job',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:null,generationReady:false});
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
@@ -3435,7 +3574,7 @@ test('audio VAE and text-projection overrides submit exact manual choices and ne
  }
  expect(screen.getByRole('switch',{name:'Text encoder: All files'}).getAttribute('aria-checked')).toBe('false');
  fireEvent.click(screen.getByRole('button',{name:'Run'}));await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalled());
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',ltx:{audioVae:'custom-audio.safetensors',textProjection:'custom-projection.safetensors'}});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({family:'ltx-2',componentOverrides:{textEncoders:false,vaes:false,audioVaes:true,textProjections:true},ltx:{audioVae:'custom-audio.safetensors',textProjection:'custom-projection.safetensors'}});
  fireEvent.click(screen.getByRole('switch',{name:'Audio VAE: All files'}));
  expect((screen.getByRole('combobox',{name:'Audio VAE'}) as HTMLSelectElement).value).toBe('custom-audio.safetensors');
  expect(screen.getByRole('alert').textContent).toContain('custom-audio.safetensors');
@@ -3452,7 +3591,7 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
  const m=(category:string,name:string,family?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(family?{family}:{})});
  vi.mocked(scanModels).mockResolvedValue([m('checkpoints','ill.safetensors','sdxl'),m('diffusion_models','k2.safetensors','krea-2'),m('diffusion_models','h3.safetensors','minimax-h3'),m('unet','odd.safetensors'),
   m('text_encoders','qwen3vl_4b.safetensors'),m('vae','Q/qwen_image_vae.safetensors'),m('loras','k-style.safetensors','krea-2'),m('loras','ill-style.safetensors','sdxl'),m('loras','mystery.safetensors')]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,samplers:['euler','er_sde','res_multistep'],schedulers:['normal','simple','beta']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['ill.safetensors'],diffusionModels:['k2.safetensors','h3.safetensors','odd.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader'],samplers:['euler','er_sde','res_multistep'],schedulers:['normal','simple','beta']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-3',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');
@@ -3477,7 +3616,7 @@ test('IPC fixture: families gate models and LoRAs, picking applies the family de
 test('IPC fixture: a Turbo family locks steps and scheduler to its saved schedule, submits the sigmas and keeps the base family LoRAs',async()=>{
  const m=(category:string,name:string,family?:string)=>({category,name,path:`/m/${category}/${name}`,size:1,info:null,...(family?{family}:{})});
  vi.mocked(scanModels).mockResolvedValue([m('diffusion_models','turbo.safetensors','qwen-image-2.1-turbo'),m('text_encoders','qwen3vl_8b.safetensors'),m('vae','qwen_image_2.1_vae.safetensors'),m('loras','q-style.safetensors','qwen-image-2.1')]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,diffusionModels:['turbo.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader']}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'job-4',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'failed',outputs:[],error:'x',generationReady:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  dock('Models');fireEvent.click(await screen.findByRole('button',{name:/turbo\.safetensors/}));
@@ -3632,6 +3771,7 @@ test('resolution picker follows reference metadata, forwards padded pixels to th
 });
 
 test('IPC fixture: video families enable Image→Video; LTX submits a video intent with frames on the 8k+1 grid and a video output plays in the stage',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'unet',name:'LTX2/ltx.safetensors',path:'/m/unet/LTX2/ltx.safetensors',size:1,info:null,family:'ltx-2'},
   {category:'text_encoders',name:'gemma_3_12B_it_fp8.safetensors',path:'/m/text_encoders/gemma.safetensors',size:1,info:null},
@@ -3662,6 +3802,7 @@ test('IPC fixture: video families enable Image→Video; LTX submits a video inte
 
 test.each(['ltx-2','wan','sdxl','minimax-h3'])('Continuity is absent from non-H3-video pipelines (%s)',async family=>{
  const model={category:'diffusion_models',name:'model.safetensors',path:'/m/model.safetensors',size:1,info:null,family};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue(family==='ltx-2'?[...ltxModels]:[model]);
  render(<I18nProvider><Workbench onOpenPromptForge={vi.fn()} endpoint="http://127.0.0.1:7801" roots={{models:'/m'}}/></I18nProvider>);
  await act(async()=>{});
@@ -3677,6 +3818,7 @@ test.each(['ltx-2','wan','sdxl','minimax-h3'])('Continuity is absent from non-H3
 test('H3 continuity opens outside the dock, preserves edits and restores focus when closed',async()=>{
  localStorage.setItem('deas.pref.studio.dock.tab',JSON.stringify('continuity'));
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'kept-session',outputMode:'segment',steps:[{id:'one',seconds:5,action:''},{id:'two',seconds:6,action:'turn'}]}));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -3700,6 +3842,7 @@ test('H3 continuity opens outside the dock, preserves edits and restores focus w
 });
 
 test('H3 frame people are opt-in, reach the Forge and reset on a new source picture',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -3777,6 +3920,7 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
  const ref2va=pipeline==='v2v'||pipeline==='ref2v';const mode=ref2va?'REF2VA':pipeline==='i2v'?'I2VA':'T2VA';
  const outputMode=sourceMode==='checkpoint'?'segment':'full';
  vi.mocked(prepareH3Video).mockResolvedValue({sourceId:videoId,filename:'clips/source.mp4',sha256:'b'.repeat(64),width:1920,height:1080,fps:24,seconds:8,hasAudio:true});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -3915,7 +4059,7 @@ test.each(['t2v','i2v','v2v','ref2v'].flatMap(pipeline=>['new','checkpoint','vid
 
 test('pending video upload is dropped on unmount before native admission',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  let release!:(name:string)=>void;
  vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
@@ -3944,7 +4088,7 @@ test('pending video upload is dropped on unmount before native admission',async(
 
 test('delayed video upload submits the captured endpoint, settings, naming and source, never a rebuilt draft',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  let release!:(name:string)=>void;
  vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
@@ -3988,6 +4132,7 @@ const markOf=(name:string)=>screen.getByRole('button',{name}).closest('li')!.dat
 const loadVideo=(name:string)=>{const v=document.querySelector<HTMLVideoElement>(`.wb-stage video`)!;Object.defineProperties(v,{videoWidth:{value:1280},videoHeight:{value:704}});fireEvent.loadedMetadata(v);void name;};
 
 test.each(['Image → Video','Multi-reference → Video'])('every right-click media action is mirrored in the preview toolbar (%s)',async pipeline=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'}]);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/outside',parent:'/',entries:[{name:'pic.png',path:'/outside/pic.png',kind:'file',media:'image',symlink:false,size:1,modified:1}],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input',output:'/out'}}/></I18nProvider>);
@@ -4000,6 +4145,7 @@ test.each(['Image → Video','Multi-reference → Video'])('every right-click me
  expect([...toolbar.querySelectorAll('[data-media-action]')].map(b=>b.textContent)).toEqual(menu);
 });
 test.each([['video','clip.mp4'],['audio','voice.wav']] as const)('external %s reference preview has one stage toolbar and no figure toolbar',async(media,name)=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([{category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/h3.safetensors',size:1,info:null,family:'minimax-h3'}]);
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:{path:'/outside',parent:'/',entries:[{name,path:'/outside/'+name,kind:'file',media,symlink:false,size:1,modified:1}],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input',output:'/out'}}/></I18nProvider>);
@@ -4021,6 +4167,7 @@ test.each([
  ['Image → Video','ref.png','clip.mp4','Use as first frame'],
  ['Video → Video','clip.mp4','ref.png','Use as source video'],
 ])('Media context menu selects the clicked %s input without preview adoption or execution',async(pipeline,name,other,label)=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
@@ -4097,6 +4244,7 @@ test.each(['REF2VA','FL2VA'] as const)('HyperFlow %s follows the global pipeline
 });
 
 test('Image → Video media menu assigns first, last or both frame roles',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
@@ -4116,6 +4264,7 @@ test('Image → Video media menu assigns first, last or both frame roles',async(
 });
 
 test('MiniMax H3 Image → Video runs a last frame alone (L2VA) and badges frame roles in Media',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -4151,6 +4300,7 @@ test('IPC fixture: LTX Video → Video uploads the source video; Multi-reference
  vi.stubGlobal('Image',class{naturalWidth=1024;naturalHeight=640;onload?:()=>void;set src(_:string){queueMicrotask(()=>this.onload?.());}});
  vi.spyOn(HTMLMediaElement.prototype,'load').mockImplementation(()=>{});
  Object.defineProperty(HTMLVideoElement.prototype,'src',{configurable:true,set(this:HTMLVideoElement){queueMicrotask(()=>{Object.defineProperties(this,{videoWidth:{value:1024},videoHeight:{value:640}});this.onloadedmetadata?.(new Event('loadedmetadata'));});}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(uploadInput).mockImplementation(async(_b,path)=>path.endsWith('.mp4')?'deas-input-u.mp4':'deas-inputs/u.png');
@@ -4224,6 +4374,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  vi.stubGlobal('Image',class{naturalWidth=1024;naturalHeight=640;onload?:()=>void;set src(_:string){queueMicrotask(()=>this.onload?.());}});
  vi.spyOn(HTMLMediaElement.prototype,'load').mockImplementation(()=>{});
  Object.defineProperty(HTMLVideoElement.prototype,'src',{configurable:true,set(this:HTMLVideoElement){queueMicrotask(()=>{Object.defineProperties(this,{videoWidth:{value:1024},videoHeight:{value:640}});this.onloadedmetadata?.(new Event('loadedmetadata'));});}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([
   {category:'diffusion_models',name:'MiniMaxH3/h3_ref2va.safetensors',path:'/m/diffusion_models/MiniMaxH3/h3_ref2va.safetensors',size:1,info:null,family:'minimax-h3'},
   {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t.safetensors',size:1,info:null},
@@ -4324,7 +4475,7 @@ test('IPC fixture: MiniMax H3 picture edits offer the H3 latent upscale after sa
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-u',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
  const h3Model='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
  // No video gate: a picture edit has no paired Original/Processed product.
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LoadImage','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'LoadImage','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[h3Model]}});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
  choosePipe('Image → Image');
@@ -4357,7 +4508,7 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>({id:'job-e',baseUrl:'http://127.0.0.1:7801/',promptId:'p',state:'queued',outputs:[],error:null,generationReady:false} as JobStatus));
  localStorage.setItem('deas.pref.studio.run.post',JSON.stringify(true)); // refine after every run is on, but H3 skips it
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'LoadImage','MiniMaxH3ReferenceToVideo']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'LoadImage','MiniMaxH3ReferenceToVideo']}});
  vi.mocked(uploadInput).mockImplementation(async(_endpoint,path)=>`deas-inputs/${path.split('/').at(-1)}`);
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801" roots={{models:'/m',input:'/env/ComfyUI/input',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));
@@ -4429,7 +4580,7 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
   :family==='wan'?[m('diffusion_models','wan_high_noise.safetensors',family),m('diffusion_models','wan_low_noise.safetensors',family),m('text_encoders','umt5_xxl_fp8.safetensors'),m('vae','wan_2.1_vae.safetensors')]
   :[m('diffusion_models','h3.safetensors',family),m('text_encoders','qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'),m('vae','minimax_h3_video_vae_fp16.safetensors'),m('vae','minimax_h3_audio_vae_fp32.safetensors')];
  vi.mocked(scanModels).mockResolvedValue(list);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_ImagePostprocessGate','DaSiWa_WildcardPresetPromptBuilder']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['base.safetensors'],diffusionModels:['ltx.safetensors','wan_high_noise.safetensors','wan_low_noise.safetensors','h3.safetensors'],nodes:[...evidence.allowlist.nodes,'UNETLoader','DEAS_ImagePostprocessGate','DaSiWa_WildcardPresetPromptBuilder']}});
  const options={...defaultOptions,outputNaming:'test/%seed%'};
  localStorage.setItem('deas.pref.studio.run.options',JSON.stringify(options));
  localStorage.setItem('deas.pref.studio.run.seed','42');
@@ -4460,6 +4611,7 @@ test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exac
  const shown=()=>JSON.parse(view.container.querySelector('[data-plan-intent]')!.textContent!);
  expect(shown()).toMatchObject({positivePrompt:'edited live forest',seed:42,outputPrefix:'raw/test/42'});
  const preview=shown();
+ expect(preview).not.toHaveProperty('componentOverrides');
  if(family==='image')expect(preview).toMatchObject({refine:{width:2048,height:2048},loras:[{name:'style.safetensors',strength:0.7}],wildcard:expect.any(Object)});
  else {expect(preview.family).toBe(family);expect(preview.refine).toBeUndefined();expect(preview.wildcard).toBeUndefined();expect(screen.getByRole('region',{name:'Run Plan'}).querySelector('[data-plan-stage="refine"]')).toBeNull();}
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();expect(uploadMask).not.toHaveBeenCalled();
@@ -4505,7 +4657,7 @@ async function mountMoss(nodes=mossNodes,clipTypes=['moss_image']){
   {category:'vae',name:'flux2-vae.safetensors',component:'flux2-vae',path:'/m/vae',size:1,info:null},
   {category:'loras',name:'unknown.safetensors',path:'/m/lora',size:1,info:null},
  ]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,missingNodes:['CheckpointLoaderSimple','EmptyLatentImage'],allowlist:{...evidence.allowlist,nodes,clipTypes}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,missingNodes:['CheckpointLoaderSimple','EmptyLatentImage'],allowlist:{...evidence.allowlist,diffusionModels:['moss.safetensors'],nodes,clipTypes}});
  vi.mocked(runWorkbenchJob).mockResolvedValue({id:'moss-job',promptId:'p',baseUrl:evidence.baseUrl,state:'succeeded',outputs:[],error:null,generationReady:false} as JobStatus);
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/input'}}/></I18nProvider>);
  await screen.findByRole('option',{name:'moss.safetensors'});
@@ -4703,7 +4855,7 @@ test('Stop discards every unsent image preparation without claiming upload cance
 
 test('Stop drops delayed video preparation and the next press uses the new native epoch',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string}).path,parent:'/env',entries:mediaEntries,truncated:false}));
  let release!:(name:string)=>void;
  vi.mocked(uploadInput).mockReturnValueOnce(new Promise(yes=>{release=yes;}));
@@ -4881,7 +5033,7 @@ test('selected Stop owns only its H3 Run all sequence',async()=>{
   {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a',size:1,info:null}]);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  const job=heldJob('continuity-selected-stop','queued');
  vi.mocked(runWorkbenchJob).mockResolvedValue(job);
  vi.mocked(pollWorkbench).mockResolvedValue(collection([job]));
@@ -5006,7 +5158,7 @@ test('Stop disables serial Continuity before a pending clip read can continue Ru
   {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v',size:1,info:null},
   {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a',size:1,info:null}]);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  const job=heldJob('continuity-stop','queued');
  vi.mocked(runWorkbenchJob).mockResolvedValue(job);
  vi.mocked(pollWorkbench).mockResolvedValue(collection([{...job,state:'succeeded'}]));
@@ -5157,7 +5309,7 @@ test('history restores independent latent post settings without submitting or ch
  const original=recentHistoryRecord({recipeId:'video-generation',version:1,family:'ltx-2',positivePrompt:'historic video',negativePrompt:'',model:ltxModels[0].name,textEncoder:ltxModels[1].name,vae:ltxModels[3].name,seed:19,width:768,height:512,frames:121,frameRate:24,steps:8,cfg:1,sampler:'euler',scheduler:'simple',outputPrefix:'raw/video/old',output:{codec:'Auto',container:'Auto',bitDepth:'Auto',quality:20,audioCodec:'AAC',audioBitrate:'192k',saveFirstFrame:false,saveLastFrame:false},ltx:{passes:1,audioVae:ltxModels[4].name,textProjection:ltxModels[2].name},latentUpscale:{model:'ltx-held.safetensors',scale:2}});
  const before=JSON.stringify(original);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-held.safetensors'],textEncoders:[ltxModels[1].name,ltxModels[2].name],vaes:[ltxModels[3].name,ltxModels[4].name]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','LatentUpscaleModelLoader','LTXVLatentUpsampler'],latentUpscaleModels:['ltx-held.safetensors'],textEncoders:[ltxModels[1].name,ltxModels[2].name],vaes:[ltxModels[3].name,ltxModels[4].name]}});
  vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{path:'/env/input',parent:'/env',entries:[],truncated:false});
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
@@ -5382,7 +5534,7 @@ test('history native references require explicit ordered replacement and reselec
  const original=recentHistoryRecord({...historicalImage,checkpoint:'qwen.safetensors',width:1024,height:1024,diffusion:{textEncoder:'qwen3vl_8b.safetensors',clipType:'qwen_image',vae:'qwen_image_2.1_vae.safetensors'},nativeImageReference:{method:'qwen-image-2.1',images:['same.png','second.png']}});
  const before=JSON.stringify(original),input='/environment-B/input';
  vi.mocked(scanModels).mockResolvedValue(referenceModels());
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,...referenceNodes,'UNETLoader','CLIPLoader','VAELoader'],images:['same.png','second.png'],textEncoders:['qwen3vl_8b.safetensors'],vaes:['qwen_image_2.1_vae.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...refsEvidence,allowlist:{...refsEvidence.allowlist,nodes:[...refsEvidence.allowlist.nodes,...referenceNodes,'UNETLoader','CLIPLoader','VAELoader'],images:['same.png','second.png'],textEncoders:['qwen3vl_8b.safetensors'],vaes:['qwen_image_2.1_vae.safetensors']}});
  vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{entries:[],truncated:false});
  const props={endpoint:'http://127.0.0.1:7801/backend-A/',roots:{models:'/m',input}};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
@@ -5416,7 +5568,7 @@ test('history video first and last frames remain unresolved until each explicit 
  const before=JSON.stringify(original),input='/environment-B/input';
  vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([{...heldJob('old-frame-result','succeeded'),outputRoot:'/environment-A/output',outputs:[{filename:'foreign-last.png',subfolder:'raw',type:'output'}]}]));
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,images:['same.png','same-last.png'],textEncoders:['gemma_3_12B_it_fp8.safetensors','ltx-2.3_text_projection_bf16.safetensors'],vaes:['LTX2/LTX23_video_vae_bf16.safetensors','LTX2/LTX23_audio_vae_bf16.safetensors']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,images:['same.png','same-last.png'],textEncoders:['gemma_3_12B_it_fp8.safetensors','ltx-2.3_text_projection_bf16.safetensors'],vaes:['LTX2/LTX23_video_vae_bf16.safetensors','LTX2/LTX23_audio_vae_bf16.safetensors']}});
  vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:command==='native_media_star_status'?{starred:false,unavailable:null}:{path:input,parent:'/environment-B',entries:['same.png','same-last.png'].map(name=>({name,path:input+'/'+name,kind:'file',media:'image',size:1,modified:1,symlink:false})),truncated:false});
  render(<I18nProvider><Workbench endpoint="http://127.0.0.1:7801/backend-B/" roots={{models:'/m',input}}/></I18nProvider>);
  await waitFor(()=>expect(scanModels).toHaveBeenCalled());const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
@@ -5444,7 +5596,7 @@ async function roleVideoFixture(family:'ltx-2'|'minimax-h3'='ltx-2',extraModels=
   {category:'vae',name:'h3_audio_vae.safetensors',path:'/m/a',size:1,info:null}];
  if(extraModels)ms.push({...ms[0],name:'other.safetensors',path:'/m/other'});
  vi.mocked(scanModels).mockResolvedValue(ms);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'UNETLoader','CLIPLoader','DualCLIPLoader','VAELoader'],diffusionModels:ms.filter(m=>m.family).map(m=>m.name),textEncoders:ms.filter(m=>m.category==='text_encoders').map(m=>m.name),vaes:ms.filter(m=>m.category==='vae').map(m=>m.name),clipTypes:['ltxv','minimax']}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'UNETLoader','CLIPLoader','DualCLIPLoader','VAELoader'],diffusionModels:ms.filter(m=>m.family).map(m=>m.name),textEncoders:ms.filter(m=>m.category==='text_encoders').map(m=>m.name),vaes:ms.filter(m=>m.category==='vae').map(m=>m.name),clipTypes:['ltxv','minimax']}});
  vi.mocked(invoke).mockImplementation(async command=>command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:'/input',parent:'/',entries:[],truncated:false});
  vi.mocked(uploadInput).mockImplementation(async(_base,path)=>`uploaded/${path.split('/').at(-1)}`);
  vi.mocked(runWorkbenchJob).mockImplementation(async(base,intent)=>({...heldJob('role-capture','failed',base),intent}));
@@ -5550,6 +5702,7 @@ test('H3 RefMods survive switching to LTX, block unsupported Run and can be remo
  fireEvent.click(document.querySelector('[data-open-references]')!);
  vi.mocked(readRefMods).mockResolvedValue([{name:'hero',kinds:['image'],description:'hero'}]);
  fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));closeRoles();
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  view.rerender(<I18nProvider><Workbench {...props} roots={{models:'/m2',input:'/input'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('LTX2/ltx.safetensors'));
@@ -6543,7 +6696,7 @@ test('Post-Processing category cards show ordered status/counts, guard incompati
   {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors',path:'/m/vae',size:1,info:null},
   {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors',path:'/m/avae',size:1,info:null},
  ]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,nodes:[...evidence.allowlist.nodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover','DaSiWaH3TiledUpscale'],deropeKeepBackground:true}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover','DaSiWaH3TiledUpscale'],deropeKeepBackground:true}});
  const onOpenVideoPost=vi.fn();
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}} onOpenVideoPost={onOpenVideoPost}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-model-picker]')?.textContent).toContain('a.safetensors'));
@@ -6619,8 +6772,8 @@ test('Post-Processing overlay allows Tab focus outside, ignores hidden dialogs, 
   {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors',path:'/m/vae',size:1,info:null},
   {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors',path:'/m/avae',size:1,info:null},
  ]);
- const fullAllowlist={...evidence.allowlist,checkpoints:[...evidence.allowlist.checkpoints,sam],nodes:[...evidence.allowlist.nodes,'SAM3_Detect',...sam3VideoNodes,...faceRefineNodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover'],deropeKeepBackground:true};
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:fullAllowlist});
+ const fullAllowlist={...videoEvidence.allowlist,checkpoints:[...videoEvidence.allowlist.checkpoints,sam],nodes:[...videoEvidence.allowlist.nodes,'SAM3_Detect',...sam3VideoNodes,...faceRefineNodes,'DaSiWaTiledDiffusion','DEAS_VideoPostprocessGate','DaSiWaH3DeropePrepare','DaSiWaH3DeropeRecover'],deropeKeepBackground:true};
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:fullAllowlist});
  let releaseInstall!:()=>void;
  let failInstall!:(err:Error)=>void;
  let installCalls=0;
@@ -6738,7 +6891,7 @@ test('Post-Processing overlay allows Tab focus outside, ignores hidden dialogs, 
  expect(document.activeElement).toBe(faceCard);
 
  // (3) Auto on but blocked (missing faceRefineNodes): card and dock both report 0 while preserving saved preferences.
- vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:[...evidence.allowlist.checkpoints,sam]}});
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,checkpoints:[...videoEvidence.allowlist.checkpoints,sam]}});
  view.rerender(<I18nProvider><GlobalSearch onNavigate={()=>{}}/><Workbench endpoint="http://127.0.0.1:7802/" roots={{models:'/m',output:'/env/ComfyUI/output'}}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postCount).toBe('0'));
  expect(document.querySelector<HTMLButtonElement>('[data-post-card="face-analysis"]')!.dataset.postState).toBe('inactive');
