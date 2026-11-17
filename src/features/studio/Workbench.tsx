@@ -1163,8 +1163,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    if(vf==='minimax-h3'&&streamDecode)intent={...intent,streamDecode:true};
    intent=withDials(intent,dials);
-   // The plan's first step pins the picked clip: send the frame count its curves were laid out with, for native to confirm.
-   if(cont?.index===0)intent=withDialSourceFrames(intent,plan.source?.frames);
+   // A step of a plan that continues a clip whose frame count the plan holds: send the count of the pinned clip that the rack's lanes were
+   // laid out with (the picked clip's, plus every finished step's extension), for native to confirm against the session list.
+   if(cont&&dialSpan.basis==='planContinued')intent=withDialSourceFrames(intent,dialSpan.window?.source);
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){

@@ -61,10 +61,12 @@ export function dialFrameLevels(curve:Pick<H3DialCurve,'points'|'interp'|'smooth
  * The seconds the lanes cover. `edges` are segment ends inside the piece (Continuity plan), for drawing and snapping.
  * Basis `planContinued` (a plan that continues a clip whose frame count Studio holds) also has `rendered`, the seconds that already exist
  * (the continued clip and every finished step: drawn as rendered, no points go there), and `window`, what the next step samples: its start
- * in piece seconds (the shift the compiler applies to the curve) and its frame count (hidden context frames plus the new frames). `window`
- * is absent when every step has its clip.
+ * in piece seconds (the shift the compiler applies to the curve), its frame count (hidden context frames plus the new frames) and `source`,
+ * the cumulative frame count of the clip that step pins as this layout has it (the picked clip's count plus the extension of every finished
+ * step; the pack adds the same, `h3_continuity/inspection.py`). Studio sends `source` with the job and native refuses a curve when the
+ * session list has another count. `window` is absent when every step has its clip.
  */
-export interface DialTimeline { seconds:number; frames:number; edges:number[]; basis:'clip'|'plan'|'planSource'|'planContinued'; rendered?:number; window?:{start:number;frames:number} }
+export interface DialTimeline { seconds:number; frames:number; edges:number[]; basis:'clip'|'plan'|'planSource'|'planContinued'; rendered?:number; window?:{start:number;frames:number;source:number} }
 /**
  * Mirror of native `continuation_extension`: the new frames a continued Continuity step adds, in 17-frame steps. The Director snaps the
  * duration it receives. With `byDuration` that is the step's seconds (the intent carries `h3.continuity.durationSeconds`; Studio sends it
@@ -95,7 +97,7 @@ export function dialWindowLevels(curve:Pick<H3DialCurve,'points'|'interp'|'smoot
  * session read), starts at an unknown frame, so the piece cannot be laid out and the clip is used (`planSource`). With the count
  * (`planContinued`) the piece starts at 0 s with the continued clip, every step adds its extension, and the next step (the first without a
  * clip) gets its window from `continuationWindowStart` of the frames before it. Only the picked clip's count is read from the session; the
- * counts after finished steps are this layout's own sums.
+ * counts after finished steps are this layout's own sums, which native checks against the session list when the job is prepared.
  */
 export function dialTimeline(clipFrames:number,plan:{steps:readonly {seconds:number;clipId?:string}[];source?:unknown;overlapFrames?:number}|null|undefined,byDuration:boolean):DialTimeline {
  if(!plan||!plan.steps.length)return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'clip'};
@@ -106,7 +108,7 @@ export function dialTimeline(clipFrames:number,plan:{steps:readonly {seconds:num
   let window:DialTimeline['window'];
   plan.steps.forEach((s,i)=>{
    const before=ends[i],extension=continuationFrames(s.seconds,byDuration),start=i===next?continuationWindowStart(before,plan.overlapFrames,extension):null;
-   if(start!==null)window={start:start/H3_FPS,frames:before-start+extension};
+   if(start!==null)window={start:start/H3_FPS,frames:before-start+extension,source:before};
    ends.push(before+extension);
   });
   const frames=ends.at(-1)!;

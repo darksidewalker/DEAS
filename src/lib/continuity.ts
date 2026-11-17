@@ -7,7 +7,8 @@ export interface ContinuityStep { id:string; seconds:number; action:string; clip
  * `source.frames` is the picked checkpoint clip's cumulative frame count as the session list gave it when the clip was picked (or when the
  * sources were read again): the one number the Dial Rack needs to lay time curves out over the whole piece. Optional: plans saved before it
  * existed, imported-video sources and a clip whose count is not a legal H3 length have none, and curves stay held for them. Native reads the
- * count again when it prepares the job and refuses a curve when the two differ (`jobs_video.rs::confirm_source_frames`).
+ * pinned clip's count again when it prepares the job and refuses a curve when it differs from the one the lanes were laid out with
+ * (`jobs_video.rs::confirm_source_frames`).
  */
 export interface ContinuityPlan { enabled?:boolean; session:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; source?:{clipId:string;endpoint:string;kind?:'video';frames?:number}; steps:ContinuityStep[] }
 /** A session clip's cumulative frame count as native accepts `h3.continuity.sourceFrames`: 17k + 5. */

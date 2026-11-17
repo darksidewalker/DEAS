@@ -402,7 +402,7 @@ test('the window of a continued step starts where native continuation_window_sta
     expect(continuationWindowStart(r.source, r.overlap, extension), JSON.stringify(r)).toBe(r.start);
     // The lanes of a one-step plan on that clip put the next clip's window at the same frame.
     const lanes = dialTimeline(124, { steps: [{ seconds: r.seconds ?? 5 }], source: { clipId: 'x', frames: r.source }, overlapFrames: r.overlap }, r.seconds !== undefined);
-    if ((r.source - 5) % 17 === 0) expect(lanes.window, JSON.stringify(r)).toEqual({ start: r.start / 24, frames: r.source - r.start + extension });
+    if ((r.source - 5) % 17 === 0) expect(lanes.window, JSON.stringify(r)).toEqual({ start: r.start / 24, frames: r.source - r.start + extension, source: r.source });
   }
   // No legal context: a source shorter than 5 frames, or an extension that leaves no room (cannot occur for 15 s or less).
   expect(continuationWindowStart(4, undefined, 119)).toBeNull();
@@ -412,12 +412,13 @@ test('the window of a continued step starts where native continuation_window_sta
 test('a plan that continues a clip whose frame count Studio holds is laid out as the whole piece from 0 s', () => {
   const plan = { source: { clipId: 'pinned', endpoint: 'http://x', frames: 243 }, steps: [{ seconds: 5 }, { seconds: 3 }] };
   // 243 frames exist; the 5 s step adds 119 and the 3 s step 68 (text to video). The next step samples 22 context frames and its 119 new ones.
-  expect(dialTimeline(107, plan, false)).toEqual({ seconds: 430 / 24, frames: 430, edges: [243 / 24, 362 / 24], basis: 'planContinued', rendered: 243 / 24, window: { start: 221 / 24, frames: 141 } });
+  expect(dialTimeline(107, plan, false)).toEqual({ seconds: 430 / 24, frames: 430, edges: [243 / 24, 362 / 24], basis: 'planContinued', rendered: 243 / 24, window: { start: 221 / 24, frames: 141, source: 243 } });
   // More context moves the window start back, as in the compiler.
-  expect(dialTimeline(107, { ...plan, overlapFrames: 73 }, false).window).toEqual({ start: 170 / 24, frames: 192 });
-  // A finished first step is rendered too; the window is the second step's, counted from the frames before it.
+  expect(dialTimeline(107, { ...plan, overlapFrames: 73 }, false).window).toEqual({ start: 170 / 24, frames: 192, source: 243 });
+  // A finished first step is rendered too; the window is the second step's, counted from the frames before it: the clip that step pins
+  // has the picked clip's 243 frames plus the first step's 119, as the pack counts it (total = source + extension).
   const second = dialTimeline(107, { ...plan, steps: [{ seconds: 5, clipId: 'made' }, { seconds: 3 }] }, false);
-  expect(second).toMatchObject({ frames: 430, basis: 'planContinued', rendered: 362 / 24, window: { start: 340 / 24, frames: 90 } });
+  expect(second).toMatchObject({ frames: 430, basis: 'planContinued', rendered: 362 / 24, window: { start: 340 / 24, frames: 90, source: 362 } });
   // Every step done: all of it is rendered and there is no next window.
   const done = dialTimeline(107, { ...plan, steps: [{ seconds: 5, clipId: 'a' }, { seconds: 3, clipId: 'b' }] }, false);
   expect(done.rendered).toBe(430 / 24);
@@ -438,7 +439,7 @@ test('the per-frame line of a continued window is the shifted curve the compiler
   expect(start).toBe(2.125);
   expect(shiftDialCurve(curve, start).points).toEqual([[0, 0], [2, 1], [6.875, -2]]);
   // 22 + 119 = 141 frames: 17k + 5, so 5k + 2 = 42 latent frames, the first one frame long, placed from the window start on.
-  const window = { start, frames: 141 }, levels = dialWindowLevels(curve, window);
+  const window = { start, frames: 141, source: 73 }, levels = dialWindowLevels(curve, window);
   expect(levels).toHaveLength(42);
   expect(levels[0].start).toBe(start);
   expect(levels[0].end).toBeCloseTo(start + 1 / 24, 12);
