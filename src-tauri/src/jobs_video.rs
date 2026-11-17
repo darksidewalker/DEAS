@@ -135,14 +135,23 @@ pub(crate) const DIAL_LEVEL: f64 = 20.0;
 const DIAL_SECONDS: f64 = 86_400.0;
 /// Bound of a curve's authored blend steps: the largest sampler step count a job may ask for.
 pub(crate) const DIAL_BLEND_STEPS: u64 = 150;
+/// Jobs of at most this many sampler steps blend a time curve on every step by default.
+const DIAL_BLEND_ALL: u64 = 8;
 
 /// Sampler steps a time curve blends on (`timecurve.py`: the first `time.steps` steps run the model
-/// twice and blend per latent frame, after which the row is off). The node's own default is 2
-/// whatever the step count. Provisional default, from one seed at two settings (2026-11-16): 2 of 6
-/// steps acted, 2 of 25 did nothing visible and 8 of 25 acted, so a third of the job's steps,
-/// at least 2 and never more than the job has.
+/// twice and blend per latent frame, after which the row is off; one extra model call per blended
+/// step). The node's own default is 2 whatever the step count. Provisional default (2026-11-16):
+/// a job of at most `DIAL_BLEND_ALL` steps blends on all of them, a longer one on a third, at
+/// least 2. Short schedules: on the 6-step chain a look dial followed its curve with 6 blend
+/// steps and gave only a faint wash with 2, and the motion dial behaved the same with 6 as with 2
+/// (one seed each). Long schedules: at 25 steps the motion dial did nothing with 2 and acted
+/// with 8 (one seed); no look dial was tried there.
 pub(crate) fn dial_blend_steps(steps: u64) -> u64 {
-    ((2 * steps + 3) / 6).max(2).min(steps.max(1))
+    if steps <= DIAL_BLEND_ALL {
+        steps.max(1)
+    } else {
+        ((2 * steps + 3) / 6).max(2)
+    }
 }
 
 pub(crate) fn is_video(intent: &Value) -> bool {

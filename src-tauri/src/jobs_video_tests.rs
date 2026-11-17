@@ -3588,7 +3588,7 @@ fn dial_rack_sits_between_the_last_lora_and_the_first_options_patch() {
     // The exact string MAIDialRack.execute parses: active rows, curves in explicit seconds.
     assert_eq!(
         g["DR"]["inputs"]["rack"],
-        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":4,"type":"keys","unit":"seconds"}}]"#
     );
     assert_eq!(dial_classes(&g), ["MAIDialRack"]);
     assert_eq!(without_dial_nodes(&g), compile(&base).unwrap());
@@ -3672,7 +3672,7 @@ fn dial_rack_json_keeps_active_rows_and_authored_curve_settings() {
     // Off and zero-strength rows are dropped (the node would skip them); `on` is not sent.
     assert_eq!(
         g["DR"]["inputs"]["rack"],
-        r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"step","points":[[-1,0],[2.5,1.25]],"smooth":0.25,"steps":2,"type":"keys","unit":"seconds"}},{"dial":"dials/Day Night.SAFETENSORS","strength":-20}]"#
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"step","points":[[-1,0],[2.5,1.25]],"smooth":0.25,"steps":4,"type":"keys","unit":"seconds"}},{"dial":"dials/Day Night.SAFETENSORS","strength":-20}]"#
     );
     assert_eq!(
         requirements(&i)
@@ -3709,7 +3709,7 @@ fn dial_time_curve_audio_mode_is_written_only_when_authored() {
     // Without the field the emitted rack is byte for byte what it was before the field existed.
     assert_eq!(
         compile(&i).unwrap()["DR"]["inputs"]["rack"],
-        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":4,"type":"keys","unit":"seconds"}}]"#
     );
     for mode in ["protect", "follow"] {
         i["dials"][1]["time"]["audio"] = json!(mode);
@@ -3717,7 +3717,7 @@ fn dial_time_curve_audio_mode_is_written_only_when_authored() {
         assert_eq!(
             g["DR"]["inputs"]["rack"],
             format!(
-                r#"[{{"dial":"dials/h3_motion.safetensors","strength":1.5}},{{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{{"audio":"{mode}","interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}}}]"#
+                r#"[{{"dial":"dials/h3_motion.safetensors","strength":1.5}},{{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{{"audio":"{mode}","interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":4,"type":"keys","unit":"seconds"}}}}]"#
             )
         );
         // Only the rack text differs: the mode adds no node and no wire.
@@ -3760,16 +3760,18 @@ fn dial_time_curve_audio_mode_is_written_only_when_authored() {
 
 #[test]
 fn dial_time_curves_always_carry_their_blend_steps() {
-    // Provisional default (one seed, two settings): a third of the sampler's steps, at least 2,
-    // never more than the job has. 6 -> 2 and 25 -> 8 are the two settings that acted.
+    // Provisional default: every step of a job of at most 8 steps (a look dial needed all 6 of 6,
+    // the motion dial behaved the same with 6 as with 2), a third above that, at least 2
+    // (25 -> 8 acted where 2 did not). One seed each.
     for (steps, expected) in [
         (1, 1),
         (2, 2),
-        (3, 2),
-        (4, 2),
-        (6, 2),
-        (7, 2),
-        (8, 3),
+        (3, 3),
+        (4, 4),
+        (6, 6),
+        (7, 7),
+        (8, 8),
+        (9, 3),
         (12, 4),
         (20, 7),
         (25, 8),
@@ -3785,6 +3787,14 @@ fn dial_time_curves_always_carry_their_blend_steps() {
         assert!(rows[0].get("time").is_none(), "a constant row has no curve");
         assert_eq!(rows[1]["time"]["steps"], json!(expected), "{steps}");
     }
+    // The exact rack string of a 6-step job: the curve blends on all 6 steps.
+    let mut i = h3();
+    i["steps"] = json!(6);
+    i["dials"] = json!([dial_row(1.5), timed_dial()]);
+    assert_eq!(
+        compile(&i).unwrap()["DR"]["inputs"]["rack"],
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":6,"type":"keys","unit":"seconds"}}]"#
+    );
     // The exact rack string at 25 steps, default and authored.
     let mut i = h3();
     i["steps"] = json!(25);
@@ -4273,7 +4283,7 @@ fn dial_time_curves_shift_onto_a_continued_window() {
         let g = compile(&i).unwrap();
         assert_eq!(
             g["DR"]["inputs"]["rack"],
-            r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"linear","points":[[0.0,0],[2.0,1],[6.875,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#,
+            r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"linear","points":[[0.0,0],[2.0,1],[6.875,-2]],"smooth":0,"steps":4,"type":"keys","unit":"seconds"}}]"#,
             "{mode}"
         );
         // Only the curve moved.

@@ -15,10 +15,13 @@ export const DIAL_SECONDS=86_400;
 /** Bound of a curve's authored blend steps (native `DIAL_BLEND_STEPS`); an active row may not exceed the job's own sampler steps. */
 export const DIAL_BLEND_STEPS=150;
 /**
- * Mirror of native `dial_blend_steps`: the blend steps the compiler writes for a curve without an authored count.
- * Provisional (one seed, two settings on 2026-11-16: 2 of 6 and 8 of 25 steps acted, 2 of 25 did not).
+ * Mirror of native `dial_blend_steps`: the blend steps the compiler writes for a curve without an authored count. A job of at most
+ * 8 sampler steps blends on all of them, a longer one on a third, at least 2. Each blended step is one extra model call.
+ * Provisional (2026-11-16, one seed each): on the 6-step chain a look dial followed its curve with 6 blend steps and not with 2, and the
+ * motion dial behaved the same with 6 as with 2; at 25 steps the motion dial acted with 8 and not with 2.
  */
-export const dialBlendSteps=(steps:number)=>Math.min(Math.max(1,steps),Math.max(2,Math.floor((2*steps+3)/6)));
+export const DIAL_BLEND_ALL=8;
+export const dialBlendSteps=(steps:number)=>steps<=DIAL_BLEND_ALL?Math.max(1,steps):Math.max(2,Math.floor((2*steps+3)/6));
 /** Slider reach of the dock strip; the number field beside it accepts the full ±DIAL_LEVEL. */
 export const DIAL_SLIDER=3;
 export const DIAL_STEP=0.05;

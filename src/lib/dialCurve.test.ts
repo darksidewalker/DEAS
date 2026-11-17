@@ -3,7 +3,7 @@ import rustTests from '../../src-tauri/src/jobs_video_tests.rs?raw';
 import { expect, test } from 'vitest';
 import fixture from './dialCurve.fixture.json';
 import { DIAL_GAP, addPoint, dialCurveText, dialFrameLevels, dialPresetPoints, dialPresets, dialTimeline, flatCurve, latentFrameStarts, movePoint, nearPoint, parseDialCurveText, rackReduce, rackState, removePoint, sampleDialCurve, widestGap, type CurveLimits, type RackAction, type RackState } from './dialCurve';
-import { DIAL_BLEND_STEPS, dialBlendSteps, dialCurveConflictIds, dialCurveConflicts, dialHoldMapNode, dialIntentFacts, dialRackNode, isDialCurve, isDialRows, type DialCurveConflict, type DialCurveFacts, type DialRow } from './dials';
+import { DIAL_BLEND_ALL, DIAL_BLEND_STEPS, dialBlendSteps, dialCurveConflictIds, dialCurveConflicts, dialHoldMapNode, dialIntentFacts, dialRackNode, isDialCurve, isDialRows, type DialCurveConflict, type DialCurveFacts, type DialRow } from './dials';
 import { videoFrames, type H3DialCurve, type VideoIntentV1 } from './videoIntent';
 
 const keys = (points: [number, number][], rest: Partial<H3DialCurve> = {}): H3DialCurve => ({ type: 'keys', points, unit: 'seconds', ...rest });
@@ -214,12 +214,13 @@ test('the rack reducer edits the selected lane and undoes every step made in the
 });
 
 test('the blend-step default follows native dial_blend_steps', () => {
-  expect([1, 2, 3, 4, 6, 7, 8, 12, 20, 25, 30, 50, 150].map(dialBlendSteps)).toEqual([1, 2, 2, 2, 2, 2, 3, 4, 7, 8, 10, 17, 50]);
-  expect(rust).toContain('((2 * steps + 3) / 6).max(2).min(steps.max(1))');
+  expect([1, 2, 3, 4, 6, 7, 8, 9, 12, 20, 25, 30, 50, 150].map(dialBlendSteps)).toEqual([1, 2, 3, 4, 6, 7, 8, 3, 4, 7, 8, 10, 17, 50]);
+  expect(rust).toContain('((2 * steps + 3) / 6).max(2)');
+  expect(rust).toContain(`const DIAL_BLEND_ALL: u64 = ${DIAL_BLEND_ALL};`);
   expect(rust).toContain(`const DIAL_BLEND_STEPS: u64 = ${DIAL_BLEND_STEPS};`);
   // The native test's own table, so both sides are held to the same numbers.
   const table = [...rustTests.match(/for \(steps, expected\) in \[([\s\S]*?)\] \{/)![1].matchAll(/\((\d+), (\d+)\)/g)].map(m => [Number(m[1]), Number(m[2])]);
-  expect(table.length).toBe(13);
+  expect(table.length).toBe(14);
   for (const [steps, expected] of table) expect(dialBlendSteps(steps), String(steps)).toBe(expected);
 });
 
