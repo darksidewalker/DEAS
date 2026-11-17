@@ -3588,7 +3588,7 @@ fn dial_rack_sits_between_the_last_lora_and_the_first_options_patch() {
     // The exact string MAIDialRack.execute parses: active rows, curves in explicit seconds.
     assert_eq!(
         g["DR"]["inputs"]["rack"],
-        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"type":"keys","unit":"seconds"}}]"#
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#
     );
     assert_eq!(dial_classes(&g), ["MAIDialRack"]);
     assert_eq!(without_dial_nodes(&g), compile(&base).unwrap());
@@ -3672,7 +3672,7 @@ fn dial_rack_json_keeps_active_rows_and_authored_curve_settings() {
     // Off and zero-strength rows are dropped (the node would skip them); `on` is not sent.
     assert_eq!(
         g["DR"]["inputs"]["rack"],
-        r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"step","points":[[-1,0],[2.5,1.25]],"smooth":0.25,"type":"keys","unit":"seconds"}},{"dial":"dials/Day Night.SAFETENSORS","strength":-20}]"#
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"step","points":[[-1,0],[2.5,1.25]],"smooth":0.25,"steps":2,"type":"keys","unit":"seconds"}},{"dial":"dials/Day Night.SAFETENSORS","strength":-20}]"#
     );
     assert_eq!(
         requirements(&i)
@@ -3699,6 +3699,102 @@ fn dial_rack_json_keeps_active_rows_and_authored_curve_settings() {
         )
         .collect::<Vec<_>>());
     assert_eq!(rack(&compile(&i).unwrap()).as_array().unwrap().len(), 8);
+}
+
+#[test]
+fn dial_time_curves_always_carry_their_blend_steps() {
+    // Provisional default (one seed, two settings): a third of the sampler's steps, at least 2,
+    // never more than the job has. 6 -> 2 and 25 -> 8 are the two settings that acted.
+    for (steps, expected) in [
+        (1, 1),
+        (2, 2),
+        (3, 2),
+        (4, 2),
+        (6, 2),
+        (7, 2),
+        (8, 3),
+        (12, 4),
+        (20, 7),
+        (25, 8),
+        (30, 10),
+        (50, 17),
+        (150, 50),
+    ] {
+        assert_eq!(dial_blend_steps(steps), expected, "{steps}");
+        let mut i = h3();
+        i["steps"] = json!(steps);
+        i["dials"] = json!([dial_row(1.5), timed_dial()]);
+        let rows = rack(&compile(&i).unwrap());
+        assert!(rows[0].get("time").is_none(), "a constant row has no curve");
+        assert_eq!(rows[1]["time"]["steps"], json!(expected), "{steps}");
+    }
+    // The exact rack string at 25 steps, default and authored.
+    let mut i = h3();
+    i["steps"] = json!(25);
+    i["dials"] = json!([timed_dial()]);
+    assert_eq!(
+        compile(&i).unwrap()["DR"]["inputs"]["rack"],
+        r#"[{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":8,"type":"keys","unit":"seconds"}}]"#
+    );
+    for authored in [1, 2, 12, 25] {
+        i["dials"][0]["time"]["steps"] = json!(authored);
+        assert_eq!(
+            rack(&compile(&i).unwrap())[0]["time"]["steps"],
+            json!(authored)
+        );
+    }
+    i["dials"][0]["time"]["steps"] = json!(12);
+    assert_eq!(
+        compile(&i).unwrap()["DR"]["inputs"]["rack"],
+        r#"[{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":12,"type":"keys","unit":"seconds"}}]"#
+    );
+    // More blend steps than the job samples.
+    i["dials"][0]["time"]["steps"] = json!(26);
+    assert_eq!(
+        compile(&i).unwrap_err(),
+        "Invalid dials: time.steps (blend steps) cannot exceed the job's 25 sampler steps"
+    );
+    // An inactive row's count is not held against the job, only its shape is checked.
+    i["dials"][0]["on"] = json!(false);
+    assert!(compile(&i).is_ok());
+    i["dials"][0]["on"] = json!(true);
+    i["steps"] = json!(150);
+    i["dials"][0]["time"]["steps"] = json!(150);
+    assert_eq!(rack(&compile(&i).unwrap())[0]["time"]["steps"], json!(150));
+    for bad in [
+        json!(0),
+        json!(-1),
+        json!(151),
+        json!(2.5),
+        json!("2"),
+        json!(null),
+        json!(true),
+    ] {
+        i["dials"][0]["time"]["steps"] = bad.clone();
+        assert_eq!(
+            compile(&i).unwrap_err(),
+            "Invalid dials: time.steps (blend steps) must be a whole number from 1 to 150",
+            "{bad}"
+        );
+        // Checked on a switched-off row too.
+        i["dials"][0]["on"] = json!(false);
+        assert!(compile(&i).unwrap_err().contains("time.steps"), "{bad}");
+        i["dials"][0]["on"] = json!(true);
+    }
+    // The De-rope pass reads the same rack through the hold map: one count for both passes.
+    let mut d = h3();
+    d["steps"] = json!(25);
+    d["videoPost"] =
+        json!({"derope":{"preset":"balanced","inject":0.48,"lora":"h3_turbo.safetensors"}});
+    d["dials"] = json!([timed_dial()]);
+    let g = compile(&d).unwrap();
+    assert_eq!(rack(&g)[0]["time"]["steps"], json!(8));
+    assert_eq!(
+        g["DRH"]["inputs"].as_object().unwrap().len(),
+        2,
+        "the hold map node has no step input of its own"
+    );
+    assert_eq!(g["DRZ"]["inputs"]["steps"], 6);
 }
 
 #[test]
@@ -3888,7 +3984,7 @@ fn dials_reject_everything_this_version_does_not_send() {
             "{bad}"
         );
     }
-    for key in ["steps", "audio", "feature", "gain"] {
+    for key in ["audio", "feature", "gain"] {
         assert!(time(&|t| t[key] = json!(2)).contains(shape), "{key}");
     }
     let count = "1 to 64 [seconds, level] points";
@@ -4120,7 +4216,7 @@ fn dial_time_curves_shift_onto_a_continued_window() {
         let g = compile(&i).unwrap();
         assert_eq!(
             g["DR"]["inputs"]["rack"],
-            r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"linear","points":[[0.0,0],[2.0,1],[6.875,-2]],"smooth":0,"type":"keys","unit":"seconds"}}]"#,
+            r#"[{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"interp":"linear","points":[[0.0,0],[2.0,1],[6.875,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#,
             "{mode}"
         );
         // Only the curve moved.

@@ -133,6 +133,17 @@ const DIAL_POINTS: usize = 64;
 const DIAL_LEVEL: f64 = 20.0;
 /// Whole-piece seconds bound of a curve point.
 const DIAL_SECONDS: f64 = 86_400.0;
+/// Bound of a curve's authored blend steps: the largest sampler step count a job may ask for.
+const DIAL_BLEND_STEPS: u64 = 150;
+
+/// Sampler steps a time curve blends on (`timecurve.py`: the first `time.steps` steps run the model
+/// twice and blend per latent frame, after which the row is off). The node's own default is 2
+/// whatever the step count. Provisional default, from one seed at two settings (2026-11-16): 2 of 6
+/// steps acted, 2 of 25 did nothing visible and 8 of 25 acted, so a third of the job's steps,
+/// at least 2 and never more than the job has.
+pub(crate) fn dial_blend_steps(steps: u64) -> u64 {
+    ((2 * steps + 3) / 6).max(2).min(steps.max(1))
+}
 
 pub(crate) fn is_video(intent: &Value) -> bool {
     intent["recipeId"] == "video-generation"
@@ -592,14 +603,22 @@ fn validate_dial_row(r: &Value) -> Result<(), String> {
                 .into(),
         );
     }
-    if !keys_in(t, &["type", "points", "unit", "interp", "smooth"])
+    if !keys_in(t, &["type", "points", "unit", "interp", "smooth", "steps"])
         || t["type"] != "keys"
         || t["unit"] != "seconds"
         || t.get("interp")
             .is_some_and(|v| v != "linear" && v != "step")
         || t.get("smooth").is_some_and(|v| !finite(v, 0.0, 1.0))
     {
-        return Err("Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1}".into());
+        return Err("Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?}".into());
+    }
+    if t.get("steps").is_some_and(|v| {
+        !v.as_u64()
+            .is_some_and(|n| (1..=DIAL_BLEND_STEPS).contains(&n))
+    }) {
+        return Err(format!(
+            "Invalid dials: time.steps (blend steps) must be a whole number from 1 to {DIAL_BLEND_STEPS}"
+        ));
     }
     let points = t["points"]
         .as_array()
@@ -647,6 +666,13 @@ fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
     if !dial_curves(i) {
         return Ok(());
     }
+    // The blend cannot cover more steps than the generation samples.
+    let steps = i["steps"].as_u64().unwrap_or_default();
+    if active_dials(i).any(|r| r["time"]["steps"].as_u64().is_some_and(|n| n > steps)) {
+        return Err(format!(
+            "Invalid dials: time.steps (blend steps) cannot exceed the job's {steps} sampler steps"
+        ));
+    }
     // A time curve is sampled against the clock of the clip its sampler renders. Only the
     // generation pass and De-rope's pass on a new take have a clock this version maps.
     if i["h3"].get("transition").is_some() {
@@ -687,6 +713,8 @@ fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
 /// The `rack` input of `MAIDialRack` (`execute` reads a JSON list of `{dial, strength, on?, time?}`
 /// rows): the active rows only, each curve in the sampled clip's own seconds. Curves are authored
 /// in whole-piece seconds, so a continued segment's window gets them shifted by its start.
+/// Every curve carries its blend `steps`: the authored count, else `dial_blend_steps` of the job's
+/// sampler steps (the node's fixed default of 2 does nothing visible on a long schedule).
 /// `None` without an active row.
 fn dial_rack(i: &Value) -> Option<String> {
     let offset = if c_source(&i["h3"]) && dial_curves(i) {
@@ -708,8 +736,11 @@ fn dial_rack(i: &Value) -> Option<String> {
                         .map(|p| json!([p[0].as_f64().unwrap_or_default() - offset, p[1]]))
                         .collect()
                 };
+                let steps = t.get("steps").cloned().unwrap_or_else(|| {
+                    json!(dial_blend_steps(i["steps"].as_u64().unwrap_or_default()))
+                });
                 row["time"] = json!({"interp":t.get("interp").cloned().unwrap_or(json!("linear")),"points":points,
-                    "smooth":t.get("smooth").cloned().unwrap_or(json!(0)),"type":"keys","unit":"seconds"});
+                    "smooth":t.get("smooth").cloned().unwrap_or(json!(0)),"steps":steps,"type":"keys","unit":"seconds"});
             }
             row
         })

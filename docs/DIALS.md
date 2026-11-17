@@ -87,7 +87,7 @@ also be sent directly. It is a list of rows:
   {"dial": "dials/h3_motion.safetensors", "strength": 1.5},
   {"dial": "dials/h3_calm.safetensors", "strength": 1, "on": true,
    "time": {"type": "keys", "points": [[0, 0.5], [1.5, 1], [4, -2]],
-            "unit": "seconds", "interp": "linear", "smooth": 0}}
+            "unit": "seconds", "interp": "linear", "smooth": 0, "steps": 8}}
 ]
 ```
 
@@ -98,7 +98,7 @@ also be sent directly. It is a list of rows:
 | `on` | Optional switch, default on | boolean |
 | `time` | Optional keyframe curve of the row's level over time | see below |
 
-`time` is `{type: "keys", points, unit: "seconds", interp?, smooth?}`:
+`time` is `{type: "keys", points, unit: "seconds", interp?, smooth?, steps?}`:
 
 - `points`: 1 to 64 `[seconds, level]` pairs with strictly increasing seconds
   (within ±86400 s) and levels from -20 to 20. The strength the model gets is
@@ -108,6 +108,8 @@ also be sent directly. It is a list of rows:
   not of the current segment.
 - `interp`: `linear` (default) or `step`. `smooth`: 0 (default, straight lines) to 1,
   rounds the corners of a linear curve.
+- `steps`: optional whole number of **blend steps**, 1 to 150 and, on a row that is on,
+  not more than the job's own `steps`. See [Blend steps](#blend-steps).
 
 A list holds at most 8 rows. Without the field, with an empty list, or when every row
 is off or has strength 0, the compiled graph is exactly the graph without dials and
@@ -131,13 +133,51 @@ the nodes are not required.
   resolves; DEAS reads the frame count from the session list when it prepares the job.
 - Logs record both nodes under the stage `dial-patch`.
 
+### Blend steps
+
+A time curve does not act on every sampler step. For the first `time.steps` steps the
+node runs the model twice, without and with the dial, and blends the two results per
+latent frame; after that the row is off. **Each blended step costs one extra model
+call** (a curve that is 0 everywhere costs none).
+
+The node's own default is 2 steps whatever the job's step count. DEAS always writes
+`steps` into every curve it sends: the value in the intent, otherwise
+`max(2, round(job steps / 3))`, never more than the job's steps (6 steps give 2, 25
+give 8, 4 give 2, 1 gives 1).
+
+**This default is provisional.** It comes from one seed at two settings on 2026-11-16:
+with the 6-step turbo recipe a blend of 2 steps acted; at 25 steps without the turbo
+LoRA a blend of 2 steps did nothing visible and 8 steps made the curve act. No other
+step count, strength or dial was tried.
+
+The emitted row, for the example above at 25 job steps and no authored value:
+
+```json
+{"dial":"dials/h3_calm.safetensors","strength":1,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":8,"type":"keys","unit":"seconds"}}
+```
+
+**The De-rope pass uses the same count.** There is one rack; `MAIDialHoldMap` puts the
+same rows with the same settings on the second pass, and has no step input of its own.
+That pass samples only the tail of its own schedule: `round(pass steps × inject)` steps
+of 6 (turbo LoRA or a distilled chain) or 25 (generation model), so 3 or 4 steps for a
+turbo pass and 12 or 18 for a full one. The node blends on the first
+`min(time.steps, steps of that pass)` of them. So with a 25-step generation (8 blend
+steps) a turbo De-rope pass is blended on all of its 3 or 4 steps, and a full pass on
+its first 8; with a 6-step generation (2 blend steps) the pass is blended on its first
+2. This is read from the node source (`timecurve.py`, `TimeCurveForward`) and the
+compiled graph, **not rendered with these values**. A control render on 2026-11-16
+(one seed, blend 2, inject 0.48) showed the same motion with and without
+`MAIDialHoldMap`, so what the blend does to the second pass is open. No other pass
+reuses the rack with a curve: face refinement, the tiled upscale and transitions refuse
+curves, and Hi-Res Regenerate has its own chain without dials.
+
 ## Not in this version
 
 DEAS refuses these with an `Invalid dials: …` error instead of sending them:
 
 - hold rows, step envelopes, block strengths, audio-driven curves, wired dial inputs,
-  solo, and per-curve blend steps or audio mode (the node's defaults apply: the first
-  2 sampling steps, audio follows the curve);
+  solo, and the per-curve audio mode (the node's default applies: audio follows the
+  curve);
 - dials on LTX, Wan or HyperFlow Flash, and active dials on a GGUF base model;
 - a **time curve** together with any of: face refinement, the tiled latent upscale,
   an H3 transition window, De-rope on a continued segment, or a continuation of an

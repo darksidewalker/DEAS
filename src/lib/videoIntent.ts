@@ -104,7 +104,8 @@ export function regenerateSize(width:number,height:number,target:H3RegenerateTar
 export const latentOutputSize=(family:VideoFamily,size:{width:number;height:number},u:H3LatentUpscale|H3RegenerateUpscale|LtxLatentUpscale)=>
  u.regenerate?regenerateSize(size.width,size.height,u.regenerate.target):latentUpscaleSize(family,size,u.scale??1);
 /** Experimental Dial Rack rows (native `validate_dials`; `minimax-h3` only, see docs/DIALS.md): a dial file inside `dials/` and its strength; `time` varies it over whole-piece seconds. */
-export interface H3DialCurve { type:'keys'; points:readonly (readonly [seconds:number,level:number])[]; unit:'seconds'; interp?:'linear'|'step'; smooth?:number }
+/** `steps` = sampler steps the curve blends on (each costs one extra model call); absent = the compiler's default for the job's step count. */
+export interface H3DialCurve { type:'keys'; points:readonly (readonly [seconds:number,level:number])[]; unit:'seconds'; interp?:'linear'|'step'; smooth?:number; steps?:number }
 export interface H3DialRow { dial:string; strength:number; on?:boolean; time?:H3DialCurve }
 export type VideoIntentV1=VideoBase&(
  |{readonly family:'ltx-2';readonly latentUpscale?:LtxLatentUpscale;readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}
