@@ -1,5 +1,120 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (rack presets, unreleased) — 2026-11-16
+
+Branch `dials-rack-experimental` on top of the rack dialog below; see
+[Rack presets](DIALS.md#rack-presets) and
+[the design](DIALS.md#rack-presets-the-store-and-how-deas-reaches-it). **Fixture and
+headless-Chromium evidence only.** No ComfyUI instance was started or contacted by this
+work: the preset routes were answered by the project's Rust fixture server and, in the
+browser, by an in-page stand-in. No preset file was written anywhere, no job was
+submitted, no model was loaded and no GPU was used. Nothing was run in the desktop
+WebViews (WebKitGTK, WebView2) or on Windows. The render observations now quoted in the
+UI text and in [Dials](DIALS.md#what-renders-have-shown-so-far-provisional) come from
+separate one-seed renders made outside DEAS on 2026-11-16; they are not DEAS acceptance.
+
+- **Native commands (Rust), fixture server: pass.** `native_dial_presets`,
+  `native_dial_preset_load` and `native_dial_preset_save`
+  (`src-tauri/src/jobs_dial_presets.rs`).
+  `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **16 passed, 0
+  failed** (14 before; the two new tests use the `jobs_tests.rs` fixture server). They
+  cover: only the three pack routes are requested; names outside the pack's pattern are
+  not listed and never sent; a loaded preset's rows come back as the pack sent them and
+  its warnings as `missing` / `changed`; the body of a save is exactly the given rows
+  (no hash added); a save with a row the compiler refuses (solo, a hash, hold, a curve
+  not in seconds, a file outside `dials/`, 0 or 9 rows) is refused before any request; a
+  backend that answers the route with plain 404/405 gives `DIAL_PRESETS_UNAVAILABLE`;
+  the pack's 409, 404 and 400 answers keep their reason, bounded to 300 characters
+  without control characters; HTTP 500, a non-JSON answer, a wrong format and more than
+  64 rows are reported as such; an unreachable backend and a URL with credentials; and
+  that each failure writes a central Logs entry with origin, severity, operation and the
+  preset name, without URL, credentials or backend text, repeats of one cause limited.
+  `cargo test … jobs_video`: 78 passed, 8 ignored (the eighth is the new
+  `dump_intent_dir_graphs`, which compiles intent files from a directory named by an
+  environment variable). `cargo fmt -- --check`: clean. The full Rust lib suite and
+  Clippy were not rerun for this slice; their host-specific failures are recorded below.
+- **Conversions and dialog (vitest): 92 tests in 7 files, pass** (71 in 5 before).
+  `npx vitest run src/lib/dials.test.tsx src/lib/dialCurve.test.ts
+  src/lib/dialPresets.test.ts src/features/studio/DialStrip.test.tsx
+  src/features/studio/DialRackDialog.test.tsx
+  src/features/studio/DialPresetsDialog.test.tsx
+  src/features/studio/Workbench.dials.test.tsx`. `dialPresets.test.ts` (12): the name
+  pattern; a plain preset loads unchanged; clip fractions to seconds with the lane
+  length (4 s, the real 107-frame clip, another length) and the note; one case per row
+  kind that is not sent (wired input, hold, envelope, blocks, audio curve, a bad file,
+  strength, four curve limits, a row that is not an object), each left out with its
+  reason while its neighbour loads; the ninth row; solo as switching the others off,
+  including an idle and an unloadable solo row; the audio mode note; the pack's warnings
+  per row; what a save sends; the round trip through the pack's stored form on two lane
+  lengths; a load as its own undo step in the reducer; and the failure-code split.
+  `DialPresetsDialog.test.tsx` (9): list, per-row notes and warnings, load; save under a
+  new name with exactly the DEAS rows and the saved preset read back; the pack's
+  "already exists" answer with the stored preset unchanged; the missing route (reason
+  shown, list, load and save disabled, also after typing and after a refresh); a refused
+  preset; an empty rack and a preset with nothing to load; close, cancel and focus
+  return; the strip's button; and inside the rack dialog a load as one undo and redo
+  step, with Esc and Ctrl+Z in the presets dialog not reaching the rack. That last
+  assertion fails without the fix (checked once by reverting it). The locale test now
+  covers 130 `studio.dials.*` keys in six locales.
+- **Typecheck and build: pass.** `npm run typecheck`; `npm run build`.
+- **Full UI suite: one failing test per run, a different one each time, on this loaded
+  host.** `npm run test:ui`, three runs with the change: run 1, 126 of 127 files and
+  2,211 of 2,212 tests passed, failing
+  `FoldersPanel.test.tsx > adds extra model roots…`; run 2, the same counts, failing
+  `Workbench.part4.test.tsx > external video reference preview…`; run 3 (final code):
+  **127 of
+  127 files and 2,212 of 2,212 tests passed.** Each failing file passed when run alone right afterwards (`FoldersPanel`
+  three times, 7 tests; `Workbench.part4` twice, 86 tests). Load average was 6 to 11
+  with other jobs on the machine. **Not checked:** the unchanged tree under the same
+  load, so these are not called pre-existing; neither file is touched by this change,
+  but `Workbench.part4` renders the Workbench, which is.
+- **Locale parity (substitute for `npm run test:core`, which cannot run on this Node
+  22.22.1):** `tests/i18n.test.ts` bundled with the repository's esbuild into a scratch
+  folder (CommonJS, `import.meta.url` defined as the test's own path) and run with
+  `node --test`: 5 passed, 0 failed, including six-locale key and placeholder parity and
+  the audit of UI keys referenced from source. The other core test files were not run.
+- **Layout gate: the documented command could not run here** (as recorded below:
+  `chromium_headless_shell-1248` is not installed; nothing was downloaded). Substitute,
+  not the gate: the unchanged `tools/verify_workspace_layout.py` through the scratch
+  wrapper and the cached Chrome for Testing 151.0.7922.34 headless shell:
+  status PASS, 467 checks, run on the final tree.
+- **Presets dialog in Chromium (same wrapper and browser): pass, 150 checks** (108
+  before, plus 42). `tools/verify_dials.py` opens the dialog from the strip in six
+  locales at 1440×960, 1440×1300, 1024×700, 700×600, 390×844 and 320×480 and asserts:
+  an open modal inside the viewport; opening and closing leaves the measured shell
+  boxes and page size unchanged; no horizontal overflow of the page, the body or either
+  panel; every button, field, row, note and row summary inside its panel; no two
+  controls overlapping; the five rows of the fixture preset in their states (warning,
+  ok, left out, left out, warning); every row, both buttons and the info text reachable
+  by scrolling; Esc closes with focus back on the button and no row changed. Then per
+  locale with a real mouse and keyboard: an invalid name keeps Save off; a save sends
+  exactly the rack's rows with only `dial`, `strength`, `on`, `time`; saving the same
+  name again shows the "already exists" answer and changes nothing; a load brings three
+  of five rows with the curve converted for the 124-frame lane
+  (`[[0,0],[2.0667,0],[3.3583,1],[5.1667,1]]`); from the rack dialog the presets dialog
+  is a modal above it, a load replaces the rows, Esc closes only the presets dialog and
+  one Undo restores the rack; and with the route missing the reason is shown and list,
+  load and save are disabled. **The first run of this check found a defect** (Esc in
+  the presets dialog also closed the rack) that the component tests had not; it is
+  fixed and now covered in both. Screenshots looked at, in
+  `/mnt/work/ai/comfyui/output/deas_dials_ui_2026-11-16/` (outside the repository):
+  `presets-en-1440x960`, `presets-de-1440x960`, `presets-en-390x844`,
+  `presets-de-390x844-rows`, `presets-en-320x480-rows`, `presets-fr-320x480`,
+  `presets-ja-1024x700`, `presets-zh-700x600`, `presets-tr-1440x1300`,
+  `presets-en-exists-1440x960`, `presets-en-over-rack-1440x960`,
+  `presets-en-unavailable-1440x960` and `presets-ja-unavailable-1440x960`. Looking at
+  them led to two layout fixes (a French row summary cut off at 320 px; the name
+  field's focus ring clipped), both re-shot.
+- **Not established.** The dialog and the native commands against a real backend with
+  the pack: the real answers of `/mainodes/dials/presets`, the pack's hashes and
+  warnings, an external backend, and what a backend without the pack really answers
+  (assumed from aiohttp's plain-text 404; the fixture imitates it). A preset written by
+  DEAS opened in the ComfyUI rack, and the reverse with a real file. Whether the
+  one-seed strength guidance in the hint holds for other dials, prompts and seeds.
+  WebKitGTK/WebView2 (nested modal dialogs, focus return, the select), a screen reader,
+  touch input, Windows. The translations were written with the change and not reviewed
+  by native speakers.
+
 ## Experimental H3 dials (rack dialog and blend steps, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on top of the dock strip below; see

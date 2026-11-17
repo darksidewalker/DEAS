@@ -3,12 +3,14 @@
 [Studio](STUDIO.md) · [Plan](PLAN.md) · [Verification](VERIFICATION.md)
 
 **Status: experimental.** DEAS can compile dial rows into a MiniMax H3 video job, and
-Studio has a **Dials** dock tab to add rows and set their strength and a **rack dialog**
-with a timeline to draw each row's time curve. The node pack is **not installed or
-pinned by DEAS**, and **no job started from these controls has been run on a backend**:
-the evidence is compiler, prerequisite and component tests on fixtures and a headless
-Chromium check. There are **no rack presets yet**. Treat every statement about the
-picture as untested unless it names the render it comes from.
+Studio has a **Dials** dock tab to add rows and set their strength, a **rack dialog**
+with a timeline to draw each row's time curve, and a **rack presets** dialog that reads
+and writes the node pack's own preset files through the pack's routes. The node pack is
+**not installed or pinned by DEAS**, and **no job started from these controls has been
+run on a backend**, nor has the presets dialog talked to a real backend: the evidence is
+compiler, prerequisite, fixture-server and component tests and a headless Chromium
+check. Treat every statement about the picture as untested unless it names the render it
+comes from; the renders named here are one seed each.
 
 ## What it is
 
@@ -48,8 +50,10 @@ has no dock tabs and sends no dials). It works with a MiniMax H3 **video** pipel
   and **×** to remove the row. A new row starts on, at strength 1.
 - A positive strength pushes toward one side of the dial and a negative one toward the
   other. Which side is which, and how much is useful, is written in the dial file; DEAS
-  does not show that information yet, so the label is the file name. Start near 1 and
-  raise it gently.
+  does not show that information yet, so the label is the file name. As a first guide,
+  **about 1.5 is usually clearly visible; above about 2 the picture can leave the prompt
+  or freeze** (provisional, see [What renders have shown so far](#what-renders-have-shown-so-far-provisional)).
+- **Presets…** opens the [rack presets](#rack-presets) dialog.
 - The tab's badge counts the rows that will be sent: on, with a strength other than 0.
   **Plan** lists them under the model, and the intent JSON shows the exact rows.
 - Rows are remembered across restarts, are part of saved Studio presets and settings
@@ -77,8 +81,8 @@ When a row has a time curve that the next job cannot run, the tab lists the reas
 under the heading and Run is blocked with the same reason; see
 [When a time curve cannot run](#when-a-time-curve-cannot-run).
 
-Not built yet: rack presets, reordering rows, the dial's own description and side
-labels, and useful and overcook marks on the slider.
+Not built yet: reordering rows, the dial's own description and side labels, and useful
+and overcook marks on the slider.
 
 ## The rack dialog and its timeline
 
@@ -145,17 +149,91 @@ What the picture shows, and what to expect:
   Sharper changes are averaged away, and the pack's notes say a change shows in the
   render over about 1.5 s. With a Continuity piece the ticks are exact for the first
   segment only and the stepped line is not drawn.
-- **A strong dial on a curve can change the whole scene where the curve changes.** In
-  renders on 2026-11-16 (one seed each, motion dial, row strength 1.5) the picture cut
-  to a different scene at the change, for a level change of 0 to 1 as well as -1 to +1,
-  and for ramps from 0.2 s to 1.5 s. At that strength the render with the dial and the
-  one without are different scenes, and the curve blends between the two. Weaker rows
-  were not judged yet. The dialog shows this warning; lower the row strength if the
-  picture cuts. The presets do not prevent it.
+- **A strong dial on a curve can change the whole scene where the curve changes.** The
+  curve blends between the render with the dial and the one without, and at a high
+  strength these are different scenes. In renders on 2026-11-16 (one seed each, the
+  motion dial on a dance prompt) the picture cut to a different scene at the change at
+  row strength 1.5, for a level change of 0 to 1 as well as -1 to +1 and for ramps from
+  0.2 s to 1.5 s. On the 0 to 1 curve with a 1.0 s ramp, strength 1.0 showed no visible
+  effect, **1.2 raised the motion in the same scene**, and 1.5 cut: a narrow window. A
+  look dial (`h3_evil_cold`) on the same curve at 1.2, 1.5 and 2.0 showed no visible
+  change over time and no cut, although the same dial clearly acts as a constant row.
+  All of this is provisional. The dialog shows this warning; lower the row strength if
+  the picture cuts. The curve presets (Ramp in and so on) do not prevent it.
 - Director timeline items and prompt blocks are **not** drawn behind the lanes: Studio
   holds MiniMax H3 references as slots with trims, without a place in seconds, and
   timed prompt blocks are free text. Only the Continuity plan's segment ends exist as
   seconds, and those are drawn.
+
+## Rack presets
+
+**Presets…**, in the Dials tab and in the rack dialog, opens a dialog with the look of
+the LoRA sets dialog: the current rack on the left, the presets of the backend on the
+right.
+
+A preset is one of the **node pack's own preset files**:
+`models/loras/dials/presets/<name>.json` on the backend, the same files the Dial Rack
+node's own preset menu in ComfyUI reads and writes. So a rack saved in ComfyUI shows in
+DEAS and the reverse. DEAS keeps no copy and reaches the files only through the pack's
+routes on the backend (`/mainodes/dials/presets`), which also works for an external
+backend. It needs the pack that has these routes (ComfyUI-Dials or ComfyUI-MAINodes).
+Without it the dialog says so and offers nothing; the rack itself is not affected.
+
+- **Presets on the backend** lists the names. Choosing one reads it and shows **every
+  row it holds**, with a note under each row that is not loaded or is loaded changed,
+  and the pack's own warnings: the dial file is not on the backend, or the dial file's
+  contents changed since the preset was saved (the pack compares a hash of the file's
+  tensors).
+- **Load into rack** replaces the rack's rows with the rows that can be loaded and
+  starts nothing. In the rack dialog this is one **Undo** step. From the Dials tab there
+  is no undo; save the rack first if you want it back.
+- **Save as new preset** writes the current rack (all rows, off ones included) under a
+  new name: letters, digits, `_` and `-`, at most 80. **Saving never overwrites.** For a
+  name that exists the dialog shows the pack's answer and nothing is written. Presets
+  cannot be renamed or deleted from DEAS; remove the file on the backend.
+- **Refresh list** reads the names again.
+
+What is converted, and what is said about it:
+
+| In the preset | In DEAS |
+| --- | --- |
+| Curve times as clip fractions (`unit` absent or `normalized`, the pack's default) | Converted to seconds with the lane length shown in the rack (the clip, or the whole Continuity piece), rounded to 0.1 ms; noted on the row. The same preset gives other seconds on another clip length |
+| Curve in seconds | Kept as authored |
+| `solo` on an active row | DEAS has no solo switch. The pack runs only the solo rows, so the other rows are loaded **switched off**; noted on both |
+| Hold row, step envelope, block strengths, audio-driven curve, wired dial input | **The row is not loaded**, with the reason. It is never loaded without that part |
+| Curve audio mode `protect` | The row is loaded; the note says the audio mode is not kept (audio follows the curve) |
+| Strength outside ±20, a curve outside the compiler's limits, a file that is not `dials/….safetensors` | The row is not loaded, with the reason |
+| More than 8 loadable rows | The ninth and later are not loaded, with the reason |
+| A curve without blend steps | Loaded without; DEAS then writes its own default for the job's step count, while the node alone would use 2 (see [Blend steps](#blend-steps)). Not noted per row |
+
+Saving writes only what DEAS sends: `dial`, `strength`, `on` and, for a curve, the keys
+curve with `unit: "seconds"` (and `interp`, `smooth`, `steps` when set). DEAS sends **no
+hash**: the pack computes each row's `sha256` from the dial file when it saves, and
+stores `null` for a file it cannot find. A preset saved from DEAS therefore never holds
+solo, hold, envelope or block settings; loading it in ComfyUI gives a rack without them.
+
+Not verified: the dialog against a real backend with the pack (the tests use a fixture
+server and an in-page stand-in), and a preset written by DEAS opened in the ComfyUI
+rack.
+
+## What renders have shown so far (provisional)
+
+One seed each on 2026-11-16, 832×480, 4 s, the 6-step turbo recipe unless stated; the
+graphs were minted by hand to the shape DEAS compiles, not started from Studio. None of
+this is a measured rule.
+
+- **Constant rows, ten shipped dials** (eight `h3_evil_*` on a talking prompt,
+  `h3_motion` and `h3_motion_lora` on a dance prompt) at -3, -2.25, -1.5, +1.5, +2.25
+  and +3: about ±1.5 was clearly visible on both sides; by about +2.25 the picture left
+  the prompt or nearly froze; -3 changed the scene. This is why the slider reaches ±3
+  and the hint names 1.5 and 2.
+- **Motion dial on a 0 to 1 curve** (1.0 s ramp, dance prompt): row strength 1.0 no
+  visible effect, 1.2 more motion in the same scene, 1.5 a cut to another scene.
+- **Look dial on the same curve** (`h3_evil_cold`, 1.2, 1.5 and 2.0): no visible change
+  over time and no cut; as a constant row at +1.5 it darkens the room and the mood.
+- **Two rows in one rack** (both constant; one on a curve; crossing curves) ran without
+  error. What the combinations look like was not judged.
+- **Blend steps:** the default was confirmed only at 6 and 25 sampler steps.
 
 ## When a time curve cannot run
 
@@ -252,7 +330,8 @@ The node's own default is 2 steps whatever the job's step count. DEAS always wri
 `max(2, round(job steps / 3))`, never more than the job's steps (6 steps give 2, 25
 give 8, 4 give 2, 1 gives 1).
 
-**This default is provisional.** It comes from one seed at two settings on 2026-11-16:
+**This default is provisional and was confirmed only at 6 and 25 sampler steps.** It
+comes from one seed at two settings on 2026-11-16:
 with the 6-step turbo recipe a blend of 2 steps acted; at 25 steps without the turbo
 LoRA a blend of 2 steps did nothing visible and 8 steps made the curve act. No other
 step count, strength or dial was tried.
@@ -284,7 +363,8 @@ DEAS refuses these with an `Invalid dials: …` error instead of sending them:
 
 - hold rows, step envelopes, block strengths, audio-driven curves, wired dial inputs,
   solo, and the per-curve audio mode (the node's default applies: audio follows the
-  curve);
+  curve). A [rack preset](#rack-presets) that holds one of these is loaded without that
+  row, or with the change named on the row;
 - dials on LTX, Wan or HyperFlow Flash, and active dials on a GGUF base model;
 - a **time curve** together with any of: face refinement, the tiled latent upscale,
   an H3 transition window, De-rope on a continued segment, or a continuation of an
@@ -302,7 +382,11 @@ rows that ran.
 | --- | --- |
 | The Dials tab says the Dial Rack nodes are needed, or Run names `MAIDialRack` | The pack is not installed on the backend, or the backend was not restarted after installing it. Reopen the Dials tab afterwards; it reads the backend's node list when opened. |
 | The add list is empty, or a row says "Not on the backend" | No file (or not that file) in the backend's `models/loras/dials/`. Reload the models after copying files; on an external backend its own model list must show the file. |
-| A dial does nothing or the picture breaks | Strength too low or too high for that dial. The file's own useful and overcook strengths are not shown yet; try 1 to 2 first. |
+| A dial does nothing or the picture breaks | Strength too low or too high for that dial. The file's own useful and overcook strengths are not shown yet; about 1.5 was usually clearly visible in one-seed tests and above about 2 the picture could leave the prompt. |
+| The presets dialog says the backend has no rack presets | The backend has no `/mainodes/dials/presets` route: the pack is not installed, is older than the routes, or the backend was not restarted. Logs has a `Dial presets` entry. |
+| "A preset with this name already exists" | The pack never overwrites. Choose a new name, or remove the file in `models/loras/dials/presets/` on the backend. |
+| A preset row says "Not loaded" | The row uses a part of the rack this version does not send. See [Rack presets](#rack-presets). |
+| "The dial file changed since the preset was saved" | The file's tensors differ from the hash stored in the preset. The row is still loaded; the result may differ from when the preset was made. |
 | `Diagnostic nodes are not available on this backend: MAIDialRack` (or `MAIDialHoldMap`) | Same cause as the first row, reported by the native check when the job is prepared. |
 | `Diagnostic loras are not available on this backend: dials/…` | The dial file is not in `models/loras/dials/`, or the backend's model list is stale. |
 | `Invalid dials: time curves on a continued segment need … sourceFrames …` | The pinned checkpoint clip was not found in the session list, so the window's start is unknown. Pin an existing clip. |
@@ -338,7 +422,10 @@ describes the code; behaviour claims above are what the tests cover.
   command: `native_h3_refmods` reads `GET /dasiwa/refmods`, and `native_h3_session` the
   continuity session list. The Dial Rack pack exposes `GET /mainodes/dials/catalog` in
   the same spirit. It is **not used yet**: the pack is not pinned, so the route is not a
-  contract DEAS may rely on.
+  contract DEAS may rely on. The rack presets do call the pack's preset routes, because
+  the preset files are the pack's and nothing in DEAS can stand in for them; they fail
+  closed without the route (see
+  [Rack presets: the store](#rack-presets-the-store-and-how-deas-reaches-it)).
 
 ### Dial files in the LoRA picker
 
@@ -475,29 +562,79 @@ transitions option is then not offered) and passes the reason to the Continuity 
 - Points are HTML buttons placed over an SVG that is stretched to the lane, so they are
   focusable and keep their size at every width.
 
+### Rack presets: the store and how DEAS reaches it
+
+Decision (owner, 2026-11-16): the pack's preset files are the store, so a rack saved in
+ComfyUI shows in DEAS and the reverse, and the picker has the look of the LoRA sets
+dialog. Two ways to reach the files were looked at.
+
+1. **DEAS's own models-folder access.** The Library scan walks the models folder
+   natively and only for model files (`downloads_models.rs`, `is_model`, `walk`,
+   `scan`). DEAS does write small JSON files there, the `<file>.deas.json` metadata
+   sidecars (`downloads_models.rs`, `SIDECAR`), so writing is not against a rule. It does
+   not fit here for three reasons. The models folder is an optional local setting
+   (`roots.models` in `Workbench.tsx`): with an external backend there is none, or it is
+   not the backend's folder, and Studio then falls back to the backend's own lists. A
+   preset row carries `sha256`, the pack's hash of the dial file's tensors
+   (`presets.py::dial_sha256`, `core.tensors_sha256`); DEAS would have to re-implement
+   that hash or write `null`, and must not invent one. And the pack's validation and
+   exclusive create (`open("x")`) would be bypassed by a second writer.
+2. **Native commands over the pack's routes**, following `native_h3_refmods`
+   (`jobs.rs`, `GET /dasiwa/refmods`): `GET /mainodes/dials/presets`,
+   `GET` and `POST /mainodes/dials/presets/{name}` (`dials/routes.py`).
+
+**Chosen: the routes.** They work for owned and external backends alike, the pack
+computes the hashes and the load warnings itself, and saving cannot overwrite. The cost
+is that the route is a contract of a pack DEAS has not pinned yet; so every call **fails
+closed**: a 404 or 405 without the pack's `{"error": …}` body is reported as "this
+backend has no rack preset route", and the dialog then offers neither load nor save.
+
+- **Native** (`src-tauri/src/jobs_dial_presets.rs`, a child module of `jobs` like
+  `jobs_refmod.rs`): `native_dial_presets`, `native_dial_preset_load`,
+  `native_dial_preset_save`. Names are checked against the pack's pattern before any
+  request. A save is refused natively unless every row passes the compiler's
+  `validate_dial_row` (1 to 8 rows), so DEAS cannot write a row it cannot run, and the
+  request body is the rows as given, with no `sha256`. Answers are bounded (1 MiB, at
+  most 64 rows, 500 names); a loaded preset's rows are handed to Studio as the pack sent
+  them, with the pack's warnings reduced to `{row, reason: missing | changed}`.
+- **Failures** come back as `CODE: detail` (`DIAL_PRESETS_UNAVAILABLE`,
+  `DIAL_PRESET_EXISTS`, `DIAL_PRESET_NOT_FOUND`, `DIAL_PRESET_REFUSED`, …); the dialog
+  shows the localized sentence for the code and, where the detail is the pack's or the
+  validator's own sentence, that sentence beside it.
+- **Logging:** every failure writes one entry to the central Logs
+  (`WARN|ERROR: Dial presets <list|load|save>: <cause>; preset=<name>; repeated=N`),
+  without the URL or the backend's text; per cause, the first failure and its first
+  repeat are immediate and further repeats are limited to once per minute. A successful
+  save writes an `INFO` entry with the name and row count. Listing and loading are not
+  logged on success.
+- **Conversion** is pure, in `src/lib/dialPresets.ts`: `fromPresetRows` (pack rows to
+  rack rows plus a report per preset row) and `toPresetRows`. The rule is that nothing
+  is changed or left out without a note on its row.
+- **Dialog** (`DialPresetsDialog.tsx`): the LoRA sets dialog's frame and classes
+  (`loraSets.css`), a native `<dialog>` in a portal. It takes the store as a prop (the
+  native commands by default), which is how the tests and `tools/verify_dials.py` drive
+  it. Inside the rack dialog a load is the reducer action `load`, always its own undo
+  step; from the strip it is the strip's `onChange`. Because React hands a portal's
+  events to its React parents, the dialog stops its own `keydown` and `cancel` there, so
+  Esc and Ctrl+Z do not also close or undo the rack behind it.
+- Left out on purpose: update, rename and delete (the pack has no routes for them), a
+  preview of the preset's curves, and offering a preset's suggested strength.
+
 ### What the next parts need
 
-- **Rack presets (next):** a preset is a `DialRow[]`; apply it with
-  `dispatch({type:'rows', rows})` inside the dialog (one undo step) or `onChange`
-  outside it. Validate with `isDialRows` first. Curves in the pack's preset files use
-  the pack's default unit (clip fractions) unless they say `seconds`, and may carry
-  `steps`, `audio`, holds, envelopes and block strengths: `parseDialCurveText` converts
-  a `time` object and drops `audio`; rows with a kind this version refuses must be
-  reported, not silently changed. Curve seconds are whole-piece seconds, so a preset
-  made for one clip length does not stretch to another. Studio presets already carry the
-  rows; decide which store the picker reads.
-- **Default shapes:** no ramp length avoided the scene change at row strength 1.5 (see
-  above). If weaker rows behave, the presets could carry a suggested strength; nothing
-  is measured yet.
+- **Default shapes:** no ramp length avoided the scene change at row strength 1.5, and
+  1.2 worked for the motion dial on one prompt and seed (see above). A preset could
+  carry a suggested strength; nothing supports a general value yet.
 - **Rows are keyed by position.** The validator allows the same dial twice (the compiler
   does); the strip only never offers it. Reordering was left out; the rack adds the
   rows' shifts, so order is not expected to change the result (not tested).
 - **Off rows are not sent**, so history cannot restore them. If the rack should come
   back whole, send them with `on: false` (the compiler accepts and ignores them) and
   drop the filter in `withDials`.
-- **Logging:** the strip and the dialog only edit local state. The one operation that
-  can be refused is the clipboard; it falls back to a copy inside the window and tells
-  the user, and writes no log entry. Job errors already reach Logs through the job path.
+- **Logging:** the strip and the rack dialog only edit local state. The one operation
+  there that can be refused is the clipboard; it falls back to a copy inside the window
+  and tells the user, and writes no log entry. The presets dialog's backend calls are
+  logged natively (see above). Job errors already reach Logs through the job path.
 
 ## Platforms and evidence
 
@@ -508,8 +645,9 @@ verification entries for the
 [compiler](VERIFICATION.md#experimental-h3-dials-compiler-slice-unreleased--2026-11-16) and the
 [Dials tab](VERIFICATION.md#experimental-h3-dials-studio-dock-strip-unreleased--2026-11-16)
 and the [rack dialog](VERIFICATION.md#experimental-h3-dials-rack-dialog-and-blend-steps-unreleased--2026-11-16)
+and the [rack presets](VERIFICATION.md#experimental-h3-dials-rack-presets-unreleased--2026-11-16)
 for what was tested and the [plan](PLAN.md) for what is open. `tools/verify_dials.py`
-checks the strip's and the dialog's geometry, mouse and keyboard use in Chromium with
-synthetic IPC. Node behaviour was read
+checks the strip's, the rack dialog's and the presets dialog's geometry, mouse and
+keyboard use in Chromium with synthetic IPC. Node behaviour was read
 from the installed ComfyUI-MAINodes checkout (`dials/nodes.py`, `timecurve.py`,
-`presets.py`), not from a pinned release.
+`presets.py`, `routes.py`), not from a pinned release.

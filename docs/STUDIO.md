@@ -60,8 +60,10 @@ files require explicit Reload or Library Refresh models; Library and Studio keep
 The experimental **Dials** dock tab beside LoRAs holds steering rows for MiniMax H3
 video; files inside `loras/dials/` are offered there instead of in the LoRA dock. Its
 **Open rack** button opens a dialog with one timeline lane per row for drawing time
-curves. See [Dials](DIALS.md#the-dials-tab-in-studio) and
-[the rack dialog](DIALS.md#the-rack-dialog-and-its-timeline).
+curves, and **Presets…** loads and saves whole racks as the node pack's own preset files
+on the backend. See [Dials](DIALS.md#the-dials-tab-in-studio),
+[the rack dialog](DIALS.md#the-rack-dialog-and-its-timeline) and
+[rack presets](DIALS.md#rack-presets).
 
 ## Bulk family editing
 
