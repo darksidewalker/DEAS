@@ -264,6 +264,52 @@ test('a plan that continues an existing clip holds time curves: the compiler wou
  expect(run().title).not.toContain(reason);
 });
 
+test('a plan that continues a clip whose frame count the plan holds lays the curves out over the whole piece, runs, and sends that count for native to confirm',async()=>{
+ // The same plan as above with the picked clip's 243 frames kept: 243 + 119 = 362 frames, 15.083 s; the next clip's window starts at frame 221.
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials4',outputMode:'full',source:{clipId:'pinned-clip',endpoint:evidence.baseUrl,frames:243},steps:[{id:'a',seconds:5,action:'she turns'}]}));
+ const late={type:'keys' as const,points:[[10.5,0],[12,1]] as [number,number][],unit:'seconds' as const};
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:late}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run().disabled).toBe(false));
+ expect(run().title).not.toContain('This Continuity plan continues an existing clip.');
+ dock('Dials');
+ expect(strip().querySelector('[data-dial-conflicts]')).toBeNull();
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(dialog.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('planContinued');
+ expect(dialog.querySelector('[data-dial-timeline] h3')!.textContent).toBe('Timeline · 15.083 s');
+ expect(dialog.querySelector('[data-dial-rack-locked]')).toBeNull();
+ expect(dialog.querySelectorAll('[data-dial-rendered]')).toHaveLength(2);
+ fireEvent.click(within(dialog.querySelector<HTMLElement>(`[data-dial-lane="${calm}"]`)!).getByRole('button',{pressed:false}));
+ expect(dialog.querySelector('[data-dial-frames]')).not.toBeNull();
+ expect(dialog.querySelectorAll('[data-dial-tick]')).toHaveLength(43);
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ // The plan's step is run from the Continuity dialog: the intent pins the clip and carries the count the lanes were drawn with.
+ fireEvent.click(document.querySelector('[data-continuity-open]')!);
+ const next=await waitFor(()=>{const b=document.querySelector<HTMLButtonElement>('[data-cont-run]')!;expect(b.disabled).toBe(false);return b;});
+ await act(async()=>{fireEvent.click(next);});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {h3:{continuity:Record<string,unknown>};dials:DialRow[]};
+ expect(sent.h3.continuity).toMatchObject({sourceId:'pinned-clip',sourceFrames:243});
+ // The curve travels in whole-piece seconds; native shifts it by the window start.
+ expect(sent.dials[1].time!.points).toEqual([[10.5,0],[12,1]]);
+});
+
+test('without a time curve the continued step carries no frame count, as before',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials5',outputMode:'full',source:{clipId:'pinned-clip',endpoint:evidence.baseUrl,frames:243},steps:[{id:'a',seconds:5,action:'she turns'}]}));
+ const view=await mount([{dial:motion,strength:1.5,on:true}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(document.querySelector('[data-continuity-open]')!);
+ const next=await waitFor(()=>{const b=document.querySelector<HTMLButtonElement>('[data-cont-run]')!;expect(b.disabled).toBe(false);return b;});
+ await act(async()=>{fireEvent.click(next);});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {h3:{continuity:Record<string,unknown>}};
+ expect(sent.h3.continuity.sourceId).toBe('pinned-clip');
+ expect('sourceFrames' in sent.h3.continuity).toBe(false);
+});
+
 test('a time-curve refusal blocks Run with its reason in the strip and the dialog until the curve is off; rows without a curve are not held',async()=>{
  // More blend steps than the job samples (20): native "time.steps (blend steps) cannot exceed the job's 20 sampler steps".
  const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:{...curve,steps:21}}]);

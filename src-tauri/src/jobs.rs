@@ -1765,14 +1765,16 @@ impl Jobs {
         }
         // The segment-capture graph needs the pinned clip's frame count for its crop plan: read it
         // from the read-only session list before compiling; missing counts fail closed in compile.
+        // An intent with a dial time curve may carry the count Studio drew the curve against: a
+        // different or unreadable count is refused there, never replaced in silence.
         if crate::jobs_video::needs_source_frames(&intent) {
+            let mut found = None;
             if let Some(session) = intent["h3"]["continuity"]["session"].as_str() {
                 if let Ok(list) = native_h3_session(base.to_string(), session.to_string()).await {
-                    if let Some(frames) = crate::jobs_video::source_frames(&list, &intent) {
-                        intent["h3"]["continuity"]["sourceFrames"] = json!(frames);
-                    }
+                    found = crate::jobs_video::source_frames(&list, &intent);
                 }
             }
+            crate::jobs_video::confirm_source_frames(&mut intent, found)?;
         }
         let mut graph = compile(&intent)?;
         let id = uuid::Uuid::new_v4().to_string();

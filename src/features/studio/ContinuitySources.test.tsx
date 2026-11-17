@@ -39,7 +39,8 @@ test('choosing a source and New first take only emit explicit callbacks',async()
  vi.mocked(readH3Session).mockResolvedValue({latestId:'newest',clips:[clip('newest')]});
  const {props,rerender}=mount('saved');await clickLoad();
  fireEvent.change(select(),{target:{value:'newest'}});
- expect(props.onSelect).toHaveBeenCalledExactlyOnceWith('newest');
+ // The clip's frame count (5 in this fixture) travels with the id.
+ expect(props.onSelect).toHaveBeenCalledExactlyOnceWith('newest',5);
  expect(select().value).toBe('saved');
  rerender(<I18nProvider><ContinuitySources {...props} sourceId="newest"/></I18nProvider>);
  fireEvent.change(select(),{target:{value:'newest'}});
@@ -170,4 +171,55 @@ test('does not read automatically and displays a saved ID literally before loadi
  expect(load().hasAttribute('data-cont-load-sources')).toBe(true);
  expect(select().hasAttribute('data-cont-source')).toBe(true);
  expect(props.onSelect).not.toHaveBeenCalled();
+});
+
+test('a picked clip carries its cumulative frame count when it is a legal H3 length, and no count otherwise',async()=>{
+ // 243 = 17 x 14 + 5. 240 is listed (five or more whole frames) but native would refuse it as sourceFrames, so no count is kept.
+ vi.mocked(readH3Session).mockResolvedValue({latestId:'long',clips:[clip('long',243),clip('odd',240),clip('short',5)]});
+ const {props}=mount();await clickLoad();
+ fireEvent.change(select(),{target:{value:'long'}});
+ expect(props.onSelect).toHaveBeenLastCalledWith('long',243);
+ fireEvent.change(select(),{target:{value:'odd'}});
+ expect(props.onSelect).toHaveBeenLastCalledWith('odd');
+ fireEvent.change(select(),{target:{value:'short'}});
+ expect(props.onSelect).toHaveBeenLastCalledWith('short',5);
+});
+
+test('reading the sources again reports the current clip\'s count when none is kept or it changed, and nothing otherwise',async()=>{
+ const onFrames=vi.fn();
+ const show=(sourceId:string|undefined,sourceFrames:number|undefined,view?:ReturnType<typeof render>)=>{
+  const ui=<I18nProvider><ContinuitySources endpoint="http://backend" session="active-session" sourceId={sourceId} sourceFrames={sourceFrames} running={false} onSelect={vi.fn()} onFrames={onFrames}/></I18nProvider>;
+  if(view){view.rerender(ui);return view;}
+  return render(ui);
+ };
+ vi.mocked(readH3Session).mockResolvedValue({latestId:'kept',clips:[clip('kept',243),clip('other',124)]});
+ // A plan saved before the count was kept.
+ const view=show('kept',undefined);await clickLoad();
+ expect(onFrames).toHaveBeenCalledExactlyOnceWith('kept',243);
+ // The same count again: nothing to report.
+ show('kept',243,view);await clickLoad();
+ expect(onFrames).toHaveBeenCalledTimes(1);
+ // The clip has another length now.
+ vi.mocked(readH3Session).mockResolvedValue({latestId:'kept',clips:[clip('kept',362)]});
+ await clickLoad();
+ expect(onFrames).toHaveBeenLastCalledWith('kept',362);
+ // A count native would refuse, a clip that is not listed and a new take report nothing.
+ onFrames.mockClear();
+ vi.mocked(readH3Session).mockResolvedValue({latestId:'kept',clips:[clip('kept',240)]});
+ show('kept',243,view);await clickLoad();
+ show('gone',undefined,view);await clickLoad();
+ show(undefined,undefined,view);await clickLoad();
+ expect(onFrames).not.toHaveBeenCalled();
+});
+
+test('a count read for the clip that was current when the read started goes to the handler of the current render',async()=>{
+ const request=deferred();vi.mocked(readH3Session).mockReturnValue(request.promise);
+ const first=vi.fn(),second=vi.fn();
+ const ui=(onFrames:typeof first)=><I18nProvider><ContinuitySources endpoint="http://backend" session="active-session" sourceId="kept" running={false} onSelect={vi.fn()} onFrames={onFrames}/></I18nProvider>;
+ const view=render(ui(first));fireEvent.click(load());
+ // The parent rendered again while the read was running (a step was edited): its newer handler holds the newer plan.
+ view.rerender(ui(second));
+ await act(async()=>request.resolve({latestId:null,clips:[clip('kept',243)]}));
+ expect(first).not.toHaveBeenCalled();
+ expect(second).toHaveBeenCalledExactlyOnceWith('kept',243);
 });

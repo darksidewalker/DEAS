@@ -785,6 +785,28 @@ pub(crate) fn needs_source_frames(i: &Value) -> bool {
             .is_some_and(|s| !s.is_empty())
 }
 
+/// prepare(): settles `h3.continuity.sourceFrames` from the session list's count (`found`). The
+/// list is authoritative and replaces whatever the intent carries. One case is refused instead:
+/// an intent with an active dial time curve that already carries a count (Studio sends the one
+/// its rack dialog laid the curve out with) when the list has another count for the pinned clip,
+/// or none. The curve was drawn against the count the intent carries, so shifting it by another
+/// one would run a curve nobody authored. Without a curve nothing changes: the list's count
+/// wins, and a carried count stays when the list has none.
+pub(crate) fn confirm_source_frames(i: &mut Value, found: Option<u64>) -> Result<(), String> {
+    let carried = i["h3"]["continuity"].get("sourceFrames").cloned();
+    if let Some(carried) = carried.filter(|_| dial_curves(i)) {
+        match found {
+            Some(frames) if carried.as_u64() == Some(frames) => {}
+            Some(frames) => return Err(format!("Invalid dials: the pinned clip has {frames} frames in the session list, but the time curves were laid out for {carried}; load the Continuity sources again and check the curves")),
+            None => return Err(format!("Invalid dials: the pinned clip's frame count ({carried} when the time curves were laid out) could not be read from the session list; load the Continuity sources again")),
+        }
+    }
+    if let Some(frames) = found {
+        i["h3"]["continuity"]["sourceFrames"] = json!(frames);
+    }
+    Ok(())
+}
+
 /// The pinned source's frame count from the read-only session clip list: the staged import for video
 /// sources (matching canvas and mode family), otherwise the pinned checkpoint clip.
 pub(crate) fn source_frames(list: &Value, i: &Value) -> Option<u64> {

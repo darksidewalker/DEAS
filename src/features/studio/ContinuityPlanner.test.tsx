@@ -174,3 +174,37 @@ test('running locks overlap and unsupported dropdown values do not change the pl
  expect(select.disabled).toBe(true);fireEvent.change(select,{target:{value:'74'}});expect(onChange).not.toHaveBeenCalled();
 });
 
+
+test('picking a source keeps its frame count in the plan; reading the sources again adds or corrects it without touching the steps',async()=>{
+ localStorage.setItem('deas.locale.v1','en');
+ let frames=243;
+ vi.mocked(invoke).mockImplementation(async command=>{
+  if(command==='native_h3_session')return {latestId:'root',clips:[{clipId:'root',parent:null,frames,completed:1,export:null},{clipId:'odd',parent:null,frames:240,completed:0,export:null}]};
+  throw Error(`Unexpected ${String(command)}`);
+ });
+ const endpoint='http://127.0.0.1:8188',onChange=vi.fn();
+ const ui=(value:ContinuityPlan)=><I18nProvider><ContinuityPlanner endpoint={endpoint} plan={value} running={false} disabled={false} onChange={onChange} onRun={vi.fn()}/></I18nProvider>;
+ const view=render(ui(plan));
+ const load=()=>act(async()=>{fireEvent.click(document.querySelector('[data-cont-load-sources]')!);});
+ const source=()=>document.querySelector<HTMLSelectElement>('[data-cont-source]')!;
+ await load();
+ fireEvent.change(source(),{target:{value:'root'}});
+ expect(onChange).toHaveBeenLastCalledWith({...plan,source:{clipId:'root',endpoint,frames:243}});
+ // A clip whose count is not a legal H3 length is picked without one: the Dial Rack then holds time curves, as before.
+ fireEvent.change(source(),{target:{value:'odd'}});
+ expect(onChange).toHaveBeenLastCalledWith({...plan,source:{clipId:'odd',endpoint}});
+
+ // A plan saved before the count was kept, with a finished step: reading the sources adds the count and keeps the step's clip.
+ const saved:ContinuityPlan={...plan,source:{clipId:'root',endpoint},steps:[{id:'one',seconds:5,action:'walk',clipId:'made',jobId:'job'},{id:'two',seconds:3,action:''}]};
+ onChange.mockClear();view.rerender(ui(saved));
+ await load();
+ expect(onChange).toHaveBeenCalledExactlyOnceWith({...saved,source:{clipId:'root',endpoint,frames:243}});
+ // The clip changed since: the kept count follows the session list.
+ frames=362;onChange.mockClear();view.rerender(ui({...saved,source:{clipId:'root',endpoint,frames:243}}));
+ await load();
+ expect(onChange).toHaveBeenCalledExactlyOnceWith({...saved,source:{clipId:'root',endpoint,frames:362}});
+ // A source pinned on another backend is not this backend's clip: nothing is written.
+ onChange.mockClear();view.rerender(ui({...saved,source:{clipId:'root',endpoint:'http://other:1'}}));
+ await load();
+ expect(onChange).not.toHaveBeenCalled();
+});

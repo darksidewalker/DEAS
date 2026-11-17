@@ -1981,6 +1981,41 @@ async fn dials_prepare_requires_the_optional_nodes_and_the_listed_dial_files() {
     }
 }
 
+/// prepare() reads the pinned clip's frame count from the session list. An intent whose dial time
+/// curve was laid out for another count (Studio sends the one it drew with), or whose clip the
+/// list no longer has, is refused before anything else is asked of the backend.
+#[tokio::test]
+async fn dials_prepare_refuses_a_pinned_clip_whose_frame_count_changed() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["h3"]["continuity"] = json!({"session":"deas-ab12cd34","sourceId":"clip_1","sourceFrames":73,"capture":true,"action":"she turns around","outputMode":"full"});
+    intent["dials"] = json!([{"dial":"dials/h3_calm.safetensors","strength":1,"time":{"type":"keys","points":[[2.125,0],[4.125,1]],"unit":"seconds"}}]);
+    for (case, frames) in [("changed", Some(243)), ("gone", None), ("same", Some(73))] {
+        let (base, task) = server(move |path, _| {
+            if path == "GET /comfy/df_h3_continuity/session/deas-ab12cd34 HTTP/1.1" {
+                let clips = frames
+                    .map(|n| json!([{"clip_id":"clip_1","parent_id":"","frames":n,"completed_ns":1}]))
+                    .unwrap_or(json!([]));
+                return (200, json!({"latest_id":"clip_1","clips":clips}).to_string());
+            }
+            assert_eq!(case, "same", "a refused job asks the backend nothing more");
+            assert_eq!(path, "GET /comfy/object_info HTTP/1.1");
+            (200, json!({}).to_string())
+        })
+        .await;
+        let error = Jobs::default()
+            .prepare(base, intent.clone())
+            .await
+            .unwrap_err();
+        match case {
+            "changed" => assert_eq!(error, "Invalid dials: the pinned clip has 243 frames in the session list, but the time curves were laid out for 73; load the Continuity sources again and check the curves"),
+            "gone" => assert_eq!(error, "Invalid dials: the pinned clip's frame count (73 when the time curves were laid out) could not be read from the session list; load the Continuity sources again"),
+            // The count agrees: the job compiles and reaches the prerequisite check (this fixture backend lists nothing).
+            _ => assert!(error.starts_with("Diagnostic ") && error.contains(" are not available on this backend"), "{error}"),
+        }
+        task.abort();
+    }
+}
+
 #[tokio::test]
 async fn h3_regenerate_original_prepare_skips_upscaler_but_requires_supported_target_and_lora() {
     let mut intent = crate::jobs_video::tests::h3();

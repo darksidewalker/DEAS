@@ -3,7 +3,15 @@ import { isH3OverlapFrames, type H3Continuity, type H3OverlapFrames } from './vi
 /** DEAS-owned MiniMax H3 continuity plan: step 0 is a captured first take, later steps extend the clip the previous step produced. */
 export interface ContinuityStep { id:string; seconds:number; action:string; clipId?:string; jobId?:string }
 /** Continuity is off unless `enabled:true`; switching it never touches session, source, steps or clips. */
-export interface ContinuityPlan { enabled?:boolean; session:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; source?:{clipId:string;endpoint:string;kind?:'video'}; steps:ContinuityStep[] }
+/**
+ * `source.frames` is the picked checkpoint clip's cumulative frame count as the session list gave it when the clip was picked (or when the
+ * sources were read again): the one number the Dial Rack needs to lay time curves out over the whole piece. Optional: plans saved before it
+ * existed, imported-video sources and a clip whose count is not a legal H3 length have none, and curves stay held for them. Native reads the
+ * count again when it prepares the job and refuses a curve when the two differ (`jobs_video.rs::confirm_source_frames`).
+ */
+export interface ContinuityPlan { enabled?:boolean; session:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; source?:{clipId:string;endpoint:string;kind?:'video';frames?:number}; steps:ContinuityStep[] }
+/** A session clip's cumulative frame count as native accepts `h3.continuity.sourceFrames`: 17k + 5. */
+export const isClipFrames=(n:unknown):n is number=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=5&&(n-5)%17===0;
 const idOk=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(s);
 export const isContinuitySession=(s:unknown):s is string=>idOk(s)&&s!=='_imports';
 export const newSession=()=>`deas-${crypto.randomUUID().slice(0,8)}`;
@@ -15,7 +23,7 @@ export const isContinuityPlan=(v:unknown):v is ContinuityPlan=>{
   &&(p.overlapFrames===undefined||isH3OverlapFrames(p.overlapFrames))
   &&(p.enabled===undefined||typeof p.enabled==='boolean')
   &&(p.useReferences===undefined||typeof p.useReferences==='boolean')
-  &&(p.source===undefined||!!p.source&&typeof p.source==='object'&&idOk(p.source.clipId)&&(p.source.kind===undefined||p.source.kind==='video'&&/^[a-f0-9]{64}$/.test(p.source.clipId))&&typeof p.source.endpoint==='string'&&p.source.endpoint.length>0&&p.source.endpoint.length<=2048)
+  &&(p.source===undefined||!!p.source&&typeof p.source==='object'&&idOk(p.source.clipId)&&(p.source.kind===undefined||p.source.kind==='video'&&/^[a-f0-9]{64}$/.test(p.source.clipId))&&typeof p.source.endpoint==='string'&&p.source.endpoint.length>0&&p.source.endpoint.length<=2048&&(p.source.frames===undefined||p.source.kind===undefined&&isClipFrames(p.source.frames)))
   &&p.steps.every(s=>!!s&&typeof s.id==='string'&&typeof s.seconds==='number'&&s.seconds>0&&s.seconds<=15&&typeof s.action==='string'&&(s.clipId===undefined||idOk(s.clipId))&&(s.jobId===undefined||typeof s.jobId==='string'));
 };
 export const continuitySource=(plan:ContinuityPlan,index:number):string|undefined=>index>0?plan.steps[index-1]?.clipId:plan.source?.clipId;

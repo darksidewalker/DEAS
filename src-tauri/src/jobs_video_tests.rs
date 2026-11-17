@@ -4285,6 +4285,69 @@ fn derope_gives_dial_time_curves_the_hold_map() {
     assert_eq!(dial_classes(&g).len(), 2);
 }
 
+/// prepare() settles the pinned clip's frame count through `confirm_source_frames`. Studio sends
+/// the count its rack dialog laid a time curve out with; the session list is read again and a
+/// different or missing count refuses the job instead of shifting the curve by another length.
+#[test]
+fn dial_time_curves_refuse_a_pinned_clip_whose_frame_count_changed() {
+    let mut base = continued("full");
+    base.as_object_mut().unwrap().remove("videoPost");
+    let timed = json!([{"dial":"dials/h3_motion.safetensors","strength":1,"time":{"type":"keys","points":[[2.125, 0], [4.125, 1]],"unit":"seconds"}}]);
+    let frames = |i: &Value| i["h3"]["continuity"].get("sourceFrames").cloned();
+
+    // No count carried (an intent from before Studio sent one): the list's count is injected.
+    let mut i = base.clone();
+    i["dials"] = timed.clone();
+    assert_eq!(confirm_source_frames(&mut i, Some(73)), Ok(()));
+    assert_eq!(frames(&i), Some(json!(73)));
+    // No count anywhere: compile reports the missing count, as before.
+    let mut i = base.clone();
+    i["dials"] = timed.clone();
+    assert_eq!(confirm_source_frames(&mut i, None), Ok(()));
+    assert_eq!(frames(&i), None);
+    assert!(compile(&i).unwrap_err().contains("sourceFrames"));
+
+    // The carried count agrees with the list: the job compiles with the shift Studio drew.
+    let mut i = base.clone();
+    i["dials"] = timed.clone();
+    i["h3"]["continuity"]["sourceFrames"] = json!(73);
+    assert_eq!(confirm_source_frames(&mut i, Some(73)), Ok(()));
+    assert_eq!(
+        rack(&compile(&i).unwrap())[0]["time"]["points"],
+        json!([[0.0, 0], [2.0, 1]])
+    );
+
+    // The clip has another length now: refused with both counts, the intent untouched.
+    let error = confirm_source_frames(&mut i, Some(243)).unwrap_err();
+    assert!(
+        error.starts_with("Invalid dials: the pinned clip has 243 frames in the session list, but the time curves were laid out for 73"),
+        "{error}"
+    );
+    assert_eq!(frames(&i), Some(json!(73)));
+    // The clip is not in the list, or the list could not be read: refused as well.
+    let error = confirm_source_frames(&mut i, None).unwrap_err();
+    assert!(
+        error.starts_with("Invalid dials: the pinned clip's frame count (73 when the time curves were laid out) could not be read from the session list"),
+        "{error}"
+    );
+
+    // Without an active time curve nothing is refused: the list's count wins, a carried one
+    // stays when the list has none (the segment crop plan, as before).
+    for dials in [json!([dial_row(1.5)]), json!([]), {
+        let mut off = timed.clone();
+        off[0]["on"] = json!(false);
+        off
+    }] {
+        let mut i = base.clone();
+        i["dials"] = dials;
+        i["h3"]["continuity"]["sourceFrames"] = json!(73);
+        assert_eq!(confirm_source_frames(&mut i, Some(243)), Ok(()));
+        assert_eq!(frames(&i), Some(json!(243)));
+        assert_eq!(confirm_source_frames(&mut i, None), Ok(()));
+        assert_eq!(frames(&i), Some(json!(243)));
+    }
+}
+
 #[test]
 fn dial_time_curves_shift_onto_a_continued_window() {
     let plain = |mode: &str| {
@@ -4296,6 +4359,8 @@ fn dial_time_curves_shift_onto_a_continued_window() {
     // Window start in piece frames, checked against the pack's own
     // h3_continuity/core.py::continuation_timing (Director call, then Guide call with the source):
     // (sourceFrames, overlapFrames, durationSeconds) -> sourceFrames - overlap. frames 124 = 119 new.
+    // The rack dialog's lanes are tested against this same table (`src/lib/dialCurve.test.ts`,
+    // `continuationWindowStart`).
     for (source, overlap, seconds, start) in [
         (243, None, None, 221),
         (73, None, None, 51),
@@ -4305,6 +4370,11 @@ fn dial_time_curves_shift_onto_a_continued_window() {
         (243, None, Some(15.0), 238),
         (243, Some(5), Some(2.0), 238),
         (124, Some(56), Some(10.0), 68),
+        (243, Some(73), Some(15.0), 238),
+        (56, Some(56), None, 0),
+        (22, Some(39), Some(1.0), 0),
+        (90, Some(39), None, 51),
+        (600, Some(73), Some(14.0), 578),
     ] {
         let mut i = plain("full");
         i["h3"]["continuity"]["sourceFrames"] = json!(source);

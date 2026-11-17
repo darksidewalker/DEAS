@@ -1,6 +1,7 @@
 import type { H3DialCurve } from './videoIntent';
 import { videoFrames } from './videoIntent';
 import { DIAL_LEVEL, DIAL_POINTS, DIAL_SECONDS, isDialCurve, isDialRows, type DialRow } from './dials';
+import { isClipFrames } from './continuity';
 
 /**
  * Time-curve maths and editing for the experimental Dial Rack dialog (docs/DIALS.md). The sampler mirrors the pack's
@@ -56,8 +57,14 @@ export function dialFrameLevels(curve:Pick<H3DialCurve,'points'|'interp'|'smooth
  });
 }
 
-/** The seconds the lanes cover. `edges` are segment ends inside the piece (Continuity plan), for drawing and snapping. */
-export interface DialTimeline { seconds:number; frames:number; edges:number[]; basis:'clip'|'plan'|'planSource' }
+/**
+ * The seconds the lanes cover. `edges` are segment ends inside the piece (Continuity plan), for drawing and snapping.
+ * Basis `planContinued` (a plan that continues a clip whose frame count Studio holds) also has `rendered`, the seconds that already exist
+ * (the continued clip and every finished step: drawn as rendered, no points go there), and `window`, what the next step samples: its start
+ * in piece seconds (the shift the compiler applies to the curve) and its frame count (hidden context frames plus the new frames). `window`
+ * is absent when every step has its clip.
+ */
+export interface DialTimeline { seconds:number; frames:number; edges:number[]; basis:'clip'|'plan'|'planSource'|'planContinued'; rendered?:number; window?:{start:number;frames:number} }
 /**
  * Mirror of native `continuation_extension`: the new frames a continued Continuity step adds, in 17-frame steps. The Director snaps the
  * duration it receives. With `byDuration` that is the step's seconds (the intent carries `h3.continuity.durationSeconds`; Studio sends it
@@ -66,15 +73,45 @@ export interface DialTimeline { seconds:number; frames:number; edges:number[]; b
  */
 export const continuationFrames=(seconds:number,byDuration:boolean)=>Math.max(1,Math.floor((byDuration?seconds*H3_FPS:videoFrames('minimax-h3',seconds,H3_FPS))/17+0.5))*17;
 /**
+ * Mirror of native `continuation_window_start`: the piece frame at which a checkpoint continuation's sampled window starts, the pinned clip's
+ * cumulative frame count less the hidden context frames the pack resolves: the largest of 73/56/39/22/5 that fits the requested context
+ * (22 when the plan sets none), `362 - extension` and the source. Null when none fits. Tested against the table the native test asserts.
+ */
+export function continuationWindowStart(sourceFrames:number,overlapFrames:number|undefined,extension:number):number|null {
+ const available=Math.min(overlapFrames??22,362-extension,sourceFrames),overlap=[73,56,39,22,5].find(n=>n<=available);
+ return overlap===undefined?null:sourceFrames-overlap;
+}
+/** The curve as native `dial_rack` sends it for a window that starts at `start` seconds of the piece: every point's seconds less the start. */
+export const shiftDialCurve=<C extends Pick<H3DialCurve,'points'|'interp'|'smooth'>>(curve:C,start:number):C=>({...curve,points:curve.points.map(q=>[q[0]-start,q[1]] as const)});
+/** `dialFrameLevels` of a continued step's window, in piece seconds: the shifted curve's mean per latent frame of the window. */
+export function dialWindowLevels(curve:Pick<H3DialCurve,'points'|'interp'|'smooth'>,window:{start:number;frames:number}):{start:number;end:number;level:number}[] {
+ return dialFrameLevels(shiftDialCurve(curve,window.start),window.frames).map(f=>({start:f.start+window.start,end:f.end+window.start,level:f.level}));
+}
+/**
  * Lane length. Without a Continuity plan it is the clip the next job renders (its real frame count, 17k + 5 at 24 fps, not the typed
  * seconds). With a plan it is the whole piece: the first step's clip plus every later step's extension as the compiler snaps it for the
  * mode in use (`continuationFrames`; `byDuration` = the continued steps carry `durationSeconds`, REF2VA). A plan that continues an
- * existing clip or an imported video starts at a frame count Studio does not hold, so the piece cannot be laid out and the clip is used
- * (`planSource`).
+ * imported video, or a clip whose frame count Studio does not hold (`source.frames`: a plan saved before the count was kept, a failed
+ * session read), starts at an unknown frame, so the piece cannot be laid out and the clip is used (`planSource`). With the count
+ * (`planContinued`) the piece starts at 0 s with the continued clip, every step adds its extension, and the next step (the first without a
+ * clip) gets its window from `continuationWindowStart` of the frames before it. Only the picked clip's count is read from the session; the
+ * counts after finished steps are this layout's own sums.
  */
-export function dialTimeline(clipFrames:number,plan:{steps:readonly {seconds:number}[];source?:unknown}|null|undefined,byDuration:boolean):DialTimeline {
+export function dialTimeline(clipFrames:number,plan:{steps:readonly {seconds:number;clipId?:string}[];source?:unknown;overlapFrames?:number}|null|undefined,byDuration:boolean):DialTimeline {
  if(!plan||!plan.steps.length)return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'clip'};
- if(plan.source)return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'planSource'};
+ if(plan.source){
+  const source=plan.source as {kind?:unknown;frames?:unknown};
+  if(source.kind!==undefined||!isClipFrames(source.frames))return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'planSource'};
+  const next=plan.steps.findIndex(s=>!s.clipId),ends=[source.frames];
+  let window:DialTimeline['window'];
+  plan.steps.forEach((s,i)=>{
+   const before=ends[i],extension=continuationFrames(s.seconds,byDuration),start=i===next?continuationWindowStart(before,plan.overlapFrames,extension):null;
+   if(start!==null)window={start:start/H3_FPS,frames:before-start+extension};
+   ends.push(before+extension);
+  });
+  const frames=ends.at(-1)!;
+  return {seconds:frames/H3_FPS,frames,edges:ends.slice(0,-1).map(f=>f/H3_FPS),basis:'planContinued',rendered:ends[next<0?ends.length-1:next]/H3_FPS,...(window?{window}:{})};
+ }
  let frames=0;
  const ends=plan.steps.map((s,i)=>(frames+=i?continuationFrames(s.seconds,byDuration):videoFrames('minimax-h3',s.seconds,H3_FPS))/H3_FPS);
  return {seconds:frames/H3_FPS,frames,edges:ends.slice(0,-1),basis:'plan'};
@@ -142,7 +179,9 @@ export type DialPreset=typeof dialPresets[number];
  * Preset points over a lane of `seconds`, all inside levels 0..1 with ramps of about 1.5 s (shorter only when the lane is). A strong row
  * still changes the whole scene at the ramp (one-seed renders, 2026-11-16); the presets do not avoid that, they stay in the designed range.
  */
-export function dialPresetPoints(name:DialPreset,seconds:number):[number,number][] {
+export function dialPresetPoints(name:DialPreset,seconds:number,from=0):[number,number][] {
+ // `from` > 0 (the rendered part of a continued piece): the same shape over what is left of the lane, moved to start there.
+ if(from>0){const start=Math.ceil(from*1e4-1e-6)/1e4;return dialPresetPoints(name,Math.max(0,Math.floor(seconds*1e4+1e-6)/1e4-start)).map(([t,l])=>[r4(start+t),l]);}
  // The last point never passes the lane's end: its seconds are cut, not rounded, to four decimals.
  const end=Math.floor(seconds*1e4+1e-6)/1e4,ramp=Math.min(DIAL_RAMP,end);
  if(name==='rampIn')return [[0,0],[r4(ramp),1]];
@@ -150,8 +189,11 @@ export function dialPresetPoints(name:DialPreset,seconds:number):[number,number]
  const [a,b]=name==='pulse'?[0,1]:[1,0],r=Math.min(DIAL_RAMP,Math.round(end/3/DIAL_SNAP)*DIAL_SNAP);
  return end-2*r>=DIAL_GAP&&r>=DIAL_GAP?[[0,a],[r4(r),b],[r4(end-r),b],[end,a]]:[[0,a],[r4(end/2),b],[end,a]];
 }
-/** A flat curve at level 1 over the lane: what "add curve" starts from, the same strength as the constant row it replaces. */
-export const flatCurve=(seconds:number):H3DialCurve=>({type:'keys',points:[[0,1],[Math.floor(Math.max(seconds,2*DIAL_GAP)*1e4+1e-6)/1e4,1]],unit:'seconds'});
+/** A flat curve at level 1 over the lane (from `from`, the end of a continued piece's rendered part): what "add curve" starts from, the same strength as the constant row it replaces. */
+export function flatCurve(seconds:number,from=0):H3DialCurve {
+ const start=from>0?Math.ceil(from*1e4-1e-6)/1e4:0;
+ return {type:'keys',points:[[start,1],[Math.floor(Math.max(seconds,start+2*DIAL_GAP)*1e4+1e-6)/1e4,1]],unit:'seconds'};
+}
 
 /** A row's curve as clipboard text: the rack row's own `time` object, so it pastes into the pack's editor too. */
 export const dialCurveText=(curve:H3DialCurve)=>JSON.stringify(curve);
@@ -180,13 +222,13 @@ export type RackAction=
  |{type:'gesture'}
  |{type:'load';rows:readonly DialRow[]}
  |{type:'select';row:number;point?:number}
- |{type:'addCurve';seconds:number;steps?:number}|{type:'removeCurve'}
+ |{type:'addCurve';seconds:number;from?:number;steps?:number}|{type:'removeCurve'}
  |{type:'add';t:number;level:number;lim:CurveLimits}
  |{type:'move';point:number;t:number;level:number;lim:CurveLimits;tag?:string}
  |{type:'nudge';point:number;dt:number;dl:number;lim:CurveLimits}
  |{type:'remove';point:number}
  |{type:'set';patch:{interp?:'linear'|'step';smooth?:number;steps?:number|null;audio?:'follow'|'protect'};tag?:string}
- |{type:'preset';name:DialPreset;seconds:number;steps?:number}
+ |{type:'preset';name:DialPreset;seconds:number;from?:number;steps?:number}
  |{type:'paste';curve:H3DialCurve}
  |{type:'undo'}|{type:'redo'};
 const HISTORY=100;
@@ -226,7 +268,7 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
   case 'load':return isDialRows(a.rows)?settle(commit({...s,tag:''},a.rows,'',{row:a.rows.length?0:-1,point:-1})):s;
   case 'select':return s.rows[a.row]?settle({...s,row:a.row,point:a.point??-1,tag:''}):s;
   // `steps`: the blend steps the dial file records for the pipeline in use, authored into the new curve.
-  case 'addCurve':return curve||!s.rows[s.row]?s:commit(s,withCurve(s,{...flatCurve(a.seconds),...(a.steps?{steps:a.steps}:{})}),'',{point:-1});
+  case 'addCurve':return curve||!s.rows[s.row]?s:commit(s,withCurve(s,{...flatCurve(a.seconds,a.from),...(a.steps?{steps:a.steps}:{})}),'',{point:-1});
   case 'removeCurve':return curve?commit(s,withCurve(s,undefined),'',{point:-1}):s;
   case 'add':{
    const added=curve&&addPoint(curve,a.t,a.level,a.lim);
@@ -252,7 +294,7 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
    if(a.patch.audio==='protect')next.audio='protect';else if(a.patch.audio==='follow')delete next.audio;
    return isDialCurve(next)?commit(s,withCurve(s,next),a.tag??''):s;
   }
-  case 'preset':return s.rows[s.row]?commit(s,withCurve(s,curve?{...curve,points:dialPresetPoints(a.name,a.seconds),interp:'linear'}:{type:'keys',points:dialPresetPoints(a.name,a.seconds),unit:'seconds',interp:'linear',...(a.steps?{steps:a.steps}:{})}),'',{point:-1}):s;
+  case 'preset':return s.rows[s.row]?commit(s,withCurve(s,curve?{...curve,points:dialPresetPoints(a.name,a.seconds,a.from),interp:'linear'}:{type:'keys',points:dialPresetPoints(a.name,a.seconds,a.from),unit:'seconds',interp:'linear',...(a.steps?{steps:a.steps}:{})}),'',{point:-1}):s;
   case 'paste':return s.rows[s.row]&&isDialCurve(a.curve)?commit(s,withCurve(s,a.curve),'',{point:-1}):s;
   case 'undo':return s.past.length?settle({...s,rows:s.past.at(-1)!,past:s.past.slice(0,-1),future:[...s.future,s.rows],tag:'',point:-1}):s;
   case 'redo':return s.future.length?settle({...s,rows:s.future.at(-1)!,future:s.future.slice(0,-1),past:[...s.past,s.rows],tag:'',point:-1}):s;

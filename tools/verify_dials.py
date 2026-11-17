@@ -378,6 +378,96 @@ def verify_continued(browser, url, shots, checks):
             context.close()
 
 
+KNOWN = r"""()=>{
+ const dialog=document.querySelector('dialog[data-dial-rack]'),body=dialog.querySelector('.dial-rack-body');
+ const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+ const timeline=dialog.querySelector('[data-dial-timeline]'),basis=dialog.querySelector('[data-dial-basis]'),selected=dialog.querySelector('.dial-lane[data-selected="true"]');
+ return {viewport:{width:innerWidth,height:innerHeight},page:document.documentElement.scrollWidth,dialog:box(dialog),body:{client:body.clientWidth,scroll:body.scrollWidth},
+  basisId:timeline.dataset.dialTimeline,basis:{text:basis.textContent,...box(basis)},heading:timeline.querySelector('h3').textContent,locked:!!dialog.querySelector('[data-dial-rack-locked]'),
+  plot:box(selected.querySelector('.dial-lane-plot')),axis:box(dialog.querySelector('.dial-axis .dial-lane-plot')),
+  rendered:[...dialog.querySelectorAll('[data-dial-rendered]')].map(e=>({at:e.dataset.dialRendered,plot:box(e.parentElement),...box(e)})),
+  edges:[...selected.querySelectorAll('[data-dial-edge]')].map(e=>box(e).left),
+  ticks:[...dialog.querySelectorAll('[data-dial-tick]')].map(e=>box(e).left),frames:dialog.querySelectorAll('[data-dial-frames]').length,
+  help:[...dialog.querySelectorAll('[data-dial-help]')].map(e=>e.dataset.dialHelp),conflicts:[...dialog.querySelectorAll('[data-dial-conflict]')].map(e=>e.dataset.dialConflict),
+  points:[...dialog.querySelectorAll('[data-dial-point]')].map(e=>({disabled:e.disabled,...box(e)})),tools:Object.fromEntries([...dialog.querySelectorAll('[data-dial-tool]')].map(e=>[e.dataset.dialTool,e.disabled]))};
+}"""
+
+
+def verify_continued_known(browser, url, shots, checks):
+    """A Continuity plan that continues a clip whose frame count the plan holds: the lanes cover the whole piece from 0 s, the rendered part is marked and takes no points, the next clip's latent frames are drawn, nothing is held."""
+    curved = 'dials/h3_day_night_hook.safetensors'
+    # 243 frames exist (10.125 s); the 5 s step adds 119: 362 frames. Its window starts 22 context frames before the clip's end (frame 221), 141 frames, 42 latent frames.
+    plan = {'enabled': True, 'session': 'fixture-session', 'outputMode': 'full', 'source': {'clipId': 'pinned-clip', 'endpoint': 'http://127.0.0.1:8188', 'frames': 243}, 'steps': [{'id': 'one', 'seconds': 5, 'action': ''}]}
+    rows = [ROWS[0], {**ROWS[1], 'time': {'type': 'keys', 'points': [[10.5, 0], [12, 1], [13.5, 1], [15, 0.2]], 'unit': 'seconds'}}]
+    for locale in ('en', 'de', 'ja'):
+        context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(rows)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap']))
+                             + f"\nlocalStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({json.dumps(plan)}));")
+        try:
+            page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
+            opener = page.locator('#studio-dock [data-dial-rack-open]')
+            expect(opener).to_be_visible()
+            # Nothing is held: the strip lists no refusal.
+            expect(page.locator('#studio-dock [data-dial-conflict]')).to_have_count(0)
+            for width, height in ((1440, 960), (390, 844)):
+                page.set_viewport_size({'width': width, 'height': height})
+                page.wait_for_timeout(80)
+                label = f'continued-known:{locale}:{width}x{height}'
+                opener.scroll_into_view_if_needed()
+                opener.click()
+                dialog = page.locator('dialog[data-dial-rack]')
+                expect(dialog).to_be_visible()
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-name').click()
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-track').scroll_into_view_if_needed()
+                g = page.evaluate(KNOWN)
+                assert g['basisId'] == 'planContinued' and '15.083' in g['basis']['text'] and '10.125' in g['basis']['text'] and '15.083' in g['heading'], (label, 'basis', g['basisId'], g['basis'], g['heading'])
+                assert not g['locked'] and g['conflicts'] == [], (label, 'held', g['locked'], g['conflicts'])
+                assert g['tools']['preset.rampIn'] is False and g['tools']['addPoint'] is False and g['tools']['paste'] is False, (label, 'tools', g['tools'])
+                # The rendered part: one mark per lane, from 0 s to 243 / 362 of that lane's plot.
+                assert len(g['rendered']) == 2 and all(r['at'] == '10.125' for r in g['rendered']), (label, 'rendered marks', g['rendered'])
+                for r in g['rendered']:
+                    assert abs(r['left'] - r['plot']['left']) <= 1 and abs(r['right'] - (r['plot']['left'] + r['plot']['width'] * 243 / 362)) <= 1.5, (label, 'rendered mark geometry', r)
+                plot = g['plot']
+                at = lambda frame: plot['left'] + plot['width'] * frame / 362
+                assert len(g['edges']) == 1 and abs(g['edges'][0] - at(243)) <= 1.5, (label, 'the continued clip ends at a segment edge', g['edges'], at(243))
+                # The next clip's latent frames: 43 ticks from frame 221 to the end of the piece, and the stepped line.
+                axis = g['axis']
+                assert len(g['ticks']) == 43 and g['frames'] == 1, (label, 'latent-frame ticks / per-frame line', len(g['ticks']), g['frames'])
+                assert abs(g['ticks'][0] - (axis['left'] + axis['width'] * 221 / 362)) <= 1.5 and abs(g['ticks'][-1] - (axis['left'] + axis['width'])) <= 1.5, (label, 'ticks start at the window', g['ticks'][0], g['ticks'][-1], axis)
+                assert g['ticks'] == sorted(g['ticks']), (label, 'tick order')
+                assert g['help'] == ['resolution', 'scene', 'findings', 'range'], (label, 'help lines', g['help'])
+                # All four points are in the next clip and editable.
+                assert len(g['points']) == 4 and not any(q['disabled'] for q in g['points']) and all(q['left'] + q['width'] / 2 >= at(243) - 1 for q in g['points']), (label, 'points', g['points'])
+                assert g['page'] <= g['viewport']['width'] + 1 and g['body']['scroll'] <= g['body']['client'] + 1, (label, 'overflow', g['page'], g['body'])
+                assert g['basis']['left'] >= g['dialog']['left'] - 1 and g['basis']['right'] <= g['dialog']['right'] + 1, (label, 'text leaves the dialog', g['basis'])
+                dialog.locator('[data-dial-basis]').scroll_into_view_if_needed()
+                page.screenshot(path=str(shots / f'continued-known-{locale}-{width}x{height}.png'))
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-track').scroll_into_view_if_needed()
+                page.screenshot(path=str(shots / f'continued-known-{locale}-{width}x{height}-lanes.png'))
+                # A click in the rendered part adds no point; a click in the next clip adds one (taken back with Ctrl+Z).
+                g = page.evaluate(KNOWN)
+                plot = g['plot']
+                page.mouse.click(plot['left'] + plot['width'] * 100 / 362, plot['top'] + plot['height'] * 0.5)
+                assert len(saved(page)[1]['time']['points']) == 4, (label, 'a point was added in the rendered part', saved(page)[1]['time'])
+                page.mouse.click(plot['left'] + plot['width'] * 262 / 362, plot['top'] + plot['height'] * 0.5)
+                page.wait_for_function("JSON.parse(localStorage.getItem('deas.pref.studio.run.dials'))[1].time.points.length===5")
+                added = [q for q in saved(page)[1]['time']['points'] if q not in rows[1]['time']['points']]
+                assert len(added) == 1 and 10.125 <= added[0][0] <= 12 - 1 / 6 + 1e-6, (label, 'added point', added)
+                dialog.locator('[data-dial-tool="undo"]').click()
+                page.wait_for_function("JSON.parse(localStorage.getItem('deas.pref.studio.run.dials'))[1].time.points.length===4")
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                checks.append(label)
+            assert not errors, errors
+            assert page.evaluate('__unexpected') == [], page.evaluate('__unexpected')
+            assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
+        finally:
+            context.close()
+
+
 def verify_families(browser, url, shots, checks):
     """The catalog's family and mode: a dial of another model family is not offered; a pre-refiner dial is, and its lane takes no curve and says why."""
     listed = ['style.safetensors', DAY, MOTION, PRE, KREA]
@@ -842,6 +932,7 @@ def verify(browser, url, shots):
                 context.close()
     verify_rack(browser, url, shots, checks)
     verify_continued(browser, url, shots, checks)
+    verify_continued_known(browser, url, shots, checks)
     verify_families(browser, url, shots, checks)
     verify_presets(browser, url, shots, checks)
     verify_info(browser, url, shots, checks)

@@ -57,7 +57,7 @@ import { DialPresetsDialog } from './DialPresetsDialog';
 import { dialTimeline } from '../../lib/dialCurve';
 import { dialNoCurveNames, dialOtherFamily, dialPipelineOf, isPickerDial } from '../../lib/dialInfo';
 import { useDialInfo } from './useDialInfo';
-import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
+import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialRows, noDials, withDials, withDialSourceFrames, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -685,12 +685,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // MiniMax H3). Without a catalog every dial file is offered, as before.
  const dialFiles=dialCatalog(dialListed??[]).filter(f=>!dialOtherFamily(dialInfo.map?.[f]));
  const dialPipeline=dialPipelineOf(videoModeName);
- // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it. Continued steps of a
+ // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it or continues a clip whose
+ // frame count the plan holds (`plan.source.frames`, kept when the source is picked). Continued steps of a
  // reference pipeline carry `durationSeconds` (REF2VA, `buildVideoIntent`); the others are snapped from their frame count.
  const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null,continuityReferences);
  // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
  const dialNext=dialsHere&&continuityOn?nextStep(plan)?.continuity:undefined;
- const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',pieceStartUnknown:dialSpan.basis==='planSource',noCurve:dialNoCurveNames(dialInfo.map),nodes:choices?.nodes});
+ const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',pieceStartUnknown:dialSpan.basis==='planSource',...(dialSpan.basis==='planContinued'&&dialNext?.sourceId?{windowStart:dialSpan.window?dialSpan.window.start:null}:{}),noCurve:dialNoCurveNames(dialInfo.map),nodes:choices?.nodes});
  // A join's generated transitions sample their own window: not offered while a row with a time curve is on.
  const dialTransitionBlock=dialCurveConflicts({rows:dials,steps,transition:true}).includes('transition');
  const streamRequested=isVideo&&videoFamily==='minimax-h3'&&streamDecode;
@@ -1160,6 +1161,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    if(vf==='minimax-h3'&&streamDecode)intent={...intent,streamDecode:true};
    intent=withDials(intent,dials);
+   // The plan's first step pins the picked clip: send the frame count its curves were laid out with, for native to confirm.
+   if(cont?.index===0)intent=withDialSourceFrames(intent,plan.source?.frames);
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){

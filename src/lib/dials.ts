@@ -78,6 +78,17 @@ export function withDials<T extends VideoIntentV1>(intent:T,rows:readonly DialRo
  if(intent.family!=='minimax-h3'||!active.length)return intent;
  return {...intent,dials:active.map(r=>({dial:r.dial,strength:r.strength,...(r.time?{time:r.time}:{})}))};
 }
+/**
+ * Adds the pinned clip's frame count Studio laid the curves out with (`ContinuityPlan.source.frames`) to a continued MiniMax H3 intent that
+ * carries a dial time curve. Native reads the count again from the session list when it prepares the job and refuses the job when the two
+ * differ or the clip is not listed (`confirm_source_frames`), so a clip that changed since it was picked cannot mistime a curve. Every other
+ * intent is returned unchanged: no curve, a new take, an imported-video source, or no count.
+ */
+export function withDialSourceFrames<T extends VideoIntentV1>(intent:T,frames:number|undefined):T {
+ if(intent.family!=='minimax-h3'||frames===undefined||!intent.dials?.some(r=>r.time))return intent;
+ const c=intent.h3.continuity;
+ return c?.sourceId&&c.sourceKind===undefined?{...intent,h3:{...intent.h3,continuity:{...c,sourceFrames:frames}}}:intent;
+}
 /** Rows of a restored intent; anything the validator rejects restores as no rows. */
 export function fromDials(rows:unknown):DialRow[] {
  return isDialRows(rows)?rows.map(r=>({...r,on:r.on!==false})):[];
@@ -98,11 +109,12 @@ export const dialCurveConflictIds=['blendSteps','transition','faceRefine','tiled
 export type DialCurveConflict=typeof dialCurveConflictIds[number];
 /**
  * What the next job is, as far as time curves care. `continued` = the segment pins a source (`h3.continuity.sourceId`); `windowStart` = seconds at
- * which its sampled window starts in the piece: a number when known, null when the pinned clip's frame count is known to be missing, undefined
- * while unknown (Studio does not hold the session list before Run, so native reports that case when the job is prepared).
- * `pieceStartUnknown` = the Continuity plan continues an existing clip or an imported video (`dialTimeline` basis `planSource`): curve seconds count from
- * the start of the whole piece and native moves every point by the pinned clip's cumulative length less the context frames, a length Studio does not
- * hold. The rack then cannot draw the curve where the model gets it, so Studio holds active curves instead of sending one nobody could author.
+ * which its sampled window starts in the piece: a number when known (`dialTimeline` basis `planContinued`: the plan's source carries the picked clip's
+ * frame count), null when no legal window exists for it, undefined while unknown (native then reports a missing count when the job is prepared).
+ * `pieceStartUnknown` = the Continuity plan continues an imported video, or an existing clip whose frame count Studio does not hold (`dialTimeline`
+ * basis `planSource`): curve seconds count from the start of the whole piece and native moves every point by the pinned clip's cumulative length less
+ * the context frames. Without that length the rack cannot draw the curve where the model gets it, so Studio holds active curves instead of sending
+ * one nobody could author.
  * `noCurve` = dial names (forward slashes) the pack's catalog lists as pre-refiner dials (`dialNoCurveNames`); absent while no catalog was read.
  */
 export interface DialCurveFacts { rows:readonly DialRow[]; steps:number; transition?:boolean; faceRefine?:boolean; tiledUpscale?:boolean; derope?:boolean; continued?:boolean; importedVideo?:boolean; windowStart?:number|null; pieceStartUnknown?:boolean; noCurve?:readonly string[]; nodes?:readonly string[] }

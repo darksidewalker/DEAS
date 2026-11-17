@@ -1,18 +1,28 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { readH3Session } from '../../lib/jobs';
+import { isClipFrames } from '../../lib/continuity';
 import { useI18n } from '../../i18n/I18nProvider';
 
-export interface ContinuitySourcesProps { endpoint?:string; session:string; sourceId?:string; running:boolean; onSelect:(sourceId?:string)=>void }
-export function ContinuitySources({endpoint,session,sourceId,running,onSelect}:ContinuitySourcesProps){
+/**
+ * `onSelect` gets the picked clip's cumulative frame count with its id when the session list gave a legal H3 count (17k + 5); the Dial Rack lays
+ * time curves out over the whole piece with it. `sourceFrames` is the count kept for the current source and `onFrames` reports a different (or
+ * a first) count for that same clip when the sources are read again, so a plan saved without the count gets it without picking the clip anew.
+ */
+export interface ContinuitySourcesProps { endpoint?:string; session:string; sourceId?:string; sourceFrames?:number; running:boolean; onSelect:(sourceId?:string,frames?:number)=>void; onFrames?:(sourceId:string,frames:number)=>void }
+export function ContinuitySources({endpoint,session,sourceId,sourceFrames,running,onSelect,onFrames}:ContinuitySourcesProps){
  const {t}=useI18n();const hintId=useId();
- const [ids,setIds]=useState<string[]>([]);
+ const [clips,setClips]=useState<{id:string;frames:number}[]>([]);
+ const ids=clips.map(c=>c.id);
+ // The read is asynchronous: report to the props of the render that is current when it ends, not of the one that started it.
+ const current=useRef({sourceId,sourceFrames,onFrames});
+ current.current={sourceId,sourceFrames,onFrames};
  const [loading,setLoading]=useState(false);
  const [loaded,setLoaded]=useState(false);
  const [failed,setFailed]=useState(false);
  const request=useRef(0);
  useLayoutEffect(()=>{
-  ++request.current;setIds([]);setLoading(false);setLoaded(false);setFailed(false);
+  ++request.current;setClips([]);setLoading(false);setLoaded(false);setFailed(false);
   return ()=>{++request.current;};
  },[endpoint,session]);
  useLayoutEffect(()=>{if(running){++request.current;setLoading(false);}},[running]);
@@ -26,17 +36,21 @@ export function ContinuitySources({endpoint,session,sourceId,running,onSelect}:C
    const result=await readH3Session(endpoint!,session);
    if(token!==request.current)return;
    // A true end-of-input assertion rejects trailing newlines too (unlike `$`).
-   setIds([...new Set(result.clips.slice(0,200).filter(c=>
+   const listed=result.clips.slice(0,200).filter(c=>
     c&&typeof c.clipId==='string'&&/^[A-Za-z0-9_-]{1,80}(?![\s\S])/.test(c.clipId)
     &&typeof c.frames==='number'&&Number.isInteger(c.frames)&&c.frames>=5
-   ).map(c=>c.clipId))]);
+   ).map(c=>({id:c.clipId,frames:c.frames as number}));
+   const unique=listed.filter((c,i)=>listed.findIndex(x=>x.id===c.id)===i);
+   setClips(unique);
    setLoaded(true);
+   const now=current.current,kept=unique.find(c=>c.id===now.sourceId);
+   if(kept&&isClipFrames(kept.frames)&&kept.frames!==now.sourceFrames)now.onFrames?.(kept.id,kept.frames);
   }catch{if(token===request.current)setFailed(true);}
   finally{if(token===request.current)setLoading(false);}
  };
  return <div className="wb-option">
   <button type="button" className="wb-dock-action" data-cont-load-sources disabled={locked||!canLoad} onClick={load}>{t(loading?'studio.run.cont.loadingSources':'studio.run.cont.loadSources')}</button>
-  <label><span>{t('studio.run.cont.source')}</span><select data-cont-source aria-describedby={hintId} disabled={locked} value={sourceId??''} onChange={e=>{const id=e.target.value;if(!locked&&id!==(sourceId??'')&&(!id||ids.includes(id)))onSelect(id||undefined);}}>
+  <label><span>{t('studio.run.cont.source')}</span><select data-cont-source aria-describedby={hintId} disabled={locked} value={sourceId??''} onChange={e=>{const id=e.target.value;if(!locked&&id!==(sourceId??'')&&(!id||ids.includes(id))){const frames=clips.find(c=>c.id===id)?.frames;if(id&&isClipFrames(frames))onSelect(id,frames);else onSelect(id||undefined);}}}>
    <option value="">{t('studio.run.cont.newTake')}</option>
    {sourceId&&!ids.includes(sourceId)&&<option value={sourceId}>{sourceId}</option>}
    {ids.map(id=><option key={id} value={id}>{id}</option>)}

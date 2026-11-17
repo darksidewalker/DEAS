@@ -617,3 +617,73 @@ test('a refusal that locks the curve tools locks the audio mode too; the blend s
   fireEvent.click(useFile()!);
   expect(last[0].time!.steps).toBe(6);
 });
+
+test('a plan that continues a clip whose frame count is known shows the whole piece from 0 s: the rendered part takes no points and the next clip\'s latent frames are drawn', () => {
+  // 243 frames exist (10.125 s); the 5 s step adds 119, so the piece is 362 frames (15.083 s). The step samples 22 context frames before its
+  // new ones: its window starts at frame 221 and holds 141 frames, 42 latent frames.
+  const lanes = dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x', frames: 243 } }, false);
+  expect(lanes).toMatchObject({ basis: 'planContinued', frames: 362, rendered: 243 / 24, window: { start: 221 / 24, frames: 141 } });
+  render(<Host timeline={lanes}/>);
+  expect(document.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('planContinued');
+  expect(document.querySelector('[data-dial-timeline] h3')!.textContent).toBe('Timeline · 15.083 s');
+  const basis = document.querySelector('[data-dial-basis="planContinued"]')!.textContent!;
+  expect(basis).toContain('whole Continuity piece (15.083 s) from 0 s');
+  expect(basis).toContain('The first 10.125 s already exist');
+  // Nothing is held: no refusal, the tools work.
+  expect(document.querySelector('[data-dial-rack-locked]')).toBeNull();
+  expect(tool('preset.rampIn').disabled).toBe(false);
+  // Every lane marks the rendered part from 0 s to the clip's end, and the clip's end is a segment edge.
+  const done = Array.from(document.querySelectorAll<HTMLElement>('[data-dial-rendered]'));
+  expect(done).toHaveLength(2);
+  expect(done[0].dataset.dialRendered).toBe('10.125');
+  expect(parseFloat(done[0].style.left)).toBe(0);
+  expect(parseFloat(done[0].style.width)).toBeCloseTo(243 / 362 * 100, 2);
+  expect(document.querySelectorAll(`[data-dial-lane="${calm}"] [data-dial-edge]`)).toHaveLength(1);
+  select(calm);
+  // 42 latent frames of the next clip's window: 43 ticks from 221 / 24 s on, and the stepped line over the same frames.
+  const ticks = Array.from(document.querySelectorAll<HTMLElement>('[data-dial-tick]'));
+  expect(ticks).toHaveLength(43);
+  expect(parseFloat(ticks[0].style.left)).toBeCloseTo(221 / 362 * 100, 2);
+  expect(parseFloat(ticks.at(-1)!.style.left)).toBeCloseTo(100, 2);
+  const line = lane(calm).querySelector('[data-dial-frames]')!.getAttribute('d')!;
+  expect(line.match(/M|L/g)).toHaveLength(42);
+  expect(Number(line.match(/^M([\d.]+) /)![1])).toBeCloseTo(221 / 362 * 1000, 1);
+  expect(document.querySelector('[data-dial-help="resolution"]')).not.toBeNull();
+
+  // The mocked plot is 1000 px for the 15.083 s piece.
+  const el = lane(calm).querySelector<HTMLElement>('.dial-lane-plot')!;
+  el.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 100, width: 1000, height: 100, x: 0, y: 0, toJSON() { return {}; } });
+  const track = lane(calm).querySelector('[data-dial-track]')!;
+  const press = (t: number, level: number) => fireEvent(track, new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: t / (362 / 24) * 1000, clientY: (1 - level) * 100 }));
+  const release = (t: number) => fireEvent(track, new MouseEvent('pointerup', { bubbles: true, clientX: t / (362 / 24) * 1000, clientY: 50 }));
+  // A click inside the rendered part adds nothing; the curve authored there stays as it is.
+  last = [];
+  press(6, 0.5); release(6);
+  expect(last).toEqual([]);
+  expect(points()).toHaveLength(3);
+  // A click in the next clip adds a point, and one just before the clip's end lands on that edge.
+  press(12.02, 0.4); release(12.02);
+  expect(last[1].time!.points).toEqual([[0, 0], [1.5, 1], [4, 0.5], [12, 0.4]]);
+  press(10.14, 0.8); release(10.14);
+  expect(last[1].time!.points[3]).toEqual([10.125, 0.8]);
+  // The typed time cannot go below the rendered part.
+  expect(document.querySelector<HTMLInputElement>('[data-dial-point-time]')!.min).toBe('10.125');
+  // Presets and a new curve start where the next clip starts.
+  fireEvent.click(tool('preset.rampIn'));
+  expect(last[1].time!.points).toEqual([[10.125, 0], [11.625, 1]]);
+  select(motion);
+  fireEvent.click(tool('addCurve'));
+  expect(last[0].time!.points).toEqual([[10.125, 1], [15.0833, 1]]);
+});
+
+test('a continued piece whose steps are all rendered leaves nothing to draw on and says so', () => {
+  const lanes = dialTimeline(107, { steps: [{ seconds: 5, clipId: 'made' }], source: { clipId: 'x', frames: 243 } }, false);
+  expect(lanes.window).toBeUndefined();
+  render(<Host timeline={lanes}/>);
+  select(calm);
+  expect(document.querySelector('[data-dial-rack-locked]')!.textContent).toContain(text('studio.dials.rack.allRendered'));
+  expect(tool('preset.rampIn').disabled).toBe(true);
+  expect(tool('removeCurve').disabled).toBe(false);
+  expect(document.querySelectorAll('[data-dial-tick]')).toHaveLength(0);
+  expect(lane(calm).querySelector('[data-dial-frames]')).toBeNull();
+});

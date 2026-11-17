@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { DIAL_BLEND_STEPS, DIAL_LEVEL, dialBlendSteps, dialLabel, dialName, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
-import { DIAL_LEVEL_SNAP, DIAL_SNAP, dialCurveText, dialFrameLevels, dialPresets, latentFrameStarts, nearPoint, parseDialCurveText, rackReduce, rackState, sampleDialCurve, widestGap, type CurveLimits, type DialTimeline, type RackAction, type RackState } from '../../lib/dialCurve';
+import { DIAL_GAP, DIAL_LEVEL_SNAP, DIAL_SNAP, dialCurveText, dialFrameLevels, dialPresets, dialWindowLevels, latentFrameStarts, nearPoint, parseDialCurveText, rackReduce, rackState, sampleDialCurve, widestGap, type CurveLimits, type DialTimeline, type RackAction, type RackState } from '../../lib/dialCurve';
 import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialStrip } from './DialStrip';
 import { DialPresetsDialog } from './DialPresetsDialog';
@@ -77,14 +77,18 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  const blocking=conflicts.filter(blocksEditing);
  // A pre-refiner dial (the pack's catalog says so) takes no time curve: the node refuses it. Its lane keeps Remove curve, like any refusal.
  const pre=!!row&&dialNoCurve(info?.[dialName(row.dial)]);
- const locked=!!gate||blocking.length>0||pre;
- const lockReason=gate?t(`studio.dials.reason.${gate}`):blocking.length?t(`studio.dials.conflict.${blocking[0]}`):pre?t('studio.dials.rack.preDial',{name}):'';
+ // A plan that continues a clip whose frame count Studio holds (`planContinued`): the piece starts at 0 s with what is already rendered (the
+ // continued clip and the finished steps). No point goes there; when nothing is left to render there is nothing to draw on.
+ const rendered=timeline.basis==='planContinued'?Math.ceil((timeline.rendered??0)*1e4-1e-6)/1e4:0;
+ const laneEnd=Math.floor(timeline.seconds*1e4)/1e4,done=timeline.basis==='planContinued'&&laneEnd-rendered<2*DIAL_GAP;
+ const locked=!!gate||blocking.length>0||pre||done;
+ const lockReason=gate?t(`studio.dials.reason.${gate}`):blocking.length?t(`studio.dials.conflict.${blocking[0]}`):pre?t('studio.dials.rack.preDial',{name}):done?t('studio.dials.rack.allRendered'):'';
  // Shown seconds: the lane, widened to points authored for a longer piece.
  const times=s.rows.flatMap(r=>r.time?.points.map(q=>q[0])??[]);
  const from=Math.min(0,...times),to=Math.max(timeline.seconds,...times,from+0.5);
  const levels=curve?.points.map(q=>q[1])??[];
  const lo=Math.min(range.lo,...levels),hi=Math.max(range.hi,...levels);
- const lim:CurveLimits={from:0,to:Math.floor(timeline.seconds*1e4)/1e4,lo,hi,edges:timeline.edges};
+ const lim:CurveLimits={from:rendered,to:laneEnd,lo,hi,edges:timeline.edges};
  const xOf=(time:number)=>(time-from)/(to-from),yOf=(level:number,a=lo,b=hi)=>(b-level)/(b-a);
  const fallback=dialBlendSteps(steps);
  // What the selected lane's dial file says: its blend steps for the pipeline in use (as recorded, and cut to the job's steps) and its texts.
@@ -105,6 +109,8 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
   if(point<0){
    const p=at(e);
    point=nearPoint(curve,p.t);
+   // The rendered part of a continued piece takes no new point.
+   if(point<0&&p.t<lim.from)return;
    // A click within one latent frame of a point takes that point; elsewhere it adds one and keeps dragging it.
    if(point<0){if(!dispatch({type:'add',t:p.t,level:p.level,lim}))return;point=state.current.point;}
   }
@@ -183,12 +189,15 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  // Seconds grid: at most about a dozen labels.
  const every=[1,2,5,10,30,60,300,900,3600,7200,14400,43200].find(n=>(to-from)/n<=12)??86400;
  const marks=Array.from({length:Math.floor((to-Math.ceil(from/every)*every)/every+1e-9)+1},(_,i)=>Math.ceil(from/every)*every+i*every);
- // Latent-frame edges of the first clip; a continued segment's frames start at its own hidden context window. On a plan that continues an
- // existing clip (`planSource`) the next clip's window starts at a piece time Studio does not hold: neither the ticks nor the per-latent-frame
- // line would be the frames the model gets, so they are not drawn (and `dialCurveConflicts` holds the curves, `pieceStart`).
- const placed=timeline.basis!=='planSource';
- const ticks=placed?latentFrameStarts(timeline.basis==='plan'?Math.round((timeline.edges[0]??timeline.seconds)*24):timeline.frames).map(f=>f/24):[];
- const frames=curve&&timeline.basis==='clip'?dialFrameLevels(curve,timeline.frames):[];
+ // Latent-frame edges of the first clip; a continued segment's frames start at its own hidden context window. On a plan that continues a clip
+ // whose frame count Studio holds (`planContinued`) that window is known: the ticks and the per-latent-frame line are the next step's window,
+ // context frames included, placed by the shift the compiler applies (`dialWindowLevels`). Without the count (`planSource`) the window starts
+ // at a piece time Studio does not hold: neither would be the frames the model gets, so they are not drawn (and `dialCurveConflicts` holds
+ // the curves, `pieceStart`).
+ const placed=timeline.basis!=='planSource',next=timeline.basis==='planContinued'?timeline.window:undefined;
+ const ticks=timeline.basis==='planContinued'?next?latentFrameStarts(next.frames).map(f=>next.start+f/24):[]
+  :placed?latentFrameStarts(timeline.basis==='plan'?Math.round((timeline.edges[0]??timeline.seconds)*24):timeline.frames).map(f=>f/24):[];
+ const frames=!curve?[]:next?dialWindowLevels(curve,next):timeline.basis==='clip'?dialFrameLevels(curve,timeline.frames):[];
  const tool=(key:string,action:()=>void,o:{disabled?:boolean;data?:string}={})=><button type="button" className="wb-dock-action" data-dial-tool={o.data??key} disabled={o.disabled} title={o.disabled&&lockReason?lockReason:undefined} onClick={()=>{setNote('');action();}}>{t(`studio.dials.rack.${key}`)}</button>;
 
  return <dialog ref={dialogRef} className="continuity-overlay dial-rack" data-dial-rack aria-labelledby={titleId} onKeyDown={history} onCancel={e=>{e.preventDefault();dismiss();}}>
@@ -199,12 +208,12 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
    <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} onCommit={endGesture} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} info={info} infoStatus={infoStatus} onRefreshInfo={onRefreshInfo} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
    <section className="dial-rack-timeline" data-dial-timeline={timeline.basis} aria-label={t('studio.dials.rack.timeline')}>
     <h3>{t('studio.dials.rack.timeline')} · {t('studio.dials.rack.length',{seconds})}</h3>
-    {timeline.basis!=='clip'&&<p className="dial-rack-help" data-dial-basis={timeline.basis}>{t(`studio.dials.rack.basis.${timeline.basis}`,{seconds})}</p>}
+    {timeline.basis!=='clip'&&<p className="dial-rack-help" data-dial-basis={timeline.basis}>{t(`studio.dials.rack.basis.${timeline.basis}`,{seconds,rendered:fmt(timeline.rendered??0,3)})}</p>}
     {!s.rows.length?<p className="dial-rack-help" data-dial-rack-empty>{t('studio.dials.rack.empty')}</p>:<>
      <div className="dial-rack-tools" role="group" aria-label={t('studio.dials.rack.tools',{name})}>
       <strong className="dial-rack-selected" title={row?.dial}>{name}</strong>
-      {curve?tool('removeCurve',()=>dispatch({type:'removeCurve'})):tool('addCurve',()=>dispatch({type:'addCurve',seconds:timeline.seconds,steps:fileSteps}),{disabled:locked})}
-      {dialPresets.map(preset=><span key={preset}>{tool(`preset.${preset}`,()=>dispatch({type:'preset',name:preset,seconds:timeline.seconds,steps:fileSteps}),{disabled:locked})}</span>)}
+      {curve?tool('removeCurve',()=>dispatch({type:'removeCurve'})):tool('addCurve',()=>dispatch({type:'addCurve',seconds:timeline.seconds,from:rendered,steps:fileSteps}),{disabled:locked})}
+      {dialPresets.map(preset=><span key={preset}>{tool(`preset.${preset}`,()=>dispatch({type:'preset',name:preset,seconds:timeline.seconds,from:rendered,steps:fileSteps}),{disabled:locked})}</span>)}
       {tool('addPoint',()=>{const middle=curve&&widestGap(curve,lim);if(middle==null||!dispatch({type:'add',t:middle,level:sampleDialCurve(curve!,[middle])[0],lim}))say('studio.dials.rack.noRoom');else focusPoint.current=true;},{disabled:locked||!curve})}
       {tool('copy',()=>void copy(),{disabled:!curve})}
       {tool('paste',()=>void paste(),{disabled:locked})}
@@ -244,6 +253,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
          onDoubleClick={active&&!locked?e=>{const hit=(e.target as HTMLElement).closest<HTMLElement>('[data-dial-point]');if(hit&&!dispatch({type:'remove',point:Number(hit.dataset.dialPoint)}))say('studio.dials.rack.keepTwo');}:undefined}>
          <div className="dial-lane-plot" ref={active?plot:undefined}>
           {to>timeline.seconds+1e-3&&<span className="dial-lane-beyond" style={{left:pct(xOf(timeline.seconds))}}/>}
+          {rendered>0&&<span className="dial-lane-rendered" data-dial-rendered={fmt(rendered,4)} style={{left:pct(xOf(0)),width:pct(xOf(rendered)-xOf(0))}}/>}
           {timeline.edges.map(edge=><span key={edge} className="dial-lane-edge" data-dial-edge style={{left:pct(xOf(edge))}}/>)}
           <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
            {a<0&&<line className="dial-lane-zero" x1={0} x2={1000} y1={yOf(0,a,b)*100} y2={yOf(0,a,b)*100}/>}
@@ -264,7 +274,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
       </div></div>
      </div>
      <div className="dial-rack-tools dial-rack-point">
-      {curve&&<><label>{t('studio.dials.rack.time')}<input type="number" data-dial-point-time step={DIAL_SNAP} min={0} max={lim.to} disabled={locked||!selected} value={shown('time',selected?selected[0]:'')} onChange={e=>typed('time',e.target.value)} onBlur={()=>setDraft(null)}/></label>
+      {curve&&<><label>{t('studio.dials.rack.time')}<input type="number" data-dial-point-time step={DIAL_SNAP} min={lim.from} max={lim.to} disabled={locked||!selected} value={shown('time',selected?selected[0]:'')} onChange={e=>typed('time',e.target.value)} onBlur={()=>setDraft(null)}/></label>
       <label>{t('studio.dials.rack.level')}<input type="number" data-dial-point-level step={DIAL_LEVEL_SNAP} min={lo} max={hi} disabled={locked||!selected} value={shown('level',selected?selected[1]:'')} onChange={e=>typed('level',e.target.value)} onBlur={()=>setDraft(null)}/></label>
       {tool('deletePoint',()=>{if(!dispatch({type:'remove',point:s.point}))say('studio.dials.rack.keepTwo');},{disabled:locked||!selected})}</>}
       <output className="dial-rack-readout" data-dial-readout>{read&&curve?t(read.level>=0&&read.level<=1?'studio.dials.rack.readout':'studio.dials.rack.readoutOutside',{time:fmt(read.t),level:fmt(read.level),strength:strengthOf(read.level)}):t(curve?'studio.dials.rack.readoutNone':'studio.dials.rack.readoutConstant',{strength:strengthOf(1)})}</output>

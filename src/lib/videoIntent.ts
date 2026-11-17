@@ -28,7 +28,7 @@ export type H3Scaling=typeof h3Scalings[number];
 export const h3OverlapFrames=[73,56,39,22,5] as const;
 export type H3OverlapFrames=typeof h3OverlapFrames[number];
 export const isH3OverlapFrames=(v:unknown):v is H3OverlapFrames=>h3OverlapFrames.some(n=>n===v);
-export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; durationSeconds?:number }
+export interface H3Continuity { sourceKind?:'video'; session:string; sourceId:string; capture:boolean; action:string; outputMode:'full'|'segment'; overlapFrames?:H3OverlapFrames; useReferences?:boolean; durationSeconds?:number; /** The pinned checkpoint clip's cumulative frame count as Studio read it (17k + 5). Sent only with a dial time curve; native reads the session list again and refuses a difference. */ sourceFrames?:number }
 /** TVE post-processing on the decoded frames (native `jobs_video_post.rs`): model upscale → RTX refine → frame generation. */
 export const rtxQualities=['Low','Medium','High','Ultra'] as const;
 export const rtxUpscaleModes=['VSR','High Bitrate','Streaming Medium','Streaming Ultra'] as const;

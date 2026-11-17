@@ -2,8 +2,9 @@ import rust from '../../src-tauri/src/jobs_video.rs?raw';
 import rustTests from '../../src-tauri/src/jobs_video_tests.rs?raw';
 import { expect, test } from 'vitest';
 import fixture from './dialCurve.fixture.json';
-import { DIAL_GAP, addPoint, continuationFrames, dialCurveText, dialFrameLevels, dialPresetPoints, dialPresets, dialTimeline, flatCurve, latentFrameStarts, movePoint, nearPoint, parseDialCurveText, rackReduce, rackState, removePoint, sampleDialCurve, widestGap, type CurveLimits, type RackAction, type RackState } from './dialCurve';
-import { DIAL_BLEND_ALL, DIAL_BLEND_STEPS, dialBlendSteps, dialCurveConflictIds, dialCurveConflicts, dialHoldMapNode, dialIntentFacts, dialRackNode, isDialCurve, isDialRows, type DialCurveConflict, type DialCurveFacts, type DialRow } from './dials';
+import { DIAL_GAP, addPoint, continuationFrames, continuationWindowStart, dialCurveText, dialFrameLevels, dialPresetPoints, dialPresets, dialTimeline, dialWindowLevels, flatCurve, shiftDialCurve, latentFrameStarts, movePoint, nearPoint, parseDialCurveText, rackReduce, rackState, removePoint, sampleDialCurve, widestGap, type CurveLimits, type RackAction, type RackState } from './dialCurve';
+import { DIAL_BLEND_ALL, DIAL_BLEND_STEPS, dialBlendSteps, dialCurveConflictIds, dialCurveConflicts, dialHoldMapNode, dialIntentFacts, dialRackNode, isDialCurve, isDialRows, withDialSourceFrames, withDials, type DialCurveConflict, type DialCurveFacts, type DialRow } from './dials';
+import { isContinuityPlan } from './continuity';
 import { videoFrames, type H3DialCurve, type VideoIntentV1 } from './videoIntent';
 
 const keys = (points: [number, number][], rest: Partial<H3DialCurve> = {}): H3DialCurve => ({ type: 'keys', points, unit: 'seconds', ...rest });
@@ -382,4 +383,130 @@ test('a new curve is authored with the dial file\'s blend steps when given, and 
   const other = rackReduce(start, { type: 'select', row: 1 });
   expect(rackReduce(other, { type: 'set', patch: { audio: 'protect' } })).toBe(other);
   expect(isDialRows(protectedCurve.rows)).toBe(true);
+});
+
+test('the window of a continued step starts where native continuation_window_start puts it', () => {
+  // Native's resolution, as written there.
+  expect(rust).toContain('None => 22,');
+  expect(rust).toContain('.min(362u64.checked_sub(continuation_extension(i)?)?)');
+  expect(rust).toContain('let overlap = [73, 56, 39, 22, 5].into_iter().find(|n| *n <= available)?;');
+  expect(rust).toContain('Some(source - overlap)');
+  // The native test's own table: (sourceFrames, overlapFrames, durationSeconds) -> window start in piece frames. Its intent has 124 frames
+  // (a 5 s step), so a row without durationSeconds is snapped by frames.
+  const body = rustTests.match(/for \(source, overlap, seconds, start\) in \[([\s\S]*?)\] \{/)![1];
+  const table = [...body.matchAll(/\((\d+), (None|Some\((\d+)\)), (None|Some\(([\d.]+)\)), (\d+)\)/g)].map(m => ({ source: Number(m[1]), overlap: m[3] === undefined ? undefined : Number(m[3]), seconds: m[5] === undefined ? undefined : Number(m[5]), start: Number(m[6]) }));
+  expect(table.length).toBe(13);
+  expect(table.filter(r => r.overlap === undefined).length).toBeGreaterThan(2);
+  for (const r of table) {
+    const extension = r.seconds === undefined ? continuationFrames(5, false) : continuationFrames(r.seconds, true);
+    expect(continuationWindowStart(r.source, r.overlap, extension), JSON.stringify(r)).toBe(r.start);
+    // The lanes of a one-step plan on that clip put the next clip's window at the same frame.
+    const lanes = dialTimeline(124, { steps: [{ seconds: r.seconds ?? 5 }], source: { clipId: 'x', frames: r.source }, overlapFrames: r.overlap }, r.seconds !== undefined);
+    if ((r.source - 5) % 17 === 0) expect(lanes.window, JSON.stringify(r)).toEqual({ start: r.start / 24, frames: r.source - r.start + extension });
+  }
+  // No legal context: a source shorter than 5 frames, or an extension that leaves no room (cannot occur for 15 s or less).
+  expect(continuationWindowStart(4, undefined, 119)).toBeNull();
+  expect(continuationWindowStart(243, 22, 363)).toBeNull();
+});
+
+test('a plan that continues a clip whose frame count Studio holds is laid out as the whole piece from 0 s', () => {
+  const plan = { source: { clipId: 'pinned', endpoint: 'http://x', frames: 243 }, steps: [{ seconds: 5 }, { seconds: 3 }] };
+  // 243 frames exist; the 5 s step adds 119 and the 3 s step 68 (text to video). The next step samples 22 context frames and its 119 new ones.
+  expect(dialTimeline(107, plan, false)).toEqual({ seconds: 430 / 24, frames: 430, edges: [243 / 24, 362 / 24], basis: 'planContinued', rendered: 243 / 24, window: { start: 221 / 24, frames: 141 } });
+  // More context moves the window start back, as in the compiler.
+  expect(dialTimeline(107, { ...plan, overlapFrames: 73 }, false).window).toEqual({ start: 170 / 24, frames: 192 });
+  // A finished first step is rendered too; the window is the second step's, counted from the frames before it.
+  const second = dialTimeline(107, { ...plan, steps: [{ seconds: 5, clipId: 'made' }, { seconds: 3 }] }, false);
+  expect(second).toMatchObject({ frames: 430, basis: 'planContinued', rendered: 362 / 24, window: { start: 340 / 24, frames: 90 } });
+  // Every step done: all of it is rendered and there is no next window.
+  const done = dialTimeline(107, { ...plan, steps: [{ seconds: 5, clipId: 'a' }, { seconds: 3, clipId: 'b' }] }, false);
+  expect(done.rendered).toBe(430 / 24);
+  expect(done.window).toBeUndefined();
+  // REF2VA snaps the step's seconds: 4.5 s adds 102 frames there and 119 by frames.
+  expect(dialTimeline(107, { ...plan, steps: [{ seconds: 4.5 }] }, true).frames).toBe(243 + 102);
+  expect(dialTimeline(107, { ...plan, steps: [{ seconds: 4.5 }] }, false).frames).toBe(243 + 119);
+  // Without a usable count the lanes stay on the clip and the curves are held: no count, an illegal one, an imported video.
+  for (const source of [{ clipId: 'pinned' }, { clipId: 'pinned', frames: 240 }, { clipId: 'pinned', frames: 4 }, { clipId: 'a'.repeat(64), kind: 'video', frames: 243 }])
+    expect(dialTimeline(107, { ...plan, source }, false), JSON.stringify(source)).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'planSource' });
+});
+
+test('the per-frame line of a continued window is the shifted curve the compiler sends, drawn back at piece seconds', () => {
+  // The native test: 73 source frames and 22 context frames start the window at frame 51 = 2.125 s, and these points are emitted.
+  expect(rustTests).toContain('i["dials"] = timed(json!([[2.125, 0], [4.125, 1], [9, -2]]));');
+  expect(rustTests).toContain('"points":[[0.0,0],[2.0,1],[6.875,-2]]');
+  const curve = keys([[2.125, 0], [4.125, 1], [9, -2]]), start = continuationWindowStart(73, undefined, 119)! / 24;
+  expect(start).toBe(2.125);
+  expect(shiftDialCurve(curve, start).points).toEqual([[0, 0], [2, 1], [6.875, -2]]);
+  // 22 + 119 = 141 frames: 17k + 5, so 5k + 2 = 42 latent frames, the first one frame long, placed from the window start on.
+  const window = { start, frames: 141 }, levels = dialWindowLevels(curve, window);
+  expect(levels).toHaveLength(42);
+  expect(levels[0].start).toBe(start);
+  expect(levels[0].end).toBeCloseTo(start + 1 / 24, 12);
+  expect(levels.at(-1)!.end).toBeCloseTo(start + 141 / 24, 12);
+  // Each value is the authored curve's mean over that latent frame's pixel frames, at piece seconds.
+  const own = dialFrameLevels(shiftDialCurve(curve, start), 141);
+  levels.forEach((f, k) => {
+    const frames = Math.round((f.end - f.start) * 24), at = Array.from({ length: frames }, (_, j) => f.start + j / 24);
+    expect(f.level, `frame ${k}`).toBeCloseTo(sampleDialCurve(curve, at).reduce((a, b) => a + b, 0) / frames, 10);
+    expect(f.level).toBe(own[k].level);
+  });
+  // The hidden context frames lie before the clip's end (3.0417 s) and still get the curve's values there.
+  expect(levels.filter(f => f.start < 73 / 24 - 1e-9).length).toBeGreaterThan(4);
+});
+
+test('a new curve and the presets start after the rendered part of a continued piece', () => {
+  const rendered = 243 / 24, end = 362 / 24;
+  expect(flatCurve(end, rendered).points).toEqual([[10.125, 1], [15.0833, 1]]);
+  expect(flatCurve(end).points).toEqual([[0, 1], [15.0833, 1]]);
+  expect(dialPresetPoints('rampIn', end, rendered)).toEqual([[10.125, 0], [11.625, 1]]);
+  expect(dialPresetPoints('rampOut', end, rendered)).toEqual([[13.5833, 1], [15.0833, 0]]);
+  expect(dialPresetPoints('pulse', end, rendered)).toEqual([[10.125, 0], [11.625, 1], [13.5833, 1], [15.0833, 0]]);
+  for (const name of dialPresets) {
+    const p = dialPresetPoints(name, end, rendered);
+    expect(isDialCurve(keys(p)), name).toBe(true);
+    expect(p[0][0]).toBeGreaterThanOrEqual(rendered);
+    expect(p.at(-1)![0]).toBeLessThanOrEqual(end);
+    // Without a rendered part nothing changes.
+    expect(dialPresetPoints(name, end, 0)).toEqual(dialPresetPoints(name, end));
+  }
+  const s = run(rackState([{ dial: motion, strength: 1, on: true }]), { type: 'addCurve', seconds: end, from: rendered });
+  expect(s.rows[0].time!.points).toEqual([[10.125, 1], [15.0833, 1]]);
+  expect(run(s, { type: 'preset', name: 'rampIn', seconds: end, from: rendered }).rows[0].time!.points).toEqual([[10.125, 0], [11.625, 1]]);
+});
+
+test('a Continuity plan keeps the picked clip\'s frame count; plans saved without it stay valid and the intent carries it only with a time curve', () => {
+  const plan = { session: 'deas-ab12cd34', outputMode: 'full', steps: [{ id: 'a', seconds: 5, action: '' }], source: { clipId: 'pinned', endpoint: 'http://127.0.0.1:8188' } };
+  expect(isContinuityPlan(plan)).toBe(true);
+  expect(isContinuityPlan({ ...plan, source: { ...plan.source, frames: 243 } })).toBe(true);
+  // Native accepts 17k + 5 only; an imported video has no checkpoint count.
+  for (const frames of [240, 4, 243.5, -12, '243', null])
+    expect(isContinuityPlan({ ...plan, source: { ...plan.source, frames } }), String(frames)).toBe(false);
+  expect(isContinuityPlan({ ...plan, source: { clipId: 'a'.repeat(64), endpoint: 'http://x', kind: 'video' } })).toBe(true);
+  expect(isContinuityPlan({ ...plan, source: { clipId: 'a'.repeat(64), endpoint: 'http://x', kind: 'video', frames: 243 } })).toBe(false);
+
+  const continuity = { session: 'deas-ab12cd34', sourceId: 'pinned', capture: true, action: '', outputMode: 'full' as const };
+  const intent = (c: object, dials: DialRow[]) => withDials({ recipeId: 'video-generation', family: 'minimax-h3', steps: 6, h3: { mode: 'T2VA', continuity: c } } as unknown as VideoIntentV1, dials);
+  const curved = intent(continuity, rows());
+  const sent = withDialSourceFrames(curved, 243) as unknown as { h3: { continuity: Record<string, unknown> } };
+  expect(sent.h3.continuity).toEqual({ ...continuity, sourceFrames: 243 });
+  // Native accepts the key on the continuity block and checks its shape.
+  expect(rust).toContain('"sourceFrames",');
+  expect(rust).toContain('.is_none_or(|n| n.as_u64().is_some_and(|n| n >= 5 && (n - 5) % 17 == 0))');
+  // Unchanged (the same object) without a count, without an active curve, on a new take and on an imported video.
+  expect(withDialSourceFrames(curved, undefined)).toBe(curved);
+  const constant = intent(continuity, [rows()[0]]);
+  expect(withDialSourceFrames(constant, 243)).toBe(constant);
+  const off = intent(continuity, [rows()[0], { ...rows()[1], on: false }]);
+  expect(withDialSourceFrames(off, 243)).toBe(off);
+  const take = intent({ ...continuity, sourceId: '' }, rows());
+  expect(withDialSourceFrames(take, 243)).toBe(take);
+  const video = intent({ ...continuity, sourceKind: 'video' }, rows());
+  expect(withDialSourceFrames(video, 243)).toBe(video);
+});
+
+test('with the window start known, points that the shift would merge are reported before Run and the hold is not', () => {
+  const facts: DialCurveFacts = { rows: rows(), steps: 6, continued: true, windowStart: 221 / 24 };
+  expect(dialCurveConflicts(facts)).toEqual([]);
+  expect(dialCurveConflicts({ ...facts, windowStart: null })).toEqual(['sourceFrames']);
+  expect(dialCurveConflicts({ ...facts, rows: [{ dial: calm, strength: 1, time: keys([[0, 0], [1e-17, 1]]) }] })).toEqual(['shift']);
 });
