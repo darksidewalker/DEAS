@@ -126,10 +126,13 @@ const snapTime=(t:number,lim:CurveLimits)=>{
  return edge??grid;
 };
 const levelOf=(level:number,lim:CurveLimits)=>r4(clamp(lim.snap===0?level:Math.round(level/DIAL_LEVEL_SNAP)*DIAL_LEVEL_SNAP,Math.max(-DIAL_LEVEL,lim.lo),Math.min(DIAL_LEVEL,lim.hi)));
-/** Time bounds of point `index`: one latent frame from each neighbour, the limits otherwise. Rounded inward so four decimals never close the gap. */
+/**
+ * Time bounds of point `index`: one latent frame from each neighbour, the limits otherwise. Rounded inward so four decimals never close the gap.
+ * `+ 0` turns the -0 that rounding a bound of 0 gives (`Math.ceil(-1e-6)`) into 0, so a point at the lane's start is stored as 0 s.
+ */
 function room(p:Points,index:number,lim:CurveLimits):[number,number] {
  const lo=index>0?p[index-1][0]+DIAL_GAP:Math.max(-DIAL_SECONDS,lim.from),hi=index<p.length-1?p[index+1][0]-DIAL_GAP:Math.min(DIAL_SECONDS,lim.to);
- return [Math.ceil(lo*1e4-1e-6)/1e4,Math.floor(hi*1e4+1e-6)/1e4];
+ return [Math.ceil(lo*1e4-1e-6)/1e4+0,Math.floor(hi*1e4+1e-6)/1e4+0];
 }
 /** Index of the point within one latent frame of `t`, the nearest first; -1 when a click there adds a point. */
 export function nearPoint(curve:H3DialCurve,t:number):number {

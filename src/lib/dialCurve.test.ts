@@ -530,3 +530,16 @@ test('a gesture end closes the merge tag of any control, so the next edit with t
   // An end with no gesture open changes nothing.
   expect(rackReduce(start, { type: 'gesture' })).toBe(start);
 });
+
+test('a point moved to the start of the lane gets 0 s, not -0', () => {
+  const curve = keys([[0.5, 0], [2, 1]]);
+  // Dragged, typed and nudged past the left edge of a lane that starts at 0 s.
+  for (const moved of [movePoint(curve, 0, -1, 0, lim), movePoint(curve, 0, -0.3, 0, { ...lim, snap: 0 }), movePoint(curve, 0, 0, 0, lim)]) {
+    expect(Object.is(moved.points[0][0], 0), String(1 / moved.points[0][0])).toBe(true);
+    expect(JSON.stringify(moved.points)).toBe('[[0,0],[2,1]]');
+  }
+  const nudged = run({ ...rackState([{ dial: calm, strength: 1, on: true, time: curve }]), row: 0 }, { type: 'nudge', point: 0, dt: -1, dl: 0, lim });
+  expect(Object.is(nudged.rows[0].time!.points[0][0], 0)).toBe(true);
+  // The same at a lane that starts later (the rendered part of a continued piece): the bound itself.
+  expect(movePoint(keys([[11, 0], [12, 1]]), 0, 3, 0, { ...lim, from: 10.125, to: 15 }).points[0][0]).toBe(10.125);
+});
