@@ -1,5 +1,123 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (dial info and curve audio mode, unreleased) — 2026-11-16
+
+Branch `dials-rack-experimental` on top of the rack presets below; see
+[Dial info](DIALS.md#dial-info), [the design](DIALS.md#a-dials-own-information) and
+[Blend steps](DIALS.md#blend-steps). **Fixture and headless-Chromium evidence only.**
+This work started and contacted no ComfyUI instance: the catalog route was answered by
+the project's Rust fixture server and, in the browser, by an in-page stand-in. No job
+was submitted, no model was loaded and no GPU was used. Nothing was run in the desktop
+WebViews (WebKitGTK, WebView2) or on Windows. The fixture content for four dials is
+public dial metadata copied from the development machine's dial files; the fifth entry
+is built from the pack's schema, because none of the 200 dial files there records
+per-pipeline measurements (read from the file headers on disk: 46 record a positive
+useful strength, 0 record `pipelines`, the catalog's info is about 53 kB).
+
+- **Native command (Rust), fixture server: pass.** `native_dial_catalog`
+  (`src-tauri/src/jobs_dial_info.rs`).
+  `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **19 passed, 0
+  failed** (16 before). The two catalog tests cover: exactly one `GET
+  /mainodes/dials/catalog`; the four real entries come back unchanged; unknown keys,
+  unknown pipelines, a strength that is 0, negative, above 20 or not a number, an
+  overcook below the useful strength, an unknown evidence or kind, blend steps of 0,
+  151 or 2.5 and non-text labels are dropped or read as unknown; texts are cut to the
+  pack's limits and control characters replaced; entries in a `_` folder, outside
+  `dials/`, with traversal, without info v2 or listed twice are left out and counted;
+  1005 dials give the first 1000 and `truncated`; a 404 or 405 without the route gives
+  `DIAL_INFO_UNAVAILABLE`; HTTP 500 and 400, a non-JSON answer, four wrong shapes, an
+  answer above 1 MiB (`DIAL_INFO_TOO_LARGE`), an unreachable backend and a URL with
+  credentials; and that the Logs entries have origin, severity and operation, are
+  rate-limited, and hold no URL, credential or backend text.
+- **Curve audio mode (Rust): pass.** In the same run,
+  `dial_time_curve_audio_mode_is_written_only_when_authored`: without the field the
+  emitted rack is the string it was before the field existed; `protect` and `follow`
+  add only `"audio":"…"` to that row and change nothing else in the graph; seven other
+  values are refused; the preset save path accepts a protected curve and sends it.
+- **Blend-step default (Rust and TypeScript): pass.** Changed during this work on new
+  render evidence (below): every step for a job of at most 8 sampler steps, else
+  `max(2, round(steps / 3))`. The shared table is 1→1, 2→2, 3→3, 4→4, 6→6, 7→7, 8→8,
+  9→3, 12→4, 20→7, 25→8, 30→10, 50→17, 150→50; the TypeScript test reads the Rust
+  test's own table. Five exact rack strings of the 4-step fixture changed from
+  `"steps":2` to `"steps":4`. The emitted rack of a 6-step job with a constant row and
+  a curve without authored steps is asserted as:
+  `[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":6,"type":"keys","unit":"seconds"}}]`.
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked jobs_video`: **79 passed, 0
+  failed, 8 ignored.** `cargo fmt -- --check`: clean.
+- **The whole Rust suite was run once and is not clean on this host:** 871 passed, 205
+  failed, 78 ignored. The failures are in modules that write to temporary directories
+  (`downloads`, `backend`, `install`, `media_delete`, `llm`, `app_update`, …) with
+  messages such as "Download directory must be owned by the effective user with trusted
+  permissions" and "No such file or directory". None is in a dial test or in
+  `jobs_video`. **Not checked on the unchanged tree**; that they come from this
+  session's sandboxed temporary directory is a hypothesis.
+- **Frontend unit and component tests: pass.** The eight dial files (`dials`,
+  `dialCurve`, `dialPresets`, `dialInfo`, `DialStrip`, `DialRackDialog`,
+  `DialPresetsDialog`, `Workbench.dials`): **114 passed** (92 in seven files before).
+  They cover the catalog parsing and its limits, the slider reach and mark positions
+  (for example -3 to 8 and marks at 7.5/11 and 1 for the impact frame dial), the
+  overcook warning, the starting strength, the pipeline mapping, blend steps from a
+  file cut to the job, the note and the unavailable state of the strip, the rack
+  dialog's info block, "Use" button and audio control, the audio mode through intent,
+  paste, reducer, undo and presets, and in the Workbench that the catalog is read once
+  when the tab opens, not again when the rack opens, again on reload, never without the
+  Dial Rack nodes or on another family, and that a failed read leaves Run usable.
+  `npm run test:ui`: **128 files, 2234 tests passed** (one run). `npm run typecheck`
+  and `npm run build`: exit 0.
+- **Headless Chromium, synthetic IPC: pass.** `tools/verify_dials.py` through the
+  scratch wrapper that launches the cached Chromium 151 (the pinned Playwright's own
+  browser build is not installed here): **204 checks** (150 before). New: per locale
+  and at 1440×1300, 1440×960, 1024×700, 390×844 and 320×480, every mark lies under the
+  thumb position of its strength within 1.5 px (for Chromium's 16 px thumb), the side
+  labels start and end with the slider and do not overlap, the facts line stays in its
+  row, the note opens from the keyboard, the rack's info block and the audio and blend
+  step controls stay inside the dialog and reachable, and the rack does not read the
+  catalog again; starting strength 4.5 for the impact frame dial, the overcook warning
+  appearing and clearing, blend steps 6 taken from the schema example on a 20-step job
+  (default 7), the audio mode written and removed; and the unavailable state at three
+  sizes with nothing disabled and a later reload bringing the info in.
+- **Layout gate: substitute only.** `npm run test:layout` cannot launch its pinned
+  browser on this host. The unchanged `tools/verify_workspace_layout.py` through the
+  same wrapper: **PASS, 467 checks**, negative control rejected. This is not the gate.
+- **Screenshots, looked at:** `info-strip-*` and `info-rack-*` (35 files) at 1440×1300,
+  1440×960, 1024×700, 390×844 and 320×480 in English, German, Japanese, French,
+  Turkish and Chinese. Seen: labels under the slider ends, ticks at the thumb for a row
+  at its useful strength, the copper warning line on the row at 9 with overcook 8, the
+  open note with the "k = 6" texts, the rack's "From the dial file" block, "The dial
+  file records 6 blend steps for text to video", Audio "Protected", and the
+  unavailable note. Found and fixed from them: at 390 px the labels were cut to a few
+  letters, so a row with info now gives the slider its own line. At 1440×960 the
+  unavailable screenshot shows the note but hardly any row.
+
+**Evidence from the parent session, not from this work: the preset requests against the
+real pack.** On 2026-11-16 the requests DEAS sends for rack presets were tried by hand
+against ComfyUI-Dials alone on a CPU instance with a scratch models folder: the list
+answered 200; a save answered 200 with the pack's `sha256` filled in; a second save of
+the same name answered 409 `{"error": "Preset already exists. Choose a new name."}`; a
+load answered 200; a missing name answered 404 `{"error": "Preset not found."}`; a bad
+row answered 400 with the reason. A ComfyUI route that does not exist answered 404 with
+content type `application/octet-stream` and no JSON, which is the case the native code
+reports as `…_UNAVAILABLE`. These match what the fixture server stands in for. The
+catalog route was read for its shape (`{"dials":[{"dial","family","mode","info"}],
+"families":{…}}`, 200 dials) in the same session; `native_dial_catalog` itself was not
+pointed at it.
+
+**Render evidence behind the blend-step default, from the parent session** (one seed
+each, DEAS's own chain: SigmaShift 10/3, beta scheduler, 6 steps; clips viewed there,
+not here): `h3_ink_wash` at 2.0 on an anime-style prompt is a full ink-wash painting as
+a constant row, goes colour, ink wash (about 1.5 to 2.5 s), colour on a seep in/out
+curve with 6 blend steps, and shows only a faint wash with 2; on a photoreal prompt it
+did nothing even as a constant row. `h3_motion` on the 0 to 1 ramp behaved the same
+with 6 blend steps as with 2 (1.5 acts, 1.35 does not). Earlier, at 25 steps without
+the turbo LoRA, the motion curve acted with 8 blend steps and not with 2. Nothing is
+known about look dials at 25 steps or about any job between 7 and 24 steps.
+
+**Not verified:** the command against a real backend or an external one; real dial
+files with `pipelines`; a catalog with an unreadable dial file (the HTTP 500 is read
+from the pack's source); tick positions in WebKitGTK and WebView2, whose slider thumbs
+were not measured; I2VA and L2VA read as the pack's `fl2v`; any run with the audio mode
+or the new default started from DEAS; screen readers; Windows.
+
 ## Experimental H3 dials (rack presets, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on top of the rack dialog below; see

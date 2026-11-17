@@ -5,12 +5,17 @@
 **Status: experimental.** DEAS can compile dial rows into a MiniMax H3 video job, and
 Studio has a **Dials** dock tab to add rows and set their strength, a **rack dialog**
 with a timeline to draw each row's time curve, and a **rack presets** dialog that reads
-and writes the node pack's own preset files through the pack's routes. The node pack is
-**not installed or pinned by DEAS**, and **no job started from these controls has been
-run on a backend**, nor has the presets dialog talked to a real backend: the evidence is
-compiler, prerequisite, fixture-server and component tests and a headless Chromium
-check. Treat every statement about the picture as untested unless it names the render it
-comes from; the renders named here are one seed each.
+and writes the node pack's own preset files through the pack's routes. Studio also reads
+**what each dial file says about itself** (its two side labels, useful and overcook
+strengths, evidence and notes) from the pack's catalog route and shows it on the rows.
+The node pack is **not installed or pinned by DEAS**, and **no job started from these
+controls has been run on a backend**. Neither the presets dialog nor the dial info
+command has talked to a real backend: the evidence is compiler, prerequisite,
+fixture-server and component tests and a headless Chromium check. The preset requests
+DEAS sends were tried by hand against the real pack on a CPU instance (recorded in
+[verification](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)).
+Treat every statement about the picture as untested unless it names the render it comes
+from; the renders named here are one or two seeds each.
 
 ## What it is
 
@@ -44,15 +49,32 @@ has no dock tabs and sends no dials). It works with a MiniMax H3 **video** pipel
   (the library scan stands in while the backend list is unread). Files in folders whose
   name starts with `_` are not offered, as in the pack's own picker. Each dial can be
   added once; a rack holds at most 8.
-- Each row is one line: an **on/off** switch, the file name, a **slider** from -3 to 3,
-  a **number field** that accepts the full -20 to 20 (the slider stays at its end when
-  the number is beyond it), a small **picture of the time curve** when the row has one,
-  and **×** to remove the row. A new row starts on, at strength 1.
+- Each row holds an **on/off** switch, the file name, a **slider**, a **number field**
+  that accepts the full -20 to 20 (the slider stays at its end when the number is beyond
+  it), a small **picture of the time curve** when the row has one, and **×** to remove
+  the row.
 - A positive strength pushes toward one side of the dial and a negative one toward the
-  other. Which side is which, and how much is useful, is written in the dial file; DEAS
-  does not show that information yet, so the label is the file name. As a first guide,
-  **about 1.5 is usually clearly visible; above about 2 the picture can leave the prompt
-  or freeze** (provisional, see [What renders have shown so far](#what-renders-have-shown-so-far-provisional)).
+  other. Which side is which, and how much is useful, is written in the dial file. When
+  the backend's pack can be asked (see [Dial info](#dial-info)), the row shows it:
+  - the dial's **two side labels** under the slider's ends, the negative side on the
+    left and the positive side on the right;
+  - **ticks** on the slider at the recorded **useful** and **overcook** strengths of
+    each side (overcook is the taller, coloured one), and the same numbers as text
+    under the row with the **evidence in words**, for example
+    `+ side: useful 4.5, overcook 8 · one seed`;
+  - a slider that reaches, per side, **at least 3**, else the side's overcook strength,
+    or one and a half times its useful strength when no overcook is recorded;
+  - a quiet **warning** on a row whose strength is above its side's overcook strength;
+  - an **i** button that opens the file's description, its "measured with" text and its
+    notes under the row.
+- A new row starts on, at the dial's **positive useful strength** when the file records
+  one, else at strength 1.
+- Without dial info (a dial file that records none, or a backend that cannot be asked)
+  a row is the file name and a slider from -3 to 3. As a first guide then, **about 1.5
+  is usually clearly visible; above about 2 the picture can leave the prompt or freeze**
+  (provisional, see [What renders have shown so far](#what-renders-have-shown-so-far-provisional)).
+- **Reload dial info** reads the info again, for example after dial files were added or
+  edited on the backend.
 - **Presets…** opens the [rack presets](#rack-presets) dialog.
 - The tab's badge counts the rows that will be sent: on, with a strength other than 0.
   **Plan** lists them under the model, and the intent JSON shows the exact rows.
@@ -81,8 +103,30 @@ When a row has a time curve that the next job cannot run, the tab lists the reas
 under the heading and Run is blocked with the same reason; see
 [When a time curve cannot run](#when-a-time-curve-cannot-run).
 
-Not built yet: reordering rows, the dial's own description and side labels, and useful
-and overcook marks on the slider.
+Not built yet: reordering rows.
+
+### Dial info
+
+Studio asks the backend's Dial Rack pack for its **dial catalog** once each time the
+Dials tab is opened (and on **Reload dial info**); the rack dialog uses the same
+answer. The catalog is what the pack reads from each dial file's own metadata. Nothing
+is asked when the Dial Rack nodes are not on the backend or the pipeline is not MiniMax
+H3 video.
+
+- The info is the dial maker's: DEAS shows it and never changes it. **A recorded
+  strength is a measurement of that file on the pipeline its text names**, with the
+  evidence stated (the maker's estimate, one seed, several seeds, several scenes). It is
+  not a promise for your prompt, model or step count.
+- When the info cannot be read, the tab says **"Dial info unavailable"** and everything
+  else works as before: the rows keep the file name and the -3 to 3 slider, a new row
+  starts at 1, and Run is not affected. Causes are listed under
+  [Troubleshooting](#troubleshooting); Logs has a `Dial info catalog` entry.
+- Dial files without info (many have none) show "The dial file records no useful or
+  overcook strength" and keep the -3 to 3 slider.
+- On the development machine's catalog (200 dial files, 2026-11-16) 46 files record a
+  positive useful strength and **none records per-pipeline measurements**, so the
+  blend-step default taken from a file (below) has only been exercised with an example
+  built from the pack's schema.
 
 ## The rack dialog and its timeline
 
@@ -129,6 +173,26 @@ one **timeline**: a lane per row over a shared seconds axis.
 - **Blend steps.** Empty means the default, shown beside the field (for example
   "default: 7 of 20 steps (provisional)"). A number sets it for that curve. Each blended
   step costs one extra model call. See [Blend steps](#blend-steps).
+  When the dial file records blend steps **for the pipeline in use**, a new curve
+  (**Add curve**, or a preset on a constant row) is written with that number, cut to the
+  job's sampler steps, and the field says where it comes from ("The dial file records 6
+  blend steps for text to video"). Clearing the field returns to DEAS's default, and
+  **Use 6** puts the file's number back. The pipeline is DEAS's MiniMax H3 mode: text to
+  video (T2VA), reference media (REF2VA, also video to video) and first/last frame
+  (FL2VA). A first frame only (I2VA) or a last frame only (L2VA) is read as first/last
+  frame too, **an assumption no measurement confirms**. Numbers inside free text are
+  never read: a file that says "k = 6" only in its notes changes nothing by itself.
+- **From the dial file.** Under the curve settings the dialog shows what the selected
+  lane's dial file says: its "measured with" text, its notes, its measurement for the
+  pipeline in use when it has one, and its description. This is where guidance such as
+  "time rows k = 6, audio: protect" is read; k is the blend steps. **The file's own
+  notes are the best guide to the blend steps and the strength a curve needs**, because
+  they differ a lot between dials.
+- **Audio.** **Follows the curve** (the node's default): the soundtrack is steered
+  together with the picture. **Protected**: this row leaves the soundtrack undialled.
+  Some dial files were measured with protected audio and say so ("audio: protect"); the
+  setting is not taken from that text, choose it yourself. What either mode sounds like
+  was not listened to from DEAS.
 - **Presets** write the points of the selected lane (and give a constant row a curve):
   **Ramp in** (0 to 1 over the first 1.5 s), **Ramp out** (1 to 0 over the last 1.5 s),
   **Pulse** (0, up to 1, hold, back to 0) and **Dip** (1, down to 0, hold, back to 1).
@@ -137,7 +201,7 @@ one **timeline**: a lane per row over a shared seconds axis.
 - **Copy curve / Paste curve** move a curve between lanes as JSON, the row's `time`
   object. When the WebView refuses the clipboard, the copy is kept inside the window and
   the dialog says so. Paste also accepts a curve copied in the pack's own editor (clip
-  fractions are converted with the lane's length; its audio mode is dropped) and a bare
+  fractions are converted with the lane's length; its audio mode is kept) and a bare
   `[[seconds, level], …]` list.
 
 What the picture shows, and what to expect:
@@ -160,6 +224,10 @@ What the picture shows, and what to expect:
   change over time and no cut, although the same dial clearly acts as a constant row.
   All of this is provisional. The dialog shows this warning; lower the row strength if
   the picture cuts. The curve presets (Ramp in and so on) do not prevent it.
+- **Where a curve starts to act is a sharp threshold that moves** with the schedule and
+  the seed, and look and mood dials need more blend steps and more strength than the
+  motion dial; see [What renders have shown so far](#what-renders-have-shown-so-far-provisional).
+  The dialog shows this too.
 - Director timeline items and prompt blocks are **not** drawn behind the lanes: Studio
   holds MiniMax H3 references as slots with trims, without a place in seconds, and
   timed prompt blocks are free text. Only the Continuity plan's segment ends exist as
@@ -201,26 +269,30 @@ What is converted, and what is said about it:
 | Curve in seconds | Kept as authored |
 | `solo` on an active row | DEAS has no solo switch. The pack runs only the solo rows, so the other rows are loaded **switched off**; noted on both |
 | Hold row, step envelope, block strengths, audio-driven curve, wired dial input | **The row is not loaded**, with the reason. It is never loaded without that part |
-| Curve audio mode `protect` | The row is loaded; the note says the audio mode is not kept (audio follows the curve) |
+| Curve audio mode `protect` | Kept: the row is loaded with **Audio: Protected**. `follow` is the default and is loaded as no setting. Any other value fails the curve check and the row is not loaded |
 | Strength outside ±20, a curve outside the compiler's limits, a file that is not `dials/….safetensors` | The row is not loaded, with the reason |
 | More than 8 loadable rows | The ninth and later are not loaded, with the reason |
 | A curve without blend steps | Loaded without; DEAS then writes its own default for the job's step count, while the node alone would use 2 (see [Blend steps](#blend-steps)). Not noted per row |
 
 Saving writes only what DEAS sends: `dial`, `strength`, `on` and, for a curve, the keys
-curve with `unit: "seconds"` (and `interp`, `smooth`, `steps` when set). DEAS sends **no
+curve with `unit: "seconds"` (and `interp`, `smooth`, `steps` when set, and
+`audio: "protect"` when the curve's audio is protected). DEAS sends **no
 hash**: the pack computes each row's `sha256` from the dial file when it saves, and
 stores `null` for a file it cannot find. A preset saved from DEAS therefore never holds
 solo, hold, envelope or block settings; loading it in ComfyUI gives a rack without them.
 
 Not verified: the dialog against a real backend with the pack (the tests use a fixture
 server and an in-page stand-in), and a preset written by DEAS opened in the ComfyUI
-rack.
+rack. The requests themselves were tried by hand against the real pack on 2026-11-16
+(list, save, a second save of the same name, load, a missing name, a bad row) and
+answered as the native code expects; see
+[verification](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16).
 
 ## What renders have shown so far (provisional)
 
-One seed each on 2026-11-16, 832×480, 4 s, the 6-step turbo recipe unless stated; the
-graphs were minted by hand to the shape DEAS compiles, not started from Studio. None of
-this is a measured rule.
+One seed each on 2026-11-16 unless stated, 832×480, 4 s, the 6-step turbo recipe unless
+stated; the graphs were minted by hand to the shape DEAS compiles or taken from the
+compiler's output, not started from Studio. None of this is a measured rule.
 
 - **Constant rows, ten shipped dials** (eight `h3_evil_*` on a talking prompt,
   `h3_motion` and `h3_motion_lora` on a dance prompt) at -3, -2.25, -1.5, +1.5, +2.25
@@ -229,11 +301,33 @@ this is a measured rule.
   and the hint names 1.5 and 2.
 - **Motion dial on a 0 to 1 curve** (1.0 s ramp, dance prompt): row strength 1.0 no
   visible effect, 1.2 more motion in the same scene, 1.5 a cut to another scene.
-- **Look dial on the same curve** (`h3_evil_cold`, 1.2, 1.5 and 2.0): no visible change
-  over time and no cut; as a constant row at +1.5 it darkens the room and the mood.
+- **The strength at which a curve starts to act is a sharp threshold, and it moves with
+  the schedule and the seed.** Motion dial, same curve: on a ManualSigmas 6-step recipe
+  it acted from about 1.2. On the chain DEAS itself compiles (SigmaShift and the beta
+  scheduler, 6 steps) 1.2 did nothing, **1.35 did nothing on one seed and acted on
+  another, and 1.5 acted on both** (two seeds). Below the threshold the row does
+  nothing; well above it the scene can change.
+- **Look dial on the same curve** (`h3_evil_cold`, 1.2, 1.5 and 2.0, blend steps 2): no
+  visible change over time and no cut; as a constant row at +1.5 it darkens the room and
+  the mood. **Look and mood dials on a curve did nothing, or little, with 2 blend
+  steps** (the compiler's default at 6 steps when these were rendered; it is 6 now). The dial
+  files of other look dials say in their own notes that they need the blend on every
+  step and more strength: `h3_ink_wash` follows a curve at 2.0 with 6 of 6 blend steps
+  and smears over the clip with 2; `h3_impact_frame` drew no flash at 3.0 with 2 and is
+  best as a 0.5 s pulse at 4.5. Those are the dial maker's measurements, not DEAS's.
+- **A dial's own notes are the best guide** to the strength and the blend steps a curve
+  needs; that is why the rack dialog shows them for the selected lane.
 - **Two rows in one rack** (both constant; one on a curve; crossing curves) ran without
   error. What the combinations look like was not judged.
-- **Blend steps:** the default was confirmed only at 6 and 25 sampler steps.
+- **Ink wash on DEAS's own 6-step chain** (`h3_ink_wash` at 2.0, an anime-style
+  prompt): as a constant row a full ink-wash painting; on a seep in/out curve with 6
+  blend steps the clip goes colour, ink wash (about 1.5 to 2.5 s), colour; with 2 blend
+  steps only a faint wash. The motion dial on the 0 to 1 ramp behaved the same with 6
+  blend steps as with 2. This is where the every-step default of short jobs comes from.
+- **A look dial's effect depends on the prompt's style.** On a photoreal prompt the ink
+  wash dial did nothing even as a constant row at 2.0.
+- **Blend steps:** the default was tried only at 6 and 25 sampler steps; see
+  [Blend steps](#blend-steps).
 
 ## When a time curve cannot run
 
@@ -283,7 +377,7 @@ also be sent directly. It is a list of rows:
 | `on` | Optional switch, default on | boolean |
 | `time` | Optional keyframe curve of the row's level over time | see below |
 
-`time` is `{type: "keys", points, unit: "seconds", interp?, smooth?, steps?}`:
+`time` is `{type: "keys", points, unit: "seconds", interp?, smooth?, steps?, audio?}`:
 
 - `points`: 1 to 64 `[seconds, level]` pairs with strictly increasing seconds
   (within ±86400 s) and levels from -20 to 20. The strength the model gets is
@@ -295,6 +389,11 @@ also be sent directly. It is a list of rows:
   rounds the corners of a linear curve.
 - `steps`: optional whole number of **blend steps**, 1 to 150 and, on a row that is on,
   not more than the job's own `steps`. See [Blend steps](#blend-steps).
+- `audio`: optional, `"follow"` or `"protect"`. `follow` is the node's default (the
+  soundtrack is steered with the picture); with `protect` the row leaves the soundtrack
+  undialled. The compiler writes the key only when the intent has it, so a graph
+  compiled from an intent without it is byte for byte what it was before the field
+  existed. Studio writes only `protect`.
 
 A list holds at most 8 rows. Without the field, with an empty list, or when every row
 is off or has strength 0, the compiled graph is exactly the graph without dials and
@@ -326,21 +425,52 @@ latent frame; after that the row is off. **Each blended step costs one extra mod
 call** (a curve that is 0 everywhere costs none).
 
 The node's own default is 2 steps whatever the job's step count. DEAS always writes
-`steps` into every curve it sends: the value in the intent, otherwise
-`max(2, round(job steps / 3))`, never more than the job's steps (6 steps give 2, 25
-give 8, 4 give 2, 1 gives 1).
+`steps` into every curve it sends. In order:
 
-**This default is provisional and was confirmed only at 6 and 25 sampler steps.** It
-comes from one seed at two settings on 2026-11-16:
-with the 6-step turbo recipe a blend of 2 steps acted; at 25 steps without the turbo
-LoRA a blend of 2 steps did nothing visible and 8 steps made the curve act. No other
-step count, strength or dial was tried.
+1. the value in the intent (`time.steps`). In Studio a new curve gets the **dial file's
+   own recorded steps** for the pipeline in use when the file has them, cut to the
+   job's steps (see [the rack dialog](#the-rack-dialog-and-its-timeline)); a number
+   typed in the field replaces it. An authored value always wins;
+2. otherwise the compiler's default, which does not look at the dial:
+   - a job with **8 sampler steps or fewer blends on every step** (6 give 6, 4 give 4,
+     8 give 8, 1 gives 1);
+   - a longer job blends on `max(2, round(job steps / 3))` (9 give 3, 20 give 7, 25
+     give 8).
 
-The emitted row, for the example above at 25 job steps and no authored value:
+**The cost is one extra model call per blended step.** A 6-step turbo job with a curve
+therefore runs 12 model calls for the generation instead of 6, and a 25-step job 33
+instead of 25. Lower the blend steps in the rack dialog to trade effect for time.
+
+**Both halves of the default are provisional**, from renders on 2026-11-16, one seed
+each:
+
+- **Short schedules (every step):** from one look dial and one motion dial on the chain
+  DEAS compiles (SigmaShift, beta scheduler, 6 steps). `h3_ink_wash` at 2.0 on a seep
+  in/out curve went colour, ink wash, colour with 6 blend steps, as the dial's notes
+  say, and showed only a faint wash with 2. `h3_motion` on a 0 to 1 ramp behaved the
+  same with 6 blend steps as with 2 (1.5 acted, 1.35 did not). So blending every step
+  was needed by the look dial and did not hurt the motion dial. The limit of 8 is a
+  choice, not a measurement: **no job between 7 and 24 steps was rendered**.
+- **Long schedules (a third):** at 25 steps without the turbo LoRA the motion dial did
+  nothing visible with 2 blend steps and acted with 8. **Nothing is known about look
+  dials at 25 steps**; if one does nothing there, raise the blend steps.
+
+The emitted rack of a 6-step job with a constant row and a curve without an authored
+value:
+
+```json
+[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":6,"type":"keys","unit":"seconds"}}]
+```
+
+and the curve row of the example above at 25 job steps:
 
 ```json
 {"dial":"dials/h3_calm.safetensors","strength":1,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":8,"type":"keys","unit":"seconds"}}
 ```
+
+With an authored audio mode the same row is, for example,
+`…"time":{"audio":"protect","interp":"linear",…}`: the key sorts first and nothing else
+changes.
 
 **The De-rope pass uses the same count.** There is one rack; `MAIDialHoldMap` puts the
 same rows with the same settings on the second pass, and has no step input of its own.
@@ -349,8 +479,9 @@ of 6 (turbo LoRA or a distilled chain) or 25 (generation model), so 3 or 4 steps
 turbo pass and 12 or 18 for a full one. The node blends on the first
 `min(time.steps, steps of that pass)` of them. So with a 25-step generation (8 blend
 steps) a turbo De-rope pass is blended on all of its 3 or 4 steps, and a full pass on
-its first 8; with a 6-step generation (2 blend steps) the pass is blended on its first
-2. This is read from the node source (`timecurve.py`, `TimeCurveForward`) and the
+its first 8; with a 6-step generation (6 blend steps by default) a turbo pass is
+blended on all of its 3 or 4 steps and a full pass on its first 6. Each blended step of
+that pass is an extra model call too. This is read from the node source (`timecurve.py`, `TimeCurveForward`) and the
 compiled graph, **not rendered with these values**. A control render on 2026-11-16
 (one seed, blend 2, inject 0.48) showed the same motion with and without
 `MAIDialHoldMap`, so what the blend does to the second pass is open. No other pass
@@ -361,10 +492,9 @@ curves, and Hi-Res Regenerate has its own chain without dials.
 
 DEAS refuses these with an `Invalid dials: …` error instead of sending them:
 
-- hold rows, step envelopes, block strengths, audio-driven curves, wired dial inputs,
-  solo, and the per-curve audio mode (the node's default applies: audio follows the
-  curve). A [rack preset](#rack-presets) that holds one of these is loaded without that
-  row, or with the change named on the row;
+- hold rows, step envelopes, block strengths, audio-driven curves, wired dial inputs
+  and solo. A [rack preset](#rack-presets) that holds one of these is loaded without
+  that row, or with the change named on the row;
 - dials on LTX, Wan or HyperFlow Flash, and active dials on a GGUF base model;
 - a **time curve** together with any of: face refinement, the tiled latent upscale,
   an H3 transition window, De-rope on a continued segment, or a continuation of an
@@ -382,7 +512,10 @@ rows that ran.
 | --- | --- |
 | The Dials tab says the Dial Rack nodes are needed, or Run names `MAIDialRack` | The pack is not installed on the backend, or the backend was not restarted after installing it. Reopen the Dials tab afterwards; it reads the backend's node list when opened. |
 | The add list is empty, or a row says "Not on the backend" | No file (or not that file) in the backend's `models/loras/dials/`. Reload the models after copying files; on an external backend its own model list must show the file. |
-| A dial does nothing or the picture breaks | Strength too low or too high for that dial. The file's own useful and overcook strengths are not shown yet; about 1.5 was usually clearly visible in one-seed tests and above about 2 the picture could leave the prompt. |
+| A dial does nothing or the picture breaks | Strength too low or too high for that dial. The row's ticks and text show the file's own useful and overcook strengths when it records them; without them, about 1.5 was usually clearly visible in one-seed tests and above about 2 the picture could leave the prompt. |
+| "Dial info unavailable" in the Dials tab | The backend's pack has no `/mainodes/dials/catalog` route (older pack, or the backend was not restarted), the backend did not answer, it answered with an error (read from the pack's source, not run: its catalog fails as a whole when one dial file holds info it cannot read; look for that file in the backend's log), or the answer was larger than 1 MiB. Logs has a `Dial info catalog` entry with the cause. The rows work without the info; **Reload dial info** tries again. |
+| A row has no side labels or ticks although others do | That dial file records none, or its info is not version 2. The row then says so or keeps the plain slider. |
+| A new curve got other blend steps than the default shown before | The dial file records blend steps for the pipeline in use, and Studio wrote them into the curve. Clear the field for DEAS's default. |
 | The presets dialog says the backend has no rack presets | The backend has no `/mainodes/dials/presets` route: the pack is not installed, is older than the routes, or the backend was not restarted. Logs has a `Dial presets` entry. |
 | "A preset with this name already exists" | The pack never overwrites. Choose a new name, or remove the file in `models/loras/dials/presets/` on the backend. |
 | A preset row says "Not loaded" | The row uses a part of the rack this version does not send. See [Rack presets](#rack-presets). |
@@ -391,7 +524,7 @@ rows that ran.
 | `Diagnostic loras are not available on this backend: dials/…` | The dial file is not in `models/loras/dials/`, or the backend's model list is stale. |
 | `Invalid dials: time curves on a continued segment need … sourceFrames …` | The pinned checkpoint clip was not found in the session list, so the window's start is unknown. Pin an existing clip. |
 | `Invalid dials: time points are too close together to shift onto the continued segment's window` | Two points of a curve fall on the same moment once moved onto the continued window. Spread them out. |
-| A curve does nothing | Raise its blend steps in the rack dialog; the default is provisional. See [Blend steps](#blend-steps). |
+| A curve does nothing | The row is below the strength at which that dial starts to act on a curve, or it has too few blend steps. Read the dial's own notes in the rack dialog ("From the dial file"); raise the strength in small steps, and for a look dial raise the blend steps up to the job's steps. See [What renders have shown so far](#what-renders-have-shown-so-far-provisional). |
 | The picture cuts to another scene where a curve changes | The row is too strong for a curve. Lower its strength. See [the rack dialog](#the-rack-dialog-and-its-timeline). |
 | `MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven` | Use a safetensors base model. |
 
@@ -421,10 +554,12 @@ describes the code; behaviour claims above are what the tests cover.
 - DEAS does have a precedent for a read-only route of a custom pack behind a native
   command: `native_h3_refmods` reads `GET /dasiwa/refmods`, and `native_h3_session` the
   continuity session list. The Dial Rack pack exposes `GET /mainodes/dials/catalog` in
-  the same spirit. It is **not used yet**: the pack is not pinned, so the route is not a
-  contract DEAS may rely on. The rack presets do call the pack's preset routes, because
-  the preset files are the pack's and nothing in DEAS can stand in for them; they fail
-  closed without the route (see
+  the same spirit. **The dial list still does not come from it**: the pack is not
+  pinned, so the strip must work without the route, and the LoRA lists are what the
+  native prerequisite check compares a job's files against. The catalog is used only
+  for the optional [dial info](#a-dials-own-information), and the rack presets call the
+  pack's preset routes, because the preset files are the pack's and nothing in DEAS can
+  stand in for them. Both fail closed without their route (see
   [Rack presets: the store](#rack-presets-the-store-and-how-deas-reaches-it)).
 
 ### Dial files in the LoRA picker
@@ -444,28 +579,81 @@ Regenerate LoRA lists.
 
 A dial file carries a `dial_info` JSON string in its safetensors metadata (version 2:
 `description`, `negative` and `positive` side labels, `neg`/`pos` with `useful` and
-`overcook` strengths that may be unknown, `evidence`, optional `kind` and per-pipeline
-measurements), next to `model_family`. Many files have none.
+`overcook` strengths that may be unknown, `evidence`, `pipeline` and `notes` texts,
+optional `kind` and per-pipeline measurements `pipelines.{t2v|ref2v|fl2v}` with
+`useful`, `overcook`, `steps`, `evidence`, `notes`), next to `model_family`. Many files
+have none. The pack checks it in `dials/core.py::check_dial_info` and
+`check_pipeline_info`.
 
-DEAS has no path for this today. The native scan reads safetensors headers only to
-detect families and takes just `modelspec.architecture` from the metadata
-(`model_families.rs`, `read_header`/`header`); `LocalModel` has no general metadata
-field; the LoRA details dialog shows the cached CivitAI record only. So this first part
-ships with fallbacks: the file name as the label, a fixed ±3 slider and a number field
-for the full range, and a hint to start near 1.
+**Where it is read: one catalog call, not one call per dial.** The pack has two
+read-only routes (`dials/routes.py`): `GET /mainodes/dials/catalog` (every dial with
+family, mode and checked info, `core.dial_catalog`) and
+`GET /mainodes/dials/info?dial=…` (one file's info, `core.dial_info`).
 
-Planned path, in order of preference:
+| | Catalog | Per dial |
+| --- | --- | --- |
+| Requests when the tab opens | 1 | 1 per row, up to 8; plus 1 each time a dial is added |
+| A new row's starting strength | Known before the row exists, for every offered file | Unknown until the row exists: the row would have to be added at 1 and then jump, or adding would wait for a request |
+| Answer size | The development machine's 200 files: 53 kB of info (measured from the file headers). Bounded natively at 1 MiB and 1000 dials | Small |
+| One dial file with info the pack cannot read (read from the pack's source, not run) | **The whole catalog fails** (`dial_catalog` raises outside the route's error handling, so an HTTP 500 is expected) | Only that file fails (HTTP 400 with the reason) |
+| Failure handling and logging | One state, one Logs entry | A state and possibly an entry per row |
+| Extra facts | `family` and `mode` of every file | None |
 
-1. A read-only native command over `GET /mainodes/dials/catalog`, following
-   `native_h3_refmods`, once a pack revision is pinned. It returns family, mode and
-   checked info for every dial in one call and works for external backends.
-2. Otherwise an optional `dial` object on `LocalModel`, filled by the scan for
-   `loras/dials/*` from the header it can already read. This covers only backends whose
-   models folder DEAS can read, and needs the scan index to carry the new field.
+**Chosen: the catalog**, because the starting strength needs the info of a dial that is
+not in the rack yet, and because one request gives one clear available/unavailable
+state. Its cost is the fourth row: one bad file hides the info of all. That is a
+property of the pack's route, reported under Troubleshooting and listed as a possible
+upstream change; DEAS does not fall back to per-dial requests.
 
-Either way the strip takes the result as one optional map `dial name → info`; the row
-then shows the side labels, sets the slider range from the overcook strengths and marks
-the useful strength.
+The scan alternative (an optional `dial` object on `LocalModel`, filled from the header
+the native scan already opens in `model_families.rs`) was not taken: it covers only
+backends whose models folder DEAS can read, needs the scan index to carry a new field,
+and would re-implement the pack's info check.
+
+- **Native** (`src-tauri/src/jobs_dial_info.rs`, a child module of `jobs` beside
+  `jobs_dial_presets.rs`, whose request helper it shares): `native_dial_catalog`. It
+  hands Studio `{dials: [{dial, family, mode, info}], dropped, truncated}` and nothing
+  else of the answer. Per entry: `dial` must pass the compiler's dial file rule and lie
+  in no folder starting with `_` (the rule of Studio's own list), each name once; `info`
+  must be version 2. Texts are cut to the pack's own limits (description 2000, labels
+  and pipeline 60, notes 500 characters) with control characters replaced; a strength is
+  a finite number above 0 and at most 20, the compiler's row strength bound, else
+  unknown; an overcook strength below the useful one is unknown; `evidence`, `kind`,
+  `mode` and the pipeline keys must be the pack's own values; `steps` is a whole number
+  from 1 to 150, the compiler's blend-step bound; every other key is dropped. At most
+  1000 dials are handed over (`truncated` says when more were listed) and the answer is
+  read up to 1 MiB.
+- **Failures** come back as `CODE: detail`: `DIAL_INFO_UNAVAILABLE` (404 or 405: no such
+  route), `DIAL_INFO_UNREACHABLE`, `DIAL_INFO_FAILED` (another HTTP status),
+  `DIAL_INFO_MALFORMED`, `DIAL_INFO_TOO_LARGE`, `DIAL_INFO_ENDPOINT`. Studio shows one
+  sentence for all of them; the cause is in Logs.
+- **Logging:** each failure writes one central Logs entry
+  (`WARN|ERROR: Dial info catalog: <cause>; repeated=N`), without the URL or the
+  backend's text, rate-limited per cause like the presets (the first and its first
+  repeat at once, then once per minute), because the catalog is read every time the tab
+  opens. Entries that were left out of a readable catalog write one `WARN` with the
+  counts. A successful read is not logged.
+- **Frontend:** `src/lib/dialInfo.ts` turns the answer into one map `dial name → info`
+  (re-checking the numbers it does arithmetic on) and holds the pure maths:
+  `dialSliderRange`, `dialMarks`, `dialOvercooked`, `dialStartStrength`,
+  `dialPipelineOf`, `dialInfoSteps`. `useDialInfo` (`features/studio/useDialInfo.ts`)
+  reads it once each time the Dials tab or the rack opens on a MiniMax H3 video pipeline
+  whose backend lists `MAIDialRack`, and on **Reload dial info**. The strip and the rack
+  dialog take the map as an optional prop; without it they are exactly the earlier
+  fallbacks. A failed read sets the state `unavailable`, keeps no stale info and
+  disables nothing.
+- **Marks** are elements over the slider, placed where the thumb's centre is at that
+  strength (the thumb travels the track less its own width, taken as 16 px). That
+  matches Chromium's default thumb; **WebKitGTK and WebView2 thumbs were not measured**,
+  so a tick may sit a few pixels off there. The numbers are also text under the row, and
+  the slider is described by that text for assistive technology.
+- **Pipeline mapping** (`dialPipelineOf`): T2VA → `t2v`, REF2VA → `ref2v`, FL2VA, I2VA
+  and L2VA → `fl2v`. The pack names `fl2v` "first/last frame"; reading a single frame
+  as the same pipeline is DEAS's assumption.
+- **Not used:** `family` (a dial made for another model family is still offered and is
+  refused by the node when it runs), `mode`, `kind`, and the per-pipeline `useful` and
+  `overcook` strengths, which are shown as text in the rack dialog but do not move the
+  slider's marks.
 
 ### State, persistence and the intent
 
@@ -633,8 +821,14 @@ backend has no rack preset route", and the dialog then offers neither load nor s
   drop the filter in `withDials`.
 - **Logging:** the strip and the rack dialog only edit local state. The one operation
   there that can be refused is the clipboard; it falls back to a copy inside the window
-  and tells the user, and writes no log entry. The presets dialog's backend calls are
-  logged natively (see above). Job errors already reach Logs through the job path.
+  and tells the user, and writes no log entry. The presets dialog's backend calls and
+  the dial info read are logged natively (see above). Job errors already reach Logs
+  through the job path.
+- **Dial info, open points:** whether a single first or last frame should use the
+  `fl2v` measurement; whether the per-pipeline strengths should move the marks when the
+  file has them; whether dials of another model family should be hidden or flagged
+  (the catalog carries the family); and whether the audio mode should default to
+  protected for a file that says so (today only as free text, which is not parsed).
 
 ## Platforms and evidence
 
@@ -646,8 +840,9 @@ verification entries for the
 [Dials tab](VERIFICATION.md#experimental-h3-dials-studio-dock-strip-unreleased--2026-11-16)
 and the [rack dialog](VERIFICATION.md#experimental-h3-dials-rack-dialog-and-blend-steps-unreleased--2026-11-16)
 and the [rack presets](VERIFICATION.md#experimental-h3-dials-rack-presets-unreleased--2026-11-16)
+and the [dial info and audio mode](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)
 for what was tested and the [plan](PLAN.md) for what is open. `tools/verify_dials.py`
 checks the strip's, the rack dialog's and the presets dialog's geometry, mouse and
-keyboard use in Chromium with synthetic IPC. Node behaviour was read
-from the installed ComfyUI-MAINodes checkout (`dials/nodes.py`, `timecurve.py`,
-`presets.py`, `routes.py`), not from a pinned release.
+keyboard use, and the dial info on the rows, in Chromium with synthetic IPC. Node
+behaviour was read from the installed ComfyUI-MAINodes checkout (`dials/nodes.py`,
+`timecurve.py`, `presets.py`, `routes.py`, `core.py`), not from a pinned release.
