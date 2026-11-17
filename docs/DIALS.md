@@ -143,11 +143,21 @@ one **timeline**: a lane per row over a shared seconds axis.
   other mode the Director gets the step's own clip length, so its 17k + 5 frame count
   is snapped (1 s is a 39-frame clip and adds 34 frames). A plan of 5 s and 1 s is
   therefore 158 frames (6.583 s) in text to video and 141 frames (5.875 s) with
-  reference media. Segment ends are drawn as dashed lines and points snap to them. A plan that continues an existing clip
-  or an imported video starts at a frame count Studio does not hold, so the dialog says
-  so and shows only the next clip; curve seconds still count from the start of the whole
-  piece. The laid-out piece length mirrors the compiler's rule and was not compared with
-  a real session.
+  reference media. Segment ends are drawn as dashed lines and points snap to them.
+  The laid-out piece length mirrors the compiler's rule and was not compared with a
+  real session.
+- **A plan that continues an existing clip or an imported video.** Curve seconds count
+  from the start of the whole piece, and the compiler moves every point by the pinned
+  clip's length (less the hidden context frames) before it sends the curve. Studio does
+  not hold that length before Run, so it cannot place a curve on the next clip. Example:
+  with a pinned clip of 243 frames and 22 context frames, a ramp drawn over 0 to 1.5 s
+  is sent at -9.2 s, and the model gets level 1 for the whole segment. The dialog
+  therefore says so, shows only the next clip **without the frame ticks and the
+  per-frame line**, and **time curves are held**: a row with a curve that is on blocks
+  Run with the reason, and the curve tools are off (Remove curve, the switch and × stay
+  usable). Rows without a curve run as always. To use a curve, switch Continuity off
+  and render a single clip, or start the piece with a plan of its own. Reading the
+  pinned clip's length before Run, so that the lanes can start there, is not built.
 - **Lanes.** Click a lane or its name to select it. The selected lane is tall and
   editable; the others are drawn dimmed so overlaps can be seen. A row without a curve
   is a dashed flat line at level 1. **Add curve** starts a flat curve at level 1 (the
@@ -225,7 +235,8 @@ What the picture shows, and what to expect:
   takes one value per latent frame, about 1/6 s, the curve's average over that frame.
   Sharper changes are averaged away, and the pack's notes say a change shows in the
   render over about 1.5 s. With a Continuity piece the ticks are exact for the first
-  segment only and the stepped line is not drawn.
+  segment only and the stepped line is not drawn; on a plan that continues an existing
+  clip neither is drawn.
 - **A strong dial on a curve can change the whole scene where the curve changes.** The
   curve blends between the render with the dial and the one without, and at a high
   strength these are different scenes. In renders on 2026-11-16 (one seed each, the
@@ -378,6 +389,7 @@ the plan's next step, and they block the plain Run button too.
 | The tiled latent upscale is on | Use Hi-Res Regenerate or no upscale, or remove the curve |
 | De-rope on a continued segment | Switch De-rope off for that step, or remove the curve |
 | The next step continues an imported video | Remove the curve |
+| The Continuity plan continues an existing clip or an imported video | Remove the curve, or switch Continuity off and render a single clip. Studio's own hold: the compiler would accept the job, but Studio cannot show where the curve lands (see [the rack dialog](#the-rack-dialog-and-its-timeline)) |
 | De-rope with a curve, and `MAIDialHoldMap` is not on the backend | Install the pack that has it (shown once the backend's node list is read) |
 | Join with generated transitions | While a row with a curve is on, the Continuity dialog does not offer transitions and says why |
 
@@ -754,6 +766,7 @@ it. A test per refusal compares the trigger and the native wording with the Rust
 | `importedVideo` | pinned source of kind `video` | `validate_dials` |
 | `sourceFrames` | pinned clip's frame count known to be missing | `validate_dials`; **Studio cannot know this before Run** |
 | `shift` | points collapse when shifted by the window start | `validate_dials`; **needs the window start, which Studio does not hold** |
+| `pieceStart` | the Continuity plan has a source (`dialTimeline` basis `planSource`) | **none: Studio's own hold.** Native compiles the job and shifts the points by the window start; Studio holds the curve because the rack cannot draw it where the model gets it |
 | `holdMapMissing` | De-rope with a curve and no `MAIDialHoldMap` in the node list | prerequisite check |
 | `curveLimits` | a curve `isDialCurve` rejects | `validate_dial_row`; cannot occur in stored rows |
 

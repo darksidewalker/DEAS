@@ -428,9 +428,31 @@ test('a Continuity piece is laid out with its segment ends, which points snap to
   fireEvent(track, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 518, clientY: 50 }));
   expect(last[1].time!.points[3]).toEqual([5.1667, 0.5]);
   view.unmount();
-  render(<Host timeline={dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false)}/>);
+  // A plan on an existing clip: the compiler moves every point by that clip's length, which Studio does not hold. The dialog says so, draws
+  // neither the per-latent-frame line nor the frame ticks (they would be the wrong frames), and the refusal locks the curve tools.
+  const onClip = dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false);
+  render(<Host timeline={onClip} conflicts={['pieceStart']}/>);
   expect(document.querySelector('[data-dial-basis="planSource"]')!.textContent).toContain('continues an existing clip');
+  expect(document.querySelector('[data-dial-basis="planSource"]')!.textContent).toContain('cannot show where a curve falls');
   expect(document.querySelector('[data-dial-timeline]')!.querySelector('h3')!.textContent).toBe('Timeline · 4.458 s');
+  select(calm);
+  expect(lane(calm).querySelector('[data-dial-lane-curve]')).not.toBeNull();
+  expect(lane(calm).querySelector('[data-dial-frames]')).toBeNull();
+  expect(document.querySelectorAll('[data-dial-tick]')).toHaveLength(0);
+  expect(document.querySelector('[data-dial-rack-locked]')!.textContent).toContain(text('studio.dials.conflict.pieceStart'));
+  expect(points().every(p => p.disabled)).toBe(true);
+  expect(tool('preset.rampIn').disabled).toBe(true);
+  expect(tool('removeCurve').disabled).toBe(false);
+  // The help line about the ticks and the stepped line is not shown where neither is drawn.
+  expect(document.querySelector('[data-dial-help="resolution"]')).toBeNull();
+});
+
+test('on a plain clip the selected lane draws the per-latent-frame line and the frame ticks', () => {
+  render(<Host timeline={dialTimeline(107, null, false)}/>);
+  select(calm);
+  expect(lane(calm).querySelector('[data-dial-frames]')).not.toBeNull();
+  expect(document.querySelectorAll('[data-dial-tick]')).toHaveLength(33);
+  expect(document.querySelector('[data-dial-help="resolution"]')).not.toBeNull();
 });
 
 test('points authored for a longer piece stay visible past the lane\'s end', () => {

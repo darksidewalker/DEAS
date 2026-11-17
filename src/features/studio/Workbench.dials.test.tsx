@@ -210,6 +210,32 @@ test.each([['t2v','6.583'],['ref2v','5.875']])('the lanes of a Continuity piece 
  expect(dialog.querySelector('[data-dial-timeline] h3')!.textContent).toBe(`Timeline · ${seconds} s`);
 });
 
+test('a plan that continues an existing clip holds time curves: the compiler would move them by a length Studio does not hold',async()=>{
+ // Pinned clip of 243 frames, context 22: a ramp over 0 to 1.5 s would be emitted at -9.2 s and the model would get level 1 everywhere.
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials3',outputMode:'full',source:{clipId:'pinned-clip',endpoint:evidence.baseUrl},steps:[{id:'a',seconds:5,action:''}]}));
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:curve}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ const reason='This Continuity plan continues an existing clip.';
+ await waitFor(()=>expect(run().title).toContain(reason));
+ expect(run().disabled).toBe(true);
+ dock('Dials');
+ expect(strip().querySelector('[data-dial-conflict="pieceStart"]')!.textContent).toContain(reason);
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(dialog.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('planSource');
+ expect(dialog.querySelector('[data-dial-conflict="pieceStart"]')!.textContent).toContain(reason);
+ fireEvent.click(within(dialog.querySelector<HTMLElement>(`[data-dial-lane="${calm}"]`)!).getByRole('button',{pressed:false}));
+ expect(dialog.querySelector('[data-dial-frames]')).toBeNull();
+ expect(dialog.querySelectorAll('[data-dial-tick]')).toHaveLength(0);
+ expect(dialog.querySelector('[data-dial-rack-locked]')!.textContent).toContain(reason);
+ // Removing the curve is the way out: the constant row runs on every segment.
+ fireEvent.click(dialog.querySelector('[data-dial-tool="removeCurve"]')!);
+ await waitFor(()=>expect(run().disabled).toBe(false));
+ expect(dialog.querySelector('[data-dial-conflicts]')).toBeNull();
+ expect(run().title).not.toContain(reason);
+});
+
 test('a time-curve refusal blocks Run with its reason in the strip and the dialog until the curve is off; rows without a curve are not held',async()=>{
  // More blend steps than the job samples (20): native "time.steps (blend steps) cannot exceed the job's 20 sampler steps".
  const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:{...curve,steps:21}}]);

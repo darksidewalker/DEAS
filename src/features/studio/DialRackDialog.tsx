@@ -178,9 +178,12 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  // Seconds grid: at most about a dozen labels.
  const every=[1,2,5,10,30,60,300,900,3600,7200,14400,43200].find(n=>(to-from)/n<=12)??86400;
  const marks=Array.from({length:Math.floor((to-Math.ceil(from/every)*every)/every+1e-9)+1},(_,i)=>Math.ceil(from/every)*every+i*every);
- // Latent-frame edges of the first clip; a continued segment's frames start at its own hidden context window.
- const ticks=latentFrameStarts(timeline.basis==='plan'?Math.round((timeline.edges[0]??timeline.seconds)*24):timeline.frames).map(f=>f/24);
- const frames=curve&&timeline.basis!=='plan'?dialFrameLevels(curve,timeline.frames):[];
+ // Latent-frame edges of the first clip; a continued segment's frames start at its own hidden context window. On a plan that continues an
+ // existing clip (`planSource`) the next clip's window starts at a piece time Studio does not hold: neither the ticks nor the per-latent-frame
+ // line would be the frames the model gets, so they are not drawn (and `dialCurveConflicts` holds the curves, `pieceStart`).
+ const placed=timeline.basis!=='planSource';
+ const ticks=placed?latentFrameStarts(timeline.basis==='plan'?Math.round((timeline.edges[0]??timeline.seconds)*24):timeline.frames).map(f=>f/24):[];
+ const frames=curve&&timeline.basis==='clip'?dialFrameLevels(curve,timeline.frames):[];
  const tool=(key:string,action:()=>void,o:{disabled?:boolean;data?:string}={})=><button type="button" className="wb-dock-action" data-dial-tool={o.data??key} disabled={o.disabled} title={o.disabled&&lockReason?lockReason:undefined} onClick={()=>{setNote('');action();}}>{t(`studio.dials.rack.${key}`)}</button>;
 
  return <dialog ref={dialogRef} className="continuity-overlay dial-rack" data-dial-rack aria-labelledby={titleId} onKeyDown={history} onCancel={e=>{e.preventDefault();dismiss();}}>
@@ -264,7 +267,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
      <p className="dial-rack-note" role="status" data-dial-rack-note>{note}</p>
     </>}
     <p className="dial-rack-help" id={helpId}>{t('studio.dials.rack.help.keys')}</p>
-    <p className="dial-rack-help" data-dial-help="resolution">{t('studio.dials.rack.help.resolution')}</p>
+    {placed&&<p className="dial-rack-help" data-dial-help="resolution">{t('studio.dials.rack.help.resolution')}</p>}
     <p className="dial-rack-help dial-rack-warning" data-dial-help="scene">{t('studio.dials.rack.help.scene')}</p>
     <p className="dial-rack-help" data-dial-help="findings">{t('studio.dials.rack.help.findings')}</p>
     <p className="dial-rack-help" data-dial-help="range">{t('studio.dials.rack.help.range')}</p>

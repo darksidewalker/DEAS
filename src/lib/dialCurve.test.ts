@@ -315,6 +315,8 @@ const refusals: Record<DialCurveConflict, { facts: Partial<DialCurveFacts>; nati
   importedVideo: { facts: { continued: true, importedVideo: true }, native: 'Invalid dials: time curves cannot run on a continuation of an imported video (its start in the piece is not known before the run)' },
   sourceFrames: { facts: { continued: true, windowStart: null }, native: 'Invalid dials: time curves on a continued segment need the pinned checkpoint clip\'s sourceFrames from the session list and a legal context window' },
   shift: { facts: { continued: true, windowStart: 1e17, rows: [{ ...curved, time: keys([[0, 0], [1, 1]]) }] }, native: 'Invalid dials: time points are too close together to shift onto the continued segment\'s window' },
+  // Studio's own refusal: native compiles this job and moves the points by the window's start; Studio cannot draw where they land.
+  pieceStart: { facts: { pieceStartUnknown: true }, native: 'continuation_window_start(i).expect("validated with dials") as f64 / 24.0' },
   holdMapMissing: { facts: { derope: true, nodes: [dialRackNode] }, native: 'MAIDialHoldMap' },
   curveLimits: { facts: { rows: [{ ...curved, time: { ...curved.time!, smooth: 2 } }] }, native: 'Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?, audio? follow|protect}' },
 };
@@ -330,8 +332,9 @@ test.each(dialCurveConflictIds)('time-curve refusal %s is found before Run and m
 });
 
 test('refusals are listed in the order native checks them, and facts are read from a built intent', () => {
-  const all = dialCurveConflicts({ rows: [{ ...curved, time: { ...curved.time!, steps: 9 } }], steps: 6, transition: true, faceRefine: true, tiledUpscale: true, derope: true, continued: true, importedVideo: true, nodes: [] });
-  expect(all).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'holdMapMissing']);
+  const all = dialCurveConflicts({ rows: [{ ...curved, time: { ...curved.time!, steps: 9 } }], steps: 6, transition: true, faceRefine: true, tiledUpscale: true, derope: true, continued: true, importedVideo: true, pieceStartUnknown: true, nodes: [] });
+  expect(all).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'pieceStart', 'holdMapMissing']);
+  expect(dialCurveConflictIds).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'sourceFrames', 'shift', 'pieceStart', 'holdMapMissing', 'curveLimits']);
   const at = (id: DialCurveConflict) => rust.indexOf(refusals[id].native.split('{steps}')[0]);
   const native = ['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'sourceFrames', 'shift'] as const;
   native.forEach((id, i) => { if (i) expect(at(id), id).toBeGreaterThan(at(native[i - 1])); });

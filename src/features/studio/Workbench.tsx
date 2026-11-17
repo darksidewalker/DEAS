@@ -685,7 +685,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null,continuityReferences);
  // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
  const dialNext=dialsHere&&continuityOn?nextStep(plan)?.continuity:undefined;
- const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',nodes:choices?.nodes});
+ const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',pieceStartUnknown:dialSpan.basis==='planSource',nodes:choices?.nodes});
  // A join's generated transitions sample their own window: not offered while a row with a time curve is on.
  const dialTransitionBlock=dialCurveConflicts({rows:dials,steps,transition:true}).includes('transition');
  const streamRequested=isVideo&&videoFamily==='minimax-h3'&&streamDecode;

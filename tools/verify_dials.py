@@ -295,6 +295,84 @@ def verify_rack(browser, url, shots, checks):
             context.close()
 
 
+CONTINUED = r"""()=>{
+ const dialog=document.querySelector('dialog[data-dial-rack]'),body=dialog.querySelector('.dial-rack-body');
+ const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+ const timeline=dialog.querySelector('[data-dial-timeline]'),locked=dialog.querySelector('[data-dial-rack-locked]'),basis=dialog.querySelector('[data-dial-basis]');
+ return {viewport:{width:innerWidth,height:innerHeight},page:document.documentElement.scrollWidth,dialog:box(dialog),body:{client:body.clientWidth,scroll:body.scrollWidth},
+  basisId:timeline.dataset.dialTimeline,basis:basis?{text:basis.textContent,...box(basis)}:null,locked:locked?{text:locked.textContent,...box(locked)}:null,
+  ticks:dialog.querySelectorAll('[data-dial-tick]').length,frames:dialog.querySelectorAll('[data-dial-frames]').length,curves:dialog.querySelectorAll('[data-dial-lane-curve]').length,
+  help:[...dialog.querySelectorAll('[data-dial-help]')].map(e=>e.dataset.dialHelp),conflicts:[...dialog.querySelectorAll('[data-dial-conflict]')].map(e=>e.dataset.dialConflict),
+  points:[...dialog.querySelectorAll('[data-dial-point]')].map(e=>e.disabled),tools:Object.fromEntries([...dialog.querySelectorAll('[data-dial-tool]')].map(e=>[e.dataset.dialTool,e.disabled]))};
+}"""
+
+
+def verify_continued(browser, url, shots, checks):
+    """A Continuity plan that continues an existing clip: the rack draws no frame ticks or per-frame line, holds the curves with the reason, and Run is blocked."""
+    curved = 'dials/h3_day_night_hook.safetensors'
+    plan = {'enabled': True, 'session': 'fixture-session', 'outputMode': 'full', 'source': {'clipId': 'pinned-clip', 'endpoint': 'http://127.0.0.1:8188'}, 'steps': [{'id': 'one', 'seconds': 5, 'action': ''}]}
+    for locale in ('en', 'de', 'ja'):
+        context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(ROWS[:2])).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap']))
+                             + f"\nlocalStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({json.dumps(plan)}));")
+        try:
+            page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
+            opener = page.locator('#studio-dock [data-dial-rack-open]')
+            expect(opener).to_be_visible()
+            # The strip names the refusal and Run carries it.
+            expect(page.locator('#studio-dock [data-dial-conflict="pieceStart"]')).to_be_visible()
+            reason = page.locator('#studio-dock [data-dial-conflict="pieceStart"]').text_content()
+            assert len(reason) > 60, reason
+            assert reason in (page.locator('[data-run]').get_attribute('title') or ''), ('Run does not carry the refusal', page.locator('[data-run]').get_attribute('title'))
+            expect(page.locator('[data-run]')).to_be_disabled()
+            for width, height in ((1440, 960), (390, 844)):
+                page.set_viewport_size({'width': width, 'height': height})
+                page.wait_for_timeout(80)
+                label = f'continued:{locale}:{width}x{height}'
+                opener.scroll_into_view_if_needed()
+                opener.click()
+                dialog = page.locator('dialog[data-dial-rack]')
+                expect(dialog).to_be_visible()
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-name').click()
+                g = page.evaluate(CONTINUED)
+                assert g['basisId'] == 'planSource' and g['basis'] and g['basis']['width'] > 100, (label, 'basis', g['basisId'], g['basis'])
+                assert g['ticks'] == 0 and g['frames'] == 0, (label, 'frame ticks or the per-frame line are drawn for a window Studio cannot place', g['ticks'], g['frames'])
+                assert g['curves'] == 2, (label, 'the authored curves are still shown', g['curves'])
+                assert g['conflicts'] == ['pieceStart'] and g['locked'] and reason in g['locked']['text'], (label, 'refusal', g['conflicts'], g['locked'])
+                assert g['help'] == ['scene', 'findings', 'range'], (label, 'help lines', g['help'])
+                assert g['points'] == [True] * 4, (label, 'points stay editable', g['points'])
+                assert g['tools']['removeCurve'] is False and g['tools']['preset.rampIn'] and g['tools']['addPoint'] and g['tools']['paste'], (label, 'tools', g['tools'])
+                assert g['page'] <= g['viewport']['width'] + 1 and g['body']['scroll'] <= g['body']['client'] + 1, (label, 'overflow', g['page'], g['body'])
+                for part in (g['basis'], g['locked']):
+                    assert part['left'] >= g['dialog']['left'] - 1 and part['right'] <= g['dialog']['right'] + 1, (label, 'text leaves the dialog', part)
+                dialog.locator('[data-dial-basis]').scroll_into_view_if_needed()
+                page.screenshot(path=str(shots / f'continued-{locale}-{width}x{height}.png'))
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-track').scroll_into_view_if_needed()
+                page.screenshot(path=str(shots / f'continued-{locale}-{width}x{height}-lanes.png'))
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                checks.append(label)
+            # Removing the curve is the way out: the constant row runs and Run no longer carries the refusal.
+            opener.scroll_into_view_if_needed()
+            opener.click()
+            dialog = page.locator('dialog[data-dial-rack]')
+            dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-name').click()
+            dialog.locator('[data-dial-tool="removeCurve"]').click()
+            expect(dialog.locator('[data-dial-conflict]')).to_have_count(0)
+            page.keyboard.press('Escape')
+            expect(page.locator('#studio-dock [data-dial-conflict]')).to_have_count(0)
+            assert reason not in (page.locator('[data-run]').get_attribute('title') or '')
+            checks.append(f'continued:{locale}:remove-curve')
+            assert not errors, errors
+            assert page.evaluate('__unexpected') == [], page.evaluate('__unexpected')
+            assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
+        finally:
+            context.close()
+
+
 PRESETS_GEOMETRY = r"""()=>{
  const dialog=document.querySelector('dialog[data-dial-presets]'),body=dialog.querySelector('.lora-sets-body');
  const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
@@ -697,6 +775,7 @@ def verify(browser, url, shots):
             finally:
                 context.close()
     verify_rack(browser, url, shots, checks)
+    verify_continued(browser, url, shots, checks)
     verify_presets(browser, url, shots, checks)
     verify_info(browser, url, shots, checks)
     result = {'status': 'PASS', 'checksPassed': len(checks), 'kind': 'Chromium geometry, mouse and keyboard; synthetic IPC only', 'screenshots': str(shots), 'checks': checks}
