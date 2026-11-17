@@ -18,13 +18,14 @@ test('rows and curves accept exactly what native validate_dial_row accepts', () 
   for (const ok of [dialRow(1.5), dialRow(0), dialRow(-DIAL_LEVEL), dialRow(DIAL_LEVEL), { ...dialRow(1), on: false }, { ...dialRow(1), on: true }, timedDial,
     { ...dialRow(1), time: { type: 'keys', points: [[3, 1]], unit: 'seconds' } },
     { ...dialRow(1), time: { type: 'keys', points: [[-1, 0], [2.5, 1.25]], unit: 'seconds', interp: 'step', smooth: 0.25 } },
+    { ...dialRow(1), time: { ...dialCurve, steps: 1 } }, { ...dialRow(1), time: { ...dialCurve, steps: 150 } },
     { ...dialRow(20), time: { type: 'keys', points: Array.from({ length: 64 }, (_, n) => [n, 20]), unit: 'seconds', smooth: 1 } }]) expect(isDialRow(ok), JSON.stringify(ok)).toBe(true);
   const time = (edit: Record<string, unknown>) => ({ ...dialRow(1), time: { ...dialCurve, ...edit } });
   for (const bad of [null, [], 'dials/a.safetensors', {}, { dial: 'a.safetensors', strength: 1 }, { dial: 'dials/a.safetensors' }, { ...dialRow(1), strength: '1' }, dialRow(20.5), dialRow(-21), dialRow(NaN), dialRow(Infinity),
     { ...dialRow(1), on: 'yes' }, { ...dialRow(1), on: null },
     // Row kinds the first version refuses.
     { ...dialRow(1), input: 1 }, { ...dialRow(1), hold: true }, { ...dialRow(1), envelope: [] }, { ...dialRow(1), blocks: {} }, { ...dialRow(1), solo: true },
-    { ...dialRow(1), time: null }, { ...dialRow(1), time: [] }, time({ type: 'audio' }), time({ unit: 'frames' }), time({ unit: undefined }), time({ interp: 'cubic' }), time({ smooth: 1.5 }), time({ smooth: -0.1 }), time({ steps: 2 }), time({ audio: 'follow' }),
+    { ...dialRow(1), time: null }, { ...dialRow(1), time: [] }, time({ type: 'audio' }), time({ unit: 'frames' }), time({ unit: undefined }), time({ interp: 'cubic' }), time({ smooth: 1.5 }), time({ smooth: -0.1 }), time({ steps: 0 }), time({ steps: 2.5 }), time({ steps: 151 }), time({ steps: '2' }), time({ steps: null }), time({ audio: 'follow' }),
     time({ points: [] }), time({ points: Array.from({ length: 65 }, (_, n) => [n, 0]) }), time({ points: [[0, 0], [0, 1]] }), time({ points: [[1, 0], [0, 1]] }), time({ points: [[0, 21]] }), time({ points: [[86401, 0]] }), time({ points: [[0]] }), time({ points: [[0, 0, 0]] }), time({ points: [['0', 0]] }), time({ points: 'x' })]) expect(isDialRow(bad), JSON.stringify(bad)).toBe(false);
   expect(isDialCurve(dialCurve)).toBe(true);
   expect(isDialRows([])).toBe(true);

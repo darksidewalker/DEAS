@@ -12,6 +12,13 @@ export const DIAL_ROWS=8;
 export const DIAL_POINTS=64;
 export const DIAL_LEVEL=20;
 export const DIAL_SECONDS=86_400;
+/** Bound of a curve's authored blend steps (native `DIAL_BLEND_STEPS`); an active row may not exceed the job's own sampler steps. */
+export const DIAL_BLEND_STEPS=150;
+/**
+ * Mirror of native `dial_blend_steps`: the blend steps the compiler writes for a curve without an authored count.
+ * Provisional (one seed, two settings on 2026-11-16: 2 of 6 and 8 of 25 steps acted, 2 of 25 did not).
+ */
+export const dialBlendSteps=(steps:number)=>Math.min(Math.max(1,steps),Math.max(2,Math.floor((2*steps+3)/6)));
 /** Slider reach of the dock strip; the number field beside it accepts the full ±DIAL_LEVEL. */
 export const DIAL_SLIDER=3;
 export const DIAL_STEP=0.05;
@@ -38,9 +45,10 @@ export const dialLabel=(dial:string)=>dialName(dial).split('/').at(-1)!.replace(
 
 export function isDialCurve(v:unknown):v is H3DialCurve {
  const c=v as H3DialCurve;
- if(!c||typeof c!=='object'||Array.isArray(c)||!keysIn(c,['type','points','unit','interp','smooth'])||c.type!=='keys'||c.unit!=='seconds')return false;
+ if(!c||typeof c!=='object'||Array.isArray(c)||!keysIn(c,['type','points','unit','interp','smooth','steps'])||c.type!=='keys'||c.unit!=='seconds')return false;
  if(c.interp!==undefined&&c.interp!=='linear'&&c.interp!=='step')return false;
  if(c.smooth!==undefined&&!inRange(c.smooth,0,1))return false;
+ if(c.steps!==undefined&&!(Number.isInteger(c.steps)&&inRange(c.steps,1,DIAL_BLEND_STEPS)))return false;
  const p=c.points;
  if(!Array.isArray(p)||p.length<1||p.length>DIAL_POINTS)return false;
  return p.every((q,i)=>Array.isArray(q)&&q.length===2&&inRange(q[0],-DIAL_SECONDS,DIAL_SECONDS)&&inRange(q[1],-DIAL_LEVEL,DIAL_LEVEL)&&(i===0||p[i-1][0]<q[0]));
@@ -75,6 +83,44 @@ export type DialGate=''|'h3VideoOnly'|'nodeMissing'|'gguf';
 /** Why rows cannot run here (first match), mirroring the compiler's refusals for rows without a time curve; '' = usable. */
 export function dialGate(p:{h3Video:boolean;nodes?:readonly string[];gguf:boolean}):DialGate {
  return !p.h3Video?'h3VideoOnly':p.nodes&&!p.nodes.includes(dialRackNode)?'nodeMissing':p.gguf?'gguf':'';
+}
+
+/** Why a time curve cannot run, in the order native `validate_dials` checks; the last two are found by the prerequisite check and by `validate_dial_row`. */
+export const dialCurveConflictIds=['blendSteps','transition','faceRefine','tiledUpscale','deropeContinued','importedVideo','sourceFrames','shift','holdMapMissing','curveLimits'] as const;
+export type DialCurveConflict=typeof dialCurveConflictIds[number];
+/**
+ * What the next job is, as far as time curves care. `continued` = the segment pins a source (`h3.continuity.sourceId`); `windowStart` = seconds at
+ * which its sampled window starts in the piece: a number when known, null when the pinned clip's frame count is known to be missing, undefined
+ * while unknown (Studio does not hold the session list before Run, so native reports that case when the job is prepared).
+ */
+export interface DialCurveFacts { rows:readonly DialRow[]; steps:number; transition?:boolean; faceRefine?:boolean; tiledUpscale?:boolean; derope?:boolean; continued?:boolean; importedVideo?:boolean; windowStart?:number|null; nodes?:readonly string[] }
+/**
+ * Every reason the compiler would refuse the active rows' time curves, mirroring native `validate_dials` (which stays authoritative and reports
+ * only the first). Empty without an active curve: rows without one are a plain model patch and run everywhere.
+ */
+export function dialCurveConflicts(f:DialCurveFacts):DialCurveConflict[] {
+ const curves=activeDials(f.rows).flatMap(r=>r.time?[r.time]:[]);
+ if(!curves.length)return [];
+ const out:DialCurveConflict[]=[];
+ if(curves.some(c=>c.steps!==undefined&&c.steps>f.steps))out.push('blendSteps');
+ if(f.transition)out.push('transition');
+ if(f.faceRefine)out.push('faceRefine');
+ if(f.tiledUpscale)out.push('tiledUpscale');
+ if(f.continued){
+  if(f.derope)out.push('deropeContinued');
+  if(f.importedVideo)out.push('importedVideo');
+  else if(f.windowStart===null)out.push('sourceFrames');
+  else if(typeof f.windowStart==='number'&&curves.some(c=>c.points.some((q,i)=>i>0&&c.points[i-1][0]-f.windowStart!>=q[0]-f.windowStart!)))out.push('shift');
+ }
+ if(f.derope&&f.nodes&&!f.nodes.includes(dialHoldMapNode))out.push('holdMapMissing');
+ if(curves.some(c=>!isDialCurve(c)))out.push('curveLimits');
+ return out;
+}
+/** The facts of a built intent, for callers that hold one (the join's transition jobs). The window start is left unknown: native adds the pinned clip's frame count when it prepares the job. */
+export function dialIntentFacts(i:VideoIntentV1,nodes?:readonly string[]):DialCurveFacts {
+ const h3=i.family==='minimax-h3'?i:undefined,c=h3?.h3.continuity;
+ return {rows:h3?.dials??[],steps:i.steps,transition:!!h3?.h3.transition,faceRefine:!!i.faceRefine,tiledUpscale:!!h3?.latentUpscale&&!h3.latentUpscale.regenerate,derope:!!i.videoPost?.derope,
+  continued:!!c?.sourceId,importedVideo:c?.sourceKind==='video',...(nodes?{nodes}:{})};
 }
 
 /**
