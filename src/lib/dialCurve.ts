@@ -144,18 +144,18 @@ export const flatCurve=(seconds:number):H3DialCurve=>({type:'keys',points:[[0,1]
 export const dialCurveText=(curve:H3DialCurve)=>JSON.stringify(curve);
 /**
  * Pasted text → a curve this version sends, or null. Accepts a `time` object of type `keys` (the pack's default unit is clip fractions, so a
- * missing or `normalized` unit is converted with the lane's seconds) or a bare `[[seconds, level], …]` list. Audio-driven curves and
- * the pack's `audio` mode are not carried.
+ * missing or `normalized` unit is converted with the lane's seconds) or a bare `[[seconds, level], …]` list. The curve's audio mode
+ * `protect` is kept (`follow` is the default and is not written); audio-driven curves are not carried.
  */
 export function parseDialCurveText(text:string,seconds:number):H3DialCurve|null {
  let v:unknown;
  try{v=JSON.parse(text);}catch{return null;}
- const spec=(Array.isArray(v)?{type:'keys',unit:'seconds',points:v}:v) as {type?:unknown;unit?:unknown;points?:unknown;interp?:unknown;smooth?:unknown;steps?:unknown}|null;
+ const spec=(Array.isArray(v)?{type:'keys',unit:'seconds',points:v}:v) as {type?:unknown;unit?:unknown;points?:unknown;interp?:unknown;smooth?:unknown;steps?:unknown;audio?:unknown}|null;
  if(!spec||typeof spec!=='object'||spec.type!=='keys'||!Array.isArray(spec.points))return null;
  const scale=spec.unit==='seconds'?1:spec.unit===undefined||spec.unit==='normalized'?seconds:NaN;
  if(!spec.points.every(q=>Array.isArray(q)&&q.length===2&&typeof q[0]==='number'&&typeof q[1]==='number'))return null;
  const curve={type:'keys',points:(spec.points as [number,number][]).map(([t,m])=>[scale===1?t:r4(t*scale),m]),unit:'seconds',
-  ...(spec.interp===undefined?{}:{interp:spec.interp}),...(spec.smooth===undefined||spec.smooth===0?{}:{smooth:spec.smooth}),...(spec.steps===undefined?{}:{steps:spec.steps})};
+  ...(spec.interp===undefined?{}:{interp:spec.interp}),...(spec.smooth===undefined||spec.smooth===0?{}:{smooth:spec.smooth}),...(spec.steps===undefined?{}:{steps:spec.steps}),...(spec.audio===undefined||spec.audio==='follow'?{}:{audio:spec.audio})};
  return isDialCurve(curve)?curve:null;
 }
 
@@ -166,13 +166,13 @@ export type RackAction=
  |{type:'rows';rows:readonly DialRow[]}
  |{type:'load';rows:readonly DialRow[]}
  |{type:'select';row:number;point?:number}
- |{type:'addCurve';seconds:number}|{type:'removeCurve'}
+ |{type:'addCurve';seconds:number;steps?:number}|{type:'removeCurve'}
  |{type:'add';t:number;level:number;lim:CurveLimits}
  |{type:'move';point:number;t:number;level:number;lim:CurveLimits;tag?:string}
  |{type:'nudge';point:number;dt:number;dl:number;lim:CurveLimits}
  |{type:'remove';point:number}
- |{type:'set';patch:{interp?:'linear'|'step';smooth?:number;steps?:number|null};tag?:string}
- |{type:'preset';name:DialPreset;seconds:number}
+ |{type:'set';patch:{interp?:'linear'|'step';smooth?:number;steps?:number|null;audio?:'follow'|'protect'};tag?:string}
+ |{type:'preset';name:DialPreset;seconds:number;steps?:number}
  |{type:'paste';curve:H3DialCurve}
  |{type:'undo'}|{type:'redo'};
 const HISTORY=100;
@@ -208,7 +208,8 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
   // A loaded preset replaces the rack: always its own undo step, selection on the first lane.
   case 'load':return isDialRows(a.rows)?settle(commit({...s,tag:''},a.rows,'',{row:a.rows.length?0:-1,point:-1})):s;
   case 'select':return s.rows[a.row]?settle({...s,row:a.row,point:a.point??-1,tag:''}):s;
-  case 'addCurve':return curve||!s.rows[s.row]?s:commit(s,withCurve(s,flatCurve(a.seconds)),'',{point:-1});
+  // `steps`: the blend steps the dial file records for the pipeline in use, authored into the new curve.
+  case 'addCurve':return curve||!s.rows[s.row]?s:commit(s,withCurve(s,{...flatCurve(a.seconds),...(a.steps?{steps:a.steps}:{})}),'',{point:-1});
   case 'removeCurve':return curve?commit(s,withCurve(s,undefined),'',{point:-1}):s;
   case 'add':{
    const added=curve&&addPoint(curve,a.t,a.level,a.lim);
@@ -230,9 +231,11 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
    if(a.patch.interp)next.interp=a.patch.interp;
    if(a.patch.smooth!==undefined){if(a.patch.smooth>0)next.smooth=clamp(a.patch.smooth,0,1);else delete next.smooth;}
    if(a.patch.steps===null)delete next.steps;else if(a.patch.steps!==undefined)next.steps=a.patch.steps;
+   // `follow` is the node's default: it is not written, so a curve that never had a mode stays as it was.
+   if(a.patch.audio==='protect')next.audio='protect';else if(a.patch.audio==='follow')delete next.audio;
    return isDialCurve(next)?commit(s,withCurve(s,next),a.tag??''):s;
   }
-  case 'preset':return s.rows[s.row]?commit(s,withCurve(s,curve?{...curve,points:dialPresetPoints(a.name,a.seconds),interp:'linear'}:{type:'keys',points:dialPresetPoints(a.name,a.seconds),unit:'seconds',interp:'linear'}),'',{point:-1}):s;
+  case 'preset':return s.rows[s.row]?commit(s,withCurve(s,curve?{...curve,points:dialPresetPoints(a.name,a.seconds),interp:'linear'}:{type:'keys',points:dialPresetPoints(a.name,a.seconds),unit:'seconds',interp:'linear',...(a.steps?{steps:a.steps}:{})}),'',{point:-1}):s;
   case 'paste':return s.rows[s.row]&&isDialCurve(a.curve)?commit(s,withCurve(s,a.curve),'',{point:-1}):s;
   case 'undo':return s.past.length?settle({...s,rows:s.past.at(-1)!,past:s.past.slice(0,-1),future:[...s.future,s.rows],tag:'',point:-1}):s;
   case 'redo':return s.future.length?settle({...s,rows:s.future.at(-1)!,future:s.future.slice(0,-1),past:[...s.past,s.rows],tag:'',point:-1}):s;

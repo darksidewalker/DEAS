@@ -129,7 +129,11 @@ test('a curve copies as the rack row\'s time object and pastes from the pack\'s 
   // A bare list is seconds; the pack's default unit is clip fractions, converted with the lane length.
   expect(parseDialCurveText('[[0,0],[2,1]]', 4)).toEqual(keys([[0, 0], [2, 1]]));
   expect(parseDialCurveText('{"type":"keys","points":[[0,0],[0.4,1],[1,0.5]]}', 5)).toEqual(keys([[0, 0], [2, 1], [5, 0.5]]));
-  expect(parseDialCurveText('{"type":"keys","points":[[0,0],[0.5,1]],"unit":"normalized","interp":"linear","smooth":0,"steps":2,"audio":"protect"}', 107 / 24)).toEqual(keys([[0, 0], [2.2292, 1]], { interp: 'linear', steps: 2 }));
+  expect(parseDialCurveText('{"type":"keys","points":[[0,0],[0.5,1]],"unit":"normalized","interp":"linear","smooth":0,"steps":2,"audio":"protect"}', 107 / 24)).toEqual(keys([[0, 0], [2.2292, 1]], { interp: 'linear', steps: 2, audio: 'protect' }));
+  // `follow` is the node's default and is not written; a mode the node does not know is not pasted.
+  expect(parseDialCurveText('{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","audio":"follow"}', 4)).toEqual(keys([[0, 0], [1, 1]]));
+  expect(parseDialCurveText('{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","audio":"mute"}', 4)).toBeNull();
+  expect(dialCurveText(keys([[0, 0], [1, 1]], { audio: 'protect' }))).toBe('{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","audio":"protect"}');
   for (const bad of ['', 'x', 'null', '5', '{}', '[]', '[[0,0],[0,1]]', '[[1,0],[0,1]]', '[[0,"1"]]', '[[0,0,0]]', '{"type":"audio","feature":"onset"}', '{"type":"keys","points":[[0,0],[1,1]],"unit":"frames"}',
     '{"type":"keys","points":[[0,0],[1,99]],"unit":"seconds"}', '{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","interp":"cubic"}', '{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","steps":0}',
     '{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","smooth":2}', JSON.stringify(Array.from({ length: 65 }, (_, n) => [n, 0]))]) expect(parseDialCurveText(bad, 4), bad).toBeNull();
@@ -231,7 +235,7 @@ const refusals: Record<DialCurveConflict, { facts: Partial<DialCurveFacts>; nati
   sourceFrames: { facts: { continued: true, windowStart: null }, native: 'Invalid dials: time curves on a continued segment need the pinned checkpoint clip\'s sourceFrames from the session list and a legal context window' },
   shift: { facts: { continued: true, windowStart: 1e17, rows: [{ ...curved, time: keys([[0, 0], [1, 1]]) }] }, native: 'Invalid dials: time points are too close together to shift onto the continued segment\'s window' },
   holdMapMissing: { facts: { derope: true, nodes: [dialRackNode] }, native: 'MAIDialHoldMap' },
-  curveLimits: { facts: { rows: [{ ...curved, time: { ...curved.time!, smooth: 2 } }] }, native: 'Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?}' },
+  curveLimits: { facts: { rows: [{ ...curved, time: { ...curved.time!, smooth: 2 } }] }, native: 'Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?, audio? follow|protect}' },
 };
 test.each(dialCurveConflictIds)('time-curve refusal %s is found before Run and matches the native validator', id => {
   const base: DialCurveFacts = { rows: [{ dial: motion, strength: 1.5 }, curved], steps: 6, nodes: [dialRackNode, dialHoldMapNode] };
@@ -261,4 +265,30 @@ test('refusals are listed in the order native checks them, and facts are read fr
   const plain = { recipeId: 'video-generation', version: 1, family: 'minimax-h3', steps: 6, latentUpscale: { model: 'm', regenerate: { lora: 'l', target: '2K' } }, h3: { mode: 'T2VA', references: [], continuity: { session: 's', sourceId: '', capture: true, action: '', outputMode: 'full' } } } as unknown as VideoIntentV1;
   expect(dialIntentFacts(plain)).toEqual({ rows: [], steps: 6, transition: false, faceRefine: false, tiledUpscale: false, derope: false, continued: false, importedVideo: false });
   expect(dialIntentFacts({ ...plain, family: 'ltx-2' } as unknown as VideoIntentV1).rows).toEqual([]);
+});
+
+test('a new curve is authored with the dial file\'s blend steps when given, and the audio mode is written only as protect', () => {
+  const start = rackState([{ dial: 'dials/a.safetensors', strength: 2, on: true }, { dial: 'dials/b.safetensors', strength: 1, on: true }]);
+  // Without the file's value the curve is what it was before: DEAS's default applies at compile time.
+  expect(rackReduce(start, { type: 'addCurve', seconds: 4 }).rows[0].time).toEqual({ type: 'keys', points: [[0, 1], [4, 1]], unit: 'seconds' });
+  const added = rackReduce(start, { type: 'addCurve', seconds: 4, steps: 6 });
+  expect(added.rows[0].time).toEqual({ type: 'keys', points: [[0, 1], [4, 1]], unit: 'seconds', steps: 6 });
+  // A preset on a constant row starts a curve the same way; on an existing curve it keeps what is authored.
+  expect(rackReduce(start, { type: 'preset', name: 'rampIn', seconds: 4, steps: 6 }).rows[0].time).toEqual({ type: 'keys', points: [[0, 0], [1.5, 1]], unit: 'seconds', interp: 'linear', steps: 6 });
+  const cleared = rackReduce(added, { type: 'set', patch: { steps: null } });
+  expect(rackReduce(cleared, { type: 'preset', name: 'rampIn', seconds: 4, steps: 6 }).rows[0].time!.steps).toBeUndefined();
+  expect(rackReduce(rackReduce(added, { type: 'set', patch: { steps: 3 } }), { type: 'preset', name: 'dip', seconds: 4, steps: 6 }).rows[0].time!.steps).toBe(3);
+
+  const protectedCurve = rackReduce(added, { type: 'set', patch: { audio: 'protect' } });
+  expect(protectedCurve.rows[0].time).toEqual({ type: 'keys', points: [[0, 1], [4, 1]], unit: 'seconds', steps: 6, audio: 'protect' });
+  expect(protectedCurve.past).toHaveLength(2);
+  // Follow is the node's default: the key goes away, so the row is byte for byte the one before the mode was set.
+  const followed = rackReduce(protectedCurve, { type: 'set', patch: { audio: 'follow' } });
+  expect(JSON.stringify(followed.rows)).toBe(JSON.stringify(added.rows));
+  expect(rackReduce(added, { type: 'set', patch: { audio: 'follow' } })).toBe(added);
+  expect(rackReduce(protectedCurve, { type: 'undo' }).rows).toEqual(added.rows);
+  // A row without a curve has no audio mode to set.
+  const other = rackReduce(start, { type: 'select', row: 1 });
+  expect(rackReduce(other, { type: 'set', patch: { audio: 'protect' } })).toBe(other);
+  expect(isDialRows(protectedCurve.rows)).toBe(true);
 });

@@ -95,11 +95,21 @@ test('solo becomes switching the other rows off, as the pack runs only the solo 
   expect(held.report.map(r => [r.leftOut, r.changed])).toEqual([[['hold'], []], [[], ['soloOff']]]);
 });
 
-test('the audio mode of a keys curve is reported when it is not the default', () => {
+test('the audio mode of a keys curve is kept through load and save: protect as it is, follow as no key', () => {
   const time = { type: 'keys', points: [[0, 0], [1, 1]], unit: 'seconds', audio: 'protect' };
-  const c = fromPresetRows([pack({ dial: motion, strength: 1, time })], 4);
-  expect(c.rows[0].time).toEqual({ type: 'keys', points: [[0, 0], [1, 1]], unit: 'seconds' });
-  expect(c.report[0].changed).toEqual(['audioMode']);
+  const c = fromPresetRows([pack({ dial: motion, strength: 1, time }), pack({ dial: cold, strength: 1, time: { ...time, audio: 'follow' } }),
+    pack({ dial: 'dials/fractions.safetensors', strength: 1, time: { type: 'keys', points: [[0, 0], [0.5, 1]], audio: 'protect' } })], 4);
+  expect(c.rows.map(r => r.time)).toEqual([{ type: 'keys', points: [[0, 0], [1, 1]], unit: 'seconds', audio: 'protect' }, { type: 'keys', points: [[0, 0], [1, 1]], unit: 'seconds' },
+    { type: 'keys', points: [[0, 0], [2, 1]], unit: 'seconds', audio: 'protect' }]);
+  // Nothing was changed, so nothing is noted (the fraction conversion aside).
+  expect(c.report.map(r => [r.leftOut, r.changed])).toEqual([[[], []], [[], []], [[], ['fractions']]]);
+  expect(isDialRows(c.rows)).toBe(true);
+  // What is saved is the row as it runs: the mode goes back to the pack.
+  expect(toPresetRows(c.rows).map(r => r.time?.audio)).toEqual(['protect', undefined, 'protect']);
+  // A mode the node does not know is not loaded as something else.
+  const bad = fromPresetRows([pack({ dial: motion, strength: 1, time: { ...time, audio: 'mute' } })], 4);
+  expect(bad.rows).toEqual([]);
+  expect(bad.report[0].leftOut).toEqual(['curve']);
 });
 
 test('the pack\'s warnings stay on their rows', () => {

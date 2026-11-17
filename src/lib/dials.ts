@@ -45,9 +45,10 @@ export const dialLabel=(dial:string)=>dialName(dial).split('/').at(-1)!.replace(
 
 export function isDialCurve(v:unknown):v is H3DialCurve {
  const c=v as H3DialCurve;
- if(!c||typeof c!=='object'||Array.isArray(c)||!keysIn(c,['type','points','unit','interp','smooth','steps'])||c.type!=='keys'||c.unit!=='seconds')return false;
+ if(!c||typeof c!=='object'||Array.isArray(c)||!keysIn(c,['type','points','unit','interp','smooth','steps','audio'])||c.type!=='keys'||c.unit!=='seconds')return false;
  if(c.interp!==undefined&&c.interp!=='linear'&&c.interp!=='step')return false;
  if(c.smooth!==undefined&&!inRange(c.smooth,0,1))return false;
+ if(c.audio!==undefined&&c.audio!=='follow'&&c.audio!=='protect')return false;
  if(c.steps!==undefined&&!(Number.isInteger(c.steps)&&inRange(c.steps,1,DIAL_BLEND_STEPS)))return false;
  const p=c.points;
  if(!Array.isArray(p)||p.length<1||p.length>DIAL_POINTS)return false;

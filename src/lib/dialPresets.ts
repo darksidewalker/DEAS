@@ -14,8 +14,8 @@ export const isDialPresetName=(name:string)=>/^[A-Za-z0-9_-]{1,80}$/.test(name);
 
 /** Why a preset row is not loaded. */
 export type PresetLeftOut='wired'|'hold'|'envelope'|'blocks'|'audioCurve'|'dial'|'strength'|'curve'|'tooMany';
-/** What changed on a row that is loaded. `fractions`: curve times were clip fractions; `audioMode`: the curve's audio mode "protect" is not sent; `solo`/`soloOff`: solo became switching the other rows off. */
-export type PresetChanged='fractions'|'audioMode'|'solo'|'soloOff';
+/** What changed on a row that is loaded. `fractions`: curve times were clip fractions; `solo`/`soloOff`: solo became switching the other rows off. */
+export type PresetChanged='fractions'|'solo'|'soloOff';
 /** The pack's own load warnings: the dial file is not on the backend, or its tensors changed since the preset was saved. */
 export type PresetWarning='missing'|'changed';
 export interface PresetRowReport { index:number; dial:string; strength:number|null; on:boolean; curve:boolean; leftOut:PresetLeftOut[]; changed:PresetChanged[]; warnings:PresetWarning[] }
@@ -25,12 +25,14 @@ const r4=(v:number)=>Math.round(v*1e4)/1e4;
 const isObject=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 
 /** A pack `time` object of type `keys` as a DEAS curve in whole-piece seconds; `unit` absent or `normalized` means clip fractions, scaled by `seconds`. */
-function presetCurve(time:Record<string,unknown>,seconds:number):{curve?:H3DialCurve;fractions:boolean;audioMode:boolean} {
- const fractions=time.unit===undefined||time.unit==='normalized',audioMode=time.audio!==undefined&&time.audio!=='follow';
- if(!Array.isArray(time.points)||(!fractions&&time.unit!=='seconds')||!time.points.every(q=>Array.isArray(q)&&q.length===2&&typeof q[0]==='number'&&typeof q[1]==='number'))return {fractions,audioMode};
+function presetCurve(time:Record<string,unknown>,seconds:number):{curve?:H3DialCurve;fractions:boolean} {
+ const fractions=time.unit===undefined||time.unit==='normalized';
+ if(!Array.isArray(time.points)||(!fractions&&time.unit!=='seconds')||!time.points.every(q=>Array.isArray(q)&&q.length===2&&typeof q[0]==='number'&&typeof q[1]==='number'))return {fractions};
  const curve={type:'keys',points:(time.points as [number,number][]).map(([t,level])=>[fractions?r4(t*seconds):t,level]),unit:'seconds',
-  ...(time.interp===undefined?{}:{interp:time.interp}),...(time.smooth===undefined||time.smooth===0?{}:{smooth:time.smooth}),...(time.steps===undefined?{}:{steps:time.steps})};
- return {curve:isDialCurve(curve)?curve:undefined,fractions,audioMode};
+  ...(time.interp===undefined?{}:{interp:time.interp}),...(time.smooth===undefined||time.smooth===0?{}:{smooth:time.smooth}),...(time.steps===undefined?{}:{steps:time.steps}),
+  // The curve's audio mode is kept: `protect` as it is, `follow` (the node's default) as no key. Any other value fails the curve check.
+  ...(time.audio===undefined||time.audio==='follow'?{}:{audio:time.audio})};
+ return {curve:isDialCurve(curve)?curve:undefined,fractions};
 }
 
 /**
@@ -60,7 +62,7 @@ export function fromPresetRows(rows:readonly unknown[],seconds:number,warnings:r
    const c=presetCurve(time??{},seconds);
    curve=c.curve;
    if(!curve)leftOut.push('curve');
-   else{if(c.fractions)changed.push('fractions');if(c.audioMode)changed.push('audioMode');}
+   else if(c.fractions)changed.push('fractions');
   }
   let on=r.on!==false;
   if(soloed){if(r.solo===true)changed.push('solo');else if(on){on=false;changed.push('soloOff');}}
@@ -73,7 +75,7 @@ export function fromPresetRows(rows:readonly unknown[],seconds:number,warnings:r
  return {rows:out,report};
 }
 
-/** Rack rows as the pack's routes take them: only what DEAS sends (`dial`, `strength`, `on`, and a keys curve in seconds). No `sha256`: the pack computes it from the dial file when it saves. */
+/** Rack rows as the pack's routes take them: only what DEAS sends (`dial`, `strength`, `on`, and a keys curve in seconds with its audio mode when it is `protect`). No `sha256`: the pack computes it from the dial file when it saves. */
 export function toPresetRows(rows:readonly DialRow[]):DialRow[] {
  return rows.map(r=>({dial:dialName(r.dial),strength:r.strength,on:r.on!==false,...(r.time?{time:{...r.time,unit:'seconds' as const}}:{})}));
 }
