@@ -2007,8 +2007,8 @@ async fn dials_prepare_refuses_a_pinned_clip_whose_frame_count_changed() {
             .await
             .unwrap_err();
         match case {
-            "changed" => assert_eq!(error, "Invalid dials: the pinned clip has 243 frames in the session list, but the time curves were laid out for 73; load the Continuity sources again and check the curves"),
-            "gone" => assert_eq!(error, "Invalid dials: the pinned clip's frame count (73 when the time curves were laid out) could not be read from the session list; load the Continuity sources again"),
+            "changed" => assert_eq!(error, "Invalid dials: the pinned clip has 243 frames in the session list, but the time curves were laid out for 73; press Load checkpoints in the Continuity dialog and check the curves"),
+            "gone" => assert_eq!(error, "Invalid dials: the pinned clip's frame count (73 when the time curves were laid out) could not be read from the session list; press Load checkpoints in the Continuity dialog"),
             // The count agrees: the job compiles and reaches the prerequisite check (this fixture backend lists nothing).
             _ => assert!(error.starts_with("Diagnostic ") && error.contains(" are not available on this backend"), "{error}"),
         }

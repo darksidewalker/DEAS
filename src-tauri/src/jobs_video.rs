@@ -797,8 +797,8 @@ pub(crate) fn confirm_source_frames(i: &mut Value, found: Option<u64>) -> Result
     if let Some(carried) = carried.filter(|_| dial_curves(i)) {
         match found {
             Some(frames) if carried.as_u64() == Some(frames) => {}
-            Some(frames) => return Err(format!("Invalid dials: the pinned clip has {frames} frames in the session list, but the time curves were laid out for {carried}; load the Continuity sources again and check the curves")),
-            None => return Err(format!("Invalid dials: the pinned clip's frame count ({carried} when the time curves were laid out) could not be read from the session list; load the Continuity sources again")),
+            Some(frames) => return Err(format!("Invalid dials: the pinned clip has {frames} frames in the session list, but the time curves were laid out for {carried}; press Load checkpoints in the Continuity dialog and check the curves")),
+            None => return Err(format!("Invalid dials: the pinned clip's frame count ({carried} when the time curves were laid out) could not be read from the session list; press Load checkpoints in the Continuity dialog")),
         }
     }
     if let Some(frames) = found {
