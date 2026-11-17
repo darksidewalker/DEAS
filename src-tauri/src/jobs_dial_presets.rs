@@ -100,15 +100,23 @@ fn fail(op: &str, name: Option<&str>, cause: Failure, detail: &str) -> String {
     format!("{}: {detail}", cause.code())
 }
 
-/// One request to the pack's route. `Ok((status, json))`: `json` is `None` when the body is not
-/// JSON (a backend without the route answers 404 with plain text).
-async fn fetch(
+/// Why a request to the pack's routes gave no answer to read.
+pub(super) enum NoAnswer {
+    Transport,
+    /// The body is larger than `RESPONSE_LIMIT`; nothing of it is kept.
+    TooLarge,
+}
+
+/// One request to the pack's routes (rack presets here, the dial catalog in `jobs_dial_info.rs`).
+/// `Ok((status, json))`: `json` is `None` when the body is not JSON (a backend without the route
+/// answers 404 with plain text).
+pub(super) async fn fetch(
     base: &reqwest::Url,
     path: &str,
     body: Option<&Value>,
-) -> Result<(u16, Option<Value>), ()> {
-    let url = base.join(path).map_err(|_| ())?;
-    let client = client().map_err(|_| ())?;
+) -> Result<(u16, Option<Value>), NoAnswer> {
+    let url = base.join(path).map_err(|_| NoAnswer::Transport)?;
+    let client = client().map_err(|_| NoAnswer::Transport)?;
     let request = match body {
         Some(body) => client.post(url).json(body),
         None => client.get(url),
@@ -117,12 +125,12 @@ async fn fetch(
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|_| ())?;
+        .map_err(|_| NoAnswer::Transport)?;
     let status = response.status().as_u16();
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
+    while let Some(chunk) = response.chunk().await.map_err(|_| NoAnswer::Transport)? {
         if chunk.len() > RESPONSE_LIMIT - bytes.len() {
-            return Err(());
+            return Err(NoAnswer::TooLarge);
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -141,7 +149,7 @@ async fn call(
 ) -> Result<Value, String> {
     let base =
         crate::validate_base_url(base_url).map_err(|e| fail(op, name, Failure::Endpoint, &e))?;
-    let (status, value) = fetch(&base, path, body).await.map_err(|()| {
+    let (status, value) = fetch(&base, path, body).await.map_err(|_| {
         fail(
             op,
             name,

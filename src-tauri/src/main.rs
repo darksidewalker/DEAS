@@ -142,6 +142,7 @@ fn main() {
             deas::native_h3_video_prepare,
             deas::native_h3_video_upload,
             deas::native_h3_refmods,
+            deas::native_dial_catalog,
             deas::native_dial_presets,
             deas::native_dial_preset_load,
             deas::native_dial_preset_save,
