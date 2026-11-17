@@ -537,6 +537,7 @@ rows that ran.
 | A row has no side labels or ticks although others do | That dial file records none, or its info is not version 2. The row then says so or keeps the plain slider. |
 | A new curve got other blend steps than the default shown before | The dial file records blend steps for the pipeline in use, and Studio wrote them into the curve. Clear the field for DEAS's default. |
 | The presets dialog says the backend has no rack presets | The backend has no `/mainodes/dials/presets` route: the pack is not installed, is older than the routes, or the backend was not restarted. Logs has a `Dial presets` entry. |
+| The presets dialog says the backend's answer was larger than 1 MiB | The pack answered, but with more than DEAS reads (`DIAL_PRESETS_TOO_LARGE`); nothing of the answer is kept. This is not an unreachable backend. After a save, refresh the list: the pack may have written the preset before its answer was dropped. |
 | "A preset with this name already exists" | The pack never overwrites. Choose a new name, or remove the file in `models/loras/dials/presets/` on the backend. |
 | A preset row says "Not loaded" | The row uses a part of the rack this version does not send. See [Rack presets](#rack-presets). |
 | "The dial file changed since the preset was saved" | The file's tensors differ from the hash stored in the preset. The row is still loaded; the result may differ from when the preset was made. |
@@ -806,7 +807,9 @@ backend has no rack preset route", and the dialog then offers neither load nor s
   most 64 rows, 500 names); a loaded preset's rows are handed to Studio as the pack sent
   them, with the pack's warnings reduced to `{row, reason: missing | changed}`.
 - **Failures** come back as `CODE: detail` (`DIAL_PRESETS_UNAVAILABLE`,
-  `DIAL_PRESET_EXISTS`, `DIAL_PRESET_NOT_FOUND`, `DIAL_PRESET_REFUSED`, …); the dialog
+  `DIAL_PRESET_EXISTS`, `DIAL_PRESET_NOT_FOUND`, `DIAL_PRESET_REFUSED`,
+  `DIAL_PRESETS_UNREACHABLE` for a request that got no answer, `DIAL_PRESETS_TOO_LARGE`
+  for an answer above 1 MiB, …); the dialog
   shows the localized sentence for the code and, where the detail is the pack's or the
   validator's own sentence, that sentence beside it.
 - **Logging:** every failure writes one entry to the central Logs

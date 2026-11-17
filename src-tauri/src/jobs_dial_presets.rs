@@ -20,6 +20,7 @@ enum Failure {
     Name,
     Rows,
     Transport,
+    TooLarge,
     Unavailable,
     NotFound,
     Exists,
@@ -35,6 +36,7 @@ impl Failure {
             Failure::Name => "DIAL_PRESET_NAME",
             Failure::Rows => "DIAL_PRESET_ROWS",
             Failure::Transport => "DIAL_PRESETS_UNREACHABLE",
+            Failure::TooLarge => "DIAL_PRESETS_TOO_LARGE",
             Failure::Unavailable => "DIAL_PRESETS_UNAVAILABLE",
             Failure::NotFound => "DIAL_PRESET_NOT_FOUND",
             Failure::Exists => "DIAL_PRESET_EXISTS",
@@ -49,6 +51,7 @@ impl Failure {
             Failure::Name => "WARN: Dial presets {op}: invalid preset name",
             Failure::Rows => "WARN: Dial presets {op}: rows outside what DEAS sends",
             Failure::Transport => "ERROR: Dial presets {op}: backend request failed",
+            Failure::TooLarge => "WARN: Dial presets {op}: answer above the 1 MiB limit, not read",
             Failure::Unavailable => {
                 "WARN: Dial presets {op}: the backend has no rack preset route (pack not installed)"
             }
@@ -73,7 +76,7 @@ fn preset_name(name: &str) -> bool {
 /// name (validated, so it is safe to print); never the URL or the backend's text. One slot per
 /// cause: the first failure and its first repeat are immediate, further repeats once per minute.
 fn fail(op: &str, name: Option<&str>, cause: Failure, detail: &str) -> String {
-    static LAST: Mutex<[(Option<std::time::Instant>, u64); 10]> = Mutex::new([(None, 0); 10]);
+    static LAST: Mutex<[(Option<std::time::Instant>, u64); 11]> = Mutex::new([(None, 0); 11]);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     let (at, repeats) = &mut last[cause as usize];
     let recurring = at.is_some_and(|at| at.elapsed() < Duration::from_secs(60));
@@ -149,13 +152,21 @@ async fn call(
 ) -> Result<Value, String> {
     let base =
         crate::validate_base_url(base_url).map_err(|e| fail(op, name, Failure::Endpoint, &e))?;
-    let (status, value) = fetch(&base, path, body).await.map_err(|_| {
-        fail(
+    let (status, value) = fetch(&base, path, body).await.map_err(|e| match e {
+        NoAnswer::Transport => fail(
             op,
             name,
             Failure::Transport,
             "The backend did not answer the rack preset request",
-        )
+        ),
+        // The answer arrived and was dropped for its size: not an unreachable backend. A save
+        // may have been written by then, so the person is told to check the list.
+        NoAnswer::TooLarge => fail(
+            op,
+            name,
+            Failure::TooLarge,
+            "The backend's rack preset answer is larger than 1 MiB and was not read",
+        ),
     })?;
     let reason = value
         .as_ref()

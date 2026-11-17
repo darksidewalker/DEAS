@@ -95,7 +95,7 @@ export const nativeDialPresets:DialPresetStore={
  save:(baseUrl,name,rows)=>native('native_dial_preset_save',{baseUrl,name,rows}),
 };
 /** Native failure text is `CODE: detail`; the code picks the localized sentence, the detail is the backend's or the validator's own reason. */
-export const dialPresetErrorCodes=['DIAL_PRESETS_ENDPOINT','DIAL_PRESET_NAME','DIAL_PRESET_ROWS','DIAL_PRESETS_UNREACHABLE','DIAL_PRESETS_UNAVAILABLE','DIAL_PRESET_NOT_FOUND','DIAL_PRESET_EXISTS','DIAL_PRESET_REFUSED','DIAL_PRESETS_FAILED','DIAL_PRESETS_MALFORMED','DIAL_PRESETS_NATIVE'] as const;
+export const dialPresetErrorCodes=['DIAL_PRESETS_ENDPOINT','DIAL_PRESET_NAME','DIAL_PRESET_ROWS','DIAL_PRESETS_UNREACHABLE','DIAL_PRESETS_TOO_LARGE','DIAL_PRESETS_UNAVAILABLE','DIAL_PRESET_NOT_FOUND','DIAL_PRESET_EXISTS','DIAL_PRESET_REFUSED','DIAL_PRESETS_FAILED','DIAL_PRESETS_MALFORMED','DIAL_PRESETS_NATIVE'] as const;
 export type DialPresetErrorCode=typeof dialPresetErrorCodes[number];
 export function dialPresetError(error:unknown):{code:DialPresetErrorCode|'';detail:string} {
  const text=error instanceof Error?error.message:String(error),split=text.indexOf(': ');

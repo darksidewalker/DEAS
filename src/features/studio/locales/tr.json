@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "Ad geçerli değil.",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "Bu satırlar kaydedilemez.",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "Backend yanıt vermedi.",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "Backend'in yanıtı 1 MiB'den büyüktü ve okunmadı. Kaydediyorsanız, ön ayarın yazılıp yazılmadığını görmek için listeyi yenileyin.",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "Bu backend'de rack ön ayarları yok: Dial Rack düğümleri (ComfyUI-Dials veya ComfyUI-MAINodes) gerekir ve DEAS bunları henüz kurmuyor. Paketi kendiniz kurun, backend'i yeniden başlatın ve yenileyin.",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "Ön ayar artık backend'de değil.",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "Bu adda bir ön ayar zaten var. Hiçbir şeyin üzerine yazılmadı; yeni bir ad seçin.",

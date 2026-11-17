@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "名称无效。",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "这些行无法保存。",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "后端没有响应。",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "后端的响应超过 1 MiB，未被读取。如果当时正在保存，请刷新列表查看预设是否已写入。",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "此后端没有机架预设：需要 Dial Rack 节点（ComfyUI-Dials 或 ComfyUI-MAINodes），而 DEAS 目前不会安装它。请自行安装节点包，重启后端并刷新。",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "该预设已不在后端上。",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "已存在同名预设。没有覆盖任何内容；请换一个名称。",

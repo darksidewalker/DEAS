@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "名前が無効です。",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "これらの行は保存できません。",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "バックエンドが応答しませんでした。",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "バックエンドの応答が 1 MiB を超えていたため、読み込まれませんでした。保存中だった場合は、一覧を更新してプリセットが書き込まれたか確認してください。",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "このバックエンドにはラックのプリセットがありません。Dial Rack ノード（ComfyUI-Dials または ComfyUI-MAINodes）が必要ですが、DEAS はまだインストールしません。ご自身でパックをインストールし、バックエンドを再起動して更新してください。",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "このプリセットはもうバックエンドにありません。",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "この名前のプリセットは既に存在します。何も上書きされていません。別の名前を選んでください。",

@@ -166,5 +166,7 @@ test('loading into the rack is one undo step of its own, also right after a slid
 test('native failure text splits into its code and the backend\'s own reason', () => {
   expect(dialPresetError(new Error('DIAL_PRESET_EXISTS: Preset already exists. Choose a new name.'))).toEqual({ code: 'DIAL_PRESET_EXISTS', detail: 'Preset already exists. Choose a new name.' });
   expect(dialPresetError('DIAL_PRESETS_UNAVAILABLE: no route: really')).toEqual({ code: 'DIAL_PRESETS_UNAVAILABLE', detail: 'no route: really' });
+  // An oversize answer has its own code: it is not an unreachable backend.
+  expect(dialPresetError(new Error("DIAL_PRESETS_TOO_LARGE: The backend's rack preset answer is larger than 1 MiB and was not read")).code).toBe('DIAL_PRESETS_TOO_LARGE');
   expect(dialPresetError(new Error('something else: x'))).toEqual({ code: '', detail: 'something else: x' });
 });

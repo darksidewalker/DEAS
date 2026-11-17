@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "Der Name ist ungültig.",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "Diese Zeilen können nicht gespeichert werden.",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "Das Backend hat nicht geantwortet.",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "Die Antwort des Backends war größer als 1 MiB und wurde nicht gelesen. Falls du gerade gespeichert hast, aktualisiere die Liste, um zu sehen, ob das Preset geschrieben wurde.",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "Dieses Backend hat keine Rack-Presets: Sie benötigen die Dial-Rack-Nodes (ComfyUI-Dials oder ComfyUI-MAINodes), die DEAS noch nicht installiert. Installiere das Pack selbst, starte das Backend neu und aktualisiere.",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "Das Preset ist nicht mehr im Backend.",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "Ein Preset mit diesem Namen existiert bereits. Nichts wurde überschrieben; wähle einen neuen Namen.",

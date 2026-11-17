@@ -252,3 +252,44 @@ async fn dial_presets_fail_closed_with_a_reason_and_a_log_entry() {
         }
     }
 }
+
+#[tokio::test]
+async fn dial_presets_report_an_oversize_answer_as_too_large_not_unreachable() {
+    let big = format!(
+        r#"{{"preset":{{"format":"MAIDialRack preset","version":1,"rows":[]}},"warnings":[],"pad":"{}"}}"#,
+        "x".repeat(super::super::RESPONSE_LIMIT)
+    );
+    let (base, task) = crate::jobs::tests::server(move |_, _| (200, big.clone())).await;
+    let expected = "DIAL_PRESETS_TOO_LARGE: The backend's rack preset answer is larger than 1 MiB and was not read";
+    assert_eq!(
+        native_dial_presets(base.clone()).await.unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        native_dial_preset_load(base.clone(), "oversize-load".into())
+            .await
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        native_dial_preset_save(
+            base.clone(),
+            "oversize-save".into(),
+            json!([{"dial":"dials/a.safetensors","strength":1}])
+        )
+        .await
+        .unwrap_err(),
+        expected
+    );
+    task.abort();
+    let entries = logs("answer above the 1 MiB limit, not read");
+    assert!(
+        !entries.is_empty() && entries.len() <= 2,
+        "{}",
+        entries.len()
+    );
+    assert!(entries[0].text.starts_with("WARN: Dial presets "));
+    assert!(logs("preset=oversize-")
+        .iter()
+        .all(|e| !e.text.contains("backend request failed")));
+}

@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "The name is not valid.",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "These rows cannot be saved.",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "The backend did not answer.",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "The backend's answer was larger than 1 MiB and was not read. If you were saving, refresh the list to see whether the preset was written.",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "This backend has no rack presets: they need the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet. Install the pack yourself, restart the backend and refresh.",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "The preset is no longer on the backend.",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "A preset with this name already exists. Nothing was overwritten; choose a new name.",

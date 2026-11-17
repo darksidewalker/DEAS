@@ -1408,6 +1408,7 @@
   "studio.dials.presets.error.DIAL_PRESET_NAME": "Le nom n'est pas valide.",
   "studio.dials.presets.error.DIAL_PRESET_ROWS": "Ces lignes ne peuvent pas être enregistrées.",
   "studio.dials.presets.error.DIAL_PRESETS_UNREACHABLE": "Le backend n'a pas répondu.",
+  "studio.dials.presets.error.DIAL_PRESETS_TOO_LARGE": "La réponse du backend dépassait 1 Mio et n'a pas été lue. Si vous étiez en train d'enregistrer, actualisez la liste pour voir si le préréglage a été écrit.",
   "studio.dials.presets.error.DIAL_PRESETS_UNAVAILABLE": "Ce backend n'a pas de préréglages de rack : ils nécessitent les nœuds Dial Rack (ComfyUI-Dials ou ComfyUI-MAINodes), que DEAS n'installe pas encore. Installez le pack vous-même, redémarrez le backend et actualisez.",
   "studio.dials.presets.error.DIAL_PRESET_NOT_FOUND": "Le préréglage n'est plus sur le backend.",
   "studio.dials.presets.error.DIAL_PRESET_EXISTS": "Un préréglage de ce nom existe déjà. Rien n'a été écrasé ; choisissez un nouveau nom.",
