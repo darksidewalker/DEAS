@@ -398,6 +398,18 @@ test('points authored for a longer piece stay visible past the lane\'s end', () 
   expect(lane(calm).querySelector('.dial-lane-beyond')).not.toBeNull();
   expect(points().map(p => p.style.left)).toEqual(['0%', '100%']);
   expect(Array.from(document.querySelectorAll('[data-dial-second]')).map(b => b.textContent)).toEqual(['-1', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+  // Changing only the level leaves such a point where it was authored: the Level field and the up and down keys.
+  fireEvent.focus(points()[1]);
+  fireEvent.change(document.querySelector('[data-dial-point-level]')!, { target: { value: '0.4' } });
+  expect(last[0].time!.points).toEqual([[-1, 0], [10, 0.4]]);
+  fireEvent.keyDown(points()[1], { key: 'ArrowUp' });
+  expect(last[0].time!.points).toEqual([[-1, 0], [10, 0.45]]);
+  fireEvent.focus(points()[0]);
+  fireEvent.keyDown(points()[0], { key: 'ArrowUp' });
+  expect(last[0].time!.points).toEqual([[-1, 0.05], [10, 0.45]]);
+  // A time change still brings it into the lane.
+  fireEvent.keyDown(points()[1], { key: 'ArrowLeft' });
+  expect(last[0].time!.points[1]).toEqual([5, 0.45]);
 });
 
 const infoMap = parseDialCatalog(catalogFixture)!;

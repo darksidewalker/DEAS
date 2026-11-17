@@ -104,6 +104,29 @@ test('points move between their neighbours with a one-latent-frame gap, snapped 
   }
 });
 
+test('a level-only edit never moves a point in time: points outside the lane and pasted close points stay where they are', () => {
+  // Whole-piece curves, a clip shortened after authoring, a preset in seconds from a longer clip: the ends may lie outside the lane.
+  const wide = keys([[-2, 0], [1, 1], [8, 0.5]]);
+  expect(movePoint(wide, 0, -2, 0.7, lim).points).toEqual([[-2, 0.7], [1, 1], [8, 0.5]]);
+  expect(movePoint(wide, 2, 8, 0.2, lim).points).toEqual([[-2, 0], [1, 1], [8, 0.2]]);
+  // A pasted point closer than one latent frame to its neighbour keeps its time on a level change, on the grid or off it.
+  const close = keys([[1, 0], [1.05, 1], [3, 0]]);
+  expect(movePoint(close, 1, 1.05, 0.5, lim).points[1]).toEqual([1.05, 0.5]);
+  expect(movePoint(close, 0, 1, 0.5, { ...lim, snap: 0 }).points[0]).toEqual([1, 0.5]);
+  // An off-grid time is not snapped by a level change either.
+  expect(movePoint(keys([[0.123, 0], [2, 1]]), 0, 0.123, 0.4, lim).points[0]).toEqual([0.123, 0.4]);
+  // The same through the reducer: the Level field, and the up/down keys.
+  const start = rackState([{ dial: calm, strength: 1, on: true, time: wide }]);
+  expect(rackReduce(start, { type: 'move', point: 0, t: -2, level: 0.35, lim: { ...lim, snap: 0 }, tag: 'typed:level:0:0' }).rows[0].time!.points[0]).toEqual([-2, 0.35]);
+  expect(rackReduce(start, { type: 'nudge', point: 2, dt: 0, dl: 0.05, lim }).rows[0].time!.points[2]).toEqual([8, 0.55]);
+  expect(rackReduce(rackState([{ dial: calm, strength: 1, on: true, time: close }]), { type: 'nudge', point: 1, dt: 0, dl: -0.05, lim }).rows[0].time!.points[1]).toEqual([1.05, 0.95]);
+  // A time change still brings the point into the lane and one latent frame from its neighbour.
+  expect(movePoint(wide, 0, -1.9, 0, lim).points[0].map(v => v + 0)).toEqual([0, 0]);
+  expect(movePoint(wide, 2, 7.9, 0.5, lim).points[2]).toEqual([5, 0.5]);
+  expect(movePoint(close, 1, 1.06, 1, { ...lim, snap: 0 }).points[1]).toEqual([1.1667, 1]);
+  expect(rackReduce(start, { type: 'nudge', point: 0, dt: 0.1, dl: 0, lim }).rows[0].time!.points[0].map(v => v + 0)).toEqual([0, 0]);
+});
+
 test('points are added where there is room and a curve keeps at least two', () => {
   const c = keys([[0, 0], [1.5, 1], [4, 0.5]]);
   expect(addPoint(c, 2.52, 0.33, lim)).toEqual({ curve: keys([[0, 0], [1.5, 1], [2.5, 0.35], [4, 0.5]]), index: 2 });

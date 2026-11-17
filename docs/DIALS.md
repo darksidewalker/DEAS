@@ -158,6 +158,12 @@ one **timeline**: a lane per row over a shared seconds axis.
   ends, levels to 0.05. Points keep one latent frame (1/6 s) apart and cannot pass each
   other, and a curve keeps at least two points. A click within 1/6 s of a point selects
   that point instead of adding one.
+  These time rules apply when a point's time is changed. **Changing only the level**
+  (the Level field, the up and down keys) leaves the time exactly as authored, so a
+  point outside the lane (a curve for the whole piece, a clip shortened after the curve
+  was made, a preset in seconds from a longer clip) or a pasted point closer than 1/6 s
+  to its neighbour stays where it is. Moving such a point in time brings it into the
+  lane and one latent frame from its neighbours.
 - **Keyboard.** Every point is a button: Tab reaches it, the arrow keys nudge it by
   0.1 s or 0.05 (Shift: ten times), Delete removes it. **Add point** puts a point in the
   middle of the widest gap, on the curve. The selected point's **Time (s)** and

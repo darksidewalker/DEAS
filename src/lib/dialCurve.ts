@@ -100,12 +100,17 @@ export function nearPoint(curve:H3DialCurve,t:number):number {
  curve.points.forEach((q,i)=>{if(Math.abs(q[0]-t)<DIAL_GAP&&(best<0||Math.abs(q[0]-t)<Math.abs(curve.points[best][0]-t)))best=i;});
  return best;
 }
-/** Moves a point: snapped, kept between its neighbours with the minimum gap, level inside the range. Order never changes. */
+/**
+ * Moves a point: snapped, kept between its neighbours with the minimum gap, level inside the range. Order never changes.
+ * The time is touched only when a new one is asked for. A level-only edit (`t` is the point's own time: the Level field, the up and down
+ * keys) keeps it as authored, so a point outside the lane (a whole-piece curve, a clip shortened after authoring, a preset in seconds
+ * from a longer clip) or closer than one latent frame to its neighbour (a pasted curve) does not jump.
+ */
 export function movePoint(curve:H3DialCurve,index:number,t:number,level:number,lim:CurveLimits):H3DialCurve {
  const p=curve.points;
  if(!p[index])return curve;
  const [lo,hi]=room(p,index,lim);
- const time=lo>hi?p[index][0]:r4(clamp(snapTime(t,lim),lo,hi)),next=[time,levelOf(level,lim)] as const;
+ const time=t===p[index][0]||lo>hi?p[index][0]:r4(clamp(snapTime(t,lim),lo,hi)),next=[time,levelOf(level,lim)] as const;
  if(next[0]===p[index][0]&&next[1]===p[index][1])return curve;
  return {...curve,points:p.map((q,i)=>i===index?next:q)};
 }
