@@ -18,6 +18,9 @@ pub(crate) use job_outputs::validate_envelope as validate_png_envelope;
 pub use job_outputs::{native_job_export, native_job_output, OutputPreview};
 #[path = "jobs_cancel.rs"]
 mod cancel;
+#[path = "jobs_dial_presets.rs"]
+mod dial_presets;
+pub use dial_presets::{native_dial_preset_load, native_dial_preset_save, native_dial_presets};
 #[path = "jobs_history.rs"]
 mod history;
 #[path = "jobs_observer.rs"]

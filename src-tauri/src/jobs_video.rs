@@ -127,7 +127,7 @@ pub(crate) const H3_CONTINUITY_NODES: [&str; 6] = [
 /// Experimental Dial Rack (`dials/nodes.py` of the optional ComfyUI-Dials or ComfyUI-MAINodes pack;
 /// the same node ids in both): steering rows on the generation model, and the De-rope pass's hold map.
 pub(crate) const DIAL_NODES: [&str; 2] = ["MAIDialRack", "MAIDialHoldMap"];
-const DIAL_ROWS: usize = 8;
+pub(crate) const DIAL_ROWS: usize = 8;
 const DIAL_POINTS: usize = 64;
 /// Row strength and curve level bound (the pack's own dial info caps strengths at 20).
 const DIAL_LEVEL: f64 = 20.0;
@@ -561,7 +561,7 @@ fn dial_file(s: &str) -> bool {
 
 /// One rack row, mirroring the pack's `presets.py::preset_rows` and `timecurve.py::check_spec`
 /// for the subset this first version sends.
-fn validate_dial_row(r: &Value) -> Result<(), String> {
+pub(crate) fn validate_dial_row(r: &Value) -> Result<(), String> {
     let row = r
         .as_object()
         .ok_or("Invalid dials: each row is an object")?;
