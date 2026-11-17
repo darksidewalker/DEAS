@@ -1,19 +1,21 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { bundledCatalog, I18nProvider, LOCALE_STORAGE_KEY } from '../../i18n/I18nProvider';
 import { matchEntries, searchIndex } from '../../lib/search';
 import { isDialRows, type DialGate, type DialRow } from '../../lib/dials';
 import { DialStrip } from './DialStrip';
+import { parseDialCatalog, type DialInfoMap, type DialInfoState } from '../../lib/dialInfo';
+import { catalogFixture, dayNight, impact, inkWash, motionDial } from '../../lib/dialInfo.fixture';
 
 beforeEach(() => { localStorage.setItem(LOCALE_STORAGE_KEY, 'en'); });
 afterEach(() => { cleanup(); localStorage.clear(); });
 const files = ['dials/h3_day_night_hook.safetensors', 'dials/h3_motion.safetensors', 'dials/sub/h3_calm.safetensors'];
 const text = (key: string) => bundledCatalog.dictionaries.en[key];
 let last: DialRow[] = [];
-function Host({ rows = [], gate = '', listed = files, offered = files, rack }: { rows?: DialRow[]; gate?: DialGate; listed?: string[] | null; offered?: string[]; rack?: () => void }) {
+function Host({ rows = [], gate = '', listed = files, offered = files, rack, info, infoStatus, refresh }: { rows?: DialRow[]; gate?: DialGate; listed?: string[] | null; offered?: string[]; rack?: () => void; info?: DialInfoMap; infoStatus?: DialInfoState['status']; refresh?: () => void }) {
   const [value, setValue] = useState(rows);
-  return <I18nProvider><DialStrip value={value} onChange={v => { last = v; setValue(v); }} files={offered} listed={listed ?? undefined} gate={gate} seconds={4} onOpenRack={rack}/></I18nProvider>;
+  return <I18nProvider><DialStrip value={value} onChange={v => { last = v; setValue(v); }} files={offered} listed={listed ?? undefined} gate={gate} seconds={4} onOpenRack={rack} info={info} infoStatus={infoStatus} onRefreshInfo={refresh}/></I18nProvider>;
 }
 const row = (dial: string) => document.querySelector<HTMLElement>(`[data-dial-row="${dial}"]`)!;
 const add = () => document.querySelector<HTMLSelectElement>('[data-dial-add]')!;
@@ -138,16 +140,134 @@ test('the rack button appears only when a rack dialog is wired', () => {
 
 test('every dial string exists in all six locales with its placeholders, and global search finds the tab', () => {
   const keys = Object.keys(bundledCatalog.dictionaries.en).filter(k => k.startsWith('studio.dials.') || k === 'studio.run.dock.dials');
-  expect(keys.length).toBe(130);
+  expect(keys.length).toBe(162);
   const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
   for (const locale of ['de', 'fr', 'ja', 'tr', 'zh']) for (const key of keys) {
     const value = bundledCatalog.dictionaries[locale][key];
     expect(value, `${locale} ${key}`).toBeTruthy();
     expect(holes(value), `${locale} ${key}`).toBe(holes(text(key)));
-    // A unit (`{seconds} s`) reads the same in the Latin-script locales.
-    if (!['studio.dials.unavailable', 'studio.run.dock.dials', 'studio.dials.rack.length'].includes(key)) expect(value, `${locale} ${key}`).not.toBe(text(key));
+    // A unit (`{seconds} s`) reads the same in the Latin-script locales, and "Audio" is the German and French word too.
+    if (!['studio.dials.unavailable', 'studio.run.dock.dials', 'studio.dials.rack.length', 'studio.dials.rack.audio'].includes(key)) expect(value, `${locale} ${key}`).not.toBe(text(key));
   }
   const entry = searchIndex.find(e => e.label === 'studio.dials.add')!;
   expect(entry).toMatchObject({ dockTab: 'dials', target: '#studio-dock [data-dial-add]' });
   expect(matchEntries(searchIndex, 'dial rack', text)).toContain(entry);
+});
+
+const infoMap = parseDialCatalog(catalogFixture)!;
+const infoFiles = [dayNight, inkWash, impact, motionDial];
+const marksOf = (dial: string) => Array.from(row(dial).querySelectorAll<HTMLElement>('[data-dial-mark]')).map(m => [m.dataset.dialMark, m.dataset.dialMarkAt, +Number(m.style.getPropertyValue('--at')).toFixed(4)]);
+
+test('with the dial file\'s info a row shows its two side labels, marks at the useful and overcook strengths, a reach that follows them and the evidence in words', () => {
+  render(<Host info={infoMap} infoStatus="ready" offered={infoFiles} listed={infoFiles} rows={[{ dial: dayNight, strength: 1.5, on: true }, { dial: impact, strength: 4.5, on: true }, { dial: inkWash, strength: 2, on: true }, { dial: motionDial, strength: 1, on: true }]}/>);
+  // Negative label under the left end, positive under the right, each named for assistive technology.
+  const sides = (dial: string) => Array.from(row(dial).querySelectorAll<HTMLElement>('[data-dial-side]')).map(s => [s.dataset.dialSide, s.textContent, s.title]);
+  expect(sides(dayNight)).toEqual([['neg', 'bright midday', 'Negative side: bright midday'], ['pos', 'night', 'Positive side: night']]);
+  expect(sides(impact)).toEqual([['neg', 'normal shading', 'Negative side: normal shading'], ['pos', 'impact frame', 'Positive side: impact frame']]);
+  expect(sides(motionDial)).toEqual([]);
+  const slider = (dial: string) => row(dial).querySelector<HTMLInputElement>('[data-dial="slider"]')!;
+  expect([dayNight, impact, inkWash, motionDial].map(d => [slider(d).min, slider(d).max, slider(d).value])).toEqual([['-3', '3', '1.5'], ['-3', '8', '4.5'], ['-3', '3', '2'], ['-3', '3', '1']]);
+  expect(marksOf(dayNight)).toEqual([['neg-useful', '-1.5', 0.25], ['neg-overcook', '-3', 0], ['pos-useful', '1.5', 0.75], ['pos-overcook', '3', 1]]);
+  expect(marksOf(impact)).toEqual([['pos-useful', '4.5', 0.6818], ['pos-overcook', '8', 1]]);
+  expect(marksOf(inkWash)).toEqual([['pos-useful', '2', 0.8333]]);
+  expect(marksOf(motionDial)).toEqual([]);
+  expect(row(impact).querySelector<HTMLElement>('[data-dial-mark="pos-overcook"]')!.title).toBe('overcook 8 (8)');
+  // The numbers and the evidence are text, and the slider is described by it.
+  const facts = (dial: string) => row(dial).querySelector<HTMLElement>('[data-dial-facts]')!;
+  expect(facts(dayNight).textContent).toBe('+ side: useful 1.5, overcook 3 · − side: useful 1.5, overcook 3 · one seed');
+  expect(facts(impact).textContent).toBe('+ side: useful 4.5, overcook 8 · one seed');
+  expect(facts(inkWash).textContent).toBe('+ side: useful 2 · one seed');
+  expect(facts(motionDial).textContent).toBe('The dial file records no useful or overcook strength.');
+  expect(slider(dayNight).getAttribute('aria-describedby')).toBe(facts(dayNight).id);
+  expect(row(dayNight).dataset.dialInfo).toBe('known');
+  // The number field keeps the compiler's full range whatever the slider reaches.
+  const number = row(impact).querySelector<HTMLInputElement>('[data-dial="strength"]')!;
+  expect([number.min, number.max]).toEqual(['-20', '20']);
+});
+
+test('a row above its overcook strength gets a quiet warning, and the slider stays at its end', () => {
+  render(<Host info={infoMap} infoStatus="ready" offered={infoFiles} listed={infoFiles} rows={[{ dial: impact, strength: 8, on: true }, { dial: inkWash, strength: 12, on: true }]}/>);
+  expect(row(impact).querySelector('[data-dial-over]')).toBeNull();
+  fireEvent.change(row(impact).querySelector('[data-dial="strength"]')!, { target: { value: '9.5' } });
+  expect(last[0].strength).toBe(9.5);
+  expect(row(impact).querySelector('[data-dial-over]')!.textContent).toBe('Above this dial\'s overcook strength (8): the picture may break.');
+  expect(row(impact).querySelector('[data-dial-over]')!.getAttribute('role')).toBe('status');
+  expect(row(impact).querySelector<HTMLInputElement>('[data-dial="slider"]')!.value).toBe('8');
+  // The negative side has no overcook strength on record; neither has ink wash at all.
+  fireEvent.change(row(impact).querySelector('[data-dial="strength"]')!, { target: { value: '-15' } });
+  expect(row(impact).querySelector('[data-dial-over]')).toBeNull();
+  expect(row(impact).querySelector<HTMLInputElement>('[data-dial="slider"]')!.value).toBe('-3');
+  expect(row(inkWash).querySelector('[data-dial-over]')).toBeNull();
+  // Dragging the slider back inside clears it.
+  fireEvent.change(row(impact).querySelector('[data-dial="slider"]')!, { target: { value: '6' } });
+  expect(last[0].strength).toBe(6);
+  expect(row(impact).querySelector('[data-dial-over]')).toBeNull();
+});
+
+test('the description, pipeline text and notes open as a note under the row; a dial without any has no button', () => {
+  render(<Host info={infoMap} infoStatus="ready" offered={infoFiles} listed={infoFiles} rows={[{ dial: inkWash, strength: 2, on: true }, { dial: dayNight, strength: 1.5, on: true }, { dial: motionDial, strength: 1, on: true }]}/>);
+  const about = within(row(inkWash)).getByRole('button', { name: 'About h3_ink_wash' });
+  expect(about.getAttribute('aria-expanded')).toBe('false');
+  expect(about.title).toContain('Ink wash: the scene becomes a flowing black ink-wash painting');
+  expect(row(inkWash).querySelector('[data-dial-note]')).toBeNull();
+  fireEvent.click(about);
+  expect(about.getAttribute('aria-expanded')).toBe('true');
+  const note = row(inkWash).querySelector<HTMLElement>('[data-dial-note]')!;
+  expect(about.getAttribute('aria-controls')).toBe(note.id);
+  expect(Array.from(note.querySelectorAll<HTMLElement>('[data-dial-note-part]')).map(p => p.dataset.dialNotePart)).toEqual(['description', 'pipeline', 'notes']);
+  // The "k = 6" guidance is the file's own words, shown as they are.
+  expect(note.querySelector('[data-dial-note-part="pipeline"]')!.textContent).toBe('Measured with: Pika H3 Flex 6-step, time rows k = 6, audio: protect');
+  expect(note.querySelector('[data-dial-note-part="notes"]')!.textContent).toContain('2 at k = 6 follows but re-composes the landscape (k = 2 smears the look over the clip)');
+  // Day/night has a description and pipeline text but no notes.
+  fireEvent.click(within(row(dayNight)).getByRole('button', { name: 'About h3_day_night_hook' }));
+  expect(Array.from(row(dayNight).querySelectorAll<HTMLElement>('[data-dial-note-part]')).map(p => p.dataset.dialNotePart)).toEqual(['description', 'pipeline']);
+  expect(within(row(motionDial)).queryByRole('button', { name: 'About h3_motion' })).toBeNull();
+  fireEvent.click(about);
+  expect(row(inkWash).querySelector('[data-dial-note]')).toBeNull();
+  expect(row(dayNight).querySelector('[data-dial-note]')).not.toBeNull();
+});
+
+test('a new row starts at the dial\'s positive useful strength when known, else at 1', () => {
+  render(<Host info={infoMap} infoStatus="ready" offered={infoFiles} listed={infoFiles}/>);
+  for (const dial of [impact, inkWash, dayNight, motionDial]) fireEvent.change(add(), { target: { value: dial } });
+  expect(last).toEqual([{ dial: impact, strength: 4.5, on: true }, { dial: inkWash, strength: 2, on: true }, { dial: dayNight, strength: 1.5, on: true }, { dial: motionDial, strength: 1, on: true }]);
+  expect(isDialRows(last)).toBe(true);
+});
+
+test('without dial info the strip keeps its fallbacks and only says so: nothing is disabled', () => {
+  const refresh = vi.fn();
+  const view = render(<Host infoStatus="unavailable" refresh={refresh} offered={infoFiles} listed={infoFiles} rows={[{ dial: impact, strength: 4.5, on: true }]}/>);
+  const note = document.querySelector<HTMLElement>('[data-dial-info-state="unavailable"]')!;
+  expect(note.textContent).toBe('Dial info unavailable: side labels and strength marks are not shown. The rows work as before.');
+  expect(note.getAttribute('role')).toBe('status');
+  expect(document.querySelector('[data-dials]')!.getAttribute('data-dials')).toBe('ready');
+  // The fallbacks: file name, ±3, no labels, marks, facts or note, and a new row at 1.
+  const slider = row(impact).querySelector<HTMLInputElement>('[data-dial="slider"]')!;
+  expect([slider.min, slider.max, slider.value, slider.disabled, slider.getAttribute('aria-describedby')]).toEqual(['-3', '3', '3', false, null]);
+  expect(row(impact).querySelector('[data-dial-sides], [data-dial-mark], [data-dial-facts], [data-dial="about"], [data-dial-over]')).toBeNull();
+  expect(row(impact).dataset.dialInfo).toBeUndefined();
+  expect(add().disabled).toBe(false);
+  fireEvent.change(add(), { target: { value: inkWash } });
+  expect(last[1]).toEqual({ dial: inkWash, strength: 1, on: true });
+  fireEvent.change(row(impact).querySelector('[data-dial="strength"]')!, { target: { value: '9' } });
+  expect(last[0].strength).toBe(9);
+  // Reload is offered; while a read runs it is off.
+  fireEvent.click(screen.getByRole('button', { name: 'Reload dial info' }));
+  expect(refresh).toHaveBeenCalledTimes(1);
+  view.rerender(<Host infoStatus="loading" refresh={refresh} offered={infoFiles} listed={infoFiles}/>);
+  expect(screen.getByRole('button', { name: 'Reload dial info' })).toHaveProperty('disabled', true);
+  expect(document.querySelector('[data-dial-info-state]')).toBeNull();
+  // Before any read, and where no reload is wired, nothing about info is shown.
+  view.unmount();
+  render(<Host rows={[{ dial: impact, strength: 4.5, on: true }]}/>);
+  expect(document.querySelector('[data-dial-info-state], [data-dial-info-refresh]')).toBeNull();
+});
+
+test('a dial the catalog does not know keeps the fallbacks beside rows that have info', () => {
+  render(<Host info={infoMap} infoStatus="ready" rows={[{ dial: 'dials/sub/h3_calm.safetensors', strength: 5, on: true }, { dial: 'dials\\h3_impact_frame.safetensors', strength: 4.5, on: true }]}/>);
+  const calm = row('dials/sub/h3_calm.safetensors');
+  expect(calm.querySelector<HTMLInputElement>('[data-dial="slider"]')!.max).toBe('3');
+  expect(calm.querySelector('[data-dial-facts], [data-dial-mark], [data-dial-sides]')).toBeNull();
+  // A row stored with a Windows separator still finds its info.
+  expect(document.querySelectorAll<HTMLElement>('[data-dial-row]')[1].querySelector<HTMLInputElement>('[data-dial="slider"]')!.max).toBe('8');
 });

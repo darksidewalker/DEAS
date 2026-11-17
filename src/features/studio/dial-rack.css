@@ -71,3 +71,7 @@
 /* Room for the focus ring of the name field inside the panel's clipping. */
 .dial-presets-dialog .lora-selected-panel > footer { padding-inline: 6px; padding-bottom: 6px; }
 .dial-preset-status { min-height: 1em; margin: .5rem 0; font-size: .8rem; }
+/* What the selected lane's dial file says about itself: pipeline text, notes and per-pipeline measurement, beside the blend steps. */
+.dial-rack-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 10px; border-left: 2px solid var(--line-strong); color: var(--muted, #9fb0b4); font-size: .74rem; line-height: 1.4; overflow-wrap: anywhere; }
+.dial-rack-info h4 { margin: 0; color: inherit; font-size: .74rem; font-weight: 700; }
+.dial-rack-info p { margin: 0; }

@@ -55,6 +55,8 @@ import { DialStrip } from './DialStrip';
 import { DialRackDialog } from './DialRackDialog';
 import { DialPresetsDialog } from './DialPresetsDialog';
 import { dialTimeline } from '../../lib/dialCurve';
+import { dialPipelineOf } from '../../lib/dialInfo';
+import { useDialInfo } from './useDialInfo';
 import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
@@ -674,6 +676,10 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
  const dialFiles=dialCatalog(dialListed??[]);
  const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
+ // The dial files' own info (side labels, useful and overcook strengths, notes): read from the pack's catalog when the Dials tab or the rack opens
+ // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
+ const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
+ const dialPipeline=dialPipelineOf(videoModeName);
  // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it.
  const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null);
  // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
@@ -2368,7 +2374,7 @@ const promptTools=forgeContext&&<>
     </div>
    </section>}
 
-   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={dialSpan.seconds} onRead={loadChoices} conflicts={dialConflicts} rackRef={rackButton} onOpenRack={()=>setRackOpen(true)} onOpenPresets={()=>setDialPresetsOpen(true)}/></section>}
+   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={dialSpan.seconds} onRead={loadChoices} conflicts={dialConflicts} rackRef={rackButton} onOpenRack={()=>setRackOpen(true)} onOpenPresets={()=>setDialPresetsOpen(true)} info={dialInfo.map} infoStatus={dialInfo.status} onRefreshInfo={dialBlock?undefined:dialInfo.refresh}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel wb-model-browser-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
@@ -2396,7 +2402,7 @@ const promptTools=forgeContext&&<>
    </div>)}
   </div>
  </section>,forgeHost)}
- {rackOpen&&!planVisible&&<DialRackDialog value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} onRead={loadChoices} timeline={dialSpan} steps={steps} conflicts={dialConflicts} endpoint={endpoint} onClose={()=>{setRackOpen(false);rackButton.current?.focus();}}/>}
+ {rackOpen&&!planVisible&&<DialRackDialog value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} onRead={loadChoices} timeline={dialSpan} steps={steps} conflicts={dialConflicts} endpoint={endpoint} info={dialInfo.map} infoStatus={dialInfo.status} onRefreshInfo={dialBlock?undefined:dialInfo.refresh} pipeline={dialPipeline} onClose={()=>{setRackOpen(false);rackButton.current?.focus();}}/>}
  {dialPresetsOpen&&!rackOpen&&!planVisible&&<DialPresetsDialog endpoint={endpoint} rows={dialRows} seconds={dialSpan.seconds} onLoad={setDialRows} onClose={()=>setDialPresetsOpen(false)}/>}
  {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay blocker={dialTransitionBlock?t('studio.dials.conflict.transition'):undefined} captureTransition={continuityAvailable&&videoFamily&&model&&split&&naming!==null&&!dialTransitionBlock?()=>{
     const epoch=admissionEpoch.current,capturedEndpoint=endpoint,uploads=new Set<string>();

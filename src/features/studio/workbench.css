@@ -244,7 +244,21 @@
 .wb-dial-row[data-dial-state="off"] input[type="range"], .wb-dial-row[data-dial-state="off"] .wb-dial-curve { opacity: .45; }
 .wb-dial-row input[type="checkbox"] { appearance: auto; width: 1.1rem; height: 1.1rem; flex: none; border: 0; background: transparent; padding: 0; }
 .wb-dial-name { flex: 0 1 14rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.wb-dial-row input[type="range"] { flex: 1 1 8rem; min-width: 0; padding: 0; accent-color: var(--accent); }
+/* The slider with its marks, and the dial's two side labels under its ends. */
+.wb-dial-slide { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wb-dial-track { position: relative; display: flex; min-width: 0; --thumb: 16px; }
+.wb-dial-row input[type="range"] { flex: 1 1 auto; width: 100%; min-width: 0; margin: 0; padding: 0; accent-color: var(--accent); }
+/* A tick sits where the thumb's centre is at that strength: the thumb travels the track less its own width. */
+.wb-dial-mark { position: absolute; bottom: -1px; left: calc(var(--at) * 100% + (.5 - var(--at)) * var(--thumb)); width: 2px; height: 6px; margin-left: -1px; border-radius: 1px; background: var(--muted, #9fb0b4); pointer-events: none; }
+.wb-dial-mark[data-dial-mark$="overcook"] { height: 9px; background: var(--copper-hi); }
+.wb-dial-sides { display: flex; justify-content: space-between; gap: 8px; min-width: 0; color: var(--muted, #9fb0b4); font-size: .68rem; line-height: 1.25; }
+.wb-dial-sides > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-dial-sides > span[data-dial-side="pos"] { text-align: right; margin-left: auto; }
+.wb-dial-about { flex: none; width: 1.5rem; padding: .1rem 0; font-style: italic; font-family: serif; font-weight: 700; }
+.wb-dial-facts { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.wb-dial-over { display: block; color: var(--copper-hi); }
+.wb-dial-note { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px; border-left: 2px solid var(--line-strong); color: var(--muted, #9fb0b4); font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
+.wb-dial-note p { margin: 0; }
 .wb-dial-row input[type="number"] { flex: none; width: 5rem; padding: 3px 6px; font-size: .78rem; }
 .wb-dial-row small[role="alert"] { color: var(--copper-hi); }
 .wb-dial-row > button { flex: none; }
@@ -252,7 +266,8 @@
 .wb-dial-curve { flex: none; border: 1px solid var(--line); border-radius: 4px; }
 .wb-dial-curve line { stroke: var(--line-strong); stroke-width: 1; }
 .wb-dial-curve polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
-@media (max-width: 700px) { .wb-dial-name { flex: 1 1 calc(100% - 2.2rem); } .wb-dial-row input[type="range"] { flex-basis: 5rem; } .wb-dial-curve-slot:empty { display: none; } }
+/* Narrow: a row with side labels gives the slider its own line, so the labels are not cut to a few letters. */
+@media (max-width: 700px) { .wb-dial-name { flex: 1 1 calc(100% - 4.4rem); } .wb-dial-slide { flex-basis: 5rem; } .wb-dial-row[data-dial-info] .wb-dial-slide { flex-basis: 100%; } .wb-dial-curve-slot:empty { display: none; } }
 .wb-help-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 8px; margin-top: 3px; }
 .wb-help-list > span { display: contents; }
 .wb-help-list code { font-family: ui-monospace, monospace; }

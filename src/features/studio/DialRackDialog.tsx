@@ -1,11 +1,12 @@
 import { useEffect, useId, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { DIAL_BLEND_STEPS, DIAL_LEVEL, dialBlendSteps, dialLabel, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
+import { DIAL_BLEND_STEPS, DIAL_LEVEL, dialBlendSteps, dialLabel, dialName, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
 import { DIAL_LEVEL_SNAP, DIAL_SNAP, dialCurveText, dialFrameLevels, dialPresets, latentFrameStarts, nearPoint, parseDialCurveText, rackReduce, rackState, sampleDialCurve, widestGap, type CurveLimits, type DialTimeline, type RackAction, type RackState } from '../../lib/dialCurve';
 import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialStrip } from './DialStrip';
 import { DialPresetsDialog } from './DialPresetsDialog';
 import type { DialPresetStore } from '../../lib/dialPresets';
+import { dialInfoSteps, type DialInfoMap, type DialInfoState, type DialPipeline } from '../../lib/dialInfo';
 import './continuity-overlay.css';
 import './dial-rack.css';
 
@@ -30,8 +31,10 @@ function curvePath(curve:Pick<H3DialCurve,'points'|'interp'|'smooth'>,from:numbe
  * is edited (click adds a point, drag moves it, keys nudge and delete); the others are drawn dimmed. Every change goes through `rackReduce`,
  * so the strip's edits and the curve edits share one undo history while the dialog is open. `conflicts` are the compiler's time-curve refusals
  * for the next job (`dialCurveConflicts`); with one that editing cannot resolve the curve tools are disabled and only Remove curve stays.
+ * `info` is the dial files' own info and `pipeline` the pack's key for the pipeline in use: the selected lane's pipeline text and notes are shown
+ * beside the blend steps, and a new curve is authored with the blend steps the file records for that pipeline (never more than the job's steps).
  */
-export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline,steps,conflicts,onClose,endpoint,presetStore}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;onRead?:()=>void;timeline:DialTimeline;steps:number;conflicts:readonly DialCurveConflict[];onClose:()=>void;endpoint?:string;presetStore?:DialPresetStore}){
+export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline,steps,conflicts,onClose,endpoint,presetStore,info,infoStatus,onRefreshInfo,pipeline}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;onRead?:()=>void;timeline:DialTimeline;steps:number;conflicts:readonly DialCurveConflict[];onClose:()=>void;endpoint?:string;presetStore?:DialPresetStore;info?:DialInfoMap;infoStatus?:DialInfoState['status'];onRefreshInfo?:()=>void;pipeline?:DialPipeline}){
  const {t}=useI18n();
  const dialogRef=useRef<HTMLDialogElement>(null),closeRef=useRef<HTMLButtonElement>(null),plot=useRef<HTMLDivElement>(null),titleId=useId(),helpId=useId();
  const state=useRef<RackState>(rackState(value));
@@ -77,6 +80,10 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  const lim:CurveLimits={from:0,to:Math.floor(timeline.seconds*1e4)/1e4,lo,hi,edges:timeline.edges};
  const xOf=(time:number)=>(time-from)/(to-from),yOf=(level:number,a=lo,b=hi)=>(b-level)/(b-a);
  const fallback=dialBlendSteps(steps);
+ // What the selected lane's dial file says: its blend steps for the pipeline in use (as recorded, and cut to the job's steps) and its texts.
+ const about=row?info?.[dialName(row.dial)]:undefined,measured=pipeline?about?.pipelines?.[pipeline]:undefined;
+ const fileSteps=dialInfoSteps(about,pipeline,steps);
+ const fmtN=(v:number|null)=>v===null?'':fmt(v);
  const say=(key:string)=>setNote(t(key));
 
  const at=(e:{clientX:number;clientY:number})=>{
@@ -179,15 +186,15 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
    <button ref={closeRef} type="button" data-dial-rack-close onClick={dismiss}>{t('studio.close')}</button>
   </header>
   <div className="continuity-overlay-body dial-rack-body">
-   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
+   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} info={info} infoStatus={infoStatus} onRefreshInfo={onRefreshInfo} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
    <section className="dial-rack-timeline" data-dial-timeline={timeline.basis} aria-label={t('studio.dials.rack.timeline')}>
     <h3>{t('studio.dials.rack.timeline')} · {t('studio.dials.rack.length',{seconds})}</h3>
     {timeline.basis!=='clip'&&<p className="dial-rack-help" data-dial-basis={timeline.basis}>{t(`studio.dials.rack.basis.${timeline.basis}`,{seconds})}</p>}
     {!s.rows.length?<p className="dial-rack-help" data-dial-rack-empty>{t('studio.dials.rack.empty')}</p>:<>
      <div className="dial-rack-tools" role="group" aria-label={t('studio.dials.rack.tools',{name})}>
       <strong className="dial-rack-selected" title={row?.dial}>{name}</strong>
-      {curve?tool('removeCurve',()=>dispatch({type:'removeCurve'})):tool('addCurve',()=>dispatch({type:'addCurve',seconds:timeline.seconds}),{disabled:locked})}
-      {dialPresets.map(preset=><span key={preset}>{tool(`preset.${preset}`,()=>dispatch({type:'preset',name:preset,seconds:timeline.seconds}),{disabled:locked})}</span>)}
+      {curve?tool('removeCurve',()=>dispatch({type:'removeCurve'})):tool('addCurve',()=>dispatch({type:'addCurve',seconds:timeline.seconds,steps:fileSteps}),{disabled:locked})}
+      {dialPresets.map(preset=><span key={preset}>{tool(`preset.${preset}`,()=>dispatch({type:'preset',name:preset,seconds:timeline.seconds,steps:fileSteps}),{disabled:locked})}</span>)}
       {tool('addPoint',()=>{const middle=curve&&widestGap(curve,lim);if(middle==null||!dispatch({type:'add',t:middle,level:sampleDialCurve(curve!,[middle])[0],lim}))say('studio.dials.rack.noRoom');else focusPoint.current=true;},{disabled:locked||!curve})}
       {tool('copy',()=>void copy(),{disabled:!curve})}
       {tool('paste',()=>void paste(),{disabled:locked})}
@@ -201,9 +208,21 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
       <label title={t('studio.dials.rack.smoothHelp')}>{t('studio.dials.rack.smooth')}<input type="range" data-dial-smooth min={0} max={1} step={0.05} disabled={locked||curve.interp==='step'} value={curve.smooth??0} onChange={e=>dispatch({type:'set',patch:{smooth:Number(e.target.value)},tag:`smooth:${s.row}`})}/><output>{fmt(curve.smooth??0)}</output></label>
       <label title={t('studio.dials.rack.stepsHelp')}>{t('studio.dials.rack.steps')}<input type="number" data-dial-steps min={1} max={Math.min(steps,DIAL_BLEND_STEPS)} step={1} placeholder={String(fallback)} disabled={!!gate} value={shown('steps',curve.steps??'')} onChange={e=>blend(e.target.value)} onBlur={()=>setDraft(null)}/></label>
       <small data-dial-steps-default>{t(curve.steps===undefined?'studio.dials.rack.stepsDefault':'studio.dials.rack.stepsAuthored',{count:String(curve.steps??fallback),fallback:String(fallback),steps:String(steps)})}</small>
+      {fileSteps!==undefined&&<small data-dial-steps-file={fileSteps}>{t(measured!.steps!>steps?'studio.dials.rack.stepsFileCut':'studio.dials.rack.stepsFile',{value:String(measured!.steps),count:String(fileSteps),steps:String(steps),pipeline:t(`studio.dials.pipeline.${pipeline}`)})}</small>}
+      {fileSteps!==undefined&&curve.steps!==fileSteps&&<button type="button" className="wb-dock-action" data-dial-steps-use disabled={!!gate} onClick={()=>{setDraft(null);dispatch({type:'set',patch:{steps:fileSteps}});}}>{t('studio.dials.rack.stepsUse',{count:String(fileSteps)})}</button>}
+      <label title={t('studio.dials.rack.audioHelp')}>{t('studio.dials.rack.audio')}<select data-dial-audio disabled={locked} value={curve.audio??'follow'} onChange={e=>dispatch({type:'set',patch:{audio:e.target.value as 'follow'|'protect'}})}>
+       <option value="follow">{t('studio.dials.rack.audio.follow')}</option><option value="protect">{t('studio.dials.rack.audio.protect')}</option></select></label>
       <label title={t('studio.dials.rack.rangeHelp')}>{t('studio.dials.rack.lowest')}<input type="number" data-dial-range="lo" min={-DIAL_LEVEL} max={0} step={0.5} value={shown('lo',lo)} onChange={e=>bound('lo',e.target.value)} onBlur={()=>setDraft(null)}/></label>
       <label title={t('studio.dials.rack.rangeHelp')}>{t('studio.dials.rack.highest')}<input type="number" data-dial-range="hi" min={1} max={DIAL_LEVEL} step={0.5} value={shown('hi',hi)} onChange={e=>bound('hi',e.target.value)} onBlur={()=>setDraft(null)}/></label>
      </div>}
+     {about&&<section className="dial-rack-info" data-dial-rack-info={row!.dial} aria-label={t('studio.dials.rack.info.title',{name})}>
+      <h4>{t('studio.dials.rack.info.title',{name})}</h4>
+      {about.pipeline&&<p data-dial-rack-info-part="pipeline">{t('studio.dials.info.pipeline',{text:about.pipeline})}</p>}
+      {about.notes&&<p data-dial-rack-info-part="notes">{t('studio.dials.info.notes',{text:about.notes})}</p>}
+      {measured&&<p data-dial-rack-info-part="measured">{t('studio.dials.rack.info.measured',{pipeline:t(`studio.dials.pipeline.${pipeline}`)})} {[measured.useful!==null?t('studio.dials.info.useful',{value:fmtN(measured.useful)}):'',measured.overcook!==null?t('studio.dials.info.overcook',{value:fmtN(measured.overcook)}):'',measured.steps?t('studio.dials.rack.info.steps',{count:String(measured.steps)}):'',t(`studio.dials.info.evidence.${measured.evidence??'none'}`),measured.notes].filter(Boolean).join(' · ')}</p>}
+      {about.description&&<p data-dial-rack-info-part="description">{about.description}</p>}
+      {!about.pipeline&&!about.notes&&!measured&&!about.description&&<p data-dial-rack-info-part="none">{t('studio.dials.rack.info.none')}</p>}
+     </section>}
      <div className="dial-lanes" role="list" aria-label={t('studio.dials.rack.lanes')}>
       {s.rows.map((r,i)=>{
        const active=i===s.row,label=dialLabel(r.dial),c=r.time,own=c?.points.map(q=>q[1])??[];
@@ -245,6 +264,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
     <p className="dial-rack-help" id={helpId}>{t('studio.dials.rack.help.keys')}</p>
     <p className="dial-rack-help" data-dial-help="resolution">{t('studio.dials.rack.help.resolution')}</p>
     <p className="dial-rack-help dial-rack-warning" data-dial-help="scene">{t('studio.dials.rack.help.scene')}</p>
+    <p className="dial-rack-help" data-dial-help="findings">{t('studio.dials.rack.help.findings')}</p>
     <p className="dial-rack-help" data-dial-help="range">{t('studio.dials.rack.help.range')}</p>
    </section>
   </div>

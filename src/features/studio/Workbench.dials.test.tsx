@@ -264,3 +264,107 @@ test('join transitions are not offered while a row with a time curve is on, and 
  expect(within(dialog).queryByText(reason,{exact:false})).toBeNull();
  expect(dialog.querySelector('[data-cont-join-transitions]')).not.toBeNull();
 });
+
+// What `native_dial_catalog` hands Studio for the two dial files of these tests (shape of the pack's catalog; the per-pipeline steps are a schema example).
+const look='dials/h3_look.safetensors';
+const dialCatalog={dials:[
+ {dial:motion,family:'MiniMax H3',mode:'pre',info:{version:2,description:'More or less movement.',negative:'still',positive:'lively',pipeline:'6-step, time rows k = 6',notes:'On a curve it needs the blend on every step.',neg:{useful:1.5,overcook:null},pos:{useful:1.5,overcook:2.25},evidence:'one-seed',
+  pipelines:{t2v:{useful:1.5,overcook:2.25,steps:6,evidence:'one-seed',notes:''}}}},
+ {dial:look,family:'MiniMax H3',mode:'post',info:{version:2,description:'',negative:'plain',positive:'inked',pipeline:'',notes:'',neg:{useful:null,overcook:null},pos:{useful:4.5,overcook:8},evidence:'multi-seed'}},
+],dropped:0,truncated:false};
+const other={path:'/env/input',parent:'/env',entries:[],truncated:false};
+const catalogCalls=()=>vi.mocked(invoke).mock.calls.filter(c=>c[0]==='native_dial_catalog');
+async function mountTab(rows:DialRow[],o:Parameters<typeof mount>[1]={}){
+ const view=await mount(rows,{loras:[motion,calm,look,'style.safetensors'],...o});
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ return view;
+}
+
+test('opening the Dials tab reads the dial catalog once; side labels, marks, a new row\'s strength, a new curve\'s blend steps and the audio mode reach what Run sends',async()=>{
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?dialCatalog:other);
+ await mountTab([{dial:motion,strength:1.5,on:true}]);
+ // Not before the tab is open.
+ expect(catalogCalls()).toHaveLength(0);
+ dock('Dials');
+ await waitFor(()=>expect(row(motion).dataset.dialInfo).toBe('known'));
+ expect(catalogCalls()).toEqual([['native_dial_catalog',{baseUrl:evidence.baseUrl}]]);
+ expect(Array.from(row(motion).querySelectorAll<HTMLElement>('[data-dial-side]')).map(s=>s.textContent)).toEqual(['still','lively']);
+ expect(Array.from(row(motion).querySelectorAll<HTMLElement>('[data-dial-mark]')).map(m=>m.dataset.dialMark)).toEqual(['neg-useful','pos-useful','pos-overcook']);
+ expect(row(motion).querySelector('[data-dial-facts]')!.textContent).toBe('+ side: useful 1.5, overcook 2.25 · − side: useful 1.5 · one seed');
+ expect(document.querySelector('[data-dial-info-state]')).toBeNull();
+ // A new row starts at the file's positive useful strength, and its slider reaches the overcook strength.
+ fireEvent.change(document.querySelector('[data-dial-add]')!,{target:{value:look}});
+ expect(row(look).querySelector<HTMLInputElement>('[data-dial="strength"]')!.value).toBe('4.5');
+ expect(row(look).querySelector<HTMLInputElement>('[data-dial="slider"]')!.max).toBe('8');
+ // The rack: the tab is still open, so nothing is read again. Text to video is the pack's t2v.
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(catalogCalls()).toHaveLength(1);
+ expect(dialog.querySelector('[data-dial-rack-info-part="notes"]')!.textContent).toBe('Notes: On a curve it needs the blend on every step.');
+ fireEvent.click(dialog.querySelector('[data-dial-tool="addCurve"]')!);
+ expect(dialog.querySelector<HTMLInputElement>('[data-dial-steps]')!.value).toBe('6');
+ expect(dialog.querySelector('[data-dial-steps-file]')!.textContent).toBe('The dial file records 6 blend steps for text to video.');
+ fireEvent.change(dialog.querySelector('[data-dial-audio]')!,{target:{value:'protect'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {steps:number;dials:DialRow[]};
+ expect(sent.steps).toBe(20);
+ expect(JSON.stringify(sent.dials)).toBe('[{"dial":"dials/h3_motion.safetensors","strength":1.5,"time":{"type":"keys","points":[[0,1],[5.1666,1]],"unit":"seconds","steps":6,"audio":"protect"}},{"dial":"dials/h3_look.safetensors","strength":4.5}]');
+ expect(isDialRows(sent.dials)).toBe(true);
+ // Reload reads again; leaving and reopening the tab does too.
+ fireEvent.click(within(strip()).getByRole('button',{name:'Reload dial info'}));
+ await waitFor(()=>expect(catalogCalls()).toHaveLength(2));
+ dock('LoRAs');dock('Dials');
+ await waitFor(()=>expect(catalogCalls()).toHaveLength(3));
+ await waitFor(()=>expect(row(motion).dataset.dialInfo).toBe('known'));
+});
+
+test('a failed catalog read never blocks the strip: it keeps its fallbacks, says dial info is unavailable and Run stays usable',async()=>{
+ vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_dial_catalog')throw 'DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route.';return other;});
+ await mountTab([{dial:motion,strength:1.5,on:true}]);
+ dock('Dials');
+ await waitFor(()=>expect(document.querySelector('[data-dial-info-state="unavailable"]')).not.toBeNull());
+ expect(strip().dataset.dials).toBe('ready');
+ expect(row(motion).dataset.dialInfo).toBeUndefined();
+ expect(row(motion).querySelector('[data-dial-side], [data-dial-mark], [data-dial-facts]')).toBeNull();
+ const slider=row(motion).querySelector<HTMLInputElement>('[data-dial="slider"]')!;
+ expect([slider.min,slider.max,slider.disabled]).toEqual(['-3','3',false]);
+ fireEvent.change(document.querySelector('[data-dial-add]')!,{target:{value:look}});
+ expect(row(look).querySelector<HTMLInputElement>('[data-dial="strength"]')!.value).toBe('1');
+ // The rack works on DEAS's own default: no blend steps are authored.
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(within(dialog).getByText('Dial info unavailable: side labels and strength marks are not shown. The rows work as before.')).toBeTruthy();
+ expect(dialog.querySelector('[data-dial-rack-info]')).toBeNull();
+ fireEvent.click(dialog.querySelector('[data-dial-tool="addCurve"]')!);
+ expect(dialog.querySelector<HTMLInputElement>('[data-dial-steps]')!.value).toBe('');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false);
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(JSON.stringify((vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {dials:DialRow[]}).dials)).toBe('[{"dial":"dials/h3_motion.safetensors","strength":1.5,"time":{"type":"keys","points":[[0,1],[5.1666,1]],"unit":"seconds"}},{"dial":"dials/h3_look.safetensors","strength":1}]');
+ // A later read that works brings the info in.
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?dialCatalog:other);
+ fireEvent.click(within(strip()).getByRole('button',{name:'Reload dial info'}));
+ await waitFor(()=>expect(row(motion).dataset.dialInfo).toBe('known'));
+ expect(document.querySelector('[data-dial-info-state]')).toBeNull();
+});
+
+test('the catalog is not asked for where dials cannot run: without the Dial Rack nodes or on another video family',async()=>{
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?dialCatalog:other);
+ const view=await mount([{dial:motion,strength:1.5,on:false}],{nodes:[]});
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ dock('Dials');
+ await waitFor(()=>expect(strip().dataset.dials).toBe('nodeMissing'));
+ expect(catalogCalls()).toHaveLength(0);
+ expect(document.querySelector('[data-dial-info-state], [data-dial-info-refresh]')).toBeNull();
+ view.unmount();
+ localStorage.setItem('deas.pref.studio.run.checkpoint',JSON.stringify(ltxModels[0].name));
+ const ltx=await mount([{dial:motion,strength:1.5,on:true}],{files:ltxModels as unknown as ReturnType<typeof h3VideoFiles>});
+ ltx.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ dock('Dials');
+ expect(strip().dataset.dials).toBe('h3VideoOnly');
+ expect(catalogCalls()).toHaveLength(0);
+});

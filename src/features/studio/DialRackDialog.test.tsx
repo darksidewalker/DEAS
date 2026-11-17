@@ -7,6 +7,8 @@ import { dialTimeline, type DialTimeline } from '../../lib/dialCurve';
 import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialRackDialog } from './DialRackDialog';
 import { DialStrip } from './DialStrip';
+import { parseDialCatalog, type DialInfoMap, type DialPipeline } from '../../lib/dialInfo';
+import { catalogFixture, impact, inkWash, measuredDial, motionDial } from '../../lib/dialInfo.fixture';
 
 const showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
 const close = vi.fn(function (this: HTMLDialogElement) { this.open = false; });
@@ -36,9 +38,9 @@ const five: DialTimeline = { seconds: 5, frames: 120, edges: [], basis: 'clip' }
 const text = (key: string, params: Record<string, string> = {}) => Object.entries(params).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), bundledCatalog.dictionaries.en[key]);
 let last: DialRow[] = [];
 const onClose = vi.fn();
-function Host({ initial = rows(), gate = '', conflicts = [], timeline = five, steps = 25 }: { initial?: DialRow[]; gate?: DialGate; conflicts?: DialCurveConflict[]; timeline?: DialTimeline; steps?: number }) {
+function Host({ initial = rows(), gate = '', conflicts = [], timeline = five, steps = 25, info, pipeline }: { initial?: DialRow[]; gate?: DialGate; conflicts?: DialCurveConflict[]; timeline?: DialTimeline; steps?: number; info?: DialInfoMap; pipeline?: DialPipeline }) {
   const [value, setValue] = useState(initial);
-  return <I18nProvider><DialRackDialog value={value} onChange={v => { last = v; setValue(v); }} files={files} listed={files} gate={gate} timeline={timeline} steps={steps} conflicts={conflicts} onClose={onClose}/></I18nProvider>;
+  return <I18nProvider><DialRackDialog value={value} onChange={v => { last = v; setValue(v); }} files={files} listed={files} gate={gate} timeline={timeline} steps={steps} conflicts={conflicts} onClose={onClose} info={info} infoStatus={info ? 'ready' : undefined} pipeline={pipeline}/></I18nProvider>;
 }
 const dialog = () => screen.getByRole('dialog', { name: 'Dial rack (experimental)' }) as HTMLDialogElement;
 const lane = (dial: string) => document.querySelector<HTMLElement>(`[data-dial-lane="${dial}"]`)!;
@@ -396,4 +398,110 @@ test('points authored for a longer piece stay visible past the lane\'s end', () 
   expect(lane(calm).querySelector('.dial-lane-beyond')).not.toBeNull();
   expect(points().map(p => p.style.left)).toEqual(['0%', '100%']);
   expect(Array.from(document.querySelectorAll('[data-dial-second]')).map(b => b.textContent)).toEqual(['-1', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+});
+
+const infoMap = parseDialCatalog(catalogFixture)!;
+const stepsField = () => document.querySelector<HTMLInputElement>('[data-dial-steps]')!;
+const fileSteps = () => document.querySelector<HTMLElement>('[data-dial-steps-file]');
+const useFile = () => document.querySelector<HTMLButtonElement>('[data-dial-steps-use]');
+
+test('a new curve is authored with the blend steps the dial file records for the pipeline in use, never more than the job has', () => {
+  // Text to video, 20 sampler steps: the file says 6 where DEAS's own default would be 7.
+  const view = render(<Host info={infoMap} pipeline="t2v" steps={20} initial={[{ dial: measuredDial, strength: 2, on: true }, { dial: motion, strength: 1.5, on: true }]}/>);
+  fireEvent.click(tool('addCurve'));
+  expect(last[0].time).toEqual(keys([[0, 1], [5, 1]], { steps: 6 }));
+  expect(stepsField().value).toBe('6');
+  expect(document.querySelector('[data-dial-steps-default]')!.textContent).toBe('6 of 20 steps (default 7)');
+  expect(fileSteps()!.textContent).toBe('The dial file records 6 blend steps for text to video.');
+  expect(useFile()).toBeNull();
+  // Clearing the field goes back to DEAS's default; the file's value stays visible and one click away.
+  fireEvent.change(stepsField(), { target: { value: '' } });
+  expect(last[0].time!.steps).toBeUndefined();
+  expect(document.querySelector('[data-dial-steps-default]')!.textContent).toBe('default: 7 of 20 steps (provisional)');
+  expect(useFile()!.textContent).toBe('Use 6');
+  fireEvent.click(useFile()!);
+  expect(last[0].time!.steps).toBe(6);
+  // A preset on a constant row starts its curve the same way.
+  fireEvent.click(tool('removeCurve'));
+  fireEvent.click(tool('preset.pulse'));
+  expect(last[0].time!.steps).toBe(6);
+  expect(isDialRows(last)).toBe(true);
+  // A dial the file says nothing about for curves keeps DEAS's default: no steps are authored.
+  select(motion);
+  fireEvent.click(tool('addCurve'));
+  expect(last[1].time).toEqual(keys([[0, 1], [5, 1]]));
+  expect(fileSteps()).toBeNull();
+  view.unmount();
+
+  // Reference pictures: the file says 40, this job has 20 steps, so 20 is authored and the field says why.
+  render(<Host info={infoMap} pipeline="ref2v" steps={20} initial={[{ dial: measuredDial, strength: 2, on: true }]}/>);
+  fireEvent.click(tool('addCurve'));
+  expect(last[0].time!.steps).toBe(20);
+  expect(fileSteps()!.textContent).toBe('The dial file records 40 blend steps for reference pictures; this job has 20 sampler steps, so 20 is the most.');
+  expect(fileSteps()!.dataset.dialStepsFile).toBe('20');
+});
+
+test('without recorded blend steps DEAS keeps its default and shows the dial\'s own pipeline text and notes beside the field', () => {
+  // First/last frame: the measurement has strengths and a note but no steps.
+  const view = render(<Host info={infoMap} pipeline="fl2v" steps={6} initial={[{ dial: measuredDial, strength: 2, on: true }, { dial: inkWash, strength: 2, on: true }, { dial: motionDial, strength: 1, on: true }, { dial: calm, strength: 1, on: true }]}/>);
+  fireEvent.click(tool('addCurve'));
+  expect(last[0].time).toEqual(keys([[0, 1], [5, 1]]));
+  expect(fileSteps()).toBeNull();
+  const part = (name: string) => document.querySelector<HTMLElement>(`[data-dial-rack-info] [data-dial-rack-info-part="${name}"]`);
+  expect(document.querySelector<HTMLElement>('[data-dial-rack-info]')!.dataset.dialRackInfo).toBe(measuredDial);
+  expect(part('measured')!.textContent).toBe('For first/last frame: useful 3 · one seed · no curve measured');
+  // The real ink wash file: "k = 6" is in its texts, which are shown as they are; nothing is read out of them.
+  select(inkWash);
+  expect(screen.getByRole('region', { name: 'From the dial file: h3_ink_wash' })).toBeTruthy();
+  expect(part('pipeline')!.textContent).toBe('Measured with: Pika H3 Flex 6-step, time rows k = 6, audio: protect');
+  expect(part('notes')!.textContent).toContain('On a seep in/out curve, 2 at k = 6 follows but re-composes the landscape (k = 2 smears the look over the clip).');
+  expect(part('description')!.textContent).toContain('Ink wash: the scene becomes');
+  expect(part('measured')).toBeNull();
+  fireEvent.click(tool('addCurve'));
+  expect(last[1].time).toEqual(keys([[0, 1], [5, 1]]));
+  // A 6-step job blends on every step by default, which is what this file's notes ask for.
+  expect(stepsField().placeholder).toBe('6');
+  expect(document.querySelector('[data-dial-steps-default]')!.textContent).toBe('default: 6 of 6 steps (provisional)');
+  expect(fileSteps()).toBeNull();
+  // A file that says nothing says so; a dial the catalog does not know has no block.
+  select(motionDial);
+  expect(part('none')!.textContent).toBe('This dial file records no notes.');
+  select(calm);
+  expect(document.querySelector('[data-dial-rack-info]')).toBeNull();
+  // The strip inside the dialog has the same labels and marks.
+  expect(dialog().querySelector(`[data-dial-row="${inkWash}"] [data-dial-side="pos"]`)!.textContent).toBe('ink wash');
+  expect(dialog().querySelector('[data-dial-help="findings"]')!.textContent).toContain('A dial\'s own notes are the best guide');
+  view.unmount();
+  // Without info the dialog is what it was.
+  render(<Host/>);
+  expect(document.querySelector('[data-dial-rack-info], [data-dial-steps-file], [data-dial-steps-use]')).toBeNull();
+});
+
+test('the audio mode of a curve is follow unless protect is chosen, and undo takes it back', () => {
+  render(<Host info={infoMap} pipeline="t2v" steps={6} initial={[{ dial: impact, strength: 4.5, on: true, time: keys([[0, 0], [2, 0], [2.5, 1], [3, 0]], { interp: 'step' }) }, { dial: motion, strength: 1.5, on: true }]}/>);
+  const audio = () => document.querySelector<HTMLSelectElement>('[data-dial-audio]')!;
+  expect(audio().value).toBe('follow');
+  expect(Array.from(audio().options).map(o => [o.value, o.textContent])).toEqual([['follow', 'Follows the curve'], ['protect', 'Protected']]);
+  expect(audio().closest('label')!.title).toContain('this row leaves the soundtrack undialled');
+  fireEvent.change(audio(), { target: { value: 'protect' } });
+  expect(last[0].time).toEqual(keys([[0, 0], [2, 0], [2.5, 1], [3, 0]], { interp: 'step', audio: 'protect' }));
+  expect(isDialRows(last)).toBe(true);
+  expect(audio().value).toBe('protect');
+  // Follow is the node's default: the key is removed, not written.
+  fireEvent.change(audio(), { target: { value: 'follow' } });
+  expect(last[0].time).toEqual(keys([[0, 0], [2, 0], [2.5, 1], [3, 0]], { interp: 'step' }));
+  fireEvent.click(tool('undo'));
+  expect(last[0].time!.audio).toBe('protect');
+  // A constant row has no curve, so no audio mode.
+  select(motion);
+  expect(document.querySelector('[data-dial-audio]')).toBeNull();
+});
+
+test('a refusal that locks the curve tools locks the audio mode too; the blend steps and the file\'s value stay usable', () => {
+  render(<Host info={infoMap} pipeline="t2v" steps={6} conflicts={['faceRefine']} initial={[{ dial: measuredDial, strength: 2, on: true, time: keys([[0, 0], [2, 1]]) }]}/>);
+  expect(document.querySelector<HTMLSelectElement>('[data-dial-audio]')!.disabled).toBe(true);
+  expect(stepsField().disabled).toBe(false);
+  expect(useFile()!.disabled).toBe(false);
+  fireEvent.click(useFile()!);
+  expect(last[0].time!.steps).toBe(6);
 });
