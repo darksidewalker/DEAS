@@ -16,6 +16,67 @@ operator's launcher; nothing else was changed. One seed each, 832x480, 107 frame
   a glow.
 - Not done: any run started from DEAS itself; DEAS-owned nodes were not on that instance.
 
+## Experimental H3 dials (independent review and fixes, unreleased) — 2026-11-17
+
+Branch `dials-rack-experimental`. An independent read-only review of the whole branch
+reported findings; eight were confirmed and fixed, one commit each, each with a test
+that failed on the code before the fix. **Fixture and headless-Chromium evidence only**:
+no ComfyUI instance was started or contacted, no job was submitted, no GPU was used, and
+nothing ran in the desktop WebViews (WebKitGTK, WebView2) or on Windows. Node behaviour
+was read from the installed ComfyUI-MAINodes checkout (`382f640`, `dials/nodes.py`,
+`timecurve.py`, `core.py`) and continuation timing from ComfyUI-DaSiWa-Nodes `d90dd88`
+(`nodes/h3_continuity/core.py::continuation_timing`, `align_frame_count`); neither was
+run.
+
+| Finding | Fix | Test that failed before |
+| --- | --- | --- |
+| The rack's Continuity lanes snapped every later step as `round(seconds·24/17)·17`, the compiler's rule only when `durationSeconds` is sent (REF2VA). A 5 s + 1 s plan was drawn as 141 frames where the compiler renders 158 in text to video | `continuationFrames` mirrors both branches of native `continuation_extension`; the Workbench passes the mode | `dialCurve.test.ts` reads the table of the new Rust test `continuation_extension_follows_the_duration_the_director_receives` (0.5 to 15 s in 0.5 s steps, 30 rows; the two rules differ at 1, 4.5, 6, 9.5, 13 and 14.5 s). Before: lane 141 frames, expected 158. A Workbench test checks 6.583 s (T2VA) and 5.875 s (REF2VA) |
+| On a plan that continues an existing clip the lanes start at 0 s but the compiler shifts every point by the pinned clip's length less the context frames; the dialog drew a curve the model did not get and Run was not blocked | The dialog draws neither the frame ticks nor the per-latent-frame line there; active curve rows are held through `dialCurveConflicts` (new id `pieceStart`), with the reason in the strip, the dialog and on Run; six locales | Workbench test: before, Run's title did not carry a reason and Run was enabled. Dialog and `dialCurveConflicts` tests |
+| A level-only edit re-clamped the point's time, so a point outside the lane or closer than 1/6 s to its neighbour jumped | `movePoint` keeps the time when the requested time is the point's own | `dialCurve.test.ts` (before: `[-2, 0.7]` became `[0, 0.7]`) and a dialog test (before: `[10, 0.4]` became `[5, 0.4]`) |
+| Separate strip edits of one row and field merged into one undo step | Only strength changes inside one gesture merge; the strip ends the gesture at the field's change commit, pointer up, key up or blur (a held slider key is one step); a switch is always its own step | Dialog test: before, undo went from 3 straight to 1.5. Reducer test |
+| An oversize answer on the preset routes was `DIAL_PRESETS_UNREACHABLE` ("did not answer") | `DIAL_PRESETS_TOO_LARGE` with its own Logs line and sentence | Fixture-server test `dial_presets_report_an_oversize_answer_as_too_large_not_unreachable` (before: the unreachable text) |
+| `dials?` was typed on the union member that also covers `minimax-h3-hyperflow` | The member is split; HyperFlow has `dials?: never`; no runtime change | `npm run typecheck` on a new test in `dials.test.tsx` (before: TS2322) |
+| The LoRAs tab hid every file under `loras/dials/` by path | Once the catalog was read, only the files it lists (and `_` folders); the path rule while no catalog is available or the catalog is partial | Workbench test with a real LoRA in `dials/` in both states (before: still hidden after the catalog was read); `isPickerDial` test |
+| The catalog's `mode` was dropped and `family` unused | Both kept. Another family is not offered once the catalog was read; a pre-refiner dial is offered, its lane takes no curve and says why, and an active curve on one blocks Run (`preDial`) | `dialInfo.test.ts`, dialog and Workbench tests (before: the other families stayed in the add list) |
+
+Counted from the dial files on the development machine (safetensors headers read on
+disk, 2026-11-17): of the 200 files the pack's catalog rule lists, 126 are post-refiner
+and 15 pre-refiner MiniMax H3 dials, 56 are MOSS-Image and 3 Krea 2 dials; 71 more lie
+in folders starting with `_`. `h3_motion.safetensors` is a post-refiner file; the test
+fixtures that had it as `pre` were corrected.
+
+Gates on the final code (commit `1d687b7`, tree clean), each run once after the last
+fix:
+
+- `npm run typecheck`: exit 0. `npm run build`: built.
+- The eight dial vitest files: **132 passed** (114 before the fixes).
+- `npm run test:ui`: **128 files, 2252 tests passed**, one run (2234 before).
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **20 passed, 0
+  failed** (19 before); `... jobs_video`: **80 passed, 0 failed, 8 ignored** (79
+  before); `cargo fmt -- --check`: clean.
+- `tools/verify_dials.py`: **219 checks passed** (204 before; new: the continued-plan
+  state in three locales at two sizes, and the family and pre-refiner states in three
+  locales with and without the catalog). `tools/verify_workspace_layout.py`: **467
+  checks passed**. Both ran with the Chromium build that is cached on this host (151,
+  Playwright build 1234) through a scratch wrapper, **not** as `npm run test:layout`,
+  which wants build 1248; nothing was downloaded.
+
+Screenshots looked at (Chromium, synthetic IPC): the rack dialog on a plan that
+continues an existing clip at 1440 × 960 in English (the reason above the rows and
+under the tools, the basis text, the curve drawn, points and tools dimmed except Remove
+curve and Copy, no frame ticks under the axis, no stepped line), and the rack with a
+pre-refiner lane selected (tools dimmed, the reason shown, frame ticks present).
+
+Not verified: everything against a real backend or the real nodes (the pre-refiner
+refusal and the family check were read from the node source, not triggered); the
+gesture boundary in WebKitGTK and WebView2 (whether a slider's `change` and pointer-up
+arrive as in Chromium); the continued-plan state on a real session; translations by a
+native speaker; the full Rust suite and clippy were not rerun.
+
+Left open on purpose, see [the plan](PLAN.md): reading the pinned clip's length before
+Run so a curve can be authored on a plan that continues an existing clip; flagging a row
+of another family that is already in the rack; reading the catalog for the LoRAs tab.
+
 ## Experimental H3 dials (dial info and curve audio mode, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on top of the rack presets below; see

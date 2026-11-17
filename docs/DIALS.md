@@ -934,6 +934,7 @@ verification entries for the
 and the [rack dialog](VERIFICATION.md#experimental-h3-dials-rack-dialog-and-blend-steps-unreleased--2026-11-16)
 and the [rack presets](VERIFICATION.md#experimental-h3-dials-rack-presets-unreleased--2026-11-16)
 and the [dial info and audio mode](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)
+and the [independent review and its fixes](VERIFICATION.md#experimental-h3-dials-independent-review-and-fixes-unreleased--2026-11-17)
 for what was tested and the [plan](PLAN.md) for what is open. `tools/verify_dials.py`
 checks the strip's, the rack dialog's and the presets dialog's geometry, mouse and
 keyboard use, and the dial info on the rows, in Chromium with synthetic IPC. Node
