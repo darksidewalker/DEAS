@@ -764,6 +764,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   // Active dial rows that cannot run block Run with the reason instead of being dropped.
   ...(activeDials(dials).length?[...(dialBlock==='gguf'?[t('studio.dials.reason.gguf')]:dialBlock==='nodeMissing'?[dialRackNode]:[]),
    ...(dialListed?activeDials(dials).filter(r=>!dialListed.includes(r.dial)).map(r=>t('studio.dials.unavailable',{name:r.dial})):[]),
+   // A row of another model family (from a preset, history or an older session): the node refuses it on MiniMax H3. Known only with the catalog.
+   ...activeDials(dials).filter(r=>dialOtherFamily(dialInfo.map?.[dialName(r.dial)])).map(r=>t('studio.dials.otherFamilyRun',{name:r.dial,family:dialInfo.map![dialName(r.dial)].family!})),
    ...dialConflicts.map(c=>t(`studio.dials.conflict.${c}`))]:[]),
   ...(isVideo&&videoPost&&choices?[...(videoPost.upscaleModel&&!choices.upscaleModels?.includes(videoPost.upscaleModel)?[videoPost.upscaleModel]:[]),
    ...(videoPost.rtx&&!choices.nodes.includes('DaSiWa_RTX_UpscalerRefiner')?['DaSiWa_RTX_UpscalerRefiner']:[]),

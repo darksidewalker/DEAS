@@ -6,7 +6,7 @@ import { matchEntries, searchIndex } from '../../lib/search';
 import { isDialRows, type DialGate, type DialRow } from '../../lib/dials';
 import { DialStrip } from './DialStrip';
 import { parseDialCatalog, type DialInfoMap, type DialInfoState } from '../../lib/dialInfo';
-import { catalogFixture, dayNight, impact, inkWash, motionDial } from '../../lib/dialInfo.fixture';
+import { catalogFixture, dayNight, familyFixture, impact, inkWash, kreaDial, mossDial, motionDial, preDial, unlabelled } from '../../lib/dialInfo.fixture';
 
 beforeEach(() => { localStorage.setItem(LOCALE_STORAGE_KEY, 'en'); });
 afterEach(() => { cleanup(); localStorage.clear(); });
@@ -140,7 +140,7 @@ test('the rack button appears only when a rack dialog is wired', () => {
 
 test('every dial string exists in all six locales with its placeholders, and global search finds the tab', () => {
   const keys = Object.keys(bundledCatalog.dictionaries.en).filter(k => k.startsWith('studio.dials.') || k === 'studio.run.dock.dials');
-  expect(keys.length).toBe(168);
+  expect(keys.length).toBe(170);
   const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
   for (const locale of ['de', 'fr', 'ja', 'tr', 'zh']) for (const key of keys) {
     const value = bundledCatalog.dictionaries[locale][key];
@@ -270,4 +270,27 @@ test('a dial the catalog does not know keeps the fallbacks beside rows that have
   expect(calm.querySelector('[data-dial-facts], [data-dial-mark], [data-dial-sides]')).toBeNull();
   // A row stored with a Windows separator still finds its info.
   expect(document.querySelectorAll<HTMLElement>('[data-dial-row]')[1].querySelector<HTMLInputElement>('[data-dial="slider"]')!.max).toBe('8');
+});
+
+test('a row whose dial the catalog lists for another model family says so; H3 rows, unknown families and rows without info do not', () => {
+  const map = { ...infoMap, ...parseDialCatalog(familyFixture)! };
+  const rows: DialRow[] = [kreaDial, mossDial, preDial, unlabelled, motionDial, 'dials/not_in_catalog.safetensors'].map(dial => ({ dial, strength: 1, on: true }));
+  const all = rows.map(r => r.dial);
+  const view = render(<Host rows={rows} listed={all} offered={all} info={map} infoStatus="ready"/>);
+  const flag = (dial: string) => row(dial).querySelector<HTMLElement>('[data-dial-other-family]');
+  expect(flag(kreaDial)!.textContent).toBe('Made for Krea 2, not MiniMax H3: the Dial Rack node refuses it here');
+  expect(flag(kreaDial)!.getAttribute('role')).toBe('alert');
+  expect(row(kreaDial).dataset.dialFamily).toBe('other');
+  expect(flag(mossDial)!.textContent).toContain('Made for MOSS-Image');
+  for (const dial of [preDial, unlabelled, motionDial, 'dials/not_in_catalog.safetensors']) {
+    expect(flag(dial), dial).toBeNull();
+    expect(row(dial).dataset.dialFamily, dial).toBeUndefined();
+  }
+  // The row stays editable and removable: nothing is taken away.
+  expect(row(kreaDial).querySelector<HTMLInputElement>('[data-dial="slider"]')!.disabled).toBe(false);
+  expect(row(kreaDial).querySelector<HTMLInputElement>('[data-dial="on"]')!.disabled).toBe(false);
+  view.unmount();
+  // Without a catalog nothing is flagged.
+  render(<Host rows={rows} listed={all} offered={all}/>);
+  expect(document.querySelector('[data-dial-other-family]')).toBeNull();
 });

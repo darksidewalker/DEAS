@@ -2,7 +2,7 @@ import { useCallback, useId, useRef, useState, type CSSProperties, type Ref } fr
 import { useI18n } from '../../i18n/I18nProvider';
 import { DIAL_LEVEL, DIAL_ROWS, DIAL_SLIDER, DIAL_STEP, dialCurveOutline, dialLabel, dialName, dialStrength, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
 import type { H3DialCurve } from '../../lib/videoIntent';
-import { dialMarks, dialOvercooked, dialSliderRange, dialStartStrength, type DialInfo, type DialInfoMap, type DialInfoState } from '../../lib/dialInfo';
+import { dialMarks, dialOtherFamily, dialOvercooked, dialSliderRange, dialStartStrength, type DialInfo, type DialInfoMap, type DialInfoState } from '../../lib/dialInfo';
 
 /** Read-only picture of a row's time curve (authored corners over the clip); editing lives in the rack dialog. */
 export function DialCurveThumb({curve,seconds,label}:{curve:H3DialCurve;seconds:number;label:string}){
@@ -35,7 +35,9 @@ function DialFacts({info,over,id}:{info:DialInfo;over:number|null;id:string}){
  * (`dialCurveConflicts`), shown as reasons. `onOpenRack` opens the full rack dialog; `rackRef` is its button, for returning focus. `onOpenPresets` opens the rack presets dialog.
  * `info` is what the dial files say about themselves (`dialInfo.ts`): a row with an entry shows its side labels under the slider's ends, ticks at the recorded
  * useful and overcook strengths, a slider reach that follows them, the strengths and the evidence in words and an expandable note; a new row starts at the
- * positive useful strength. A row without an entry keeps the fallbacks (file name, ±3). `infoStatus` `unavailable` adds a small note; it never disables anything.
+ * positive useful strength. A row whose file the catalog says was made for another model family (a row from a preset, history or an older session;
+ * such files are not offered for adding) says so: the node refuses it on a MiniMax H3 model, and the Workbench blocks Run while it is on.
+ * A row without an entry keeps the fallbacks (file name, ±3). `infoStatus` `unavailable` adds a small note; it never disables anything.
  * `onCommit` is called when a strength gesture ends (the slider's or the number field's own `change` commit, pointer up, key up, blur), so a caller with an
  * undo history (the rack dialog) can keep one drag as one step and the next edit as another.
  */
@@ -78,13 +80,15 @@ export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpe
    const name=dialLabel(row.dial),on=row.on!==false,missing=!!listed&&!listed.includes(dialName(row.dial));
    const about=info?.[dialName(row.dial)],range=about?dialSliderRange(about):{min:-DIAL_SLIDER,max:DIAL_SLIDER},over=dialOvercooked(about,row.strength);
    const noteText=about?[about.description,about.pipeline,about.notes].some(Boolean):false,open=noteText&&noted.includes(row.dial);
+   const foreign=dialOtherFamily(about);
    const factsId=`${uid}facts${index}`,noteId=`${uid}note${index}`;
-   return <li key={`${index}:${row.dial}`} className="wb-dial-row" data-dial-row={row.dial} data-dial-state={!on?'off':missing?'missing':'on'} data-dial-info={about?'known':undefined}>
+   return <li key={`${index}:${row.dial}`} className="wb-dial-row" data-dial-row={row.dial} data-dial-state={!on?'off':missing?'missing':'on'} data-dial-info={about?'known':undefined} data-dial-family={foreign?'other':undefined}>
     <input type="checkbox" data-dial="on" aria-label={t('studio.dials.on',{name})} checked={on} onChange={e=>patch(index,{on:e.target.checked})}/>
     <span className="wb-dial-name" title={row.dial}>{name}</span>
     {noteText&&<button type="button" className="wb-dock-action wb-dial-about" data-dial="about" aria-expanded={open} aria-controls={noteId} aria-label={t('studio.dials.info.about',{name})} title={about!.description||t('studio.dials.info.about',{name})}
      onClick={()=>setNoted(old=>old.includes(row.dial)?old.filter(d=>d!==row.dial):[...old,row.dial])}>i</button>}
     {missing&&<small role="alert" data-dial-missing>{t('studio.dials.missing')}</small>}
+    {foreign&&<small role="alert" data-dial-other-family={about!.family}>{t('studio.dials.otherFamily',{family:about!.family!})}</small>}
     <span className="wb-dial-slide">
      <span className="wb-dial-track">
       <input type="range" data-dial="slider" ref={committed} onPointerUp={onCommit} onKeyDown={()=>{held.current=true;}} onKeyUp={release} onBlur={release} aria-label={t('studio.dials.strength',{name})} aria-describedby={about?factsId:undefined} disabled={!!gate} min={range.min} max={range.max} step={DIAL_STEP} value={Math.min(range.max,Math.max(range.min,row.strength))} onChange={e=>{setDraft(null);strength(index,e.target.value);}}/>

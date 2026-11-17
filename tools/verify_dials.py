@@ -33,7 +33,7 @@ PRESETS = {
 # built from the pack's schema, because no dial file there carries per-pipeline measurements yet.
 NONE = {'useful': None, 'overcook': None}
 # Mode and family: a pre-refiner H3 dial (a LoRA-style dial file) and a dial of another model family (example name).
-PRE, KREA = 'dials/h3_motion_lora.safetensors', 'dials/krea2_example_hook.safetensors'
+PRE, KREA, MOSS = 'dials/h3_motion_lora.safetensors', 'dials/krea2_example_hook.safetensors', 'dials/moss_example.safetensors'
 BARE = {'version': 2, 'description': '', 'negative': '', 'positive': '', 'pipeline': '', 'notes': '', 'neg': {'useful': None, 'overcook': None}, 'pos': {'useful': None, 'overcook': None}, 'evidence': None}
 DAY, INK, IMPACT, MOTION, EXAMPLE = ('dials/h3_day_night_hook.safetensors', 'dials/h3_ink_wash.safetensors', 'dials/h3_impact_frame.safetensors', 'dials/h3_motion.safetensors', 'dials/example_measured_look.safetensors')
 CATALOG = {'dropped': 0, 'truncated': False, 'dials': [
@@ -53,6 +53,7 @@ CATALOG = {'dropped': 0, 'truncated': False, 'dials': [
      'pipelines': {'t2v': {'useful': 2.0, 'overcook': 4.0, 'steps': 6, 'evidence': 'multi-seed', 'notes': 'follows at 6, smears at 2'}}}},
     {'dial': PRE, 'family': 'MiniMax H3', 'mode': 'pre', 'info': BARE},
     {'dial': KREA, 'family': 'Krea 2', 'mode': 'post', 'info': BARE},
+    {'dial': MOSS, 'family': 'MOSS-Image', 'mode': 'post', 'info': BARE},
 ]}
 INFO_ROWS = [
     {'dial': DAY, 'strength': 1.5, 'on': True},
@@ -469,9 +470,10 @@ def verify_continued_known(browser, url, shots, checks):
 
 
 def verify_families(browser, url, shots, checks):
-    """The catalog's family and mode: a dial of another model family is not offered; a pre-refiner dial is, and its lane takes no curve and says why."""
-    listed = ['style.safetensors', DAY, MOTION, PRE, KREA]
-    rows = [{'dial': PRE, 'strength': 1.5, 'on': True}, ROWS[1]]
+    """The catalog's family and mode: a dial of another model family is not offered, and a row of one that is already in the rack is flagged and blocks Run; a pre-refiner dial is offered, and its lane takes no curve and says why."""
+    listed = ['style.safetensors', DAY, MOTION, PRE, KREA, MOSS]
+    # The MOSS-Image row stands for one that came from a preset, history or an older session.
+    rows = [{'dial': PRE, 'strength': 1.5, 'on': True}, ROWS[1], {'dial': MOSS, 'strength': 1, 'on': True}]
     for locale in ('en', 'de', 'zh'):
         for catalog in (True, False):
             context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
@@ -484,10 +486,21 @@ def verify_families(browser, url, shots, checks):
                 page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
                 label = f'families:{locale}:{"catalog" if catalog else "no-catalog"}'
                 strip = page.locator('#studio-dock [data-dials]')
+                flag, run = strip.locator(f'[data-dial-row="{MOSS}"] [data-dial-other-family]'), page.locator('[data-run]')
                 if catalog:
-                    expect(strip.locator('[data-dial-row][data-dial-info="known"]')).to_have_count(2)
+                    expect(strip.locator('[data-dial-row][data-dial-info="known"]')).to_have_count(3)
+                    # The row of another family says so inside its row, and Run names the family and the file.
+                    expect(flag).to_be_visible()
+                    expect(flag).to_have_attribute('data-dial-other-family', 'MOSS-Image')
+                    box, row = flag.bounding_box(), strip.locator(f'[data-dial-row="{MOSS}"]').bounding_box()
+                    assert box['x'] >= row['x'] - 1 and box['x'] + box['width'] <= row['x'] + row['width'] + 1, (label, 'the family note leaves its row', box, row)
+                    expect(run).to_be_disabled()
+                    assert 'MOSS-Image' in (run.get_attribute('title') or '') and MOSS in (run.get_attribute('title') or ''), (label, 'Run does not name the other-family row', run.get_attribute('title'))
+                    expect(strip.locator('[data-dial-other-family]')).to_have_count(1)
                 else:
                     expect(strip.locator('[data-dial-info-state="unavailable"]')).to_be_visible()
+                    expect(strip.locator('[data-dial-other-family]')).to_have_count(0)
+                    assert 'MOSS-Image' not in (run.get_attribute('title') or ''), (label, 'Run names a family without a catalog', run.get_attribute('title'))
                 offered = strip.locator('[data-dial-add] option').evaluate_all('(es)=>es.map(e=>e.value)')
                 assert offered == (['', MOTION] if catalog else ['', MOTION, KREA]), (label, 'offered dial files', offered)
                 expect(page.locator('#studio-dock [data-dial-conflict]')).to_have_count(0)

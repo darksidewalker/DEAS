@@ -474,6 +474,36 @@ test('with the catalog read, a dial of another model family is not offered and a
  expect(sent.dials).toEqual([{dial:pre,strength:1.5},{dial:look,strength:2,time:curve}]);
 });
 
+test('a row of another model family that is already in the rack is flagged and blocks Run once the catalog says so; switched off it does not, and without the catalog nothing changes',async()=>{
+ const krea='dials/krea2_example_hook.safetensors';
+ const bare={version:2,description:'',negative:'',positive:'',pipeline:'',notes:'',neg:{useful:null,overcook:null},pos:{useful:null,overcook:null},evidence:null};
+ const families={dials:[...dialCatalog.dials,{dial:krea,family:'Krea 2',mode:'post',info:bare}],dropped:0,truncated:false};
+ let answer:()=>unknown=()=>{throw 'DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route.';};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?answer():other);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ // The Krea 2 row came from a preset, history or an older session: it is in the rack and on.
+ await mountTab([{dial:motion,strength:1.5,on:true},{dial:krea,strength:1,on:true}],{loras:[motion,calm,look,krea,'style.safetensors']});
+ dock('Dials');
+ await waitFor(()=>expect(document.querySelector('[data-dial-info-state="unavailable"]')).not.toBeNull());
+ expect(row(krea).querySelector('[data-dial-other-family]')).toBeNull();
+ expect(run().disabled).toBe(false);
+ answer=()=>families;
+ fireEvent.click(within(strip()).getByRole('button',{name:'Reload dial info'}));
+ await waitFor(()=>expect(row(krea).querySelector('[data-dial-other-family]')!.textContent).toContain('Made for Krea 2, not MiniMax H3'));
+ const reason='Dial made for Krea 2, not MiniMax H3: dials/krea2_example_hook.safetensors';
+ await waitFor(()=>expect(run().title).toContain(reason));
+ expect(run().disabled).toBe(true);
+ expect(row(motion).querySelector('[data-dial-other-family]')).toBeNull();
+ // The row is kept; switched off it no longer blocks, and only the H3 row is sent.
+ fireEvent.click(row(krea).querySelector('[data-dial="on"]')!);
+ await waitFor(()=>expect(run().disabled).toBe(false));
+ expect(run().title).not.toContain(reason);
+ expect(row(krea).querySelector('[data-dial-other-family]')).not.toBeNull();
+ fireEvent.click(run());
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect((vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {dials:DialRow[]}).dials).toEqual([{dial:motion,strength:1.5}]);
+});
+
 test('a failed catalog read never blocks the strip: it keeps its fallbacks, says dial info is unavailable and Run stays usable',async()=>{
  vi.mocked(invoke).mockImplementation(async c=>{if(c==='native_dial_catalog')throw 'DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route.';return other;});
  await mountTab([{dial:motion,strength:1.5,on:true}]);
