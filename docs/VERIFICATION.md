@@ -1,5 +1,78 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (round three: the carried count on plans that start the piece, unreleased) — 2026-11-17
+
+Branch `dials-rack-experimental`. **Fixture and headless-Chromium evidence only** for the code below: no ComfyUI instance
+was started or contacted, no job was submitted, no GPU was used, and nothing ran in the desktop WebViews (WebKitGTK,
+WebView2) or on Windows. The render evidence this round rests on is the parent session's, in the entry below.
+
+| Item | Change | Test that failed before |
+| --- | --- | --- |
+| A Continuity plan that starts the piece sent no frame count for its later steps, so native shifted a time curve by whatever the session list had while the lanes were laid out by Studio's own sums | `dialTimeline` gives basis `plan` a `window` for the next step once the take exists (`source` = the take's frames plus every finished step's extension); the Workbench sends it as `h3.continuity.sourceFrames` for that basis too. Native `confirm_source_frames` is unchanged and refuses another count, or none. The take itself carries no count. Applied in both output modes, as for continued plans; only full is covered by a real session | `dialCurve.test.ts` "a plan that starts the piece gives a later step the window and the frame count of the clip it pins" (before: no `window`), with the real session's numbers (107, 209; starts 85 and 187). `Workbench.dials.test.tsx` "a later step of a plan that starts the piece sends the count of the clip it pins" (before: no `sourceFrames`; now 209). A second Workbench test for the take (no count) passed before and after |
+| The native window-start table did not hold the real session's counts | Rows `(107, None, None, 85)` and `(209, None, None, 187)` added; the TypeScript mirror reads the same table (15 rows) | Not a fail-before test: both rows pass on the unchanged compiler, which is the point |
+| The hold on a continued plan without the clip's frame count did not say how to leave it | `studio.dials.conflict.pieceStart` says that pressing "Load checkpoints" in the Continuity dialog reads the clip's length and lifts the hold, with the control's own label in each locale (`studio.run.cont.loadSources`) | `DialStrip.test.tsx` "the held-curve reason names the Continuity button that lifts it, …" over six locales (before: the label was absent) |
+| The rack's findings help did not name the long-schedule finding for look dials | One provisional sentence in `studio.dials.rack.help.findings`: confirmed only on short schedules so far, clear at 6 sampler steps, partial at 8, nothing at 12 or 25 with any blend count; six locales | The same test (a sentence naming 12 and 25 and 8 in every locale) |
+| The hatch over the rendered part of a lane began 9 px inside the track | When the lanes start at 0 s the mark runs from the track's own left edge (`left: -9px`, width plus 9 px, the track's corner radius); lanes widened to a point before 0 s keep it at 0 s | `tools/verify_dials.py` rendered-mark geometry (run before the change: `AssertionError … 'rendered mark geometry'`, left 352 against an expected 343) and `DialRackDialog.test.tsx` |
+
+Gates on the final code (commit `0982112` plus this documentation), each run once after the last code change:
+
+- `npm run typecheck`: exit 0. `npm run build`: built.
+- The eight dial vitest files: **153 passed** (149 before this round).
+- `npm run test:ui`: **128 files, 2277 tests passed**, one run (2273 before).
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **22 passed, 0 failed**;
+  `... jobs_video`: **81 passed, 0 failed, 8 ignored**; `cargo fmt -- --check`: clean. No Rust source changed, only
+  two rows in a test table.
+- `tools/verify_dials.py`: **225 checks passed** (the same count; one assertion changed).
+  `tools/verify_workspace_layout.py`: **467 checks passed**. Both ran with the Chromium build that is cached on
+  this host (151, Playwright build 1234) through a scratch wrapper, **not** as `npm run test:layout`, which wants build
+  1248; nothing was downloaded.
+
+Screenshots looked at (Chromium, synthetic IPC, English): the rack on a plan that continues a 243-frame clip
+(1440 × 960): the hatch of both lanes now begins at the track's left border, follows its rounded corner and ends at the
+dashed edge at 10.125 s as before. The rack on a continued plan without the count (1440 × 960): the reason in the strip
+and under the tools carries the "Load checkpoints" sentence and stays inside the dialog. The rack's help at 1440 × 1300:
+the findings paragraph holds the new sentence.
+
+Not verified: the carried count of a plan that starts the piece against a real session list (native
+`confirm_source_frames` was not run against one in any form); output mode segment and REF2VA (the sums there are the
+pack's rule read from source: `segment_policy.py::delta_layout`, ComfyUI-DaSiWa-Nodes `d90dd88`); anything started from
+Studio; the six-locale sentences by a native speaker; the hatch's corner in WebKitGTK and WebView2; the full Rust suite
+and clippy were not rerun.
+
+Left open, see [the plan](PLAN.md): a plan that starts the piece still draws no hatch over its finished steps, shows
+frame ticks for the first segment only and has no before-Run check for points too close to shift; when native refuses
+such a plan's count, the message's advice (Load checkpoints) does not relayout it, the way out is to pick the last
+finished clip as the plan's checkpoint source or to remove the curve.
+
+## 2026-11-17: dials, a time curve on continued segments and the session list's frame counts (parent session)
+
+**Evidence from the parent session that directed this work, reported to this branch; not produced by a DEAS run and
+not rerun here.** One seed. Graphs emitted by this branch's compiler (`dump_intent_dir_graphs`, HEAD `d3e9d7c`) for
+continued segments were run on a separate ComfyUI 0.45.0 instance with ComfyUI-DaSiWa-Nodes and the Dial Rack nodes; a
+core CreateVideo + SaveVideo pair was added per graph and nothing else was changed. Motion dial at 1.5, 6 steps, DEAS's
+own schedule chain, output mode full; the session was captured from a 107-frame text-to-video take. Motion is the mean
+absolute frame difference per half second over the whole piece.
+
+- **The pack's session list reports cumulative frames.** The take: 107. Each first continuation: 209, with
+  `overlap_frames` 22 and `extension_frames` 102. The second continuation: 311. So a clip's listed `frames` is the
+  whole piece so far, and a later step's source count is the previous count plus that step's extension, as the branch
+  assumes for the rack's lanes and for the count it sends. This closes, for output mode full and one take plus two
+  continuations, the two points the round-two entry below lists as not verified.
+
+| Continuation | Ramp authored at (piece seconds) | Points the compiler emitted | Motion per half second |
+| --- | --- | --- | --- |
+| First, no dial | none | none | flat over the whole 8.7 s piece (1.2 to 1.8) |
+| First | 5.5 to 6.5 | `[-3.5417,0],[1.9583,0],[2.9583,1],[5.4583,1]` (shifted by 85/24 s) | flat until 5.5 s, then 3.1, 9.2, 11.5 in the half seconds from 5.5 s |
+| First | 1.6 to 2.6 (before the new segment) | `[-3.5417,0],[-1.9417,0],[-0.9417,1],[5.4583,1]` | source part unchanged; the new segment lively from its first half second (10.7, 18.1 at 4.5 to 5.5 s) |
+| Second (source = the 209-frame clip, `sourceFrames` 209) | 10.0 to 11.0 | `[-7.7917,0],[2.2083,0],[3.2083,1],[6.2083,1]` | flat until 10.0 s, then 3.7, 16.8 in the half seconds from 10.0 s |
+
+- The change is where it was authored in whole-piece time, over two continuations.
+- At 1.5 the continued segments added other people to the shot, like the picture-conditioned modes: a continuation
+  behaves like a picture mode for strength.
+- Recorded in [Dials](DIALS.md#what-renders-have-shown-so-far-provisional).
+- Not run: output mode segment; anything started from Studio; the native `confirm_source_frames` against the real
+  session list.
+
 ## 2026-11-17: dials, a look dial's curve against the sampler's step count and the motion dial with a picture (parent session)
 
 **Evidence from the parent session that directed this work, reported to this branch; not produced by a DEAS run and
