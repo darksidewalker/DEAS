@@ -70,6 +70,7 @@ export function RunPlan({intent,pipeline,notices,outputRoot,inputNotes=[]}:{inte
     {image?.diffusion&&<>{row('studio.run.textEncoder',image.diffusion.textEncoder)}{row('studio.run.vae',image.diffusion.vae)}</>}
     {video&&<>{row('studio.run.textEncoder',video.textEncoder)}{row('studio.run.vae',video.vae)}</>}
     {!!intent.loras?.length&&row('studio.run.loras',<ul>{intent.loras.map((l,i)=><li key={i}>{l.name} · {l.strength}</li>)}</ul>)}
+    {video?.family==='minimax-h3'&&!!video.dials?.length&&row('studio.run.dock.dials',<ul data-plan-dials>{video.dials.map((d,i)=><li key={i}>{d.dial} · {d.strength}{d.time?` · ${t('studio.dials.planCurve',{count:String(d.time.points.length)})}`:''}</li>)}</ul>)}
     {intent.options&&optionRows(intent.options)}
    </>)}
    {stage('prompt',<>{row('studio.run.positive',intent.positivePrompt||'∅')}{row('studio.run.negative',intent.negativePrompt||'∅')}

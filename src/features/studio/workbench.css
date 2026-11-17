@@ -230,6 +230,28 @@
 .wb-reset { margin-left: auto; padding: 0 6px; height: 1.1rem; border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: var(--muted, #9fb0b4); font-size: .68rem; font-weight: 500; line-height: 1; }
 .wb-option small { color: var(--muted, #9fb0b4); font-size: .7rem; line-height: 1.3; }
 .wb-option small[role="alert"] { color: var(--copper-hi); }
+/* Experimental Dial Rack strip (DialStrip.tsx): one wrapping line per dial inside the scrolling dock panel. */
+.wb-dials { display: flex; flex-direction: column; gap: 6px; }
+.wb-dials-hint, .wb-dials-reason { margin: 0; color: var(--muted, #9fb0b4); font-size: .72rem; line-height: 1.35; overflow-wrap: anywhere; }
+.wb-dials-reason { color: var(--copper-hi); }
+.wb-dials-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.wb-dials-add select { flex: 0 1 18rem; min-width: 0; max-width: 100%; }
+.wb-dials-add small, .wb-dial-row small { color: var(--muted, #9fb0b4); font-size: .7rem; line-height: 1.3; }
+.wb-dial-rows { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wb-dial-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; padding: .25rem .5rem; border: 1px solid var(--line); border-radius: .6rem; font-size: .78rem; }
+.wb-dial-row[data-dial-state="off"] .wb-dial-name { color: var(--muted, #9fb0b4); }
+.wb-dial-row[data-dial-state="off"] input[type="range"], .wb-dial-row[data-dial-state="off"] .wb-dial-curve { opacity: .45; }
+.wb-dial-row input[type="checkbox"] { appearance: auto; width: 1.1rem; height: 1.1rem; flex: none; border: 0; background: transparent; padding: 0; }
+.wb-dial-name { flex: 0 1 14rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.wb-dial-row input[type="range"] { flex: 1 1 8rem; min-width: 0; padding: 0; accent-color: var(--accent); }
+.wb-dial-row input[type="number"] { flex: none; width: 5rem; padding: 3px 6px; font-size: .78rem; }
+.wb-dial-row small[role="alert"] { color: var(--copper-hi); }
+.wb-dial-row > button { flex: none; }
+.wb-dial-curve-slot { flex: none; display: flex; width: 58px; height: 20px; }
+.wb-dial-curve { flex: none; border: 1px solid var(--line); border-radius: 4px; }
+.wb-dial-curve line { stroke: var(--line-strong); stroke-width: 1; }
+.wb-dial-curve polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+@media (max-width: 700px) { .wb-dial-name { flex: 1 1 calc(100% - 2.2rem); } .wb-dial-row input[type="range"] { flex-basis: 5rem; } .wb-dial-curve-slot:empty { display: none; } }
 .wb-help-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 8px; margin-top: 3px; }
 .wb-help-list > span { display: contents; }
 .wb-help-list code { font-family: ui-monospace, monospace; }

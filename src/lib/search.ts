@@ -16,7 +16,7 @@ export interface SearchEntry {
   /** Beginner page that must be selected before the target exists. */
   beginnerTab?: 'generate' | 'models' | 'collection';
   /** Studio bottom-dock tab that must be selected before the target exists. */
-  dockTab?: 'options' | 'post' | 'loras' | 'presets' | 'wildcards' | 'media' | 'models';
+  dockTab?: 'options' | 'post' | 'loras' | 'dials' | 'presets' | 'wildcards' | 'media' | 'models';
   /** Breadcrumb tab → section → control, all locale keys. */
   tab: string;
   section: string;
@@ -109,6 +109,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.edit.title', label: 'studio.run.exportClean.label', target: '[data-media-export-clean]', aliases: ['export clean', 'strip metadata', 'remove metadata', 'privacy'], reason: 'studio.run.exportClean.needs' },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.viewer.open', label: 'studio.run.viewer.prev', target: '[data-viewer-prev]', aliases: ['previous image', 'back', 'left arrow'], reason: 'studio.run.viewer.closed' },
   { view: studio, studioTab: 'generate', tab: 'setup.tab.studio', section: 'studio.run.viewer.open', label: 'studio.run.viewer.next', target: '[data-viewer-next]', aliases: ['next image', 'forward', 'right arrow'], reason: 'studio.run.viewer.closed' },
+  { view: studio, studioTab: 'generate', dockTab: 'dials', tab: 'setup.tab.studio', section: 'studio.run.dock.dials', label: 'studio.dials.add', target: '#studio-dock [data-dial-add]', aliases: ['dial', 'dials', 'Dial Rack', 'MAIDialRack', 'steering', 'slider', 'MiniMax H3', 'experimental'] },
   { view: studio, studioTab: 'generate', dockTab: 'media', tab: 'setup.tab.studio', section: 'studio.run.dock.media', label: 'media.intake.label', target: '#studio-dock [data-media-intake]', aliases: ['paste', 'clipboard', 'copy into input', 'screenshot', 'import'] },
   { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.run.post.group.latent', label: 'studio.run.latent.enabled', target: '.wb-post [data-latent-upscale-enabled]', aliases: ['latent', 'upscale', 'LTX-2', 'MiniMax H3'], reason: 'studio.run.post.reason.latentOnly' },
   { view: studio, studioTab: 'generate', dockTab: 'post', tab: 'setup.tab.studio', section: 'studio.run.post.group.latent', label: 'studio.run.latent.sharpness', target: '.wb-post [data-latent-advanced="sharpness"]', aliases: ['tier', 'sharpness', '2D upscaler', 'MiniMax H3'], reason: 'studio.run.post.reason.latentOnly' },

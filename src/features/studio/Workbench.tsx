@@ -51,6 +51,8 @@ import { activeWildcards, changedOptions, postCategoryFunctions, postCategoryOrd
 import { useAudioEnhance } from './useAudioEnhance';
 import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
 import { DeropeControls, defaultDerope, deropeNodes, fromDerope, isDeropePref, withDerope } from './DeropeControls';
+import { DialStrip } from './DialStrip';
+import { activeDials, dialCatalog, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -148,7 +150,7 @@ function useBlobSrc(src:string|undefined,active:boolean):{url?:string;error?:str
 const mediaError=(e:React.SyntheticEvent<HTMLMediaElement>)=>{const m=e.currentTarget.error;return m?`error ${m.code}${m.message?`: ${m.message}`:''}`:'';};
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
-const dockTabs=['media','models','loras','notes','presets','wildcards','post','options'] as const;
+const dockTabs=['media','models','loras','dials','notes','presets','wildcards','post','options'] as const;
 /** Pipeline taxonomy. `t2i`/`i2i` (images) and `t2v`/`i2v` (LTX, Wan, MiniMax H3 per family data) have native recipes; `v2v`/`ref2v` stay listed but disabled. */
 const pipelines=['t2i','i2i','t2v','i2v','v2v','ref2v','t2m','cover'] as const;
 type Pipeline=typeof pipelines[number];
@@ -322,6 +324,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [video,setVideo]=usePref('studio.run.video',defaultVideo,isVideoPref);
  const [tve,setTve]=usePref('studio.run.tve',defaultTve,isTvePref);
  const [deropePref,setDerope]=usePref('studio.run.derope',defaultDerope,isDeropePref);
+ const [dialRows,setDialRows]=usePref<DialRow[]>('studio.run.dials',[],isDialRows);
  const audioEnhance=useAudioEnhance('post');
  const [streamDecode,setStreamDecode]=usePref('studio.run.streamDecode',false,isBoolean);
  const [h3Latent,setH3Latent]=usePref('studio.run.latent.h3',defaultLatent,isLatentPref);
@@ -599,7 +602,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{setLatentDownload(null);},[videoFamily,isVideo,planVisible]);
  // The backend may still be booting, or optional models were added since the last probe: re-read when their controls open.
  // Re-read on every open: files placed into model folders after the first read must appear without a restart.
- useEffect(()=>{if((dockTab==='post'||dockTab==='options')&&native&&endpoint.trim())void refreshChoices(false);},[dockTab,native,endpoint,refreshChoices]);
+ useEffect(()=>{if((dockTab==='post'||dockTab==='options'||dockTab==='dials')&&native&&endpoint.trim())void refreshChoices(false);},[dockTab,native,endpoint,refreshChoices]);
  // Before the capability probe answers, `latentChoices` is empty: that is "backend pending", not a missing model.
  const latentProblems=!latentEnabled?[]:[...(!choices?[]:[...latentNodes.filter(n=>!choices.nodes.includes(n)),...(!latentChoices.includes(latentModel)?[t('studio.run.latent.missing',{name:latentModel||t('studio.run.latent.model')})]:[])]),...(!(videoFamily==='ltx-2'?latentPref.scale===2:latentPref.scale>=1&&latentPref.scale<=8&&Number.isInteger(latentPref.steps)&&latentPref.steps>=1&&latentPref.steps<=100&&latentPref.denoise>=0&&latentPref.denoise<=1)?[t('studio.run.latent.invalid')]:[])];
  const continuityAvailable=isH3Video(videoFamily)&&isVideo;
@@ -641,7 +644,10 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const loraMatchesFamily=(m:LocalModel)=>!family||!m.family||m.family===(family.loraFamily??family.id);
  const loraModels=allLoraModels.filter(loraMatchesFamily);
  const {isFavorite,toggleFavorite,setFavorites,error:favoriteError}=useModelOrganization();
- const browsedLoraModels=favoriteView?allLoraModels.filter(m=>isFavorite(m.path)):hideOtherLoraFamilies&&!bulkSelecting?loraModels:allLoraModels;
+ // Dial files (loras/dials/) belong to the Dials tab; the LoRA browser keeps only one that is already selected, so it can be removed.
+ const pickerLora=(m:LocalModel)=>!isDialFile(dialName(m.name))||loras.some(l=>l.name===m.name);
+ const pickerLoraModels=allLoraModels.filter(pickerLora);
+ const browsedLoraModels=favoriteView?pickerLoraModels.filter(m=>isFavorite(m.path)):hideOtherLoraFamilies&&!bulkSelecting?loraModels.filter(pickerLora):pickerLoraModels;
  const browsedModels=favoriteView?allModels.filter(m=>isFavorite(m.path)):allModels;
  const bulkMatching=(dockTab==='loras'?browsedLoraModels:browsedModels).filter(m=>match(m)&&familyEditable(m));
  const bulkTargets=(models??[]).filter(m=>bulkPaths.has(m.path)&&familyEditable(m));
@@ -657,6 +663,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // De-rope re-renders a plain MiniMax H3 generation from its own latent (not HyperFlow, not TVE).
  const derope=videoFamily==='minimax-h3'?deropePref:defaultDerope;
  const videoPost=isVideo?withDerope(toVideoPost(tve),derope):undefined;
+ // Experimental Dial Rack rows steer a plain MiniMax H3 generation only; elsewhere the saved rows stay inert, like De-rope.
+ const dialsHere=!beginner&&isVideo&&videoFamily==='minimax-h3';
+ const dials=dialsHere?dialRows:noDials;
+ // The backend's LoRA list is what the native prerequisite check compares against; the library scan stands in while it is unread.
+ const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
+ const dialFiles=dialCatalog(dialListed??[]);
+ const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
  const streamRequested=isVideo&&videoFamily==='minimax-h3'&&streamDecode;
  const streamReason=!(latentEnabled||regenerateEnabled)?t('studio.run.streamDecode.requires')
   :continuityOn&&plan.outputMode==='segment'?t('studio.run.streamDecode.fullTimeline')
@@ -724,6 +737,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(split&&isVideo&&family?.textProjections&&!split.projections.includes(textProjection)?[textProjection||t('studio.run.video.textProjection')]:[]),
   ...(isVideo&&((tve.frameGen&&tve.engine==='rife'&&!tve.rifeModel)||(tve.loop&&tve.loopBackend==='rife'&&!tve.loopModel))?[t('studio.tve.post.needsRifeModel')]:[]),
   ...(isVideo&&derope.enabled&&derope.mode==='turbo'&&!derope.lora?[t('studio.run.derope.needsLora')]:[]),
+  // Active dial rows that cannot run block Run with the reason instead of being dropped.
+  ...(activeDials(dials).length?[...(dialBlock==='gguf'?[t('studio.dials.reason.gguf')]:dialBlock==='nodeMissing'?[dialRackNode]:[]),
+   ...(dialListed?activeDials(dials).filter(r=>!dialListed.includes(r.dial)).map(r=>t('studio.dials.unavailable',{name:r.dial})):[])]:[]),
   ...(isVideo&&videoPost&&choices?[...(videoPost.upscaleModel&&!choices.upscaleModels?.includes(videoPost.upscaleModel)?[videoPost.upscaleModel]:[]),
    ...(videoPost.rtx&&!choices.nodes.includes('DaSiWa_RTX_UpscalerRefiner')?['DaSiWa_RTX_UpscalerRefiner']:[]),
    ...(videoPost.frameGeneration?.engine==='rtx'&&!choices.nodes.includes('DaSiWa_RTX_FrameGeneration')?['DaSiWa_RTX_FrameGeneration']:[]),
@@ -1119,6 +1135,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(vf==='minimax-h3'&&intent.family==='minimax-h3'&&latentEnabled)intent={...intent,latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}};
    if(isH3Video(vf)&&faceRefine.auto)intent={...intent,faceRefine:faceRefineBlock};
    if(vf==='minimax-h3'&&streamDecode)intent={...intent,streamDecode:true};
+   intent=withDials(intent,dials);
    return intent;
  }
  async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){
@@ -1674,7 +1691,7 @@ const promptTools=forgeContext&&<>
    advancedSettings.current=saved;beginnerSamplingEdited.current=false;beginnerMusicEdited.current.clear();
    advancedReferences.current={imageRefs,refs,refmods,lastFrame,lastOnlySrc,sourceVideo,framePeople,plan};
    setSourceVideo(null);setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLastOnlySrc(null);setPlan(p=>({...p,enabled:false}));
-   setLoras(model&&beginnerLoraDraft.current?.model===identity(model)?beginnerLoraDraft.current.loras:[]);setNegative('');setPost(false);setTve(defaultTve);setDerope(defaultDerope);setH3Latent(defaultLatent);setLtxLatent(defaultLatent);setWildcardEnabled(false);setOptions(defaultOptions);setLyingSigma({...defaultLyingSigma});setSeedMode('random');setEdit('resample');setTextEncoder('');setVae('');setComponentOverrides(defaultComponentOverrides);
+   setLoras(model&&beginnerLoraDraft.current?.model===identity(model)?beginnerLoraDraft.current.loras:[]);setNegative('');setPost(false);setTve(defaultTve);setDerope(defaultDerope);setDialRows([]);setH3Latent(defaultLatent);setLtxLatent(defaultLatent);setWildcardEnabled(false);setOptions(defaultOptions);setLyingSigma({...defaultLyingSigma});setSeedMode('random');setEdit('resample');setTextEncoder('');setVae('');setComponentOverrides(defaultComponentOverrides);
    // Entering Beginner keeps the user's Steps/CFG; only a model change resets them to family starting values.
    if(model&&!isMusic){startingSettings(model);setSteps(steps);setCfg(cfg);}beginnerModelKey.current=model?identity(model):'';
   }else if(advancedSettings.current){
@@ -1744,7 +1761,7 @@ const promptTools=forgeContext&&<>
    else {
     if(restoredFamily?.id!==family?.id){
      setTextEncoder('');setTextEncoder2('');setVae('');setVideo(defaultVideo);setOptions({...structuredClone(defaultOptions),outputNaming:optionsPref.outputNaming});
-     setPost(false);setPostTiled(false);setUpscale(2);setUpscaleModel('');setTve(defaultTve);setDerope(defaultDerope);setH3Latent({...h3Latent,enabled:false});setLtxLatent({...ltxLatent,enabled:false});
+     setPost(false);setPostTiled(false);setUpscale(2);setUpscaleModel('');setTve(defaultTve);setDerope(defaultDerope);setDialRows([]);setH3Latent({...h3Latent,enabled:false});setLtxLatent({...ltxLatent,enabled:false});
      setSourceVideo(null);setImageRefs([]);setRefs([]);setRefmods([]);setFramePeople({});setLastFrame(null);setLoras([]);setWildcardEnabled(false);
     }
     if(!restoredFamily?.pipelines.includes(pipeline)&&restoredFamily)setPipeline(restoredFamily.video?'t2v':'t2i');
@@ -1836,6 +1853,7 @@ const promptTools=forgeContext&&<>
   setMossSkip(isImageIntent(intent)?intent.skipLayers??'':'');
   setWidth(intent.width);setHeight(intent.height);setResolution('fixed');setAspect('auto');
   setLoras((intent.loras??[]).map(l=>({...l,enabled:true})));setOptions(value.options);
+  setDialRows(fromDials(isVideoIntent(intent)&&intent.family==='minimax-h3'?intent.dials:undefined));
   setPipeline(value.pipeline);setComponentOverrides({textEncoders:true,vaes:true,audioVaes:true,textProjections:true});
   setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
   setPost(false);setPostTiled(false);setUpscale(2);setUpscaleModel('');setInputScaling('off');setEdit('resample');
@@ -2028,7 +2046,7 @@ const promptTools=forgeContext&&<>
   };
   apply();window.addEventListener(STUDIO_LORA_ADD,apply);return()=>window.removeEventListener(STUDIO_LORA_ADD,apply);
  },[models,modelsDir,scanning,setLoras]);
- const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?loras.length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
+ const dockNavigation=<div className="wb-dock-tabs" role="tablist" aria-label={t('studio.run.dock')}>{dockTabs.filter(id=>!beginner||id==='media').map(id=><button key={id} role="tab" type="button" data-dock-tab={id} aria-selected={dockTab===id} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusDockTab.current=true;setDockTab(id);if(id==='options'||id==='post'||id==='dials')loadChoices();}}>{t(id==='wildcards'?'wildcards.title':id==='presets'?'presets.title':`studio.run.dock.${id}`)}{dockBadge(id==='loras'?loras.length:id==='dials'?activeDials(dials).length:id==='wildcards'?wildcardChanges.length:id==='post'?postChanges.length:id==='options'?optionChanges.length:0)}</button>)}</div>;
  /** Image prompt references: count/limit chip and numbered thumbnails; shown under the prompt and in the References overlay. */
  const insertTag=(tag:string)=>setPositive(positive.trim()?`${positive.trimEnd()} ${tag}`:tag);
  const pipelineOptions=(['image','video','music'] as const).map(id=>{const reason=id==='image'?(why('t2i')&&why('i2i')):id==='video'?(videoPipelines.every(p=>why(p as Pipeline))?'studio.run.pipe.noRecipe':''):(why('t2m')&&why('cover'));return <option key={id} value={id} disabled={!!reason} title={reason?t(reason):undefined}>{t(`studio.run.pipe.${id}`)}</option>;});
@@ -2338,11 +2356,12 @@ const promptTools=forgeContext&&<>
     </div>
    </section>}
 
+   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={video.seconds} onRead={loadChoices}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel wb-model-browser-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
     {models&&dockTab==='models'&&(browsedModels.length===0?<div className="media-browser">{folderTree(allModels)}<p className="media-help">{t(favoriteView?'library.noFavorites':'studio.run.noModels')}</p></div>:<div className="media-browser">{folderTree(favoriteView?allModels:browsedModels)}<div className="studio-model-results" data-model-scroll><ul className="wb-tiles" data-run-checkpoint>{visibleModelTiles(browsedModels).map(m=>tile(m,m===model,()=>pickModel(m),undefined,pipeBlocked(m)))}</ul>{moreModelTiles(browsedModels)}</div></div>)}
-    {favoriteError&&<p role="alert">{t('library.organizationFailed')}</p>}{models&&dockTab==='loras'&&(browsedLoraModels.length===0?<div className="media-browser">{folderTree(allLoraModels)}<p className="media-help">{t(favoriteView?'library.noFavorites':'studio.run.noLoras')}</p></div>:<div className="media-browser">{folderTree(favoriteView?allLoraModels:browsedLoraModels)}<div className="studio-model-results" data-model-scroll><ul className="wb-tiles wb-loras">{visibleModelTiles(browsedLoraModels).map(m=>{const on=loras.find(l=>l.name===m.name);return tile(m,activeLoras.some(l=>l.name===m.name),()=>on&&(on.enabled===false||!selectedLoras.includes(on))?setLoras(loras.map(l=>l.name===m.name?{...l,enabled:true}:l)):toggleLora(m.name,!on),on&&<input type="number" aria-label={t('studio.run.strength',{name:m.name})} value={on.strength} min={-10} max={10} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)setLoras(loras.map(l=>l.name===m.name?{...l,strength:n}:l));}}/> ,'',!loraMatchesFamily(m)?'studio.run.loraFamilyMismatch':'');})}</ul>{moreModelTiles(browsedLoraModels)}</div></div>)}
+    {favoriteError&&<p role="alert">{t('library.organizationFailed')}</p>}{models&&dockTab==='loras'&&(browsedLoraModels.length===0?<div className="media-browser">{folderTree(pickerLoraModels)}<p className="media-help">{t(favoriteView?'library.noFavorites':'studio.run.noLoras')}</p></div>:<div className="media-browser">{folderTree(favoriteView?pickerLoraModels:browsedLoraModels)}<div className="studio-model-results" data-model-scroll><ul className="wb-tiles wb-loras">{visibleModelTiles(browsedLoraModels).map(m=>{const on=loras.find(l=>l.name===m.name);return tile(m,activeLoras.some(l=>l.name===m.name),()=>on&&(on.enabled===false||!selectedLoras.includes(on))?setLoras(loras.map(l=>l.name===m.name?{...l,enabled:true}:l)):toggleLora(m.name,!on),on&&<input type="number" aria-label={t('studio.run.strength',{name:m.name})} value={on.strength} min={-10} max={10} step={0.05} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n)&&Math.abs(n)<=10)setLoras(loras.map(l=>l.name===m.name?{...l,strength:n}:l));}}/> ,'',!loraMatchesFamily(m)?'studio.run.loraFamilyMismatch':'');})}</ul>{moreModelTiles(browsedLoraModels)}</div></div>)}
    </section>}
   </div>
  </div>
