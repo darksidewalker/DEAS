@@ -137,9 +137,13 @@ one **timeline**: a lane per row over a shared seconds axis.
 - **Lane length.** The lanes cover the clip the next job renders, in its real length:
   MiniMax H3 clips are 17k + 5 frames at 24 fps, so 4 s typed is 107 frames (4.458 s)
   and 5 s is 124 frames (5.167 s). With a Continuity plan that starts the piece, the
-  lanes cover the **whole piece** (the first step's clip plus every later step's
-  seconds, snapped to 17-frame steps as the compiler snaps them), segment ends are
-  drawn as dashed lines and points snap to them. A plan that continues an existing clip
+  lanes cover the **whole piece**: the first step's clip plus what every later step
+  adds, in 17-frame steps as the compiler snaps it **for the mode in use**. With
+  reference media (REF2VA) the step's seconds are snapped (1 s adds 17 frames). In every
+  other mode the Director gets the step's own clip length, so its 17k + 5 frame count
+  is snapped (1 s is a 39-frame clip and adds 34 frames). A plan of 5 s and 1 s is
+  therefore 158 frames (6.583 s) in text to video and 141 frames (5.875 s) with
+  reference media. Segment ends are drawn as dashed lines and points snap to them. A plan that continues an existing clip
   or an imported video starts at a frame count Studio does not hold, so the dialog says
   so and shows only the next clip; curve seconds still count from the start of the whole
   piece. The laid-out piece length mirrors the compiler's rule and was not compared with

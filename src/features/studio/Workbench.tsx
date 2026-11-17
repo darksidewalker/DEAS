@@ -680,8 +680,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
  const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
  const dialPipeline=dialPipelineOf(videoModeName);
- // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it.
- const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null);
+ // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it. Continued steps of a
+ // reference pipeline carry `durationSeconds` (REF2VA, `buildVideoIntent`); the others are snapped from their frame count.
+ const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null,continuityReferences);
  // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
  const dialNext=dialsHere&&continuityOn?nextStep(plan)?.continuity:undefined;
  const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',nodes:choices?.nodes});

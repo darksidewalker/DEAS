@@ -197,6 +197,19 @@ test('the rack dialog opens from the strip, edits the saved rows that Run sends,
  expect(JSON.stringify(sent.dials)).toBe('[{"dial":"dials/h3_motion.safetensors","strength":1.5,"time":{"type":"keys","points":[[0,0],[1.5,1]],"unit":"seconds","interp":"linear","steps":5}},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"type":"keys","points":[[0,0.5],[1.5,1],[4,-2]],"unit":"seconds"}}]');
 });
 
+test.each([['t2v','6.583'],['ref2v','5.875']])('the lanes of a Continuity piece end where the compiler ends it in %s: a 1 s step after a 5 s clip',async(pipeline,seconds)=>{
+ // T2VA: the continued step gets its 39-frame clip (frames / 24) and adds 34 frames, 124 + 34 = 158. REF2VA carries durationSeconds 1 and adds 17, 141.
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials2',outputMode:'full',steps:[{id:'a',seconds:5,action:''},{id:'b',seconds:1,action:''}]}));
+ const view=await mount([{dial:calm,strength:1,on:true,time:curve}],{pipeline});
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-dock-tab="dials"]')).not.toBeNull());
+ dock('Dials');
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(dialog.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('plan');
+ expect(dialog.querySelector('[data-dial-timeline] h3')!.textContent).toBe(`Timeline · ${seconds} s`);
+});
+
 test('a time-curve refusal blocks Run with its reason in the strip and the dialog until the curve is off; rows without a curve are not held',async()=>{
  // More blend steps than the job samples (20): native "time.steps (blend steps) cannot exceed the job's 20 sampler steps".
  const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:{...curve,steps:21}}]);

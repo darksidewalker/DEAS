@@ -3758,6 +3758,62 @@ fn dial_time_curve_audio_mode_is_written_only_when_authored() {
     .is_ok());
 }
 
+/// The newly visible frames of a continued step for every plan length Studio offers (0.5 to 15 s in
+/// 0.5 s steps), by both rules: `by_duration` when the intent authors `durationSeconds` (Studio
+/// sends it for REF2VA only), `by_frames` when the Director gets `frames / 24` (every other mode;
+/// `frames` is the 17k + 5 count Studio sends for those seconds). Computed from the node pack's
+/// `continuation_timing` and `align_frame_count` (ComfyUI-DaSiWa-Nodes d90dd88). The rack dialog's
+/// lane length is tested against this same table (`src/lib/dialCurve.test.ts`).
+#[test]
+fn continuation_extension_follows_the_duration_the_director_receives() {
+    for (seconds, frames, by_duration, by_frames) in [
+        (0.5, 22, 17, 17),
+        (1.0, 39, 17, 34),
+        (1.5, 39, 34, 34),
+        (2.0, 56, 51, 51),
+        (2.5, 73, 68, 68),
+        (3.0, 73, 68, 68),
+        (3.5, 90, 85, 85),
+        (4.0, 107, 102, 102),
+        (4.5, 124, 102, 119),
+        (5.0, 124, 119, 119),
+        (5.5, 141, 136, 136),
+        (6.0, 158, 136, 153),
+        (6.5, 158, 153, 153),
+        (7.0, 175, 170, 170),
+        (7.5, 192, 187, 187),
+        (8.0, 192, 187, 187),
+        (8.5, 209, 204, 204),
+        (9.0, 226, 221, 221),
+        (9.5, 243, 221, 238),
+        (10.0, 243, 238, 238),
+        (10.5, 260, 255, 255),
+        (11.0, 277, 272, 272),
+        (11.5, 277, 272, 272),
+        (12.0, 294, 289, 289),
+        (12.5, 311, 306, 306),
+        (13.0, 328, 306, 323),
+        (13.5, 328, 323, 323),
+        (14.0, 345, 340, 340),
+        (14.5, 362, 340, 357),
+        (15.0, 362, 357, 357),
+    ] {
+        let mut i = continued("full");
+        i["frames"] = json!(frames);
+        i["h3"]["continuity"]["durationSeconds"] = json!(seconds);
+        assert_eq!(continuation_extension(&i), Some(by_duration), "{seconds} s");
+        i["h3"]["continuity"]
+            .as_object_mut()
+            .unwrap()
+            .remove("durationSeconds");
+        assert_eq!(
+            continuation_extension(&i),
+            Some(by_frames),
+            "{frames} frames"
+        );
+    }
+}
+
 #[test]
 fn dial_time_curves_always_carry_their_blend_steps() {
     // Provisional default: every step of a job of at most 8 steps (a look dial needed all 6 of 6,

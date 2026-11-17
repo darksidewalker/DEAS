@@ -2,7 +2,7 @@ import rust from '../../src-tauri/src/jobs_video.rs?raw';
 import rustTests from '../../src-tauri/src/jobs_video_tests.rs?raw';
 import { expect, test } from 'vitest';
 import fixture from './dialCurve.fixture.json';
-import { DIAL_GAP, addPoint, dialCurveText, dialFrameLevels, dialPresetPoints, dialPresets, dialTimeline, flatCurve, latentFrameStarts, movePoint, nearPoint, parseDialCurveText, rackReduce, rackState, removePoint, sampleDialCurve, widestGap, type CurveLimits, type RackAction, type RackState } from './dialCurve';
+import { DIAL_GAP, addPoint, continuationFrames, dialCurveText, dialFrameLevels, dialPresetPoints, dialPresets, dialTimeline, flatCurve, latentFrameStarts, movePoint, nearPoint, parseDialCurveText, rackReduce, rackState, removePoint, sampleDialCurve, widestGap, type CurveLimits, type RackAction, type RackState } from './dialCurve';
 import { DIAL_BLEND_ALL, DIAL_BLEND_STEPS, dialBlendSteps, dialCurveConflictIds, dialCurveConflicts, dialHoldMapNode, dialIntentFacts, dialRackNode, isDialCurve, isDialRows, type DialCurveConflict, type DialCurveFacts, type DialRow } from './dials';
 import { videoFrames, type H3DialCurve, type VideoIntentV1 } from './videoIntent';
 
@@ -41,13 +41,38 @@ test('latent frames cover 1, 4, 4, 4, 4 pixel frames', () => {
 });
 
 test('lanes span the clip, or the whole Continuity piece when Studio can lay it out', () => {
-  expect(dialTimeline(107)).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'clip' });
-  expect(dialTimeline(107, { steps: [] }).basis).toBe('clip');
-  // Step 0 renders 17k + 5 frames; later steps add their seconds snapped to 17-frame steps (native continuation_extension).
-  const plan = dialTimeline(107, { steps: [{ seconds: 5 }, { seconds: 3 }, { seconds: 0.2 }] });
+  expect(dialTimeline(107, null, false)).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'clip' });
+  expect(dialTimeline(107, { steps: [] }, false).basis).toBe('clip');
+  // Step 0 renders 17k + 5 frames; later steps add what native continuation_extension gives for the mode.
+  const plan = dialTimeline(107, { steps: [{ seconds: 5 }, { seconds: 3 }, { seconds: 0.2 }] }, false);
   expect(plan).toEqual({ seconds: (124 + 68 + 17) / 24, frames: 209, edges: [124 / 24, 192 / 24], basis: 'plan' });
+  // A 1 s step: its 39-frame clip (17k + 5) snaps to 34 new frames where the Director gets frames / 24 (T2VA, I2VA, L2VA, FL2VA),
+  // and to 17 where the intent carries durationSeconds (REF2VA).
+  expect(dialTimeline(124, { steps: [{ seconds: 5 }, { seconds: 1 }] }, false)).toEqual({ seconds: 158 / 24, frames: 158, edges: [124 / 24], basis: 'plan' });
+  expect(dialTimeline(124, { steps: [{ seconds: 5 }, { seconds: 1 }] }, true)).toEqual({ seconds: 141 / 24, frames: 141, edges: [124 / 24], basis: 'plan' });
   // A plan that continues an existing clip starts at a frame count Studio does not hold.
-  expect(dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } })).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'planSource' });
+  expect(dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false)).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'planSource' });
+});
+
+test('a continued step adds the frames native continuation_extension gives, by duration or by frames', () => {
+  // Native's two branches, as written there.
+  expect(rust).toContain('Some(s) => s * 24.0 / 17.0,');
+  expect(rust).toContain('None => i["frames"].as_f64()? / 17.0,');
+  expect(rust).toContain('Some(((steps + 0.5).floor().max(1.0) as u64) * 17)');
+  // The native test's own table (0.5 to 15 s in 0.5 s steps), so both sides are held to the same numbers.
+  const body = rustTests.match(/for \(seconds, frames, by_duration, by_frames\) in \[([\s\S]*?)\] \{/)![1];
+  const table = [...body.matchAll(/\(([\d.]+), (\d+), (\d+), (\d+)\)/g)].map(m => m.slice(1).map(Number));
+  expect(table.map(r => r[0])).toEqual(Array.from({ length: 30 }, (_, n) => (n + 1) / 2));
+  for (const [seconds, frames, byDuration, byFrames] of table) {
+    expect(videoFrames('minimax-h3', seconds, 24), `${seconds} s`).toBe(frames);
+    expect(continuationFrames(seconds, true), `${seconds} s by duration`).toBe(byDuration);
+    expect(continuationFrames(seconds, false), `${seconds} s by frames`).toBe(byFrames);
+    // The lane of a two-step plan ends where the compiler ends the piece.
+    expect(dialTimeline(124, { steps: [{ seconds: 5 }, { seconds }] }, true).frames).toBe(124 + byDuration);
+    expect(dialTimeline(124, { steps: [{ seconds: 5 }, { seconds }] }, false).frames).toBe(124 + byFrames);
+  }
+  // The two rules differ on some lengths, which is why the mode matters.
+  expect(table.filter(r => r[2] !== r[3]).map(r => r[0])).toEqual([1, 4.5, 6, 9.5, 13, 14.5]);
 });
 
 test('points move between their neighbours with a one-latent-frame gap, snapped to 0.1 s and 0.05 levels', () => {

@@ -373,7 +373,7 @@ test('a closed gate locks the curve tools with the gate\'s reason', () => {
 });
 
 test('a Continuity piece is laid out with its segment ends, which points snap to; a plan on an existing clip says why it shows the clip', () => {
-  const plan = dialTimeline(107, { steps: [{ seconds: 5 }, { seconds: 3 }] });
+  const plan = dialTimeline(107, { steps: [{ seconds: 5 }, { seconds: 3 }] }, false);
   const view = render(<Host timeline={plan}/>);
   expect(document.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('plan');
   expect(document.querySelector('[data-dial-basis="plan"]')!.textContent).toContain('whole Continuity piece (8 s)');
@@ -388,7 +388,7 @@ test('a Continuity piece is laid out with its segment ends, which points snap to
   fireEvent(track, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 518, clientY: 50 }));
   expect(last[1].time!.points[3]).toEqual([5.1667, 0.5]);
   view.unmount();
-  render(<Host timeline={dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } })}/>);
+  render(<Host timeline={dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false)}/>);
   expect(document.querySelector('[data-dial-basis="planSource"]')!.textContent).toContain('continues an existing clip');
   expect(document.querySelector('[data-dial-timeline]')!.querySelector('h3')!.textContent).toBe('Timeline · 4.458 s');
 });

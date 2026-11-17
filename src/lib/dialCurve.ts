@@ -59,16 +59,24 @@ export function dialFrameLevels(curve:Pick<H3DialCurve,'points'|'interp'|'smooth
 /** The seconds the lanes cover. `edges` are segment ends inside the piece (Continuity plan), for drawing and snapping. */
 export interface DialTimeline { seconds:number; frames:number; edges:number[]; basis:'clip'|'plan'|'planSource' }
 /**
- * Lane length. Without a Continuity plan it is the clip the next job renders (its real frame count, 17k + 5 at 24 fps, not the typed
- * seconds). With a plan it is the whole piece: the first step's clip plus every later step's extension as native `continuation_extension`
- * snaps it (17-frame steps). A plan that continues an existing clip or an imported video starts at a frame count Studio does not hold,
- * so the piece cannot be laid out and the clip is used (`planSource`).
+ * Mirror of native `continuation_extension`: the new frames a continued Continuity step adds, in 17-frame steps. The Director snaps the
+ * duration it receives. With `byDuration` that is the step's seconds (the intent carries `h3.continuity.durationSeconds`; Studio sends it
+ * for REF2VA only). Otherwise it is the step's own clip length, frames / 24 with frames = 17k + 5, so the snap runs on frames / 17.
+ * The two differ on some lengths: 1 s adds 17 frames by duration and 34 by frames.
  */
-export function dialTimeline(clipFrames:number,plan?:{steps:readonly {seconds:number}[];source?:unknown}|null):DialTimeline {
+export const continuationFrames=(seconds:number,byDuration:boolean)=>Math.max(1,Math.floor((byDuration?seconds*H3_FPS:videoFrames('minimax-h3',seconds,H3_FPS))/17+0.5))*17;
+/**
+ * Lane length. Without a Continuity plan it is the clip the next job renders (its real frame count, 17k + 5 at 24 fps, not the typed
+ * seconds). With a plan it is the whole piece: the first step's clip plus every later step's extension as the compiler snaps it for the
+ * mode in use (`continuationFrames`; `byDuration` = the continued steps carry `durationSeconds`, REF2VA). A plan that continues an
+ * existing clip or an imported video starts at a frame count Studio does not hold, so the piece cannot be laid out and the clip is used
+ * (`planSource`).
+ */
+export function dialTimeline(clipFrames:number,plan:{steps:readonly {seconds:number}[];source?:unknown}|null|undefined,byDuration:boolean):DialTimeline {
  if(!plan||!plan.steps.length)return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'clip'};
  if(plan.source)return {seconds:clipFrames/H3_FPS,frames:clipFrames,edges:[],basis:'planSource'};
  let frames=0;
- const ends=plan.steps.map((s,i)=>(frames+=i?Math.max(1,Math.floor(s.seconds*H3_FPS/17+0.5))*17:videoFrames('minimax-h3',s.seconds,H3_FPS))/H3_FPS);
+ const ends=plan.steps.map((s,i)=>(frames+=i?continuationFrames(s.seconds,byDuration):videoFrames('minimax-h3',s.seconds,H3_FPS))/H3_FPS);
  return {seconds:frames/H3_FPS,frames,edges:ends.slice(0,-1),basis:'plan'};
 }
 
