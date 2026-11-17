@@ -57,6 +57,10 @@ Folder/search/visibility filters only affect browsing; active, present LoRAs
 enter the generation intent. All selected entries remain visible in the LoRA count, including mismatches. New external
 files require explicit Reload or Library Refresh models; Library and Studio keep their own display filters.
 
+The experimental **Dials** dock tab beside LoRAs holds steering rows for MiniMax H3
+video; files inside `loras/dials/` are offered there instead of in the LoRA dock. See
+[Dials](DIALS.md#the-dials-tab-in-studio).
+
 ## Bulk family editing
 
 In **Models** or **LoRAs**, use **Select models** beside Search in the dock toolbar.

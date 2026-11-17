@@ -1,5 +1,58 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (Studio dock strip, unreleased) — 2026-11-16
+
+Branch `dials-rack-experimental` on top of the compiler slice below; see
+[Dials](DIALS.md#the-dials-tab-in-studio). **Fixture evidence only.** No ComfyUI
+instance was started or contacted, no job was submitted, no model was loaded and no GPU
+was used. No Rust changed, so no Cargo suite was run for this part. Nothing was run in
+the desktop WebViews (WebKitGTK, WebView2) or on Windows.
+
+- **Typecheck and build: pass.** `npm run typecheck`; `npm run build` (`tsc --noEmit`
+  and `vite build`).
+- **New component tests (24 in 3 files): pass.** `npx vitest run src/lib/dials.test.tsx
+  src/features/studio/DialStrip.test.tsx src/features/studio/Workbench.dials.test.tsx`.
+  They cover: file-name, row and curve validation against the native limits; the
+  emitted `dials` JSON compared as a string with the native fixture
+  `[dial_row(1.5), timed_dial()]`; no field without an active row and on other
+  families; restore from a recent generation and clearing; the three gates plus full
+  rack, empty folder, unread list and missing file; add, switch, slider, number field
+  (clamping and unfinished numbers), remove; the read-only curve thumbnail; Run blocked
+  by name for a missing `MAIDialRack`, a missing dial file and a GGUF base, and released
+  when the rows are switched off; rows inert on LTX; dial files left out of the LoRA
+  tiles unless already selected; settings capture/apply; all 19 strings present in six
+  locales with matching placeholders; the global search entry.
+- **Full UI suite: pass, no new failure.** `npm run test:ui`: 123 files / 2,144 tests
+  passed with the change; 120 files / 2,120 passed on the same checkout before it.
+- **Core suite: not runnable on this host, before or after.** `npm run test:core` fails
+  24/24 files with `ERR_NO_TYPESCRIPT` (Node v22.22.1 without type stripping), the same
+  before the change. As a substitute the same test files were transpiled with the
+  repository's esbuild into a scratch folder and run with `node --test`: 166 passed, 0
+  failed, including the six-locale key and placeholder parity and the audit of locale
+  keys referenced from source. This is not the documented runner.
+- **Layout gate: the documented command could not run here.** `npm run test:layout`
+  stops at `BrowserType.launch: Executable doesn't exist at
+  …/ms-playwright/chromium_headless_shell-1248/…` (the pinned Playwright 1.64.1 expects
+  a Chromium build that is not installed; nothing was downloaded). The unchanged script
+  `tools/verify_workspace_layout.py` was then run through a scratch wrapper that only
+  passes `executable_path` of the cached Chrome for Testing 151.0.7922.34 headless shell:
+  status PASS, 467 checks. Different browser build than the gate pins; treat it as
+  supporting evidence, not as the gate.
+- **Strip in Chromium (same wrapper and browser): pass.** New `tools/verify_dials.py`,
+  synthetic read-only IPC: 72 checks over six locales, the ready and node-missing
+  states and five window sizes from 1440×1300 to 320×480. It asserts no horizontal
+  overflow of page or dock panel, every row control inside its row and none overlapping,
+  every row reachable by scrolling, a long file name, and keyboard-only use (arrow keys
+  on the slider, Space on the switch, the add list, Enter on Remove) with the saved rows
+  checked afterwards. Screenshots were looked at for en 1440 and 390, de 1024 and the
+  node-missing state.
+- **Not established.** A real backend: that its LoRA list carries the dial files and
+  its node list the two Dial Rack ids as the fixtures assume; a job started from the tab;
+  the Beginner switch and media-metadata restore paths, which clear the rows but have no
+  test; a screen reader; WebKitGTK/WebView2 rendering of the range input; Windows path
+  separators beyond the unit test; performance (one more preference and a list filter
+  per render; not measured).
+
 ## Experimental H3 dials (compiler slice, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on `b23de71`; see [Dials](DIALS.md). **Fixture
