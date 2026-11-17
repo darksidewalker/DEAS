@@ -1,5 +1,59 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (compiler slice, unreleased) — 2026-11-16
+
+Branch `dials-rack-experimental` on `b23de71`; see [Dials](DIALS.md). **Fixture
+evidence only.** No ComfyUI instance was started or contacted, no graph was passed
+to `validate_prompt`, no model was loaded and no GPU was used. Node behaviour was
+read from the installed ComfyUI-MAINodes checkout at `382f640` (`dials/nodes.py`,
+`timecurve.py`, `presets.py`; the Dial Rack classes and those two modules are
+identical in the local ComfyUI-Dials checkout at `31bf97d`). Neither revision is a
+pinned or released dependency.
+
+- **Build environment.** The host has no GTK/WebKit/D-Bus development packages, so
+  the plain `cargo test` build stops in `libdbus-sys` (`Package dbus-1 was not
+  found in the pkg-config search path`). The runs below linked through a
+  scratch-only `PKG_CONFIG_PATH` of generated `.pc` files pointing at the runtime
+  libraries already installed; no system package was installed. rustc/cargo 1.98.0.
+- **New tests (10): pass.** `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`
+  ran 13 matching tests (10 new, 3 unrelated "dialog" tests), 13 passed. They cover
+  the unchanged graph without active rows, rack placement and exact `rack` JSON,
+  dropped inactive rows, every refusal, De-rope with and without a time curve
+  (turbo LoRA, carried LoRA, distilled), the continued-window shift, the
+  prerequisite allowlist and `prepare()` with the nodes or a dial file missing.
+  A temporary three-way mutation (no shift, no hold map, inactive rows kept) made
+  6 of them fail.
+- **Video compiler suites: pass.** `cargo test … -- jobs_video recipe_prerequisites
+  jobs_stages jobs_face_refine`: 119 passed, 0 failed, 10 ignored.
+- **Graphs without dials are unchanged.** The seven ignored `jobs_video::tests::dump_*`
+  graph dumps (145,225 bytes of output including the test names) were printed with
+  this branch's sources and with `main`'s sources restored in the same checkout: the
+  six that print graphs are byte-identical (`cmp`); the seventh,
+  `dump_h3_stream_graphs_and_validate_full_capture_contract`, fails in both states
+  because `H3_CAPTURE_VALIDATOR` is not set.
+- **Full native suite: no new failure, not green on this host.** `cargo test
+  --manifest-path src-tauri/Cargo.toml --locked -- --nocapture`: 865 passed / 205
+  failed / 77 ignored on the branch in two runs and 864 / 206 / 77 in a third
+  (854 / 206 / 77 with `main`'s sources). The
+  failing set is the same in both states apart from
+  `forge::gpu_swap::tests::unloads_only_a_model_that_is_on_this_card_and_remembers_remote_servers`,
+  which failed in one of three branch runs and in the `main` run. The failures are
+  host conditions outside this change (trusted-directory ownership checks such as
+  "Download directory must be owned by the effective user with trusted
+  permissions", and Node v22.22.1 without TypeScript stripping in the TS-parity tests).
+- **Formatting and lints.** `cargo fmt … -- --check` passes. Strict Clippy
+  (`--all-targets -- -D warnings`, clippy 0.1.98) fails on six
+  `clippy::chunks_exact_to_as_chunks` findings in files this change does not touch
+  (`audio_runtime.rs`, `jobs_auto_refine.rs`, `jobs_preview.rs`); with that one lint
+  allowed it passes.
+- **Frontend.** `npm run typecheck` and `npm run build` pass. The change is one
+  optional type on the H3 video intent; the Vitest/core suites and the layout gate
+  were not run (no component, CSS or runtime TypeScript changed).
+- **Not established.** Real node schemas, graph validation and execution; that the
+  rack's patches survive the Director, sigma shift, Options patches and the De-rope
+  LoRA; the owned backend's local model check on a real dial file; Windows;
+  performance. All remain open in [PLAN.md](PLAN.md).
+
 ## Release 0.2.39 (published) — 2026-11-16
 
 Published [v0.2.39](https://github.com/darksidewalker/DEAS/releases/tag/v0.2.39)
