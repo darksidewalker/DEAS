@@ -4375,6 +4375,11 @@ fn dial_time_curves_shift_onto_a_continued_window() {
         (22, Some(39), Some(1.0), 0),
         (90, Some(39), None, 51),
         (600, Some(73), Some(14.0), 578),
+        // The counts a real session listed (output mode full, 2026-11-17: a 107-frame take, then
+        // 209 after the first continuation); the graphs compiled for it moved the curves by
+        // 85 / 24 s and 187 / 24 s.
+        (107, None, None, 85),
+        (209, None, None, 187),
     ] {
         let mut i = plain("full");
         i["h3"]["continuity"]["sourceFrames"] = json!(source);

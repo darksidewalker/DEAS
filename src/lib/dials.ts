@@ -79,8 +79,8 @@ export function withDials<T extends VideoIntentV1>(intent:T,rows:readonly DialRo
  return {...intent,dials:active.map(r=>({dial:r.dial,strength:r.strength,...(r.time?{time:r.time}:{})}))};
 }
 /**
- * Adds the pinned clip's frame count Studio laid the curves out with (`DialTimeline.window.source`: `ContinuityPlan.source.frames` plus the
- * extension of every finished step) to a continued MiniMax H3 intent that carries a dial time curve. Native reads the count again from the session list when it prepares the job and refuses the job when the two
+ * Adds the pinned clip's frame count Studio laid the curves out with (`DialTimeline.window.source`: `ContinuityPlan.source.frames`, or the
+ * take's frames on a plan that starts the piece, plus the extension of every finished step) to a continued MiniMax H3 intent that carries a dial time curve. Native reads the count again from the session list when it prepares the job and refuses the job when the two
  * differ or the clip is not listed (`confirm_source_frames`), so a clip that changed since it was picked cannot mistime a curve. Every other
  * intent is returned unchanged: no curve, a new take, an imported-video source, or no count.
  */

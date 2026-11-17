@@ -55,6 +55,24 @@ test('lanes span the clip, or the whole Continuity piece when Studio can lay it 
   expect(dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false)).toEqual({ seconds: 107 / 24, frames: 107, edges: [], basis: 'planSource' });
 });
 
+test('a plan that starts the piece gives a later step the window and the frame count of the clip it pins', () => {
+  // The numbers of a real session (2026-11-17, output mode full, ComfyUI-DaSiWa-Nodes, reported by the parent session): a 107-frame take,
+  // then two 4 s continuations with 22 context frames and 102 new frames each. The session list gave 107, 209 and 311 frames, and the
+  // compiler moved the curves by 85 / 24 s and 187 / 24 s.
+  const steps = [{ seconds: 4 }, { seconds: 4 }, { seconds: 4 }];
+  const lanes = { seconds: 311 / 24, frames: 311, edges: [107 / 24, 209 / 24], basis: 'plan' };
+  // Before the take exists there is no pinned clip and nothing to confirm.
+  expect(dialTimeline(107, { steps }, false)).toEqual(lanes);
+  const first = dialTimeline(107, { steps: [{ seconds: 4, clipId: 'take' }, { seconds: 4 }, { seconds: 4 }] }, false);
+  expect(first).toEqual({ ...lanes, window: { start: 85 / 24, frames: 124, source: 107 } });
+  const second = dialTimeline(107, { steps: [{ seconds: 4, clipId: 'take' }, { seconds: 4, clipId: 'made' }, { seconds: 4 }] }, false);
+  expect(second).toEqual({ ...lanes, window: { start: 187 / 24, frames: 124, source: 209 } });
+  // The plan's context setting moves the window, not the count.
+  expect(dialTimeline(107, { steps: [{ seconds: 4, clipId: 'take' }, { seconds: 4 }], overlapFrames: 73 }, false).window).toEqual({ start: 34 / 24, frames: 175, source: 107 });
+  // Every step done: no next window.
+  expect(dialTimeline(107, { steps: [{ seconds: 4, clipId: 'take' }, { seconds: 4, clipId: 'made' }] }, false).window).toBeUndefined();
+});
+
 test('a continued step adds the frames native continuation_extension gives, by duration or by frames', () => {
   // Native's two branches, as written there.
   expect(rust).toContain('Some(s) => s * 24.0 / 17.0,');
@@ -395,7 +413,7 @@ test('the window of a continued step starts where native continuation_window_sta
   // (a 5 s step), so a row without durationSeconds is snapped by frames.
   const body = rustTests.match(/for \(source, overlap, seconds, start\) in \[([\s\S]*?)\] \{/)![1];
   const table = [...body.matchAll(/\((\d+), (None|Some\((\d+)\)), (None|Some\(([\d.]+)\)), (\d+)\)/g)].map(m => ({ source: Number(m[1]), overlap: m[3] === undefined ? undefined : Number(m[3]), seconds: m[5] === undefined ? undefined : Number(m[5]), start: Number(m[6]) }));
-  expect(table.length).toBe(13);
+  expect(table.length).toBe(15);
   expect(table.filter(r => r.overlap === undefined).length).toBeGreaterThan(2);
   for (const r of table) {
     const extension = r.seconds === undefined ? continuationFrames(5, false) : continuationFrames(r.seconds, true);

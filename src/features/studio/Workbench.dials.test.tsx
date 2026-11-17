@@ -311,6 +311,36 @@ test('a later step of such a plan sends the count of the clip it pins as the lan
  expect(sent.h3.continuity).toMatchObject({sourceId:'made-clip',sourceFrames:362});
 });
 
+test('a later step of a plan that starts the piece sends the count of the clip it pins: the first take plus the finished steps',async()=>{
+ // A real session's numbers (output mode full): a 4 s take is 107 frames, each 4 s continuation adds 102. The third step pins a 209-frame clip.
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials7',outputMode:'full',steps:[{id:'a',seconds:4,action:'',clipId:'take-clip'},{id:'b',seconds:4,action:'she turns',clipId:'made-clip'},{id:'c',seconds:4,action:'she walks off'}]}));
+ const late={type:'keys' as const,points:[[10,0],[11,1]] as [number,number][],unit:'seconds' as const};
+ const view=await mount([{dial:calm,strength:1,on:true,time:late}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(document.querySelector('[data-continuity-open]')!);
+ const next=await waitFor(()=>{const b=document.querySelector<HTMLButtonElement>('[data-cont-run]')!;expect(b.disabled).toBe(false);return b;});
+ await act(async()=>{fireEvent.click(next);});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {h3:{continuity:Record<string,unknown>};dials:DialRow[]};
+ expect(sent.h3.continuity).toMatchObject({sourceId:'made-clip',sourceFrames:209});
+ expect(sent.dials[0].time!.points).toEqual([[10,0],[11,1]]);
+});
+
+test('the first take of a plan that starts the piece pins nothing and carries no frame count',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials8',outputMode:'full',steps:[{id:'a',seconds:4,action:''},{id:'b',seconds:4,action:'she turns'}]}));
+ const view=await mount([{dial:calm,strength:1,on:true,time:{type:'keys' as const,points:[[1,0],[2,1]] as [number,number][],unit:'seconds' as const}}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(document.querySelector('[data-continuity-open]')!);
+ const next=await waitFor(()=>{const b=document.querySelector<HTMLButtonElement>('[data-cont-run]')!;expect(b.disabled).toBe(false);return b;});
+ await act(async()=>{fireEvent.click(next);});
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {h3:{continuity:Record<string,unknown>}};
+ expect(sent.h3.continuity.sourceId).toBe('');
+ expect('sourceFrames' in sent.h3.continuity).toBe(false);
+});
+
 test('without a time curve the continued step carries no frame count, as before',async()=>{
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials5',outputMode:'full',source:{clipId:'pinned-clip',endpoint:evidence.baseUrl,frames:243},steps:[{id:'a',seconds:5,action:'she turns'}]}));
  const view=await mount([{dial:motion,strength:1.5,on:true}]);
