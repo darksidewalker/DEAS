@@ -99,3 +99,16 @@ test('the thumbnail outline holds the end levels to the clip edges and steps whe
   expect(dialCurveOutline({ type: 'keys', points: [[-2, 1], [6, 1]], unit: 'seconds' }, 4).points).toEqual([[0, 0], [0, 0], [1, 0], [1, 0]]);
   expect(dialCurveOutline({ type: 'keys', points: [[3, 0]], unit: 'seconds' }, 0).points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))).toBe(true);
 });
+
+test('the intent type carries dials on plain minimax-h3 only (native validate_dials refuses HyperFlow Flash)', () => {
+  // Checked by `npm run typecheck`: on the HyperFlow member the field can only be absent.
+  const sent = (i: VideoIntentV1): readonly DialRow[] | undefined => {
+    if (i.family === 'minimax-h3-hyperflow') { const none: undefined = i.dials; return none; }
+    return i.family === 'minimax-h3' ? i.dials : undefined;
+  };
+  const flash = { ...h3, family: 'minimax-h3-hyperflow' } as unknown as VideoIntentV1;
+  expect(sent(withDials(h3, [dialRow(1.5)]))).toEqual([dialRow(1.5)]);
+  // Runtime is unchanged: rows are never added to a HyperFlow Flash intent.
+  expect(withDials(flash, [dialRow(1.5)])).toBe(flash);
+  expect(sent(flash)).toBeUndefined();
+});
