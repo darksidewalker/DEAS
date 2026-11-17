@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} s · Pegel {level} · Stärke {strength}",
   "studio.dials.rack.readoutOutside": "{time} s · Pegel {level} · außerhalb 0 bis 1: extrapoliert (Pegel × Stärke = {strength})",
   "studio.dials.rack.readoutNone": "Klicke in die Spur, um einen Punkt hinzuzufügen, oder wähle einen aus.",
+  "studio.dials.rack.readoutLocked": "Die Kurvenbearbeitung ist hier aus. Fahre mit dem Zeiger über die Spur, um die Kurve abzulesen.",
   "studio.dials.rack.readoutConstant": "Konstante Zeile: Pegel 1 · Stärke {strength}",
   "studio.dials.rack.keepTwo": "Eine Kurve behält mindestens zwei Punkte.",
   "studio.dials.rack.noRoom": "Kein Platz für einen weiteren Punkt: Punkte halten einen Latent-Frame (1/6 s) Abstand.",

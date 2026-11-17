@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} s · level {level} · strength {strength}",
   "studio.dials.rack.readoutOutside": "{time} s · level {level} · outside 0 to 1: extrapolated (level × strength = {strength})",
   "studio.dials.rack.readoutNone": "Click the lane to add a point, or select one.",
+  "studio.dials.rack.readoutLocked": "Curve editing is off here. Move the pointer over the lane to read the curve.",
   "studio.dials.rack.readoutConstant": "Constant row: level 1 · strength {strength}",
   "studio.dials.rack.keepTwo": "A curve keeps at least two points.",
   "studio.dials.rack.noRoom": "No room for another point: points stay one latent frame (1/6 s) apart.",

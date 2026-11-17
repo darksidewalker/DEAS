@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} 秒 · レベル {level} · 強さ {strength}",
   "studio.dials.rack.readoutOutside": "{time} 秒 · レベル {level} · 0〜1 の範囲外：外挿（レベル × 強さ = {strength}）",
   "studio.dials.rack.readoutNone": "レーンをクリックして点を追加するか、点を選択してください。",
+  "studio.dials.rack.readoutLocked": "ここではカーブを編集できません。レーンにポインターを合わせるとカーブの値を読めます。",
   "studio.dials.rack.readoutConstant": "一定の行：レベル 1 · 強さ {strength}",
   "studio.dials.rack.keepTwo": "カーブには少なくとも 2 点が必要です。",
   "studio.dials.rack.noRoom": "これ以上点を置けません。点どうしは潜在フレーム 1 つ分（1/6 秒）離れている必要があります。",

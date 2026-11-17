@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} 秒 · 电平 {level} · 强度 {strength}",
   "studio.dials.rack.readoutOutside": "{time} 秒 · 电平 {level} · 超出 0 到 1：外推（电平 × 强度 = {strength}）",
   "studio.dials.rack.readoutNone": "点击轨道添加点，或选中一个点。",
+  "studio.dials.rack.readoutLocked": "此处无法编辑曲线。将指针移到轨道上可读取曲线的值。",
   "studio.dials.rack.readoutConstant": "恒定行：电平 1 · 强度 {strength}",
   "studio.dials.rack.keepTwo": "曲线至少保留两个点。",
   "studio.dials.rack.noRoom": "没有位置再加一个点：点之间需相隔一个潜空间帧（1/6 秒）。",

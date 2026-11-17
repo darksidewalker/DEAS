@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} sn · seviye {level} · güç {strength}",
   "studio.dials.rack.readoutOutside": "{time} sn · seviye {level} · 0–1 dışında: ekstrapolasyon (seviye × güç = {strength})",
   "studio.dials.rack.readoutNone": "Nokta eklemek için şeride tıklayın veya bir nokta seçin.",
+  "studio.dials.rack.readoutLocked": "Eğri düzenleme burada kapalı. Eğriyi okumak için işaretçiyi şeridin üzerine getirin.",
   "studio.dials.rack.readoutConstant": "Sabit satır: seviye 1 · güç {strength}",
   "studio.dials.rack.keepTwo": "Bir eğride en az iki nokta kalır.",
   "studio.dials.rack.noRoom": "Başka bir nokta için yer yok: noktalar birbirinden bir latent kare (1/6 sn) uzakta kalır.",

@@ -759,3 +759,33 @@ test('separate edits of smoothing, a typed time or level and the blend steps are
   expect(curve().points[1]).toEqual([1.5, 1]);
   expect(tool('undo').disabled).toBe(true);
 });
+
+test('the readout does not invite a click on a lane whose curve editing is locked', () => {
+  const invite = text('studio.dials.rack.readoutNone'), off = text('studio.dials.rack.readoutLocked');
+  expect(off).not.toContain('add a point');
+  // Editable: the invitation, as before.
+  const view = render(<Host/>);
+  select(calm);
+  expect(readout()).toBe(invite);
+  view.unmount();
+  // A refusal that locks editing, a closed gate, a continued plan without the clip's frame count: the neutral wording.
+  const held = dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false);
+  for (const props of [{ conflicts: ['faceRefine'] as DialCurveConflict[] }, { gate: 'gguf' as DialGate }, { timeline: held, conflicts: ['pieceStart'] as DialCurveConflict[] }]) {
+    const locked = render(<Host {...props}/>);
+    select(calm);
+    expect(readout(), JSON.stringify(props)).toBe(off);
+    locked.unmount();
+  }
+  // A pre-refiner dial with a curve: only its own lane is locked.
+  const info = parseDialCatalog(familyFixture)!;
+  render(<Host initial={[{ dial: preDial, strength: 1, on: true, time: keys([[0, 0], [2, 1]]) }, rows()[1]]} info={info}/>);
+  expect(readout()).toBe(off);
+  select(calm);
+  expect(readout()).toBe(invite);
+  // A refusal that editing can resolve (too many blend steps) does not lock, and a constant row keeps its own text.
+  cleanup();
+  render(<Host conflicts={['blendSteps']}/>);
+  expect(readout()).toBe(text('studio.dials.rack.readoutConstant', { strength: '1.5' }));
+  select(calm);
+  expect(readout()).toBe(invite);
+});

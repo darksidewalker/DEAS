@@ -288,7 +288,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
       {curve&&<><label>{t('studio.dials.rack.time')}<input type="number" data-dial-point-time ref={committed} step={DIAL_SNAP} min={lim.from} max={lim.to} disabled={locked||!selected} value={shown('time',selected?selected[0]:'')} onChange={e=>typed('time',e.target.value)} onBlur={leave}/></label>
       <label>{t('studio.dials.rack.level')}<input type="number" data-dial-point-level ref={committed} step={DIAL_LEVEL_SNAP} min={lo} max={hi} disabled={locked||!selected} value={shown('level',selected?selected[1]:'')} onChange={e=>typed('level',e.target.value)} onBlur={leave}/></label>
       {tool('deletePoint',()=>{if(!dispatch({type:'remove',point:s.point}))say('studio.dials.rack.keepTwo');},{disabled:locked||!selected})}</>}
-      <output className="dial-rack-readout" data-dial-readout>{read&&curve?t(read.level>=0&&read.level<=1?'studio.dials.rack.readout':'studio.dials.rack.readoutOutside',{time:fmt(read.t),level:fmt(read.level),strength:strengthOf(read.level)}):t(curve?'studio.dials.rack.readoutNone':'studio.dials.rack.readoutConstant',{strength:strengthOf(1)})}</output>
+      <output className="dial-rack-readout" data-dial-readout>{read&&curve?t(read.level>=0&&read.level<=1?'studio.dials.rack.readout':'studio.dials.rack.readoutOutside',{time:fmt(read.t),level:fmt(read.level),strength:strengthOf(read.level)}):t(!curve?'studio.dials.rack.readoutConstant':locked?'studio.dials.rack.readoutLocked':'studio.dials.rack.readoutNone',{strength:strengthOf(1)})}</output>
      </div>
      <p className="dial-rack-note" role="status" data-dial-rack-note>{note}</p>
     </>}

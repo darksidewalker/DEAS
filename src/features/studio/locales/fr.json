@@ -1333,6 +1333,7 @@
   "studio.dials.rack.readout": "{time} s · niveau {level} · force {strength}",
   "studio.dials.rack.readoutOutside": "{time} s · niveau {level} · hors de 0 à 1 : extrapolé (niveau × force = {strength})",
   "studio.dials.rack.readoutNone": "Cliquez sur la piste pour ajouter un point, ou sélectionnez-en un.",
+  "studio.dials.rack.readoutLocked": "L'édition des courbes est désactivée ici. Survolez la piste pour lire la courbe.",
   "studio.dials.rack.readoutConstant": "Ligne constante : niveau 1 · force {strength}",
   "studio.dials.rack.keepTwo": "Une courbe garde au moins deux points.",
   "studio.dials.rack.noRoom": "Pas de place pour un autre point : les points restent espacés d'une image latente (1/6 s).",
