@@ -218,9 +218,10 @@ test('the strip offers Presets only with a handler; in the rack dialog a loaded 
 
   const timeline: DialTimeline = { seconds: 4, frames: 96, edges: [], basis: 'clip' };
   let value = rack();
+  const rackClosed = vi.fn();
   function Rack() {
     const [rows, setRows] = useState(value);
-    return <I18nProvider><DialRackDialog value={rows} onChange={v => { value = v; setRows(v); }} files={[motion, cold]} listed={[motion, cold]} gate="" timeline={timeline} steps={6} conflicts={[]} onClose={() => {}} endpoint="http://127.0.0.1:8188" presetStore={store}/></I18nProvider>;
+    return <I18nProvider><DialRackDialog value={rows} onChange={v => { value = v; setRows(v); }} files={[motion, cold]} listed={[motion, cold]} gate="" timeline={timeline} steps={6} conflicts={[]} onClose={rackClosed} endpoint="http://127.0.0.1:8188" presetStore={store}/></I18nProvider>;
   }
   render(<Rack/>);
   const rackDialog = screen.getByRole('dialog', { name: 'Dial rack (experimental)' });
@@ -232,7 +233,13 @@ test('the strip offers Presets only with a handler; in the rack dialog a loaded 
   await act(async () => { fireEvent.click(q('[data-dial-preset-load]')); });
   expect(value).toEqual([{ dial: cold, strength: 1.5, on: true }]);
   expect(document.querySelectorAll('[data-dial-lane]')).toHaveLength(1);
-  fireEvent.click(q('[data-dial-presets-close]'));
+  // Esc and Ctrl+Z in the presets dialog stay there: the rack neither closes nor undoes.
+  fireEvent.keyDown(q('[data-dial-preset-load]'), { key: 'z', ctrlKey: true });
+  expect(value).toEqual([{ dial: cold, strength: 1.5, on: true }]);
+  fireEvent(q('dialog[data-dial-presets]'), new Event('cancel', { bubbles: false, cancelable: true }));
+  expect(document.querySelector('dialog[data-dial-presets]')).toBeNull();
+  expect(rackClosed).not.toHaveBeenCalled();
+  expect(screen.getByRole('dialog', { name: 'Dial rack (experimental)' })).toBeTruthy();
   fireEvent.click(q('[data-dial-tool="undo"]'));
   expect(value).toEqual([{ ...rack()[0], strength: 2 }, rack()[1]]);
   fireEvent.click(q('[data-dial-tool="redo"]'));

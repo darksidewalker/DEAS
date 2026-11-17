@@ -70,7 +70,9 @@ export function DialPresetsDialog({endpoint,rows,seconds,onLoad,onClose,store=na
  };
  const summary=(strength:number|null,curve:boolean,on:boolean)=>`${t(curve?'studio.dials.presets.row.curve':'studio.dials.presets.row.constant',{strength:strength===null?'?':fmt(strength)})}${on?'':` · ${t('studio.dials.presets.row.off')}`}`;
  const unavailable=!!listFailure,shown=failure??listFailure;
- return createPortal(<dialog ref={dialog} {...backdrop} className="lora-sets-dialog dial-presets-dialog" data-dial-presets aria-label={t('studio.dials.presets.title')} onCancel={e=>{e.preventDefault();onClose();}}>
+ return createPortal(<dialog ref={dialog} {...backdrop} className="lora-sets-dialog dial-presets-dialog" data-dial-presets aria-label={t('studio.dials.presets.title')}
+  // React hands a portal's events to its React parents: over the rack dialog, Esc and Ctrl+Z here must not also close or undo the rack.
+  onKeyDown={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();e.stopPropagation();onClose();}}>
   <header><h2>{t('studio.dials.presets.title')}</h2><button type="button" className="action-button" data-dial-presets-close onClick={onClose}>{t('studio.close')}</button></header>
   <div className="lora-sets-body">
    <section className="lora-selected-panel"><h3>{t('studio.dials.presets.current')} · {rows.length}</h3>
@@ -86,7 +88,7 @@ export function DialPresetsDialog({endpoint,rows,seconds,onLoad,onClose,store=na
    </section>
    <section className="lora-saved-panel"><h3>{t('studio.dials.presets.saved')}</h3>
     <label>{t('studio.dials.presets.saved')}<select data-dial-preset-select value={chosen} disabled={names===null||unavailable} onChange={e=>void choose(e.target.value)}>
-     <option value="">{t(names===null?'studio.dials.presets.loading':names.length?'studio.dials.presets.none':'studio.dials.presets.listEmpty')}</option>{names?.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+     <option value="">{unavailable?'—':t(names===null?'studio.dials.presets.loading':names.length?'studio.dials.presets.none':'studio.dials.presets.listEmpty')}</option>{names?.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
     <div className="lora-set-actions">
      <button type="button" className="action-button" data-dial-preset-refresh disabled={names===null||busy} onClick={()=>{setChosen('');setPreset(null);setStatus('');void refresh();}}>{t('studio.dials.presets.refresh')}</button>
      <button type="button" className="action-button" data-dial-preset-load disabled={!preset?.conversion.rows.length||busy||unavailable} onClick={load}>{t('studio.dials.presets.load')}</button>
