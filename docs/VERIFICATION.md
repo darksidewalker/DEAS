@@ -1,5 +1,83 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 2026-11-17: dials, a look dial's curve against the sampler's step count and the motion dial with a picture (parent session)
+
+**Evidence from the parent session that directed this work, reported to this branch; not produced by a DEAS run and
+not rerun here.** One seed each. The graphs were derived from compiler-emitted ones (only the rack row, the sampler
+steps and the turbo LoRA were changed) and run on a separate ComfyUI instance with ComfyUI-DaSiWa-Nodes and the Dial
+Rack nodes; clips were viewed as contact sheets.
+
+- Ink wash (`h3_ink_wash`) at 2.0 on the seep in/out curve, an anime-style prompt, DEAS's own schedule chain, with
+  the turbo LoRA unless said:
+
+  | Sampler steps | Blend steps | Result on the curve |
+  | --- | --- | --- |
+  | 6 | 6 | clear: colour, ink wash, colour |
+  | 8 | 8 | a partial, desaturated wash |
+  | 12 | 4 | nothing over time |
+  | 12 | 12 | nothing over time |
+  | 25 (no turbo LoRA) | 8 | nothing over time |
+  | 25 (no turbo LoRA) | 25 | nothing over time |
+
+  The constant row painted the whole clip at 12 and at 25 steps. Reading: this look dial's curve fades out as the
+  sampler's step count rises, whatever the blend-step count; look dials on a curve are confirmed only on short
+  schedules. Cause unknown.
+- Motion dial as a constant row with a picture: I2VA at 2.0 livelier in the same room, at 2.5 other people start to
+  appear late in the clip; REF2VA at 2.0 and 2.5 livelier with the camera panning. Together with the entry below
+  (1.5 nothing, 3.0 and 4.5 too strong): with a picture about 2.0 was useful and 2.5 to 3.0 overcooked, against 1.5
+  in text to video.
+- Recorded in [Dials](DIALS.md#what-renders-have-shown-so-far-provisional). No DEAS code was changed for it; the
+  blend-step default is unchanged, and the docs no longer suggest raising the blend steps on a long schedule.
+- Not done: more than one seed, another look dial, any run started from DEAS itself.
+
+## Experimental H3 dials (round two: continued plans with a known clip length, unreleased) — 2026-11-17
+
+Branch `dials-rack-experimental`. **Fixture and headless-Chromium evidence only**: no ComfyUI instance was started or
+contacted, no job was submitted, no GPU was used, and nothing ran in the desktop WebViews (WebKitGTK, WebView2) or on
+Windows. Continuation timing was read from ComfyUI-DaSiWa-Nodes `d90dd88`
+(`nodes/h3_continuity/core.py::continuation_timing`, `inspection.py`); the table rows were computed with that function
+lifted from the source file, the nodes were not run.
+
+| Item | Change | Test that failed before |
+| --- | --- | --- |
+| Time curves were held on every plan that continues an existing clip, because Studio did not hold the pinned clip's frame count | The plan's source keeps the picked clip's count (`ContinuityPlan.source.frames`, optional, 17k + 5; older plans stay valid and get it when the checkpoints are read again). With it the rack lays out the whole piece from 0 s (`dialTimeline` basis `planContinued`): rendered part hatched and closed to points, segment edges, the next step's latent-frame ticks and per-frame line placed by `continuationWindowStart` (mirror of native `continuation_window_start`), and no `pieceStart` hold. Without the count nothing changed | `dialCurve.test.ts`: the mirror against the native test's own table (13 rows, 5 added in this round), the layout, the shifted curve against the points the native test asserts. `DialRackDialog.test.tsx`, `ContinuitySources.test.tsx`, `ContinuityPlanner.test.tsx`, `Workbench.dials.test.tsx` (before: basis `planSource`, Run blocked) |
+| The count Studio drew with and the count native reads could differ without anyone noticing | Studio sends the count the lanes were laid out with as `h3.continuity.sourceFrames` (only with an active time curve); native `confirm_source_frames` refuses a time curve when the session list has another count for the pinned clip, or none. Intents without a curve or without a carried count behave as before | Rust `dial_time_curves_refuse_a_pinned_clip_whose_frame_count_changed` and the fixture-server test `dials_prepare_refuses_a_pinned_clip_whose_frame_count_changed` (before: the list's count replaced the carried one in silence and the job went on to the prerequisite check) |
+| Two separate edits of the Smoothing slider, of a typed Time or Level, or of the blend steps were one undo step | The reducer's gesture end closes any open tag; these controls end their gesture as the strip's do | Dialog test (before: undo went from 0.8 straight to no smoothing) and a reducer test |
+| A row of another model family that was already in the rack was not marked; the node refused it at run time | With the catalog read the row says which family it was made for, and while it is on Run is blocked with the family and the file. Nothing changes without a catalog | `DialStrip.test.tsx` and a Workbench test (before: no mark, Run enabled) |
+| With curve editing locked the readout still said "Click the lane to add a point, or select one." | A locked lane says that editing is off and that the pointer still reads the curve; six locales | Dialog test over a refusal, a closed gate, a continued plan without the count and a pre-refiner lane |
+| `room()` in `dialCurve.ts` returned -0 for a lower bound of 0, and a point moved to the lane's start was stored as -0 | The bounds are normalised | `dialCurve.test.ts` with `Object.is` (before: -0) |
+
+Gates on the final code (commit `d3e9d7c`, tree clean apart from this entry), each run once after the last code
+change:
+
+- `npm run typecheck`: exit 0. `npm run build`: built.
+- The eight dial vitest files: **149 passed** (132 before this round).
+- `npm run test:ui`: **128 files, 2273 tests passed**, one run (2252 before).
+- `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **22 passed, 0 failed** (20 before);
+  `... jobs_video`: **81 passed, 0 failed, 8 ignored** (80 before); `cargo fmt -- --check`: clean.
+- `tools/verify_dials.py`: **225 checks passed** (219 before; new: the continued plan with a known count in
+  three locales at two sizes, and the other-family row with and without the catalog inside the existing family checks).
+  `tools/verify_workspace_layout.py`: **467 checks passed**. Both ran with the Chromium build that is cached on
+  this host (151, Playwright build 1234) through a scratch wrapper, **not** as `npm run test:layout`, which wants build
+  1248; nothing was downloaded.
+
+Screenshot looked at (Chromium, synthetic IPC, 1440 × 960, English): the rack on a plan that continues a 243-frame
+clip with a 5 s step. The timeline heading says 15.083 s, the lanes run from 0 s, the first 10.125 s of both lanes are
+hatched with a dashed edge at the clip's end, the four points and the curve lie after it, the frame ticks under the
+axis start a little before the edge (the 22 context frames) and run to the end, the thin stepped line follows the
+curve, the tools are enabled and no refusal is shown.
+
+Not verified: a real session (that a clip's listed `frames` is what this layout assumes, in both output modes; that
+the count before a later step is the picked clip's plus each finished step's extension, which is the pack's rule read
+from source); the refusal against a real backend; `prepare`'s session read failing in other ways than a missing clip
+(only the missing clip and the changed count were driven through the fixture server; an unreadable list takes the same
+branch by reading the code); the gesture boundaries in WebKitGTK and WebView2; the hatch pattern and the family mark in
+those WebViews; translations by a native speaker; the full Rust suite and clippy were not rerun.
+
+Left open on purpose, see [the plan](PLAN.md): a plan that starts the piece does not send a count for its later
+steps, so their lanes are not confirmed by native; the rack dialog's help text does not yet name the long-schedule
+finding for look dials (the docs do); reading the catalog for the LoRAs tab.
+
 ## 2026-11-17: dials, renders from compiler-emitted graphs in other modes and at 25 steps (parent session)
 
 Evidence from the session that directed this work, not from a DEAS run: the graphs were compiled with the ignored

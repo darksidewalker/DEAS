@@ -52,7 +52,11 @@ has no dock tabs and sends no dials). It works with a MiniMax H3 **video** pipel
   dial file that the pack's catalog says was **made for another model family** (the
   pack also makes dials for Krea 2 and MOSS-Image) is not offered: the node refuses it
   on a MiniMax H3 model. Without the catalog every dial file is offered, as before. A
-  row that is already in the rack is never removed by this.
+  row that is already in the rack (from a rack preset, a recent generation or an older
+  session) is never removed by this. It is **marked** with the family its file was made
+  for ("Made for MOSS-Image, not MiniMax H3…"), and while it is on **Run is blocked**
+  with the family and the file named. Switch the row off or remove it. Without the
+  catalog, and for a file that records no family, nothing is marked or blocked.
 - Each row holds an **on/off** switch, the file name, a **slider**, a **number field**
   that accepts the full -20 to 20 (the slider stays at its end when the number is beyond
   it), a small **picture of the time curve** when the row has one, and **×** to remove
@@ -97,6 +101,7 @@ off:
 | The Dial Rack nodes are not on the backend | Rows that are on block Run; `MAIDialRack` is named beside Run |
 | The base model is a GGUF file | Rows that are on block Run with the reason |
 | A row's file is not in the backend's list ("Not on the backend") | A row that is on blocks Run; the file is named beside Run |
+| A row's file was made for another model family (known once the dial info has been read) | A row that is on blocks Run; the family and the file are named beside Run. The row's own controls stay usable |
 
 LoRA browser: dial files are not offered in the **LoRAs** tab, because loading a dial
 through the LoRA loader is not what a rack row does. A dial file that is already
@@ -170,18 +175,47 @@ one **timeline**: a lane per row over a shared seconds axis.
   reference media. Segment ends are drawn as dashed lines and points snap to them.
   The laid-out piece length mirrors the compiler's rule and was not compared with a
   real session.
-- **A plan that continues an existing clip or an imported video.** Curve seconds count
-  from the start of the whole piece, and the compiler moves every point by the pinned
-  clip's length (less the hidden context frames) before it sends the curve. Studio does
-  not hold that length before Run, so it cannot place a curve on the next clip. Example:
-  with a pinned clip of 243 frames and 22 context frames, a ramp drawn over 0 to 1.5 s
-  is sent at -9.2 s, and the model gets level 1 for the whole segment. The dialog
-  therefore says so, shows only the next clip **without the frame ticks and the
-  per-frame line**, and **time curves are held**: a row with a curve that is on blocks
-  Run with the reason, and the curve tools are off (Remove curve, the switch and × stay
-  usable). Rows without a curve run as always. To use a curve, switch Continuity off
-  and render a single clip, or start the piece with a plan of its own. Reading the
-  pinned clip's length before Run, so that the lanes can start there, is not built.
+- **A plan that continues an existing clip.** Curve seconds count from the start of the
+  whole piece, and the compiler moves every point by the pinned clip's length (less the
+  hidden context frames) before it sends the curve. Studio therefore needs that clip's
+  frame count to place a curve.
+  - **With the count** the lanes cover the **whole piece from 0 s**: the continued clip
+    first, then every step of the plan. What already exists (the continued clip and
+    every step that has its clip) is **hatched and takes no points**; new points, **Add
+    curve** and the presets start where the next clip starts. The continued clip's end
+    and each step's end are segment edges that points snap to. The frame ticks and the
+    thin stepped line are the **latent frames of the next clip as the model gets
+    them**: its window starts some hidden context frames before the new part (22 unless
+    the plan's context setting says otherwise), so the ticks begin a little before the
+    hatched part ends. Example: a clip of 243 frames (10.125 s) and a 5 s step give a
+    piece of 362 frames (15.083 s); the step samples frames 221 to 362, 42 latent
+    frames. When every step has its clip there is nothing left to draw on, and the
+    dialog says so.
+  - **Where the count comes from.** **Load checkpoints** in the Continuity dialog reads
+    the session's clips with their frame counts. Picking a clip from that list keeps
+    its count with the plan. For a plan that was saved before the count was kept, press
+    **Load checkpoints** once: the count of the clip the plan already continues is
+    added (or corrected) and the plan's steps and their clips are not touched. A count
+    that is not a legal H3 length (17k + 5 frames) is not kept.
+  - **Without the count** (a plan saved earlier whose checkpoints were not read again, a
+    failed read, a count that is not a legal length, an imported video) Studio cannot
+    place a curve on the next clip. Example: with a pinned clip of 243 frames and 22
+    context frames, a ramp drawn over 0 to 1.5 s is sent at -9.2 s, and the model gets
+    level 1 for the whole segment. The dialog therefore says so, shows only the next
+    clip **without the frame ticks and the per-frame line**, and **time curves are
+    held**: a row with a curve that is on blocks Run with the reason, and the curve
+    tools are off (Remove curve, the switch and × stay usable). Rows without a curve run
+    as always.
+  - **If the clip is not what the lanes were drawn for.** Studio sends the frame count
+    the lanes were laid out with, and DEAS reads the session list again when it prepares
+    the job. A different count, or a clip the list no longer has, **refuses the job with
+    both counts named** (see Troubleshooting); the curve is never moved by another
+    length than the one drawn. Press **Load checkpoints** and look at the curves again.
+    For the plan's first step the count is the picked clip's. For a later step it is
+    that count plus what each finished step added (the node pack's own sum), which was
+    not compared with a real session; if it ever differs, the same refusal says so.
+  - An **imported video** as the source takes no time curve at all: the compiler refuses
+    it (see [When a time curve cannot run](#when-a-time-curve-cannot-run)).
 - **Lanes.** Click a lane or its name to select it. The selected lane is tall and
   editable; the others are drawn dimmed so overlaps can be seen. A row without a curve
   is a dashed flat line at level 1. **Add curve** starts a flat curve at level 1 (the
@@ -207,7 +241,9 @@ one **timeline**: a lane per row over a shared seconds axis.
   drag is one step. On a row's strength, one slider movement (press to release, or a
   held arrow key) and one typed number (until the field is left or Enter is pressed)
   are one step each, and the next movement or number is another; every switch of a
-  row is its own step. The history ends when the dialog closes.
+  row is its own step. The dialog's own controls follow the same rule: one movement of
+  the **Smoothing** slider, and one number typed into **Time**, **Level** or **Blend
+  steps**, are one step each. The history ends when the dialog closes.
 - **Between points:** **Ramp** (straight lines) or **Hold until the next** (steps).
   **Smoothing** (0 to 1, ramps only) rounds the corners; the curve still passes through
   every point and never beyond it.
@@ -258,9 +294,10 @@ What the picture shows, and what to expect:
   selected lane and the short ticks under the axis are the **latent frames**: the model
   takes one value per latent frame, about 1/6 s, the curve's average over that frame.
   Sharper changes are averaged away, and the pack's notes say a change shows in the
-  render over about 1.5 s. With a Continuity piece the ticks are exact for the first
-  segment only and the stepped line is not drawn; on a plan that continues an existing
-  clip neither is drawn.
+  render over about 1.5 s. With a Continuity piece that the plan starts, the ticks are
+  exact for the first segment only and the stepped line is not drawn. On a plan that
+  continues a clip whose frame count is kept, both show the next clip's window, hidden
+  context frames included; without the count neither is drawn.
 - **A strong dial on a curve can change the whole scene where the curve changes.** The
   curve blends between the render with the dial and the one without, and at a high
   strength these are different scenes. In renders on 2026-11-16 (one seed each, the
@@ -273,9 +310,12 @@ What the picture shows, and what to expect:
   All of this is provisional. The dialog shows this warning; lower the row strength if
   the picture cuts. The curve presets (Ramp in and so on) do not prevent it.
 - **Where a curve starts to act is a sharp threshold that moves** with the schedule and
-  the seed, and look and mood dials need more blend steps and more strength than the
-  motion dial; see [What renders have shown so far](#what-renders-have-shown-so-far-provisional).
-  The dialog shows this too.
+  the seed, and on short schedules look and mood dials need more blend steps and more
+  strength than the motion dial. On longer schedules (12 and 25 sampler steps) the one
+  look dial tried did not follow its curve with any blend-step count; see
+  [What renders have shown so far](#what-renders-have-shown-so-far-provisional).
+  The dialog shows the first part of this; its text does not yet name the long-schedule
+  finding.
 - Director timeline items and prompt blocks are **not** drawn behind the lanes: Studio
   holds MiniMax H3 references as slots with trims, without a place in seconds, and
   timed prompt blocks are free text. Only the Continuity plan's segment ends exist as
@@ -383,19 +423,44 @@ compiler's output, not started from Studio. None of this is a measured rule.
     and the same way with all 25.
   - Ink wash at 2.0 as a constant row painted the whole clip, but on the seep in/out
     curve it showed **no seep in or out with 8 blend steps or with all 25**: the clip
-    kept one muted look from start to end. So a look dial on a curve is confirmed only on
-    the 6-step turbo recipe; why it fails at 25 steps is not known.
+    kept one muted look from start to end.
+- **A look dial's curve against the sampler's step count** (ink wash at 2.0 on the seep
+  in/out curve, an anime-style prompt, DEAS's own chain, one seed each, 2026-11-17;
+  graphs derived from compiler-emitted ones and run on a separate ComfyUI instance):
+
+  | Sampler steps | Blend steps | Turbo LoRA | What the curve did |
+  | --- | --- | --- | --- |
+  | 6 | 6 | yes | Clear: colour, ink wash, colour |
+  | 8 | 8 | yes | A partial, desaturated wash over the middle of the clip |
+  | 12 | 4 (the default there) | yes | Nothing over time |
+  | 12 | 12 | yes | Nothing over time |
+  | 25 | 8 (the default there) | no | Nothing over time |
+  | 25 | 25 | no | Nothing over time |
+
+  The constant row painted the whole clip at 12 and at 25 steps, so the dial itself
+  works there. **This look dial's curve fades out as the sampler's step count rises,
+  whatever the blend-step count.** A look dial on a curve is confirmed only on short
+  schedules: clear at 6 steps, partial at 8. **More blend steps did not bring it back
+  on a longer schedule.** The cause is not known; it is in the node's blend, not in what
+  DEAS sends. The motion dial's curve does act at 25 steps (above).
 - **Other H3 modes** (graphs the compiler emitted for I2VA with a first frame and for
   REF2VA with one reference picture and the reference model, one seed each, 2026-11-17):
   all ran; the rack sat on the model input the Director uses for that mode. The motion
-  dial as a constant row at 1.5 changed nothing visible in either mode, and a curve at
-  1.5 in I2VA did nothing; at 3.0 and 4.5 it acted strongly in both, and already too
-  strongly at 3.0 (the room of the first frame stayed, but other running people entered
-  the shot). So with a picture the useful strength is higher than in text to video and
-  the usable band looked narrow; 2.0 to 2.5 was not rendered. The dial maker's notes say
-  the same about reference pictures.
-- **Blend steps:** the default was tried only at 6 and 25 sampler steps; see
-  [Blend steps](#blend-steps).
+  dial as a constant row, by strength:
+
+  | Strength | I2VA (first frame) | REF2VA (reference picture) |
+  | --- | --- | --- |
+  | 1.5 | Nothing visible (also as a curve) | Nothing visible |
+  | 2.0 | Livelier, in the same room | Livelier, with the camera panning |
+  | 2.5 | Livelier; other people start to appear late in the clip | Livelier, with the camera panning |
+  | 3.0, 4.5 | Too strong: the first frame's room stays, other running people enter the shot | Too strong, the same way |
+
+  So with a picture **about 2.0 was useful and 2.5 to 3.0 overcooked**, against a useful
+  1.5 in text to video. The 2.0 and 2.5 rows are graphs derived from the compiler-emitted
+  ones by changing only the row's strength. The dial maker's notes say the same about
+  reference pictures.
+- **Blend steps:** the default was rendered at 6, 8, 12 and 25 sampler steps for one look
+  dial and at 6 and 25 for the motion dial; see [Blend steps](#blend-steps).
 
 ## When a time curve cannot run
 
@@ -404,7 +469,9 @@ the same settings: the reason is listed in the Dials tab and in the rack dialog,
 blocked with it, and in the dialog the curve tools (add curve, presets, points, paste,
 ramp and smoothing) are disabled. **Remove curve**, the row's switch and × stay usable,
 and rows without a curve are never held. With Continuity on, the cases are judged for
-the plan's next step, and they block the plain Run button too.
+the plan's next step, and they block the plain Run button too. While a lane's curve
+editing is locked, the readout under the lanes says so instead of inviting a click; the
+pointer still reads the curve.
 
 | Case | What to do |
 | --- | --- |
@@ -414,17 +481,20 @@ the plan's next step, and they block the plain Run button too.
 | De-rope on a continued segment | Switch De-rope off for that step, or remove the curve |
 | The next step continues an imported video | Remove the curve |
 | The row's dial is a pre-refiner dial (known once the dial info has been read) | Remove that row's curve; the row still runs at a constant strength. Only that row's lane is locked, the other lanes stay editable. This is the node's refusal ("time curves support post-refiner dials only; pre-refiner rows cannot vary over time"); the compiler does not know a dial's mode. Without the dial info nothing is held and the node refuses the job when it runs |
-| The Continuity plan continues an existing clip or an imported video | Remove the curve, or switch Continuity off and render a single clip. Studio's own hold: the compiler would accept the job, but Studio cannot show where the curve lands (see [the rack dialog](#the-rack-dialog-and-its-timeline)) |
+| The Continuity plan continues an existing clip whose frame count the plan does not hold | Press **Load checkpoints** in the Continuity dialog so the count is kept, or remove the curve, or switch Continuity off and render a single clip. Studio's own hold: the compiler would accept the job, but Studio cannot show where the curve lands (see [the rack dialog](#the-rack-dialog-and-its-timeline)). With the count nothing is held |
 | De-rope with a curve, and `MAIDialHoldMap` is not on the backend | Install the pack that has it (shown once the backend's node list is read) |
 | Join with generated transitions | While a row with a curve is on, the Continuity dialog does not offer transitions and says why |
 
-Two refusals cannot be known before the job is prepared, because the pinned clip's
-frame count is read from the session list only then: a pinned clip that is not in the
-list, and points too close together to move onto the continued window. Their native
-errors appear when the job is prepared (see Troubleshooting). The curve's own limits (1
-to 64 points, increasing seconds, levels within ±20, smoothing 0 to 1, blend steps 1 to
-150) cannot be broken from the dialog; a stored row list that breaks them is not loaded
-(the rack then starts empty).
+On a plan that starts the piece, two refusals cannot be known before the job of a later
+step is prepared, because the pinned clip's frame count is read from the session list
+only then: a pinned clip that is not in the list, and points too close together to move
+onto the continued window. Their native errors appear when the job is prepared (see
+Troubleshooting). On a plan that continues a clip whose frame count is kept, the window
+is known: points too close together are reported before Run, and a clip that is missing
+or has another length when the job is prepared is refused with its own message. The
+curve's own limits (1 to 64 points, increasing seconds, levels within ±20, smoothing 0
+to 1, blend steps 1 to 150) cannot be broken from the dialog; a stored row list that
+breaks them is not loaded (the rack then starts empty).
 
 ## The intent field
 
@@ -485,6 +555,12 @@ the nodes are not required.
   window's start so each moment of the piece gets the level you authored. The start
   is the pinned checkpoint clip's frame count minus the context frames the node pack
   resolves; DEAS reads the frame count from the session list when it prepares the job.
+  An intent may carry the count the curve was authored against
+  (`h3.continuity.sourceFrames`, 17k + 5; Studio sends it on a plan that continues a
+  clip whose count it holds). With an active time curve DEAS then **refuses the job
+  when the session list has another count for that clip, or none**, instead of using
+  the list's count in silence. Without a time curve, or without a carried count, the
+  list's count is used as before.
 - Logs record both nodes under the stage `dial-patch`.
 
 ### Blend steps
@@ -520,10 +596,15 @@ each:
   say, and showed only a faint wash with 2. `h3_motion` on a 0 to 1 ramp behaved the
   same with 6 blend steps as with 2 (1.5 acted, 1.35 did not). So blending every step
   was needed by the look dial and did not hurt the motion dial. The limit of 8 is a
-  choice, not a measurement: **no job between 7 and 24 steps was rendered**.
+  choice, not a measurement. At 8 sampler steps (blend 8) the same look curve was
+  partial; nothing else between 7 and 24 steps was rendered except 12 (next point).
 - **Long schedules (a third):** at 25 steps without the turbo LoRA the motion dial did
-  nothing visible with 2 blend steps and acted with 8. **Nothing is known about look
-  dials at 25 steps**; if one does nothing there, raise the blend steps.
+  nothing visible with 2 blend steps and acted with 8. **For the one look dial tried,
+  the blend-step count is not what limits a longer schedule:** the ink wash curve did
+  nothing at 12 sampler steps with 4 or with all 12 blend steps, and nothing at 25 with
+  8 or with all 25, while the constant row worked at both. Raising the blend steps
+  there costs model calls and did not help. See
+  [What renders have shown so far](#what-renders-have-shown-so-far-provisional).
 
 The emitted rack of a 6-step job with a constant row and a curve without an authored
 value:
@@ -594,8 +675,11 @@ rows that ran.
 | `Diagnostic nodes are not available on this backend: MAIDialRack` (or `MAIDialHoldMap`) | Same cause as the first row, reported by the native check when the job is prepared. |
 | `Diagnostic loras are not available on this backend: dials/…` | The dial file is not in `models/loras/dials/`, or the backend's model list is stale. |
 | `Invalid dials: time curves on a continued segment need … sourceFrames …` | The pinned checkpoint clip was not found in the session list, so the window's start is unknown. Pin an existing clip. |
+| `Invalid dials: the pinned clip has N frames in the session list, but the time curves were laid out for M; …` | The clip the step continues is not the length the rack's lanes were drawn for: it changed after it was picked, or a finished step's clip is not the length Studio added up. Nothing was run. Press **Load checkpoints** in the Continuity dialog (the count is read again and the lanes redrawn), then look at the curves. |
+| `Invalid dials: the pinned clip's frame count (M when the time curves were laid out) could not be read from the session list; …` | The session list could not be read when the job was prepared, or it no longer has that clip. Nothing was run. Check the backend, press **Load checkpoints** and pin an existing clip. |
+| A row says "Made for … , not MiniMax H3" and Run names it | The dial file was made for another model family (the pack's catalog says so) and the node would refuse it. Switch the row off or remove it. |
 | `Invalid dials: time points are too close together to shift onto the continued segment's window` | Two points of a curve fall on the same moment once moved onto the continued window. Spread them out. |
-| A curve does nothing | The row is below the strength at which that dial starts to act on a curve, or it has too few blend steps. Read the dial's own notes in the rack dialog ("From the dial file"); raise the strength in small steps, and for a look dial raise the blend steps up to the job's steps. See [What renders have shown so far](#what-renders-have-shown-so-far-provisional). |
+| A curve does nothing | The row is below the strength at which that dial starts to act on a curve; or, on a short schedule (up to 8 sampler steps), it has too few blend steps; or it is a look dial on a longer schedule. Read the dial's own notes in the rack dialog ("From the dial file") and raise the strength in small steps. On a job of up to 8 steps, set a look dial's blend steps to the job's steps. On a longer job, more blend steps did **not** help the one look dial tried (nothing at 12 and 25 sampler steps with any blend count): use a short schedule, or the row without a curve. See [What renders have shown so far](#what-renders-have-shown-so-far-provisional). |
 | The picture cuts to another scene where a curve changes | The row is too strong for a curve. Lower its strength. See [the rack dialog](#the-rack-dialog-and-its-timeline). |
 | `MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven` | Use a safetensors base model. |
 
@@ -737,9 +821,11 @@ and would re-implement the pack's info check.
   that row's curve tools with the reason, and `dialCurveConflicts` reports `preDial`
   for an active curve on such a row, which blocks Run. An empty family or mode (native
   hands over an empty string when the pack's value is not one it knows) means unknown:
-  the dial stays offered and may take a curve. Not done: a row of another family that
-  is already in the rack (from a preset or an older session) is not flagged or held;
-  the node refuses it when the job runs.
+  the dial stays offered and may take a curve. A row of another family that is already
+  in the rack (from a preset, history or an older session) is flagged on the row by
+  `DialStrip` (`data-dial-other-family`) and, while it is on, listed among the Run
+  blockers by the Workbench with the family and the file; both use `dialOtherFamily`
+  and do nothing without a catalog entry.
 - **Not used:** `kind`, and the per-pipeline `useful` and `overcook` strengths, which
   are shown as text in the rack dialog but do not move the slider's marks.
 
@@ -806,9 +892,9 @@ it. A test per refusal compares the trigger and the native wording with the Rust
 | `tiledUpscale` | `latentUpscale` without `regenerate` | `validate_dials` |
 | `deropeContinued` | `videoPost.derope` with a pinned source | `validate_dials` |
 | `importedVideo` | pinned source of kind `video` | `validate_dials` |
-| `sourceFrames` | pinned clip's frame count known to be missing | `validate_dials`; **Studio cannot know this before Run** |
-| `shift` | points collapse when shifted by the window start | `validate_dials`; **needs the window start, which Studio does not hold** |
-| `pieceStart` | the Continuity plan has a source (`dialTimeline` basis `planSource`) | **none: Studio's own hold.** Native compiles the job and shifts the points by the window start; Studio holds the curve because the rack cannot draw it where the model gets it |
+| `sourceFrames` | no legal window for the pinned clip's frame count (`windowStart: null`) | `validate_dials`; a count that is missing from the session list is found only when the job is prepared |
+| `shift` | points collapse when shifted by the window start | `validate_dials`; Studio knows the window start only on a plan whose source carries the clip's frame count (`dialTimeline` basis `planContinued`) |
+| `pieceStart` | the Continuity plan has a source without a usable frame count (`dialTimeline` basis `planSource`) | **none: Studio's own hold.** Native compiles the job and shifts the points by the window start; Studio holds the curve because the rack cannot draw it where the model gets it. Lifted when the plan's source carries the count |
 | `preDial` | an active curve on a dial the catalog lists with `mode: pre` | **none: the node's refusal** (`timecurve.apply_rack`, read from ComfyUI-MAINodes `382f640`); unknown without the catalog |
 | `holdMapMissing` | De-rope with a curve and no `MAIDialHoldMap` in the node list | prerequisite check |
 | `curveLimits` | a curve `isDialCurve` rejects | `validate_dial_row`; cannot occur in stored rows |
@@ -817,6 +903,50 @@ it. A test per refusal compares the trigger and the native wording with the Rust
 captured generation intent, dial rows included. While `dialCurveConflicts` reports it
 for the current rows, the Workbench does not hand the join a capture function (the
 transitions option is then not offered) and passes the reason to the Continuity dialog.
+
+### Continued plans: the pinned clip's frame count
+
+A time curve is authored in whole-piece seconds and native shifts it by the continued
+window's start, `(sourceFrames - overlap) / 24`. To draw the lanes over the whole piece
+Studio needs `sourceFrames` of the clip the plan continues before Run.
+
+- **Where it is kept: on the persisted plan's source**, `ContinuityPlan.source.frames`
+  (`src/lib/continuity.ts`), next to `clipId` and `endpoint`. The count belongs to that
+  clip on that backend and must go when the source goes: every path that replaces or
+  clears the source already rebuilds the object (`defaultPlanKeep` in
+  `ContinuityPlanner.tsx`), so a stale count cannot outlive its clip, and the plan's
+  one validator (`isContinuityPlan`) and one preference key (`studio.run.continuity`)
+  cover it. State beside the plan (a second preference, or component state in the
+  Workbench) would need its own invalidation on session, endpoint and source changes
+  and would be lost on restart while the plan is kept.
+- **Validation and older plans.** The field is optional. `isContinuityPlan` accepts a
+  plan without it (every plan saved before, unchanged) and accepts a count only on a
+  checkpoint source and only when it is what native accepts as `sourceFrames`
+  (`isClipFrames`: a whole number, 17k + 5). Nothing is migrated on load; a plan without
+  the count keeps the `pieceStart` hold until its checkpoints are read again.
+- **Where it comes from.** `ContinuitySources` already read the session's clips with
+  validated frame counts for its list. It now hands the picked clip's count to
+  `onSelect`, and after each read reports the count of the clip that is the current
+  source (`onFrames`) when none is kept or it differs; the planner writes only
+  `source.frames` then. This is the one change to the Continuity feature.
+- **Layout.** `dialTimeline` returns basis `planContinued` with `rendered` (the clip
+  and finished steps), the segment `edges` and `window` for the next step: `start` from
+  `continuationWindowStart` (the mirror of native `continuation_window_start`, tested
+  against the table the native test asserts), `frames` (context + new) and `source`,
+  the frame count before that step. `dialWindowLevels` shifts the curve as native
+  `dial_rack` does and returns the per-latent-frame values at piece seconds.
+- **Agreement with native.** `withDialSourceFrames` puts `window.source` into
+  `h3.continuity.sourceFrames` of a continued intent that carries a time curve. Native
+  `prepare` reads the session list as before and calls `confirm_source_frames`
+  (`jobs_video.rs`): with an active time curve and a carried count, another count in the
+  list, or none, is an `Invalid dials: …` error; otherwise the list's count is written
+  as before. Only the picked clip's count is read from a session; the counts before
+  later steps are sums (source + extension per finished step, the pack's own rule in
+  `h3_continuity/inspection.py`, read from ComfyUI-DaSiWa-Nodes `d90dd88`), so the
+  check is also what catches a sum that is wrong.
+- **Not changed:** a plan that starts the piece (basis `plan`) sends no count for its
+  later steps and is not checked this way; its lanes were laid out by the same sums
+  before this work.
 
 ### The rack dialog
 
@@ -830,6 +960,11 @@ transitions option is then not offered) and passes the reason to the Continuity 
   clipboard text, the lane length (`dialTimeline`) and `rackReduce`, the reducer every
   edit of the dialog goes through, strip edits included, which is what gives one undo
   history. The dialog holds only view state: level range, pointer and drafts.
+- Undo steps: changes that carry the same tag share a step until the gesture ends.
+  The reducer action `gesture` closes any open tag. The strip calls it through
+  `onCommit`; the dialog's Smoothing slider and its Time, Level and Blend steps fields
+  call it the same way (the browser's `change` commit, pointer up, key up, blur; a held
+  slider key is one step).
 - The sampler is tested against `src/lib/dialCurve.fixture.json`: 48 curves (8 point
   sets × ramp at four smoothing values and step) sampled at 3,354 times plus the
   per-latent-frame means for clips of 5, 9 and 29 latent frames, computed by the pack's
@@ -918,9 +1053,7 @@ backend has no rack preset route", and the dialog then offers neither load nor s
   through the job path.
 - **Dial info, open points:** whether a single first or last frame should use the
   `fl2v` measurement; whether the per-pipeline strengths should move the marks when the
-  file has them; whether a row of another model family that is already in the rack
-  should be flagged or block Run (new rows of another family are no longer offered);
-  and whether the audio mode should default to
+  file has them; and whether the audio mode should default to
   protected for a file that says so (today only as free text, which is not parsed).
 
 ## Platforms and evidence
@@ -935,6 +1068,7 @@ and the [rack dialog](VERIFICATION.md#experimental-h3-dials-rack-dialog-and-blen
 and the [rack presets](VERIFICATION.md#experimental-h3-dials-rack-presets-unreleased--2026-11-16)
 and the [dial info and audio mode](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)
 and the [independent review and its fixes](VERIFICATION.md#experimental-h3-dials-independent-review-and-fixes-unreleased--2026-11-17)
+and [round two](VERIFICATION.md#experimental-h3-dials-round-two-continued-plans-with-a-known-clip-length-unreleased--2026-11-17)
 for what was tested and the [plan](PLAN.md) for what is open. `tools/verify_dials.py`
 checks the strip's, the rack dialog's and the presets dialog's geometry, mouse and
 keyboard use, and the dial info on the rows, in Chromium with synthetic IPC. Node
