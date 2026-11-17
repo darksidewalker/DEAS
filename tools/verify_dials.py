@@ -32,6 +32,9 @@ PRESETS = {
 # Stand-in for `native_dial_catalog`: four entries of the development machine's catalog (public dial metadata, 2026-11-16) and one
 # built from the pack's schema, because no dial file there carries per-pipeline measurements yet.
 NONE = {'useful': None, 'overcook': None}
+# Mode and family: a pre-refiner H3 dial (a LoRA-style dial file) and a dial of another model family (example name).
+PRE, KREA = 'dials/h3_motion_lora.safetensors', 'dials/krea2_example_hook.safetensors'
+BARE = {'version': 2, 'description': '', 'negative': '', 'positive': '', 'pipeline': '', 'notes': '', 'neg': {'useful': None, 'overcook': None}, 'pos': {'useful': None, 'overcook': None}, 'evidence': None}
 DAY, INK, IMPACT, MOTION, EXAMPLE = ('dials/h3_day_night_hook.safetensors', 'dials/h3_ink_wash.safetensors', 'dials/h3_impact_frame.safetensors', 'dials/h3_motion.safetensors', 'dials/example_measured_look.safetensors')
 CATALOG = {'dropped': 0, 'truncated': False, 'dials': [
     {'dial': DAY, 'family': 'MiniMax H3', 'mode': 'post', 'info': {'version': 2, 'description': 'Time of day: +1 dusk, +2 night with a blue cast. Measured on Pika H3 Flex, 1 seed.', 'negative': 'bright midday', 'positive': 'night',
@@ -44,10 +47,12 @@ CATALOG = {'dropped': 0, 'truncated': False, 'dials': [
      'negative': 'normal shading', 'positive': 'impact frame', 'pipeline': 'Pika H3 Flex 6-step, time rows k = 6, audio: protect',
      'notes': 'Text to video: pulse 4.5 (a 0.5 s step at the hit) gives ~6 inverted ink frames and the shot comes back clean; constant 3 inks the whole clip. With a reference picture: pulse 6, a burst over the contact, not full-frame; 8 drew less than 6. One scene, seed 4242. https://matlowai.github.io/ComfyUI-Dials/curves.html',
      'neg': NONE, 'pos': {'useful': 4.5, 'overcook': 8.0}, 'evidence': 'one-seed'}},
-    {'dial': MOTION, 'family': 'MiniMax H3', 'mode': 'pre', 'info': {'version': 2, 'description': '', 'negative': '', 'positive': '', 'pipeline': '', 'notes': '', 'neg': NONE, 'pos': NONE, 'evidence': None}},
+    {'dial': MOTION, 'family': 'MiniMax H3', 'mode': 'post', 'info': {'version': 2, 'description': '', 'negative': '', 'positive': '', 'pipeline': '', 'notes': '', 'neg': NONE, 'pos': NONE, 'evidence': None}},
     {'dial': EXAMPLE, 'family': 'MiniMax H3', 'mode': 'post', 'info': {'version': 2, 'description': 'Schema example, not a real dial file: a look measured per pipeline.', 'negative': 'plain', 'positive': 'styled', 'pipeline': '6-step', 'notes': '',
      'neg': {'useful': 1.0, 'overcook': None}, 'pos': {'useful': 2.0, 'overcook': 4.0}, 'evidence': 'multi-seed', 'kind': 'look',
      'pipelines': {'t2v': {'useful': 2.0, 'overcook': 4.0, 'steps': 6, 'evidence': 'multi-seed', 'notes': 'follows at 6, smears at 2'}}}},
+    {'dial': PRE, 'family': 'MiniMax H3', 'mode': 'pre', 'info': BARE},
+    {'dial': KREA, 'family': 'Krea 2', 'mode': 'post', 'info': BARE},
 ]}
 INFO_ROWS = [
     {'dial': DAY, 'strength': 1.5, 'on': True},
@@ -371,6 +376,67 @@ def verify_continued(browser, url, shots, checks):
             assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
         finally:
             context.close()
+
+
+def verify_families(browser, url, shots, checks):
+    """The catalog's family and mode: a dial of another model family is not offered; a pre-refiner dial is, and its lane takes no curve and says why."""
+    listed = ['style.safetensors', DAY, MOTION, PRE, KREA]
+    rows = [{'dial': PRE, 'strength': 1.5, 'on': True}, ROWS[1]]
+    for locale in ('en', 'de', 'zh'):
+        for catalog in (True, False):
+            context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+            page = context.new_page()
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(rows)).replace('LISTED', json.dumps(listed)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap']))
+                                 + ('' if catalog else '\nwindow.__noCatalog=true;'))
+            try:
+                page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
+                label = f'families:{locale}:{"catalog" if catalog else "no-catalog"}'
+                strip = page.locator('#studio-dock [data-dials]')
+                if catalog:
+                    expect(strip.locator('[data-dial-row][data-dial-info="known"]')).to_have_count(2)
+                else:
+                    expect(strip.locator('[data-dial-info-state="unavailable"]')).to_be_visible()
+                offered = strip.locator('[data-dial-add] option').evaluate_all('(es)=>es.map(e=>e.value)')
+                assert offered == (['', MOTION] if catalog else ['', MOTION, KREA]), (label, 'offered dial files', offered)
+                expect(page.locator('#studio-dock [data-dial-conflict]')).to_have_count(0)
+                opener = page.locator('#studio-dock [data-dial-rack-open]')
+                opener.scroll_into_view_if_needed()
+                opener.click()
+                dialog = page.locator('dialog[data-dial-rack]')
+                expect(dialog.locator(f'[data-dial-lane="{PRE}"]')).to_have_attribute('data-selected', 'true')
+                locked = dialog.locator('[data-dial-rack-locked]')
+                for tool in ('addCurve', 'preset.rampIn', 'preset.pulse', 'paste'):
+                    button = dialog.locator(f'[data-dial-tool="{tool}"]')
+                    if catalog:
+                        expect(button).to_be_disabled()
+                    else:
+                        expect(button).to_be_enabled()
+                if catalog:
+                    expect(locked).to_be_visible()
+                    expect(locked).to_contain_text('h3_motion_lora')
+                    box, body = locked.bounding_box(), dialog.locator('.dial-rack-body').bounding_box()
+                    assert box['x'] >= body['x'] - 1 and box['x'] + box['width'] <= body['x'] + body['width'] + 1, (label, 'the reason leaves the dialog', box, body)
+                    if locale == 'en':
+                        locked.scroll_into_view_if_needed()
+                        page.screenshot(path=str(shots / 'families-en-pre-1440x960.png'))
+                else:
+                    expect(locked).to_have_count(0)
+                # The post-refiner lane beside it is edited as always, and the pre-refiner row keeps its strength controls.
+                dialog.locator(f'[data-dial-lane="{DAY}"] .dial-lane-name').click()
+                expect(dialog.locator('[data-dial-rack-locked]')).to_have_count(0)
+                expect(dialog.locator('[data-dial-tool="preset.rampIn"]')).to_be_enabled()
+                expect(dialog.locator(f'[data-dial-row="{PRE}"] [data-dial="slider"]')).to_be_enabled()
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                assert saved(page) == rows, (label, 'looking changed the rows', saved(page))
+                checks.append(label)
+                assert not errors, errors
+                assert page.evaluate('__unexpected') == [], page.evaluate('__unexpected')
+                assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
+            finally:
+                context.close()
 
 
 PRESETS_GEOMETRY = r"""()=>{
@@ -776,6 +842,7 @@ def verify(browser, url, shots):
                 context.close()
     verify_rack(browser, url, shots, checks)
     verify_continued(browser, url, shots, checks)
+    verify_families(browser, url, shots, checks)
     verify_presets(browser, url, shots, checks)
     verify_info(browser, url, shots, checks)
     result = {'status': 'PASS', 'checksPassed': len(checks), 'kind': 'Chromium geometry, mouse and keyboard; synthetic IPC only', 'screenshots': str(shots), 'checks': checks}

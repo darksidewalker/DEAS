@@ -6,7 +6,7 @@ import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialStrip } from './DialStrip';
 import { DialPresetsDialog } from './DialPresetsDialog';
 import type { DialPresetStore } from '../../lib/dialPresets';
-import { dialInfoSteps, type DialInfoMap, type DialInfoState, type DialPipeline } from '../../lib/dialInfo';
+import { dialInfoSteps, dialNoCurve, type DialInfoMap, type DialInfoState, type DialPipeline } from '../../lib/dialInfo';
 import './continuity-overlay.css';
 import './dial-rack.css';
 
@@ -14,8 +14,11 @@ import './dial-rack.css';
 let inPageCurve='';
 const fmt=(v:number,digits=2)=>String(+v.toFixed(digits));
 const pct=(v:number)=>`${(v*100).toFixed(3)}%`;
-/** Refusals that depend on what the job is, not on the curve: editing a curve cannot resolve them, removing it can. */
-const blocksEditing=(c:DialCurveConflict)=>c!=='blendSteps'&&c!=='curveLimits';
+/**
+ * Refusals that depend on what the job is, not on the curve: editing a curve cannot resolve them, removing it can. `preDial` is about one row
+ * only: it locks that row's lane (`dialNoCurve` below), not every lane.
+ */
+const blocksEditing=(c:DialCurveConflict)=>c!=='blendSteps'&&c!=='curveLimits'&&c!=='preDial';
 
 /** Lane picture: the curve as the node samples it (`sampleDialCurve`), in a 1000 × 100 box stretched to the lane. */
 function curvePath(curve:Pick<H3DialCurve,'points'|'interp'|'smooth'>,from:number,to:number,lo:number,hi:number){
@@ -72,8 +75,10 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
 
  const row=s.rows[s.row],curve=row?.time,name=row?dialLabel(row.dial):'';
  const blocking=conflicts.filter(blocksEditing);
- const locked=!!gate||blocking.length>0;
- const lockReason=gate?t(`studio.dials.reason.${gate}`):blocking.length?t(`studio.dials.conflict.${blocking[0]}`):'';
+ // A pre-refiner dial (the pack's catalog says so) takes no time curve: the node refuses it. Its lane keeps Remove curve, like any refusal.
+ const pre=!!row&&dialNoCurve(info?.[dialName(row.dial)]);
+ const locked=!!gate||blocking.length>0||pre;
+ const lockReason=gate?t(`studio.dials.reason.${gate}`):blocking.length?t(`studio.dials.conflict.${blocking[0]}`):pre?t('studio.dials.rack.preDial',{name}):'';
  // Shown seconds: the lane, widened to points authored for a longer piece.
  const times=s.rows.flatMap(r=>r.time?.points.map(q=>q[0])??[]);
  const from=Math.min(0,...times),to=Math.max(timeline.seconds,...times,from+0.5);

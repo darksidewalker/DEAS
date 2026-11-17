@@ -8,7 +8,7 @@ import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialRackDialog } from './DialRackDialog';
 import { DialStrip } from './DialStrip';
 import { parseDialCatalog, type DialInfoMap, type DialPipeline } from '../../lib/dialInfo';
-import { catalogFixture, impact, inkWash, measuredDial, motionDial } from '../../lib/dialInfo.fixture';
+import { catalogFixture, familyFixture, impact, inkWash, measuredDial, motionDial, preDial } from '../../lib/dialInfo.fixture';
 
 const showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
 const close = vi.fn(function (this: HTMLDialogElement) { this.open = false; });
@@ -377,7 +377,8 @@ test.each(dialCurveConflictIds)('refusal %s shows its reason in the dialog and i
   expect(within(dialog()).getByRole('list', { name: 'Why the time curves cannot run' })).toBeTruthy();
   select(calm);
   // Editing cannot resolve a refusal that depends on the job; changing the curve can resolve its own limits.
-  const locked = id !== 'blendSteps' && id !== 'curveLimits';
+  // A pre-refiner dial locks its own lane only (below), not every lane.
+  const locked = id !== 'blendSteps' && id !== 'curveLimits' && id !== 'preDial';
   expect(!!document.querySelector('[data-dial-rack-locked]')).toBe(locked);
   if (locked) expect(document.querySelector('[data-dial-rack-locked]')!.textContent).toBe(`Curve editing is off here. ${reason}`);
   for (const name of ['preset.rampIn', 'preset.rampOut', 'preset.pulse', 'preset.dip', 'addPoint', 'paste']) {
@@ -513,6 +514,43 @@ test('a new curve is authored with the blend steps the dial file records for the
   expect(last[0].time!.steps).toBe(20);
   expect(fileSteps()!.textContent).toBe('The dial file records 40 blend steps for reference pictures; this job has 20 sampler steps, so 20 is the most.');
   expect(fileSteps()!.dataset.dialStepsFile).toBe('20');
+});
+
+test('a pre-refiner dial is in the rack with its strength, but its lane takes no curve and says why; other lanes are not held', () => {
+  const families = parseDialCatalog(familyFixture)!;
+  const reason = text('studio.dials.rack.preDial', { name: 'h3_motion_lora' });
+  expect(reason).toContain('post-refiner dials only');
+  const view = render(<Host info={{ ...infoMap, ...families }} initial={[{ dial: preDial, strength: 1.5, on: true }, { dial: inkWash, strength: 2, on: true }]}/>);
+  // The pre-refiner lane is selected first: no curve can be given to it.
+  expect(lane(preDial).dataset.selected).toBe('true');
+  expect(document.querySelector('[data-dial-rack-locked]')!.textContent).toBe(`Curve editing is off here. ${reason}`);
+  for (const name of ['addCurve', 'preset.rampIn', 'preset.rampOut', 'preset.pulse', 'preset.dip', 'addPoint', 'paste']) { expect(tool(name).disabled, name).toBe(true); expect(tool(name).title, name).toBe(reason); }
+  fireEvent.click(tool('preset.rampIn'));
+  expect(lane(preDial).dataset.dialCurved).toBe('false');
+  // Its strength and switch work as on any row.
+  fireEvent.change(within(dialog()).getByRole('slider', { name: 'Strength of h3_motion_lora' }), { target: { value: '2' } });
+  expect(last[0]).toEqual({ dial: preDial, strength: 2, on: true });
+  // The post-refiner lane beside it is edited as always.
+  select(inkWash);
+  expect(document.querySelector('[data-dial-rack-locked]')).toBeNull();
+  expect(tool('addCurve').disabled).toBe(false);
+  fireEvent.click(tool('addCurve'));
+  expect(last[1].time).toBeDefined();
+  view.unmount();
+  // A curve that is already on a pre-refiner row (authored before the catalog was read, or from a preset): the refusal is listed, the lane's
+  // tools are off and Remove curve is the way out. Without the catalog nothing is known and nothing is held.
+  const curvedPre: DialRow[] = [{ dial: preDial, strength: 1.5, on: true, time: keys([[0, 0], [1.5, 1]]) }, { dial: inkWash, strength: 2, on: true, time: keys([[0, 0], [2, 1]]) }];
+  const held = render(<Host info={{ ...infoMap, ...families }} conflicts={['preDial']} initial={curvedPre}/>);
+  expect(document.querySelector('[data-dial-rack] [data-dial-conflict="preDial"]')!.textContent).toBe(text('studio.dials.conflict.preDial'));
+  expect(points().every(p => p.disabled)).toBe(true);
+  expect(document.querySelector<HTMLSelectElement>('[data-dial-interp]')!.disabled).toBe(true);
+  expect(tool('removeCurve').disabled).toBe(false);
+  select(inkWash);
+  expect(points().every(p => !p.disabled)).toBe(true);
+  held.unmount();
+  render(<Host initial={curvedPre}/>);
+  expect(document.querySelector('[data-dial-rack-locked]')).toBeNull();
+  expect(points().every(p => !p.disabled)).toBe(true);
 });
 
 test('without recorded blend steps DEAS keeps its default and shows the dial\'s own pipeline text and notes beside the field', () => {

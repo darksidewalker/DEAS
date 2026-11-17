@@ -92,8 +92,9 @@ export function dialGate(p:{h3Video:boolean;nodes?:readonly string[];gguf:boolea
 /**
  * Why a time curve cannot run, in the order native `validate_dials` checks; the last two are found by the prerequisite check and by `validate_dial_row`.
  * `pieceStart` is Studio's own: native compiles that job, but Studio cannot show the curve the model would get (see `DialCurveFacts.pieceStartUnknown`).
+ * `preDial` is the node's: native does not know a dial's mode, the node refuses a time curve on a pre-refiner dial when the job runs.
  */
-export const dialCurveConflictIds=['blendSteps','transition','faceRefine','tiledUpscale','deropeContinued','importedVideo','sourceFrames','shift','pieceStart','holdMapMissing','curveLimits'] as const;
+export const dialCurveConflictIds=['blendSteps','transition','faceRefine','tiledUpscale','deropeContinued','importedVideo','sourceFrames','shift','pieceStart','preDial','holdMapMissing','curveLimits'] as const;
 export type DialCurveConflict=typeof dialCurveConflictIds[number];
 /**
  * What the next job is, as far as time curves care. `continued` = the segment pins a source (`h3.continuity.sourceId`); `windowStart` = seconds at
@@ -102,14 +103,15 @@ export type DialCurveConflict=typeof dialCurveConflictIds[number];
  * `pieceStartUnknown` = the Continuity plan continues an existing clip or an imported video (`dialTimeline` basis `planSource`): curve seconds count from
  * the start of the whole piece and native moves every point by the pinned clip's cumulative length less the context frames, a length Studio does not
  * hold. The rack then cannot draw the curve where the model gets it, so Studio holds active curves instead of sending one nobody could author.
+ * `noCurve` = dial names (forward slashes) the pack's catalog lists as pre-refiner dials (`dialNoCurveNames`); absent while no catalog was read.
  */
-export interface DialCurveFacts { rows:readonly DialRow[]; steps:number; transition?:boolean; faceRefine?:boolean; tiledUpscale?:boolean; derope?:boolean; continued?:boolean; importedVideo?:boolean; windowStart?:number|null; pieceStartUnknown?:boolean; nodes?:readonly string[] }
+export interface DialCurveFacts { rows:readonly DialRow[]; steps:number; transition?:boolean; faceRefine?:boolean; tiledUpscale?:boolean; derope?:boolean; continued?:boolean; importedVideo?:boolean; windowStart?:number|null; pieceStartUnknown?:boolean; noCurve?:readonly string[]; nodes?:readonly string[] }
 /**
  * Every reason the compiler would refuse the active rows' time curves, mirroring native `validate_dials` (which stays authoritative and reports
  * only the first). Empty without an active curve: rows without one are a plain model patch and run everywhere.
  */
 export function dialCurveConflicts(f:DialCurveFacts):DialCurveConflict[] {
- const curves=activeDials(f.rows).flatMap(r=>r.time?[r.time]:[]);
+ const curved=activeDials(f.rows).filter(r=>r.time),curves=curved.map(r=>r.time!);
  if(!curves.length)return [];
  const out:DialCurveConflict[]=[];
  if(curves.some(c=>c.steps!==undefined&&c.steps>f.steps))out.push('blendSteps');
@@ -123,6 +125,7 @@ export function dialCurveConflicts(f:DialCurveFacts):DialCurveConflict[] {
   else if(typeof f.windowStart==='number'&&curves.some(c=>c.points.some((q,i)=>i>0&&c.points[i-1][0]-f.windowStart!>=q[0]-f.windowStart!)))out.push('shift');
  }
  if(f.pieceStartUnknown)out.push('pieceStart');
+ if(f.noCurve&&curved.some(r=>f.noCurve!.includes(dialName(r.dial))))out.push('preDial');
  if(f.derope&&f.nodes&&!f.nodes.includes(dialHoldMapNode))out.push('holdMapMissing');
  if(curves.some(c=>!isDialCurve(c)))out.push('curveLimits');
  return out;

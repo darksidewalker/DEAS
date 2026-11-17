@@ -307,7 +307,7 @@ test('join transitions are not offered while a row with a time curve is on, and 
 // What `native_dial_catalog` hands Studio for the two dial files of these tests (shape of the pack's catalog; the per-pipeline steps are a schema example).
 const look='dials/h3_look.safetensors';
 const dialCatalog={dials:[
- {dial:motion,family:'MiniMax H3',mode:'pre',info:{version:2,description:'More or less movement.',negative:'still',positive:'lively',pipeline:'6-step, time rows k = 6',notes:'On a curve it needs the blend on every step.',neg:{useful:1.5,overcook:null},pos:{useful:1.5,overcook:2.25},evidence:'one-seed',
+ {dial:motion,family:'MiniMax H3',mode:'post',info:{version:2,description:'More or less movement.',negative:'still',positive:'lively',pipeline:'6-step, time rows k = 6',notes:'On a curve it needs the blend on every step.',neg:{useful:1.5,overcook:null},pos:{useful:1.5,overcook:2.25},evidence:'one-seed',
   pipelines:{t2v:{useful:1.5,overcook:2.25,steps:6,evidence:'one-seed',notes:''}}}},
  {dial:look,family:'MiniMax H3',mode:'post',info:{version:2,description:'',negative:'plain',positive:'inked',pipeline:'',notes:'',neg:{useful:null,overcook:null},pos:{useful:4.5,overcook:8},evidence:'multi-seed'}},
 ],dropped:0,truncated:false};
@@ -358,6 +358,46 @@ test('opening the Dials tab reads the dial catalog once; side labels, marks, a n
  dock('LoRAs');dock('Dials');
  await waitFor(()=>expect(catalogCalls()).toHaveLength(3));
  await waitFor(()=>expect(row(motion).dataset.dialInfo).toBe('known'));
+});
+
+test('with the catalog read, a dial of another model family is not offered and a pre-refiner dial takes no time curve; without it nothing changes',async()=>{
+ const pre='dials/h3_motion_lora.safetensors',krea='dials/krea2_example_hook.safetensors',moss='dials/moss_example.safetensors';
+ const bare={version:2,description:'',negative:'',positive:'',pipeline:'',notes:'',neg:{useful:null,overcook:null},pos:{useful:null,overcook:null},evidence:null};
+ const families={dials:[...dialCatalog.dials,{dial:pre,family:'MiniMax H3',mode:'pre',info:bare},{dial:krea,family:'Krea 2',mode:'post',info:bare},{dial:moss,family:'MOSS-Image',mode:'post',info:bare}],dropped:0,truncated:false};
+ let answer:()=>unknown=()=>{throw 'DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route.';};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?answer():other);
+ const offered=()=>Array.from(document.querySelector<HTMLSelectElement>('[data-dial-add]')!.options).map(o=>o.value);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ // A pre-refiner row that already has a curve, and a post-refiner row with one.
+ await mountTab([{dial:pre,strength:1.5,on:true,time:curve},{dial:look,strength:2,on:true,time:curve}],{loras:[motion,calm,look,pre,krea,moss,'style.safetensors']});
+ dock('Dials');
+ // No catalog: every dial file is offered and nothing is held, as before.
+ await waitFor(()=>expect(document.querySelector('[data-dial-info-state="unavailable"]')).not.toBeNull());
+ expect(offered()).toEqual(['',motion,krea,moss,calm]);
+ expect(strip().querySelector('[data-dial-conflicts]')).toBeNull();
+ expect(run().disabled).toBe(false);
+ // The catalog is read: the other families leave the list; the pre-refiner row's curve is refused before Run.
+ answer=()=>families;
+ fireEvent.click(within(strip()).getByRole('button',{name:'Reload dial info'}));
+ await waitFor(()=>expect(offered()).toEqual(['',motion,calm]));
+ const reason='A row with a time curve uses a pre-refiner dial.';
+ expect(strip().querySelector('[data-dial-conflict="preDial"]')!.textContent).toContain(reason);
+ await waitFor(()=>expect(run().title).toContain(reason));
+ expect(run().disabled).toBe(true);
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(dialog.querySelector('[data-dial-rack-locked]')!.textContent).toContain('h3_motion_lora is a pre-refiner dial.');
+ expect(dialog.querySelector<HTMLButtonElement>('[data-dial-tool="preset.rampIn"]')!.disabled).toBe(true);
+ fireEvent.click(dialog.querySelector('[data-dial-tool="removeCurve"]')!);
+ await waitFor(()=>expect(run().disabled).toBe(false));
+ expect(dialog.querySelector('[data-dial-conflicts]')).toBeNull();
+ expect(dialog.querySelector<HTMLButtonElement>('[data-dial-tool="addCurve"]')!.disabled).toBe(true);
+ // The row is still sent, at its constant strength; the post-refiner row keeps its curve.
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ fireEvent.click(run());
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {dials:DialRow[]};
+ expect(sent.dials).toEqual([{dial:pre,strength:1.5},{dial:look,strength:2,time:curve}]);
 });
 
 test('a failed catalog read never blocks the strip: it keeps its fallbacks, says dial info is unavailable and Run stays usable',async()=>{

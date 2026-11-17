@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { dialInfoError, dialInfoOf, dialInfoSteps, dialMarks, dialOvercooked, dialPipelineOf, dialSliderRange, dialStartStrength, parseDialCatalog, readDialCatalog } from './dialInfo';
-import { catalogFixture, dayNight, impact, inkWash, measuredDial, motionDial } from './dialInfo.fixture';
+import { dialInfoError, dialInfoOf, dialNoCurve, dialOtherFamily, dialInfoSteps, dialMarks, dialOvercooked, dialPipelineOf, dialSliderRange, dialStartStrength, parseDialCatalog, readDialCatalog } from './dialInfo';
+import { catalogFixture, dayNight, familyFixture, impact, inkWash, kreaDial, measuredDial, mossDial, motionDial, preDial, unlabelled } from './dialInfo.fixture';
 
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: vi.fn(() => true), invoke: vi.fn() }));
 beforeEach(() => { vi.mocked(isTauri).mockReturnValue(true); vi.mocked(invoke).mockReset(); });
@@ -11,8 +11,8 @@ const info = (edit: Record<string, unknown> = {}) => dialInfoOf({ version: 2, ..
 test('the catalog answer becomes a map by dial name with exactly the fields the strip shows', () => {
   expect(Object.keys(map)).toEqual([dayNight, inkWash, impact, motionDial, measuredDial]);
   expect(map[dayNight]).toEqual({ description: 'Time of day: +1 dusk, +2 night with a blue cast. Measured on Pika H3 Flex, 1 seed.', negative: 'bright midday', positive: 'night', pipeline: 'Pika H3 Flex 6-step', notes: '',
-    neg: { useful: 1.5, overcook: 3 }, pos: { useful: 1.5, overcook: 3 }, evidence: 'one-seed', family: 'MiniMax H3' });
-  expect(map[motionDial]).toEqual({ description: '', negative: '', positive: '', pipeline: '', notes: '', neg: { useful: null, overcook: null }, pos: { useful: null, overcook: null }, evidence: null, family: 'MiniMax H3' });
+    neg: { useful: 1.5, overcook: 3 }, pos: { useful: 1.5, overcook: 3 }, evidence: 'one-seed', family: 'MiniMax H3', mode: 'post' });
+  expect(map[motionDial]).toEqual({ description: '', negative: '', positive: '', pipeline: '', notes: '', neg: { useful: null, overcook: null }, pos: { useful: null, overcook: null }, evidence: null, family: 'MiniMax H3', mode: 'post' });
   expect(map[measuredDial].pipelines).toEqual({ t2v: { useful: 2, overcook: 4, steps: 6, evidence: 'multi-seed', notes: 'follows at 6, smears at 2' }, ref2v: { useful: null, overcook: null, steps: 40, evidence: null, notes: '' }, fl2v: { useful: 3, overcook: null, evidence: 'one-seed', notes: 'no curve measured' } });
   expect(map[measuredDial].kind).toBe('look');
 });
@@ -38,6 +38,19 @@ test('anything outside the pack\'s schema reads as unknown or is left out, never
     { dial: 'loras/x.safetensors', info: { version: 2 } }, { dial: 'dials/../x.safetensors', info: { version: 2 } }, { dial: 'dials/old.safetensors', info: { version: 1 } }, { dial: 7, info: { version: 2 } }, 'x', null] }))
     .toEqual({ 'dials/sub/a.safetensors': { description: '', negative: '', positive: 'first', pipeline: '', notes: '', neg: { useful: null, overcook: null }, pos: { useful: null, overcook: null }, evidence: null } });
   for (const bad of [null, [], 'x', {}, { dials: {} }, { dials: 'x' }]) expect(parseDialCatalog(bad)).toBeNull();
+});
+
+test('the catalog keeps each dial\'s family and mode: another family is not for a MiniMax H3 job, a pre-refiner dial takes no time curve', () => {
+  const families = parseDialCatalog(familyFixture)!;
+  expect(Object.fromEntries(Object.entries(families).map(([dial, i]) => [dial, [i.family, i.mode]]))).toEqual({ [preDial]: ['MiniMax H3', 'pre'], [kreaDial]: ['Krea 2', 'post'], [mossDial]: ['MOSS-Image', 'post'], [unlabelled]: [undefined, undefined] });
+  // Only the pack's two modes are carried.
+  for (const mode of ['both', 'PRE', 7, null, undefined, '']) expect(parseDialCatalog({ dials: [{ dial: preDial, family: 'MiniMax H3', mode, info: { version: 2 } }] })![preDial].mode, String(mode)).toBeUndefined();
+  // The node refuses a dial of another family (`core.check_family`); MiniMax H3 is the pack's name for the video and the image model.
+  expect([preDial, kreaDial, mossDial, unlabelled].map(d => dialOtherFamily(families[d]))).toEqual([false, true, true, false]);
+  expect([map[dayNight], map[motionDial], undefined].map(dialOtherFamily)).toEqual([false, false, false]);
+  // The node runs time curves on post-refiner dials only (`timecurve.apply_rack`). Unknown stays allowed.
+  expect([preDial, kreaDial, unlabelled].map(d => dialNoCurve(families[d]))).toEqual([true, false, false]);
+  expect([map[motionDial], undefined].map(dialNoCurve)).toEqual([false, false]);
 });
 
 test('the slider reaches at least ±3 and as far as each side\'s overcook strength, or 1.5 × its useful strength', () => {

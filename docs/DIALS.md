@@ -48,7 +48,11 @@ has no dock tabs and sends no dials). It works with a MiniMax H3 **video** pipel
 - **Add a dial…** lists the dial files the backend reports in `models/loras/dials/`
   (the library scan stands in while the backend list is unread). Files in folders whose
   name starts with `_` are not offered, as in the pack's own picker. Each dial can be
-  added once; a rack holds at most 8.
+  added once; a rack holds at most 8. Once the [dial info](#dial-info) has been read, a
+  dial file that the pack's catalog says was **made for another model family** (the
+  pack also makes dials for Krea 2 and MOSS-Image) is not offered: the node refuses it
+  on a MiniMax H3 model. Without the catalog every dial file is offered, as before. A
+  row that is already in the rack is never removed by this.
 - Each row holds an **on/off** switch, the file name, a **slider**, a **number field**
   that accepts the full -20 to 20 (the slider stays at its end when the number is beyond
   it), a small **picture of the time curve** when the row has one, and **×** to remove
@@ -123,6 +127,13 @@ H3 video.
   [Troubleshooting](#troubleshooting); Logs has a `Dial info catalog` entry.
 - Dial files without info (many have none) show "The dial file records no useful or
   overcook strength" and keep the -3 to 3 slider.
+- The catalog also says, per file, the **model family** it was made for and whether it
+  is a **post-refiner** dial (the usual hook file) or a **pre-refiner** dial (a
+  LoRA-style dial file). Studio uses both: other families are not offered (above), and a
+  pre-refiner dial takes no time curve (see
+  [When a time curve cannot run](#when-a-time-curve-cannot-run)). On the development
+  machine (file headers read on 2026-11-17) the 200 listed files are 126 post-refiner
+  and 15 pre-refiner MiniMax H3 dials, 56 MOSS-Image and 3 Krea 2 dials.
 - On the development machine's catalog (200 dial files, 2026-11-16) 46 files record a
   positive useful strength and **none records per-pipeline measurements**, so the
   blend-step default taken from a file (below) has only been exercised with an example
@@ -389,6 +400,7 @@ the plan's next step, and they block the plain Run button too.
 | The tiled latent upscale is on | Use Hi-Res Regenerate or no upscale, or remove the curve |
 | De-rope on a continued segment | Switch De-rope off for that step, or remove the curve |
 | The next step continues an imported video | Remove the curve |
+| The row's dial is a pre-refiner dial (known once the dial info has been read) | Remove that row's curve; the row still runs at a constant strength. Only that row's lane is locked, the other lanes stay editable. This is the node's refusal ("time curves support post-refiner dials only; pre-refiner rows cannot vary over time"); the compiler does not know a dial's mode. Without the dial info nothing is held and the node refuses the job when it runs |
 | The Continuity plan continues an existing clip or an imported video | Remove the curve, or switch Continuity off and render a single clip. Studio's own hold: the compiler would accept the job, but Studio cannot show where the curve lands (see [the rack dialog](#the-rack-dialog-and-its-timeline)) |
 | De-rope with a curve, and `MAIDialHoldMap` is not on the backend | Install the pack that has it (shown once the backend's node list is read) |
 | Join with generated transitions | While a row with a curve is on, the Continuity dialog does not offer transitions and says why |
@@ -696,10 +708,19 @@ and would re-implement the pack's info check.
 - **Pipeline mapping** (`dialPipelineOf`): T2VA → `t2v`, REF2VA → `ref2v`, FL2VA, I2VA
   and L2VA → `fl2v`. The pack names `fl2v` "first/last frame"; reading a single frame
   as the same pipeline is DEAS's assumption.
-- **Not used:** `family` (a dial made for another model family is still offered and is
-  refused by the node when it runs), `mode`, `kind`, and the per-pipeline `useful` and
-  `overcook` strengths, which are shown as text in the rack dialog but do not move the
-  slider's marks.
+- **Family and mode** are kept per dial (`DialInfo.family`, `DialInfo.mode`).
+  `dialOtherFamily` is true for a recorded family other than `MiniMax H3`, the pack's
+  name for the family of the H3 video and image models (`core.TEXT_PATHS`); the
+  Workbench leaves such files out of the add list, because the node refuses them
+  (`core.check_family`). `dialNoCurve` is true for `mode: pre`: the rack dialog locks
+  that row's curve tools with the reason, and `dialCurveConflicts` reports `preDial`
+  for an active curve on such a row, which blocks Run. An empty family or mode (native
+  hands over an empty string when the pack's value is not one it knows) means unknown:
+  the dial stays offered and may take a curve. Not done: a row of another family that
+  is already in the rack (from a preset or an older session) is not flagged or held;
+  the node refuses it when the job runs.
+- **Not used:** `kind`, and the per-pipeline `useful` and `overcook` strengths, which
+  are shown as text in the rack dialog but do not move the slider's marks.
 
 ### State, persistence and the intent
 
@@ -767,6 +788,7 @@ it. A test per refusal compares the trigger and the native wording with the Rust
 | `sourceFrames` | pinned clip's frame count known to be missing | `validate_dials`; **Studio cannot know this before Run** |
 | `shift` | points collapse when shifted by the window start | `validate_dials`; **needs the window start, which Studio does not hold** |
 | `pieceStart` | the Continuity plan has a source (`dialTimeline` basis `planSource`) | **none: Studio's own hold.** Native compiles the job and shifts the points by the window start; Studio holds the curve because the rack cannot draw it where the model gets it |
+| `preDial` | an active curve on a dial the catalog lists with `mode: pre` | **none: the node's refusal** (`timecurve.apply_rack`, read from ComfyUI-MAINodes `382f640`); unknown without the catalog |
 | `holdMapMissing` | De-rope with a curve and no `MAIDialHoldMap` in the node list | prerequisite check |
 | `curveLimits` | a curve `isDialCurve` rejects | `validate_dial_row`; cannot occur in stored rows |
 
@@ -875,8 +897,9 @@ backend has no rack preset route", and the dialog then offers neither load nor s
   through the job path.
 - **Dial info, open points:** whether a single first or last frame should use the
   `fl2v` measurement; whether the per-pipeline strengths should move the marks when the
-  file has them; whether dials of another model family should be hidden or flagged
-  (the catalog carries the family); and whether the audio mode should default to
+  file has them; whether a row of another model family that is already in the rack
+  should be flagged or block Run (new rows of another family are no longer offered);
+  and whether the audio mode should default to
   protected for a file that says so (today only as free text, which is not parsed).
 
 ## Platforms and evidence

@@ -55,7 +55,7 @@ import { DialStrip } from './DialStrip';
 import { DialRackDialog } from './DialRackDialog';
 import { DialPresetsDialog } from './DialPresetsDialog';
 import { dialTimeline } from '../../lib/dialCurve';
-import { dialPipelineOf } from '../../lib/dialInfo';
+import { dialNoCurveNames, dialOtherFamily, dialPipelineOf } from '../../lib/dialInfo';
 import { useDialInfo } from './useDialInfo';
 import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
@@ -674,18 +674,20 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const dials=dialsHere?dialRows:noDials;
  // The backend's LoRA list is what the native prerequisite check compares against; the library scan stands in while it is unread.
  const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
- const dialFiles=dialCatalog(dialListed??[]);
  const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
  // The dial files' own info (side labels, useful and overcook strengths, notes): read from the pack's catalog when the Dials tab or the rack opens
  // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
  const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
+ // Offered for adding: the dial files of the list, less those the pack's catalog says were made for another model family (the node refuses them on
+ // MiniMax H3). Without a catalog every dial file is offered, as before.
+ const dialFiles=dialCatalog(dialListed??[]).filter(f=>!dialOtherFamily(dialInfo.map?.[f]));
  const dialPipeline=dialPipelineOf(videoModeName);
  // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it. Continued steps of a
  // reference pipeline carry `durationSeconds` (REF2VA, `buildVideoIntent`); the others are snapped from their frame count.
  const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null,continuityReferences);
  // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
  const dialNext=dialsHere&&continuityOn?nextStep(plan)?.continuity:undefined;
- const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',pieceStartUnknown:dialSpan.basis==='planSource',nodes:choices?.nodes});
+ const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',pieceStartUnknown:dialSpan.basis==='planSource',noCurve:dialNoCurveNames(dialInfo.map),nodes:choices?.nodes});
  // A join's generated transitions sample their own window: not offered while a row with a time curve is on.
  const dialTransitionBlock=dialCurveConflicts({rows:dials,steps,transition:true}).includes('transition');
  const streamRequested=isVideo&&videoFamily==='minimax-h3'&&streamDecode;

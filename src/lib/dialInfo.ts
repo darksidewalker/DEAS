@@ -15,7 +15,12 @@ export type DialPipeline=typeof dialPipelines[number];
 /** `null` = not recorded in the dial file. */
 export interface DialSide { useful:number|null; overcook:number|null }
 export interface DialMeasured extends DialSide { steps?:number; evidence:DialEvidence|null; notes:string }
-export interface DialInfo { description:string; negative:string; positive:string; pipeline:string; notes:string; neg:DialSide; pos:DialSide; evidence:DialEvidence|null; kind?:string; family?:string; pipelines?:Partial<Record<DialPipeline,DialMeasured>> }
+/**
+ * `family` is the model family the dial file was made for (the pack's `model_family`, `MiniMax H3` for files from before families were recorded) and
+ * `mode` where it acts: `post` (after the text refiner, the hook file) or `pre` (before it, the LoRA-style file). Both are absent when the catalog
+ * does not say.
+ */
+export interface DialInfo { description:string; negative:string; positive:string; pipeline:string; notes:string; neg:DialSide; pos:DialSide; evidence:DialEvidence|null; kind?:string; family?:string; mode?:'pre'|'post'; pipelines?:Partial<Record<DialPipeline,DialMeasured>> }
 /** Dial name (forward slashes) → its info. A dial without an entry keeps the strip's fallbacks. */
 export type DialInfoMap=Readonly<Record<string,DialInfo>>;
 
@@ -28,11 +33,12 @@ function side(v:unknown):DialSide {
  return {useful,overcook:useful!==null&&overcook!==null&&overcook<useful?null:overcook};
 }
 /** One catalog entry's info, or undefined when it is not info version 2. Unknown keys are not carried. */
-export function dialInfoOf(v:unknown,family?:unknown):DialInfo|undefined {
+export function dialInfoOf(v:unknown,family?:unknown,mode?:unknown):DialInfo|undefined {
  if(!isObject(v)||v.version!==2)return undefined;
  const out:DialInfo={description:text(v.description,2000),negative:text(v.negative,60),positive:text(v.positive,60),pipeline:text(v.pipeline,60),notes:text(v.notes,500),neg:side(v.neg),pos:side(v.pos),evidence:evidenceOf(v.evidence)};
  if(typeof v.kind==='string'&&v.kind.length<=20)out.kind=v.kind;
  if(typeof family==='string'&&family)out.family=family.slice(0,64);
+ if(mode==='pre'||mode==='post')out.mode=mode;
  if(isObject(v.pipelines)){
   const measured:Partial<Record<DialPipeline,DialMeasured>>={};
   for(const key of dialPipelines){
@@ -50,12 +56,26 @@ export function parseDialCatalog(v:unknown):DialInfoMap|null {
  const out:Record<string,DialInfo>={};
  for(const entry of v.dials){
   if(!isObject(entry)||typeof entry.dial!=='string')continue;
-  const dial=dialName(entry.dial),info=dialInfoOf(entry.info,entry.family);
+  const dial=dialName(entry.dial),info=dialInfoOf(entry.info,entry.family,entry.mode);
   if(info&&isDialFile(dial)&&!(dial in out))out[dial]=info;
  }
  return out;
 }
 
+/** The pack's name for the family of the MiniMax H3 video and image models (`core.TEXT_PATHS`, `DEFAULT_FAMILY`; ComfyUI-MAINodes 382f640). */
+export const DIAL_FAMILY_H3='MiniMax H3';
+/**
+ * The catalog says this dial was made for another model family: the node refuses it on a MiniMax H3 model (`core.check_family`), so Studio does
+ * not offer it there. False without an entry or a recorded family: then nothing is known and the dial stays offered.
+ */
+export const dialOtherFamily=(info?:DialInfo)=>!!info?.family&&info.family!==DIAL_FAMILY_H3;
+/**
+ * The catalog says this is a pre-refiner dial. The node runs time curves on post-refiner dials only (`timecurve.apply_rack`: "time curves support
+ * post-refiner dials only; pre-refiner rows cannot vary over time"); a constant row of it runs. False when the catalog does not say.
+ */
+export const dialNoCurve=(info?:DialInfo)=>info?.mode==='pre';
+/** The dial names of `map` that take no time curve, for `dialCurveConflicts`; undefined without a catalog. */
+export const dialNoCurveNames=(map?:DialInfoMap)=>map?Object.keys(map).filter(d=>dialNoCurve(map[d])):undefined;
 const up=(v:number)=>Math.min(DIAL_LEVEL,Math.ceil(Math.round(v/DIAL_STEP*1e6)/1e6)*DIAL_STEP);
 const reach=(s:DialSide|undefined)=>+Math.max(DIAL_SLIDER,up(s?.overcook??(s?.useful??0)*1.5)).toFixed(2);
 /**

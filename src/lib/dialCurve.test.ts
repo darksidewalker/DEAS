@@ -306,7 +306,8 @@ test('the blend-step default follows native dial_blend_steps', () => {
 
 // Each refusal: the fact that triggers it and the wording native reports for it (jobs_video.rs unless noted).
 const curved: DialRow = { dial: calm, strength: 1, on: true, time: keys([[0, 0], [1.5, 1]]) };
-const refusals: Record<DialCurveConflict, { facts: Partial<DialCurveFacts>; native: string }> = {
+// `native` is the wording in jobs_video.rs; a refusal of the node itself has none there and names the node's own message instead.
+const refusals: Record<DialCurveConflict, { facts: Partial<DialCurveFacts>; native?: string; node?: string }> = {
   blendSteps: { facts: { rows: [{ ...curved, time: { ...curved.time!, steps: 7 } }] }, native: 'Invalid dials: time.steps (blend steps) cannot exceed the job\'s {steps} sampler steps' },
   transition: { facts: { transition: true }, native: 'Invalid dials: time curves cannot run on an h3.transition window' },
   faceRefine: { facts: { faceRefine: true }, native: 'Invalid dials: time curves cannot run with faceRefine (its sampler pass has its own clip clock); use rows without a time curve' },
@@ -317,6 +318,8 @@ const refusals: Record<DialCurveConflict, { facts: Partial<DialCurveFacts>; nati
   shift: { facts: { continued: true, windowStart: 1e17, rows: [{ ...curved, time: keys([[0, 0], [1, 1]]) }] }, native: 'Invalid dials: time points are too close together to shift onto the continued segment\'s window' },
   // Studio's own refusal: native compiles this job and moves the points by the window's start; Studio cannot draw where they land.
   pieceStart: { facts: { pieceStartUnknown: true }, native: 'continuation_window_start(i).expect("validated with dials") as f64 / 24.0' },
+  // The node's own refusal (ComfyUI-MAINodes 382f640, dials/timecurve.py::apply_rack); native does not know a dial's mode.
+  preDial: { facts: { noCurve: [calm] }, node: 'time curves support post-refiner dials only; pre-refiner rows cannot vary over time' },
   holdMapMissing: { facts: { derope: true, nodes: [dialRackNode] }, native: 'MAIDialHoldMap' },
   curveLimits: { facts: { rows: [{ ...curved, time: { ...curved.time!, smooth: 2 } }] }, native: 'Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?, audio? follow|protect}' },
 };
@@ -325,17 +328,21 @@ test.each(dialCurveConflictIds)('time-curve refusal %s is found before Run and m
   expect(dialCurveConflicts(base)).toEqual([]);
   const facts = { ...base, ...refusals[id].facts };
   expect(dialCurveConflicts(facts)).toEqual([id]);
-  // The native source carries this exact refusal.
-  expect(rust).toContain(refusals[id].native);
+  // The native source carries this exact refusal; a refusal of the node itself is not in it.
+  if (refusals[id].native !== undefined) expect(rust).toContain(refusals[id].native);
+  else expect(refusals[id].node!.length).toBeGreaterThan(20);
   // Rows without a time curve, switched off or at strength 0 are a plain model patch: nothing is refused.
   for (const inert of [facts.rows.map(r => ({ dial: r.dial, strength: r.strength })), facts.rows.map(r => ({ ...r, on: false })), facts.rows.map(r => ({ ...r, strength: 0 }))]) expect(dialCurveConflicts({ ...facts, rows: inert })).toEqual([]);
 });
 
 test('refusals are listed in the order native checks them, and facts are read from a built intent', () => {
-  const all = dialCurveConflicts({ rows: [{ ...curved, time: { ...curved.time!, steps: 9 } }], steps: 6, transition: true, faceRefine: true, tiledUpscale: true, derope: true, continued: true, importedVideo: true, pieceStartUnknown: true, nodes: [] });
-  expect(all).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'pieceStart', 'holdMapMissing']);
-  expect(dialCurveConflictIds).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'sourceFrames', 'shift', 'pieceStart', 'holdMapMissing', 'curveLimits']);
-  const at = (id: DialCurveConflict) => rust.indexOf(refusals[id].native.split('{steps}')[0]);
+  const all = dialCurveConflicts({ rows: [{ ...curved, time: { ...curved.time!, steps: 9 } }], steps: 6, transition: true, faceRefine: true, tiledUpscale: true, derope: true, continued: true, importedVideo: true, pieceStartUnknown: true, noCurve: [calm], nodes: [] });
+  expect(all).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'pieceStart', 'preDial', 'holdMapMissing']);
+  // A pre-refiner dial without a curve, or one that is not in the rack, is no refusal; separators are compared normalized.
+  expect(dialCurveConflicts({ rows: [{ dial: motion, strength: 1.5 }, curved], steps: 6, noCurve: [motion, 'dials/other.safetensors'] })).toEqual([]);
+  expect(dialCurveConflicts({ rows: [{ ...curved, dial: 'dials\\sub\\a.safetensors' }], steps: 6, noCurve: ['dials/sub/a.safetensors'] })).toEqual(['preDial']);
+  expect(dialCurveConflictIds).toEqual(['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'sourceFrames', 'shift', 'pieceStart', 'preDial', 'holdMapMissing', 'curveLimits']);
+  const at = (id: DialCurveConflict) => rust.indexOf(refusals[id].native!.split('{steps}')[0]);
   const native = ['blendSteps', 'transition', 'faceRefine', 'tiledUpscale', 'deropeContinued', 'importedVideo', 'sourceFrames', 'shift'] as const;
   native.forEach((id, i) => { if (i) expect(at(id), id).toBeGreaterThan(at(native[i - 1])); });
   // Blend steps at the job's own count are legal; the unknown window start (Studio before Run) is not reported.
