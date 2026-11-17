@@ -229,6 +229,7 @@ impl Stages {
 fn stage(id: &str, class: &str) -> &'static str {
     match class {
         "LoraLoader" | "LoraLoaderModelOnly" => "lora-patch",
+        "MAIDialRack" | "MAIDialHoldMap" => "dial-patch",
         "ModelAttentionBackend" | "PathchSageAttentionKJ" => "attention-setup",
         "EasyCache" | "LazyCache" => "cache-setup",
         "TorchCompileModel" => "compile-setup",
@@ -491,6 +492,8 @@ mod tests {
             ("U", "DaSiWaH3HiResRegenerate", "h3-regenerate"),
             ("U", "DaSiWaH3TiledUpscale", "latent-upscale"),
             ("U", "LTXVLatentUpsampler", "latent-upscale"),
+            ("DR", "MAIDialRack", "dial-patch"),
+            ("DRH", "MAIDialHoldMap", "dial-patch"),
             ("DRP", "DaSiWaH3DeropePrepare", "de-rope"),
             ("DRK", "SamplerCustomAdvanced", "de-rope"),
             ("DRR", "DaSiWaH3DeropeRecover", "de-rope"),

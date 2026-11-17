@@ -488,7 +488,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
     Ok(json!({
         "baseUrl":base.as_str(), "recipeId":"checkpoint-text-to-image-diagnostic", "version":1,
         "allowlist":{
-            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_sam3::NODES.iter()).chain(crate::jobs_sam3_video::NODES.iter()).chain(crate::jobs_face_refine::ALLOW_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).chain(crate::jobs_video_post::POST_NODES.iter()).chain(crate::jobs_music::MUSIC_NODES.iter()).chain(crate::jobs_music::ace::NODES.iter()).filter(|name| definitions.contains_key(**name) && (**name != "DEAS_LyingSigmaSampler" || lying_sigma_ready(nodes)) && (**name != "DEAS_SAM3ShotMask" || sam3_shot_mask_ready(nodes)) && (**name != "DEAS_SAM3VideoWindow" || sam3_video_window_ready(nodes)) && (**name != "DEAS_H3FaceRefine" || face_refine_ready(nodes)) && (**name != "DEAS_ImagePostprocessGate" || image_postprocess_ready(nodes)) && (**name != "DEAS_VideoPostprocessGate" || video_postprocess_ready(nodes)) && (**name != "DEAS_H3StreamVideoSave" || h3_stream_saver_ready(nodes)) && (**name != "ModelPreviewOverrideKJ" || video_preview_ready(nodes)) && (**name != "DaSiWa_SeamlessLoop" || seamless_loop_ready(nodes))).collect::<Vec<_>>(),
+            "nodes":REQUIRED_NODES.iter().chain(OPTIONAL_NODES.iter()).chain(SIGMA_NODES.iter()).chain(OPTION_NODES.iter()).chain(crate::jobs_sam3::NODES.iter()).chain(crate::jobs_sam3_video::NODES.iter()).chain(crate::jobs_face_refine::ALLOW_NODES.iter()).chain(crate::jobs::H3_EDIT_NODES.iter()).chain(crate::jobs_video::VIDEO_NODES.iter()).chain(crate::jobs_video::H3_CONTINUITY_NODES.iter()).chain(crate::jobs_video::DIAL_NODES.iter()).chain(crate::jobs_video_post::POST_NODES.iter()).chain(crate::jobs_music::MUSIC_NODES.iter()).chain(crate::jobs_music::ace::NODES.iter()).filter(|name| definitions.contains_key(**name) && (**name != "DEAS_LyingSigmaSampler" || lying_sigma_ready(nodes)) && (**name != "DEAS_SAM3ShotMask" || sam3_shot_mask_ready(nodes)) && (**name != "DEAS_SAM3VideoWindow" || sam3_video_window_ready(nodes)) && (**name != "DEAS_H3FaceRefine" || face_refine_ready(nodes)) && (**name != "DEAS_ImagePostprocessGate" || image_postprocess_ready(nodes)) && (**name != "DEAS_VideoPostprocessGate" || video_postprocess_ready(nodes)) && (**name != "DEAS_H3StreamVideoSave" || h3_stream_saver_ready(nodes)) && (**name != "ModelPreviewOverrideKJ" || video_preview_ready(nodes)) && (**name != "DaSiWa_SeamlessLoop" || seamless_loop_ready(nodes))).collect::<Vec<_>>(),
             "checkpoints":combo(nodes, "CheckpointLoaderSimple", "ckpt_name")?,
             "videos":options(nodes, "LoadVideo", "file", crate::jobs::model_name),
             "loras":combo(nodes, "LoraLoader", "lora_name")?,
@@ -877,6 +877,30 @@ mod tests {
         info["DEAS_VideoPostprocessGate"] = gate;
         info["DEAS_VideoPostprocessGate"]["output"] = json!(["STRING"]);
         assert!(!listed(&info));
+    }
+
+    #[test]
+    fn dial_nodes_are_listed_only_when_the_optional_pack_registers_them() {
+        let base = crate::validate_base_url("http://127.0.0.1:8188").unwrap();
+        let listed = |info: &Value| -> Vec<String> {
+            parse(&base, info).unwrap()["allowlist"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|n| n.as_str())
+                .filter(|n| n.starts_with("MAIDial"))
+                .map(String::from)
+                .collect()
+        };
+        let mut info = nodes();
+        assert!(listed(&info).is_empty());
+        info["MAIDialRack"] = json!({});
+        assert_eq!(listed(&info), ["MAIDialRack"]);
+        info["MAIDialHoldMap"] = json!({});
+        assert_eq!(listed(&info), ["MAIDialRack", "MAIDialHoldMap"]);
+        // Other nodes of the pack are not part of any recipe.
+        info["MAIMakeDial"] = json!({});
+        assert_eq!(listed(&info).len(), 2);
     }
 
     #[test]

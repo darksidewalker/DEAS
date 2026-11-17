@@ -28,7 +28,8 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 13] = [
+const OPTIONAL: [&str; 14] = [
+    "dials",
     "streamDecode",
     "faceRefine",
     "enhancedPreview",
@@ -123,6 +124,15 @@ pub(crate) const H3_CONTINUITY_NODES: [&str; 6] = [
     "DaSiWaH3TransitionGuide",
     "DaSiWaH3TransitionRender",
 ];
+/// Experimental Dial Rack (`dials/nodes.py` of the optional ComfyUI-Dials or ComfyUI-MAINodes pack;
+/// the same node ids in both): steering rows on the generation model, and the De-rope pass's hold map.
+pub(crate) const DIAL_NODES: [&str; 2] = ["MAIDialRack", "MAIDialHoldMap"];
+const DIAL_ROWS: usize = 8;
+const DIAL_POINTS: usize = 64;
+/// Row strength and curve level bound (the pack's own dial info caps strengths at 20).
+const DIAL_LEVEL: f64 = 20.0;
+/// Whole-piece seconds bound of a curve point.
+const DIAL_SECONDS: f64 = 86_400.0;
 
 pub(crate) fn is_video(intent: &Value) -> bool {
     intent["recipeId"] == "video-generation"
@@ -287,6 +297,10 @@ fn h3_regenerate_node(g: &mut Value, i: &Value, conditioning: Value, latent: Val
     };
     let mut plain = i.clone();
     plain["loras"] = json!([]);
+    // Like the LoRAs, the dials stay on the generation chain.
+    if let Some(o) = plain.as_object_mut() {
+        o.remove("dials");
+    }
     let model = model_chain(
         g,
         "R",
@@ -474,22 +488,244 @@ fn segment_crop_plan(i: &Value) -> Option<(u64, u64)> {
         return None;
     }
     let source = c["sourceFrames"].as_u64()?;
-    // Continuation timing: newly visible seconds snapped to 17-frame steps. Without authored
-    // duration the Director receives frames/24 seconds, so the snap runs on frames/17 directly.
-    let extension = match c.get("durationSeconds").and_then(Value::as_f64) {
-        Some(s) => ((s * 24.0 / 17.0 + 0.5).floor().max(1.0) as u64) * 17,
-        None => ((i["frames"].as_f64()? / 17.0 + 0.5).floor().max(1.0) as u64) * 17,
-    };
+    let extension = continuation_extension(i)?;
     Some((source - source.saturating_sub(102) / 51 * 51, extension))
+}
+
+/// Continuation timing: newly visible seconds snapped to 17-frame steps. Without authored
+/// duration the Director receives frames/24 seconds, so the snap runs on frames/17 directly.
+fn continuation_extension(i: &Value) -> Option<u64> {
+    let steps = match i["h3"]["continuity"]
+        .get("durationSeconds")
+        .and_then(Value::as_f64)
+    {
+        Some(s) => s * 24.0 / 17.0,
+        None => i["frames"].as_f64()? / 17.0,
+    };
+    Some(((steps + 0.5).floor().max(1.0) as u64) * 17)
+}
+
+/// Piece frame at which a checkpoint continuation's sampled window starts: the pinned clip's
+/// cumulative frame count minus the hidden overlap the pack resolves
+/// (`h3_continuity/core.py::continuation_timing`: the largest of 73/56/39/22/5 that fits the
+/// requested context (22 when omitted), `362 - extension` and the source). `None` when the intent
+/// does not carry what that needs (no `sourceFrames`, an imported-video source, no legal overlap).
+fn continuation_window_start(i: &Value) -> Option<u64> {
+    let c = &i["h3"]["continuity"];
+    if c["sourceKind"] == "video" {
+        return None;
+    }
+    let source = c["sourceFrames"].as_u64()?;
+    let requested = match c.get("overlapFrames") {
+        Some(v) => v.as_u64()?,
+        None => 22,
+    };
+    let available = requested
+        .min(362u64.checked_sub(continuation_extension(i)?)?)
+        .min(source);
+    let overlap = [73, 56, 39, 22, 5].into_iter().find(|n| *n <= available)?;
+    Some(source - overlap)
+}
+
+/// Rack rows that do something: on, with a non-zero strength (`MAIDialRack.execute` drops the rest).
+fn active_dials(i: &Value) -> impl Iterator<Item = &Value> {
+    i["dials"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["on"] != false && r["strength"].as_f64().is_some_and(|s| s != 0.0))
+}
+
+/// An active row carries a time curve (strength over clip time).
+fn dial_curves(i: &Value) -> bool {
+    active_dials(i).any(|r| r.get("time").is_some())
+}
+
+fn dial_file(s: &str) -> bool {
+    s.strip_prefix("dials/")
+        .is_some_and(|rest| !rest.is_empty())
+        && model_name(s)
+        && s.to_ascii_lowercase().ends_with(".safetensors")
+}
+
+/// One rack row, mirroring the pack's `presets.py::preset_rows` and `timecurve.py::check_spec`
+/// for the subset this first version sends.
+fn validate_dial_row(r: &Value) -> Result<(), String> {
+    let row = r
+        .as_object()
+        .ok_or("Invalid dials: each row is an object")?;
+    for (key, reason) in [
+        (
+            "input",
+            "wired dial inputs are unsupported; name a saved dial file",
+        ),
+        ("hold", "hold rows are unsupported"),
+        ("envelope", "step envelopes are unsupported"),
+        ("blocks", "block strengths are unsupported"),
+    ] {
+        if row.contains_key(key) {
+            return Err(format!(
+                "Invalid dials: {reason} in this experimental version"
+            ));
+        }
+    }
+    if !keys_in(r, &["dial", "strength", "on", "time"]) {
+        return Err("Invalid dials: a row is {dial, strength, on?, time?}".into());
+    }
+    if !r["dial"].as_str().is_some_and(dial_file) {
+        return Err("Invalid dials: dial must be a .safetensors file inside dials/ (forward slashes, no traversal)".into());
+    }
+    if !finite(&r["strength"], -DIAL_LEVEL, DIAL_LEVEL) {
+        return Err(format!(
+            "Invalid dials: strength must be a number from -{DIAL_LEVEL} to {DIAL_LEVEL}"
+        ));
+    }
+    if r.get("on").is_some_and(|on| !on.is_boolean()) {
+        return Err("Invalid dials: on must be a boolean".into());
+    }
+    let Some(t) = r.get("time") else {
+        return Ok(());
+    };
+    if t["type"] == "audio" {
+        return Err(
+            "Invalid dials: audio-driven time curves are unsupported in this experimental version"
+                .into(),
+        );
+    }
+    if !keys_in(t, &["type", "points", "unit", "interp", "smooth"])
+        || t["type"] != "keys"
+        || t["unit"] != "seconds"
+        || t.get("interp")
+            .is_some_and(|v| v != "linear" && v != "step")
+        || t.get("smooth").is_some_and(|v| !finite(v, 0.0, 1.0))
+    {
+        return Err("Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1}".into());
+    }
+    let points = t["points"]
+        .as_array()
+        .filter(|p| (1..=DIAL_POINTS).contains(&p.len()))
+        .ok_or(format!(
+            "Invalid dials: a time curve needs 1 to {DIAL_POINTS} [seconds, level] points"
+        ))?;
+    if !points.iter().all(|p| {
+        p.as_array().is_some_and(|p| p.len() == 2)
+            && finite(&p[0], -DIAL_SECONDS, DIAL_SECONDS)
+            && finite(&p[1], -DIAL_LEVEL, DIAL_LEVEL)
+    }) {
+        return Err(format!("Invalid dials: time points are [seconds, level] numbers within ±{DIAL_SECONDS} s and ±{DIAL_LEVEL}"));
+    }
+    if !points
+        .windows(2)
+        .all(|w| w[0][0].as_f64() < w[1][0].as_f64())
+    {
+        return Err("Invalid dials: time points need strictly increasing seconds".into());
+    }
+    Ok(())
+}
+
+/// The optional `dials` rows and, for active time curves, the passes whose clip clock this
+/// version cannot serve.
+fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
+    let Some(dials) = i.get("dials") else {
+        return Ok(());
+    };
+    if family != "minimax-h3" {
+        return Err(
+            "Invalid dials: dials are experimental and run on MiniMax H3 video only".into(),
+        );
+    }
+    let rows = dials
+        .as_array()
+        .filter(|rows| rows.len() <= DIAL_ROWS)
+        .ok_or(format!("Invalid dials: a list of at most {DIAL_ROWS} rows"))?;
+    rows.iter().try_for_each(validate_dial_row)?;
+    if active_dials(i).next().is_some()
+        && crate::jobs::is_gguf(i["model"].as_str().unwrap_or_default())
+    {
+        return Err("MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven".into());
+    }
+    if !dial_curves(i) {
+        return Ok(());
+    }
+    // A time curve is sampled against the clock of the clip its sampler renders. Only the
+    // generation pass and De-rope's pass on a new take have a clock this version maps.
+    if i["h3"].get("transition").is_some() {
+        return Err("Invalid dials: time curves cannot run on an h3.transition window".into());
+    }
+    if i.get("faceRefine").is_some() {
+        return Err("Invalid dials: time curves cannot run with faceRefine (its sampler pass has its own clip clock); use rows without a time curve".into());
+    }
+    if i.get("latentUpscale")
+        .is_some_and(|u| u.get("regenerate").is_none())
+    {
+        return Err("Invalid dials: time curves cannot run with the tiled latent upscale (it samples the generation model on chunks with their own clip clock); use rows without a time curve".into());
+    }
+    if c_source(&i["h3"]) {
+        if i["videoPost"].get("derope").is_some() {
+            return Err("Invalid dials: time curves cannot run with videoPost.derope on a continued segment (the second pass renders a different window than the first); use rows without a time curve".into());
+        }
+        if i["h3"]["continuity"]["sourceKind"] == "video" {
+            return Err("Invalid dials: time curves cannot run on a continuation of an imported video (its start in the piece is not known before the run)".into());
+        }
+        let start = continuation_window_start(i).ok_or("Invalid dials: time curves on a continued segment need the pinned checkpoint clip's sourceFrames from the session list and a legal context window")?;
+        // The shifted curve is what the node checks: keep its times strictly increasing.
+        let offset = start as f64 / 24.0;
+        if active_dials(i).any(|r| {
+            r["time"]["points"].as_array().is_some_and(|points| {
+                points.windows(2).any(|w| {
+                    w[0][0].as_f64().unwrap_or_default() - offset
+                        >= w[1][0].as_f64().unwrap_or_default() - offset
+                })
+            })
+        }) {
+            return Err("Invalid dials: time points are too close together to shift onto the continued segment's window".into());
+        }
+    }
+    Ok(())
+}
+
+/// The `rack` input of `MAIDialRack` (`execute` reads a JSON list of `{dial, strength, on?, time?}`
+/// rows): the active rows only, each curve in the sampled clip's own seconds. Curves are authored
+/// in whole-piece seconds, so a continued segment's window gets them shifted by its start.
+/// `None` without an active row.
+fn dial_rack(i: &Value) -> Option<String> {
+    let offset = if c_source(&i["h3"]) && dial_curves(i) {
+        continuation_window_start(i).expect("validated with dials") as f64 / 24.0
+    } else {
+        0.0
+    };
+    let rows: Vec<Value> = active_dials(i)
+        .map(|r| {
+            let mut row = json!({"dial":r["dial"],"strength":r["strength"]});
+            if let Some(t) = r.get("time") {
+                let points = if offset == 0.0 {
+                    t["points"].clone()
+                } else {
+                    t["points"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|p| json!([p[0].as_f64().unwrap_or_default() - offset, p[1]]))
+                        .collect()
+                };
+                row["time"] = json!({"interp":t.get("interp").cloned().unwrap_or(json!("linear")),"points":points,
+                    "smooth":t.get("smooth").cloned().unwrap_or(json!(0)),"type":"keys","unit":"seconds"});
+            }
+            row
+        })
+        .collect();
+    (!rows.is_empty()).then(|| Value::Array(rows).to_string())
 }
 
 /// prepare() must look up the pinned clip's frame count before compiling this intent.
 pub(crate) fn needs_source_frames(i: &Value) -> bool {
     is_video(i)
         && i["family"] == "minimax-h3"
-        && (i.get("latentUpscale").is_some() || i["videoPost"].get("derope").is_some())
-        && i["h3"]["continuity"]["capture"] == true
-        && i["h3"]["continuity"]["outputMode"] == "segment"
+        && (((i.get("latentUpscale").is_some() || i["videoPost"].get("derope").is_some())
+            && i["h3"]["continuity"]["capture"] == true
+            && i["h3"]["continuity"]["outputMode"] == "segment")
+            // A dial time curve is shifted by the continuation window's start in the piece.
+            || dial_curves(i))
         && i["h3"]["continuity"]["sourceKind"] != "video"
         && i["h3"]["continuity"]["sourceId"]
             .as_str()
@@ -1219,6 +1455,7 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         "wan" => validate_wan(&i["wan"], steps)?,
         _ => validate_h3(&i["h3"])?,
     }
+    validate_dials(i, family)?;
     for name in [&i["vae"], &i["ltx"]["audioVae"], &i["h3"]["audioVae"]] {
         if crate::jobs::is_gguf(name.as_str().unwrap_or_default()) {
             return Err("MODEL_FORMAT_UNSUPPORTED: GGUF VAE is unsupported".into());
@@ -1380,7 +1617,8 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
     Ok(graph)
 }
 
-/// LoRAs, then the Options patches, then the family's feed-forward chunking; returns the final model link.
+/// LoRAs, then the experimental Dial Rack (H3 only), then the Options patches, then the family's
+/// feed-forward chunking; returns the final model link.
 /// `clip` is `None` for model-only chains (Wan high/low, H3).
 fn model_chain(
     g: &mut Value,
@@ -1402,6 +1640,11 @@ fn model_chain(
                 g[&id] = json!({"class_type":"LoraLoaderModelOnly","inputs":{"model":model,"lora_name":lora["name"],"strength_model":lora["strength"]}})
             }
         }
+        model = json!([id, 0]);
+    }
+    if let Some(rack) = dial_rack(i) {
+        let id = format!("{prefix}DR");
+        g[&id] = json!({"class_type":"MAIDialRack","inputs":{"model":model,"rack":rack}});
         model = json!([id, 0]);
     }
     let o = &i["options"];
@@ -1847,6 +2090,15 @@ fn derope(g: &mut Value, images: Value, audio: Value, model: Value, d: &Value, i
         None if distilled => (model, 6, json!("beta")),
         None => (model, 25, i["scheduler"].clone()),
     };
+    // The pass samples a stretched clip: Dial Hold Map gives the rack's time curves the hold map,
+    // so they follow real clip time. Rows without a time curve need nothing.
+    let model = if dial_curves(i) {
+        g["DRH"] =
+            json!({"class_type":"MAIDialHoldMap","inputs":{"model":model,"hold_map":["DRP",1]}});
+        json!(["DRH", 0])
+    } else {
+        model
+    };
 
     g["DRP"] = json!({"class_type":"DaSiWaH3DeropePrepare","inputs":{"images":images.clone(),"samples":["SP",0],"vae":["V",0],
         "preset":d["preset"],"frame_rate":i["frameRate"],"audio":audio,"audio_vae":["AV",0],"conditioning":["G",0],
@@ -2259,6 +2511,11 @@ pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
         }
     }
     required.extend(crate::jobs_video_post::requirements(&i["videoPost"]));
+    // Dial files live in models/loras/dials, so the backend lists them with the LoRAs.
+    let dials: Vec<&str> = active_dials(i).filter_map(|r| r["dial"].as_str()).collect();
+    if !dials.is_empty() {
+        required.push(("loras", dials));
+    }
     if let Some(sam) = i["faceRefine"]["samCheckpoint"].as_str() {
         required.push(("checkpoints", vec![sam]));
     }

@@ -103,10 +103,13 @@ export function regenerateSize(width:number,height:number,target:H3RegenerateTar
 /** Final canvas of a latent upscale block of either kind. */
 export const latentOutputSize=(family:VideoFamily,size:{width:number;height:number},u:H3LatentUpscale|H3RegenerateUpscale|LtxLatentUpscale)=>
  u.regenerate?regenerateSize(size.width,size.height,u.regenerate.target):latentUpscaleSize(family,size,u.scale??1);
+/** Experimental Dial Rack rows (native `validate_dials`; `minimax-h3` only, see docs/DIALS.md): a dial file inside `dials/` and its strength; `time` varies it over whole-piece seconds. */
+export interface H3DialCurve { type:'keys'; points:readonly (readonly [seconds:number,level:number])[]; unit:'seconds'; interp?:'linear'|'step'; smooth?:number }
+export interface H3DialRow { dial:string; strength:number; on?:boolean; time?:H3DialCurve }
 export type VideoIntentV1=VideoBase&(
  |{readonly family:'ltx-2';readonly latentUpscale?:LtxLatentUpscale;readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}
  |{readonly family:'wan';readonly latentUpscale?:never;readonly wan:{lowModel:string;shiftHigh:number;shiftLow:number;refinerStep:number}}
- |{readonly family:'minimax-h3'|'minimax-h3-hyperflow';readonly latentUpscale?:H3LatentUpscale|H3RegenerateUpscale;readonly h3:{transition?:H3Transition;mode:'T2VA'|'I2VA'|'L2VA'|'FL2VA'|'REF2VA';audioVae:string;shiftVideo:number;shiftAudio:number;references:{slot:0|1;image:string}[];media?:H3Media[];continuity?:H3Continuity;inputScaling?:H3Scaling;refmods?:{slot:number;name:string;strength:number;description?:string}[]}});
+ |{readonly family:'minimax-h3'|'minimax-h3-hyperflow';readonly dials?:readonly H3DialRow[];readonly latentUpscale?:H3LatentUpscale|H3RegenerateUpscale;readonly h3:{transition?:H3Transition;mode:'T2VA'|'I2VA'|'L2VA'|'FL2VA'|'REF2VA';audioVae:string;shiftVideo:number;shiftAudio:number;references:{slot:0|1;image:string}[];media?:H3Media[];continuity?:H3Continuity;inputScaling?:H3Scaling;refmods?:{slot:number;name:string;strength:number;description?:string}[]}});
 export const isVideoIntent=(i:{recipeId:string}):i is VideoIntentV1=>i.recipeId==='video-generation';
 /** Director parity Join clips: model-free DaSiWaH3ClipAssemble prompt (native `jobs_video::join`); trims are seconds. */
 export interface H3Transition { files:readonly {filename:string;trimStart?:number|null;trimEnd?:number|null}[];contextFrames:number;transitionFrames:number;prompt?:string }

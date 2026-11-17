@@ -24,6 +24,7 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Comfy on the
 | Create and edit local colour/image theme packs | [Make and edit themes](THEME-PACKS.md) |
 | Beginner experience: generation, model guides and Media page without technical settings | [Beginner mode](BEGINNER-MODE.md) |
 | Music: Text to Music with YuE2 or ACE-Step; Cover Music with YuE2 | [Music](MUSIC.md) |
+| Experimental MiniMax H3 dials (compiler only, no Studio controls; user-installed Dial Rack nodes) | [Dials](DIALS.md) |
 | TVE tab: video source inspection and backend video-enhance recipes with paired outputs | [TVE workspace](STUDIO.md#tve-workspace) |
 | Monitoring tab: last ten generations with timing, live host/GPU telemetry | [Monitoring tab](STUDIO.md#monitoring-tab) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |
