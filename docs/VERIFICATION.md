@@ -1,5 +1,21 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 2026-11-17: dials, continuation in segment mode and constant rows on a continued segment (parent session)
+
+Evidence from the session that directed this work, not from a DEAS run: graphs emitted by `dump_intent_dir_graphs` at
+`0982112`, run on a separate ComfyUI 0.45.0 instance with ComfyUI-DaSiWa-Nodes and the Dial Rack nodes, a core
+CreateVideo + SaveVideo pair added per graph. One seed, motion dial, 6 steps, continuing the 107-frame take of the
+earlier entry.
+
+- **Output mode segment:** the same late ramp (authored at 5.5 to 6.5 piece seconds) rendered as a 102-frame segment
+  export; motion per half second 1.9 1.5 2.9 7.9 12.8 4.7 4.7 4.3, so the change starts about 1.0 s into the segment,
+  which is 5.5 s of the piece. The pack's session list reports that clip with `frames` 209 (cumulative), overlap 22,
+  extension 102 and an export of kind `segment` with 102 frames. So the cumulative reading and the carried-count sum
+  hold in segment mode as well as full.
+- **Constant rows on a continued segment:** 1.0 changed nothing visible (flat 1.3 to 1.8 over the piece); 1.25 replaced
+  the dancer with a different person in the new segment (two isolated motion spikes of about 15 at the cuts). With the
+  curve rows at 1.5 adding other people, no clean useful strength for this dial on a continued segment was found.
+
 ## Experimental H3 dials (round three: the carried count on plans that start the piece, unreleased) — 2026-11-17
 
 Branch `dials-rack-experimental`. **Fixture and headless-Chromium evidence only** for the code below: no ComfyUI instance

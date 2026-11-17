@@ -176,7 +176,8 @@ one **timeline**: a lane per row over a shared seconds axis.
   The laid-out piece length mirrors the compiler's rule. **A real session agreed with it
   in output mode full** (2026-11-17, one take and two continuations, text to video): the
   node pack's session list gave 107, 209 and 311 frames for a 4 s take and two 4 s
-  steps, the lengths the lanes show. Output mode segment and REF2VA were not run.
+  steps, the lengths the lanes show. A segment-mode continuation of the same take was also listed
+  with 209 frames. REF2VA was not run.
   When a later step of such a plan runs with a time curve, Studio sends the frame count
   of the clip that step continues as the lanes have it (the take plus every finished
   step), and DEAS refuses the job if the session list has another count; see the next
@@ -220,8 +221,9 @@ one **timeline**: a lane per row over a shared seconds axis.
     For the plan's first step the count is the picked clip's. For a later step it is
     that count plus what each finished step added (the node pack's own sum). A real
     session in output mode full listed exactly these sums (107, then 209, then 311
-    frames); output mode segment was not run, there the sum is the pack's rule read
-    from its source. If it ever differs, the same refusal says so.
+    frames), and a segment-mode continuation of the same take was listed with 209 too,
+    its export being the 102-frame segment. If the sum ever differs, the same refusal
+    says so.
   - **A plan that starts the piece is checked the same way from its second step on.**
     The count Studio sends for a later step is the first take's frames plus what each
     finished step added. The lanes of such a plan are drawn as before (no hatch, frame
@@ -497,9 +499,13 @@ compiler's output, not started from Studio. None of this is a measured rule.
 
   - **A continuation behaves like a picture mode for strength.** At 1.5 the continued
     segments added other people to the shot, which is how the picture-conditioned modes
-    looked when the dial was too strong (above). Which strength is useful on a continued
-    segment was not looked for.
-  - Not run: output mode segment, REF2VA, anything started from Studio, and the native
+    looked when the dial was too strong (above). Constant rows on the continued segment:
+    1.0 changed nothing visible and 1.25 replaced the dancer with a different person in
+    the new segment, so no clean useful strength for this dial on a continued segment
+    was found.
+  - Output mode segment: the late ramp rendered as a 102-frame segment changed about 1.0 s
+    in, which is 5.5 s of the piece, as authored.
+  - Not run: REF2VA continuations, anything started from Studio, and the native
     check of the carried frame count (`confirm_source_frames`) against the real session
     list.
 - **Blend steps:** the default was rendered at 6, 8, 12 and 25 sampler steps for one look
