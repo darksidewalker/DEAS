@@ -1,5 +1,21 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 2026-11-17: dials, renders from compiler-emitted graphs in other modes and at 25 steps (parent session)
+
+Evidence from the session that directed this work, not from a DEAS run: the graphs were compiled with the ignored
+`dump_intent_dir_graphs` test from intent files, then run on a separate ComfyUI 0.45.0 instance with
+ComfyUI-DaSiWa-Nodes and the Dial Rack nodes. A core CreateVideo + SaveVideo pair was added to each graph for the
+operator's launcher; nothing else was changed. One seed each, 832x480, 107 frames; clips were viewed as contact sheets.
+
+- I2VA (first frame) and REF2VA (one reference picture, reference model and its turbo LoRA): no dials, a constant
+  motion row at 1.5, and in I2VA a curve row at 1.5: all five ran without node errors. At 1.5 nothing visible changed;
+  derived graphs with the row at 3.0 and 4.5 acted strongly in both modes.
+- 25 sampler steps without a turbo LoRA: the motion dial's ramp acted with 8 and with 25 blend steps; the ink wash
+  dial painted the clip as a constant row but showed no seep in or out on a curve with 8 or 25 blend steps.
+- Ink wash seep curve at 6 steps on a second seed: 6 blend steps gave a pale wash over the middle of the clip, 2 only
+  a glow.
+- Not done: any run started from DEAS itself; DEAS-owned nodes were not on that instance.
+
 ## Experimental H3 dials (dial info and curve audio mode, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on top of the rack presets below; see

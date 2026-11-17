@@ -326,6 +326,26 @@ compiler's output, not started from Studio. None of this is a measured rule.
   blend steps as with 2. This is where the every-step default of short jobs comes from.
 - **A look dial's effect depends on the prompt's style.** On a photoreal prompt the ink
   wash dial did nothing even as a constant row at 2.0.
+- **Ink wash, second seed** (same graphs, another noise seed): with 6 blend steps a pale,
+  desaturated wash over the middle of the clip, weaker than on the first seed; with 2
+  only a glow. More blend steps helped on both seeds; how strongly the look lands varies
+  with the seed.
+- **25 sampler steps, no turbo LoRA, DEAS's chain** (one seed each, 2026-11-17):
+  - Motion dial at 1.5 on the 0 to 1 ramp acted with 8 blend steps (the default there)
+    and the same way with all 25.
+  - Ink wash at 2.0 as a constant row painted the whole clip, but on the seep in/out
+    curve it showed **no seep in or out with 8 blend steps or with all 25**: the clip
+    kept one muted look from start to end. So a look dial on a curve is confirmed only on
+    the 6-step turbo recipe; why it fails at 25 steps is not known.
+- **Other H3 modes** (graphs the compiler emitted for I2VA with a first frame and for
+  REF2VA with one reference picture and the reference model, one seed each, 2026-11-17):
+  all ran; the rack sat on the model input the Director uses for that mode. The motion
+  dial as a constant row at 1.5 changed nothing visible in either mode, and a curve at
+  1.5 in I2VA did nothing; at 3.0 and 4.5 it acted strongly in both, and already too
+  strongly at 3.0 (the room of the first frame stayed, but other running people entered
+  the shot). So with a picture the useful strength is higher than in text to video and
+  the usable band looked narrow; 2.0 to 2.5 was not rendered. The dial maker's notes say
+  the same about reference pictures.
 - **Blend steps:** the default was tried only at 6 and 25 sampler steps; see
   [Blend steps](#blend-steps).
 
