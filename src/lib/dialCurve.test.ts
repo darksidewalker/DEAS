@@ -510,3 +510,23 @@ test('with the window start known, points that the shift would merge are reporte
   expect(dialCurveConflicts({ ...facts, windowStart: null })).toEqual(['sourceFrames']);
   expect(dialCurveConflicts({ ...facts, rows: [{ dial: calm, strength: 1, time: keys([[0, 0], [1e-17, 1]]) }] })).toEqual(['shift']);
 });
+
+test('a gesture end closes the merge tag of any control, so the next edit with the same tag is its own undo step', () => {
+  const start = { ...rackState(rows()), row: 1 };
+  const smooth = (v: number): RackAction => ({ type: 'set', patch: { smooth: v }, tag: 'smooth:1' });
+  // One gesture: three values, one step.
+  const dragged = run(start, smooth(0.2), smooth(0.4), smooth(0.3));
+  expect(dragged.past).toHaveLength(1);
+  // Without an end the next gesture would merge into it (the defect); with it, it is a second step.
+  expect(run(dragged, smooth(0.8)).past).toHaveLength(1);
+  const again = run(dragged, { type: 'gesture' }, smooth(0.8));
+  expect(again.past).toHaveLength(2);
+  expect(run(again, { type: 'undo' }).rows[1].time!.smooth).toBe(0.3);
+  // The same for a typed point field and the blend steps.
+  const typed = (level: number): RackAction => ({ type: 'move', point: 1, t: 1.5, level, lim: { ...lim, snap: 0 }, tag: 'typed:level:1:1' });
+  expect(run(start, typed(0.2), typed(0.25), { type: 'gesture' }, typed(0.6)).past).toHaveLength(2);
+  const steps = (n: number): RackAction => ({ type: 'set', patch: { steps: n }, tag: 'steps:1' });
+  expect(run(start, steps(1), steps(12), { type: 'gesture' }, steps(9)).past).toHaveLength(2);
+  // An end with no gesture open changes nothing.
+  expect(rackReduce(start, { type: 'gesture' })).toBe(start);
+});

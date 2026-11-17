@@ -687,3 +687,75 @@ test('a continued piece whose steps are all rendered leaves nothing to draw on a
   expect(document.querySelectorAll('[data-dial-tick]')).toHaveLength(0);
   expect(lane(calm).querySelector('[data-dial-frames]')).toBeNull();
 });
+
+test('separate edits of smoothing, a typed time or level and the blend steps are separate undo steps; one gesture of each is one step', () => {
+  render(<Host steps={25}/>);
+  select(calm);
+  const curve = () => last[1].time!;
+  const undo = () => fireEvent.click(tool('undo'));
+  const smooth = () => document.querySelector<HTMLInputElement>('[data-dial-smooth]')!;
+  // One slider drag: several values, then the browser's change at release. A second drag later.
+  for (const value of ['0.2', '0.4', '0.3']) fireEvent.input(smooth(), { target: { value } });
+  fireEvent.change(smooth(), { target: { value: '0.3' } });
+  for (const value of ['0.6', '0.8']) fireEvent.input(smooth(), { target: { value } });
+  fireEvent.pointerUp(smooth());
+  expect(curve().smooth).toBe(0.8);
+  undo();
+  expect(curve().smooth).toBe(0.3);
+  undo();
+  expect(curve().smooth).toBeUndefined();
+  expect(tool('undo').disabled).toBe(true);
+  // A held arrow key repeats and commits each time: one step until the key is released; the next press is another.
+  fireEvent.keyDown(smooth(), { key: 'ArrowRight' });
+  for (const value of ['0.05', '0.1', '0.15']) { fireEvent.input(smooth(), { target: { value } }); fireEvent.change(smooth(), { target: { value } }); }
+  fireEvent.keyUp(smooth(), { key: 'ArrowRight' });
+  fireEvent.keyDown(smooth(), { key: 'ArrowRight' });
+  fireEvent.input(smooth(), { target: { value: '0.2' } });
+  fireEvent.keyUp(smooth(), { key: 'ArrowRight' });
+  undo();
+  expect(curve().smooth).toBe(0.15);
+  undo();
+  expect(curve().smooth).toBeUndefined();
+  expect(tool('undo').disabled).toBe(true);
+
+  // Blend steps: "1", "12" typed in one visit is one step; a second visit to the field is another.
+  const steps = () => document.querySelector<HTMLInputElement>('[data-dial-steps]')!;
+  fireEvent.input(steps(), { target: { value: '1' } });
+  fireEvent.input(steps(), { target: { value: '12' } });
+  fireEvent.blur(steps());
+  fireEvent.input(steps(), { target: { value: '9' } });
+  fireEvent.change(steps(), { target: { value: '9' } });
+  expect(curve().steps).toBe(9);
+  undo();
+  expect(curve().steps).toBe(12);
+  undo();
+  expect(curve().steps).toBeUndefined();
+  expect(tool('undo').disabled).toBe(true);
+
+  // The selected point's Level: typed "0", "0.7" and left; typed again later. Selecting a point adds no undo step.
+  fireEvent.focus(points()[1]);
+  const level = () => document.querySelector<HTMLInputElement>('[data-dial-point-level]')!, time = () => document.querySelector<HTMLInputElement>('[data-dial-point-time]')!;
+  fireEvent.input(level(), { target: { value: '0' } });
+  fireEvent.input(level(), { target: { value: '0.7' } });
+  fireEvent.blur(level());
+  fireEvent.input(level(), { target: { value: '0.4' } });
+  fireEvent.blur(level());
+  expect(curve().points[1]).toEqual([1.5, 0.4]);
+  undo();
+  expect(curve().points[1]).toEqual([1.5, 0.7]);
+  undo();
+  expect(curve().points[1]).toEqual([1.5, 1]);
+  expect(tool('undo').disabled).toBe(true);
+  // The Time field the same way, committed with Enter (the browser's change event) the first time.
+  fireEvent.focus(points()[1]);
+  fireEvent.input(time(), { target: { value: '2' } });
+  fireEvent.change(time(), { target: { value: '2' } });
+  fireEvent.input(time(), { target: { value: '2.5' } });
+  fireEvent.blur(time());
+  expect(curve().points[1]).toEqual([2.5, 1]);
+  undo();
+  expect(curve().points[1]).toEqual([2, 1]);
+  undo();
+  expect(curve().points[1]).toEqual([1.5, 1]);
+  expect(tool('undo').disabled).toBe(true);
+});

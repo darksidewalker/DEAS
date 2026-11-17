@@ -54,6 +54,17 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  };
  // Stable, so the strip's commit listeners are not re-attached on every draw.
  const endGesture=useCallback(()=>{state.current=rackReduce(state.current,{type:'gesture'});},[]);
+ // The dialog's own controls end their gestures as the strip's do: at the browser's `change` commit (slider released, number field left or
+ // Enter), pointer up, key up and blur. A slider key that is held down repeats and commits each time; that stays one step until the key is released.
+ const held=useRef(false);
+ const committed=useCallback((el:HTMLInputElement|null)=>{
+  if(!el)return;
+  const end=()=>{if(!held.current)endGesture();};
+  el.addEventListener('change',end);
+  return()=>el.removeEventListener('change',end);
+ },[endGesture]);
+ const release=()=>{held.current=false;endGesture();};
+ const leave=()=>{setDraft(null);endGesture();};
  const [range,setRange]=useState({lo:0,hi:1});
  const [hover,setHover]=useState<{t:number;level:number}|null>(null);
  const [note,setNote]=useState('');
@@ -224,8 +235,8 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
      {curve&&<div className="dial-rack-tools dial-rack-settings">
       <label>{t('studio.dials.rack.interp')}<select data-dial-interp disabled={locked} value={curve.interp??'linear'} onChange={e=>dispatch({type:'set',patch:{interp:e.target.value as 'linear'|'step'}})}>
        <option value="linear">{t('studio.dials.rack.interp.linear')}</option><option value="step">{t('studio.dials.rack.interp.step')}</option></select></label>
-      <label title={t('studio.dials.rack.smoothHelp')}>{t('studio.dials.rack.smooth')}<input type="range" data-dial-smooth min={0} max={1} step={0.05} disabled={locked||curve.interp==='step'} value={curve.smooth??0} onChange={e=>dispatch({type:'set',patch:{smooth:Number(e.target.value)},tag:`smooth:${s.row}`})}/><output>{fmt(curve.smooth??0)}</output></label>
-      <label title={t('studio.dials.rack.stepsHelp')}>{t('studio.dials.rack.steps')}<input type="number" data-dial-steps min={1} max={Math.min(steps,DIAL_BLEND_STEPS)} step={1} placeholder={String(fallback)} disabled={!!gate} value={shown('steps',curve.steps??'')} onChange={e=>blend(e.target.value)} onBlur={()=>setDraft(null)}/></label>
+      <label title={t('studio.dials.rack.smoothHelp')}>{t('studio.dials.rack.smooth')}<input type="range" data-dial-smooth ref={committed} onPointerUp={endGesture} onKeyDown={()=>{held.current=true;}} onKeyUp={release} onBlur={release} min={0} max={1} step={0.05} disabled={locked||curve.interp==='step'} value={curve.smooth??0} onChange={e=>dispatch({type:'set',patch:{smooth:Number(e.target.value)},tag:`smooth:${s.row}`})}/><output>{fmt(curve.smooth??0)}</output></label>
+      <label title={t('studio.dials.rack.stepsHelp')}>{t('studio.dials.rack.steps')}<input type="number" data-dial-steps ref={committed} min={1} max={Math.min(steps,DIAL_BLEND_STEPS)} step={1} placeholder={String(fallback)} disabled={!!gate} value={shown('steps',curve.steps??'')} onChange={e=>blend(e.target.value)} onBlur={leave}/></label>
       <small data-dial-steps-default>{t(curve.steps===undefined?'studio.dials.rack.stepsDefault':'studio.dials.rack.stepsAuthored',{count:String(curve.steps??fallback),fallback:String(fallback),steps:String(steps)})}</small>
       {fileSteps!==undefined&&<small data-dial-steps-file={fileSteps}>{t(measured!.steps!>steps?'studio.dials.rack.stepsFileCut':'studio.dials.rack.stepsFile',{value:String(measured!.steps),count:String(fileSteps),steps:String(steps),pipeline:t(`studio.dials.pipeline.${pipeline}`)})}</small>}
       {fileSteps!==undefined&&curve.steps!==fileSteps&&<button type="button" className="wb-dock-action" data-dial-steps-use disabled={!!gate} onClick={()=>{setDraft(null);dispatch({type:'set',patch:{steps:fileSteps}});}}>{t('studio.dials.rack.stepsUse',{count:String(fileSteps)})}</button>}
@@ -274,8 +285,8 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
       </div></div>
      </div>
      <div className="dial-rack-tools dial-rack-point">
-      {curve&&<><label>{t('studio.dials.rack.time')}<input type="number" data-dial-point-time step={DIAL_SNAP} min={lim.from} max={lim.to} disabled={locked||!selected} value={shown('time',selected?selected[0]:'')} onChange={e=>typed('time',e.target.value)} onBlur={()=>setDraft(null)}/></label>
-      <label>{t('studio.dials.rack.level')}<input type="number" data-dial-point-level step={DIAL_LEVEL_SNAP} min={lo} max={hi} disabled={locked||!selected} value={shown('level',selected?selected[1]:'')} onChange={e=>typed('level',e.target.value)} onBlur={()=>setDraft(null)}/></label>
+      {curve&&<><label>{t('studio.dials.rack.time')}<input type="number" data-dial-point-time ref={committed} step={DIAL_SNAP} min={lim.from} max={lim.to} disabled={locked||!selected} value={shown('time',selected?selected[0]:'')} onChange={e=>typed('time',e.target.value)} onBlur={leave}/></label>
+      <label>{t('studio.dials.rack.level')}<input type="number" data-dial-point-level ref={committed} step={DIAL_LEVEL_SNAP} min={lo} max={hi} disabled={locked||!selected} value={shown('level',selected?selected[1]:'')} onChange={e=>typed('level',e.target.value)} onBlur={leave}/></label>
       {tool('deletePoint',()=>{if(!dispatch({type:'remove',point:s.point}))say('studio.dials.rack.keepTwo');},{disabled:locked||!selected})}</>}
       <output className="dial-rack-readout" data-dial-readout>{read&&curve?t(read.level>=0&&read.level<=1?'studio.dials.rack.readout':'studio.dials.rack.readoutOutside',{time:fmt(read.t),level:fmt(read.level),strength:strengthOf(read.level)}):t(curve?'studio.dials.rack.readoutNone':'studio.dials.rack.readoutConstant',{strength:strengthOf(1)})}</output>
      </div>
