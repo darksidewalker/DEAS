@@ -4286,3 +4286,34 @@ fn dial_time_curves_shift_onto_a_continued_window() {
         json!([[2.125, 0], [4.125, 1]])
     );
 }
+
+/// Compiles intent files for an offline check or a manual render of the emitted graphs:
+/// `DEAS_DUMP_INTENTS_DIR=<dir> cargo test --lib dump_intent_dir_graphs -- --ignored` reads every
+/// `intent_<name>.json` in `<dir>` and writes `emitted_<name>.json` beside it, the API graph exactly
+/// as `jobs::compile` returns it. Without the variable it does nothing.
+#[test]
+#[ignore]
+fn dump_intent_dir_graphs() {
+    let Some(dir) = std::env::var_os("DEAS_DUMP_INTENTS_DIR") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let mut written = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let Some(arm) = name
+            .strip_prefix("intent_")
+            .and_then(|n| n.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let intent: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let graph = crate::jobs::compile(&intent).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let out = dir.join(format!("emitted_{arm}.json"));
+        std::fs::write(&out, serde_json::to_string_pretty(&graph).unwrap()).unwrap();
+        println!("{}", out.display());
+        written += 1;
+    }
+    assert!(written > 0, "no intent_<name>.json in {}", dir.display());
+}
