@@ -427,10 +427,11 @@ def verify_continued_known(browser, url, shots, checks):
                 assert g['basisId'] == 'planContinued' and '15.083' in g['basis']['text'] and '10.125' in g['basis']['text'] and '15.083' in g['heading'], (label, 'basis', g['basisId'], g['basis'], g['heading'])
                 assert not g['locked'] and g['conflicts'] == [], (label, 'held', g['locked'], g['conflicts'])
                 assert g['tools']['preset.rampIn'] is False and g['tools']['addPoint'] is False and g['tools']['paste'] is False, (label, 'tools', g['tools'])
-                # The rendered part: one mark per lane, from 0 s to 243 / 362 of that lane's plot.
+                # The rendered part: one mark per lane, from the track's own left edge (the plot's 0 s lies 9 px inside it; the piece starts
+                # there, so no unhatched strip is left before it) to 243 / 362 of that lane's plot.
                 assert len(g['rendered']) == 2 and all(r['at'] == '10.125' for r in g['rendered']), (label, 'rendered marks', g['rendered'])
                 for r in g['rendered']:
-                    assert abs(r['left'] - r['plot']['left']) <= 1 and abs(r['right'] - (r['plot']['left'] + r['plot']['width'] * 243 / 362)) <= 1.5, (label, 'rendered mark geometry', r)
+                    assert abs(r['left'] - (r['plot']['left'] - 9)) <= 1 and abs(r['right'] - (r['plot']['left'] + r['plot']['width'] * 243 / 362)) <= 1.5, (label, 'rendered mark geometry', r)
                 plot = g['plot']
                 at = lambda frame: plot['left'] + plot['width'] * frame / 362
                 assert len(g['edges']) == 1 and abs(g['edges'][0] - at(243)) <= 1.5, (label, 'the continued clip ends at a segment edge', g['edges'], at(243))

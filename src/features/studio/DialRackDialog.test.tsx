@@ -636,8 +636,9 @@ test('a plan that continues a clip whose frame count is known shows the whole pi
   const done = Array.from(document.querySelectorAll<HTMLElement>('[data-dial-rendered]'));
   expect(done).toHaveLength(2);
   expect(done[0].dataset.dialRendered).toBe('10.125');
-  expect(parseFloat(done[0].style.left)).toBe(0);
-  expect(parseFloat(done[0].style.width)).toBeCloseTo(243 / 362 * 100, 2);
+  // The piece starts at the plot's left edge, 9 px inside the track: the mark runs out to the track's own edge and ends at the clip's end.
+  expect(done[0].style.left).toBe('-9px');
+  expect(done[0].style.width).toBe(`calc(${(243 / 362 * 100).toFixed(3)}% + 9px)`);
   expect(document.querySelectorAll(`[data-dial-lane="${calm}"] [data-dial-edge]`)).toHaveLength(1);
   select(calm);
   // 42 latent frames of the next clip's window: 43 ticks from 221 / 24 s on, and the stepped line over the same frames.

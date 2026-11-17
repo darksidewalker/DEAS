@@ -40,6 +40,8 @@
 .dial-lane-edge { position: absolute; top: -8px; bottom: -8px; width: 0; border-left: 1px dashed var(--line-strong); pointer-events: none; }
 /* The part of a continued piece that already exists (the continued clip, finished steps): hatched, takes no points. */
 .dial-lane-rendered { position: absolute; top: -8px; bottom: -8px; border-right: 1px solid var(--line-strong); background: repeating-linear-gradient(135deg, rgb(var(--shadow-rgb) / .5) 0 6px, rgb(var(--shadow-rgb) / .2) 6px 12px); pointer-events: none; }
+/* The piece starts at the plot's left edge, 9 px inside the track (its padding): the hatch runs out to the track's own edge, like `beyond` on the right. */
+.dial-lane-rendered[data-dial-rendered-edge] { border-radius: calc(.5rem - 1px) 0 0 calc(.5rem - 1px); }
 .dial-lane-beyond { position: absolute; top: -8px; bottom: -8px; right: -9px; background: rgb(var(--shadow-rgb) / .35); pointer-events: none; }
 .dial-point { position: absolute; box-sizing: border-box; width: 16px; height: 16px; min-width: 0; margin: -8px 0 0 -8px; padding: 0; border: 2px solid var(--accent); border-radius: 50%; background: var(--surface); cursor: grab; touch-action: none; }
 .dial-point[aria-pressed="true"] { background: var(--accent); }

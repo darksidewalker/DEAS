@@ -264,7 +264,8 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
          onDoubleClick={active&&!locked?e=>{const hit=(e.target as HTMLElement).closest<HTMLElement>('[data-dial-point]');if(hit&&!dispatch({type:'remove',point:Number(hit.dataset.dialPoint)}))say('studio.dials.rack.keepTwo');}:undefined}>
          <div className="dial-lane-plot" ref={active?plot:undefined}>
           {to>timeline.seconds+1e-3&&<span className="dial-lane-beyond" style={{left:pct(xOf(timeline.seconds))}}/>}
-          {rendered>0&&<span className="dial-lane-rendered" data-dial-rendered={fmt(rendered,4)} style={{left:pct(xOf(0)),width:pct(xOf(rendered)-xOf(0))}}/>}
+          {rendered>0&&(from<0?<span className="dial-lane-rendered" data-dial-rendered={fmt(rendered,4)} style={{left:pct(xOf(0)),width:pct(xOf(rendered)-xOf(0))}}/>
+           :<span className="dial-lane-rendered" data-dial-rendered={fmt(rendered,4)} data-dial-rendered-edge style={{left:'-9px',width:`calc(${pct(xOf(rendered))} + 9px)`}}/>)}
           {timeline.edges.map(edge=><span key={edge} className="dial-lane-edge" data-dial-edge style={{left:pct(xOf(edge))}}/>)}
           <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
            {a<0&&<line className="dial-lane-zero" x1={0} x2={1000} y1={yOf(0,a,b)*100} y2={yOf(0,a,b)*100}/>}
