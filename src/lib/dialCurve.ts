@@ -1,6 +1,6 @@
 import type { H3DialCurve } from './videoIntent';
 import { videoFrames } from './videoIntent';
-import { DIAL_LEVEL, DIAL_POINTS, DIAL_SECONDS, isDialCurve, type DialRow } from './dials';
+import { DIAL_LEVEL, DIAL_POINTS, DIAL_SECONDS, isDialCurve, isDialRows, type DialRow } from './dials';
 
 /**
  * Time-curve maths and editing for the experimental Dial Rack dialog (docs/DIALS.md). The sampler mirrors the pack's
@@ -164,6 +164,7 @@ export interface RackState { rows:readonly DialRow[]; row:number; point:number; 
 export const rackState=(rows:readonly DialRow[]):RackState=>({rows,row:rows.length?0:-1,point:-1,past:[],future:[],tag:''});
 export type RackAction=
  |{type:'rows';rows:readonly DialRow[]}
+ |{type:'load';rows:readonly DialRow[]}
  |{type:'select';row:number;point?:number}
  |{type:'addCurve';seconds:number}|{type:'removeCurve'}
  |{type:'add';t:number;level:number;lim:CurveLimits}
@@ -204,6 +205,8 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
    // A removed row moves the selection onto another dial: no point of it is selected.
    return settle(commit(s,a.rows,field?`rows:${changed}:${field}`:'',a.rows[s.row]?.dial===s.rows[s.row]?.dial?{}:{point:-1}));
   }
+  // A loaded preset replaces the rack: always its own undo step, selection on the first lane.
+  case 'load':return isDialRows(a.rows)?settle(commit({...s,tag:''},a.rows,'',{row:a.rows.length?0:-1,point:-1})):s;
   case 'select':return s.rows[a.row]?settle({...s,row:a.row,point:a.point??-1,tag:''}):s;
   case 'addCurve':return curve||!s.rows[s.row]?s:commit(s,withCurve(s,flatCurve(a.seconds)),'',{point:-1});
   case 'removeCurve':return curve?commit(s,withCurve(s,undefined),'',{point:-1}):s;

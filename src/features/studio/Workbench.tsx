@@ -53,6 +53,7 @@ import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } fr
 import { DeropeControls, defaultDerope, deropeNodes, fromDerope, isDeropePref, withDerope } from './DeropeControls';
 import { DialStrip } from './DialStrip';
 import { DialRackDialog } from './DialRackDialog';
+import { DialPresetsDialog } from './DialPresetsDialog';
 import { dialTimeline } from '../../lib/dialCurve';
 import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
@@ -375,7 +376,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [plan,setPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
  const [referencesOpen,setReferencesOpen]=useState(false);const referencesButton=useRef<HTMLButtonElement>(null);
  const [continuityOpen,setContinuityOpen]=useState(false);const continuityButton=useRef<HTMLButtonElement>(null);
- const [rackOpen,setRackOpen]=useState(false);const rackButton=useRef<HTMLButtonElement>(null);
+ const [rackOpen,setRackOpen]=useState(false);const [dialPresetsOpen,setDialPresetsOpen]=useState(false);const rackButton=useRef<HTMLButtonElement>(null);
  const planRun=useRef<{jobId:string;index:number;all:boolean;imported?:H3ImportedVideo}|null>(null);const [autoPlan,setAutoPlan]=useState(false);const [resolving,setResolving]=useState(false);
  const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
  // Post-Processing (SwarmUI Refine / Upscale): opt-in second pass after every run, or applied alone to the shown image.
@@ -2367,7 +2368,7 @@ const promptTools=forgeContext&&<>
     </div>
    </section>}
 
-   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={dialSpan.seconds} onRead={loadChoices} conflicts={dialConflicts} rackRef={rackButton} onOpenRack={()=>setRackOpen(true)}/></section>}
+   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={dialSpan.seconds} onRead={loadChoices} conflicts={dialConflicts} rackRef={rackButton} onOpenRack={()=>setRackOpen(true)} onOpenPresets={()=>setDialPresetsOpen(true)}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel wb-model-browser-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
@@ -2395,7 +2396,8 @@ const promptTools=forgeContext&&<>
    </div>)}
   </div>
  </section>,forgeHost)}
- {rackOpen&&!planVisible&&<DialRackDialog value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} onRead={loadChoices} timeline={dialSpan} steps={steps} conflicts={dialConflicts} onClose={()=>{setRackOpen(false);rackButton.current?.focus();}}/>}
+ {rackOpen&&!planVisible&&<DialRackDialog value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} onRead={loadChoices} timeline={dialSpan} steps={steps} conflicts={dialConflicts} endpoint={endpoint} onClose={()=>{setRackOpen(false);rackButton.current?.focus();}}/>}
+ {dialPresetsOpen&&!rackOpen&&!planVisible&&<DialPresetsDialog endpoint={endpoint} rows={dialRows} seconds={dialSpan.seconds} onLoad={setDialRows} onClose={()=>setDialPresetsOpen(false)}/>}
  {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay blocker={dialTransitionBlock?t('studio.dials.conflict.transition'):undefined} captureTransition={continuityAvailable&&videoFamily&&model&&split&&naming!==null&&!dialTransitionBlock?()=>{
     const epoch=admissionEpoch.current,capturedEndpoint=endpoint,uploads=new Set<string>();
     const identify=(item:MediaItem,force=false)=>{const name=!force&&comfyName(item);if(name)return name;uploads.add(item.path!);return item.path!;};

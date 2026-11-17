@@ -15,9 +15,9 @@ export function DialCurveThumb({curve,seconds,label}:{curve:H3DialCurve;seconds:
  * Experimental Dial Rack strip (docs/DIALS.md): one line per dial. `files` are the dial files offered for adding,
  * `listed` every LoRA name the backend (or the library scan) lists, undefined while unread, `gate` the reason new rows cannot run here. A closed gate keeps the switch and
  * Remove usable, so a row that blocks Run can always be turned off. `conflicts` are the compiler's time-curve refusals for the next job
- * (`dialCurveConflicts`), shown as reasons. `onOpenRack` opens the full rack dialog; `rackRef` is its button, for returning focus.
+ * (`dialCurveConflicts`), shown as reasons. `onOpenRack` opens the full rack dialog; `rackRef` is its button, for returning focus. `onOpenPresets` opens the rack presets dialog.
  */
-export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack,rackRef,conflicts}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void;rackRef?:Ref<HTMLButtonElement>;conflicts?:readonly DialCurveConflict[]}){
+export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack,rackRef,onOpenPresets,conflicts}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void;rackRef?:Ref<HTMLButtonElement>;onOpenPresets?:()=>void;conflicts?:readonly DialCurveConflict[]}){
  const {t}=useI18n();
  // A half-typed number ("-", "1.") stays in the field without rewriting the row.
  const [draft,setDraft]=useState<{index:number;text:string}|null>(null);
@@ -34,6 +34,7 @@ export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpe
     onChange={e=>{if(e.target.value)onChange([...value,{dial:e.target.value,strength:1,on:true}]);}}>
     <option value="">{t('studio.dials.add')}</option>{offered.map(f=><option key={f} value={f} title={f}>{dialLabel(f)}</option>)}</select>
    {onOpenRack&&<button ref={rackRef} type="button" className="wb-dock-action" data-dial-rack-open aria-haspopup="dialog" onClick={onOpenRack}>{t('studio.dials.openRack')}</button>}
+   {onOpenPresets&&<button type="button" className="wb-dock-action" data-dial-presets-open aria-haspopup="dialog" onClick={onOpenPresets}>{t('studio.dials.presets.open')}</button>}
    {!gate&&full&&<small role="status">{addReason}</small>}
    {!gate&&listed&&!files.length&&<small data-dials-empty>{t('studio.dials.none')}</small>}
   </div>

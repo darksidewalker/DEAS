@@ -4,6 +4,8 @@ import { DIAL_BLEND_STEPS, DIAL_LEVEL, dialBlendSteps, dialLabel, type DialCurve
 import { DIAL_LEVEL_SNAP, DIAL_SNAP, dialCurveText, dialFrameLevels, dialPresets, latentFrameStarts, nearPoint, parseDialCurveText, rackReduce, rackState, sampleDialCurve, widestGap, type CurveLimits, type DialTimeline, type RackAction, type RackState } from '../../lib/dialCurve';
 import type { H3DialCurve } from '../../lib/videoIntent';
 import { DialStrip } from './DialStrip';
+import { DialPresetsDialog } from './DialPresetsDialog';
+import type { DialPresetStore } from '../../lib/dialPresets';
 import './continuity-overlay.css';
 import './dial-rack.css';
 
@@ -29,7 +31,7 @@ function curvePath(curve:Pick<H3DialCurve,'points'|'interp'|'smooth'>,from:numbe
  * so the strip's edits and the curve edits share one undo history while the dialog is open. `conflicts` are the compiler's time-curve refusals
  * for the next job (`dialCurveConflicts`); with one that editing cannot resolve the curve tools are disabled and only Remove curve stays.
  */
-export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline,steps,conflicts,onClose}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;onRead?:()=>void;timeline:DialTimeline;steps:number;conflicts:readonly DialCurveConflict[];onClose:()=>void}){
+export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline,steps,conflicts,onClose,endpoint,presetStore}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;onRead?:()=>void;timeline:DialTimeline;steps:number;conflicts:readonly DialCurveConflict[];onClose:()=>void;endpoint?:string;presetStore?:DialPresetStore}){
  const {t}=useI18n();
  const dialogRef=useRef<HTMLDialogElement>(null),closeRef=useRef<HTMLButtonElement>(null),plot=useRef<HTMLDivElement>(null),titleId=useId(),helpId=useId();
  const state=useRef<RackState>(rackState(value));
@@ -47,6 +49,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
  const [range,setRange]=useState({lo:0,hi:1});
  const [hover,setHover]=useState<{t:number;level:number}|null>(null);
  const [note,setNote]=useState('');
+ const [presetsOpen,setPresetsOpen]=useState(false);
  const [draft,setDraft]=useState<{field:string;text:string}|null>(null);
  const drag=useRef<{point:number;tag:string;x:number;y:number;moved:boolean}|null>(null),gesture=useRef(0),focusPoint=useRef(false);
  useEffect(()=>{
@@ -176,7 +179,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
    <button ref={closeRef} type="button" data-dial-rack-close onClick={dismiss}>{t('studio.close')}</button>
   </header>
   <div className="continuity-overlay-body dial-rack-body">
-   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts}/>
+   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
    <section className="dial-rack-timeline" data-dial-timeline={timeline.basis} aria-label={t('studio.dials.rack.timeline')}>
     <h3>{t('studio.dials.rack.timeline')} · {t('studio.dials.rack.length',{seconds})}</h3>
     {timeline.basis!=='clip'&&<p className="dial-rack-help" data-dial-basis={timeline.basis}>{t(`studio.dials.rack.basis.${timeline.basis}`,{seconds})}</p>}
@@ -245,5 +248,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
     <p className="dial-rack-help" data-dial-help="range">{t('studio.dials.rack.help.range')}</p>
    </section>
   </div>
+  {/* A loaded preset goes through the reducer: one undo step. */}
+  {presetsOpen&&endpoint!==undefined&&<DialPresetsDialog endpoint={endpoint} rows={s.rows} seconds={timeline.seconds} store={presetStore} onLoad={rows=>dispatch({type:'load',rows})} onClose={()=>setPresetsOpen(false)}/>}
  </dialog>;
 }

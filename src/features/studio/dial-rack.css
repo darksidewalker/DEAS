@@ -56,3 +56,15 @@
   .dial-axis > span { display: none; }
   .dial-lane[data-selected="true"] .dial-lane-track { height: 8rem; }
 }
+
+/* Rack presets dialog: the LoRA sets dialog's frame (loraSets.css) with rows of text instead of tiles. */
+.dial-preset-entry { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .2rem .65rem; min-width: 0; }
+.dial-preset-entry .lora-entry-name { flex: 1 1 8rem; min-width: 0; overflow-wrap: anywhere; }
+.dial-preset-entry > span:last-child { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dial-presets-dialog .is-disabled .dial-preset-entry { color: var(--muted); opacity: .65; }
+.dial-presets-dialog .lora-selected-panel > footer label { margin: .2rem 0 .35rem; }
+.dial-presets-dialog .lora-selected-panel > footer small { margin: 0 0 .5rem; color: var(--muted); font-size: .72rem; }
+.dial-presets-dialog .lora-selected-panel > footer small.error-message { color: var(--copper-hi); }
+.dial-presets-dialog .lora-saved-panel .lora-set-actions { margin-bottom: .6rem; }
+.dial-presets-dialog q { overflow-wrap: anywhere; }
+.dial-preset-status { min-height: 1em; margin: .5rem 0; font-size: .8rem; }
