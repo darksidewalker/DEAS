@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties, type Ref } from 'react';
+import { useCallback, useId, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { DIAL_LEVEL, DIAL_ROWS, DIAL_SLIDER, DIAL_STEP, dialCurveOutline, dialLabel, dialName, dialStrength, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
 import type { H3DialCurve } from '../../lib/videoIntent';
@@ -36,9 +36,21 @@ function DialFacts({info,over,id}:{info:DialInfo;over:number|null;id:string}){
  * `info` is what the dial files say about themselves (`dialInfo.ts`): a row with an entry shows its side labels under the slider's ends, ticks at the recorded
  * useful and overcook strengths, a slider reach that follows them, the strengths and the evidence in words and an expandable note; a new row starts at the
  * positive useful strength. A row without an entry keeps the fallbacks (file name, ±3). `infoStatus` `unavailable` adds a small note; it never disables anything.
+ * `onCommit` is called when a strength gesture ends (the slider's or the number field's own `change` commit, pointer up, key up, blur), so a caller with an
+ * undo history (the rack dialog) can keep one drag as one step and the next edit as another.
  */
-export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack,rackRef,onOpenPresets,conflicts,info,infoStatus,onRefreshInfo}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void;rackRef?:Ref<HTMLButtonElement>;onOpenPresets?:()=>void;conflicts?:readonly DialCurveConflict[];info?:DialInfoMap;infoStatus?:DialInfoState['status'];onRefreshInfo?:()=>void}){
+export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack,rackRef,onOpenPresets,conflicts,info,infoStatus,onRefreshInfo,onCommit}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void;rackRef?:Ref<HTMLButtonElement>;onOpenPresets?:()=>void;conflicts?:readonly DialCurveConflict[];info?:DialInfoMap;infoStatus?:DialInfoState['status'];onRefreshInfo?:()=>void;onCommit?:()=>void}){
  const {t}=useI18n(),uid=useId();
+ // React's onChange is the input event; the browser's own `change` is the commit (slider released, number field left or Enter).
+ // A slider key that is held down repeats and commits each time: those stay one gesture until the key is released.
+ const held=useRef(false);
+ const committed=useCallback((el:HTMLInputElement|null)=>{
+  if(!el||!onCommit)return;
+  const end=()=>{if(!held.current)onCommit();};
+  el.addEventListener('change',end);
+  return()=>el.removeEventListener('change',end);
+ },[onCommit]);
+ const release=()=>{held.current=false;onCommit?.();};
  // Rows whose note (description, pipeline, notes of the dial file) is open, by dial name.
  const [noted,setNoted]=useState<readonly string[]>([]);
  // A half-typed number ("-", "1.") stays in the field without rewriting the row.
@@ -75,15 +87,15 @@ export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpe
     {missing&&<small role="alert" data-dial-missing>{t('studio.dials.missing')}</small>}
     <span className="wb-dial-slide">
      <span className="wb-dial-track">
-      <input type="range" data-dial="slider" aria-label={t('studio.dials.strength',{name})} aria-describedby={about?factsId:undefined} disabled={!!gate} min={range.min} max={range.max} step={DIAL_STEP} value={Math.min(range.max,Math.max(range.min,row.strength))} onChange={e=>{setDraft(null);strength(index,e.target.value);}}/>
+      <input type="range" data-dial="slider" ref={committed} onPointerUp={onCommit} onKeyDown={()=>{held.current=true;}} onKeyUp={release} onBlur={release} aria-label={t('studio.dials.strength',{name})} aria-describedby={about?factsId:undefined} disabled={!!gate} min={range.min} max={range.max} step={DIAL_STEP} value={Math.min(range.max,Math.max(range.min,row.strength))} onChange={e=>{setDraft(null);strength(index,e.target.value);}}/>
       {dialMarks(about).map(m=><i key={`${m.side}${m.kind}`} className="wb-dial-mark" data-dial-mark={`${m.side}-${m.kind}`} data-dial-mark-at={fmt(m.strength)} style={{'--at':m.at} as CSSProperties} title={`${t(`studio.dials.info.${m.kind}`,{value:fmt(m.value)})} (${fmt(m.strength)})`}/>)}
      </span>
      {about&&(about.negative||about.positive)&&<span className="wb-dial-sides" data-dial-sides>
       <span data-dial-side="neg" title={t('studio.dials.info.negative',{label:about.negative||'—'})}>{about.negative}</span>
       <span data-dial-side="pos" title={t('studio.dials.info.positive',{label:about.positive||'—'})}>{about.positive}</span></span>}
     </span>
-    <input type="number" data-dial="strength" aria-label={t('studio.dials.strengthExact',{name})} disabled={!!gate} min={-DIAL_LEVEL} max={DIAL_LEVEL} step={DIAL_STEP} value={draft?.index===index?draft.text:row.strength}
-     onChange={e=>{setDraft({index,text:e.target.value});strength(index,e.target.value);}} onBlur={()=>setDraft(null)}/>
+    <input type="number" data-dial="strength" ref={committed} aria-label={t('studio.dials.strengthExact',{name})} disabled={!!gate} min={-DIAL_LEVEL} max={DIAL_LEVEL} step={DIAL_STEP} value={draft?.index===index?draft.text:row.strength}
+     onChange={e=>{setDraft({index,text:e.target.value});strength(index,e.target.value);}} onBlur={()=>{setDraft(null);onCommit?.();}}/>
     {/* Fixed slot, so the sliders of rows with and without a curve line up. */}
     <span className="wb-dial-curve-slot">{row.time&&<DialCurveThumb curve={row.time} seconds={seconds} label={t('studio.dials.curve',{name,count:String(row.time.points.length)})}/>}</span>
     <button type="button" className="wb-dock-action" data-dial="remove" aria-label={t('studio.dials.remove',{name})} title={t('studio.dials.remove',{name})} onClick={()=>{setDraft(null);onChange(value.filter((_,i)=>i!==index));}}>×</button>

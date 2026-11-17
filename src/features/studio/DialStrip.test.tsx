@@ -140,7 +140,7 @@ test('the rack button appears only when a rack dialog is wired', () => {
 
 test('every dial string exists in all six locales with its placeholders, and global search finds the tab', () => {
   const keys = Object.keys(bundledCatalog.dictionaries.en).filter(k => k.startsWith('studio.dials.') || k === 'studio.run.dock.dials');
-  expect(keys.length).toBe(162);
+  expect(keys.length).toBe(163);
   const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
   for (const locale of ['de', 'fr', 'ja', 'tr', 'zh']) for (const key of keys) {
     const value = bundledCatalog.dictionaries[locale][key];

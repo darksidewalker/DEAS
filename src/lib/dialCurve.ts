@@ -177,6 +177,7 @@ export interface RackState { rows:readonly DialRow[]; row:number; point:number; 
 export const rackState=(rows:readonly DialRow[]):RackState=>({rows,row:rows.length?0:-1,point:-1,past:[],future:[],tag:''});
 export type RackAction=
  |{type:'rows';rows:readonly DialRow[]}
+ |{type:'gesture'}
  |{type:'load';rows:readonly DialRow[]}
  |{type:'select';row:number;point?:number}
  |{type:'addCurve';seconds:number;steps?:number}|{type:'removeCurve'}
@@ -190,7 +191,7 @@ export type RackAction=
  |{type:'undo'}|{type:'redo'};
 const HISTORY=100;
 const sameRows=(a:readonly DialRow[],b:readonly DialRow[])=>JSON.stringify(a)===JSON.stringify(b);
-/** One undo step per change; changes with the same non-empty tag (one drag, one slider gesture) share a step. */
+/** One undo step per change; changes with the same non-empty tag (one drag, one slider gesture) share a step until the gesture ends (`gesture`, `select`, undo, redo). */
 function commit(s:RackState,rows:readonly DialRow[],tag:string,select:{row?:number;point?:number}={}):RackState {
  const sel={row:select.row??s.row,point:select.point??s.point};
  if(sameRows(rows,s.rows))return sel.row===s.row&&sel.point===s.point?s:{...s,...sel};
@@ -212,12 +213,15 @@ export function rackReduce(s:RackState,a:RackAction):RackState {
  const curve=s.rows[s.row]?.time;
  switch(a.type){
   case 'rows':{
-   // Strip edits: a changed row count is its own step; edits of one row's same field share one (a slider drag).
+   // Strip edits: every change is its own step, except the strength changes of one row inside one gesture (a slider drag, a number
+   // being typed), which share one. The strip ends the gesture (`gesture`) at pointer up, blur or the field's change commit.
    const changed=a.rows.length===s.rows.length?a.rows.findIndex((r,i)=>JSON.stringify(r)!==JSON.stringify(s.rows[i])):-1;
-   const field=changed<0?'':(['on','strength','time','dial'] as const).find(k=>JSON.stringify(a.rows[changed][k])!==JSON.stringify(s.rows[changed][k]))??'';
+   const only=changed>=0&&JSON.stringify({...a.rows[changed],strength:0})===JSON.stringify({...s.rows[changed],strength:0});
    // A removed row moves the selection onto another dial: no point of it is selected.
-   return settle(commit(s,a.rows,field?`rows:${changed}:${field}`:'',a.rows[s.row]?.dial===s.rows[s.row]?.dial?{}:{point:-1}));
+   return settle(commit(s,a.rows,only?`rows:${changed}:strength`:'',a.rows[s.row]?.dial===s.rows[s.row]?.dial?{}:{point:-1}));
   }
+  // The end of a strip gesture: the next change starts a new undo step.
+  case 'gesture':return s.tag.startsWith('rows:')?{...s,tag:''}:s;
   // A loaded preset replaces the rack: always its own undo step, selection on the first lane.
   case 'load':return isDialRows(a.rows)?settle(commit({...s,tag:''},a.rows,'',{row:a.rows.length?0:-1,point:-1})):s;
   case 'select':return s.rows[a.row]?settle({...s,row:a.row,point:a.point??-1,tag:''}):s;

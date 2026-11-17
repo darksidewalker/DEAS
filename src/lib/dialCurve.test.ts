@@ -261,6 +261,38 @@ test('the rack reducer edits the selected lane and undoes every step made in the
   expect([s.future.length, s.row]).toEqual([0, -1]);
 });
 
+test('separate strip gestures are separate undo steps; one drag stays one', () => {
+  const strength = (s: RackState, v: number): RackAction => ({ type: 'rows', rows: s.rows.map((r, i) => i ? r : { ...r, strength: v }) });
+  const on = (s: RackState, v: boolean): RackAction => ({ type: 'rows', rows: s.rows.map((r, i) => i ? r : { ...r, on: v }) });
+  const end: RackAction = { type: 'gesture' };
+  let s = rackState(rows());
+  // One slider drag: many changes, then the gesture ends (pointer up, blur or the field's change commit).
+  for (const v of [1.6, 1.8, 2]) s = rackReduce(s, strength(s, v));
+  s = rackReduce(s, end);
+  expect(s.past).toHaveLength(1);
+  // A later edit of the same row and field is its own step.
+  for (const v of [2.5, 3]) s = rackReduce(s, strength(s, v));
+  s = rackReduce(s, end);
+  expect(s.past).toHaveLength(2);
+  s = rackReduce(s, { type: 'undo' });
+  expect(s.rows[0].strength).toBe(2);
+  s = rackReduce(s, { type: 'undo' });
+  expect(s.rows[0].strength).toBe(1.5);
+  expect(s.past).toHaveLength(0);
+  // A switch is never a drag: on, off, on are three steps and every undo changes something.
+  s = rackState(rows());
+  for (const v of [false, true, false]) s = rackReduce(s, on(s, v));
+  expect(s.past).toHaveLength(3);
+  const seen = [s.rows[0].on];
+  while (s.past.length) { s = rackReduce(s, { type: 'undo' }); seen.push(s.rows[0].on); }
+  expect(seen).toEqual([false, true, false, true]);
+  // Ending a gesture changes nothing else and is free when none is open.
+  const idle = rackState(rows());
+  expect(rackReduce(idle, end)).toBe(idle);
+  const mid = rackReduce(idle, strength(idle, 2)), ended = rackReduce(mid, end);
+  expect([ended.rows, ended.past, ended.row, ended.point]).toEqual([mid.rows, mid.past, mid.row, mid.point]);
+});
+
 test('the blend-step default follows native dial_blend_steps', () => {
   expect([1, 2, 3, 4, 6, 7, 8, 9, 12, 20, 25, 30, 50, 150].map(dialBlendSteps)).toEqual([1, 2, 3, 4, 6, 7, 8, 3, 4, 7, 8, 10, 17, 50]);
   expect(rust).toContain('((2 * steps + 3) / 6).max(2)');

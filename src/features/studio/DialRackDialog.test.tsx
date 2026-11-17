@@ -302,7 +302,9 @@ test('a curve copies and pastes between lanes through the clipboard, with an in-
 test('strip edits inside the dialog reach the rows and share the undo history', () => {
   render(<Host/>);
   const strip = within(dialog());
-  fireEvent.change(strip.getByRole('slider', { name: 'Strength of h3_motion' }), { target: { value: '2' } });
+  // One drag: the slider reports values while it moves (input) and commits once at release (change).
+  fireEvent.input(strip.getByRole('slider', { name: 'Strength of h3_motion' }), { target: { value: '2' } });
+  fireEvent.input(strip.getByRole('slider', { name: 'Strength of h3_motion' }), { target: { value: '2.5' } });
   fireEvent.change(strip.getByRole('slider', { name: 'Strength of h3_motion' }), { target: { value: '2.5' } });
   expect(last[0].strength).toBe(2.5);
   expect(lane(motion).textContent).toContain('constant · strength 2.5');
@@ -318,6 +320,44 @@ test('strip edits inside the dialog reach the rows and share the undo history', 
   fireEvent.change(document.querySelector('[data-dial-add]')!, { target: { value: files[2] } });
   expect(last).toHaveLength(3);
   expect(document.querySelectorAll('[data-dial-lane]')).toHaveLength(3);
+});
+
+test('two separate strip edits of one row are two undo steps; a slider drag is one; a switch toggled back leaves no empty undo', () => {
+  render(<Host/>);
+  const strip = within(dialog());
+  const slider = () => strip.getByRole('slider', { name: 'Strength of h3_motion' });
+  const field = () => strip.getByRole('spinbutton', { name: 'Exact strength of h3_motion' });
+  // A drag: the value changes several times, then the slider commits (the browser's change event at release).
+  for (const value of ['1.8', '2.2', '2']) fireEvent.input(slider(), { target: { value } });
+  fireEvent.change(slider(), { target: { value: '2' } });
+  expect(last[0].strength).toBe(2);
+  // Later, the number field of the same row: typed, then left.
+  fireEvent.input(field(), { target: { value: '3' } });
+  fireEvent.blur(field());
+  expect(last[0].strength).toBe(3);
+  fireEvent.click(tool('undo'));
+  expect(last[0].strength).toBe(2);
+  fireEvent.click(tool('undo'));
+  expect(last[0].strength).toBe(1.5);
+  expect(tool('undo').disabled).toBe(true);
+  // A held arrow key repeats (each repeat commits in the browser): one step until the key is released; the next press is another.
+  fireEvent.keyDown(slider(), { key: 'ArrowRight' });
+  for (const value of ['1.55', '1.6', '1.65']) { fireEvent.input(slider(), { target: { value } }); fireEvent.change(slider(), { target: { value } }); }
+  fireEvent.keyUp(slider(), { key: 'ArrowRight' });
+  fireEvent.keyDown(slider(), { key: 'ArrowRight' });
+  fireEvent.input(slider(), { target: { value: '1.7' } });
+  fireEvent.keyUp(slider(), { key: 'ArrowRight' });
+  fireEvent.click(tool('undo'));
+  expect(last[0].strength).toBe(1.65);
+  fireEvent.click(tool('undo'));
+  expect(last[0].strength).toBe(1.5);
+  expect(tool('undo').disabled).toBe(true);
+  // Off, on, off: three steps, each of which changes the row.
+  const box = () => strip.getByRole('checkbox', { name: 'Use h3_motion' });
+  fireEvent.click(box()); fireEvent.click(box()); fireEvent.click(box());
+  const seen: (boolean | undefined)[] = [last[0].on];
+  while (!tool('undo').disabled) { fireEvent.click(tool('undo')); seen.push(last[0].on); }
+  expect(seen).toEqual([false, true, false, true]);
 });
 
 test('without rows the timeline asks for a dial', () => {

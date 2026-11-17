@@ -170,7 +170,10 @@ one **timeline**: a lane per row over a shared seconds axis.
   **Level** are number fields.
 - **Undo / Redo** (buttons, Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y outside a number field)
   cover everything changed while the dialog is open, the row controls included. One
-  drag or one slider movement is one step. The history ends when the dialog closes.
+  drag is one step. On a row's strength, one slider movement (press to release, or a
+  held arrow key) and one typed number (until the field is left or Enter is pressed)
+  are one step each, and the next movement or number is another; every switch of a
+  row is its own step. The history ends when the dialog closes.
 - **Between points:** **Ramp** (straight lines) or **Hold until the next** (steps).
   **Smoothing** (0 to 1, ramps only) rounds the corners; the curve still passes through
   every point and never beyond it.

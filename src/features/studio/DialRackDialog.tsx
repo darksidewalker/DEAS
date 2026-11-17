@@ -1,4 +1,4 @@
-import { useEffect, useId, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useId, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { DIAL_BLEND_STEPS, DIAL_LEVEL, dialBlendSteps, dialLabel, dialName, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
 import { DIAL_LEVEL_SNAP, DIAL_SNAP, dialCurveText, dialFrameLevels, dialPresets, latentFrameStarts, nearPoint, parseDialCurveText, rackReduce, rackState, sampleDialCurve, widestGap, type CurveLimits, type DialTimeline, type RackAction, type RackState } from '../../lib/dialCurve';
@@ -49,6 +49,8 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
   if(next.rows!==before.rows)onChange(next.rows as DialRow[]);
   return true;
  };
+ // Stable, so the strip's commit listeners are not re-attached on every draw.
+ const endGesture=useCallback(()=>{state.current=rackReduce(state.current,{type:'gesture'});},[]);
  const [range,setRange]=useState({lo:0,hi:1});
  const [hover,setHover]=useState<{t:number;level:number}|null>(null);
  const [note,setNote]=useState('');
@@ -186,7 +188,7 @@ export function DialRackDialog({value,onChange,files,listed,gate,onRead,timeline
    <button ref={closeRef} type="button" data-dial-rack-close onClick={dismiss}>{t('studio.close')}</button>
   </header>
   <div className="continuity-overlay-body dial-rack-body">
-   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} info={info} infoStatus={infoStatus} onRefreshInfo={onRefreshInfo} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
+   <DialStrip value={s.rows} onChange={rows=>dispatch({type:'rows',rows})} onCommit={endGesture} files={files} listed={listed} gate={gate} seconds={timeline.seconds} onRead={onRead} conflicts={conflicts} info={info} infoStatus={infoStatus} onRefreshInfo={onRefreshInfo} onOpenPresets={endpoint===undefined?undefined:()=>setPresetsOpen(true)}/>
    <section className="dial-rack-timeline" data-dial-timeline={timeline.basis} aria-label={t('studio.dials.rack.timeline')}>
     <h3>{t('studio.dials.rack.timeline')} · {t('studio.dials.rack.length',{seconds})}</h3>
     {timeline.basis!=='clip'&&<p className="dial-rack-help" data-dial-basis={timeline.basis}>{t(`studio.dials.rack.basis.${timeline.basis}`,{seconds})}</p>}
