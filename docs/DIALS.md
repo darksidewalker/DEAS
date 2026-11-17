@@ -98,10 +98,23 @@ off:
 | The base model is a GGUF file | Rows that are on block Run with the reason |
 | A row's file is not in the backend's list ("Not on the backend") | A row that is on blocks Run; the file is named beside Run |
 
-LoRA browser: files inside `loras/dials/` are no longer offered in the **LoRAs** tab,
-because loading a dial through the LoRA loader is not what a rack row does. A dial file
-that is already selected as a LoRA stays visible there so it can be removed. The Library
-and the LoRA sets dialog still list these files.
+LoRA browser: dial files are not offered in the **LoRAs** tab, because loading a dial
+through the LoRA loader is not what a rack row does. A dial file that is already
+selected as a LoRA stays visible there so it can be removed. The Library and the LoRA
+sets dialog still list these files. Which files count as dial files depends on whether
+the [dial info](#dial-info) has been read on this backend (it is read when the Dials
+tab or the rack dialog is opened):
+
+| | Left out of the LoRAs tab | A real LoRA kept in `loras/dials/` |
+| --- | --- | --- |
+| Dial info not read (tab not opened yet, no pack, a failed read) | Every `.safetensors` file inside `loras/dials/` | **Hidden** from the LoRAs tab; pick it in the LoRA sets dialog, or move it out of the folder |
+| Dial info read | The files the pack's catalog lists as dial files, and files in folders starting with `_` (the pack never lists those) | **Shown** in the LoRAs tab like any LoRA: the pack lists only files that hold a dial, so it does not list this one |
+
+The second row holds while the answer is complete. If DEAS had to cut the catalog (more
+than 1000 dials) or leave entries out, it cannot tell what an unlisted file is and keeps
+the first row's rule. A dial file copied to the backend after the info was read shows
+among the LoRAs until **Reload dial info**. In both states such a file is still listed
+under **Add a dial…**; the node refuses a file that is not a dial when the job runs.
 
 When a row has a time curve that the next job cannot run, the tab lists the reason
 under the heading and Run is blocked with the same reason; see
@@ -628,10 +641,18 @@ Selecting one sent it through the LoRA loader. That is not a rack row: a dial ma
 the hook after the token refiner (key `…dials_shift`) has no key a LoRA loader knows,
 and one made as a LoRA file (key `…diff_b`) is applied as a constant shift without the
 rack's per-step blend, time curve or family check. What the loader does with either was
-read from the pack's source, not run. The LoRAs tab now leaves out names inside `dials/`
-unless that file is already selected (`pickerLora` in `Workbench.tsx`, one filter that
-is easy to remove). Not changed: the Library, the LoRA sets dialog and the De-rope and
-Regenerate LoRA lists.
+read from the pack's source, not run. The LoRAs tab now leaves out dial files unless
+that file is already selected (`pickerLora` in `Workbench.tsx`, one filter that is easy
+to remove). `isPickerDial` in `src/lib/dialInfo.ts` decides what a dial file is: while
+no catalog was read, every `.safetensors` name inside `dials/` (a path rule, which also
+hides a real LoRA someone keeps in that folder); once `useDialInfo` holds a catalog,
+the names it lists. The pack's `dial_catalog` lists a file only when it holds exactly
+one tensor with a dial's key suffix, so a file in `dials/` that a complete catalog does
+not list is not a dial. The path rule stays for folders starting with `_` (never
+listed) and for a partial catalog (`truncated` or `dropped` in the native answer,
+carried as `DialInfoState.partial`). The catalog is not read for the LoRAs tab's sake:
+opening only that tab keeps the path rule. Not changed: the Library, the LoRA sets
+dialog and the De-rope and Regenerate LoRA lists.
 
 ### A dial's own information
 

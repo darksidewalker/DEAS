@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { dialInfoError, dialInfoOf, dialNoCurve, dialOtherFamily, dialInfoSteps, dialMarks, dialOvercooked, dialPipelineOf, dialSliderRange, dialStartStrength, parseDialCatalog, readDialCatalog } from './dialInfo';
+import { dialCatalogPartial, dialInfoError, dialInfoOf, dialNoCurve, dialOtherFamily, isPickerDial, dialInfoSteps, dialMarks, dialOvercooked, dialPipelineOf, dialSliderRange, dialStartStrength, parseDialCatalog, readDialCatalog } from './dialInfo';
 import { catalogFixture, dayNight, familyFixture, impact, inkWash, kreaDial, measuredDial, mossDial, motionDial, preDial, unlabelled } from './dialInfo.fixture';
 
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: vi.fn(() => true), invoke: vi.fn() }));
@@ -51,6 +51,20 @@ test('the catalog keeps each dial\'s family and mode: another family is not for 
   // The node runs time curves on post-refiner dials only (`timecurve.apply_rack`). Unknown stays allowed.
   expect([preDial, kreaDial, unlabelled].map(d => dialNoCurve(families[d]))).toEqual([true, false, false]);
   expect([map[motionDial], undefined].map(dialNoCurve)).toEqual([false, false]);
+});
+
+test('the LoRA browser leaves out dial files: by path while no catalog was read, by the catalog\'s list once it was', () => {
+  const real = 'dials/real_lora.safetensors', probe = 'dials/_probes/x.safetensors', windows = 'dials\\h3_motion.safetensors';
+  const names = [motionDial, windows, dayNight, real, probe, 'style.safetensors', 'dials/readme.txt', 'other/dials/x.safetensors'];
+  // No catalog (not read yet, no pack, a failed read): today's path rule, every .safetensors inside dials/.
+  expect(names.filter(n => isPickerDial(n))).toEqual([motionDial, windows, dayNight, real, probe]);
+  // Catalog read: the files it lists. A file in dials/ that it does not list is not a dial file (the pack lists exactly the files that hold a
+  // dial's single tensor), so a real LoRA kept there is a LoRA again. Folders starting with "_" are never listed: the path rule stays for them.
+  expect(names.filter(n => isPickerDial(n, { map, partial: false }))).toEqual([motionDial, windows, dayNight, probe]);
+  // A catalog that native cut at its limit or left entries out of cannot say what an unlisted file is: the path rule stays.
+  expect(names.filter(n => isPickerDial(n, { map, partial: true }))).toEqual([motionDial, windows, dayNight, real, probe]);
+  expect(isPickerDial(real, { map: {}, partial: false })).toBe(false);
+  expect([catalogFixture, { ...catalogFixture, truncated: true }, { ...catalogFixture, dropped: 2 }, { dials: [] }, null].map(dialCatalogPartial)).toEqual([false, true, true, false, false]);
 });
 
 test('the slider reaches at least ±3 and as far as each side\'s overcook strength, or 1.5 × its useful strength', () => {
@@ -119,7 +133,13 @@ test('DEAS\'s H3 modes map to the pack\'s pipeline keys, and a new curve takes t
 
 test('the native command is read once per call; a failure keeps its code, and a wrong shape or a browser without the app is unavailable', async () => {
   vi.mocked(invoke).mockResolvedValueOnce(catalogFixture);
-  expect(await readDialCatalog('http://127.0.0.1:8000/')).toEqual(map);
+  expect(await readDialCatalog('http://127.0.0.1:8000/')).toEqual({ map, partial: false });
+  // A catalog native cut or left entries out of says so.
+  vi.mocked(invoke).mockResolvedValueOnce({ ...catalogFixture, truncated: true });
+  expect((await readDialCatalog('x')).partial).toBe(true);
+  vi.mocked(invoke).mockReset();
+  vi.mocked(invoke).mockResolvedValueOnce(catalogFixture);
+  await readDialCatalog('http://127.0.0.1:8000/');
   expect(vi.mocked(invoke).mock.calls).toEqual([['native_dial_catalog', { baseUrl: 'http://127.0.0.1:8000/' }]]);
   vi.mocked(invoke).mockRejectedValueOnce('DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route.');
   expect(dialInfoError(await readDialCatalog('x').catch(e => e))).toBe('DIAL_INFO_UNAVAILABLE');

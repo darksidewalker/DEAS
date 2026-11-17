@@ -50,6 +50,26 @@ export function dialInfoOf(v:unknown,family?:unknown,mode?:unknown):DialInfo|und
  }
  return out;
 }
+/**
+ * True when native left something out of the catalog it handed over (`truncated`: more dials than its limit; `dropped`: entries it did not
+ * read). Such a catalog cannot say what a file it does not list is.
+ */
+export const dialCatalogPartial=(v:unknown):boolean=>isObject(v)&&(v.truncated===true||(typeof v.dropped==='number'&&v.dropped>0));
+/** A read catalog: the info by dial name, and whether native left entries out of it. */
+export interface DialCatalogRead { map:DialInfoMap; partial:boolean }
+/**
+ * LoRA browser: is this LoRA-list name a dial file, which belongs to the Dials tab and not among the LoRAs?
+ * Without a catalog (not read yet, no pack, a failed read) it is the path rule: every `.safetensors` inside `dials/`.
+ * With one it is the files the catalog lists. The pack lists exactly the files that hold a dial's single tensor (`core.dial_catalog`), so a
+ * file inside `dials/` that it does not list is not a dial file: a real LoRA kept in that folder is a LoRA again. The path rule stays where
+ * the catalog has no say: folders starting with `_` (the pack never lists them) and a partial catalog.
+ */
+export function isPickerDial(name:string,catalog?:{map:DialInfoMap;partial?:boolean}):boolean {
+ const dial=dialName(name);
+ if(!isDialFile(dial))return false;
+ if(!catalog||catalog.partial||dial in catalog.map)return true;
+ return dial.split('/').slice(1,-1).some(d=>d.startsWith('_'));
+}
 /** The native command's answer `{dials:[{dial, family, mode, info}]}` as a map; null when it is not that shape. */
 export function parseDialCatalog(v:unknown):DialInfoMap|null {
  if(!isObject(v)||!Array.isArray(v.dials))return null;
@@ -126,11 +146,11 @@ export function dialInfoError(error:unknown):DialInfoErrorCode|'' {
  return dialInfoErrorCodes.find(c=>message.startsWith(`${c}: `))??'';
 }
 /** Reads the pack's catalog through `native_dial_catalog` (failures are logged natively). Rejects with `CODE: detail`. */
-export async function readDialCatalog(baseUrl:string):Promise<DialInfoMap> {
+export async function readDialCatalog(baseUrl:string):Promise<DialCatalogRead> {
  if(!isTauri())throw new Error('DIAL_INFO_NATIVE: Dial info needs the DEAS desktop app.');
- const map=parseDialCatalog(await invoke<unknown>('native_dial_catalog',{baseUrl}));
+ const answer=await invoke<unknown>('native_dial_catalog',{baseUrl}),map=parseDialCatalog(answer);
  if(!map)throw new Error('DIAL_INFO_MALFORMED: The dial catalog could not be read.');
- return map;
+ return {map,partial:dialCatalogPartial(answer)};
 }
 /** `idle` before the first read, `unavailable` when it failed: the strip then keeps its fallbacks and says so. */
-export interface DialInfoState { status:'idle'|'loading'|'ready'|'unavailable'; map?:DialInfoMap; code?:DialInfoErrorCode|'' }
+export interface DialInfoState { status:'idle'|'loading'|'ready'|'unavailable'; map?:DialInfoMap; partial?:boolean; code?:DialInfoErrorCode|'' }

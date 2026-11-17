@@ -119,6 +119,34 @@ test('the LoRA browser leaves dial files to the Dials tab',async()=>{
  expect(captureStudioSettings()['studio.run.dials']).toEqual([{dial:motion,strength:1,on:true}]);
 });
 
+test('the LoRA browser hides dial files by path until the pack\'s catalog is read, then only the files the catalog lists; a real LoRA kept in dials/ comes back',async()=>{
+ const real='dials/real_lora.safetensors',probe='dials/_probes/x.safetensors';
+ const bare={version:2,description:'',negative:'',positive:'',pipeline:'',notes:'',neg:{useful:null,overcook:null},pos:{useful:null,overcook:null},evidence:null};
+ // The pack lists the two dial files; real_lora.safetensors holds LoRA tensors, so the pack's catalog does not list it.
+ const listed={dials:[{dial:motion,family:'MiniMax H3',mode:'post',info:bare},{dial:calm,family:'MiniMax H3',mode:'post',info:bare}],dropped:0,truncated:false};
+ vi.mocked(invoke).mockImplementation(async c=>c==='native_dial_catalog'?listed:{path:'/env/input',parent:'/env',entries:[],truncated:false});
+ vi.mocked(scanModels).mockResolvedValue([...h3VideoFiles(),lora(motion),lora(calm),lora(probe),lora(real),lora('style.safetensors')]);
+ localStorage.setItem('deas.pref.studio.run.pipeline',JSON.stringify('t2v'));
+ localStorage.setItem('deas.pref.studio.run.dials',JSON.stringify([]));
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow(undefined,[motion,calm,real,'style.safetensors']));
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const tiles=()=>Array.from(document.querySelectorAll('.wb-loras > li')).map(li=>li.textContent);
+ const has=(name:string)=>tiles().some(text=>text?.includes(name));
+ dock('LoRAs');
+ // State 1, no catalog read yet: the path rule. The real LoRA in dials/ is hidden with the dial files.
+ await waitFor(()=>expect(has('style')).toBe(true));
+ expect([has('h3_motion'),has('h3_calm'),has('real_lora'),tiles().length]).toEqual([false,false,false,1]);
+ expect(vi.mocked(invoke).mock.calls.filter(c=>c[0]==='native_dial_catalog')).toHaveLength(0);
+ // State 2, the Dials tab was opened and the catalog read: only what the catalog lists is hidden.
+ dock('Dials');
+ await waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(c=>c[0]==='native_dial_catalog')).toHaveLength(1));
+ dock('LoRAs');
+ await waitFor(()=>expect(has('real_lora')).toBe(true));
+ expect([has('h3_motion'),has('h3_calm'),has('style'),tiles().length]).toEqual([false,false,true,2]);
+ // A folder starting with "_" is never in the catalog: its files stay hidden by path.
+ expect(document.querySelector('.wb-dock-panel')?.textContent).not.toContain('_probes');
+});
+
 test('history restores the rows of a MiniMax H3 intent and clears them for an intent without any',async()=>{
  localStorage.setItem('deas.pref.studio.run.dials',JSON.stringify([{dial:'dials/remembered.safetensors',strength:2,on:true}]));
  const files=h3VideoFiles();

@@ -55,9 +55,9 @@ import { DialStrip } from './DialStrip';
 import { DialRackDialog } from './DialRackDialog';
 import { DialPresetsDialog } from './DialPresetsDialog';
 import { dialTimeline } from '../../lib/dialCurve';
-import { dialNoCurveNames, dialOtherFamily, dialPipelineOf } from '../../lib/dialInfo';
+import { dialNoCurveNames, dialOtherFamily, dialPipelineOf, isPickerDial } from '../../lib/dialInfo';
 import { useDialInfo } from './useDialInfo';
-import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
+import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -650,8 +650,20 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const loraMatchesFamily=(m:LocalModel)=>!family||!m.family||m.family===(family.loraFamily??family.id);
  const loraModels=allLoraModels.filter(loraMatchesFamily);
  const {isFavorite,toggleFavorite,setFavorites,error:favoriteError}=useModelOrganization();
- // Dial files (loras/dials/) belong to the Dials tab; the LoRA browser keeps only one that is already selected, so it can be removed.
- const pickerLora=(m:LocalModel)=>!isDialFile(dialName(m.name))||loras.some(l=>l.name===m.name);
+ // Experimental Dial Rack rows steer a plain MiniMax H3 generation only; elsewhere the saved rows stay inert, like De-rope.
+ const dialsHere=!beginner&&isVideo&&videoFamily==='minimax-h3';
+ const dials=dialsHere?dialRows:noDials;
+ // The backend's LoRA list is what the native prerequisite check compares against; the library scan stands in while it is unread.
+ const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
+ const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
+ // The dial files' own info (side labels, useful and overcook strengths, notes): read from the pack's catalog when the Dials tab or the rack opens
+ // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
+ const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
+ // Dial files belong to the Dials tab; the LoRA browser keeps only one that is already selected, so it can be removed. Which files those are:
+ // the ones the pack's catalog lists once it was read (the Dials tab or the rack was opened on this backend), every file inside loras/dials/
+ // while it was not (`isPickerDial`).
+ const dialCatalogRead=dialInfo.map?{map:dialInfo.map,partial:dialInfo.partial}:undefined;
+ const pickerLora=(m:LocalModel)=>!isPickerDial(m.name,dialCatalogRead)||loras.some(l=>l.name===m.name);
  const pickerLoraModels=allLoraModels.filter(pickerLora);
  const browsedLoraModels=favoriteView?pickerLoraModels.filter(m=>isFavorite(m.path)):hideOtherLoraFamilies&&!bulkSelecting?loraModels.filter(pickerLora):pickerLoraModels;
  const browsedModels=favoriteView?allModels.filter(m=>isFavorite(m.path)):allModels;
@@ -669,15 +681,6 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // De-rope re-renders a plain MiniMax H3 generation from its own latent (not HyperFlow, not TVE).
  const derope=videoFamily==='minimax-h3'?deropePref:defaultDerope;
  const videoPost=isVideo?withDerope(toVideoPost(tve),derope):undefined;
- // Experimental Dial Rack rows steer a plain MiniMax H3 generation only; elsewhere the saved rows stay inert, like De-rope.
- const dialsHere=!beginner&&isVideo&&videoFamily==='minimax-h3';
- const dials=dialsHere?dialRows:noDials;
- // The backend's LoRA list is what the native prerequisite check compares against; the library scan stands in while it is unread.
- const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
- const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
- // The dial files' own info (side labels, useful and overcook strengths, notes): read from the pack's catalog when the Dials tab or the rack opens
- // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
- const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
  // Offered for adding: the dial files of the list, less those the pack's catalog says were made for another model family (the node refuses them on
  // MiniMax H3). Without a catalog every dial file is offered, as before.
  const dialFiles=dialCatalog(dialListed??[]).filter(f=>!dialOtherFamily(dialInfo.map?.[f]));
