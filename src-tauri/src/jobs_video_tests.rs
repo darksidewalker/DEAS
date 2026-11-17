@@ -3702,6 +3702,63 @@ fn dial_rack_json_keeps_active_rows_and_authored_curve_settings() {
 }
 
 #[test]
+fn dial_time_curve_audio_mode_is_written_only_when_authored() {
+    let mut i = h3();
+    i["dials"] = json!([dial_row(1.5), timed_dial()]);
+    let absent = compile(&i).unwrap().to_string();
+    // Without the field the emitted rack is byte for byte what it was before the field existed.
+    assert_eq!(
+        compile(&i).unwrap()["DR"]["inputs"]["rack"],
+        r#"[{"dial":"dials/h3_motion.safetensors","strength":1.5},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}]"#
+    );
+    for mode in ["protect", "follow"] {
+        i["dials"][1]["time"]["audio"] = json!(mode);
+        let g = compile(&i).unwrap();
+        assert_eq!(
+            g["DR"]["inputs"]["rack"],
+            format!(
+                r#"[{{"dial":"dials/h3_motion.safetensors","strength":1.5}},{{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{{"audio":"{mode}","interp":"linear","points":[[0,0.5],[1.5,1],[4,-2]],"smooth":0,"steps":2,"type":"keys","unit":"seconds"}}}}]"#
+            )
+        );
+        // Only the rack text differs: the mode adds no node and no wire.
+        let mut same = g.clone();
+        same["DR"]["inputs"]["rack"] =
+            serde_json::from_str::<Value>(&absent).unwrap()["DR"]["inputs"]["rack"].clone();
+        assert_eq!(same.to_string(), absent, "{mode}");
+    }
+    // The mode belongs to a curve: the node knows `follow` and `protect` only.
+    for bad in [
+        json!("mute"),
+        json!("Protect"),
+        json!(""),
+        json!(true),
+        json!(null),
+        json!(1),
+        json!(["protect"]),
+    ] {
+        i["dials"][1]["time"]["audio"] = bad.clone();
+        assert!(
+            compile(&i).unwrap_err().contains("audio? follow|protect}"),
+            "{bad}"
+        );
+        // A row that is off is still checked.
+        i["dials"][1]["on"] = json!(false);
+        assert!(compile(&i).is_err(), "{bad}");
+        i["dials"][1]["on"] = json!(true);
+    }
+    i["dials"][1]["time"]["audio"] = json!("protect");
+    i["dials"][1]["audio"] = json!("protect");
+    assert!(compile(&i)
+        .unwrap_err()
+        .contains("{dial, strength, on?, time?}"));
+    // The preset save path uses the same row check.
+    assert!(validate_dial_row(
+        &json!({"dial":"dials/a.safetensors","strength":1,"time":{"type":"keys","points":[[0,0],[1,1]],"unit":"seconds","audio":"protect"}})
+    )
+    .is_ok());
+}
+
+#[test]
 fn dial_time_curves_always_carry_their_blend_steps() {
     // Provisional default (one seed, two settings): a third of the sampler's steps, at least 2,
     // never more than the job has. 6 -> 2 and 25 -> 8 are the two settings that acted.

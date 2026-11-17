@@ -70,7 +70,7 @@ async fn dial_presets_list_load_and_save_use_only_the_pack_routes() {
 
     let rows = json!([
         {"dial":"dials/h3_motion.safetensors","strength":1.2,"on":true,
-         "time":{"type":"keys","points":[[0,0],[2.5,1]],"unit":"seconds","interp":"linear","steps":3}},
+         "time":{"type":"keys","points":[[0,0],[2.5,1]],"unit":"seconds","interp":"linear","steps":3,"audio":"protect"}},
         {"dial":"dials/new.safetensors","strength":-0.5,"on":false}
     ]);
     let saved = native_dial_preset_save(base.clone(), "from-deas_1".into(), rows.clone())
@@ -84,6 +84,8 @@ async fn dial_presets_list_load_and_save_use_only_the_pack_routes() {
     assert_eq!(seen.len(), 3);
     // The body of the save is the rows as given: no hash invented, nothing added.
     assert_eq!(seen[2].1, rows);
+    // The curve's audio mode is part of what DEAS sends, so it is saved too.
+    assert_eq!(seen[2].1[0]["time"]["audio"], "protect");
     assert_eq!(logs("preset=from-deas_1").len(), 1);
     assert!(logs("preset=from-deas_1")[0]
         .text
@@ -114,7 +116,7 @@ async fn dial_presets_fail_closed_with_a_reason_and_a_log_entry() {
         (json!([{"dial":"dials/a.safetensors","strength":1,"sha256":"a".repeat(64)}]), "Invalid dials: a row is {dial, strength, on?, time?}"),
         (json!([{"dial":"dials/a.safetensors","strength":1,"hold":true}]), "Invalid dials: hold rows are unsupported in this experimental version"),
         (json!([{"dial":"dials/a.safetensors","strength":1,"time":{"type":"keys","points":[[0,0],[1,1]]}}]),
-            "Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?}"),
+            "Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?, audio? follow|protect}"),
         (json!([{"dial":"loras/a.safetensors","strength":1}]), "Invalid dials: dial must be a .safetensors file inside dials/ (forward slashes, no traversal)"),
     ] {
         assert_eq!(

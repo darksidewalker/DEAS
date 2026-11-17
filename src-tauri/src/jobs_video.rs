@@ -130,11 +130,11 @@ pub(crate) const DIAL_NODES: [&str; 2] = ["MAIDialRack", "MAIDialHoldMap"];
 pub(crate) const DIAL_ROWS: usize = 8;
 const DIAL_POINTS: usize = 64;
 /// Row strength and curve level bound (the pack's own dial info caps strengths at 20).
-const DIAL_LEVEL: f64 = 20.0;
+pub(crate) const DIAL_LEVEL: f64 = 20.0;
 /// Whole-piece seconds bound of a curve point.
 const DIAL_SECONDS: f64 = 86_400.0;
 /// Bound of a curve's authored blend steps: the largest sampler step count a job may ask for.
-const DIAL_BLEND_STEPS: u64 = 150;
+pub(crate) const DIAL_BLEND_STEPS: u64 = 150;
 
 /// Sampler steps a time curve blends on (`timecurve.py`: the first `time.steps` steps run the model
 /// twice and blend per latent frame, after which the row is off). The node's own default is 2
@@ -552,7 +552,7 @@ fn dial_curves(i: &Value) -> bool {
     active_dials(i).any(|r| r.get("time").is_some())
 }
 
-fn dial_file(s: &str) -> bool {
+pub(crate) fn dial_file(s: &str) -> bool {
     s.strip_prefix("dials/")
         .is_some_and(|rest| !rest.is_empty())
         && model_name(s)
@@ -603,14 +603,20 @@ pub(crate) fn validate_dial_row(r: &Value) -> Result<(), String> {
                 .into(),
         );
     }
-    if !keys_in(t, &["type", "points", "unit", "interp", "smooth", "steps"])
-        || t["type"] != "keys"
+    if !keys_in(
+        t,
+        &[
+            "type", "points", "unit", "interp", "smooth", "steps", "audio",
+        ],
+    ) || t["type"] != "keys"
         || t["unit"] != "seconds"
         || t.get("interp")
             .is_some_and(|v| v != "linear" && v != "step")
         || t.get("smooth").is_some_and(|v| !finite(v, 0.0, 1.0))
+        || t.get("audio")
+            .is_some_and(|v| v != "follow" && v != "protect")
     {
-        return Err("Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?}".into());
+        return Err("Invalid dials: time is {type keys, points, unit seconds, interp? linear|step, smooth? 0..1, steps?, audio? follow|protect}".into());
     }
     if t.get("steps").is_some_and(|v| {
         !v.as_u64()
@@ -715,6 +721,7 @@ fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
 /// in whole-piece seconds, so a continued segment's window gets them shifted by its start.
 /// Every curve carries its blend `steps`: the authored count, else `dial_blend_steps` of the job's
 /// sampler steps (the node's fixed default of 2 does nothing visible on a long schedule).
+/// A curve's `audio` mode is written only when the intent authors it.
 /// `None` without an active row.
 fn dial_rack(i: &Value) -> Option<String> {
     let offset = if c_source(&i["h3"]) && dial_curves(i) {
@@ -741,6 +748,12 @@ fn dial_rack(i: &Value) -> Option<String> {
                 });
                 row["time"] = json!({"interp":t.get("interp").cloned().unwrap_or(json!("linear")),"points":points,
                     "smooth":t.get("smooth").cloned().unwrap_or(json!(0)),"steps":steps,"type":"keys","unit":"seconds"});
+                // The curve's audio mode only when authored: `follow` (the node's default, the
+                // soundtrack is steered with the picture) or `protect` (the row leaves the audio
+                // latent undialled). Without it the emitted row is what it was before the field.
+                if let Some(audio) = t.get("audio") {
+                    row["time"]["audio"] = audio.clone();
+                }
             }
             row
         })
