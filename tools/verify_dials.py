@@ -1,4 +1,5 @@
-"""Experimental Dials dock strip and rack dialog: real Chromium geometry, mouse and keyboard; synthetic read-only IPC, no models/backend.
+"""Experimental Dials dock strip, rack dialog and rack presets dialog: real Chromium geometry, mouse and keyboard; synthetic IPC (the
+preset store is an in-page stand-in for the pack's routes), no models/backend.
 
 Run: uv run --no-project --with playwright==1.64.1 python tools/verify_dials.py
 """
@@ -16,6 +17,18 @@ ROWS = [
      'time': {'type': 'keys', 'points': [[0, -1], [2, 1], [4, -0.5]], 'unit': 'seconds', 'interp': 'step'}},
     {'dial': 'dials/gone.safetensors', 'strength': 1, 'on': True},
 ]
+SHA = 'a' * 64
+# Stand-in for the pack's preset files: one preset with every kind of note, one plain.
+PRESETS = {
+    'dance_mixed': {'rows': [
+        {'dial': 'dials/h3_motion.safetensors', 'sha256': SHA, 'strength': 1.2, 'on': True, 'solo': False, 'time': {'type': 'keys', 'points': [[0, 0], [0.4, 0], [0.65, 1], [1, 1]]}},
+        {'dial': 'dials/h3_day_night_hook.safetensors', 'sha256': SHA, 'strength': 1.5, 'on': True, 'solo': False},
+        {'dial': 'dials/h3_calm.safetensors', 'sha256': SHA, 'strength': 0, 'on': True, 'solo': False, 'hold': True},
+        {'dial': LONG, 'sha256': SHA, 'strength': -2.25, 'on': False, 'solo': False, 'blocks': [1, 0.5, 0]},
+        {'dial': 'dials/gone.safetensors', 'sha256': SHA, 'strength': 1, 'on': True, 'solo': False},
+    ], 'warnings': [{'row': 0, 'reason': 'changed'}, {'row': 4, 'reason': 'missing'}]},
+    'plain_motion': {'rows': [{'dial': 'dials/h3_motion.safetensors', 'sha256': SHA, 'strength': 1.5, 'on': True, 'solo': False}], 'warnings': []},
+}
 LISTED = ['style.safetensors', 'dials/h3_motion.safetensors', 'dials/h3_day_night_hook.safetensors', LONG, 'dials/h3_calm.safetensors', 'dials/_probes/x.safetensors']
 
 FIXTURE = continuity.INIT + r"""
@@ -30,6 +43,15 @@ window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
  if(command==='native_recipe_prerequisites'){
   __calls.push({command,args});
   return {baseUrl:args.baseUrl,recipeId:'checkpoint-text-to-image-diagnostic',version:1,missingNodes:[],generationReady:false,allowlist:{nodes:NODES,diffusionModels:['MiniMaxH3/h3.safetensors'],checkpoints:[],loras:LISTED,samplers:['euler'],schedulers:['simple']}};
+ }
+ if(command.startsWith('native_dial_preset')){
+  __calls.push({command,args});
+  if(window.__noPresetRoute)throw new Error('DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet');
+  window.__presets??=RACKPRESETS;
+  if(command==='native_dial_presets')return Object.keys(__presets).sort();
+  if(command==='native_dial_preset_load'){if(!__presets[args.name])throw new Error('DIAL_PRESET_NOT_FOUND: Preset not found.');return __presets[args.name];}
+  if(__presets[args.name])throw new Error('DIAL_PRESET_EXISTS: Preset already exists. Choose a new name.');
+  return __presets[args.name]={rows:args.rows.map(r=>({...r,sha256:'b'.repeat(64),solo:false})),warnings:[]};
  }
  if(command==='native_models_scan'){
   __calls.push({command,args});
@@ -128,7 +150,7 @@ def verify_rack(browser, url, shots, checks):
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
-        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap'])))
+        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap'])))
         try:
             page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
             opener = page.locator('#studio-dock [data-dial-rack-open]')
@@ -238,6 +260,142 @@ def verify_rack(browser, url, shots, checks):
             context.close()
 
 
+PRESETS_GEOMETRY = r"""()=>{
+ const dialog=document.querySelector('dialog[data-dial-presets]'),body=dialog.querySelector('.lora-sets-body');
+ const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+ const shown=e=>e.getClientRects().length>0;
+ const panels=[...body.querySelectorAll(':scope>section')].map(p=>({box:box(p),client:p.clientWidth,scroll:p.scrollWidth,
+  parts:[...p.querySelectorAll('button,select,input,li,p,small,h3,.dial-preset-entry>span')].filter(shown).map(e=>({tag:e.tagName,text:e.textContent.slice(0,40),...box(e)}))}));
+ const controls=[...dialog.querySelectorAll('button,select,input')].filter(shown).map(e=>({tag:e.tagName,text:(e.textContent||e.value||'').slice(0,40),...box(e)}));
+ return {viewport:{width:innerWidth,height:innerHeight},page:{width:document.documentElement.scrollWidth},open:dialog.open,modal:dialog.matches(':modal'),dialog:box(dialog),
+  body:{client:body.clientWidth,scroll:body.scrollWidth},panels,controls,rows:[...dialog.querySelectorAll('[data-dial-preset-row]')].map(e=>e.dataset.dialPresetState)};
+}"""
+
+
+def check_presets(g, label):
+    d, view = g['dialog'], g['viewport']
+    assert g['open'] and g['modal'], (label, 'the presets dialog is not an open modal dialog')
+    assert g['page']['width'] <= view['width'] + 1, (label, 'page overflows horizontally', g['page'])
+    assert d['left'] >= -1 and d['right'] <= view['width'] + 1 and d['top'] >= -1 and d['bottom'] <= view['height'] + 1, (label, 'dialog leaves the viewport', d, view)
+    assert g['body']['scroll'] <= g['body']['client'] + 1, (label, 'dialog body overflows horizontally', g['body'])
+    assert len(g['panels']) == 2, (label, 'panels', len(g['panels']))
+    for panel in g['panels']:
+        assert panel['box']['width'] > 200, (label, 'panel collapsed', panel['box'])
+        assert panel['scroll'] <= panel['client'] + 1, (label, 'panel overflows horizontally', panel['scroll'], panel['client'])
+        for part in panel['parts']:
+            assert part['width'] > 0 and part['left'] >= panel['box']['left'] - 1 and part['right'] <= panel['box']['right'] + 1, (label, 'content leaves its panel', part, panel['box'])
+    for i, a in enumerate(g['controls']):
+        for b in g['controls'][i + 1:]:
+            apart = a['right'] <= b['left'] + 1 or b['right'] <= a['left'] + 1 or a['bottom'] <= b['top'] + 1 or b['bottom'] <= a['top'] + 1
+            assert apart, (label, 'controls overlap', a, b)
+    assert g['rows'] == ['warning', 'ok', 'left-out', 'left-out', 'warning'], (label, 'preset rows', g['rows'])
+
+
+def verify_presets(browser, url, shots, checks):
+    """The rack presets dialog: a modal over the unchanged shell at every size and locale; list, load, save, refusals and the rack's undo."""
+    for locale in ('en', 'de', 'fr', 'ja', 'tr', 'zh'):
+        context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap'])))
+        try:
+            page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
+            opener = page.locator('#studio-dock [data-dial-presets-open]')
+            expect(opener).to_be_visible()
+            dialog = page.locator('dialog[data-dial-presets]')
+            for width, height in ((1440, 960), (1440, 1300), (1024, 700), (700, 600), (390, 844), (320, 480)):
+                page.set_viewport_size({'width': width, 'height': height})
+                page.wait_for_timeout(80)
+                label = f'presets:{locale}:{width}x{height}'
+                opener.scroll_into_view_if_needed()
+                before = page.evaluate(SHELL)
+                opener.focus()
+                page.keyboard.press('Enter')
+                expect(dialog).to_be_visible()
+                assert page.evaluate(SHELL) == before, (label, 'opening the presets dialog changed the shell layout')
+                expect(dialog.locator('[data-dial-preset-select] option')).to_have_count(3)
+                dialog.locator('[data-dial-preset-select]').select_option('dance_mixed')
+                expect(dialog.locator('[data-dial-preset-row]')).to_have_count(5)
+                check_presets(page.evaluate(PRESETS_GEOMETRY), label)
+                # Long content stays reachable by scrolling inside the dialog.
+                for target in dialog.locator('[data-dial-preset-row], [data-dial-preset-current], [data-dial-preset-save], [data-dial-preset-load], .media-help').all():
+                    target.scroll_into_view_if_needed()
+                    expect(target).to_be_in_viewport()
+                if (locale, width, height) in (('en', 1440, 960), ('en', 1024, 700), ('en', 390, 844), ('en', 320, 480), ('de', 1440, 960), ('de', 390, 844), ('ja', 1024, 700), ('zh', 700, 600), ('fr', 320, 480), ('tr', 1440, 1300)):
+                    dialog.locator('[data-dial-preset-select]').scroll_into_view_if_needed()
+                    page.screenshot(path=str(shots / f'presets-{locale}-{width}x{height}.png'))
+                    if width < 700:
+                        dialog.locator('[data-dial-preset-row]').last.scroll_into_view_if_needed()
+                        page.screenshot(path=str(shots / f'presets-{locale}-{width}x{height}-rows.png'))
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                expect(opener).to_be_focused()
+                assert page.evaluate(SHELL) == before, (label, 'closing the presets dialog changed the shell layout')
+                assert saved(page) == ROWS, (label, 'looking at the presets changed the rows', saved(page))
+                checks.append(label)
+            page.set_viewport_size({'width': 1440, 'height': 960})
+            opener.scroll_into_view_if_needed()
+            # Save: the name pattern, a new file, then the pack's refusal of the same name; the rack is not touched.
+            opener.click()
+            name, save = dialog.locator('[data-dial-preset-name]'), dialog.locator('[data-dial-preset-save]')
+            name.fill('two words')
+            expect(save).to_be_disabled()
+            name.fill('from_deas-1')
+            save.click()
+            expect(dialog.locator('[data-dial-preset-select]')).to_have_value('from_deas-1')
+            expect(dialog.locator('[data-dial-preset-row]')).to_have_count(4)
+            sent = page.evaluate("__calls.filter(c=>c.command==='native_dial_preset_save').at(-1).args")
+            assert sent['name'] == 'from_deas-1' and sent['rows'] == [{k: v for k, v in {**row, 'on': row.get('on', True)}.items()} for row in ROWS], sent
+            assert all(set(row) <= {'dial', 'strength', 'on', 'time'} for row in sent['rows']), sent
+            save.click()
+            expect(dialog.locator('[data-dial-preset-error="DIAL_PRESET_EXISTS"]')).to_be_visible()
+            if locale == 'en':
+                page.screenshot(path=str(shots / 'presets-en-exists-1440x960.png'))
+            assert saved(page) == ROWS
+            # Load: only the rows DEAS sends, fractions converted with the 124-frame lane (5.1667 s).
+            dialog.locator('[data-dial-preset-select]').select_option('dance_mixed')
+            dialog.locator('[data-dial-preset-load]').click()
+            loaded = saved(page)
+            assert [r['dial'] for r in loaded] == ['dials/h3_motion.safetensors', 'dials/h3_day_night_hook.safetensors', 'dials/gone.safetensors'], loaded
+            assert loaded[0]['time'] == {'type': 'keys', 'points': [[0, 0], [2.0667, 0], [3.3583, 1], [5.1667, 1]], 'unit': 'seconds'}, loaded[0]
+            page.keyboard.press('Escape')
+            expect(page.locator('[data-dial-row]')).to_have_count(3)
+            # From the rack dialog: a load is one undo step.
+            page.locator('#studio-dock [data-dial-rack-open]').click()
+            rack = page.locator('dialog[data-dial-rack]')
+            rack.locator('[data-dial-presets-open]').click()
+            expect(dialog).to_be_visible()
+            assert page.evaluate("document.querySelector('dialog[data-dial-presets]').matches(':modal')")
+            dialog.locator('[data-dial-preset-select]').select_option('plain_motion')
+            dialog.locator('[data-dial-preset-load]').click()
+            assert saved(page) == [{'dial': 'dials/h3_motion.safetensors', 'strength': 1.5, 'on': True}], saved(page)
+            if locale == 'en':
+                page.screenshot(path=str(shots / 'presets-en-over-rack-1440x960.png'))
+            page.keyboard.press('Escape')
+            expect(dialog).to_have_count(0)
+            expect(rack).to_be_visible()
+            rack.locator('[data-dial-tool="undo"]').click()
+            assert saved(page) == loaded, saved(page)
+            page.keyboard.press('Escape')
+            # Without the pack's route: the reason, and nothing to load or save.
+            page.evaluate('window.__noPresetRoute=true')
+            opener.click()
+            expect(dialog.locator('[data-dial-preset-error="DIAL_PRESETS_UNAVAILABLE"]')).to_be_visible()
+            name.fill('anything')
+            expect(save).to_be_disabled()
+            expect(dialog.locator('[data-dial-preset-load]')).to_be_disabled()
+            expect(dialog.locator('[data-dial-preset-select]')).to_be_disabled()
+            if locale in ('en', 'ja'):
+                page.screenshot(path=str(shots / f'presets-{locale}-unavailable-1440x960.png'))
+            page.keyboard.press('Escape')
+            checks.append(f'presets:{locale}:list-load-save-refusals')
+            assert not errors, errors
+            assert page.evaluate('__unexpected') == [], page.evaluate('__unexpected')
+        finally:
+            context.close()
+
+
 def verify(browser, url, shots):
     checks = []
     for locale in ('en', 'de', 'fr', 'ja', 'tr', 'zh'):
@@ -247,7 +405,7 @@ def verify(browser, url, shots):
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
-            page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(nodes)))
+            page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('RACKPRESETS', json.dumps(PRESETS)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(nodes)))
             try:
                 page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
                 strip = page.locator('#studio-dock [data-dials]')
@@ -313,6 +471,7 @@ def verify(browser, url, shots):
             finally:
                 context.close()
     verify_rack(browser, url, shots, checks)
+    verify_presets(browser, url, shots, checks)
     result = {'status': 'PASS', 'checksPassed': len(checks), 'kind': 'Chromium geometry, mouse and keyboard; synthetic IPC only', 'screenshots': str(shots), 'checks': checks}
     (shots / 'result.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({k: v for k, v in result.items() if k != 'checks'}))
