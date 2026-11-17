@@ -1,4 +1,4 @@
-"""Experimental Dials dock strip: real Chromium geometry and keyboard; synthetic read-only IPC, no models/backend.
+"""Experimental Dials dock strip and rack dialog: real Chromium geometry, mouse and keyboard; synthetic read-only IPC, no models/backend.
 
 Run: uv run --no-project --with playwright==1.64.1 python tools/verify_dials.py
 """
@@ -62,6 +62,180 @@ def check_geometry(g, label):
             for b in parts[i + 1:]:
                 apart = a['right'] <= b['left'] + 1 or b['right'] <= a['left'] + 1 or a['bottom'] <= b['top'] + 1 or b['bottom'] <= a['top'] + 1
                 assert apart, (label, 'controls overlap', row['dial'], a, b)
+
+
+RACK = r"""()=>{
+ const dialog=document.querySelector('dialog[data-dial-rack]'),body=dialog.querySelector('.dial-rack-body');
+ const box=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+ const shown=e=>e.getClientRects().length>0;
+ const lanes=[...dialog.querySelectorAll('[data-dial-lane]')].map(lane=>({dial:lane.dataset.dialLane,selected:lane.dataset.selected,name:box(lane.querySelector('.dial-lane-name')),
+  track:box(lane.querySelector('.dial-lane-track')),plot:box(lane.querySelector('.dial-lane-plot')),points:[...lane.querySelectorAll('[data-dial-point]')].map(box)}));
+ const tools=[...dialog.querySelectorAll('.dial-rack-tools')].map(group=>({group:box(group),parts:[...group.querySelectorAll('button,label,small,output,strong')].filter(shown).filter(e=>!e.parentElement.closest('label')).map(box)}));
+ return {viewport:{width:innerWidth,height:innerHeight},page:{width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight},open:dialog.open,modal:dialog.matches(':modal'),dialog:box(dialog),
+  body:{client:body.clientWidth,scroll:body.scrollWidth,overflow:getComputedStyle(body).overflowY},axis:box(dialog.querySelector('.dial-axis-track .dial-lane-plot')),
+  ticks:dialog.querySelectorAll('[data-dial-tick]').length,seconds:[...dialog.querySelectorAll('[data-dial-second]')].map(box),lanes,tools,
+  help:[...dialog.querySelectorAll('[data-dial-help]')].map(e=>({id:e.dataset.dialHelp,text:e.textContent,...box(e)}))};
+}"""
+# What the dialog must not change: the shell's own boxes behind it.
+SHELL = r"""()=>['#studio-dock','.wb-dock-tabs','[data-dials]','[data-run-positive]'].map(q=>{const e=document.querySelector(q);if(!e)return [q,null];const r=e.getBoundingClientRect();return [q,[r.left,r.top,r.width,r.height].map(v=>Math.round(v*10)/10)];})
+ .concat([['page',[document.documentElement.scrollWidth,document.documentElement.scrollHeight,document.body.scrollWidth,document.body.scrollHeight]]])"""
+
+
+def check_rack(g, label):
+    d, view = g['dialog'], g['viewport']
+    assert g['open'] and g['modal'], (label, 'the rack is not an open modal dialog')
+    assert g['page']['width'] <= view['width'] + 1, (label, 'page overflows horizontally', g['page'])
+    assert d['left'] >= -1 and d['right'] <= view['width'] + 1 and d['top'] >= -1 and d['bottom'] <= view['height'] + 1, (label, 'dialog leaves the viewport', d, view)
+    assert g['body']['scroll'] <= g['body']['client'] + 1, (label, 'dialog body overflows horizontally', g['body'])
+    assert g['body']['overflow'] == 'auto', (label, 'dialog body must scroll long content itself')
+    assert len(g['lanes']) == 4 and [lane['selected'] for lane in g['lanes']].count('true') == 1, (label, 'lanes', [lane['selected'] for lane in g['lanes']])
+    first = g['lanes'][0]['plot']
+    for lane in g['lanes']:
+        # One shared seconds axis: every lane's plot, and the axis, start and end at the same pixels.
+        assert abs(lane['plot']['left'] - first['left']) <= 1 and abs(lane['plot']['right'] - first['right']) <= 1, (label, 'lanes do not share the time axis', lane['dial'], lane['plot'], first)
+        assert lane['plot']['width'] > 120, (label, 'lane collapsed', lane['plot'])
+        assert lane['track']['left'] >= d['left'] - 1 and lane['track']['right'] <= d['right'] + 1, (label, 'lane leaves the dialog', lane['track'])
+        apart = lane['name']['right'] <= lane['track']['left'] + 1 or lane['name']['bottom'] <= lane['track']['top'] + 1
+        assert apart, (label, 'lane name overlaps its track', lane['dial'])
+        for point in lane['points']:
+            assert point['width'] >= 14 and point['left'] >= lane['track']['left'] - 1 and point['right'] <= lane['track']['right'] + 1 and point['top'] >= lane['track']['top'] - 1 and point['bottom'] <= lane['track']['bottom'] + 1, (label, 'point leaves its lane', lane['dial'], point, lane['track'])
+    selected = next(lane for lane in g['lanes'] if lane['selected'] == 'true')
+    assert all(selected['track']['height'] > 2 * lane['track']['height'] for lane in g['lanes'] if lane is not selected), (label, 'the selected lane is not the tall one')
+    assert abs(g['axis']['left'] - first['left']) <= 1 and abs(g['axis']['right'] - first['right']) <= 1, (label, 'axis is not under the lanes', g['axis'], first)
+    assert g['ticks'] == 38 and len(g['seconds']) == 6, (label, 'latent-frame ticks / second labels', g['ticks'], len(g['seconds']))
+    for a, b in zip(g['seconds'], g['seconds'][1:]):
+        assert a['right'] <= b['left'] + 1, (label, 'second labels overlap', a, b)
+    for group in g['tools']:
+        parts = group['parts']
+        for part in parts:
+            assert part['left'] >= group['group']['left'] - 1 and part['right'] <= group['group']['right'] + 1, (label, 'tool leaves its row', part, group['group'])
+        for i, a in enumerate(parts):
+            for b in parts[i + 1:]:
+                apart = a['right'] <= b['left'] + 1 or b['right'] <= a['left'] + 1 or a['bottom'] <= b['top'] + 1 or b['bottom'] <= a['top'] + 1
+                assert apart, (label, 'tools overlap', a, b)
+    assert [h['id'] for h in g['help']] == ['resolution', 'scene', 'range'] and all(h['text'].strip() and h['width'] > 100 for h in g['help']), (label, 'help lines', g['help'])
+
+
+def saved(page):
+    return page.evaluate("JSON.parse(localStorage.getItem('deas.pref.studio.run.dials'))")
+
+
+def verify_rack(browser, url, shots, checks):
+    """The rack dialog: opens over the unchanged shell, shares one axis, and is edited with a real mouse and keyboard."""
+    curved = 'dials/h3_day_night_hook.safetensors'
+    for locale in ('en', 'de', 'fr', 'ja', 'tr', 'zh'):
+        context = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.add_init_script(FIXTURE.replace('LOCALE', json.dumps(locale)).replace('ROWS', json.dumps(ROWS)).replace('LISTED', json.dumps(LISTED)).replace('NODES', json.dumps(['UNETLoader', 'MAIDialRack', 'MAIDialHoldMap'])))
+        try:
+            page.goto(url + '/tools/inpaint-fixture.html', wait_until='networkidle')
+            opener = page.locator('#studio-dock [data-dial-rack-open]')
+            expect(opener).to_be_visible()
+            for width, height in ((1440, 960), (1440, 1300), (1024, 700), (390, 844), (320, 480)):
+                page.set_viewport_size({'width': width, 'height': height})
+                page.wait_for_timeout(80)
+                label = f'rack:{locale}:{width}x{height}'
+                opener.scroll_into_view_if_needed()
+                before = page.evaluate(SHELL)
+                opener.focus()
+                page.keyboard.press('Enter')
+                dialog = page.locator('dialog[data-dial-rack]')
+                expect(dialog).to_be_visible()
+                expect(dialog.locator('[data-dial-rack-close]')).to_be_focused()
+                # The shared window-layout contract: a modal dialog must not move or resize anything in the shell.
+                assert page.evaluate(SHELL) == before, (label, 'opening the rack changed the shell layout', before, page.evaluate(SHELL))
+                dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-name').click()
+                expect(dialog.locator('[data-dial-point]')).to_have_count(4)
+                check_rack(page.evaluate(RACK), label)
+                # Long content stays reachable by scrolling the dialog's own body.
+                for target in dialog.locator('[data-dial-lane] .dial-lane-track, [data-dial-help], [data-dial-rack] [data-dial="remove"]').all():
+                    target.scroll_into_view_if_needed()
+                    expect(target).to_be_in_viewport()
+                if (locale, width) in (('en', 1440), ('en', 390), ('en', 320), ('de', 1024), ('ja', 390), ('zh', 1440), ('fr', 1024), ('tr', 320)) and height != 960:
+                    dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-track').scroll_into_view_if_needed()
+                    page.screenshot(path=str(shots / f'modal-{locale}-{width}x{height}.png'))
+                    dialog.locator('.dial-rack-body').evaluate('e=>e.scrollTo(0,e.scrollHeight)')
+                    page.screenshot(path=str(shots / f'modal-{locale}-{width}x{height}-end.png'))
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                expect(opener).to_be_focused()
+                assert page.evaluate(SHELL) == before, (label, 'closing the rack changed the shell layout')
+                assert saved(page) == ROWS, (label, 'looking at the rack changed the rows', saved(page))
+                checks.append(label)
+            # Mouse and keyboard editing in a desktop window.
+            page.set_viewport_size({'width': 1440, 'height': 960})
+            opener.scroll_into_view_if_needed()
+            opener.click()
+            dialog = page.locator('dialog[data-dial-rack]')
+            dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-name').click()
+            track = dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-track')
+            track.scroll_into_view_if_needed()
+            plot = dialog.locator(f'[data-dial-lane="{curved}"] .dial-lane-plot').bounding_box()
+            span = 124 / 24  # the fixture's 5 s clip is 124 frames
+            at = lambda t, level: (plot['x'] + plot['width'] * t / span, plot['y'] + plot['height'] * (1 - level))
+            curve = lambda: saved(page)[1]['time']['points']
+            # Click the empty lane: a point on the 0.1 s / 0.05 grid, selected and focused.
+            page.mouse.click(*at(2.52, 0.33))
+            assert curve() == [[0, 0], [1.5, 0.2], [2.5, 0.35], [3.5, 1], [5, 1]], curve()
+            expect(dialog.locator('[data-dial-point="2"]')).to_be_focused()
+            expect(dialog.locator('[data-dial-point="2"]')).to_have_attribute('aria-pressed', 'true')
+            # Drag it: it follows the pointer, and stops one latent frame (1/6 s) before the next point even when the pointer leaves the lane.
+            page.mouse.move(*at(2.5, 0.35))
+            page.mouse.down()
+            page.mouse.move(*at(2.9, 0.6), steps=4)
+            assert curve()[2] == [2.9, 0.6], curve()
+            page.mouse.move(plot['x'] + plot['width'] + 80, plot['y'] - 60, steps=4)
+            assert curve()[2] == [3.3333, 1], curve()
+            page.mouse.up()
+            page.mouse.move(*at(1, 0.5))
+            assert curve()[2] == [3.3333, 1], 'a released point must not follow the pointer'
+            expect(dialog.locator('[data-dial-readout]')).to_contain_text('1 ')
+            # Keys on the focused point: arrows nudge, Delete removes, Ctrl+Z walks back, Ctrl+Shift+Z forward.
+            dialog.locator('[data-dial-point="2"]').focus()
+            page.keyboard.press('ArrowLeft')
+            page.keyboard.press('ArrowDown')
+            assert curve()[2] == [3.2333, 0.95], curve()
+            page.keyboard.press('Delete')
+            assert curve() == ROWS[1]['time']['points'], curve()
+            expect(dialog.locator('[data-dial-point="2"]')).to_be_focused()
+            page.keyboard.press('Control+z')
+            assert len(curve()) == 5, curve()
+            page.keyboard.press('Control+Shift+z')
+            assert curve() == ROWS[1]['time']['points'], curve()
+            # Tab reaches the tools, the lane names and the points; a preset from the keyboard writes levels inside 0..1.
+            dialog.locator('[data-dial-tool="preset.pulse"]').focus()
+            page.keyboard.press('Enter')
+            pulse = curve()
+            assert [p[1] for p in pulse] == [0, 1, 1, 0] and pulse[1][0] == 1.5 and abs(pulse[3][0] - span) < 1e-3, pulse
+            steps = dialog.locator('[data-dial-steps]')
+            expect(steps).to_have_attribute('placeholder', '7')
+            steps.fill('9')
+            assert saved(page)[1]['time']['steps'] == 9
+            if locale == 'en':
+                track.scroll_into_view_if_needed()
+                page.screenshot(path=str(shots / 'modal-en-edited-1440x960.png'))
+            # Copy on the curved lane, paste on a constant one: the in-page copy stands in when the headless clipboard is refused.
+            dialog.locator('[data-dial-tool="copy"]').click()
+            expect(dialog.locator('[data-dial-rack-note]')).not_to_be_empty()
+            dialog.locator('[data-dial-lane="dials/h3_motion.safetensors"] .dial-lane-name').click()
+            dialog.locator('[data-dial-tool="paste"]').click()
+            page.wait_for_function("JSON.parse(localStorage.getItem('deas.pref.studio.run.dials'))[0].time")
+            assert saved(page)[0]['time'] == saved(page)[1]['time'], saved(page)[0]
+            dialog.locator('[data-dial-tool="removeCurve"]').click()
+            assert 'time' not in saved(page)[0]
+            page.keyboard.press('Escape')
+            expect(dialog).to_have_count(0)
+            expect(opener).to_be_focused()
+            # The strip behind shows the edited curve; nothing was submitted.
+            expect(page.locator('#studio-dock [data-dial-curve]')).to_have_count(2)
+            checks.append(f'rack:{locale}:mouse-keyboard')
+            assert not errors, errors
+            assert page.evaluate('__unexpected') == [], page.evaluate('__unexpected')
+            assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
+        finally:
+            context.close()
 
 
 def verify(browser, url, shots):
@@ -138,7 +312,8 @@ def verify(browser, url, shots):
                 assert not page.evaluate('__calls.some(c=>/(_run|_submit|_upload|_prepare)$/.test(c.command))')
             finally:
                 context.close()
-    result = {'status': 'PASS', 'checksPassed': len(checks), 'kind': 'Chromium geometry and keyboard; synthetic IPC only', 'screenshots': str(shots), 'checks': checks}
+    verify_rack(browser, url, shots, checks)
+    result = {'status': 'PASS', 'checksPassed': len(checks), 'kind': 'Chromium geometry, mouse and keyboard; synthetic IPC only', 'screenshots': str(shots), 'checks': checks}
     (shots / 'result.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({k: v for k, v in result.items() if k != 'checks'}))
 

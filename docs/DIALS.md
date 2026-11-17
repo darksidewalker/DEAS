@@ -3,12 +3,12 @@
 [Studio](STUDIO.md) · [Plan](PLAN.md) · [Verification](VERIFICATION.md)
 
 **Status: experimental.** DEAS can compile dial rows into a MiniMax H3 video job, and
-Studio has a first **Dials** dock tab to add rows and set their strength. The node pack
-is **not installed or pinned by DEAS**, and **no DEAS-compiled dials job has been run on
-a backend**: the evidence is compiler, prerequisite and component tests on fixtures.
-Time curves can be sent through the intent and are shown as a small picture, but there
-is **no curve editor, full rack dialog or rack preset yet**. Treat every statement about
-the picture as untested.
+Studio has a **Dials** dock tab to add rows and set their strength and a **rack dialog**
+with a timeline to draw each row's time curve. The node pack is **not installed or
+pinned by DEAS**, and **no job started from these controls has been run on a backend**:
+the evidence is compiler, prerequisite and component tests on fixtures and a headless
+Chromium check. There are **no rack presets yet**. Treat every statement about the
+picture as untested unless it names the render it comes from.
 
 ## What it is
 
@@ -73,9 +73,116 @@ because loading a dial through the LoRA loader is not what a rack row does. A di
 that is already selected as a LoRA stays visible there so it can be removed. The Library
 and the LoRA sets dialog still list these files.
 
-Not built yet: editing time curves, the full rack dialog with a shared timeline, rack
-presets, reordering rows, the dial's own description and side labels, and useful and
-overcook marks on the slider.
+When a row has a time curve that the next job cannot run, the tab lists the reason
+under the heading and Run is blocked with the same reason; see
+[When a time curve cannot run](#when-a-time-curve-cannot-run).
+
+Not built yet: rack presets, reordering rows, the dial's own description and side
+labels, and useful and overcook marks on the slider.
+
+## The rack dialog and its timeline
+
+**Open rack** in the Dials tab opens a dialog over Studio (Esc or **Close** returns to
+the button). It holds the same rows with the same controls as the tab, and below them
+one **timeline**: a lane per row over a shared seconds axis.
+
+- **Lane length.** The lanes cover the clip the next job renders, in its real length:
+  MiniMax H3 clips are 17k + 5 frames at 24 fps, so 4 s typed is 107 frames (4.458 s)
+  and 5 s is 124 frames (5.167 s). With a Continuity plan that starts the piece, the
+  lanes cover the **whole piece** (the first step's clip plus every later step's
+  seconds, snapped to 17-frame steps as the compiler snaps them), segment ends are
+  drawn as dashed lines and points snap to them. A plan that continues an existing clip
+  or an imported video starts at a frame count Studio does not hold, so the dialog says
+  so and shows only the next clip; curve seconds still count from the start of the whole
+  piece. The laid-out piece length mirrors the compiler's rule and was not compared with
+  a real session.
+- **Lanes.** Click a lane or its name to select it. The selected lane is tall and
+  editable; the others are drawn dimmed so overlaps can be seen. A row without a curve
+  is a dashed flat line at level 1. **Add curve** starts a flat curve at level 1 (the
+  same strength as before); **Remove curve** returns the row to a constant strength.
+- **Editing.** Click the selected lane to add a point and keep dragging it; drag a
+  point to move it (the pointer may leave the lane; Alt places without snapping);
+  double-click a point or press Delete to remove it. Times snap to 0.1 s and to segment
+  ends, levels to 0.05. Points keep one latent frame (1/6 s) apart and cannot pass each
+  other, and a curve keeps at least two points. A click within 1/6 s of a point selects
+  that point instead of adding one.
+- **Keyboard.** Every point is a button: Tab reaches it, the arrow keys nudge it by
+  0.1 s or 0.05 (Shift: ten times), Delete removes it. **Add point** puts a point in the
+  middle of the widest gap, on the curve. The selected point's **Time (s)** and
+  **Level** are number fields.
+- **Undo / Redo** (buttons, Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y outside a number field)
+  cover everything changed while the dialog is open, the row controls included. One
+  drag or one slider movement is one step. The history ends when the dialog closes.
+- **Between points:** **Ramp** (straight lines) or **Hold until the next** (steps).
+  **Smoothing** (0 to 1, ramps only) rounds the corners; the curve still passes through
+  every point and never beyond it.
+- **Levels.** A level multiplies the row's strength: at levels 0 to 1 the model gets
+  level × strength, which the readout shows as `time s · level · strength` for the
+  pointer or the selected point. The lane covers levels 0 to 1 by default. **Lowest
+  level** and **Highest level** widen it on purpose, down to -20 and up to 20 (the
+  compiler's limit); outside 0 to 1 the node's blend extrapolates and the readout says
+  so. A curve that already has levels outside 0 to 1 widens the lane to fit.
+- **Blend steps.** Empty means the default, shown beside the field (for example
+  "default: 7 of 20 steps (provisional)"). A number sets it for that curve. Each blended
+  step costs one extra model call. See [Blend steps](#blend-steps).
+- **Presets** write the points of the selected lane (and give a constant row a curve):
+  **Ramp in** (0 to 1 over the first 1.5 s), **Ramp out** (1 to 0 over the last 1.5 s),
+  **Pulse** (0, up to 1, hold, back to 0) and **Dip** (1, down to 0, hold, back to 1).
+  All stay inside levels 0 to 1 and use 1.5 s ramps, shorter only on a lane too short
+  for them.
+- **Copy curve / Paste curve** move a curve between lanes as JSON, the row's `time`
+  object. When the WebView refuses the clipboard, the copy is kept inside the window and
+  the dialog says so. Paste also accepts a curve copied in the pack's own editor (clip
+  fractions are converted with the lane's length; its audio mode is dropped) and a bare
+  `[[seconds, level], …]` list.
+
+What the picture shows, and what to expect:
+
+- The thick line is the curve as the node computes it (the same interpolation and
+  smoothing, tested against the pack's own function). The thin stepped line on the
+  selected lane and the short ticks under the axis are the **latent frames**: the model
+  takes one value per latent frame, about 1/6 s, the curve's average over that frame.
+  Sharper changes are averaged away, and the pack's notes say a change shows in the
+  render over about 1.5 s. With a Continuity piece the ticks are exact for the first
+  segment only and the stepped line is not drawn.
+- **A strong dial on a curve can change the whole scene where the curve changes.** In
+  renders on 2026-11-16 (one seed each, motion dial, row strength 1.5) the picture cut
+  to a different scene at the change, for a level change of 0 to 1 as well as -1 to +1,
+  and for ramps from 0.2 s to 1.5 s. At that strength the render with the dial and the
+  one without are different scenes, and the curve blends between the two. Weaker rows
+  were not judged yet. The dialog shows this warning; lower the row strength if the
+  picture cuts. The presets do not prevent it.
+- Director timeline items and prompt blocks are **not** drawn behind the lanes: Studio
+  holds MiniMax H3 references as slots with trims, without a place in seconds, and
+  timed prompt blocks are free text. Only the Continuity plan's segment ends exist as
+  seconds, and those are drawn.
+
+## When a time curve cannot run
+
+The compiler refuses a time curve in the cases below. Studio finds them before Run from
+the same settings: the reason is listed in the Dials tab and in the rack dialog, Run is
+blocked with it, and in the dialog the curve tools (add curve, presets, points, paste,
+ramp and smoothing) are disabled. **Remove curve**, the row's switch and × stay usable,
+and rows without a curve are never held. With Continuity on, the cases are judged for
+the plan's next step, and they block the plain Run button too.
+
+| Case | What to do |
+| --- | --- |
+| More blend steps than the job has sampler steps | Lower the curve's blend steps or clear the field (not locked: the field stays editable) |
+| Face refinement is on | Switch it off, or remove the curve |
+| The tiled latent upscale is on | Use Hi-Res Regenerate or no upscale, or remove the curve |
+| De-rope on a continued segment | Switch De-rope off for that step, or remove the curve |
+| The next step continues an imported video | Remove the curve |
+| De-rope with a curve, and `MAIDialHoldMap` is not on the backend | Install the pack that has it (shown once the backend's node list is read) |
+| Join with generated transitions | While a row with a curve is on, the Continuity dialog does not offer transitions and says why |
+
+Two refusals cannot be known before the job is prepared, because the pinned clip's
+frame count is read from the session list only then: a pinned clip that is not in the
+list, and points too close together to move onto the continued window. Their native
+errors appear when the job is prepared (see Troubleshooting). The curve's own limits (1
+to 64 points, increasing seconds, levels within ±20, smoothing 0 to 1, blend steps 1 to
+150) cannot be broken from the dialog; a stored row list that breaks them is not loaded
+(the rack then starts empty).
 
 ## The intent field
 
@@ -199,6 +306,9 @@ rows that ran.
 | `Diagnostic nodes are not available on this backend: MAIDialRack` (or `MAIDialHoldMap`) | Same cause as the first row, reported by the native check when the job is prepared. |
 | `Diagnostic loras are not available on this backend: dials/…` | The dial file is not in `models/loras/dials/`, or the backend's model list is stale. |
 | `Invalid dials: time curves on a continued segment need … sourceFrames …` | The pinned checkpoint clip was not found in the session list, so the window's start is unknown. Pin an existing clip. |
+| `Invalid dials: time points are too close together to shift onto the continued segment's window` | Two points of a curve fall on the same moment once moved onto the continued window. Spread them out. |
+| A curve does nothing | Raise its blend steps in the rack dialog; the default is provisional. See [Blend steps](#blend-steps). |
+| The picture cuts to another scene where a curve changes | The row is too strong for a curve. Lower its strength. See [the rack dialog](#the-rack-dialog-and-its-timeline). |
 | `MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven` | Use a safetensors base model. |
 
 An error raised by the node itself (for example a dial made for another model family)
@@ -274,7 +384,7 @@ the useful strength.
 
 - State is `DialRow[]` under the preference key `studio.run.dials` (`usePref`, as
   De-rope uses `studio.run.derope`). A `DialRow` **is** the intent row (`H3DialRow`:
-  `dial`, `strength`, optional `on` and `time`), so the strip, the future rack dialog and
+  `dial`, `strength`, optional `on` and `time`), so the strip, the rack dialog and
   the compiler share one shape and nothing is converted. `isDialRows` mirrors the native
   `validate_dial_row` limits, so a stale or foreign value falls back to no rows.
 - Because the key starts with `studio.run.`, the existing settings transfer picks it up
@@ -296,8 +406,8 @@ Its own dock tab, **Dials**, after **LoRAs**. The LoRAs tab is the shared model 
 (folder tree, tiles, bulk family editing, favourites) and has no place for a list of
 rows; a dock tab is one entry in `dockTabs`, one label and one panel line. To move the
 strip, render `<DialStrip>` elsewhere with the same props; it does not depend on the
-dock. `onOpenRack` is the slot for the button that opens the full rack dialog and shows
-nothing until it is passed.
+dock. `onOpenRack` opens the rack dialog (the button is not shown without it) and
+`rackRef` is that button, so focus can return to it.
 
 ### Gating
 
@@ -315,40 +425,79 @@ and strength edits while the switch and Remove stay usable.
 While the backend's node list is unread the node is not reported missing; Run is
 disabled anyway until the backend answers.
 
-Refusals that involve a **time curve** are not mirrored in the UI yet. A restored row
-can carry a curve, and the compiler's own error then appears when the job is prepared.
-The next part must show these before Run:
+### Time-curve refusals
 
-- a time curve with face refinement, with the tiled latent upscale (not Regenerate), on
-  an H3 transition window, with De-rope on a continued segment, or on a continuation of
-  an imported video;
-- a continued segment whose pinned clip is not in the session list (no `sourceFrames`),
-  and points too close together to shift onto the continued window;
-- De-rope with a time curve when `MAIDialHoldMap` is not registered;
-- the curve's own limits: 1 to 64 points, strictly increasing seconds within ±86400,
-  levels within ±20, `interp` `linear` or `step`, `smooth` 0 to 1, `unit` `seconds`.
+`dialCurveConflicts` in `src/lib/dials.ts` is the one function for the compiler's
+time-curve refusals, in the order native `validate_dials` checks them. It takes plain
+facts about the next job (`DialCurveFacts`) and returns every refusal that applies;
+native reports only the first and stays authoritative. The Workbench builds the facts
+from the same state the intent is built from; `dialIntentFacts` reads them from a built
+intent. The strip and the dialog both show the returned list, and Run is blocked with
+it. A test per refusal compares the trigger and the native wording with the Rust source.
+
+| Id | Fact | Native check |
+| --- | --- | --- |
+| `blendSteps` | an active curve's `steps` above the job's `steps` | `validate_dials` |
+| `transition` | `h3.transition` | `validate_dials` |
+| `faceRefine` | `faceRefine` block | `validate_dials` |
+| `tiledUpscale` | `latentUpscale` without `regenerate` | `validate_dials` |
+| `deropeContinued` | `videoPost.derope` with a pinned source | `validate_dials` |
+| `importedVideo` | pinned source of kind `video` | `validate_dials` |
+| `sourceFrames` | pinned clip's frame count known to be missing | `validate_dials`; **Studio cannot know this before Run** |
+| `shift` | points collapse when shifted by the window start | `validate_dials`; **needs the window start, which Studio does not hold** |
+| `holdMapMissing` | De-rope with a curve and no `MAIDialHoldMap` in the node list | prerequisite check |
+| `curveLimits` | a curve `isDialCurve` rejects | `validate_dial_row`; cannot occur in stored rows |
+
+`transition` is not a Workbench state: the join builds its transition jobs from the
+captured generation intent, dial rows included. While `dialCurveConflicts` reports it
+for the current rows, the Workbench does not hand the join a capture function (the
+transitions option is then not offered) and passes the reason to the Continuity dialog.
+
+### The rack dialog
+
+- `DialRackDialog.tsx` follows `ContinuityOverlay` (native `<dialog>`, `showModal`,
+  focus on Close, `cancel` handled, focus back to the opening button) and reuses
+  `DialStrip` for the rows, so there is one set of row controls. Its styles are in
+  `dial-rack.css`; it adds nothing to the shell's layout.
+- All curve logic is pure, in `src/lib/dialCurve.ts`: `sampleDialCurve` and
+  `dialFrameLevels` (mirrors of the pack's `keyframes`, `curve_fn` and
+  `frame_weights`), `movePoint`/`addPoint`/`removePoint` with the limits, the presets,
+  clipboard text, the lane length (`dialTimeline`) and `rackReduce`, the reducer every
+  edit of the dialog goes through, strip edits included, which is what gives one undo
+  history. The dialog holds only view state: level range, pointer and drafts.
+- The sampler is tested against `src/lib/dialCurve.fixture.json`: 48 curves (8 point
+  sets × ramp at four smoothing values and step) sampled at 3,354 times plus the
+  per-latent-frame means for clips of 5, 9 and 29 latent frames, computed by the pack's
+  own functions from ComfyUI-MAINodes `382f640` (working tree clean for those files) and
+  matched to 1e-12. The functions were lifted from the source files with `ast` and run
+  with NumPy on CPU, because the modules import ComfyUI; the generator is a scratch
+  script and is not in the repository.
+- Points are HTML buttons placed over an SVG that is stretched to the lane, so they are
+  focusable and keep their size at every width.
 
 ### What the next parts need
 
-- **Rack dialog and lane timeline:** edit the same `DialRow[]` through the same
-  `value`/`onChange` pair; pass `onOpenRack`. Curves are in whole-piece seconds; the
-  lane's length is the clip, or the whole Continuity plan when it is on.
-- **Keyframe maths:** `dialCurveOutline` only draws the authored corners and ignores
-  `smooth`. The editor needs its own sampler that matches the pack's `timecurve.py`,
-  tested against sampled curves.
-- **Default shapes:** a proof render on 2026-11-16 (one seed) had the model cut to a
-  different scene when a curve jumped from level -1 to +1 within 0.2 s. Default ramps
-  should be gentle; this is one observation, not a measured threshold.
+- **Rack presets (next):** a preset is a `DialRow[]`; apply it with
+  `dispatch({type:'rows', rows})` inside the dialog (one undo step) or `onChange`
+  outside it. Validate with `isDialRows` first. Curves in the pack's preset files use
+  the pack's default unit (clip fractions) unless they say `seconds`, and may carry
+  `steps`, `audio`, holds, envelopes and block strengths: `parseDialCurveText` converts
+  a `time` object and drops `audio`; rows with a kind this version refuses must be
+  reported, not silently changed. Curve seconds are whole-piece seconds, so a preset
+  made for one clip length does not stretch to another. Studio presets already carry the
+  rows; decide which store the picker reads.
+- **Default shapes:** no ramp length avoided the scene change at row strength 1.5 (see
+  above). If weaker rows behave, the presets could carry a suggested strength; nothing
+  is measured yet.
 - **Rows are keyed by position.** The validator allows the same dial twice (the compiler
   does); the strip only never offers it. Reordering was left out; the rack adds the
   rows' shifts, so order is not expected to change the result (not tested).
-- **Presets:** Studio presets already carry the rows. Rack preset files of the pack are
-  a second store; decide which one the preset picker reads before building it.
 - **Off rows are not sent**, so history cannot restore them. If the rack should come
   back whole, send them with `on: false` (the compiler accepts and ignores them) and
   drop the filter in `withDials`.
-- **Logging:** the strip only edits local state and adds no operation that can fail, so
-  it writes no log entries; job errors already reach Logs through the job path.
+- **Logging:** the strip and the dialog only edit local state. The one operation that
+  can be refused is the clipboard; it falls back to a copy inside the window and tells
+  the user, and writes no log entry. Job errors already reach Logs through the job path.
 
 ## Platforms and evidence
 
@@ -358,7 +507,9 @@ desktop WebViews, and nothing was run on a GPU or against a real backend. See th
 verification entries for the
 [compiler](VERIFICATION.md#experimental-h3-dials-compiler-slice-unreleased--2026-11-16) and the
 [Dials tab](VERIFICATION.md#experimental-h3-dials-studio-dock-strip-unreleased--2026-11-16)
+and the [rack dialog](VERIFICATION.md#experimental-h3-dials-rack-dialog-and-blend-steps-unreleased--2026-11-16)
 for what was tested and the [plan](PLAN.md) for what is open. `tools/verify_dials.py`
-checks the strip's geometry and keyboard use in Chromium with synthetic IPC. Node behaviour was read
+checks the strip's and the dialog's geometry, mouse and keyboard use in Chromium with
+synthetic IPC. Node behaviour was read
 from the installed ComfyUI-MAINodes checkout (`dials/nodes.py`, `timecurve.py`,
 `presets.py`), not from a pinned release.

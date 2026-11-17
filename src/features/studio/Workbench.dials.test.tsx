@@ -159,3 +159,108 @@ test('active rows on a GGUF base block Run with the reason; switched off they do
  await waitFor(()=>expect(run().title).not.toBe(before));
  expect(run().title).not.toContain('GGUF base model are not proven');
 });
+
+test('the rack dialog opens from the strip, edits the saved rows that Run sends, and returns focus to its button',async()=>{
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:-0.5,on:true,time:curve}]);
+ // The planned graph input: an authored blend-step count travels in the row's time object.
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ dock('Dials');
+ const open=within(strip()).getByRole('button',{name:'Open rack'});
+ expect(open.getAttribute('aria-haspopup')).toBe('dialog');
+ expect(document.querySelector('[data-dial-rack]')).toBeNull();
+ fireEvent.click(open);
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'}) as HTMLDialogElement;
+ expect(dialog.open).toBe(true);
+ // The lanes span the clip the job renders, not the typed seconds: the default 5 s is 124 frames on MiniMax H3.
+ expect(dialog.querySelector('[data-dial-timeline]')!.getAttribute('data-dial-timeline')).toBe('clip');
+ expect(dialog.querySelector('[data-dial-timeline] h3')!.textContent).toBe('Timeline · 5.167 s');
+ expect(Array.from(dialog.querySelectorAll<HTMLElement>('[data-dial-lane]')).map(l=>l.dataset.dialLane)).toEqual([motion,calm]);
+ expect(dialog.querySelector('[data-dial-conflicts]')).toBeNull();
+ // First lane: a preset gives the constant row a curve; then an authored blend-step count.
+ fireEvent.click(dialog.querySelector('[data-dial-tool="preset.rampIn"]')!);
+ const steps=dialog.querySelector<HTMLInputElement>('[data-dial-steps]')!;
+ expect([steps.placeholder,steps.max]).toEqual(['7','20']);
+ fireEvent.change(steps,{target:{value:'5'}});
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.dials')!)[0]).toEqual({dial:motion,strength:1.5,on:true,time:{type:'keys',points:[[0,0],[1.5,1]],unit:'seconds',interp:'linear',steps:5}}));
+ expect(captureStudioSettings()['studio.run.dials']).toHaveLength(2);
+ expect(isDialRows(captureStudioSettings()['studio.run.dials'])).toBe(true);
+ // The dock strip behind the dialog shows the same rows.
+ expect(row(motion).querySelector('[data-dial-curve]')).not.toBeNull();
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ expect(document.querySelector('[data-dial-rack]')).toBeNull();
+ expect(document.activeElement).toBe(within(strip()).getByRole('button',{name:'Open rack'}));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ const sent=vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as {steps:number;dials:DialRow[]};
+ expect(sent.steps).toBe(20);
+ expect(JSON.stringify(sent.dials)).toBe('[{"dial":"dials/h3_motion.safetensors","strength":1.5,"time":{"type":"keys","points":[[0,0],[1.5,1]],"unit":"seconds","interp":"linear","steps":5}},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"type":"keys","points":[[0,0.5],[1.5,1],[4,-2]],"unit":"seconds"}}]');
+});
+
+test('a time-curve refusal blocks Run with its reason in the strip and the dialog until the curve is off; rows without a curve are not held',async()=>{
+ // More blend steps than the job samples (20): native "time.steps (blend steps) cannot exceed the job's 20 sampler steps".
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:{...curve,steps:21}}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ const reason='A time curve asks for more blend steps than the job has sampler steps.';
+ await waitFor(()=>expect(run().title).toContain(reason));
+ expect(run().disabled).toBe(true);
+ dock('Dials');
+ expect(strip().querySelector('[data-dial-conflict="blendSteps"]')!.textContent).toContain(reason);
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ expect(dialog.querySelector('[data-dial-conflict="blendSteps"]')!.textContent).toContain(reason);
+ fireEvent.click(within(dialog.querySelector<HTMLElement>(`[data-dial-lane="${calm}"]`)!).getByRole('button',{pressed:false}));
+ fireEvent.change(dialog.querySelector('[data-dial-steps]')!,{target:{value:'20'}});
+ await waitFor(()=>expect(run().disabled).toBe(false));
+ expect(dialog.querySelector('[data-dial-conflicts]')).toBeNull();
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ expect(strip().querySelector('[data-dial-conflicts]')).toBeNull();
+ expect(run().title).not.toContain(reason);
+});
+
+test('face refinement with a time curve is refused before Run; the same rows without the curve run',async()=>{
+ localStorage.setItem('deas.pref.studio.run.faceRefine',JSON.stringify({auto:true,denoise:0.3,cropFactor:2.5,feather:6,prompt:''}));
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:curve}]);
+ expect(planned()).toHaveProperty('faceRefine');
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ const reason='A dial time curve cannot run with face refinement';
+ await waitFor(()=>expect(run().title).toContain(reason));
+ dock('Dials');
+ expect(strip().querySelector('[data-dial-conflict="faceRefine"]')!.textContent).toContain(reason);
+ fireEvent.click(within(strip()).getByRole('button',{name:'Open rack'}));
+ const dialog=screen.getByRole('dialog',{name:'Dial rack (experimental)'});
+ fireEvent.click(within(dialog.querySelector<HTMLElement>(`[data-dial-lane="${calm}"]`)!).getByRole('button',{pressed:false}));
+ expect(dialog.querySelector('[data-dial-rack-locked]')!.textContent).toContain(reason);
+ expect(dialog.querySelector<HTMLButtonElement>('[data-dial-tool="preset.pulse"]')!.disabled).toBe(true);
+ fireEvent.click(dialog.querySelector('[data-dial-tool="removeCurve"]')!);
+ await waitFor(()=>expect(run().title).not.toContain(reason));
+ expect(dialog.querySelector('[data-dial-conflicts]')).toBeNull();
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.dials')!)[1]).toEqual({dial:calm,strength:1,on:true});
+});
+
+test('join transitions are not offered while a row with a time curve is on, and the Continuity dialog says why',async()=>{
+ const reason='Join transitions are generated on their own window and cannot run with a dial time curve.';
+ // The join panel belongs to an enabled Continuity plan.
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials1',outputMode:'full',steps:[]}));
+ const view=await mount([{dial:motion,strength:1.5,on:true},{dial:calm,strength:1,on:true,time:curve}]);
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-continuity-open]')).not.toBeNull());
+ const openJoin=()=>{
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  const dialog=screen.getByRole('dialog',{name:'Continuity'});
+  fireEvent.change(dialog.querySelector<HTMLSelectElement>('[data-cont-join-mode]')!,{target:{value:'files'}});
+  return dialog;
+ };
+ let dialog=openJoin();
+ expect(within(dialog).getByText(reason,{exact:false})).toBeTruthy();
+ expect(dialog.querySelector('[data-cont-join-transitions]')).toBeNull();
+ fireEvent.click(within(dialog).getByRole('button',{name:'Close'}));
+ // Switched off, the curve asks for nothing: the option is back and the notice is gone.
+ dock('Dials');
+ fireEvent.click(within(row(calm)).getByRole('checkbox'));
+ dialog=openJoin();
+ expect(within(dialog).queryByText(reason,{exact:false})).toBeNull();
+ expect(dialog.querySelector('[data-cont-join-transitions]')).not.toBeNull();
+});

@@ -52,7 +52,9 @@ import { useAudioEnhance } from './useAudioEnhance';
 import { TvePostControls, defaultTve, fromVideoPost, isTvePref, toVideoPost } from './TvePostControls';
 import { DeropeControls, defaultDerope, deropeNodes, fromDerope, isDeropePref, withDerope } from './DeropeControls';
 import { DialStrip } from './DialStrip';
-import { activeDials, dialCatalog, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
+import { DialRackDialog } from './DialRackDialog';
+import { dialTimeline } from '../../lib/dialCurve';
+import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialFile, isDialRows, noDials, withDials, type DialRow } from '../../lib/dials';
 import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
@@ -373,6 +375,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [plan,setPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
  const [referencesOpen,setReferencesOpen]=useState(false);const referencesButton=useRef<HTMLButtonElement>(null);
  const [continuityOpen,setContinuityOpen]=useState(false);const continuityButton=useRef<HTMLButtonElement>(null);
+ const [rackOpen,setRackOpen]=useState(false);const rackButton=useRef<HTMLButtonElement>(null);
  const planRun=useRef<{jobId:string;index:number;all:boolean;imported?:H3ImportedVideo}|null>(null);const [autoPlan,setAutoPlan]=useState(false);const [resolving,setResolving]=useState(false);
  const [edit,setEdit]=usePref('studio.run.edit','resample',oneOf(...editModes));
  // Post-Processing (SwarmUI Refine / Upscale): opt-in second pass after every run, or applied alone to the shown image.
@@ -670,6 +673,13 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
  const dialFiles=dialCatalog(dialListed??[]);
  const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
+ // The lanes of the rack dialog: the clip the next job renders, or the whole Continuity piece when the plan starts it.
+ const dialSpan=dialTimeline(frames,dialsHere&&continuityOn?plan:null);
+ // Time-curve refusals of the compiler, shown before Run. With Continuity on they are judged for the plan's next step.
+ const dialNext=dialsHere&&continuityOn?nextStep(plan)?.continuity:undefined;
+ const dialConflicts=dialCurveConflicts({rows:dials,steps,faceRefine:faceRefine.auto,tiledUpscale:latentEnabled,derope:!!videoPost?.derope,continued:!!dialNext?.sourceId,importedVideo:dialNext?.sourceKind==='video',nodes:choices?.nodes});
+ // A join's generated transitions sample their own window: not offered while a row with a time curve is on.
+ const dialTransitionBlock=dialCurveConflicts({rows:dials,steps,transition:true}).includes('transition');
  const streamRequested=isVideo&&videoFamily==='minimax-h3'&&streamDecode;
  const streamReason=!(latentEnabled||regenerateEnabled)?t('studio.run.streamDecode.requires')
   :continuityOn&&plan.outputMode==='segment'?t('studio.run.streamDecode.fullTimeline')
@@ -739,7 +749,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(isVideo&&derope.enabled&&derope.mode==='turbo'&&!derope.lora?[t('studio.run.derope.needsLora')]:[]),
   // Active dial rows that cannot run block Run with the reason instead of being dropped.
   ...(activeDials(dials).length?[...(dialBlock==='gguf'?[t('studio.dials.reason.gguf')]:dialBlock==='nodeMissing'?[dialRackNode]:[]),
-   ...(dialListed?activeDials(dials).filter(r=>!dialListed.includes(r.dial)).map(r=>t('studio.dials.unavailable',{name:r.dial})):[])]:[]),
+   ...(dialListed?activeDials(dials).filter(r=>!dialListed.includes(r.dial)).map(r=>t('studio.dials.unavailable',{name:r.dial})):[]),
+   ...dialConflicts.map(c=>t(`studio.dials.conflict.${c}`))]:[]),
   ...(isVideo&&videoPost&&choices?[...(videoPost.upscaleModel&&!choices.upscaleModels?.includes(videoPost.upscaleModel)?[videoPost.upscaleModel]:[]),
    ...(videoPost.rtx&&!choices.nodes.includes('DaSiWa_RTX_UpscalerRefiner')?['DaSiWa_RTX_UpscalerRefiner']:[]),
    ...(videoPost.frameGeneration?.engine==='rtx'&&!choices.nodes.includes('DaSiWa_RTX_FrameGeneration')?['DaSiWa_RTX_FrameGeneration']:[]),
@@ -2356,7 +2367,7 @@ const promptTools=forgeContext&&<>
     </div>
    </section>}
 
-   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={video.seconds} onRead={loadChoices}/></section>}
+   {dockTab==='dials'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.dials')}><DialStrip value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} seconds={dialSpan.seconds} onRead={loadChoices} conflicts={dialConflicts} rackRef={rackButton} onOpenRack={()=>setRackOpen(true)}/></section>}
    {dockTab==='options'&&<section className="wb-dock-panel" aria-label={t('studio.run.dock.options')}><OptionsPanel value={optionsPref} onChange={setOptions} allow={choices} family={family?.id} video={isVideo} imageInput={pipeline==='i2i'} onRead={loadChoices} canRead={native&&!!endpoint.trim()}/></section>}
    {(dockTab==='models'||dockTab==='loras')&&<section className="wb-dock-panel wb-model-browser-panel" aria-label={t(`studio.run.dock.${dockTab}`)}>
     {!models&&<p className="media-help">{t(modelsDir?'studio.run.scanHelp':'studio.run.loadHelp')}</p>}
@@ -2384,7 +2395,8 @@ const promptTools=forgeContext&&<>
    </div>)}
   </div>
  </section>,forgeHost)}
- {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay captureTransition={continuityAvailable&&videoFamily&&model&&split&&naming!==null?()=>{
+ {rackOpen&&!planVisible&&<DialRackDialog value={dialRows} onChange={setDialRows} files={dialFiles} listed={dialListed} gate={dialBlock} onRead={loadChoices} timeline={dialSpan} steps={steps} conflicts={dialConflicts} onClose={()=>{setRackOpen(false);rackButton.current?.focus();}}/>}
+ {continuityOpen&&continuityAvailable&&!planVisible&&<ContinuityOverlay blocker={dialTransitionBlock?t('studio.dials.conflict.transition'):undefined} captureTransition={continuityAvailable&&videoFamily&&model&&split&&naming!==null&&!dialTransitionBlock?()=>{
     const epoch=admissionEpoch.current,capturedEndpoint=endpoint,uploads=new Set<string>();
     const identify=(item:MediaItem,force=false)=>{const name=!force&&comfyName(item);if(name)return name;uploads.add(item.path!);return item.path!;};
     const intent=structuredClone(buildVideoIntent(videoFamily,naming,optionsPref.output??defaultVideoOutput,identify));

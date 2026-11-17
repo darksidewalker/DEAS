@@ -138,13 +138,14 @@ test('the rack button appears only when a rack dialog is wired', () => {
 
 test('every dial string exists in all six locales with its placeholders, and global search finds the tab', () => {
   const keys = Object.keys(bundledCatalog.dictionaries.en).filter(k => k.startsWith('studio.dials.') || k === 'studio.run.dock.dials');
-  expect(keys.length).toBe(19);
+  expect(keys.length).toBe(82);
   const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
   for (const locale of ['de', 'fr', 'ja', 'tr', 'zh']) for (const key of keys) {
     const value = bundledCatalog.dictionaries[locale][key];
     expect(value, `${locale} ${key}`).toBeTruthy();
     expect(holes(value), `${locale} ${key}`).toBe(holes(text(key)));
-    if (!['studio.dials.unavailable', 'studio.run.dock.dials'].includes(key)) expect(value, `${locale} ${key}`).not.toBe(text(key));
+    // A unit (`{seconds} s`) reads the same in the Latin-script locales.
+    if (!['studio.dials.unavailable', 'studio.run.dock.dials', 'studio.dials.rack.length'].includes(key)) expect(value, `${locale} ${key}`).not.toBe(text(key));
   }
   const entry = searchIndex.find(e => e.label === 'studio.dials.add')!;
   expect(entry).toMatchObject({ dockTab: 'dials', target: '#studio-dock [data-dial-add]' });

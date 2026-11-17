@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, type Ref } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
-import { DIAL_LEVEL, DIAL_ROWS, DIAL_SLIDER, DIAL_STEP, dialCurveOutline, dialLabel, dialName, dialStrength, type DialGate, type DialRow } from '../../lib/dials';
+import { DIAL_LEVEL, DIAL_ROWS, DIAL_SLIDER, DIAL_STEP, dialCurveOutline, dialLabel, dialName, dialStrength, type DialCurveConflict, type DialGate, type DialRow } from '../../lib/dials';
 import type { H3DialCurve } from '../../lib/videoIntent';
 
 /** Read-only picture of a row's time curve (authored corners over the clip); editing lives in the rack dialog. */
@@ -14,9 +14,10 @@ export function DialCurveThumb({curve,seconds,label}:{curve:H3DialCurve;seconds:
 /**
  * Experimental Dial Rack strip (docs/DIALS.md): one line per dial. `files` are the dial files offered for adding,
  * `listed` every LoRA name the backend (or the library scan) lists, undefined while unread, `gate` the reason new rows cannot run here. A closed gate keeps the switch and
- * Remove usable, so a row that blocks Run can always be turned off. `onOpenRack` is the slot for the full rack dialog.
+ * Remove usable, so a row that blocks Run can always be turned off. `conflicts` are the compiler's time-curve refusals for the next job
+ * (`dialCurveConflicts`), shown as reasons. `onOpenRack` opens the full rack dialog; `rackRef` is its button, for returning focus.
  */
-export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void}){
+export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpenRack,rackRef,conflicts}:{value:readonly DialRow[];onChange:(next:DialRow[])=>void;files:readonly string[];listed?:readonly string[];gate:DialGate;seconds:number;onRead?:()=>void;onOpenRack?:()=>void;rackRef?:Ref<HTMLButtonElement>;conflicts?:readonly DialCurveConflict[]}){
  const {t}=useI18n();
  // A half-typed number ("-", "1.") stays in the field without rewriting the row.
  const [draft,setDraft]=useState<{index:number;text:string}|null>(null);
@@ -27,11 +28,12 @@ export function DialStrip({value,onChange,files,listed,gate,seconds,onRead,onOpe
  const addReason=gate?t(`studio.dials.reason.${gate}`):full?t('studio.dials.full',{count:String(DIAL_ROWS)}):'';
  return <fieldset className="wb-group wb-dials" data-dials={gate||'ready'}><legend>{t('studio.dials.title')}</legend>
   {gate&&<p className="wb-dials-reason" role="status" data-dials-reason={gate}>{t(`studio.dials.reason.${gate}`)}</p>}
+  {!!conflicts?.length&&<ul className="wb-dials-conflicts" data-dial-conflicts aria-label={t('studio.dials.conflicts')}>{conflicts.map(c=><li key={c} data-dial-conflict={c}>{t(`studio.dials.conflict.${c}`)}</li>)}</ul>}
   <div className="wb-dials-add">
    <select data-dial-add aria-label={t('studio.dials.add')} value="" disabled={!!gate||full||!offered.length} title={addReason||undefined} onFocus={onRead} onPointerDown={onRead}
     onChange={e=>{if(e.target.value)onChange([...value,{dial:e.target.value,strength:1,on:true}]);}}>
     <option value="">{t('studio.dials.add')}</option>{offered.map(f=><option key={f} value={f} title={f}>{dialLabel(f)}</option>)}</select>
-   {onOpenRack&&<button type="button" className="wb-dock-action" data-dial-rack-open aria-haspopup="dialog" onClick={onOpenRack}>{t('studio.dials.openRack')}</button>}
+   {onOpenRack&&<button ref={rackRef} type="button" className="wb-dock-action" data-dial-rack-open aria-haspopup="dialog" onClick={onOpenRack}>{t('studio.dials.openRack')}</button>}
    {!gate&&full&&<small role="status">{addReason}</small>}
    {!gate&&listed&&!files.length&&<small data-dials-empty>{t('studio.dials.none')}</small>}
   </div>
