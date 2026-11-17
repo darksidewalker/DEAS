@@ -1,5 +1,105 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Experimental H3 dials (rack dialog and blend steps, unreleased) — 2026-11-16
+
+Branch `dials-rack-experimental` on top of the dock strip below; see
+[the rack dialog](DIALS.md#the-rack-dialog-and-its-timeline) and
+[Blend steps](DIALS.md#blend-steps). **Fixture and headless-Chromium evidence only.** No
+ComfyUI instance was started or contacted by this work, no job was submitted, no model
+was loaded and no GPU was used. Nothing was run in the desktop WebViews (WebKitGTK,
+WebView2) or on Windows. The render observations quoted in the documentation (the
+blend-step settings that acted, the scene change at row strength 1.5) come from separate
+one-seed proof renders made outside DEAS on 2026-11-16 with hand-built graphs; they are
+not DEAS acceptance and no job started from Studio's controls has run.
+
+- **Compiler (Rust).** `time.steps` is accepted (whole number 1 to 150; on an active row
+  at most the job's `steps`) and every emitted curve now carries `steps`: the authored
+  value, else `max(2, round(steps / 3))` capped at the job's steps.
+  `cargo test --manifest-path src-tauri/Cargo.toml --locked dial`: **14 passed, 0
+  failed** (13 before; the new test covers the default at 13 step counts, the exact rack
+  string at 25 steps with and without an authored value, the bounds, an inactive row, and
+  the De-rope graph). `cargo test … jobs_video`: 78 passed, 7 ignored. The three tests
+  whose exact rack JSON changed were updated (`"steps":2` at the fixture's 4 job steps);
+  the "no dials = unchanged graph" test is untouched and passes.
+  `cargo fmt -- --check`: clean.
+- **Full Rust lib suite and Clippy: same host failures as before, none new.**
+  `cargo test --lib`: 866 passed, 205 failed, 77 ignored. The 205 failing names are
+  identical to the list recorded for this branch before the change (865 passed, 205
+  failed); they fail on this host's temporary-directory ownership check
+  (`Download directory must be owned by the effective user …`) and in unrelated
+  modules. `cargo clippy --all-targets -- -D warnings` stops on the same six
+  `chunks_exact` lints in `audio_runtime.rs`, `jobs_auto_refine.rs` and
+  `jobs_preview.rs` as before; none is in a changed file. Neither is a pass.
+- **Sampler against the pack's own maths: pass.** `src/lib/dialCurve.fixture.json` was
+  generated with the ComfyUI venv's Python on CPU by a scratch script that lifts
+  `keyframes` (`dials/envelopes.py`) and `curve_fn`, `clip_clock`, `frame_weights`
+  (`dials/timecurve.py`) out of ComfyUI-MAINodes `382f640` with `ast` (the modules import
+  ComfyUI) and runs them with NumPy 2.5.2: 48 curves, 3,354 sampled times, and
+  per-latent-frame means for clips of 5, 9 and 29 latent frames. The TypeScript sampler
+  and frame averaging match every value within 1e-12. The generator is not in the
+  repository; the fixture records its source commit and that those files were unmodified.
+- **Component tests: 71 in 5 files, pass.** `npx vitest run src/lib/dials.test.tsx
+  src/lib/dialCurve.test.ts src/features/studio/DialStrip.test.tsx
+  src/features/studio/DialRackDialog.test.tsx
+  src/features/studio/Workbench.dials.test.tsx`. New coverage: the sampler fixture;
+  latent-frame starts; lane length for a clip, a Continuity piece and a plan on an
+  existing clip; move/add/remove with snapping, the 1/6 s gap, the level range and the
+  two-point minimum; the four presets on 38 lane lengths (levels 0 to 1, gaps, ramp
+  length); clipboard text and the pack's clip-fraction form; the rack reducer with undo
+  and redo; the blend-step default against the native formula and the native test's own
+  table; one test per time-curve refusal comparing trigger and wording with the Rust
+  source, plus their order; the dialog (open, focus on Close, close by button and by
+  cancel, lanes, add/remove curve, presets, mouse add/drag/select/double-click, keys,
+  number fields, level range, blend steps, smoothing and step drawing, copy/paste with
+  and without a clipboard, shared undo with the strip, each refusal's disabled state);
+  and in the Workbench: open from the strip, edit, the exact `dials` JSON that Run
+  sends, focus back on the button, Run blocked by a blend-step and a face-refinement
+  refusal and released, and join transitions withheld with the reason.
+- **Typecheck and build: pass.** `npm run typecheck`; `npm run build`.
+- **Full UI suite: passes, with intermittent failures in unrelated files on this
+  loaded host.** `npm run test:ui` was run four times with the change: 125 files /
+  2,190 tests passed (before the last test was added); then 1 failure
+  (`Workbench.h3Continuity.t2v-i2v`); then 3 failures (`Workbench.h3Continuity.v2v`,
+  `Workbench.part2`, `Workbench.part4`, one of them a 5 s timeout); then **125 files /
+  2,191 tests passed**. The failing tests differed between runs, are in files this
+  change does not touch, and all four files passed when run on their own (254 tests),
+  the first of them also with the change stashed. The machine was running other jobs
+  (load average 4 to 10). Whether the unchanged tree shows the same intermittent
+  failures under this load was not measured.
+- **Locale parity (substitute for `npm run test:core`, which cannot run on this Node):**
+  `tests/i18n.test.ts` bundled with the repository's esbuild into a scratch folder and
+  run with `node --test`: 5 passed, including six-locale key and placeholder parity and
+  the audit of UI keys and literal text referenced from source. The other core test
+  files were not rerun.
+- **Layout gate: the documented command could not run here**, as recorded below
+  (`chromium_headless_shell-1248` is not installed; nothing was downloaded).
+  Substitute, not the gate: the unchanged `tools/verify_workspace_layout.py` through the
+  same scratch wrapper and the cached Chrome for Testing 151.0.7922.34 headless shell:
+  status PASS, 467 checks.
+- **Rack dialog in Chromium (same wrapper and browser): pass, 108 checks** (the strip's
+  72 plus 36 for the dialog). `tools/verify_dials.py` now also opens the dialog in six
+  locales at 1440×960, 1440×1300, 1024×700, 390×844 and 320×480. It asserts: the
+  dialog is an open modal inside the viewport; opening and closing it leaves the
+  measured shell boxes and page size unchanged; no horizontal overflow; every lane's
+  plot and the axis start and end at the same pixels; the selected lane is the tall
+  one; points inside their lane; 38 latent-frame ticks and non-overlapping second
+  labels; tools inside their rows without overlap; every lane and help line reachable
+  by scrolling the dialog; Enter opens it with focus on Close, Esc closes it with focus
+  back on the button, and looking changes no row. With a real mouse and keyboard in
+  each locale: a click adds a snapped point that takes focus, a drag follows the
+  pointer and stops 1/6 s before the next point with the pointer outside the lane, a
+  released point stays, arrows nudge, Delete removes, Ctrl+Z and Ctrl+Shift+Z step
+  through history, a preset writes levels 0 to 1, blend steps are stored, and copy then
+  paste moves the curve to another lane (the headless clipboard path that was taken is
+  not asserted). Screenshots looked at: en 1440×960 after editing, en 320×480 (top and
+  end), en 390×844, de 1024×700, ja 390×844, tr 320×480 and zh 1440×1300.
+- **Not established.** Any real render of a job compiled with the new `steps`, in
+  particular the De-rope pass (described from source only); whether the default suits
+  step counts other than 6 and 25; the Continuity piece length against a real session;
+  pointer capture, the clipboard and the range inputs in WebKitGTK/WebView2; a screen
+  reader; touch input; Windows; performance (the dialog redraws each lane's 200-sample
+  path on every pointer move; not measured).
+
 ## Experimental H3 dials (Studio dock strip, unreleased) — 2026-11-16
 
 Branch `dials-rack-experimental` on top of the compiler slice below; see
