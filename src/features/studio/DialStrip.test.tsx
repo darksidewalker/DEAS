@@ -154,6 +154,19 @@ test('every dial string exists in all six locales with its placeholders, and glo
   expect(matchEntries(searchIndex, 'dial rack', text)).toContain(entry);
 });
 
+test('the held-curve reason names the Continuity button that lifts it, and the findings help names the short-schedule limit, in all six locales', () => {
+  for (const locale of ['en', 'de', 'fr', 'ja', 'tr', 'zh']) {
+    const d = bundledCatalog.dictionaries[locale];
+    // The way out of the hold for a plan saved before the clip's frame count was kept: the control as that locale labels it.
+    expect(d['studio.dials.conflict.pieceStart'], locale).toContain(d['studio.run.cont.loadSources']);
+    // Look dials on a curve: clear at 6 sampler steps, partial at 8, nothing at 12 or 25.
+    const limit = d['studio.dials.rack.help.findings'].match(/[^.。:：]*\b12\b[^.。]*\b25\b[^.。]*[.。]/)?.[0] ?? '';
+    expect(limit, locale).toMatch(/\b8\b/);
+  }
+  expect(text('studio.dials.conflict.pieceStart')).toContain("press “Load checkpoints” in the Continuity dialog");
+  expect(text('studio.dials.rack.help.findings')).toContain('confirmed only on short schedules so far');
+});
+
 const infoMap = parseDialCatalog(catalogFixture)!;
 const infoFiles = [dayNight, inkWash, impact, motionDial];
 const marksOf = (dial: string) => Array.from(row(dial).querySelectorAll<HTMLElement>('[data-dial-mark]')).map(m => [m.dataset.dialMark, m.dataset.dialMarkAt, +Number(m.style.getPropertyValue('--at')).toFixed(4)]);
