@@ -459,7 +459,7 @@ separate one-seed renders made outside DEAS on 2026-11-16; they are not DEAS acc
   load and save are disabled. **The first run of this check found a defect** (Esc in
   the presets dialog also closed the rack) that the component tests had not; it is
   fixed and now covered in both. Screenshots looked at, in
-  `/mnt/work/ai/comfyui/output/deas_dials_ui_2026-11-16/` (outside the repository):
+  a folder outside the repository:
   `presets-en-1440x960`, `presets-de-1440x960`, `presets-en-390x844`,
   `presets-de-390x844-rows`, `presets-en-320x480-rows`, `presets-fr-320x480`,
   `presets-ja-1024x700`, `presets-zh-700x600`, `presets-tr-1440x1300`,
