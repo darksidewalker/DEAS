@@ -80,12 +80,12 @@ window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
  }
  if(command==='native_dial_catalog'){
   __calls.push({command,args});
-  if(window.__noCatalog)throw new Error('DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet');
+  if(window.__noCatalog)throw new Error('DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend');
   return DIALCATALOG;
  }
  if(command.startsWith('native_dial_preset')){
   __calls.push({command,args});
-  if(window.__noPresetRoute)throw new Error('DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet');
+  if(window.__noPresetRoute)throw new Error('DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend');
   window.__presets??=RACKPRESETS;
   if(command==='native_dial_presets')return Object.keys(__presets).sort();
   if(command==='native_dial_preset_load'){if(!__presets[args.name])throw new Error('DIAL_PRESET_NOT_FOUND: Preset not found.');return __presets[args.name];}

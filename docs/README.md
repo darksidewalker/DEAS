@@ -25,6 +25,7 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Comfy on the
 | Beginner experience: generation, model guides and Media page without technical settings | [Beginner mode](BEGINNER-MODE.md) |
 | Music: Text to Music with YuE2 or ACE-Step; Cover Music with YuE2 | [Music](MUSIC.md) |
 | Experimental MiniMax H3 dials (Studio Dials dock tab with strength rows, rack dialog with a time-curve timeline, rack presets from the node pack's own preset files, each dial file's own labels and strength marks; user-installed Dial Rack nodes) | [Dials](DIALS.md) |
+| Contributor tooling: driving the running Linux app from a script or an agent through the web view's inspector | [Piloting the running app](AGENT-PILOTING.md) |
 | TVE tab: video source inspection and backend video-enhance recipes with paired outputs | [TVE workspace](STUDIO.md#tve-workspace) |
 | Monitoring tab: last ten generations with timing, live host/GPU telemetry | [Monitoring tab](STUDIO.md#monitoring-tab) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |

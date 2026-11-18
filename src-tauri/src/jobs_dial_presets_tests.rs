@@ -154,7 +154,7 @@ async fn dial_presets_fail_closed_with_a_reason_and_a_log_entry() {
         }
     })
     .await;
-    let missing = "DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet";
+    let missing = "DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend";
     assert_eq!(
         native_dial_presets(base.clone()).await.unwrap_err(),
         missing

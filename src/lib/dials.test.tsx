@@ -43,7 +43,7 @@ test('only active rows enter a plain MiniMax H3 intent; without one the intent i
   expect(withDials(h3, [dialRow(0), { dial: 'dials/b.safetensors', strength: 0, on: true }])).toBe(h3);
   expect(withDials(h3, [{ dial: 'dials/b.safetensors', strength: 1, on: false, time: dialCurve }])).toBe(h3);
   // The compiler refuses the field itself on every other family.
-  for (const family of ['minimax-h3-hyperflow', 'ltx-2', 'wan']) { const other = { ...h3, family } as unknown as VideoIntentV1; expect(withDials(other, [dialRow(1)])).toBe(other); }
+  for (const family of ['ltx-2', 'wan']) { const other = { ...h3, family } as unknown as VideoIntentV1; expect(withDials(other, [dialRow(1)])).toBe(other); }
   const rows: DialRow[] = [{ dial: 'dials/off.safetensors', strength: 2, on: false }, { dial: 'dials/zero.safetensors', strength: 0 }, { ...dialRow(1.5), on: true }, timedDial];
   const intent = withDials(h3, rows);
   // Exactly the native fixture `json!([dial_row(1.5), timed_dial()])`: no `on`, the curve untouched.
@@ -63,13 +63,12 @@ test('a restored intent brings its rows back switched on; invalid rows restore a
 
 test('the gate names the first reason rows cannot run', () => {
   const nodes = ['MAIDialRack', 'MAIDialHoldMap'];
-  expect(dialGate({ h3Video: true, nodes, gguf: false })).toBe('');
-  expect(dialGate({ h3Video: true, nodes: ['MAIDialRack'], gguf: false })).toBe('');
+  expect(dialGate({ h3Video: true, nodes })).toBe('');
+  expect(dialGate({ h3Video: true, nodes: ['MAIDialRack'] })).toBe('');
   // An unread backend is not a missing node.
-  expect(dialGate({ h3Video: true, nodes: undefined, gguf: false })).toBe('');
-  expect(dialGate({ h3Video: false, nodes, gguf: true })).toBe('h3VideoOnly');
-  expect(dialGate({ h3Video: true, nodes: ['MAIDialHoldMap'], gguf: true })).toBe('nodeMissing');
-  expect(dialGate({ h3Video: true, nodes, gguf: true })).toBe('gguf');
+  expect(dialGate({ h3Video: true, nodes: undefined })).toBe('');
+  expect(dialGate({ h3Video: false, nodes })).toBe('h3VideoOnly');
+  expect(dialGate({ h3Video: true, nodes: ['MAIDialHoldMap'] })).toBe('nodeMissing');
 });
 
 test('the catalog lists dial files from LoRA names like the pack does', () => {
@@ -100,15 +99,15 @@ test('the thumbnail outline holds the end levels to the clip edges and steps whe
   expect(dialCurveOutline({ type: 'keys', points: [[3, 0]], unit: 'seconds' }, 0).points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))).toBe(true);
 });
 
-test('the intent type carries dials on plain minimax-h3 only (native validate_dials refuses HyperFlow Flash)', () => {
-  // Checked by `npm run typecheck`: on the HyperFlow member the field can only be absent.
+test('the intent type carries dials on both MiniMax H3 families (native validate_dials takes HyperFlow Flash as MiniMax H3)', () => {
+  // Checked by `npm run typecheck`: the field exists on the two H3 families only.
   const sent = (i: VideoIntentV1): readonly DialRow[] | undefined => {
-    if (i.family === 'minimax-h3-hyperflow') { const none: undefined = i.dials; return none; }
-    return i.family === 'minimax-h3' ? i.dials : undefined;
+    return i.family === 'minimax-h3' || i.family === 'minimax-h3-hyperflow' ? i.dials : undefined;
   };
   const flash = { ...h3, family: 'minimax-h3-hyperflow' } as unknown as VideoIntentV1;
   expect(sent(withDials(h3, [dialRow(1.5)]))).toEqual([dialRow(1.5)]);
-  // Runtime is unchanged: rows are never added to a HyperFlow Flash intent.
-  expect(withDials(flash, [dialRow(1.5)])).toBe(flash);
+  // HyperFlow Flash gets the same rows; without an active row the intent is the same object.
+  expect(sent(withDials(flash, [dialRow(1.5)]))).toEqual([dialRow(1.5)]);
+  expect(withDials(flash, [])).toBe(flash);
   expect(sent(flash)).toBeUndefined();
 });

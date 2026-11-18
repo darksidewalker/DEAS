@@ -120,7 +120,7 @@ async fn dial_catalog_fails_closed_with_a_reason_and_a_log_entry() {
         .starts_with("ERROR: Dial info catalog: backend request failed; repeated=0"));
 
     // A backend without the pack: ComfyUI answers an unknown route with 404 and no JSON.
-    let missing = "DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet";
+    let missing = "DIAL_INFO_UNAVAILABLE: This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend";
     for (status, body) in [
         (404, "404: Not Found"),
         (405, "405: Method Not Allowed"),

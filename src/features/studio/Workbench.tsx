@@ -651,11 +651,11 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const loraModels=allLoraModels.filter(loraMatchesFamily);
  const {isFavorite,toggleFavorite,setFavorites,error:favoriteError}=useModelOrganization();
  // Experimental Dial Rack rows steer a plain MiniMax H3 generation only; elsewhere the saved rows stay inert, like De-rope.
- const dialsHere=!beginner&&isVideo&&videoFamily==='minimax-h3';
+ const dialsHere=!beginner&&isVideo&&isH3Video(videoFamily);
  const dials=dialsHere?dialRows:noDials;
  // The backend's LoRA list is what the native prerequisite check compares against; the library scan stands in while it is unread.
  const dialListed=choices?.loras?choices.loras.map(dialName):models?allLoraModels.map(m=>dialName(m.name)):undefined;
- const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes,gguf:isGguf(checkpoint)});
+ const dialBlock=dialGate({h3Video:dialsHere,nodes:choices?.nodes});
  // The dial files' own info (side labels, useful and overcook strengths, notes): read from the pack's catalog when the Dials tab or the rack opens
  // on a backend that has the Dial Rack nodes. A failed read leaves the strip on its fallbacks.
  const dialInfo=useDialInfo(endpoint,native&&!!endpoint.trim()&&dialsHere&&(dockTab==='dials'||rackOpen)&&!!choices?.nodes.includes(dialRackNode));
@@ -762,7 +762,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   ...(isVideo&&((tve.frameGen&&tve.engine==='rife'&&!tve.rifeModel)||(tve.loop&&tve.loopBackend==='rife'&&!tve.loopModel))?[t('studio.tve.post.needsRifeModel')]:[]),
   ...(isVideo&&derope.enabled&&derope.mode==='turbo'&&!derope.lora?[t('studio.run.derope.needsLora')]:[]),
   // Active dial rows that cannot run block Run with the reason instead of being dropped.
-  ...(activeDials(dials).length?[...(dialBlock==='gguf'?[t('studio.dials.reason.gguf')]:dialBlock==='nodeMissing'?[dialRackNode]:[]),
+  ...(activeDials(dials).length?[...(dialBlock==='nodeMissing'?[t('studio.dials.nodeMissingRun')]:[]),
    ...(dialListed?activeDials(dials).filter(r=>!dialListed.includes(r.dial)).map(r=>t('studio.dials.unavailable',{name:r.dial})):[]),
    // A row of another model family (from a preset, history or an older session): the node refuses it on MiniMax H3. Known only with the catalog.
    ...activeDials(dials).filter(r=>dialOtherFamily(dialInfo.map?.[dialName(r.dial)])).map(r=>t('studio.dials.otherFamilyRun',{name:r.dial,family:dialInfo.map![dialName(r.dial)].family!})),

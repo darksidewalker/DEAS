@@ -103,7 +103,7 @@ export function regenerateSize(width:number,height:number,target:H3RegenerateTar
 /** Final canvas of a latent upscale block of either kind. */
 export const latentOutputSize=(family:VideoFamily,size:{width:number;height:number},u:H3LatentUpscale|H3RegenerateUpscale|LtxLatentUpscale)=>
  u.regenerate?regenerateSize(size.width,size.height,u.regenerate.target):latentUpscaleSize(family,size,u.scale??1);
-/** Experimental Dial Rack rows (native `validate_dials`; `minimax-h3` only, see docs/DIALS.md): a dial file inside `dials/` and its strength; `time` varies it over whole-piece seconds; its `audio` is the node's mode for the soundtrack (`follow`, the default when absent, or `protect`: the row leaves the audio undialled). */
+/** Experimental Dial Rack rows (native `validate_dials`; MiniMax H3 families only, see docs/DIALS.md): a dial file inside `dials/` and its strength; `time` varies it over whole-piece seconds; its `audio` is the node's mode for the soundtrack (`follow`, the default when absent, or `protect`: the row leaves the audio undialled). */
 /** `steps` = sampler steps the curve blends on (each costs one extra model call); absent = the compiler's default for the job's step count. */
 export interface H3DialCurve { type:'keys'; points:readonly (readonly [seconds:number,level:number])[]; unit:'seconds'; interp?:'linear'|'step'; smooth?:number; steps?:number; audio?:'follow'|'protect' }
 export interface H3DialRow { dial:string; strength:number; on?:boolean; time?:H3DialCurve }
@@ -112,8 +112,8 @@ interface H3VideoFields { readonly latentUpscale?:H3LatentUpscale|H3RegenerateUp
 export type VideoIntentV1=VideoBase&(
  |{readonly family:'ltx-2';readonly latentUpscale?:LtxLatentUpscale;readonly ltx:{textProjection:string;audioVae:string;passes:1|2|3;spatialUpscaler?:string;keyframes?:{image:string;frame:number;strength:number}[];sourceStrength?:number}}
  |{readonly family:'wan';readonly latentUpscale?:never;readonly wan:{lowModel:string;shiftHigh:number;shiftLow:number;refinerStep:number}}
- // Dials are on plain `minimax-h3` only: native `validate_dials` refuses them for every other family, HyperFlow Flash included.
- |(H3VideoFields&({readonly family:'minimax-h3';readonly dials?:readonly H3DialRow[]}|{readonly family:'minimax-h3-hyperflow';readonly dials?:never})));
+ // Dials are on the MiniMax H3 families only (HyperFlow Flash included): native `validate_dials` refuses them for every other family.
+ |(H3VideoFields&{readonly family:'minimax-h3'|'minimax-h3-hyperflow';readonly dials?:readonly H3DialRow[]}));
 export const isVideoIntent=(i:{recipeId:string}):i is VideoIntentV1=>i.recipeId==='video-generation';
 /** Director parity Join clips: model-free DaSiWaH3ClipAssemble prompt (native `jobs_video::join`); trims are seconds. */
 export interface H3Transition { files:readonly {filename:string;trimStart?:number|null;trimEnd?:number|null}[];contextFrames:number;transitionFrames:number;prompt?:string }

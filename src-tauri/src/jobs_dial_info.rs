@@ -257,7 +257,7 @@ pub async fn native_dial_catalog(base_url: String) -> Result<Value, String> {
         )),
         (404 | 405, _) => Err(fail(
             Failure::Unavailable,
-            "This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet",
+            "This backend has no dial catalog route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend",
         )),
         (status, _) => Err(fail(
             Failure::Http,

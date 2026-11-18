@@ -179,7 +179,7 @@ async fn call(
         (409, _, Some(reason)) => Err(fail(op, name, Failure::Exists, &reason)),
         (400, _, Some(reason)) => Err(fail(op, name, Failure::Refused, &reason)),
         (404 | 405, _, _) => Err(fail(op, name, Failure::Unavailable,
-            "This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet")),
+            "This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend")),
         (status, _, _) => Err(fail(op, name, Failure::Http, &format!("The backend answered HTTP {status} to the rack preset request"))),
     }
 }

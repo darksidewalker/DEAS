@@ -168,7 +168,7 @@ test('history restores the rows of a MiniMax H3 intent and clears them for an in
  await waitFor(()=>expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.dials')!)).toEqual([]));
 });
 
-test('active rows on a GGUF base block Run with the reason; switched off they do not',async()=>{
+test('active rows on a GGUF base do not block Run: the Dials tab is ready',async()=>{
  const files=h3VideoFiles().map((m,i)=>i===0?{...m,name:'h3.gguf',path:'/m/h3.gguf'}:m);
  localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
  localStorage.setItem('deas.pref.studio.run.dials',JSON.stringify([{dial:motion,strength:1.5,on:true}]));
@@ -177,15 +177,10 @@ test('active rows on a GGUF base block Run with the reason; switched off they do
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...base,allowlist:{...base.allowlist,nodes:[...base.allowlist.nodes,'UnetLoaderGGUF'],ggufDiffusionModels:['h3.gguf']}});
  render(<I18nProvider><Workbench {...props}/></I18nProvider>);
  const run=()=>screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
- await waitFor(()=>expect(run().title).toContain('Dials on a GGUF base model are not proven'));
- expect(run().disabled).toBe(true);
- expect((document.querySelector('[data-model-picker]') as HTMLSelectElement).value).toContain('h3.gguf');
+ await waitFor(()=>expect((document.querySelector('[data-model-picker]') as HTMLSelectElement).value).toContain('h3.gguf'));
  dock('Dials');
- expect(strip().dataset.dials).toBe('gguf');
- const before=run().title;
- fireEvent.click(within(row(motion)).getByRole('checkbox'));
- await waitFor(()=>expect(run().title).not.toBe(before));
- expect(run().title).not.toContain('GGUF base model are not proven');
+ await waitFor(()=>expect(strip().dataset.dials).toBe('ready'));
+ expect(run().title).not.toContain('GGUF');
 });
 
 test('the rack dialog opens from the strip, edits the saved rows that Run sends, and returns focus to its button',async()=>{

@@ -105,7 +105,7 @@ test('the strip rows and one lane per row share the dialog; a constant row draws
   expect(Array.from(document.querySelectorAll('[data-dial-second]')).map(b => b.textContent)).toEqual(['0', '1', '2', '3', '4', '5']);
   // Honest help: resolution, the scene-change warning and the designed range are always shown.
   expect(document.querySelector('[data-dial-help="resolution"]')!.textContent).toContain('one value per latent frame');
-  expect(document.querySelector('[data-dial-help="resolution"]')!.textContent).toContain('1.5 s');
+  expect(document.querySelector('[data-dial-help="resolution"]')!.textContent).toContain('0.5 s step pulse');
   expect(document.querySelector('[data-dial-help="scene"]')!.textContent).toContain('can change the whole scene');
   expect(document.querySelector('[data-dial-help="range"]')!.textContent).toContain('level × row strength');
 });
@@ -771,7 +771,7 @@ test('the readout does not invite a click on a lane whose curve editing is locke
   view.unmount();
   // A refusal that locks editing, a closed gate, a continued plan without the clip's frame count: the neutral wording.
   const held = dialTimeline(107, { steps: [{ seconds: 5 }], source: { clipId: 'x' } }, false);
-  for (const props of [{ conflicts: ['faceRefine'] as DialCurveConflict[] }, { gate: 'gguf' as DialGate }, { timeline: held, conflicts: ['pieceStart'] as DialCurveConflict[] }]) {
+  for (const props of [{ conflicts: ['faceRefine'] as DialCurveConflict[] }, { gate: 'nodeMissing' as DialGate }, { timeline: held, conflicts: ['pieceStart'] as DialCurveConflict[] }]) {
     const locked = render(<Host {...props}/>);
     select(calm);
     expect(readout(), JSON.stringify(props)).toBe(off);

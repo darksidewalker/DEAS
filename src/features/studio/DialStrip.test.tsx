@@ -90,7 +90,6 @@ test('a row with a time curve keeps it through edits and shows a read-only thumb
 test.each([
   ['h3VideoOnly', 'studio.dials.reason.h3VideoOnly'],
   ['nodeMissing', 'studio.dials.reason.nodeMissing'],
-  ['gguf', 'studio.dials.reason.gguf'],
 ] as const)('gate %s shows its reason, blocks adding and strength edits, and leaves switch and remove usable', (gate, key) => {
   render(<Host gate={gate} rows={[{ dial: files[1], strength: 1.5, on: true }]}/>);
   expect(document.querySelector('[data-dials]')?.getAttribute('data-dials')).toBe(gate);

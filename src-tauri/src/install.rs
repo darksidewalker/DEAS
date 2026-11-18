@@ -46,6 +46,10 @@ const GGUF_REVISION: &str = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a";
 /// inspected SHA and its sole pip requirement (`gguf`) already comes from ComfyUI-GGUF.
 const HYPERFLOW: &str = "https://github.com/Video-Rebirth/ComfyUI-HyperFlow-Flash.git";
 const HYPERFLOW_REVISION: &str = "356649c32dca9a1dd46608d530ccb5e025fb338d";
+// Optional Dial Rack pack for the experimental MiniMax H3 dials (docs/DIALS.md). The pin is a commit of
+// matlowai/ComfyUI-Dials; to control updates, fork that repository and point both constants at the fork.
+const DIALS: &str = "https://github.com/matlowai/ComfyUI-Dials.git";
+const DIALS_REVISION: &str = "9a6b474b3ecd53190ae6cd84c01e3a5605ab36f3";
 const KJNODES: &str = "https://github.com/kijai/ComfyUI-KJNodes.git";
 const KJNODES_REVISION: &str = "d3cfe21625e5170126ce06fbfcfe1d88108688c3";
 #[path = "install_torch.rs"]
@@ -1572,6 +1576,21 @@ pub(crate) fn validate_gguf_install(plan: &Plan, root: &Path) -> Result<(), Stri
                 );
             }
         }
+        // The Dial Rack pack follows the same rule: a revision pin, provisioned by an upgrade.
+        let dials = node_target(&root.join("ComfyUI"), "ComfyUI-Dials")?;
+        if dials.join(".git").is_dir() {
+            let head = crate::backend::read_owned(&dials.join(".git/HEAD"), 1024)?;
+            if std::str::from_utf8(&head)
+                .map_err(|e| e.to_string())?
+                .trim()
+                != DIALS_REVISION
+            {
+                return Err(
+                    "ComfyUI-Dials install does not match its pinned revision; re-provision required"
+                        .into(),
+                );
+            }
+        }
         Ok(())
     })();
     result.inspect_err(|error| {
@@ -1739,6 +1758,7 @@ fn foreign_nodes(plan: &Plan) -> Option<String> {
                 "ComfyUI-GGUF",
                 "ComfyUI-DaSiWa-Nodes",
                 "ComfyUI-HyperFlow-Flash",
+                "ComfyUI-Dials",
                 "__pycache__",
             ]
             .contains(&name.as_str())
@@ -2133,6 +2153,7 @@ async fn packages(
     }
     let mut gguf_revision = None;
     let mut hyperflow_revision = None;
+    let mut dials_revision = None;
     // Legacy immutable plans keep their original dependency scope.
     if let Some(reference) = plan.gguf_ref.as_deref() {
         if reference.len() != 40 || !reference.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -2192,8 +2213,20 @@ async fn packages(
         if hyperflow_fetched != HYPERFLOW_REVISION {
             return Err("ComfyUI-HyperFlow-Flash revision does not match the pinned source".into());
         }
+        // The Dial Rack pack rides the same step too. It has no requirements of its own, and it is not
+        // part of the verify probe: an environment stays usable if the experimental pack fails to load.
+        let dials = node_target(comfy, "ComfyUI-Dials")?;
+        let dials_fetched = if upgrade || !dials.join(".git").exists() {
+            checkout(git, DIALS, DIALS_REVISION, &dials, root, inner, cancel).await?
+        } else {
+            head(git, &dials, root, inner, cancel).await?
+        };
+        if dials_fetched != DIALS_REVISION {
+            return Err("ComfyUI-Dials revision does not match the pinned source".into());
+        }
         gguf_revision = Some(fetched);
         hyperflow_revision = Some(hyperflow_fetched);
+        dials_revision = Some(dials_fetched);
     }
     let mut preview_revision = None;
     if let Some(reference) = plan.preview_ref.as_deref() {
@@ -2353,7 +2386,7 @@ async fn packages(
     )
     .await?;
     cancelled(cancel)?;
-    let manifest = serde_json::json!({"planId":plan.id,"comfyRevision":revision,"nodepackRevision":node_revision,"ggufRevision":gguf_revision,"hyperflowRevision":hyperflow_revision,"previewRevision":preview_revision,"backend":plan.request.backend,"hardware":plan.hardware,"torchProfile":selected,"python":py,"versions":versions.trim(),"generationReady":false});
+    let manifest = serde_json::json!({"planId":plan.id,"comfyRevision":revision,"nodepackRevision":node_revision,"ggufRevision":gguf_revision,"hyperflowRevision":hyperflow_revision,"dialsRevision":dials_revision,"previewRevision":preview_revision,"backend":plan.request.backend,"hardware":plan.hardware,"torchProfile":selected,"python":py,"versions":versions.trim(),"generationReady":false});
     std::fs::write(
         root.join("deas-install.json"),
         serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,

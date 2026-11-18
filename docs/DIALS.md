@@ -8,12 +8,13 @@ with a timeline to draw each row's time curve, and a **rack presets** dialog tha
 and writes the node pack's own preset files through the pack's routes. Studio also reads
 **what each dial file says about itself** (its two side labels, useful and overcook
 strengths, evidence and notes) from the pack's catalog route and shows it on the rows.
-The node pack is **not installed or pinned by DEAS**, and **no job started from these
-controls has been run on a backend**. Neither the presets dialog nor the dial info
-command has talked to a real backend: the evidence is compiler, prerequisite,
-fixture-server and component tests and a headless Chromium check. The preset requests
-DEAS sends were tried by hand against the real pack on a CPU instance (recorded in
-[verification](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)).
+The node pack is **pinned as an optional pack** and provisioned by Backend → Upgrade (see
+[What you need](#what-you-need)). On 2026-11-17 a debug build of the application on Linux
+(WebKitGTK) ran dial jobs from Studio against a real backend, saved and listed a preset
+through the pack's routes and read the dial catalog; that is one machine and a handful of
+one-seed jobs, and nothing has run on Windows. The rest of the evidence is compiler,
+prerequisite, fixture-server and component tests and a headless Chromium check
+([verification](VERIFICATION.md#experimental-h3-dials-dial-info-and-curve-audio-mode-unreleased--2026-11-16)).
 Treat every statement about the picture as untested unless it names the render it comes
 from; the renders named here are one or two seeds each.
 
@@ -27,18 +28,25 @@ the seconds of the piece.
 
 ## What you need
 
-- A MiniMax H3 **video** recipe (`family: minimax-h3`) on a safetensors base model.
+- A MiniMax H3 **video** recipe (`minimax-h3`, or HyperFlow Flash, `minimax-h3-hyperflow`), on a
+  safetensors or GGUF base model.
 - The Dial Rack nodes on the backend: `MAIDialRack`, and `MAIDialHoldMap` when De-rope
   runs with a time curve. Both come with **ComfyUI-Dials** or with **ComfyUI-MAINodes**
   (the node ids are the same in both).
-  **Install one of these packs yourself for now.** DEAS does not offer, install, update
-  or pin it. The plan is to pin ComfyUI-Dials as an optional pack once its next version
-  is published; until then no revision is recorded as compatible.
+  On a backend DEAS owns, **Backend → Upgrade → ComfyUI and node packs** fetches
+  ComfyUI-Dials at the one revision DEAS pins (`DIALS_REVISION` in `src-tauri/src/install.rs`,
+  a commit of [matlowai/ComfyUI-Dials](https://github.com/matlowai/ComfyUI-Dials)), next to the
+  GGUF and HyperFlow packs; restart the backend afterwards. The pack has no requirements of
+  its own and is not part of the install check, so an environment stays usable if it fails to
+  load: the Dials tab then says the nodes are missing. An environment created before the pin
+  has no checkout until it is upgraded. To control when the pack changes, fork the
+  repository and point `DIALS` and `DIALS_REVISION` at the fork. If ComfyUI-MAINodes is also
+  installed, ComfyUI-Dials leaves the node ids to it.
 - Dial files in the backend's `models/loras/dials/` folder. The backend lists them
   with the LoRAs, which is how DEAS checks that a file exists.
 
-On an external backend, its owner installs the pack and restarts it. DEAS does not
-change or restart external services.
+On an external backend, its owner adds ComfyUI-Dials (or ComfyUI-MAINodes) and restarts it.
+DEAS does not change or restart external services.
 
 ## The Dials tab in Studio
 
@@ -97,9 +105,8 @@ off:
 
 | Shown reason | What happens to saved rows |
 | --- | --- |
-| Not a MiniMax H3 video pipeline (also HyperFlow Flash) | Kept, not sent, Run is not blocked |
+| Not a MiniMax H3 video pipeline (HyperFlow Flash counts as MiniMax H3) | Kept, not sent, Run is not blocked |
 | The Dial Rack nodes are not on the backend | Rows that are on block Run; `MAIDialRack` is named beside Run |
-| The base model is a GGUF file | Rows that are on block Run with the reason |
 | A row's file is not in the backend's list ("Not on the backend") | A row that is on blocks Run; the file is named beside Run |
 | A row's file was made for another model family (known once the dial info has been read) | A row that is on blocks Run; the family and the file are named beside Run. The row's own controls stay usable |
 
@@ -511,6 +518,29 @@ compiler's output, not started from Studio. None of this is a measured rule.
 - **Blend steps:** the default was rendered at 6, 8, 12 and 25 sampler steps for one look
   dial and at 6 and 25 for the motion dial; see [Blend steps](#blend-steps).
 
+### HyperFlow H3 Flash
+
+HyperFlow Flash single-file safetensors checkpoints take dials like plain MiniMax H3: the rack goes
+after the HyperFlow loader, and the distilled schedule is unchanged. The Dial Rack pack must list
+`HyperFlowModel` as MiniMax H3 (ComfyUI-Dials and ComfyUI-MAINodes from 2026-11-17); an older pack
+stops the job at the rack with "Dials support ... got HyperFlowModel". GGUF files work the same way (see below).
+
+One seed, 832x480, 124 frames, 6 steps, text to video, 2026-11-17, graphs built by hand to DEAS's
+HyperFlow wiring (not yet by the compiler): ink wash constant 2 turned the clip into an ink painting;
+day/night +1.5 and -1.5 gave night and daylight with the same staging; an impact frame pulse (0.5 s
+step, 4.5, all 6 steps blended, audio protected) flashed at the cut and left the rest unchanged;
+motion +1.5 replaced the scene. Not tried on HyperFlow: pictures (first frame, reference),
+Continuity, more seeds.
+
+### GGUF base models
+
+A GGUF base takes dials like a safetensors one: the rack goes after the GGUF loader. One seed each,
+832x480, 124 frames, 6 steps, text to video, 2026-11-17, hand-built graphs to DEAS's wiring, on a plain
+MiniMax H3 pruned Q4_K_M file (city96 `UnetLoaderGGUF`, with a turbo LoRA) and on a HyperFlow Flash
+Q4_K_M file (`HyperFlowGGUFLoader`): a dial that shifts the refined prompt (ink wash, constant 2), a
+dial that patches a bias (`h3_evil_sinister_v2`, constant 3, far too strong: it replaced the scene)
+and a timed pulse (impact frame, 4.5) all acted. Other quantizations were not tried.
+
 ## When a time curve cannot run
 
 The compiler refuses a time curve in the cases below. Studio finds them before Run from
@@ -700,7 +730,7 @@ DEAS refuses these with an `Invalid dials: …` error instead of sending them:
 - hold rows, step envelopes, block strengths, audio-driven curves, wired dial inputs
   and solo. A [rack preset](#rack-presets) that holds one of these is loaded without
   that row, or with the change named on the row;
-- dials on LTX, Wan or HyperFlow Flash, and active dials on a GGUF base model;
+- dials on LTX or Wan;
 - a **time curve** together with any of: face refinement, the tiled latent upscale,
   an H3 transition window, De-rope on a continued segment, or a continuation of an
   imported video. Each of these samples a clip whose clock this version does not map
@@ -735,7 +765,6 @@ rows that ran.
 | `Invalid dials: time points are too close together to shift onto the continued segment's window` | Two points of a curve fall on the same moment once moved onto the continued window. Spread them out. |
 | A curve does nothing | The row is below the strength at which that dial starts to act on a curve; or, on a short schedule (up to 8 sampler steps), it has too few blend steps; or it is a look dial on a longer schedule. Read the dial's own notes in the rack dialog ("From the dial file") and raise the strength in small steps. On a job of up to 8 steps, set a look dial's blend steps to the job's steps. On a longer job, more blend steps did **not** help the one look dial tried (nothing at 12 and 25 sampler steps with any blend count): use a short schedule, or the row without a curve. See [What renders have shown so far](#what-renders-have-shown-so-far-provisional). |
 | The picture cuts to another scene where a curve changes | The row is too strong for a curve. Lower its strength. See [the rack dialog](#the-rack-dialog-and-its-timeline). |
-| `MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven` | Use a safetensors base model. |
 
 An error raised by the node itself (for example a dial made for another model family)
 appears as a failed `dial-patch` stage in [Logs](LOGS.md).
@@ -919,9 +948,8 @@ and strength edits while the switch and Remove stay usable.
 
 | Case | Source | In the strip | Run |
 | --- | --- | --- | --- |
-| Not MiniMax H3 video (LTX, Wan, HyperFlow Flash, images, music) | family | reason, rows inert | not blocked, rows not sent |
+| Not MiniMax H3 video (LTX, Wan, images, music) | family | reason, rows inert | not blocked, rows not sent |
 | `MAIDialRack` not registered | allowlist `nodes`, as De-rope checks its nodes | reason | active rows block, node named |
-| GGUF base model (`MODEL_FORMAT_UNSUPPORTED`) | model file name | reason | active rows block |
 | Dial file not listed | backend LoRA list, else library scan | "Not on the backend" on the row | an active row blocks, file named |
 | More than 8 rows | `DIAL_ROWS` | adding disabled with the reason | cannot occur |
 

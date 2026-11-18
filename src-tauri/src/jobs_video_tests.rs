@@ -3947,7 +3947,7 @@ fn dials_reject_everything_this_version_does_not_send() {
             edit(&mut r["time"]);
         })
     };
-    // Family: MiniMax H3 video only, HyperFlow and an empty list included.
+    // Family: MiniMax H3 video only, an empty list included. HyperFlow Flash is MiniMax H3 here.
     for mut other in [ltx(), wan()] {
         for rows in [json!([dial_row(1.0)]), json!([])] {
             other["dials"] = rows;
@@ -3963,17 +3963,26 @@ fn dials_reject_everything_this_version_does_not_send() {
     hyperflow["h3"]["references"] = json!([]);
     hyperflow["h3"]["mode"] = json!("T2VA");
     assert!(compile(&hyperflow).is_ok());
+    // HyperFlow Flash takes the rack after its own loader (GGUF or safetensors), and the distilled
+    // schedule node reads the Director's sampling model.
     hyperflow["dials"] = json!([dial_row(1.0)]);
-    assert!(compile(&hyperflow)
-        .unwrap_err()
-        .contains("MiniMax H3 video only"));
-    // A quantized base is not proven, as for LoRAs; an inactive row patches nothing.
-    assert!(err(&|i| i["model"] = json!("MiniMaxH3/fl2va-Q8_0.gguf"))
-        .contains("MODEL_FORMAT_UNSUPPORTED: dials"));
+    let g = compile(&hyperflow).unwrap();
+    assert_eq!(g["1"]["class_type"], "HyperFlowGGUFLoader");
+    assert_eq!(g["DR"]["inputs"]["model"], json!(["1", 0]));
+    hyperflow["model"] = json!("MiniMaxH3/hyperflow_flash-int8_convrot.safetensors");
+    let g = compile(&hyperflow).unwrap();
+    assert_eq!(g["1"]["class_type"], "HyperFlowLoader");
+    assert_eq!(g["DR"]["class_type"], "MAIDialRack");
+    assert_eq!(g["DR"]["inputs"]["model"], json!(["1", 0]));
+    assert_eq!(g["Z"]["class_type"], "HyperFlowSigmas");
+    assert!(g.get("SS").is_none());
+    // A plain MiniMax H3 GGUF base takes the rack after its GGUF loader too.
     let mut gguf = h3();
     gguf["model"] = json!("MiniMaxH3/fl2va-Q8_0.gguf");
-    gguf["dials"] = json!([dial_row(0.0)]);
-    assert!(compile(&gguf).is_ok());
+    gguf["dials"] = json!([dial_row(1.0)]);
+    let g = compile(&gguf).unwrap();
+    assert_eq!(g["1"]["class_type"], "UnetLoaderGGUF");
+    assert_eq!(g["DR"]["class_type"], "MAIDialRack");
 
     // The list.
     for bad in [

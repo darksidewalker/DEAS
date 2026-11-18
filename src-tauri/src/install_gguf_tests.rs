@@ -239,3 +239,46 @@ fn gguf_checkout_rejects_external_symlink_without_writes() {
     assert!(node_target(&comfy, "ComfyUI-GGUF").is_err());
     assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn dials_pin_is_one_immutable_revision_of_the_dials_repository() {
+    assert_eq!(DIALS_REVISION.len(), 40);
+    assert!(DIALS_REVISION.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert!(DIALS.starts_with("https://github.com/") && DIALS.ends_with("/ComfyUI-Dials.git"));
+}
+
+#[test]
+#[ignore = "read-only pinned checkout fixture: set DEAS_GGUF_SOURCE; no installation or inference"]
+fn dials_pack_is_optional_until_provisioned_and_then_held_to_its_pin() {
+    let source = PathBuf::from(std::env::var_os("DEAS_GGUF_SOURCE").unwrap());
+    let tmp = scratch();
+    let mut plan = Engine::default().plan(request(tmp.path())).unwrap();
+    plan.preview_ref = None;
+    let node = tmp.path().join("ComfyUI/custom_nodes/ComfyUI-GGUF");
+    std::fs::create_dir_all(node.join(".git")).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../gguf-source.json")).unwrap();
+    for entry in manifest["files"].as_object().unwrap().keys() {
+        let target = node.join(entry);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::copy(source.join(entry), target).unwrap();
+    }
+    std::fs::write(node.join(".git/HEAD"), format!("{GGUF_REVISION}\n")).unwrap();
+    std::fs::write(
+        tmp.path().join("deas-install.json"),
+        format!(r#"{{"ggufRevision":"{GGUF_REVISION}"}}"#),
+    )
+    .unwrap();
+    // An environment from before the pack was pinned has no checkout and stays valid.
+    validate_gguf_install(&plan, tmp.path()).unwrap();
+    let dials = tmp.path().join("ComfyUI/custom_nodes/ComfyUI-Dials");
+    std::fs::create_dir_all(dials.join(".git")).unwrap();
+    std::fs::write(dials.join(".git/HEAD"), format!("{DIALS_REVISION}\n")).unwrap();
+    validate_gguf_install(&plan, tmp.path()).unwrap();
+    for other in ["ref: refs/heads/main\n", "0000000000000000000000000000000000000000\n"] {
+        std::fs::write(dials.join(".git/HEAD"), other).unwrap();
+        assert!(validate_gguf_install(&plan, tmp.path())
+            .unwrap_err()
+            .contains("ComfyUI-Dials install does not match its pinned revision"));
+    }
+}

@@ -142,7 +142,7 @@ test('never overwrites: an existing name shows the pack\'s answer and leaves the
 });
 
 test('fails closed without the pack: the reason is shown and nothing can be loaded or saved', async () => {
-  const missing = 'DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials or ComfyUI-MAINodes), which DEAS does not install yet';
+  const missing = 'DIAL_PRESETS_UNAVAILABLE: This backend has no rack preset route. It comes with the Dial Rack nodes (ComfyUI-Dials): Backend → Upgrade installs the pinned pack on an owned backend';
   const store: DialPresetStore = { list: vi.fn(async () => { throw new Error(missing); }), load: vi.fn(), save: vi.fn() };
   render(<Host store={store}/>);
   const alert = await screen.findByRole('alert');

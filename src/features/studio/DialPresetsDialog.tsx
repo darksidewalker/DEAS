@@ -87,7 +87,7 @@ export function DialPresetsDialog({endpoint,rows,seconds,onLoad,onClose,store=na
     </footer>
    </section>
    <section className="lora-saved-panel"><h3>{t('studio.dials.presets.saved')}</h3>
-    <label>{t('studio.dials.presets.saved')}<select data-dial-preset-select value={chosen} disabled={names===null||unavailable} onChange={e=>void choose(e.target.value)}>
+    <label><select data-dial-preset-select aria-label={t('studio.dials.presets.saved')} value={chosen} disabled={names===null||unavailable} onChange={e=>void choose(e.target.value)}>
      <option value="">{unavailable?'—':t(names===null?'studio.dials.presets.loading':names.length?'studio.dials.presets.none':'studio.dials.presets.listEmpty')}</option>{names?.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
     <div className="lora-set-actions">
      <button type="button" className="action-button" data-dial-preset-refresh disabled={names===null||busy} onClick={()=>{setChosen('');setPreset(null);setStatus('');void refresh();}}>{t('studio.dials.presets.refresh')}</button>

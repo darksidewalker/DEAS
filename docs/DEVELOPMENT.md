@@ -87,6 +87,7 @@ Development does not install models, alter existing ComfyUI environments or stop
 
 - Running the Vitest suites through the rtk wrapper writes its JSON report late; call `./node_modules/.bin/vitest run --reporter=dot` directly.
 - On KDE Wayland, XTest fake input is ignored, so native click-through cannot be automated there; native evidence on that host is limited to screenshots of a separately launched instance.
+- On Linux the running app can be driven without fake input through WebKitGTK's inspector: `tools/pilot_webview.py`, see [piloting the running app](AGENT-PILOTING.md). It is not a gate.
 - Browser suites need an owned Vite server on an explicit free port and a Python environment with Playwright (`tools/verify_*.py`).
 - `artifacts/deas-linux-amd64` is replaced atomically by `./build-linux.sh`; a running app keeps the old inode, so quit and relaunch to test a rebuild.
 - `backend_tests.rs::invalid_owned_api_never_marks_running` was recorded (0.1.10) as failing on the owner's host independently of changes; recheck before treating it as a regression.

@@ -75,7 +75,7 @@ export function dialStrength(text:string):number|undefined {
 /** Adds the active rows to a plain MiniMax H3 intent. Without one the intent is returned unchanged, so it stays byte-identical; inactive rows are not sent. */
 export function withDials<T extends VideoIntentV1>(intent:T,rows:readonly DialRow[]):T {
  const active=activeDials(rows);
- if(intent.family!=='minimax-h3'||!active.length)return intent;
+ if((intent.family!=='minimax-h3'&&intent.family!=='minimax-h3-hyperflow')||!active.length)return intent;
  return {...intent,dials:active.map(r=>({dial:r.dial,strength:r.strength,...(r.time?{time:r.time}:{})}))};
 }
 /**
@@ -85,7 +85,7 @@ export function withDials<T extends VideoIntentV1>(intent:T,rows:readonly DialRo
  * intent is returned unchanged: no curve, a new take, an imported-video source, or no count.
  */
 export function withDialSourceFrames<T extends VideoIntentV1>(intent:T,frames:number|undefined):T {
- if(intent.family!=='minimax-h3'||frames===undefined||!intent.dials?.some(r=>r.time))return intent;
+ if((intent.family!=='minimax-h3'&&intent.family!=='minimax-h3-hyperflow')||frames===undefined||!intent.dials?.some(r=>r.time))return intent;
  const c=intent.h3.continuity;
  return c?.sourceId&&c.sourceKind===undefined?{...intent,h3:{...intent.h3,continuity:{...c,sourceFrames:frames}}}:intent;
 }
@@ -94,10 +94,10 @@ export function fromDials(rows:unknown):DialRow[] {
  return isDialRows(rows)?rows.map(r=>({...r,on:r.on!==false})):[];
 }
 
-export type DialGate=''|'h3VideoOnly'|'nodeMissing'|'gguf';
+export type DialGate=''|'h3VideoOnly'|'nodeMissing';
 /** Why rows cannot run here (first match), mirroring the compiler's refusals for rows without a time curve; '' = usable. */
-export function dialGate(p:{h3Video:boolean;nodes?:readonly string[];gguf:boolean}):DialGate {
- return !p.h3Video?'h3VideoOnly':p.nodes&&!p.nodes.includes(dialRackNode)?'nodeMissing':p.gguf?'gguf':'';
+export function dialGate(p:{h3Video:boolean;nodes?:readonly string[]}):DialGate {
+ return !p.h3Video?'h3VideoOnly':p.nodes&&!p.nodes.includes(dialRackNode)?'nodeMissing':'';
 }
 
 /**
@@ -144,7 +144,7 @@ export function dialCurveConflicts(f:DialCurveFacts):DialCurveConflict[] {
 }
 /** The facts of a built intent, for callers that hold one (the join's transition jobs). The window start is left unknown: native adds the pinned clip's frame count when it prepares the job. */
 export function dialIntentFacts(i:VideoIntentV1,nodes?:readonly string[]):DialCurveFacts {
- const h3=i.family==='minimax-h3'?i:undefined,c=h3?.h3.continuity;
+ const h3=i.family==='minimax-h3'||i.family==='minimax-h3-hyperflow'?i:undefined,c=h3?.h3.continuity;
  return {rows:h3?.dials??[],steps:i.steps,transition:!!h3?.h3.transition,faceRefine:!!i.faceRefine,tiledUpscale:!!h3?.latentUpscale&&!h3.latentUpscale.regenerate,derope:!!i.videoPost?.derope,
   continued:!!c?.sourceId,importedVideo:c?.sourceKind==='video',...(nodes?{nodes}:{})};
 }

@@ -663,7 +663,8 @@ fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
     let Some(dials) = i.get("dials") else {
         return Ok(());
     };
-    if family != "minimax-h3" {
+    // HyperFlow Flash is the H3 stack with its own loader and schedule; the Dial Rack takes it as MiniMax H3.
+    if !is_h3(family) {
         return Err(
             "Invalid dials: dials are experimental and run on MiniMax H3 video only".into(),
         );
@@ -673,11 +674,6 @@ fn validate_dials(i: &Value, family: &str) -> Result<(), String> {
         .filter(|rows| rows.len() <= DIAL_ROWS)
         .ok_or(format!("Invalid dials: a list of at most {DIAL_ROWS} rows"))?;
     rows.iter().try_for_each(validate_dial_row)?;
-    if active_dials(i).next().is_some()
-        && crate::jobs::is_gguf(i["model"].as_str().unwrap_or_default())
-    {
-        return Err("MODEL_FORMAT_UNSUPPORTED: dials on a GGUF base are not proven".into());
-    }
     if !dial_curves(i) {
         return Ok(());
     }
