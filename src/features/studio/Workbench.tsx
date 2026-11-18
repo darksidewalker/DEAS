@@ -1,3 +1,6 @@
+import { PromptTagOptions } from './PromptTagOptions';
+import { ImageReferencesManager } from './ImageReferencesManager';
+import { ReferenceAssignmentBar } from './ReferenceAssignmentBar';
 import { StudioSelectionTools } from './StudioSelectionTools';
 import { BulkFamilyDialog,familyEditable } from './BulkFamilyDialog';
 import { useModelOrganization } from '../../lib/modelOrganization';
@@ -58,7 +61,7 @@ import { dialTimeline } from '../../lib/dialCurve';
 import { dialNoCurveNames, dialOtherFamily, dialPipelineOf, isPickerDial } from '../../lib/dialInfo';
 import { useDialInfo } from './useDialInfo';
 import { activeDials, dialCatalog, dialCurveConflicts, dialGate, dialName, dialRackNode, fromDials, isDialRows, noDials, withDials, withDialSourceFrames, type DialRow } from '../../lib/dials';
-import { ReferencePeople, ReferencesPanel, type FramePeople, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
+import { ReferencePeople, ReferencesPanel, type FramePeople, referenceKey, directorTags, firstVisualRef, forgeLabels, h3ForgeContext, prefillItems, h3Full, over, refCounts, refsProblem, slotsOf, type RefAdd, type RefMod, type VideoRef } from './ReferencesPanel';
 import { mediaTypes, mediaViews, VideoStill, type MediaAction, type MediaRoots, type MediaType, type MediaView } from '../media/MediaLibrary';
 import { MediaPanel, MediaControls } from '../media/MediaPanel';
 import { describeMedia, dropCssPoint, exportWithoutMetadata, itemFromEntry, dragItem, draggedItem, MEDIA_DRAG, MEDIA_IMAGE_DRAG, normalizedMediaPath, relativeMediaPath, relocatedJob, relocatedMediaItem, type MediaDeletion, type MediaItem, type MediaRelocation } from '../../lib/media';
@@ -292,6 +295,7 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
   if(from===to||from<0||to<0||from>=refs.length||to>=refs.length)return refs;
   const reordered=[...refs];reordered.splice(to,0,...reordered.splice(from,1));return reordered;
  });
+ const [imageReferencePick,setImageReferencePick]=useState<MediaItem|null>(null);
  const [refVision,setRefVision]=usePref('studio.run.imageRef.vision','',isString);
  const [width,setWidth]=usePref('studio.run.width',1024,isNumber);
  const [height,setHeight]=usePref('studio.run.height',1024,isNumber);
@@ -364,13 +368,14 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  // shortcut: source URLs identify frame pictures; use asset revisions when same-path edits are supported.
  const [framePeople,setFramePeople]=useState<Record<string,FramePeople>>({});
  useEffect(()=>{setFramePeople(p=>Object.fromEntries(Object.entries(p).filter(([src])=>src===media?.src||src===lastFrame?.src)));},[media?.src,lastFrame?.src]);
- const [refs,setRefs]=useState<VideoRef[]>([]);const [refmods,setRefmods]=useState<RefMod[]>([]);
+ const [refs,setRefsState]=useState<VideoRef[]>([]);
+ const setRefs=useCallback((value:React.SetStateAction<VideoRef[]>)=>setRefsState(current=>(typeof value==='function'?value(current):value).map(r=>r.uiKey?r:{...r,uiKey:crypto.randomUUID()})),[]);const [refmods,setRefmods]=useState<RefMod[]>([]);
  const [detached,setDetached]=useState<'positive'|'negative'|null>(null);
  const [copiedPrompt,setCopiedPrompt]=useState<'positive'|'negative'|MusicField|null>(null);
  // Copy + clear sit under the expand button of each prompt field.
  const promptActions=(kind:'positive'|'negative'|MusicField,value:string,set:(v:string)=>void)=>{const name=t(kind==='style'||kind==='lyrics'?`studio.music.${kind}`:`studio.run.${kind}`);return <>
   <button type="button" className="wb-prompt-expand wb-prompt-copy" data-prompt-copy={kind} aria-label={t('studio.run.prompt.copy',{name})} title={t('studio.run.prompt.copy',{name})} disabled={!value} onClick={()=>void navigator.clipboard.writeText(value).then(()=>{setCopiedPrompt(kind);setTimeout(()=>setCopiedPrompt(c=>c===kind?null:c),1500);},()=>setError(t('studio.run.prompt.copyFailed')))}>{copiedPrompt===kind?'✓':'⧉'}</button>
-  <button type="button" className="wb-prompt-expand wb-prompt-clear" data-prompt-clear={kind} aria-label={t('studio.run.prompt.clear',{name})} title={t('studio.run.prompt.clear',{name})} disabled={!value} onClick={()=>set('')}>✕</button></>;};
+  <button type="button" className="wb-prompt-expand wb-prompt-clear" data-prompt-clear={kind} aria-label={t('studio.run.prompt.clear',{name})} title={t('studio.run.prompt.clear',{name})} disabled={!value} onClick={()=>set('')}>✕</button>{kind==='positive'&&<PromptTagOptions root={root} modelsDir={roots.models}/>}</>;};
  const [sourceStrength,setSourceStrength]=usePref('studio.run.video.sourceStrength',1,isUnit);
  const [sourceAudio,setSourceAudio]=usePref('studio.run.video.sourceAudio',false,isBoolean);
  const [h3Scaling,setH3Scaling]=usePref<H3Scaling>('studio.run.video.h3Scaling','Fill and crop',oneOf(...h3Scalings));
@@ -1413,7 +1418,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(!move||typeof move.oldPath!=='string'||typeof move.path!=='string')return;
    const oldSrc=native?convertFileSrc(move.oldPath):move.oldPath,newSrc=native?convertFileSrc(move.path):move.path;
    const repair=(item:MediaItem|null)=>item?relocatedMediaItem(item,move):null;
-   setMedia(repair);setBrowsed(repair);setLastFrame(repair);setSourceVideo(repair);setMusicSource(repair);setRolePick(repair);
+   setMedia(repair);setBrowsed(repair);setLastFrame(repair);setSourceVideo(repair);setMusicSource(repair);setRolePick(repair);setImageReferencePick(repair);
    setMediaSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
    setSourceVideoSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
    setRefSize(value=>value?.src===oldSrc?{...value,src:newSrc}:value);
@@ -1439,7 +1444,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const paths=new Set(deleted.map(normalizedMediaPath)),srcs=new Set(deleted.map(path=>native?convertFileSrc(path):path));
    const missing=(item:MediaItem|null|undefined)=>!!item?.path&&paths.has(normalizedMediaPath(item.path));
    const keep=(item:MediaItem|null)=>missing(item)?null:item;
-   setMedia(keep);setBrowsed(keep);setLastFrame(keep);setSourceVideo(keep);setMusicSource(keep);setRolePick(keep);
+   setMedia(keep);setBrowsed(keep);setLastFrame(keep);setSourceVideo(keep);setMusicSource(keep);setRolePick(keep);setImageReferencePick(keep);
    setRefs(values=>values.filter(ref=>!missing(ref.item)));setImageRefs(values=>values.filter(ref=>!missing(ref.item)));
    setLastOnlySrc(value=>value&&srcs.has(value)?null:value);
    setSourceVideoSize(value=>value&&srcs.has(value.src)?null:value);setRefSize(value=>value&&srcs.has(value.src)?null:value);
@@ -1536,7 +1541,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const removeVideoRole=(role:'first'|'last'|'source')=>{
   updateVideoMode({[role]:false},()=>{if(role==='first'){clearSource();setLastOnlySrc(null);}else if(role==='last'){setLastFrame(null);if(lastOnly){clearSource();setLastOnlySrc(null);}}else{setSourceVideo(null);if(media?.media==='video')clearSource();}});
  };
- const videoRoleEditor=()=><fieldset className="wb-group" data-video-roles><legend>{t('studio.run.video.roles.title')}</legend>
+ const videoRoleEditor=(compact=false)=>compact?<ReferenceAssignmentBar selected={rolePick} actions={videoRoles.map(role=>{const reason=role==='reference'&&rolePick?refBlock(rolePick):roleBlocked(role,rolePick);return {id:role,label:t(`studio.run.video.roles.${role}`),reason:reason?t(reason):undefined,assign:()=>{if(rolePick)assignVideoRole(role,rolePick);}};})}>{([['first',firstFrame],['last',lastFrame],['source',sourceVideo??(family?.video?.roles.includes('source')?videoSource:null)]] as const).map(([role,item])=>item&&<div className="reference-role-chip" key={role} data-video-role-card={role}><span>{t(`studio.run.video.roles.${role}`)}</span><strong title={item.name}>{item.name}</strong><button type="button" data-video-role-remove={role} aria-label={t('studio.run.video.roles.remove',{role:t(`studio.run.video.roles.${role}`)})} onClick={()=>removeVideoRole(role)}>×</button></div>)}{pipeline==='v2v'&&!sourceVideo&&!family?.video?.roles.includes('source')&&videoSource&&<div className="reference-role-chip"><span>{t('studio.run.video.roles.reference')}</span><strong title={videoSource.name}>{videoSource.name}</strong><button type="button" aria-label={t('studio.run.video.roles.remove',{role:t('studio.run.video.roles.reference')})} onClick={()=>updateVideoMode({references:refs.length+refmods.length},()=>{clearSource();setSourceVideo(null);})}>×</button></div>}</ReferenceAssignmentBar>:<fieldset className="wb-group" data-video-roles><legend>{t('studio.run.video.roles.title')}</legend>
   <p className="field-help">{rolePick?.name??t('studio.run.video.roles.pick')}</p>{rolePick&&<div className="reference-thumb"><ReferenceThumbnail reference={{item:rolePick,second:0,strength:1,mediaMode:'video'}}/></div>}
   <div className="wb-ref-toolbar">{videoRoles.map(role=>{const reason=role==='reference'&&rolePick?refBlock(rolePick):roleBlocked(role,rolePick);return <button key={role} type="button" className="wb-dock-action" data-video-role={role} disabled={!!reason} title={reason?t(reason):undefined} onClick={()=>{if(rolePick)assignVideoRole(role,rolePick);}}>{t(`studio.run.video.roles.${role}`)}</button>;})}</div>
   {([['first',firstFrame],['last',lastFrame],['source',sourceVideo??(family?.video?.roles.includes('source')?videoSource:null)]] as const).map(([role,item])=>item&&<div className="wb-ref" key={role} data-video-role-card={role}>
@@ -1549,14 +1554,14 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // References: LTX keyframes are images; H3 REF2VA also takes videos and audio within the Director limits. Returns why an item cannot be added.
  const isRef=(item:MediaItem)=>refs.some(r=>r.item.src===item.src);
  const refBlock=(item:MediaItem,list=refs,mods=refmods)=>roleBlocked('reference',item,list.length+mods.length)||(!family?.video?.referenceMedia.includes(item.media as 'image'|'video'|'audio')?(isH3Video(videoFamily)?'studio.run.video.refImagesOnlyHyperflow':'studio.run.video.refImagesOnly'):isH3Video(videoFamily)&&h3Full(list,item)?'studio.run.video.refFull':'');
- // Adds in order; already referenced or path-less (browser) items are skipped, refused ones are named with the reason.
+ // Adds in order. H3 permits the same file in independent reference slots; LTX retains its existing de-duplication.
  const addRefs=(adds:RefAdd[],replace=false,packMods?:RefMod[])=>{
   const mods=packMods??refmods;
   if(packMods&&mods.length&&(!isH3Video(videoFamily)||!family?.video?.mixReferences&&(firstFrame||lastFrame))){setError(t(isH3Video(videoFamily)?'studio.run.video.roles.mixing':'studio.run.video.roles.unsupported'));return false;}
   const legacy=pipeline==='v2v'&&!sourceVideo&&!family?.video?.roles.includes('source')&&videoSource;
   let next=replace?[]:legacy?[{item:legacy,second:0,strength:1,mediaMode:sourceAudio?'video_audio' as const:'video' as const},...refs]:refs;const refused:string[]=[];
-  for(const {item,...rest} of adds){if(!item.path||next.some(r=>r.item.src===item.src))continue;
-   const ref:VideoRef={item,second:next.length?video.seconds:0,strength:1,mediaMode:'video',...rest};
+  for(const {item,...rest} of adds){if(!item.path||!isH3Video(videoFamily)&&next.some(r=>r.item.src===item.src))continue;
+   const ref:VideoRef={item,second:next.length?video.seconds:0,strength:1,mediaMode:'video',...rest,uiKey:crypto.randomUUID()};
    // Limits count the reference as it will be used (a pack may bring a sound-only video).
    const why=refBlock(item,next,mods)||(isH3Video(videoFamily)&&over(refCounts([...next,ref]))?'studio.run.video.refFull':'');
    if(why)refused.push(`${item.name}: ${t(why)}`);else next=[...next,ref];}
@@ -1565,7 +1570,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(next.length!==refs.length||replace||packMods){const changed=updateVideoMode({references:next.length+(packMods?mods.length:roleReferenceCounts.current.mods)},()=>{roleReferenceCounts.current.refs=next.length;setRefs(next);if(packMods){roleReferenceCounts.current.mods=mods.length;setRefmods(mods);}if(legacy){setSourceVideo(null);clearSource();}});if(!changed)return false;}setError(refused.join(' · '));return true;
  };
  const changeRefs=(next:VideoRef[])=>{updateVideoMode({references:next.length+roleReferenceCounts.current.mods},()=>{roleReferenceCounts.current.refs=next.length;setRefs(next);});};
- const toggleRef=(item:MediaItem)=>isRef(item)?changeRefs(refs.filter(r=>r.item.src!==item.src)):addRefs([{item}]);
+ const toggleRef=(item:MediaItem)=>{const at=refs.map(r=>r.item.src).lastIndexOf(item.src);if(at>=0)changeRefs(refs.filter((_,i)=>i!==at));else addRefs([{item}]);};
  // H3 badges are the Director's own prompt labels, so what the dock shows is what the prompt may reference.
  const refTags=directorTags(refs);
  const refLabel=(r:VideoRef,i:number)=>videoFamily==='ltx-2'?t('studio.run.video.mark.at',{second:String(r.second)}):refTags[i];
@@ -1574,17 +1579,20 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  // First/last-frame badges; one image in both roles gets both labels.
  const frameMarks=new Map<string,string>();
  for(const [item,key] of [[firstFrame,'forge.role.first-frame'],[lastFrame,'forge.role.last-frame']] as const)if(item?.path)frameMarks.set(item.path,frameMarks.has(item.path)?`${frameMarks.get(item.path)} + ${t(key)}`:t(key));
+ const imageMarks=new Map<string,string>();
+ if(h3Refs){if(media?.path)imageMarks.set(media.path,'<Picture 1>');imageRefs.forEach((r,i)=>{if(r.item.path)imageMarks.set(r.item.path,[imageMarks.get(r.item.path),`<Picture ${i+2}>`].filter(Boolean).join(' + '));});}
  const marks=new Map(isVideo?[
-  ...frameMarks,...refs.flatMap((r,i)=>r.item.path?[[r.item.path,refLabel(r,i)] as const]:[]),
+  ...frameMarks,...refs.reduce((marks,r,i)=>{if(r.item.path)marks.set(r.item.path,[marks.get(r.item.path),refLabel(r,i)].filter(Boolean).join(' + '));return marks;},new Map<string,string>()),
   ...(videoSource?.path?[[videoSource.path,t(family?.video?.roles.includes('source')?'studio.run.video.source':'studio.run.video.roles.reference')] as const]:[])
  ]:pipeline==='cover'?(musicSource?.path?[[musicSource.path,t('studio.music.source')] as const]:[]):imageRefs.flatMap(r=>r.item.path?[[r.item.path,t('studio.run.reference.remove')] as const]:[]));
  // H3 edits: <Picture 1> is the source, so the first picture added without a source becomes it.
  const addPromptRef=(item:MediaItem)=>{if(h3Refs&&(!media||media.path===item.path)){if(!media)select(item);return;}
   setImageRefs(v=>v.length>=refMax?v:[...v,{item:{...item},strength:0.6}]);
   if(revisionOk&&native&&!(choices?.visionModels?.length??0))setVisionDownload(true);};
+ const addH3ImageRefs=(items:MediaItem[])=>{const images=items.filter(validReference),source=media??images[0];if(!media&&source)select(source);const adds=images.filter(item=>item.path!==source?.path).map(item=>({item:{...item},strength:0.6}));if(adds.length)setImageRefs(previous=>[...previous,...adds].slice(0,refMax));};
  const togglePromptRef=(item:MediaItem&{path:string})=>{const at=imageRefs.findIndex(r=>r.item.path===item.path);if(at>=0){setImageRefs(v=>v.filter((_,j)=>j!==at));return;}addPromptRef(item);};
  /** Clearing <Picture 1> promotes the first reference to the source, so Picture 1 stays filled. */
- const useAsSource=(item:MediaItem)=>{const at=imageRefs.findIndex(r=>r.item.src===item.src);if(at>=0)setImageRefs(v=>h3Refs&&media?v.map((r,j)=>j===at?{...r,item:{...media}}:r):v.filter((_,j)=>j!==at));select(item);};
+ const useAsSource=(item:MediaItem,at=imageRefs.findIndex(r=>r.item.src===item.src))=>{if(at>=0)setImageRefs(v=>h3Refs&&media?v.map((r,j)=>j===at?{...r,item:{...media}}:r):v.filter((_,j)=>j!==at));select(item);};
  const clearH3Source=()=>{const[first,...rest]=imageRefs;if(!first){clearSource();return;}setImageRefs(rest);select(first.item);};
  const changeMusicSource=(item:MediaItem|null)=>{setMusicSource(item);if(item)setPipeline('cover');else if(model&&!blocked(model,'t2m'))setPipeline('t2m');if(historyDraft)setHistorySourceSelected(!!item);};
  const inputActions=(item:MediaItem):MediaAction[]=>!item.path?[]:isVideo?[...(lastFrame?.src===item.src?[{label:t('studio.run.video.removeLast'),input:true,onClick:()=>removeVideoRole('last')}]:[]),...(isRef(item)?[{label:t('studio.run.video.removeRef',{name:item.name}),input:true,onClick:()=>toggleRef(item)}]:[]),...videoRoles.filter(role=>role==='reference'||(role==='source'?item.media==='video':item.media==='image')).map(role=>({label:t(`studio.run.video.${({first:'useFirst',last:'useLast',both:'useBoth',reference:'addRef',source:'useSource'} as const)[role]}`),input:true,onClick:()=>assignVideoRole(role,item),blocked:(role==='reference'?refBlock(item):roleBlocked(role,item))?t(role==='reference'?refBlock(item):roleBlocked(role,item)):undefined}))]
@@ -1633,7 +1641,7 @@ const promptTools=forgeContext&&<>
    <button type="button" data-more-apply disabled={off} title={hint||t('studio.run.metadata.videoApplyHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'all'))}>{t('studio.run.metadata.apply')}</button>
    <button type="button" data-more-reuse disabled={off} title={hint||t('studio.run.metadata.videoReuseHint')} onClick={()=>selectMoreAction(true,()=>void applyFileSettings(item,'prompt'))}>{t('studio.run.metadata.reuse')}</button>{moreActions}</div></details>;})()}
   {item.media==='audio'&&moreActions.length>0&&<details className="wb-more" open={moreFor===item.src}><summary data-more aria-haspopup="menu" onClick={e=>{e.preventDefault();setMoreResult(null);setMoreFor(moreFor===item.src?null:item.src);}}>{t('studio.run.more')}</summary><div className="wb-more-menu">{moreActions}</div></details>}
-  {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider&&item.media==='image'} disabled={item.media!=='image'} title={item.media!=='image'?t('studio.run.edit.sliderImageOnly'):undefined} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
+  {original&&(paired||media?.src!==item.src)&&<button type="button" className="wb-edit-view" data-edit-compare aria-pressed={slider&&(item.media==='image'||item.media==='video')} disabled={item.media!=='image'&&item.media!=='video'} title={item.media!=='image'&&item.media!=='video'?t('studio.run.edit.sliderImageOnly'):undefined} onClick={()=>setSlider(!slider)}>{t('studio.run.edit.slider')}</button>}
   {showStar&&<StarMediaButton item={item}/>}
  </div>;};
  // Canonical preview toolbar: one stage slot (top right, beside Metadata/Close) fed by whatever the stage shows.
@@ -1747,6 +1755,15 @@ const promptTools=forgeContext&&<>
   // Same output kind (image/video/music): the prompts on screen carry over; another kind restores its own draft.
   if(next)switchDraft(p,next,!model||identity(next)!==identity(model),keepSource,outputKind(p)===outputKind(pipeline));else setPipeline(p);
  };
+ // H3's remembered submode can outlive its session-only inputs after restart.
+ // An ordinary empty draft starts from text; explicit restored inputs/continuity
+ // retain their missing-input gates and are never silently converted.
+ useEffect(()=>{
+  if(!isVideo||!isH3Video(videoFamily)||!family?.pipelines.includes('t2v')||pipeline==='t2v'
+   ||historyDraft||plan.source||plan.steps.some(step=>step.clipId)
+   ||firstFrame||lastFrame||videoSource||refs.length||refmods.length)return;
+  setPipeline('t2v');
+ },[isVideo,videoFamily,family,pipeline,historyDraft,plan.source,plan.steps,firstFrame,lastFrame,videoSource,refs.length,refmods.length]);
  // The picture to edit decides the Image mode; models without text-to-image (H3) stay on edit.
  useEffect(()=>{if(!isImagePipe(pipeline)||!model)return;const want=media?.media==='image'||blocked(model,'t2i')?'i2i':'t2i';if(want!==pipeline)setPipeline(want);},[beginner,pipeline,media,model]);
  useEffect(()=>{
@@ -1869,7 +1886,7 @@ const promptTools=forgeContext&&<>
    else setMusicGeneration({...intent.generation});
    if(intent.mode==='t2m'){setMusicDuration({...musicDuration,t2m:intent.maxDuration});if(!isAceMusicIntent(intent)&&intent.abc)setMusicAbc({...intent.abc});}
    else {setMusicDuration({...musicDuration,cover:intent.maxDuration});setMusicEncoder(intent.audioEncoder);}
-   fixedSeed(intent.seed);setCheckpoint(intent.checkpoint);setSteps(intent.steps);setCfg(intent.cfg);setSampler(intent.sampler);setScheduler(intent.scheduler);setOptions(value.options);
+   fixedSeed(intent.seed);setCheckpoint(intent.checkpoint);setSteps(intent.steps);setCfg(intent.cfg);setSampler(intent.sampler);setScheduler(intent.scheduler);setOptions({...value.options,outputNaming:outputNamingTemplate(optionsPref.outputNaming)});
    setPipeline(value.pipeline);return true;
   }
   const restoredFace=isFaceRefineBlock(intent.faceRefine)?intent.faceRefine:undefined;
@@ -1883,8 +1900,8 @@ const promptTools=forgeContext&&<>
   setLyingSigma(isImageIntent(intent)&&intent.lyingSigma?{...intent.lyingSigma}:{...defaultLyingSigma});
   setMossSkip(isImageIntent(intent)?intent.skipLayers??'':'');
   setWidth(intent.width);setHeight(intent.height);setResolution('fixed');setAspect('auto');
-  setLoras((intent.loras??[]).map(l=>({...l,enabled:true})));setOptions(value.options);
-  setDialRows(fromDials(isVideoIntent(intent)&&intent.family==='minimax-h3'?intent.dials:undefined));
+  setLoras((intent.loras??[]).map(l=>({...l,enabled:true})));setOptions({...value.options,outputNaming:outputNamingTemplate(optionsPref.outputNaming)});
+  setDialRows(fromDials(isVideoIntent(intent)&&(intent.family==='minimax-h3'||intent.family==='minimax-h3-hyperflow')?intent.dials:undefined));
   setPipeline(value.pipeline);setComponentOverrides({textEncoders:true,vaes:true,audioVaes:true,textProjections:true});
   setImageRefs(value.references.map(ref=>({item:{name:ref.name,media:'image',src:''},strength:ref.strength})));
   setPost(false);setPostTiled(false);setUpscale(2);setUpscaleModel('');setInputScaling('off');setEdit('resample');
@@ -2094,7 +2111,7 @@ const promptTools=forgeContext&&<>
       {imageRefs.map((r,i)=><div key={`${i}:${r.item.path}`} className="wb-reference-card" data-reference-controls data-history-reference-unresolved={historyDraft&&!r.item.path?true:undefined} data-reference-position={i+1} role="group" aria-label={t('studio.run.reference.position',{position:i+1})} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.clearData();e.dataTransfer.setData(referenceDrag,String(i));e.dataTransfer.effectAllowed='move';draggedReference.current=r;}} onDragEnd={()=>{draggedReference.current=null;}} onDragOver={e=>{if(e.dataTransfer.types.includes(referenceDrag)&&draggedReference.current){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect=historyReferenceCompatible&&(e.dataTransfer.types.includes(MEDIA_IMAGE_DRAG)||validReference(promptImage(e.dataTransfer)))?'copy':'none';}}} onDrop={e=>{if(e.dataTransfer.types.includes(referenceDrag)){e.preventDefault();e.stopPropagation();moveReference(imageRefs.indexOf(draggedReference.current!),i);draggedReference.current=null;}else if(historyDraft&&(e.dataTransfer.types.includes(MEDIA_DRAG)||e.dataTransfer.types.includes('Files'))){e.preventDefault();e.stopPropagation();replaceHistoryReference(i,promptImage(e.dataTransfer));}}}>
        <div className="wb-reference-thumb">{r.item.src?<img src={r.item.src} alt={r.item.name} title={r.item.name} draggable={false}/>:<span role="status" title={r.item.name}>{t('studio.history.missingInput',{name:r.item.name})}</span>}<span className="wb-reference-position" title={t('studio.run.reference.position',{position:i+1})}>{refTag(i)}</span><button type="button" className="wb-reference-remove" data-reference-remove aria-label={`${t('studio.run.reference.remove')} · ${i+1}`} title={t('studio.run.reference.remove')} onClick={()=>setImageRefs(v=>v.filter((_,j)=>j!==i))}>✕</button></div>
        {historyDraft&&!r.item.path&&<><small>{t('studio.history.referenceReselect')}</small><button type="button" data-history-reference-select={i} disabled={!historyReferenceCompatible||!validReference(browsed??media)} onClick={()=>replaceHistoryReference(i,browsed??media)}>{t('studio.history.referenceUseSelected',{position:i+1})}</button></>}
-       {isImagePipe(pipeline)&&!beginner&&<button type="button" className="wb-dock-action" data-reference-make-source onClick={()=>useAsSource(r.item)}>{t('studio.run.reference.useSource')}</button>}
+       {isImagePipe(pipeline)&&!beginner&&<button type="button" className="wb-dock-action" data-reference-make-source onClick={()=>useAsSource(r.item,i)}>{t('studio.run.reference.useSource')}</button>}
        {h3Refs&&<button type="button" className="wb-dock-action" data-reference-insert onClick={()=>insertTag(`<Picture ${refTag(i)}>`)} aria-label={t('studio.run.video.insertLabel',{label:`<Picture ${refTag(i)}>`})} title={t('studio.run.video.insertLabel',{label:`<Picture ${refTag(i)}>`})}>{t('studio.run.video.insert')}</button>}
        {revisionOk&&num('reference.strength',r.strength,n=>setImageRefs(v=>v.map((e,j)=>j===i?{...e,strength:clamp(n,0,1)}:e)),0,1,0.05,undefined,true)}
       </div>)}
@@ -2231,7 +2248,7 @@ const promptTools=forgeContext&&<>
      {shown&&media&&!sideBySide&&<button type="button" className="wb-return-draft" data-editor-return onClick={()=>setSelectedJob('')}>{t('studio.editor.returnDraft')}</button>}
      {shown?<div className="wb-shown"><p className="wb-job-line"><span data-state={shown.state}>{t(`studio.jobs.${shown.state}`)}</span> · <code>{shown.id.slice(0,8)}</code>{duration(shown)}</p>
       {paired&&terminalOutput(shown)&&<div className="wb-output-choices" role="group" aria-label={t('studio.jobs.outputs')}>{shown.outputs.map((o,index)=><button type="button" key={index} data-output-role={o.role} aria-pressed={index===outputIndex} onClick={()=>{setSelectedOutput(index);setSlider(false);}}>{o.role?t(`studio.jobs.role.${o.role}`):o.filename}</button>)}</div>}
-      {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview"><div className="wb-media-content" data-media-content>{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')}/>
+      {terminalOutput(shown)&&(shown.outputRoot?<figure className="media-preview"><div className="wb-media-content" data-media-content>{original&&slider?<CompareView key={`${original}|${shown.id}`} original={original} originalAlt={t(paired?'studio.jobs.role.original':'studio.run.edit.original')} edited={fileSrc(shown,pairedProcessed??shown.outputs[0])!} editedAlt={paired?t('studio.jobs.role.processed'):shown.outputs[0].filename} dividerLabel={t('studio.run.edit.divider')} playLabel={t('studio.run.edit.comparePlay')} pauseLabel={t('studio.run.edit.comparePause')} video={isVideoOut(pairedProcessed??shown.outputs[0])}/>
         :visibleOutputs.map(o=>outputItem(shown,o).media==='audio'?audioPlayer(outputItem(shown,o),fileSrc(shown,o)!,!browsed,true):isVideoOut(o)?linuxVideo?<NativeVideo key={o.filename} source={{path:outputItem(shown,o).path!}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>:<img key={o.filename} className="wb-zoomable" src={fileSrc(shown,o)!} alt={o.filename} title={t('studio.run.viewer.open')} draggable={!!outputItem(shown,o).path} onDragStart={e=>{const it=outputItem(shown,o);if(it.path)dragItem(e.dataTransfer,it);}} onClick={e=>openImage(e,outputItem(shown,o))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{original&&slider&&<>{t(paired?'studio.jobs.role.original':'studio.run.edit.original')} | {paired&&t('studio.jobs.role.processed')} · </>}{visibleOutputs.map(o=>o.role?`${t(`studio.jobs.role.${o.role}`)} · ${o.filename}`:o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:isVideoOut(shown.outputs[outputIndex])?<figure className="media-preview"><div className="wb-media-content" data-media-content>{visibleOutputs.filter(isVideoOut).map(o=>linuxVideo?<NativeVideo key={o.filename} source={{baseUrl:shown.baseUrl,filename:o.filename,subfolder:o.subfolder,type:o.type}} label={o.filename} active={!browsed} autoPlay loop/>:<video key={o.filename} src={videoSrc(shown,o)} controls autoPlay loop onError={e=>setMediaFault(mediaError(e))}/>)}</div><figcaption><span className="wb-output-stars">{shown.outputs.map(o=><StarMediaButton key={o.filename} item={outputItem(shown,o)}/>)}</span>{shown.outputs.map(o=>o.filename).join(' · ')}{mediaFault&&<> · <span className="error-message">{mediaFault}</span></>}</figcaption></figure>:<JobOutputPreview job={shown} outputRoot={shown.outputRoot} outputIndex={outputIndex} auto/>)}
       {(shown.state==='queued'||shown.state==='running')&&((shown.preview||playingPreview)?<figure className="media-preview" aria-busy="true">{playingPreview?<TemporalPreview key={shown.id} preview={playingPreview} active label={t('studio.run.working')} fallback={shown.preview}/>:shown.preview?<img src={shown.preview} alt={t('studio.run.working')}/>:null}{shown.progress&&<figcaption><progress value={shown.progress.value} max={shown.progress.max}/> {shown.progress.value}/{shown.progress.max}{eta(shown)}</figcaption>}</figure>
        :<p className="empty-note" aria-busy="true"><span className="aio-spinner" aria-hidden="true"/> {t('studio.run.working')}{shown.progress&&<> {shown.progress.value}/{shown.progress.max}{eta(shown)}</>}</p>)}</div>
@@ -2401,8 +2418,8 @@ const promptTools=forgeContext&&<>
   {visionDownload&&<dialog ref={visionDialog} data-vision-download className="continuity-overlay" aria-label={t("studio.run.reference.dlAsk")} onCancel={e=>{e.preventDefault();closeVisionDownload();}}><header className="continuity-overlay-header"><h2>{t("studio.run.reference.dlAsk")}</h2><button type="button" onClick={closeVisionDownload}>{t("studio.close")}</button></header><div className="wb-dock-panel"><p>{t("studio.run.latent.consent")}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={visionIds} filenameFilter={["clip_vision_g.safetensors"]} onStatus={visionDownloadStatus}/></div></dialog>}
  {latentDownload&&<dialog ref={latentDialog} data-latent-upscale-download className="continuity-overlay" aria-label={t('studio.run.latent.download')} onCancel={e=>{e.preventDefault();closeLatentDownload();}}><header className="continuity-overlay-header"><h2>{t('studio.run.latent.download')}</h2><button type="button" onClick={closeLatentDownload}>{t('studio.close')}</button></header><div className="wb-dock-panel"><p>{t('studio.run.latent.consent')}</p><DownloadPanel embedded installTarget={root} modelsDir={modelsDir} initialEntryIds={latentIds} filenameFilter={latentDownload==='minimax-h3'?['minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors','minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors','MiniMax H3 Latent Upscaler.safetensors','minimax h3 latent upscaler.safetensors','minimax_h3_latent_upscaler.safetensors']:['ltx-2.3-spatial-upscaler-x2-1.1.safetensors','LTX-2.3-Latent-Upscaler.safetensors']} onStatus={latentDownloadStatus}/></div></dialog>}
  {loraSetsOpen&&<LoraSetsDialog root={modelsDir??endpoint} selected={loras} active={activeLoras.map(l=>l.name)} models={allLoraModels} onChange={setLoras} usable={m=>supportedLoraFormat(m)&&checkLoraForExecution(m).compatibility!=='blocked'} onClose={()=>setLoraSetsOpen(false)} onBrowse={()=>{setLoraSetsOpen(false);setDockTab('loras');}}/>}
- {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay pickerHint={t('studio.run.video.roles.pick')} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={rolePick} onSelect={setRolePick} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}>{videoRoleEditor()}{refmods.length>0&&!isH3Video(videoFamily)&&<div className="wb-ref"><p>{t('studio.run.video.roles.unsupported')}</p><button type="button" className="wb-dock-action" data-video-refmods-clear onClick={()=>updateVideoMode({references:refs.length},()=>setRefmods([]))}>{t('studio.run.video.roles.remove',{role:t('studio.run.video.refmods')})}</button></div>}{(family?.video?.roles.includes('reference')||refs.length>0)&&<ReferencesPanel endpoint={endpoint} root={root} refs={refs} onChange={changeRefs} family={isH3Video(videoFamily)?videoFamily:'ltx-2'} seconds={video.seconds} label={refLabel} onAdd={addRefs} onPack={(adds,mods,replace)=>addRefs(adds,replace,mods)} inputRoot={roots.input} outputRoot={outputDir} refmods={refmods} onRefmods={next=>{if(next.length&&!family?.video?.mixReferences&&(firstFrame||lastFrame)){setError(t('studio.run.video.roles.mixing'));return;}updateVideoMode({references:roleReferenceCounts.current.refs+next.length},()=>{roleReferenceCounts.current.mods=next.length;setRefmods(next);});}} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} refmodCreate={native&&endpoint.trim()&&isH3Video(videoFamily)?{vae,audioVae,modelsDir:roots.models,vaes:family?componentFiles(models??[],family,'vaes'):[],audioVaes:family?componentFiles(models??[],family,'audioVaes'):[],upload:path=>uploadInput(endpoint,path)}:undefined} onInsert={insertTag}/>}</ReferencesOverlay>}
- {referencesOpen&&imageRefsButton&&<ReferencesOverlay onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={null} onSelect={item=>{if(item.path&&validReference(item))togglePromptRef(item as MediaItem&{path:string});}} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}><div className="wb-image-references" data-image-references>{imageRefBar()}</div></ReferencesOverlay>}
+ {referencesOpen&&refsTab&&!planVisible&&<ReferencesOverlay manager={isH3Video(videoFamily)} subtitle={family?.name} pickerHint={t('studio.run.video.roles.pick')} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={rolePick} onSelect={setRolePick} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}>{!isH3Video(videoFamily)&&videoRoleEditor()}{refmods.length>0&&!isH3Video(videoFamily)&&<div className="wb-ref"><p>{t('studio.run.video.roles.unsupported')}</p><button type="button" className="wb-dock-action" data-video-refmods-clear onClick={()=>updateVideoMode({references:refs.length},()=>setRefmods([]))}>{t('studio.run.video.roles.remove',{role:t('studio.run.video.refmods')})}</button></div>}{(family?.video?.roles.includes('reference')||refs.length>0)&&<ReferencesPanel manager={isH3Video(videoFamily)} assignment={isH3Video(videoFamily)?videoRoleEditor(true):undefined} endpoint={endpoint} root={root} refs={refs} onChange={changeRefs} family={isH3Video(videoFamily)?videoFamily:'ltx-2'} seconds={video.seconds} label={refLabel} onAdd={addRefs} onPack={(adds,mods,replace)=>addRefs(adds,replace,mods)} inputRoot={roots.input} outputRoot={outputDir} refmods={refmods} onRefmods={next=>{if(next.length&&!family?.video?.mixReferences&&(firstFrame||lastFrame)){setError(t('studio.run.video.roles.mixing'));return;}updateVideoMode({references:roleReferenceCounts.current.refs+next.length},()=>{roleReferenceCounts.current.mods=next.length;setRefmods(next);});}} library={native&&endpoint.trim()?()=>readRefMods(endpoint):undefined} refmodCreate={native&&endpoint.trim()&&isH3Video(videoFamily)?{vae,audioVae,modelsDir:roots.models,vaes:family?componentFiles(models??[],family,'vaes'):[],audioVaes:family?componentFiles(models??[],family,'audioVaes'):[],upload:path=>uploadInput(endpoint,path)}:undefined} onInsert={insertTag}/>}</ReferencesOverlay>}
+ {referencesOpen&&imageRefsButton&&<ReferencesOverlay manager={h3Refs} imageEdit={h3Refs} subtitle={h3Refs?`${family?.name} · ${t('studio.run.pipe.i2i')}`:undefined} onClose={()=>{setReferencesOpen(false);referencesButton.current?.focus();}} picker={<MediaPanel toolbar={error?<p role="alert" className="error-message">{backendErrorText(error,t)}</p>:undefined} selected={h3Refs?imageReferencePick:null} onSelect={item=>{if(h3Refs)setImageReferencePick(item);else if(item.path&&validReference(item))togglePromptRef(item as MediaItem&{path:string});}} roots={roots} outputRevision={outputRevision} controls={{query,onQuery:setQuery,sort,onSort:setSort,view:dockView,onView:setDockView,type:dockType,onType:setDockType}} marks={marks} actions={mediaActions}/>}>{h3Refs?<ImageReferencesManager source={media} refs={imageRefs} selected={imageReferencePick} max={refMax} valid={validReference} onAdd={addH3ImageRefs} onSource={useAsSource} onClearSource={clearH3Source} onChange={setImageRefs} onInsert={insertTag} onReplace={replaceHistoryReference} replaceAllowed={historyReferenceCompatible}/>:<div className="wb-image-references" data-image-references>{imageRefBar()}</div>}</ReferencesOverlay>}
  {/* Keep H3 editors with their Workbench state; only their DOM lives in the retained Forge tab. */}
  {forgeHost&&forgeContext&&createPortal(<section className="forge-tab" aria-label={t('studio.tab.forge')} data-h3-forge-tab>
   <ForgeButton inline active={forgeActive} endpoint={endpoint} root={root} dialect={dialectOf(model?.family)} value={positive} onApply={setPositive} h3={forgeContext} tools={promptTools}/>
@@ -2410,7 +2427,7 @@ const promptTools=forgeContext&&<>
    {frameVideo&&[firstFrame,lastFrame].map((item,i)=>item&&<div className="wb-wide" key={`${i}:${item.src}`} data-frame-people={i===0?'first':'last'}>
        <ReferencePeople key={item.src} prominent title={`${t(i===0?'forge.role.first-frame':'forge.role.last-frame')} · ${item.name}`} r={{item,second:0,strength:1,mediaMode:'video',who:[],...framePeople[item.src]}} label="" allowEmpty endpoint={endpoint} root={root} inputRoot={roots.input} outputRoot={outputDir} onChange={x=>setFramePeople(p=>({...p,[item.src]:{...p[item.src],...x}}))}/>
       </div>)}
-   {pipeline==='ref2v'&&refs.map((r,i)=>r.item.media==='image'&&labelCharacters(forgeLabels(refs)[i]).length>0&&<div key={r.item.src}>
+   {pipeline==='ref2v'&&refs.map((r,i)=>r.item.media==='image'&&labelCharacters(forgeLabels(refs)[i]).length>0&&<div key={referenceKey(r,i)}>
     <ReferencePeople prominent title={r.item.name} r={r} label={forgeLabels(refs)[i]} endpoint={endpoint} root={root} inputRoot={roots.input} outputRoot={outputDir} onChange={x=>setRefs(current=>current.map((pick,j)=>j===i?{...pick,...x}:pick))}/>
    </div>)}
   </div>

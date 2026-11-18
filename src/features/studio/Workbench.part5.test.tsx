@@ -264,7 +264,7 @@ test('history restores exact rich settings without probing or submitting and kee
  vi.mocked(runWorkbenchJob).mockResolvedValue({...heldJob('new-history-run','failed'),baseUrl:evidence.baseUrl});
  fireEvent.click(document.querySelector('[data-run]')!);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({...historicalImage,loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'uploaded-second.png',strength:0.2},{image:'uploaded-first.png',strength:0.9}]},refine:{width:2432,height:1664,denoise:0.35},imageFormat:'webp',imageCompression:83});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({...historicalImage,seed:historicalImage.seed,outputPrefix:expect.stringMatching(/^raw\/image\/\d{4}-\d{2}-\d{2}\/\d{2}-\d{2}-\d{2}-987654321-a$/),loras:[{name:'style.safetensors',strength:0.75}],options:{attention:'sdpa',cache:{node:'EasyCache',threshold:0.03},compile:'inductor',vaeTile:1536},imageReference:{visionModel:'vision.safetensors',images:[{image:'uploaded-second.png',strength:0.2},{image:'uploaded-first.png',strength:0.9}]},refine:{width:2432,height:1664,denoise:0.35},imageFormat:'webp',imageCompression:83});
  expect(JSON.stringify(original)).toBe(encoded);expect(JSON.stringify(live)).toBe(liveBefore);
 });
 
@@ -520,9 +520,45 @@ test('LTX retains independent source, first, last and ordered guides, uploading 
  expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'ltx-2',firstFrame:'uploaded/first.png',lastFrame:'uploaded/last.png',sourceVideo:'uploaded/source.mp4',ltx:{keyframes:[{image:'uploaded/guide.png',frame:24,strength:0.5}]}});
 });
 
+test('H3 duplicate pictures keep independent editors, moves and removal; Run uploads once and retains both slots',async()=>{
+ await roleVideoFixture('minimax-h3',false,'ref2v');
+ assignRole('same.png','reference');assignRole('same.png','reference');
+ const rows=()=>Array.from(document.querySelectorAll<HTMLElement>('[data-ref="same.png"]'));
+ expect(rows()).toHaveLength(2);
+ fireEvent.click(rows()[1].querySelector('.reference-icon-edit')!);
+ fireEvent.change(document.querySelector('[data-ref-label]')!,{target:{value:'style'}});
+ fireEvent.change(document.querySelector('[data-ref-instructions]')!,{target:{value:'Use the colors'}});
+ fireEvent.click(within(screen.getByRole('dialog',{name:'Edit same.png'})).getByRole('button',{name:'Close'}));
+ expect(rows()[0].querySelector('.reference-card-summary')?.textContent).toBe('Character 1');
+ expect(rows()[1].querySelector('.reference-card-summary')?.textContent).toBe('Style');
+ fireEvent.click(rows()[1].querySelector('.reference-icon-earlier')!);
+ expect(rows()[0].querySelector('.reference-card-summary')?.textContent).toBe('Style');
+ fireEvent.click(rows()[0].querySelector('.reference-icon-remove')!);
+ expect(rows()).toHaveLength(1);expect(rows()[0].querySelector('.reference-card-summary')?.textContent).toBe('Character 1');
+ assignRole('same.png','reference');closeRoles();
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(uploadInput).toHaveBeenCalledTimes(1);
+ const intent=vi.mocked(runWorkbenchJob).mock.lastCall![1];
+ expect(intent).toMatchObject({h3:{mode:'REF2VA',media:[{type:'image',slot:0,file:'uploaded/same.png'},{type:'image',slot:1,file:'uploaded/same.png'}]}});
+ expect(JSON.stringify(intent)).not.toContain('uiKey');
+});
+
+test('repeated H3 pictures count toward the same nine-image limit',async()=>{
+ await roleVideoFixture('minimax-h3',false,'ref2v');
+ for(let i=0;i<9;i++)assignRole('same.png','reference');
+ expect(document.querySelectorAll('[data-ref="same.png"]')).toHaveLength(9);
+ expect(document.querySelector('[data-reference-lane="image"] .reference-count')?.textContent).toBe('9 / 9');
+ assignRole('same.png','reference');
+ expect(document.querySelector('[data-video-role="reference"]')).toHaveProperty('disabled',true);
+ expect(document.querySelectorAll('[data-ref="same.png"]')).toHaveLength(9);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
 test('H3 disabled mixing preserves the existing frame and no picker preview adopts or submits',async()=>{
  await roleVideoFixture('minimax-h3');assignRole('first.png','first');
  fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(roleFile('preview.png'))}});
+ fireEvent.change(document.querySelector('.reference-assignment select')!,{target:{value:'reference'}});
  const reference=document.querySelector<HTMLButtonElement>('[data-video-role="reference"]')!;
  expect(reference.disabled).toBe(true);expect(reference.title).toContain('cannot be mixed');fireEvent.click(reference);
  expect(document.querySelector('[data-video-role-card="first"]')?.textContent).toContain('first.png');
@@ -553,6 +589,29 @@ test('Beginner isolates and restores the Advanced independent source video and s
  expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
 });
 
+test('returning to an H3 scope restores its reference draft after another scope became empty',async()=>{
+ const {view,props}=await roleVideoFixture('minimax-h3');
+ assignRole('saved-guide.png','reference');closeRoles();
+ view.rerender(<I18nProvider><Workbench {...props} roots={{models:'/m2',input:'/input'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-open-references]')).not.toBeNull());
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Clear'}));closeRoles();
+ await waitFor(()=>expect(document.querySelector('[data-video-mode]')?.textContent).toContain('T2VA'));
+ view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA'));
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ expect(document.querySelector('[data-ref="saved-guide.png"]')).not.toBeNull();
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
+test('empty pinned H3 Continuity retains its reference mode instead of becoming a new text draft',async()=>{
+ localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'role-session',outputMode:'full',enabled:true,source:{clipId:'pinned',endpoint:evidence.baseUrl},steps:[]}));
+ await roleVideoFixture('minimax-h3',false,'ref2v');
+ expect(captureStudioSettings()['studio.run.pipeline']).toBe('ref2v');
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+});
+
 test('pinned H3 Continuity refuses removing its last reference and preserves the source mode family',async()=>{
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({session:'role-session',outputMode:'full',enabled:true,source:{clipId:'pinned',endpoint:evidence.baseUrl},steps:[]}));
  await roleVideoFixture('minimax-h3',false,'ref2v');assignRole('guide.png','reference');closeRoles();
@@ -569,6 +628,28 @@ test('search opens the empty Video roles editor without adopting media or submit
  expect(screen.getByRole('dialog',{name:'References'})).toBeTruthy();
  expect(document.querySelector('[data-video-role-card]')).toBeNull();
  expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test('H3 role search selects the requested role but does not assign without a picked file',async()=>{
+ await roleVideoFixture('minimax-h3');
+ let outcome;act(()=>{outcome=revealTarget('[data-video-role="first"]');});
+ expect(outcome).toMatchObject({state:'disabled'});
+ expect(document.querySelector<HTMLSelectElement>('.reference-assignment select')?.value).toBe('first');
+ expect(document.querySelector('[data-video-role="first"]')).toHaveProperty('disabled',true);
+ expect(document.querySelector('[data-video-role-card]')).toBeNull();
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});
+
+test.each(['i2v','ref2v','v2v'])('empty ordinary H3 draft resets stale %s preference to text-to-video',async previous=>{
+ await roleVideoFixture('minimax-h3',false,previous);
+ await waitFor(()=>expect(captureStudioSettings()['studio.run.pipeline']).toBe('t2v'));
+ expect(document.querySelector('[data-video-mode]')?.textContent).toContain('T2VA');
+ expect(document.querySelector('[data-open-references]')?.textContent).toContain('0');
+ expect(runWorkbenchJob).not.toHaveBeenCalled();expect(uploadInput).not.toHaveBeenCalled();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',false));
+ fireEvent.click(screen.getByRole('button',{name:'Run'}));
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({h3:{mode:'T2VA',references:[]}});
 });
 
 test.each(['i2v','ref2v','v2v'])('legacy Video preference %s remains readable and missing input never collapses to text mode',async pipeline=>{
@@ -629,7 +710,7 @@ test('a pinned REF2VA pack replacing a RefMod with media retains reference mode 
  fireEvent.click(screen.getByRole('button',{name:'Read RefMod library'}));fireEvent.click(await screen.findByRole('button',{name:'Add RefMod'}));
  const previous=vi.mocked(invoke).getMockImplementation()!;
  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items:[{type:'image',value:'new.png',_rank:0}],refmods:[]}):command==='native_media_describe'?[{name:'new.png',path:'/input/new.png',kind:'file',symlink:false,media:'image',size:1,modified:1}]:previous(command,args));
- fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ fireEvent.change(screen.getByRole('combobox',{name:'Load pack…'}),{target:{value:'replace'}});
  await waitFor(()=>expect(document.querySelector('[data-ref="new.png"]')).not.toBeNull());
  expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
  expect(document.querySelector('[data-refmod="old-mod"]')).toBeNull(); // the library option stays available; its authored row was removed
@@ -698,14 +779,14 @@ test('pinned REF2VA media-to-RefMod replacement is atomic and a refused pack lea
  const previous=vi.mocked(invoke).getMockImplementation()!;
  let items:unknown[]=[];
  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items,refmods:[{slot:1,name:'new-mod',strength:1}]}):command==='native_media_describe'?[{name:'bad.mp4',path:'/input/bad.mp4',kind:'file',symlink:false,media:'video',size:1,modified:1}]:previous(command,args));
- fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ fireEvent.change(screen.getByRole('combobox',{name:'Load pack…'}),{target:{value:'replace'}});
  await waitFor(()=>expect(document.querySelector('[data-refmod="new-mod"]')).not.toBeNull());
  expect(document.querySelector('[data-ref="old.png"]')).toBeNull();expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');
  // Four visual videos exceed the Director's final-state limit; no replacement row may leak through.
  items=Array.from({length:4},(_,i)=>({type:'video',value:`bad-${i}.mp4`,_rank:i}));
  let describes=0;
  vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_json_open'?JSON.stringify({dasiwa_minimax_h3_reference_pack:true,schema_version:1,model_mode:'REF2VA',items,refmods:[{slot:1,name:'refused-mod',strength:1}]}):command==='native_media_describe'?[{name:`bad-${describes}.mp4`,path:`/input/bad-${describes++}.mp4`,kind:'file',symlink:false,media:'video',size:1,modified:1}]:previous(command,args));
- fireEvent.click(screen.getByRole('button',{name:'Load pack (replace)…'}));
+ fireEvent.change(screen.getByRole('combobox',{name:'Load pack…'}),{target:{value:'replace'}});
  await waitFor(()=>expect(document.querySelector('[role="alert"]')?.textContent).toContain('bad-3.mp4'));
  expect(document.querySelector('[data-refmod="new-mod"]')).not.toBeNull();expect(document.querySelector('[data-refmod="refused-mod"]')).toBeNull();expect(document.querySelectorAll('[data-ref]')).toHaveLength(0);
  expect(document.querySelector('[data-video-mode]')?.textContent).toContain('REF2VA');expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();

@@ -92,8 +92,8 @@
 .wb-shown { display: grid; grid-template-rows: auto minmax(0, 1fr); flex: 1; min-height: 0; }
 .wb-shown:has(> .wb-output-choices) { grid-template-rows: auto auto minmax(0, 1fr); }
 .wb-output-choices { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
-.wb-output-choices button { padding: 3px 8px; font-size: .75rem; }
-.wb-output-choices button[aria-pressed="true"] { border-color: var(--copper); }
+/* Skin (colours, pressed fill, hover glow) comes from the shared text-button rule in styles.css. */
+.wb-output-choices button { padding: 3px 10px; font-size: .75rem; line-height: 1.3; }
 .wb-stage .media-preview { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, auto); flex: 1; min-height: 0; min-width: 0; margin: 0; }
 .wb-stage .media-preview img, .wb-stage .media-preview video { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; }
 .wb-stage .media-preview { position: relative; }
@@ -138,10 +138,14 @@
 .wb-edit-tools button { max-width: 100%; min-width: 0; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
 /* Both images share one cell and the same contain-fit, so the clip line lands on the same pixel of each. */
 .wb-compare { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; overflow: hidden; }
-.wb-compare > img, .wb-compare-top { grid-area: 1 / 1; }
+.wb-compare > img, .wb-compare > video, .wb-compare-top { grid-area: 1 / 1; }
 /* The edited picture is clipped by its untransformed wrapper, so zooming (CompareView) never moves the divider. */
 .wb-compare-top { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-height: 0; clip-path: inset(0 0 0 var(--divide)); pointer-events: none; }
-.wb-compare img { transform-origin: 0 0; }
+.wb-compare img, .wb-compare video { transform-origin: 0 0; }
+.wb-compare video { width: 100%; height: 100%; object-fit: contain; }
+.wb-compare-play { position: absolute; top: 8px; right: 8px; z-index: 1; width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 1px solid var(--accent, #c8762c); background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; }
+.wb-compare-play::before { content: '\25B6'; }
+.wb-compare-play[aria-pressed="true"]::before { content: '\23F8'; }
 .wb-compare::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--divide); width: 2px; background: var(--accent, #c8762c); pointer-events: none; }
 .wb-compare input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
 .wb-compare input[type="range"]:focus-visible { opacity: .4; }

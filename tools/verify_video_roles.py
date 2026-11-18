@@ -28,6 +28,11 @@ window.__TAURI_INTERNALS__.invoke=async(command,args={})=>{
 window.__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener(){}};
 """
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#234c63"/><circle cx="160" cy="90" r="40" fill="#81b49a"/></svg>'
+def role(dialog, name):
+    choice=dialog.locator('.reference-assignment select')
+    if choice.count():choice.select_option(name)
+    return dialog.locator('[data-video-role="'+name+'"]')
+
 OUT.mkdir(parents=True, exist_ok=True)
 reports = []
 with sync_playwright() as p:
@@ -50,20 +55,20 @@ with sync_playwright() as p:
             files = dialog.locator('.references-picker')
             files.get_by_role('button', name='frame.png', exact=True).click()
             expect(dialog.locator('[data-video-role-card]')).to_have_count(0)
-            expect(dialog.locator('[data-video-role="source"]')).to_be_disabled()
-            dialog.locator('[data-video-role="both"]').click()
+            expect(role(dialog,'source')).to_be_disabled()
+            role(dialog,'both').click()
             expect(dialog.locator('[data-video-role-card="first"]')).to_contain_text('frame.png')
             expect(dialog.locator('[data-video-role-card="last"]')).to_contain_text('frame.png')
-            expect(dialog.locator('[data-video-role="reference"]')).to_be_disabled()
-            assert dialog.locator('[data-video-role="reference"]').get_attribute('title')
+            expect(role(dialog,'reference')).to_be_disabled()
+            assert role(dialog,'reference').get_attribute('title')
             dialog.locator('header > button').first.click()
             page.locator('[data-model-picker]').select_option('ltx.safetensors')
             page.locator('[data-open-references]').click()
             files.get_by_role('button', name='clip.mp4', exact=True).click()
-            expect(dialog.locator('[data-video-role="source"]')).to_be_enabled()
-            dialog.locator('[data-video-role="source"]').click()
+            expect(role(dialog,'source')).to_be_enabled()
+            role(dialog,'source').click()
             files.get_by_role('button', name='other.png', exact=True).click()
-            dialog.locator('[data-video-role="reference"]').click()
+            role(dialog,'reference').click()
             expect(dialog.locator('[data-video-role-card="source"]')).to_contain_text('clip.mp4')
             expect(dialog.locator('[data-ref="other.png"]')).to_be_visible()
             overflow = dialog.evaluate('d=>[d,...d.querySelectorAll(".references-overlay-body,.references-picker,.references-editor,[data-video-roles],.wb-ref-toolbar")].map(e=>({class:e.className,overflow:e.scrollWidth-e.clientWidth})).filter(x=>x.overflow>2)')
@@ -73,8 +78,8 @@ with sync_playwright() as p:
             dialog.locator('header > button').first.click()
             page.locator('[data-model-picker]').select_option('wan-high.safetensors')
             page.locator('[data-open-references]').click()
-            expect(dialog.locator('[data-video-role="reference"]')).to_be_disabled()
-            expect(dialog.locator('[data-video-role="source"]')).to_be_disabled()
+            expect(role(dialog,'reference')).to_be_disabled()
+            expect(role(dialog,'source')).to_be_disabled()
             assert not errors, errors
             assert not page.evaluate('window.__unexpected'), page.evaluate('window.__unexpected')
             assert not page.evaluate('window.__calls.some(c=>/submit|upload|prepare/.test(c.command)&&c.command!=="native_recipe_prerequisites")')

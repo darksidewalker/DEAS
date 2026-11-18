@@ -121,8 +121,9 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
  for(const [field,value,list] of [['sampler',intent.sampler,context.allow?.samplers],['scheduler',intent.scheduler,context.allow?.schedulers]] as const)if(!list?.includes(value))unavailable.push(`${field}: ${value}`);
  const o=intent.options;
  const options:OptionsPref={...structuredClone(defaultOptions),attention:o?.attention?`a:${o.attention}`:o?.sage?`s:${o.sage}`:'',cache:o?.cache?.node??'',threshold:o?.cache?.threshold??defaultOptions.threshold,compile:o?.compile??'',vae:o?.vaeTile?'tiled':'full',tile:o?.vaeTile??defaultOptions.tile,
-  // The effective prefix is already a literal; preserving it avoids inventing a template.
-  outputNaming:intent.outputPrefix.replace(/^raw\//,''),sigmas:image?intent.sigmas?.join(', ')??'':'',
+  // The intent's prefix is already resolved; feeding it back as a template would freeze date/seed.
+  // The Options keep the user's live template instead (Workbench merges it on restore).
+  sigmas:image?intent.sigmas?.join(', ')??'':'',
   output:video?{...defaultVideoOutput,...intent.output}:{...defaultVideoOutput,imageFormat:(image&&intent.imageFormat)||'png',imageCompression:(image?intent.imageCompression:undefined)??44}};
  if(!intent.outputPrefix.startsWith('raw/'))unsupported.push('outputPrefix');
  if(o?.attention&&!context.allow?.attention?.includes(o.attention))unavailable.push(`attention: ${o.attention}`);

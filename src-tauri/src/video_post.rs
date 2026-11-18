@@ -244,7 +244,7 @@ pub fn inspect_source(path: &Path) -> Result<VideoSourceInspection, String> {
 pub(crate) struct RetainedSource {
     path: std::path::PathBuf,
     pub(crate) metadata: VideoSourceInspection,
-    file: File,
+    file: Option<File>,
     identity: Identity,
 }
 impl RetainedSource {
@@ -254,8 +254,29 @@ impl RetainedSource {
     pub(crate) fn matches_file(&self, file: &File) -> bool {
         identity(file).is_ok_and(|id| id == self.identity)
     }
+    #[cfg(windows)]
+    pub(crate) fn holds_file(&self, file: &File) -> bool {
+        self.file.as_ref().is_some_and(|held| {
+            matches!((crate::win::identity(held),crate::win::identity(file)),(Ok(a),Ok(b)) if a==b)
+        })
+    }
+    #[cfg(windows)]
+    pub(crate) fn release_deletion_handle(mut self) -> Self {
+        drop(self.file.take());
+        self
+    }
+    #[cfg(windows)]
+    pub(crate) fn restore_deletion_handle(mut self) -> Result<Self, String> {
+        let file = open_source(&self.path)?;
+        if identity(&file)? != self.identity {
+            return Err(SOURCE.into());
+        }
+        self.file = Some(file);
+        self.recheck()?;
+        Ok(self)
+    }
     pub(crate) fn recheck(&self) -> Result<(), String> {
-        if identity(&self.file)? != self.identity
+        if identity(self.file.as_ref().ok_or(SOURCE)?)? != self.identity
             || identity(&open_source(&self.path)?)? != self.identity
         {
             return Err(SOURCE.into());
@@ -309,7 +330,7 @@ fn inspect_retained(path: &Path) -> Result<RetainedSource, String> {
     Ok(RetainedSource {
         path: path.to_owned(),
         metadata,
-        file,
+        file: Some(file),
         identity: before,
     })
 }
@@ -779,7 +800,7 @@ pub(crate) fn test_retained(path: &Path, metadata: VideoSourceInspection) -> Ret
     RetainedSource {
         path: path.to_owned(),
         metadata,
-        file,
+        file: Some(file),
         identity,
     }
 }

@@ -39,3 +39,23 @@ it('leaves a mixed saved selection intact when the batch preference write fails'
  render(<><Panel name="Library"/><BulkPanel/></>);vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('quota');});
  fireEvent.click(screen.getByRole('button',{name:'Favorite selected'}));expect(localStorage.getItem('deas.pref.library.local.organization')).toBe(value);expect(screen.getByRole('button',{name:'Library'}).getAttribute('aria-pressed')).toBe('true');expect(screen.getByRole('alert').textContent).toBe('Batch failed');expect(invoke).toHaveBeenCalledWith('native_logs_library_error',{operation:'organization'});
 });
+
+function ScopedPanel({scope,name,identity}:{scope:'local'|'catalog';name:string;identity:string}){const {isFavorite,toggleFavorite}=useModelOrganization(scope);return <button aria-label={name} aria-pressed={isFavorite(identity)} onClick={()=>toggleFavorite(identity)}>Favorite</button>;}
+it('isolates catalog storage/events and preserves exact remote identities',()=>{
+ const identity='["hf","Repo","Folder/Model"]';
+ render(<><ScopedPanel scope="local" name="local" identity={identity}/><ScopedPanel scope="catalog" name="catalog" identity={identity}/><ScopedPanel scope="catalog" name="mirror" identity={identity}/><ScopedPanel scope="catalog" name="different" identity={identity.toLowerCase()}/></>);
+ fireEvent.click(screen.getByRole('button',{name:'catalog'}));
+ expect(screen.getByRole('button',{name:'mirror'}).getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('button',{name:'local'}).getAttribute('aria-pressed')).toBe('false');
+ expect(screen.getByRole('button',{name:'different'}).getAttribute('aria-pressed')).toBe('false');
+ expect(JSON.parse(localStorage.getItem('deas.pref.library.catalog.organization')!)).toEqual({[identity]:{favorite:true}});
+ expect(localStorage.getItem('deas.pref.library.local.organization')).toBeNull();
+});
+
+it('reloads only the matching storage namespace and follows scope changes',()=>{
+ const identity='remote';const view=render(<><ScopedPanel scope="local" name="local" identity={identity}/><ScopedPanel scope="catalog" name="catalog" identity={identity}/></>);
+ localStorage.setItem('deas.pref.library.catalog.organization',JSON.stringify({[identity]:{favorite:true}}));
+ fireEvent(window,new StorageEvent('storage',{key:'deas.pref.library.local.organization'}));expect(screen.getByRole('button',{name:'catalog'}).getAttribute('aria-pressed')).toBe('false');
+ fireEvent(window,new StorageEvent('storage',{key:'deas.pref.library.catalog.organization'}));expect(screen.getByRole('button',{name:'catalog'}).getAttribute('aria-pressed')).toBe('true');expect(screen.getByRole('button',{name:'local'}).getAttribute('aria-pressed')).toBe('false');
+ view.rerender(<><ScopedPanel scope="catalog" name="local" identity={identity}/><ScopedPanel scope="catalog" name="catalog" identity={identity}/></>);expect(screen.getByRole('button',{name:'local'}).getAttribute('aria-pressed')).toBe('true');
+});

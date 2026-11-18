@@ -1,0 +1,3 @@
+export function LibraryGlyph({name}:{name:'search'|'folder'|'grid'|'list'|'model'}) {
+ return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">{name==='search'?<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>:name==='folder'?<path d="M3 6h7l2 2h9v12H3z"/>:name==='grid'?<><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>:name==='list'?<><path d="M8 5h13M8 12h13M8 19h13"/><path strokeWidth="3" d="M3 5h1M3 12h1M3 19h1"/></>:<><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></>}</svg>;
+}

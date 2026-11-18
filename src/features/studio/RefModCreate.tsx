@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { cancelRefMod, refModStatus, submitRefMod, type RefModConcept, type RefModCreated } from '../../lib/jobs';
-import { slotsOf, type VideoRef } from './ReferencesPanel';
+import { slotsOf, referenceKey, type VideoRef } from './ReferencesPanel';
 
 const concepts:RefModConcept[]=['generic','identity','style','motion','audio'];
 type Phase='idle'|'uploading'|'queued'|'running'|'done'|'failed'|'cancelled';
@@ -58,7 +58,7 @@ export function RefModCreate({endpoint,refs,tags,saved,vae,audioVae,vaes=[],audi
   <label><span>{t('studio.run.video.refmodConcept')}</span><select data-refmod-concept value={concept} disabled={locked} onChange={e=>setConcept(e.target.value as RefModConcept)}>{concepts.map(c=><option key={c} value={c}>{t(`studio.run.video.refmodConcept.${c}`)}</option>)}</select></label>
   <label><span>{t('studio.run.video.refmodBundleDescription')}</span><textarea data-refmod-description maxLength={4000} value={description} disabled={locked} onChange={e=>setDescription(e.target.value)}/></label>
   <ul className="refmod-create-members">
-   {refs.map((r,i)=><li key={r.item.src}>
+   {refs.map((r,i)=><li key={referenceKey(r,i)}>
     <label><input type="checkbox" checked={picked[i]} disabled={locked} onChange={e=>setPicked(p=>p.map((v,m)=>m===i?e.target.checked:v))}/><span className="media-mark">{tags[i]}</span> {r.item.name}</label>
     <input type="text" aria-label={t('studio.run.video.refmodMemberDescriptionOf',{name:r.item.name})} maxLength={2000} value={notes[i]} disabled={locked||!picked[i]} onChange={e=>setNotes(n=>n.map((v,m)=>m===i?e.target.value:v))}/>
    </li>)}

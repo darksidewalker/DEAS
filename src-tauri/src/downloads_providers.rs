@@ -177,7 +177,18 @@ fn link_next(p: &Provider, u: &Url, link: Option<String>) -> Result<Option<Url>,
                 .ok_or("Malformed next Link")?;
             let next = u.join(input).map_err(|_| "Invalid next Link")?;
             validate_url(next.as_str(), p.kind == "ollama", true)?;
-            if next.origin() != u.origin() || next.path() != u.path() {
+            // GitHub rewrites /users/{login}/repos pagination to /user/{numeric id}/repos;
+            // accept only that numeric alias and nothing else.
+            let alias = p.kind == "github"
+                && u.path().starts_with("/users/")
+                && u.path().ends_with("/repos")
+                && next.path().len() > "/user//repos".len()
+                && next
+                    .path()
+                    .strip_prefix("/user/")
+                    .and_then(|s| s.strip_suffix("/repos"))
+                    .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()));
+            if next.origin() != u.origin() || !(next.path() == u.path() || alias) {
                 return Err("Next page escaped adapter endpoint".into());
             }
             return Ok(Some(next));
@@ -541,6 +552,10 @@ pub(super) async fn list(
                         }
                         let mut api = api;
                         api.set_query(None); // current default ref only; no secret URLs exposed
+                                             // Hidden repository metadata is not a model download; safe_name rejects it.
+                        if name.starts_with('.') {
+                            continue;
+                        }
                         resources.push(file(
                             format!("github:{}:{}", r.locator, text(item, "path")?),
                             name.into(),

@@ -1,0 +1,31 @@
+.wb-prompt-expand.wb-prompt-tags { top:102px; display:grid; place-items:center; }
+.tag-options-dialog { position:fixed; inset:0; margin:auto; width:min(28.5rem,calc(100vw - 1rem)); max-height:calc(100dvh - 1rem); padding:0; border:1px solid var(--line); border-radius:.6rem; background:var(--panel); color:var(--chalk); }
+.tag-options-dialog[open] { display:flex; flex-direction:column; }
+.tag-options-dialog::backdrop { background:#0006; }
+.tag-options-dialog header { display:flex; flex:none; align-items:center; justify-content:space-between; gap:.5rem; padding:.6rem .75rem; border-bottom:1px solid var(--line); }
+.tag-options-dialog h2 { margin:0; font-size:.9rem; }
+.tag-options-dialog button { border:1px solid var(--line); border-radius:.35rem; background:var(--field); color:var(--chalk); padding:.3rem .55rem; font-size:.75rem; line-height:1.4; }
+.tag-options-body { overflow:auto; min-height:0; padding:.75rem; display:grid; gap:.65rem; font-size:.78rem; line-height:1.4; }
+.tag-options-body label { display:flex; align-items:center; justify-content:flex-start; gap:.5rem; margin:0; min-width:0; text-align:left; font-size:inherit; line-height:1.4; }
+/* Global text inputs fill their row; checkbox/radio controls must retain intrinsic size. */
+.tag-options-body input:is([type="checkbox"],[type="radio"]) { flex:0 0 14px; width:14px; min-width:14px; max-width:14px; height:14px; padding:0; margin:0; box-sizing:border-box; }
+.tag-options-body p { color:var(--muted); font-size:.69rem; margin:0; }
+.tag-options-body fieldset { display:grid; gap:.45rem; min-width:0; margin:0; padding:.5rem .6rem .6rem; border:1px solid var(--line); border-radius:.4rem; }
+.tag-options-body legend { padding:0 .2rem; font-size:.73rem; font-weight:600; }
+.tag-options-body .tag-options-toggle { padding:.15rem 0; font-weight:600; }
+.tag-options-body .tag-display-options { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+.tag-display-options label { padding:.4rem; border:1px solid var(--line); border-radius:.35rem; }
+.tag-display-options label:has(input:checked) { background:var(--surface); border-color:var(--copper); }
+.tag-options-numbers { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:.75rem; }
+.tag-options-body .tag-options-select { display:grid; gap:.25rem; align-content:start; }
+.tag-options-select select { width:100%; min-width:0; padding:.3rem .5rem; font-size:.75rem; }
+.tag-source-row { padding:.2rem 0; }
+.tag-source-row > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.tag-source-row small { display:block; color:var(--muted); font-size:.66rem; margin-top:.05rem; }
+.tag-options-flags { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:.65rem; }
+.tag-options-body .tag-options-footnote { padding-top:.45rem; border-top:1px solid var(--line); }
+.wb-prompt:has(.wb-prompt-tags) textarea { min-height:142px; }
+
+.tag-source-entry { display:flex; align-items:center; gap:.5rem; min-width:0; }
+.tag-source-entry .tag-source-row { flex:1; }
+.tag-options-dialog .tag-source-remove { flex:none; display:grid; place-items:center; width:26px; height:26px; padding:0; color:var(--danger); }

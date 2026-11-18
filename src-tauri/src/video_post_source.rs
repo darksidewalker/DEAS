@@ -42,17 +42,50 @@ pub(crate) fn source(id: &str) -> Result<Arc<RetainedSource>, String> {
 
 /// Hold admission across removal so a concurrent inspection cannot retain the deleted file.
 pub(crate) fn with_deleted_source(
-    file: &std::fs::File,
+    file: std::fs::File,
     remove: impl FnOnce() -> Result<(), String>,
 ) -> Result<Option<String>, String> {
-    let session = SESSION.lock().map_err(|_| INVALID)?;
+    let mut session = SESSION.lock().map_err(|_| INVALID)?;
     let source_id = session
         .source
         .as_ref()
-        .filter(|source| source.recheck().is_ok() && source.matches_file(file))
+        .filter(|source| source.recheck().is_ok() && source.matches_file(&file))
         .and_then(|source| source.metadata.source_id.clone());
-    remove()?;
-    Ok(source_id)
+    // Identity has been correlated under admission. The temporary clone must
+    // not keep the filename pending while the remover verifies disappearance.
+    #[cfg(windows)]
+    let held_by_source = session
+        .source
+        .as_ref()
+        .is_some_and(|source| source.holds_file(&file));
+    drop(file);
+    #[cfg(windows)]
+    let restore = if held_by_source {
+        let held = session.source.take().ok_or(INVALID)?;
+        match Arc::try_unwrap(held) {
+            Ok(source) => Some(source.release_deletion_handle()),
+            Err(held) => {
+                session.source = Some(held);
+                return Err(
+                    "Video source is still in use; finish the active operation before deleting it"
+                        .into(),
+                );
+            }
+        }
+    } else {
+        None
+    };
+    let result = remove();
+    #[cfg(windows)]
+    if result.is_err() {
+        if let Some(source) = restore {
+            session.source = source.restore_deletion_handle().ok().map(Arc::new);
+        }
+    }
+    if result.is_ok() && source_id.is_some() {
+        session.source = None;
+    }
+    result.map(|()| source_id)
 }
 
 pub(crate) fn strict_id(id: &str) -> Result<(), String> {
@@ -201,7 +234,7 @@ mod tests {
             metadata("source.mp4"),
         ))
         .unwrap();
-        let result = with_deleted_source(&fs::File::open(&path).unwrap(), || {
+        let result = with_deleted_source(fs::File::open(&path).unwrap(), || {
             assert!(
                 SESSION.try_lock().is_err(),
                 "inspection admission must wait for removal"
@@ -212,6 +245,50 @@ mod tests {
         assert!(source(inspected.source_id.as_deref().unwrap()).is_ok());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn active_source_borrow_blocks_deletion_without_losing_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("borrowed source.mp4");
+        fs::write(&path, b"abcdefghijklmnop").unwrap();
+        let inspected = retain_source(crate::video_post::test_retained(
+            &path,
+            metadata("source.mp4"),
+        ))
+        .unwrap();
+        let id = inspected.source_id.unwrap();
+        let held = source(&id).unwrap();
+        let result = with_deleted_source(fs::File::open(&path).unwrap(), || {
+            panic!("an active source must not be deleted")
+        });
+        assert!(result.unwrap_err().contains("still in use"));
+        drop(held);
+        assert!(source(&id).is_ok());
+        assert_eq!(fs::read(&path).unwrap(), b"abcdefghijklmnop");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_deletion_never_restores_a_different_file_under_the_old_source_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.mp4");
+        let saved = dir.path().join("original.mp4");
+        fs::write(&path, b"abcdefghijklmnop").unwrap();
+        let inspected = retain_source(crate::video_post::test_retained(
+            &path,
+            metadata("source.mp4"),
+        ))
+        .unwrap();
+        let id = inspected.source_id.unwrap();
+        let result = with_deleted_source(fs::File::open(&path).unwrap(), || {
+            fs::rename(&path, &saved).unwrap();
+            fs::write(&path, b"a different replacement source").unwrap();
+            Err("injected failure".into())
+        });
+        assert!(result.is_err());
+        assert!(source(&id).is_err());
+        assert_eq!(fs::read(&saved).unwrap(), b"abcdefghijklmnop");
+        assert_eq!(fs::read(&path).unwrap(), b"a different replacement source");
+    }
     #[test]
     fn permission_and_registration() {
         for name in ["native_video_post_upload", "native_video_post_inspect_path"] {

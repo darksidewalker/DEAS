@@ -197,6 +197,12 @@ test('Studio organization search opens selection only once and never invokes an 
  }finally{tools.remove();}
 });
 
+test('catalog personal notes search opens Details without browsing or changing organization',async()=>{
+ const root=document.createElement('section');root.dataset.catalogGallery='';const details=document.createElement('button');details.className='catalog-details';const notes=document.createElement('textarea');notes.dataset.catalogDetailNotes='';notes.value='keep catalog notes';
+ const open=vi.fn(()=>root.append(notes));details.onclick=open;root.append(details);document.body.append(root);const onNavigate=mount();const saved=JSON.stringify(localStorage);
+ try{fireEvent.keyDown(window,{key:'k',ctrlKey:true});fireEvent.change(screen.getByPlaceholderText('Find a control…'),{target:{value:'catalog personal notes'}});fireEvent.click(screen.getByRole('button',{name:/Library › Catalog › Personal notes/}));await waitFor(()=>expect(document.activeElement).toBe(notes));expect(notes.value).toBe('keep catalog notes');expect(open).toHaveBeenCalledTimes(1);expect(JSON.stringify(localStorage)).toBe(saved);expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({libraryView:'catalog',target:'[data-catalog-detail-notes]'}));}finally{root.remove();}
+});
+
 test('matching uses the current language and English aliases, and stays read-only', () => {
   const text = (key: string) => `${bundledCatalog.dictionaries.en[key] ?? key} ${bundledCatalog.dictionaries.de[key] ?? key}`;
   expect(matchEntries(searchIndex, 'Ausführen', text).map((entry) => entry.target)).toContain('[data-run]');

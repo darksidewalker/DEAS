@@ -34,3 +34,13 @@ test('CI blocks layout regressions using actual dynamically discovered tabs and 
   assert.match(script, /negative control: footer-only gap is rejected/);
   assert.match(script, /long future content reachable/);
 });
+
+test('paired output choices use the shared button skin; Library searches keep the standard field height', () => {
+  const css = read('src/styles.css');
+  const skinned = css.split(/\{/).filter(head => head.includes('.wb-output-choices button'));
+  assert.equal(skinned.length, 4, 'base, hover, pressed and disabled shared skin rules');
+  const workbench = read('src/features/studio/workbench.css');
+  assert.doesNotMatch(workbench, /\.wb-output-choices button[^{]*\{[^}]*(background|border-color|color):/);
+  assert.match(read('src/features/downloads/downloads.css'), /\.catalog-actions :is\(select,input\) \{ height:1\.8rem; min-height:1\.8rem; \}/);
+  assert.match(read('src/features/downloads/installedGallery.css'), /\.library-search input \{[^}]*height:calc\(1\.8rem - 2px\)/);
+});

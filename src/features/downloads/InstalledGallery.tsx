@@ -15,6 +15,7 @@ import type { LocalModel } from '../../lib/models';
 import { checkModel, modelCheckText } from '../../lib/modelCheck';
 import { ModelDeclaredBadge, ModelMetadataTarget, ModelMetadataEditor } from '../../components/models/ModelMetadataEditor';
 import './installedGallery.css';
+import { LibraryGlyph } from './LibraryGlyph';
 import { reportLibraryError } from './libraryDiagnostics';
 import { ModelFolderTree } from '../../components/ModelFolderTree';
 
@@ -27,12 +28,9 @@ const sizeOf=(bytes:number)=>bytes>=1073741824?`${(bytes/1073741824).toFixed(1)}
 const order=['models','loras','vae','text_encoders','clip_vision','controlnet','upscale_models','embeddings'];
 const PAGE_SIZE=60;
 
-function Glyph({name}:{name:'search'|'folder'|'grid'|'list'|'model'}) {
- return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">{name==='search'?<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>:name==='folder'?<path d="M3 6h7l2 2h9v12H3z"/>:name==='grid'?<><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>:name==='list'?<><path d="M8 5h13M8 12h13M8 19h13"/><path strokeWidth="3" d="M3 5h1M3 12h1M3 19h1"/></>:<><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></>}</svg>;
-}
 
 function Cover({model}:{model:LocalModel}) {
- return <ModelPreview model={model} className="download-preview" fallback={<div className="download-preview library-placeholder"><Glyph name="model"/><span>{model.name.split('.').at(-1)?.toUpperCase()}</span></div>}/>;
+ return <ModelPreview model={model} className="download-preview" fallback={<div className="download-preview library-placeholder"><LibraryGlyph name="model"/><span>{model.name.split('.').at(-1)?.toUpperCase()}</span></div>}/>;
 }
 
 export function InstalledGallery({models,loaded,root,category,setCategory,selected,setSelected,locked,actions,feedback,renderDetail,onFetch,fetchBusy}:{models:LocalModel[];loaded:boolean;root:string;category:string;setCategory:(value:string)=>void;selected:string;setSelected:(value:string)=>void;locked:boolean;actions:ReactNode;feedback:ReactNode;renderDetail:(model:LocalModel)=>ReactNode;onFetch?:(models:LocalModel[],missingOnly:boolean)=>void;fetchBusy?:boolean}) {
@@ -89,7 +87,7 @@ export function InstalledGallery({models,loaded,root,category,setCategory,select
   {organizationError&&<p role="alert">{t('library.organizationFailed')}</p>}
   <nav className="library-browse" aria-label={t('library.browse')}>
     <span className="library-section-label">{t('library.browse')}</span>
-    <div className="library-types" role="tablist" aria-label={t('downloads.category')}>{tabs.map(c=><button role="tab" key={c} type="button" aria-label={t(`downloads.folder.${c}`)} aria-selected={active===c} disabled={locked} onClick={()=>{setSelected('');setCategory(c);}}><Glyph name={c==='loras'?'model':'folder'}/><span>{t(`downloads.folder.${c}`)}</span><small>{models.filter(m=>bucket(m)===c).length}</small></button>)}</div>
+    <div className="library-types" role="tablist" aria-label={t('downloads.category')}>{tabs.map(c=><button role="tab" key={c} type="button" aria-label={t(`downloads.folder.${c}`)} aria-selected={active===c} disabled={locked} onClick={()=>{setSelected('');setCategory(c);}}><LibraryGlyph name={c==='loras'?'model':'folder'}/><span>{t(`downloads.folder.${c}`)}</span><small>{models.filter(m=>bucket(m)===c).length}</small></button>)}</div>
   </nav>
   <div className="library-layout">
    <aside className="library-sidebar" aria-label={t('library.navigation')}>
@@ -103,10 +101,10 @@ export function InstalledGallery({models,loaded,root,category,setCategory,select
     {tags.length>0&&<label>{t('library.tags')}<select value={tag} onChange={e=>setTag(e.target.value)}><option value="">{t('library.allTags')}</option>{tags.map(value=><option key={value}>{value}</option>)}</select></label>}
     <label className="library-checkbox"><input type="checkbox" checked={blur} onChange={e=>setBlur(e.target.checked)}/>{t('library.blur')}</label>
     <button className="library-text-button" type="button" onClick={reset}>{t('library.reset')}</button>
-    <div className="library-root" title={root}><Glyph name="folder"/><span>{root}</span></div>
+    <div className="library-root" title={root}><LibraryGlyph name="folder"/><span>{root}</span></div>
    </aside>
    <div className="library-workspace">
-    <div className="library-toolbar"><div className="library-search"><Glyph name="search"/><input data-library-local-search aria-label={t('library.search')} placeholder={t('library.searchHint')} value={query} maxLength={200} onChange={e=>setQuery(e.target.value)}/>{query&&<button type="button" aria-label={t('library.clearSearch')} onClick={()=>setQuery('')}>×</button>}</div><ModelSortControl value={sort} onChange={setSort} onShuffle={()=>setShuffleSeed(n=>n+1)}/><ModelViewAllControl value={viewAll} onChange={setViewAll}/><div className="library-view-switch" role="group" aria-label={t('library.view')}>{(['grid','list'] as const).map(mode=><button key={mode} type="button" aria-pressed={layout===mode} aria-label={t(`library.${mode}`)} title={t(`library.${mode}`)} onClick={()=>setLayout(mode)}><Glyph name={mode}/></button>)}</div></div>
+    <div className="library-toolbar"><div className="library-search"><LibraryGlyph name="search"/><input data-library-local-search aria-label={t('library.search')} placeholder={t('library.searchHint')} value={query} maxLength={200} onChange={e=>setQuery(e.target.value)}/>{query&&<button type="button" aria-label={t('library.clearSearch')} onClick={()=>setQuery('')}>×</button>}</div><ModelSortControl value={sort} onChange={setSort} onShuffle={()=>setShuffleSeed(n=>n+1)}/><ModelViewAllControl value={viewAll} onChange={setViewAll}/><div className="library-view-switch" role="group" aria-label={t('library.view')}>{(['grid','list'] as const).map(mode=><button key={mode} type="button" aria-pressed={layout===mode} aria-label={t(`library.${mode}`)} title={t(`library.${mode}`)} onClick={()=>setLayout(mode)}><LibraryGlyph name={mode}/></button>)}</div></div>
 
     <div className="library-results-summary"><span>{t('library.showing',{shown:Math.min(limit,matching.length),total:matching.length})}</span><span>{sizeOf(matching.reduce((sum,m)=>sum+m.size,0))}</span></div>
     <div className="library-body" data-model-scroll>
@@ -116,13 +114,13 @@ export function InstalledGallery({models,loaded,root,category,setCategory,select
        return <article key={m.path} className={`library-card${selected===m.path?' is-selected':''}${blur&&info?.nsfw?' is-sensitive':''}`}>
         <ModelMetadataTarget model={m} actions={m.category==='loras'?[{label:t('library.addLora'),onClick:()=>addLora(m),disabled:locked}]:[]}><button type="button" className="download-card library-card-main" aria-label={m.name} aria-haspopup="dialog" aria-keyshortcuts="Shift+F10" aria-pressed={selected===m.path} disabled={locked} onClick={()=>setSelected(selected===m.path?'':m.path)}>
          <div className="library-card-art"><Cover model={m}/><span className="library-family-badge">{familyOf(m)||t('library.unclassified')}</span>{info?.nsfw&&<span className="library-mature-badge">{t('downloads.nsfwTag')}</span>}</div>
-         <div className="library-card-caption"><strong>{titleOf(m)}</strong><span className="library-card-version">{info?.version??filename(m)}</span><div className="library-card-bottom"><span>{sizeOf(m.size)}</span><span title={folderOf(m)}><Glyph name="folder"/>{folderOf(m).split('/').at(-1)||t('library.rootFolder')}</span></div><ModelDeclaredBadge model={m}/><small className="library-model-check">{modelCheckText(checkModel(m),t)}</small></div>
+         <div className="library-card-caption"><strong>{titleOf(m)}</strong><span className="library-card-version">{info?.version??filename(m)}</span><div className="library-card-bottom"><span>{sizeOf(m.size)}</span><span title={folderOf(m)}><LibraryGlyph name="folder"/>{folderOf(m).split('/').at(-1)||t('library.rootFolder')}</span></div><ModelDeclaredBadge model={m}/><small className="library-model-check">{modelCheckText(checkModel(m),t)}</small></div>
         </button></ModelMetadataTarget>
         {m.category==='loras'&&<button type="button" className="library-add-lora" disabled={locked} aria-label={`${t('library.addLora')}: ${m.name}`} title={t('library.addLora')} onClick={()=>addLora(m)}>+</button>}
         <button type="button" className="library-star" aria-label={t(isFavorite(m.path)?'library.unfavorite':'library.favorite',{name:m.name})} aria-pressed={isFavorite(m.path)} onClick={()=>favorite(m)}>{isFavorite(m.path)?'★':'☆'}</button>
        </article>;
       })}</div>
-      {loaded&&matching.length===0&&<div className="library-empty"><Glyph name="search"/><h3>{t('library.noResults')}</h3><p>{models.length?t('library.noResultsHelp'):t('downloads.installed.empty',{root})}</p>{models.length>0&&<button type="button" className="action-button" onClick={reset}>{t('library.reset')}</button>}</div>}
+      {loaded&&matching.length===0&&<div className="library-empty"><LibraryGlyph name="search"/><h3>{t('library.noResults')}</h3><p>{models.length?t('library.noResultsHelp'):t('downloads.installed.empty',{root})}</p>{models.length>0&&<button type="button" className="action-button" onClick={reset}>{t('library.reset')}</button>}</div>}
       {matching.length>limit&&(viewAll?<ModelAutoLoad onMore={()=>setLimit(n=>n+PAGE_SIZE)}/>:<button type="button" className="library-load-more" onClick={()=>setLimit(n=>n+PAGE_SIZE)}>{t('library.loadMore',{count:Math.min(PAGE_SIZE,matching.length-limit)})}</button>)}
      </div>
      {picked&&createPortal(<dialog ref={popup} {...backdrop} className="library-model-dialog" aria-label={t('library.details')} onCancel={e=>{if(e.target!==e.currentTarget)return;e.preventDefault();(document.activeElement as HTMLElement)?.blur();clearSelection();}}><aside className="library-inspector">

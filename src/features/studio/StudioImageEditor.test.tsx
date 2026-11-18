@@ -506,3 +506,16 @@ test('Ctrl+wheel resizes the brush while painting; a plain wheel still zooms',()
  act(()=>{viewport.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,ctrlKey:true,cancelable:true}));});
  expect(diameter()).toBe('53'); // no brush active: Ctrl+wheel does not resize
 });
+test('screen pipette applies the picked colour, keeps it on cancel and explains unsupported runtimes',async()=>{
+ mount();fireEvent.click(screen.getByRole('button',{name:'Base image'}));
+ const swatch=document.querySelector('.sie-color input[type=color]') as HTMLInputElement;
+ (window as any).EyeDropper=class{open(){return Promise.resolve({sRGBHex:'#00FF00'})};};
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Screen eyedropper'}));});
+ expect((swatch as HTMLInputElement).value).toBe('#00ff00');
+ (window as any).EyeDropper=class{open(){return Promise.reject(new Error('User cancelled'));};};
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Screen eyedropper'}));});
+ expect((swatch as HTMLInputElement).value).toBe('#00ff00');
+ delete (window as any).EyeDropper;
+ fireEvent.click(screen.getByRole('button',{name:'Screen eyedropper'}));
+ expect(await screen.findByText(/no screen eyedropper/i)).toBeTruthy();
+});

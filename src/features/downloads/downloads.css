@@ -65,10 +65,10 @@
 .auth-provider[aria-pressed="true"] { border-color: var(--copper); border-inline-start-color: var(--copper); }
 .auth-provider.is-set[aria-pressed="true"] { border-inline-start-color: var(--ok); }
 .auth-settings { display: grid; gap: .75rem; padding: .8rem; border: 1px solid var(--copper); border-radius: .7rem; }
-/* Library header: view tabs left, the run-everything button top right. */
+/* Library view tabs are separate from the source/search/download action row. */
 .download-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .5rem; border-bottom: 1px solid rgb(var(--ink-rgb) / 0.102); }
 .download-head .studio-tabs { padding-top: 0; }
-.download-controls .download-start-all { margin-bottom: .4rem; padding: .55rem 1.1rem; }
+.download-controls .download-start-all { margin:0; padding:.55rem 1.1rem; }
 .download-basket { display: grid; gap: .35rem; padding: .6rem .8rem; border: 1px solid rgb(var(--ok-rgb) / 0.4); border-radius: .7rem; }
 .download-basket h3 { margin: 0; font-size: .85rem; }
 .download-basket ul { display: grid; gap: .2rem; margin: 0; padding: 0; list-style: none; font-size: .78rem; }
@@ -87,3 +87,18 @@
 .download-controls .download-source, .download-search { position: relative; flex: 0 1 16rem; min-width: 0; }
 .download-controls .download-search input { width: 100%; height: 1.8rem; box-sizing: border-box; padding: 0 8px; }
 .download-controls .download-search input { padding-right: 2rem; }
+
+/* Match Installed's action line without a detached download control. */
+.catalog-actions { justify-content:flex-start; align-items:flex-end; flex:none; }
+.download-controls .catalog-actions .download-source,.catalog-actions .download-search { flex:0 1 16rem; min-width:0; }
+/* Source and search keep the standard 1.8rem field height shared by the Media/Logs searches and filter selects. */
+.download-controls .catalog-actions :is(select,input) { height:1.8rem; min-height:1.8rem; }
+.catalog-actions .download-search-go { height:calc(1.8rem - 4px); max-height:none; bottom:2px; width:2rem; }
+.catalog-basket { flex:none; max-height:6rem; }
+.catalog-library .catalog-details { position:absolute; bottom:.4rem; right:.4rem; padding:.25rem .45rem; font-size:.65rem; }
+.catalog-library .download-picker { min-width:0; }
+@media(max-width:650px) {
+ .download-controls .catalog-actions .download-source,.catalog-actions .download-search { flex:1 1 12rem; }
+ /* Keep both internal panes usable; the existing outer Library scroller carries the header. */
+ .aio-setup[data-workspace-view="downloads"] .catalog-library { min-height:36rem; flex-shrink:0; }
+}

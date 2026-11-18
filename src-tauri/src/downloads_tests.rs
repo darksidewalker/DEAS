@@ -719,7 +719,7 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
     }
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let reply = serde_json::json!([{"type":"file","name":"tiny.bin","path":"dir/tiny.bin","size":3,"url":format!("{origin}/repos/alice/tiny/contents/dir/tiny.bin?ref=main")}]);
+    let reply = serde_json::json!([{"type":"file","name":".hidden","path":"dir/.hidden","size":5,"url":format!("{origin}/repos/alice/tiny/contents/dir/.hidden")},{"type":"file","name":"tiny.bin","path":"dir/tiny.bin","size":3,"url":format!("{origin}/repos/alice/tiny/contents/dir/tiny.bin?ref=main")}]);
     let task = thread::spawn(move || {
         let (mut s, _) = listener.accept().unwrap();
         let req = request(&mut s);
@@ -744,6 +744,8 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
         nsfw: false,
     };
     let page = providers::list(&p, &r, None, None).await.unwrap();
+    // Hidden repository metadata is skipped, not fatal, mirroring the Hugging Face adapter.
+    assert_eq!(page.resources.len(), 1);
     assert!(page.resources[0]
         .url
         .as_deref()
@@ -753,6 +755,57 @@ async fn official_adapter_shapes_use_real_fixture_transport() {
         .join()
         .unwrap()
         .starts_with("GET /repos/alice/tiny/contents/dir "));
+}
+#[tokio::test]
+async fn github_user_pagination_may_switch_to_canonical_user_id_path() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let origin2 = origin.clone();
+    let task = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        request(&mut s);
+        let body = b"[{\"full_name\":\"alice/tiny\"}]";
+        write!(s,"HTTP/1.1 200 OK\r\nLink: <{origin2}/user/166579949/repos?per_page=50&page=2>; rel=\"next\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
+        s.write_all(body).unwrap();
+    });
+    let mut p = provider(origin);
+    p.kind = "github".into();
+    p.scopes = vec!["user".into()];
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "user".into(),
+        locator: "alice".into(),
+        cursor: None,
+        authenticated: false,
+        nsfw: false,
+    };
+    let page = providers::list(&p, &r, None, None).await.unwrap();
+    assert_eq!(page.resources.len(), 1);
+    task.join().unwrap();
+    // A non-numeric alias must stay rejected.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let origin2 = origin.clone();
+    let task = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        request(&mut s);
+        let body = b"[]";
+        write!(s,"HTTP/1.1 200 OK\r\nLink: <{origin2}/user/eve/repos?per_page=50&page=2>; rel=\"next\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
+        s.write_all(body).unwrap();
+    });
+    let mut p = provider(origin);
+    p.kind = "github".into();
+    p.scopes = vec!["user".into()];
+    let r = BrowseRequest {
+        provider_id: p.id.clone(),
+        scope: "user".into(),
+        locator: "alice".into(),
+        cursor: None,
+        authenticated: false,
+        nsfw: false,
+    };
+    assert!(providers::list(&p, &r, None, None).await.is_err());
+    task.join().unwrap();
 }
 #[tokio::test]
 async fn continuation_is_native_opaque_and_bound_to_request() {

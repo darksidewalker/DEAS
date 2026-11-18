@@ -90,6 +90,8 @@ pub use directory::{native_json_open, native_json_save, native_pick_directory};
 pub mod media;
 mod media_delete;
 pub use media_delete::native_media_delete;
+pub mod color_picker;
+pub use color_picker::native_pick_screen_color;
 pub mod media_export;
 pub use media_export::native_media_export_clean;
 pub mod media_metadata;
@@ -668,3 +670,5 @@ mod tests {
         }
     }
 }
+
+pub mod tag_completion;

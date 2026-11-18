@@ -164,7 +164,7 @@ test.each([true,false])('paired video role selection renders one player even wit
  render(<I18nProvider><Workbench endpoint={evidence.baseUrl}/></I18nProvider>);
  await waitFor(()=>expect(document.querySelector('[data-output-role="original"]')).toBeTruthy());
  expect(document.querySelectorAll('.wb-shown video')).toHaveLength(1);
- if(owned){const slider=document.querySelector<HTMLButtonElement>('[data-edit-compare]')!;expect(slider.disabled).toBe(true);expect(slider.title).toBe('The slider compares pictures only; video compare is not available yet.');fireEvent.click(slider);expect(document.querySelector('.wb-compare')).toBeNull();}
+ if(owned){const slider=document.querySelector<HTMLButtonElement>('[data-edit-compare]')!;expect(slider.disabled).toBe(false);fireEvent.click(slider);const original=document.querySelector<HTMLVideoElement>('.wb-compare video')!,edited=document.querySelector<HTMLVideoElement>('.wb-compare-top video')!;expect(original.src).toContain('original.mp4');expect(edited.src).toContain('processed.mp4');const toggle=document.querySelector<HTMLButtonElement>('.wb-compare-play')!;expect(toggle.getAttribute('aria-pressed')).toBe('false');fireEvent.click(toggle);expect(toggle.getAttribute('aria-pressed')).toBe('true');original.currentTime=3;edited.currentTime=0;original.dispatchEvent(new Event('timeupdate'));expect(edited.currentTime).toBe(3);fireEvent.click(slider);expect(document.querySelector('.wb-compare')).toBeNull();}
  fireEvent.click(document.querySelector('[data-output-role="original"]')!);
  expect(document.querySelectorAll('.wb-shown video')).toHaveLength(1);
  expect(document.querySelector('.wb-shown video')?.getAttribute('src')).toContain('original.mp4');
@@ -991,7 +991,7 @@ test('vision offer card shows the hosting platform and downloads via the Library
  expect(promptDrop().dropEffect).toBe('copy');
  const dialog=await screen.findByRole('dialog',{name:/No CLIP vision model installed/});
  expect(document.querySelector('[data-vision-download]')).not.toBeNull();
- for(const [text,tag] of [['SDXL ReVision vision tower','span'],['ReVision CivitAI mirror','span'],['Hugging Face','em.download-auth'],['CivitAI','em.download-auth']] as const)expect(within(dialog).getByText(text,{selector:tag})).not.toBeNull();
+ for(const [text,tag] of [['SDXL ReVision vision tower','strong'],['ReVision CivitAI mirror','strong'],['Hugging Face','em.download-auth'],['CivitAI','em.download-auth']] as const)expect(within(dialog).getByText(text,{selector:tag})).not.toBeNull();
  const before=vi.mocked(checkRecipePrerequisites).mock.calls.length;
  await within(dialog).findByLabelText('clip_vision_g.safetensors');
  fireEvent.click(within(dialog).getByLabelText('clip_vision_g.safetensors'));

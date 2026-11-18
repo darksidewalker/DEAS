@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import { useTagCompletion, completionSearch, usesExtraCompletion } from '../../lib/tagCompletion';
 import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState, type TextareaHTMLAttributes } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -32,6 +34,8 @@ function replaceRange(el: HTMLTextAreaElement, start: number, end: number, text:
 
 export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(function PromptTextarea({ root, target, onChange, onSelect, onFocus, onBlur, onKeyDown, onCompositionStart, onCompositionEnd, ...props }, ref) {
   const tools = usePromptTools();
+  const {options:tagOptions}=useTagCompletion();
+  const [floatingStyle,setFloatingStyle]=useState<React.CSSProperties>({});
   const { t } = useI18n();
   const id = useId();
   const local = useRef<HTMLTextAreaElement>(null);
@@ -51,7 +55,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
   const [fix, setFix] = useState<{ mark: SpellMark; items: string[] | null } | null>(null);
   const [fixCursor, setFixCursor] = useState(0);
   // Render-time scope also rejects promises resolved before effect cleanup runs.
-  const scope = JSON.stringify([root, target, tools.autocomplete, tools.spellcheck, tools.language, props.disabled, props.readOnly, props.value, props.maxLength]);
+  const scope = JSON.stringify([root, target, tools.autocomplete, tools.spellcheck, tools.language, tagOptions, props.disabled, props.readOnly, props.value, props.maxLength]);
   const latest = useRef(scope);
   latest.current = scope;
   const fingerprint = () => { const el = local.current; return el ? JSON.stringify([el.value, el.selectionStart, el.selectionEnd, focused.current, composing.current]) : ''; };
@@ -104,9 +108,9 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
     if (prefix.length < 2) return;
     const timer = setTimeout(() => {
       if (!valid()) return;
-      void tagSearch(root, target, prefix).then(result => {
+      void (usesExtraCompletion(tagOptions)?completionSearch(root,target,prefix,tagOptions):tagSearch(root, target, prefix)).then(result => {
         if (valid()) {
-          setHits(result.filter(hit => props.maxLength === undefined || props.maxLength < 0 || replacement(el, hit.tag).value.length <= props.maxLength).slice(0, 8));
+          setHits(result.filter(hit => props.maxLength === undefined || props.maxLength < 0 || replacement(el, hit.tag).value.length <= props.maxLength).slice(0, tagOptions.limit));
           setCursor(0);
         }
       }, e => { if (valid()) setError(forgeError(e)); });
@@ -117,6 +121,8 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
   useEffect(() => {
     document.getElementById(`${id}-${cursor}`)?.scrollIntoView?.({ block: 'nearest' });
   }, [cursor, hits, id]);
+
+  useLayoutEffect(()=>{if(!tagOptions.floating||!hits.length)return;const position=()=>{const el=local.current;if(!el)return;const r=el.getBoundingClientRect(),below=innerHeight-r.bottom-8,above=r.top-8,up=below<240&&above>below,height=Math.max(40,Math.min(384,up?above:below)),width=Math.min(Math.max(r.width,420),640,innerWidth-16);setFloatingStyle({left:Math.max(8,Math.min(r.left,innerWidth-width-8)),top:up?Math.max(8,r.top-height-4):r.bottom+4,width,maxHeight:height});};position();const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(position);if(local.current)observer?.observe(local.current);window.addEventListener('resize',position);window.addEventListener('scroll',position,true);return()=>{observer?.disconnect();window.removeEventListener('resize',position);window.removeEventListener('scroll',position,true);};},[tagOptions.floating,hits.length]);
 
   const pick = (hit: TagSuggestion) => {
     const el = local.current!;
@@ -129,6 +135,13 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
     dismissed.current = fingerprint();
     sync();
   };
+
+  const suggestions=(<ul id={id} className={`prompt-suggestions${tagOptions.floating?' prompt-suggestions-floating':''}`} style={tagOptions.floating?floatingStyle:undefined} role="listbox" aria-label={t('forge.tags.search')}>
+      {hits.map((hit, i) => <li id={`${id}-${i}`} key={`${hit.tag}-${i}`} role="option" aria-selected={cursor === i} title={[hit.matchedAlias,hit.description,hit.source].filter(Boolean).join(' · ')}
+        onMouseDown={e => { e.preventDefault(); pick(hit); }}>
+        <span>{hit.tag}{tagOptions.floating&&hit.description&&<small className="prompt-suggestion-description">{hit.description}</small>}</span><em>{hit.category} · {hit.count.toLocaleString()}</em>
+      </li>)}
+    </ul>);
 
   return <div className="prompt-textarea">
     <textarea {...props} spellCheck={native ? false : tools.spellcheck} lang={tools.language} ref={node => {
@@ -172,12 +185,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
         : fix.items.length === 0 ? <li className="prompt-fix-none">{t('spellcheck.noSuggestions')}</li>
         : fix.items.map((item, i) => <li key={item} role="option" aria-selected={fixCursor === i} onMouseDown={e => { e.preventDefault(); applyFix(item); }}><span>{item}</span></li>)}
     </ul>}
-    {hits.length > 0 && <ul id={id} className="prompt-suggestions" role="listbox" aria-label={t('forge.tags.search')}>
-      {hits.map((hit, i) => <li id={`${id}-${i}`} key={`${hit.tag}-${i}`} role="option" aria-selected={cursor === i}
-        onMouseDown={e => { e.preventDefault(); pick(hit); }}>
-        <span>{hit.tag}</span><em>{hit.category} · {hit.count.toLocaleString()}</em>
-      </li>)}
-    </ul>}
+    {hits.length > 0 && (tagOptions.floating?createPortal(suggestions,local.current?.closest('dialog[open]')??document.body):suggestions)}
     {error && <p className="error-message prompt-error" role="alert">{t(error)}</p>}
   </div>;
 });

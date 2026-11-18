@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { defaultTagCompletion } from '../../lib/tagCompletion';
 import { PromptTextarea } from './PromptTextarea';
 import { tagSearch } from '../../lib/forge';
 import { spellcheckSuggest, spellcheckWords } from '../../lib/promptTools';
@@ -24,7 +26,7 @@ function select(value: string, caret = value.length) {
   fireEvent.select(textarea(), { target: { selectionStart: caret, selectionEnd: caret } });
 }
 async function debounce() { await act(async () => { vi.advanceTimersByTime(150); }); }
-beforeEach(() => { vi.useFakeTimers(); native.on = false; (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} }; resetSpellcheckCache(); vi.mocked(spellcheckWords).mockResolvedValue([]); vi.mocked(spellcheckSuggest).mockResolvedValue([]); tools.autocomplete = false; tools.spellcheck = true; tools.language = 'de-DE'; vi.mocked(tagSearch).mockResolvedValue(hits); });
+beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); native.on = false; (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} }; resetSpellcheckCache(); vi.mocked(spellcheckWords).mockResolvedValue([]); vi.mocked(spellcheckSuggest).mockResolvedValue([]); tools.autocomplete = false; tools.spellcheck = true; tools.language = 'de-DE'; vi.mocked(tagSearch).mockResolvedValue(hits); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 it('mounts the enlarged editor autofocus before the ref is assigned without throwing', () => {
@@ -267,4 +269,28 @@ it('a missing dictionary leaves the text unmarked instead of failing', async () 
   render(<Editor />);
   select('ein Haus'); await act(async () => { vi.advanceTimersByTime(300); });
   expect(document.querySelector('.prompt-mirror')).toBeNull();
+});
+
+it('floats a larger list outside the prompt container and inserts a selected tag with keyboard', async () => {
+  tools.autocomplete = true;
+  localStorage.setItem('deas.pref.prompt.tagCompletion', JSON.stringify({...defaultTagCompletion,floating:true,limit:32,sources:['merged']}));
+  vi.mocked(invoke).mockResolvedValue(Array.from({length:32},(_,i)=>({tag:`mammal_${i}`,category:'species',count:100-i,description:'A local description'})));
+  render(<Editor />); select('mamm'); await debounce();
+  expect(invoke).toHaveBeenCalledWith('native_prompt_tag_search', {root:'/env',target:'anima',query:'mamm',options:{sources:['merged'],limit:32,aliases:true,contains:true,minimumCount:0}});
+  const list=screen.getByRole('listbox');
+  expect(list.parentElement).toBe(document.body);
+  expect(screen.getAllByRole('option')).toHaveLength(32);
+  fireEvent.keyDown(textarea(), {key:'ArrowDown'});fireEvent.keyDown(textarea(), {key:'Tab'});
+  expect(textarea().value).toBe('mammal_1');
+  expect(screen.queryByRole('listbox')).toBeNull();
+});
+it('invalidates outstanding extra-source results when global source options change', async () => {
+  tools.autocomplete=true;
+  localStorage.setItem('deas.pref.prompt.tagCompletion', JSON.stringify({...defaultTagCompletion,sources:['merged']}));
+  let resolve!:(value:unknown)=>void;
+  vi.mocked(invoke).mockImplementation(()=>new Promise(r=>{resolve=r;}));
+  render(<Editor/>); select('blue'); await debounce();
+  act(()=>{localStorage.setItem('deas.pref.prompt.tagCompletion',JSON.stringify({...defaultTagCompletion,sources:[]}));window.dispatchEvent(new Event('deas:tag-completion'));});
+  await act(async()=>resolve(hits));
+  expect(screen.queryByRole('listbox')).toBeNull();
 });

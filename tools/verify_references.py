@@ -32,6 +32,7 @@ with sync_playwright() as p:
     reports = []
     for locale in ['en', 'de', 'fr', 'tr', 'ja', 'zh']:
         for width in [1440, 700, 320]:
+            print(f'REFERENCE_PLAYBACK {locale} {width}', flush=True)
             context = browser.new_context(viewport={'width': width, 'height': 1000})
             page = context.new_page()
             errors = []
@@ -121,7 +122,7 @@ with sync_playwright() as p:
             expect(editor.locator('audio')).to_have_count(1)
             expect(inputs.nth(0)).to_have_value('1')
             expect(inputs.nth(1)).to_have_value('3')
-            assert card.locator('xpath=ancestor::section[1]').get_attribute('aria-label') == dialog.locator('.wb-lane').nth(2).get_attribute('aria-label')
+            assert card.locator('xpath=ancestor::section[1]').get_attribute('data-reference-lane') == 'audio'
             if locale == 'en':
                 page.screenshot(path=str(OUT / f'reference-editor-{width}.png'))
             overflow = editor.evaluate('d=>[d,...d.querySelectorAll(".reference-editor-body,.reference-media")].map(e=>({class:e.className,overflow:e.scrollWidth-e.clientWidth})).filter(x=>x.overflow>2)')
@@ -142,7 +143,12 @@ with sync_playwright() as p:
             editor.locator('input[type="number"]').nth(1).fill('4')
             editor.locator('.reference-media-actions button').nth(0).click()
             page.wait_for_function('()=>{const a=document.querySelector(".reference-editor-dialog audio");return a&&!a.paused&&a.currentTime>2.1}', timeout=5000)
-            page.wait_for_function('()=>{const a=document.querySelector(".reference-editor-dialog audio");return a&&a.paused&&a.currentTime>=3.95&&a.currentTime<=4.1}')
+            try:
+                page.wait_for_function('()=>{const a=document.querySelector(".reference-editor-dialog audio");return a&&a.paused&&a.currentTime>=3.95&&a.currentTime<=4.1}')
+            except Exception:
+                print(audio.evaluate('(a)=>({time:a.currentTime,paused:a.paused,ready:a.readyState,duration:a.duration,error:a.error?.message})'), flush=True)
+                print(editor.inner_text(), flush=True)
+                raise
             page.keyboard.press('Escape')
             expect(editor).to_have_count(0)
             expect(dialog).to_be_visible()

@@ -1,3 +1,4 @@
+import { ReferenceActionButton } from './ReferenceActionButton';
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -5,16 +6,17 @@ import { badTrim, type VideoRef } from './ReferencesPanel';
 import { NativeVideo, nativeVideo, type NativeVideoControl } from './NativeVideo';
 import './reference-media.css';
 
-type Props={reference:VideoRef;onChange:(x:Partial<VideoRef>)=>void};
+type Props={reference:VideoRef;onChange:(x:Partial<VideoRef>)=>void;compact?:boolean;active?:boolean;onActivate?:()=>void;onDeactivate?:()=>void};
 /** A new source or stream gets a fresh player; saved trim values remain untouched. */
 export function ReferenceMedia(props:Props){
  const r=props.reference;
- return <ReferencePlayer key={`${r.item.path}:${r.item.src}:${r.item.media}:${r.mediaMode}`} {...props}/>;
+ return <ReferencePlayer key={`${r.item.path}:${r.item.src}:${r.item.media}:${r.mediaMode}:${props.compact?!!props.active:'editor'}`} {...props}/>;
 }
-function ReferencePlayer({reference:r,onChange}:Props){
+function ReferencePlayer({reference:r,onChange,compact=false,active=false,onActivate,onDeactivate}:Props){
  const {t}=useI18n();const media=useRef<HTMLMediaElement|null>(null),nativeControl=useRef<NativeVideoControl|null>(null);
  const native=nativeVideo()&&r.item.media!=='image'&&!!r.item.path;
  const [duration,setDuration]=useState<number|null>(null),[position,setPosition]=useState(0),[playing,setPlaying]=useState(false),[error,setError]=useState('');
+ const pending=useRef(compact&&active);
  const crop=useRef(false),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),request=useRef(0);
  const start=r.trimStart??0,end=r.trimEnd??duration??0;
  const known=duration!==null&&Number.isFinite(duration)&&duration>0;
@@ -54,6 +56,7 @@ function ReferencePlayer({reference:r,onChange}:Props){
   try{el.currentTime=start;setPosition(start);await el.play();if(request.current===id&&crop.current)arm();else if(!crop.current)el.pause();}
   catch{if(request.current===id)fail('playError');}
  };
+ useEffect(()=>{if(!pending.current||!known)return;pending.current=false;if(valid)void toggle();else setError(t('studio.run.video.trimInvalid'));},[known,valid]);
  const progress=()=>{
   const el=media.current;if(!el)return;
   if(crop.current){
@@ -73,20 +76,30 @@ function ReferencePlayer({reference:r,onChange}:Props){
  const events={controls:true,preload:'metadata',onLoadedMetadata:metadata,onDurationChange:metadata,onTimeUpdate:progress,onSeeking:progress,onRateChange:arm,onPlaying:arm,onWaiting:clearTimer,onPause:()=>{clearTimer();crop.current=false;request.current++;setPlaying(false);},onEnded:()=>stop(),onError:()=>fail('loadError')};
  const image=r.item.media==='image',audio=r.item.media==='audio'||r.mediaMode==='audio';
  const seconds=(n:number)=>Number.isFinite(n)?n.toFixed(2):t('studio.run.video.preview.unknown');
+ const status=(s:import('./NativeVideo').NativeVideoStatus)=>{const seconds=!s.error&&Number.isFinite(s.duration)&&s.duration>0?s.duration:null;setDuration(seconds);if(s.error){pending.current=false;fail('loadError',s.error);return;}if(seconds!==null&&r.sourceDuration!==seconds)onChange({sourceDuration:seconds});setPosition(s.position);if(s.paused){crop.current=false;setPlaying(false);}};
+ if(compact){
+  const pausing=active&&(playing||pending.current),label=t(`studio.run.video.preview.${pausing?'pauseOf':'playOf'}`,{name:r.item.name});
+  const button=<ReferenceActionButton kind={pausing?'pause':'play'} label={error?`${label} · ${error}`:label} aria-pressed={pausing} onClick={()=>{if(!active)onActivate?.();else if(pending.current)onDeactivate?.();else void toggle();}}/>;
+  return <div className={`reference-audio-preview${error?' has-error':''}`}>
+   {active&&native?<NativeVideo source={{path:r.item.path!}} label={r.item.name} audioOnly controlRef={nativeControl} onStatus={status} controls={button}/>:<>{button}{active&&<audio hidden ref={el=>{media.current=el;}} src={r.item.src} {...events} controls={false}/>}</>}
+   {error&&<span className="reference-audio-error" role="status">{error}</span>}
+  </div>;
+ }
  return <div className="reference-media">
   {image?<img className="reference-media-visual" src={r.item.src} alt={r.item.name} onError={()=>reportError('loadError')}/>:<>
-   {native?<NativeVideo source={{path:r.item.path!}} label={r.item.name} muted={!audio&&r.mediaMode==='video'} audioOnly={audio} controlRef={nativeControl} onStatus={s=>{const seconds=!s.error&&Number.isFinite(s.duration)&&s.duration>0?s.duration:null;setDuration(seconds);if(s.error){fail('loadError',s.error);return;}if(seconds!==null&&r.sourceDuration!==seconds)onChange({sourceDuration:seconds});setPosition(s.position);if(s.paused){crop.current=false;setPlaying(false);}}}/>:audio?<audio ref={el=>{media.current=el;}} src={r.item.src} aria-label={r.item.name} {...events}/>:<video className="reference-media-visual" ref={el=>{media.current=el;}} src={r.item.src} aria-label={r.item.name} muted={r.mediaMode==='video'} {...events}/>}
+   {native?<NativeVideo source={{path:r.item.path!}} label={r.item.name} muted={!audio&&r.mediaMode==='video'} audioOnly={audio} controlRef={nativeControl} onStatus={status}/>:audio?<audio ref={el=>{media.current=el;}} src={r.item.src} aria-label={r.item.name} {...events}/>:<video className="reference-media-visual" ref={el=>{media.current=el;}} src={r.item.src} aria-label={r.item.name} muted={r.mediaMode==='video'} {...events}/>}
    {r.item.media==='video'&&<select aria-label={t('studio.run.video.refMode',{name:r.item.name})} value={r.mediaMode} onChange={e=>onChange({mediaMode:e.target.value as VideoRef['mediaMode']})}>
     {(['video','video_audio','audio'] as const).map(mode=><option key={mode} value={mode}>{t(`studio.run.video.mode.${mode}`)}</option>)}
    </select>}
    <p className="reference-media-summary">{t('studio.run.video.preview.duration',{seconds:known?seconds(duration):t('studio.run.video.preview.unknown')})}</p>
    <p className="reference-media-summary">{t('studio.run.video.preview.selection',{start:seconds(start),end:known||r.trimEnd!==undefined?seconds(end):t('studio.run.video.preview.unknown'),seconds:valid?seconds(end-start):t('studio.run.video.preview.unknown')})}</p>
+   <div className="reference-media-notice">{badTrim({...r,sourceDuration:duration??r.sourceDuration})&&<p className="error-message" role="alert">{t('studio.run.video.trimInvalid')}</p>}{error&&<p role="alert" className="error-message">{error}</p>}</div>
    <div className="reference-media-trims">{(['trimStart','trimEnd'] as const).map(key=><label key={key}>
     <span>{t(`studio.run.video.${key}`)}</span>
     <input type="number" aria-label={t(`studio.run.video.${key}Of`,{name:r.item.name})} min={0} max={known?Math.min(duration,3600):3600} step={0.01} value={r[key]??''} placeholder={t(key==='trimStart'?'studio.run.video.trimFromStart':'studio.run.video.trimToEnd')} onChange={e=>edit(key,e.target.value)}/>
     <input type="range" aria-label={t(`studio.run.video.preview.${key}Range`,{name:r.item.name})} min={0} max={known?Math.min(duration,3600):0} step={0.01} disabled={!known} value={Math.min(known?Math.min(duration,3600):0,Math.max(0,(key==='trimStart'?start:end)||0))} onChange={e=>edit(key,e.target.value)}/>
    </label>)}</div>
-   {badTrim({...r,sourceDuration:duration??r.sourceDuration})&&<p className="error-message" role="alert">{t('studio.run.video.trimInvalid')}</p>}
+
    <div className="reference-media-actions">
     <button type="button" className="wb-dock-action" disabled={!valid} onClick={()=>void toggle()}>{t(`studio.run.video.preview.${playing?'pause':'play'}`)}</button>
     <button type="button" className="wb-dock-action" disabled={!known||!Number.isFinite(position)||position<0||position>duration||position>3600} onClick={()=>onChange({trimStart:position})}>{t('studio.run.video.preview.setIn')}</button>
@@ -94,6 +107,6 @@ function ReferencePlayer({reference:r,onChange}:Props){
     <button type="button" className="wb-dock-action" onClick={()=>onChange({trimStart:undefined,trimEnd:undefined})}>{t('studio.run.video.preview.reset')}</button>
    </div>
   </>}
-  {error&&<p role="alert" className="error-message">{error}</p>}
+  {image&&error&&<p role="alert" className="error-message">{error}</p>}
  </div>;
 }

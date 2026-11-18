@@ -67,3 +67,11 @@
   text-underline-offset: .15em;
 }
 .prompt-textarea > .prompt-fixes > li.prompt-fix-none { cursor: default; opacity: .7; }
+
+.prompt-suggestions.prompt-suggestions-floating { position:fixed; z-index:1000; box-sizing:border-box; margin:0; padding:.35rem; list-style:none; min-width:0; overflow:auto; background:var(--panel); color:var(--chalk); border:1px solid var(--line); border-radius:.5rem; box-shadow:0 .5rem 1.5rem #0008; font-size:.82rem; text-transform:none; letter-spacing:normal; }
+.prompt-suggestions-floating li { padding:.55rem .65rem; }
+.prompt-suggestion-description { display:block; overflow:hidden; max-height:2.7em; font-size:.72rem; color:var(--muted); line-height:1.35; }
+
+
+/* Keep the prompt action rail clickable while inline suggestions are open. */
+.wb-prompt .prompt-textarea > .prompt-suggestions { right:36px; }

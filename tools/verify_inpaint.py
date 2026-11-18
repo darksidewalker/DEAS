@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 URL = (sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:1421').rstrip('/')
 INIT = r"""
 localStorage.clear(); localStorage.setItem('deas.locale.v1','en');
-window.isTauri=true; window.__calls=[]; window.__uploads=[]; window.__plans=[]; window.__unexpected=[];
+window.isTauri=true; delete window.EyeDropper; window.__calls=[]; window.__uploads=[]; window.__plans=[]; window.__unexpected=[];
 window.__holdUpload=false; window.__releaseUpload=null;
 const png=(w,h,color)=>{const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,w,h);return c.toDataURL('image/png');};
 const images={'base.png':png(1024,640,'#555555'),'cat.png':png(200,100,'#ff0000'),'other.png':png(1024,640,'#333333'),'odd.png':png(1000,600,'#777777')};
@@ -20,6 +20,10 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
   if(command==='plugin:event|listen')return ++callback;
   if(command==='plugin:event|unlisten')return null;
   if(command==='native_media_thumbnail')return args.path;
+  if(command==='native_pick_screen_color')return '#00ff00';
+  if(command==='native_media_star_status')return {starred:false,unavailable:null};
+  if(command==='native_wildcard_library')return '';
+  if(command==='native_audio_enhance_capabilities')return {clean:true,deep:false,stems:false};
   if(command==='native_media_metadata')return [];
   if(command==='native_media_list')return {path:args.path,parent:'/env/ComfyUI',entries:Object.keys(images).map((name,i)=>({name,path:args.path+'/'+name,kind:'file',symlink:false,media:'image',size:1,modified:100-i})),truncated:false};
   if(command==='native_models_scan')return [{category:'checkpoints',name:'sdxl.safetensors',path:'/env/ComfyUI/models/checkpoints/sdxl.safetensors',size:1,info:null,family:'sdxl'}];
@@ -40,10 +44,13 @@ window.__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebvie
 def open_editor(page):
     page.goto(URL + '/tools/inpaint-fixture.html', wait_until='networkidle')
     page.get_by_role('button', name='base.png', exact=True).click()
-    page.locator('[data-use-input]').click()
+    page.locator('.wb-edit-tools [data-use-input]').first.click()  # applies the tile selected on the line above
     page.get_by_role('button', name='Inpaint', exact=True).click()
     page.locator('[data-editor-viewport]').wait_for()
     expect(page.get_by_role('button', name='Mask 1', exact=True)).to_have_attribute('aria-pressed', 'true')
+    # Fix: the colour group and screen pipette stay reachable while a mask layer is the active one.
+    expect(page.locator('.sie-pipette')).to_be_visible()
+    expect(page.locator('.sie-color input[type=color]')).to_be_visible()
 
 
 def click_tool(page, name):
@@ -156,9 +163,10 @@ with sync_playwright() as p:
     result = pixels(page, [[256, 160], [300, 160], [220, 124]])
     assert (result['width'], result['height']) == (1024, 640)
     assert result['opaque'] and result['values'] == [[255,255,255,255],[0,0,0,255],[255,255,255,255]], result
-    assert 'maskBlur' not in intent and 'inpaintCrop' not in intent
+    # Canonical default is maskBlur=4 (Workbench usePref); only explicit zero omits the key.
+    assert intent['maskBlur'] == 4 and 'inpaintCrop' not in intent, intent
     page.get_by_role('checkbox', name='Inpaint only masked', exact=True).check()
-    page.get_by_role('spinbutton', name='Mask Shrink Grow (px)', exact=True).fill('32')
+    page.get_by_role('spinbutton', name='Context padding (px)', exact=True).fill('32')
     page.get_by_role('spinbutton', name='Mask Blur (px)', exact=True).fill('8')
     cropped = export_mask(page)
     assert cropped['maskBlur'] == 8
@@ -169,7 +177,7 @@ with sync_playwright() as p:
     # The context rectangle includes 32 context pixels and the 8-pixel blur support on every side.
     assert abs(crop['x'] - 176) <= 1 and abs(crop['y'] - 80) <= 1, crop
     assert 160 <= crop['width'] <= 162 and 160 <= crop['height'] <= 162, crop
-    page.get_by_role('spinbutton', name='Mask Shrink Grow (px)', exact=True).fill('0')
+    page.get_by_role('spinbutton', name='Context padding (px)', exact=True).fill('0')
     tight = export_mask(page)['inpaintCrop']
     assert tight['width'] == crop['width'] - 64 and tight['height'] == crop['height'] - 64
     page.get_by_role('checkbox', name='Inpaint only masked', exact=True).uncheck()
@@ -197,13 +205,13 @@ with sync_playwright() as p:
     expect(page.get_by_role('button', name='Run', exact=True)).to_be_enabled()
     # Add an opaque image while the mask document stays alive.
     drop_tile(page, 'cat.png')
-    expect(page.locator('.sie-rail').get_by_role('button', name='cat.png [output]', exact=True)).to_have_attribute('aria-pressed', 'true')
+    expect(page.locator('.sie-rail').get_by_role('button', name='raw/cat.png [output]', exact=True)).to_have_attribute('aria-pressed', 'true')
     assert page.locator('.sie-image.is-selected').count() == 1
     assert page.locator('.sie-resize').count() == 1
     # Reselecting the same source must preserve the entire draft, not just canvas pixels.
     editor_node = page.get_by_test_id('editor-world').element_handle()
     page.get_by_role('button',name='base.png',exact=True).click()
-    page.locator('[data-use-input]').click()
+    page.locator('.wb-edit-tools [data-use-input]').first.click()  # applies the tile selected on the line above
     expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
     expect(page.get_by_role('button',name='Run',exact=True)).to_be_enabled()
     assert page.get_by_test_id('editor-world').evaluate('(el,old)=>el===old',editor_node)
@@ -233,11 +241,11 @@ with sync_playwright() as p:
     assert len(intent['inputLayers']) == 1
     layer = intent['inputLayers'][0]
     assert set(layer) == {'image','x','y','width','height'}
-    assert layer['image'] == 'cat.png [output]'
-    click_tool(page, 'Hide cat.png [output]')
+    assert layer['image'] == 'raw/cat.png [output]'
+    click_tool(page, 'Hide raw/cat.png [output]')
     intent = export_mask(page)
     assert 'inputLayers' not in intent
-    click_tool(page, 'Show cat.png [output]')
+    click_tool(page, 'Show raw/cat.png [output]')
     # Snapshot must already exist while upload is held and editing is still possible.
     click_tool(page, 'Mask 2')
     click_tool(page, 'Brush')
@@ -252,7 +260,7 @@ with sync_playwright() as p:
     expect(page.locator('.wb-stage.wb-split [data-editor-viewport]')).to_be_visible()
     # A model-invalid source must be explained, not silently rounded.
     page.get_by_role('button', name='odd.png', exact=True).click()
-    page.locator('[data-use-input]').click()
+    page.locator('.wb-edit-tools [data-use-input]').first.click()  # applies the tile selected on the line above
     click_tool(page, 'Inpaint')
     expect(page.get_by_role('button', name='Run', exact=True)).to_be_disabled()
     expect(page.get_by_text('Resample this image to the selected model’s resolution grid before inpainting.', exact=True)).to_be_visible()
@@ -293,7 +301,7 @@ with sync_playwright() as p:
     }''')
     drop_tile(page,'cat.png')
     page.get_by_role('button',name='other.png',exact=True).click()
-    page.locator('[data-use-input]').click()
+    page.locator('.wb-edit-tools [data-use-input]').first.click()  # applies the tile selected on the line above
     page.evaluate('window.__releaseProbe();window.__restoreImage()')
     page.wait_for_function('window.__probeDone')
     assert page.locator('.sie-image:not([data-layer="base"])').count()==0
@@ -334,7 +342,7 @@ with sync_playwright() as p:
     assert (result['width'],result['height']) == (1024,640)
     # Actual HTML5 row drag raises the moved base above the inserted picture.
     rail = page.locator('.sie-rail')
-    rail.get_by_role('button',name='Base image',exact=True).drag_to(rail.get_by_role('button',name='cat.png [output]',exact=True))
+    rail.get_by_role('button',name='Base image',exact=True).drag_to(rail.get_by_role('button',name='raw/cat.png [output]',exact=True))
     assert page.locator('[data-layer]').evaluate_all('(els)=>els.map(el=>el.dataset.layer)').pop() == 'base'
     export_mask(page)
     assert pixels(page, [[512,320]])['values'] == [[85,85,85,255]]
@@ -379,11 +387,15 @@ with sync_playwright() as p:
         if width >= 1024:
             assert not page.evaluate('document.documentElement.scrollHeight>innerHeight+1'), width
         if width in (1440,320):
-            drop_tile(page,'cat.png')
-            expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
+            if width == 1440:  # layer insertion is a pointer-drag affordance; the narrow dock collapses at 320
+                drop_tile(page,'cat.png')
+                expect(page.locator('.sie-image:not([data-layer="base"])')).to_have_count(1)
             click_tool(page,'Mask 1')
             click_tool(page,'Fit')
             paint(page,256,160,(384,240))
+            click_tool(page,'Base image')
+            click_tool(page,'Screen eyedropper')
+            expect(page.locator('.sie-color input[type=color]')).to_have_value('#00ff00')
             page.screenshot(path=str(ROOT/'assets'/f'deas-inpaint-fixture-{width}.png'), full_page=True)
         assert page.evaluate('window.__unexpected') == []
         page.close()

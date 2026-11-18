@@ -49,6 +49,12 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
   const [shape,setShape]=usePref('studio.editor.shape','round',oneOf('round','square'));
   const [opacity,setOpacity]=usePref('studio.editor.overlay',75,opacityOK);
   const [color,setColor]=usePref('studio.editor.color','#ff3b30',hexOK);const [hex,setHex]=useState(color);useEffect(()=>setHex(color),[color]);
+  const [picking,setPicking]=useState(false);const [pipetteHint,setPipetteHint]=useState('');
+  // EyeDropper: WebView2/Chromium; Tauri invoke: xdg-desktop-portal PickColor on Linux. Cancel keeps the previous colour.
+  const pickColor=async()=>{if(picking)return;const ed=(window as{EyeDropper?:new()=>{open():Promise<{sRGBHex:string}>}}).EyeDropper;
+   if(ed){setPicking(true);try{const r=await new ed().open();setColor(r.sRGBHex.toLowerCase());}catch{/* cancelled */}finally{setPicking(false);}return;}
+   if('__TAURI_INTERNALS__' in window){setPicking(true);try{setColor(String(await (window as{__TAURI_INTERNALS__:{invoke(c:string):Promise<unknown>}}).__TAURI_INTERNALS__.invoke('native_pick_screen_color')).toLowerCase());}catch(e){if(!/cancel/i.test(String(e)))setPipetteHint(label('pipetteUnsupported'));}finally{setPicking(false);}return;}
+   setPipetteHint(label('pipetteUnsupported'));};
   const [gray,setGray]=usePref('studio.editor.maskValue',255,grayOK);
   const saved=snapshot&&snapshot.source.src===source.src&&snapshot.source.width===source.width&&snapshot.source.height===source.height?snapshot:undefined;
   const [masks,setMasks]=useState<Mask[]>(()=>saved?.masks.map(m=>({...m,canvas:copyCanvas(m.canvas)}))??[newMask(1,source.width,source.height)]);
@@ -308,10 +314,12 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
       <label>{label('diameter')}<input type="number" min={1} max={1024} value={diameter} onChange={e=>{const n=Number(e.target.value);if(diameterOK(n))setDiameter(n);}}/></label>
       <input type="range" className="sie-diameter" aria-label={label('diameter')} min={1} max={1024} value={diameter} onChange={e=>setDiameter(Number(e.target.value))}/>
       <span className="sie-seg" role="group" aria-label={label('shape')}>{(['round','square'] as const).map(v=><button type="button" className="sie-tool" key={v} aria-pressed={shape===v} onClick={()=>setShape(v)}><i className={`sie-shape is-${v}`} aria-hidden="true"/>{label(v)}</button>)}</span>
-      {activeImage&&<span className="sie-color" role="group" aria-label={label('color')}>
+      {images.length>0&&<span className="sie-color" role="group" aria-label={label('color')}>
        <input type="color" aria-label={label('color')} value={color} onChange={e=>setColor(e.target.value)}/>
+       <button type="button" className={`sie-tool sie-pipette${picking?' is-active':''}`} aria-pressed={picking} aria-label={label('pipette')} disabled={picking} onClick={()=>void pickColor()}>{label('pipette')}</button>
        <input type="text" className="sie-hex" aria-label={label('colorHex')} value={hex} size={7} maxLength={7} spellCheck={false} onChange={e=>{setHex(e.target.value);if(hexOK(e.target.value))setColor(e.target.value.toLowerCase());}}/>
        {palette.map(c=><button key={c} type="button" className="sie-swatch" aria-label={c} aria-pressed={color===c} style={{background:c}} onClick={()=>setColor(c)}/>)}
+       {pipetteHint&&<small role="status">{pipetteHint}</small>}
       </span>}
       {maskMode&&activeMask&&<label>{label('maskValue')}<input type="range" className="sie-gray" min={0} max={255} value={gray} style={{'--gray':`rgb(${gray},${gray},${gray})`} as React.CSSProperties} onChange={e=>setGray(Number(e.target.value))}/></label>}
       <button type="button" className="sie-tool" disabled={!brushEnabled} onClick={()=>{finish();const m=activeMask,l=activeImage;try{if(l?.paint){const ctx=l.paint.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,l.paint.width,l.paint.height);contentRevision.current++;return;}if(!m)return;const ctx=m.canvas.getContext('2d');if(!ctx)throw Error();ctx.clearRect(0,0,source.width,source.height);m.content=false;report(masks.some(v=>v.visible&&v.content));redraw();}catch{fail();}}}>{t('studio.run.edit.clear')}</button>

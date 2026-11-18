@@ -5,7 +5,8 @@ import { TemporalPreview } from './TemporalPreview';
 import { nativeVideo } from './NativeVideo';
 import type { TemporalPreviewData } from '../../lib/jobs';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(),isTauri:vi.fn(()=>true)}));
-vi.mock('./NativeVideo',()=>({nativeVideo:vi.fn(()=>false),NativeVideo:vi.fn(({label,source,active,muted,loop})=><div aria-label={label} data-source={JSON.stringify(source)} data-active={active} data-muted={muted} data-loop={loop}/>)}));
+vi.mock('./NativeVideo',()=>({nativeVideo:vi.fn(()=>false),NativeVideo:vi.fn(({label,source,active,muted,loop,resume,onStatus}:any)=>{emitStatus=onStatus;return <div aria-label={label} data-source={JSON.stringify(source)} data-active={active} data-muted={muted} data-loop={loop} data-resume={resume===undefined?'':String(resume)}/>;})}));
+let emitStatus:((status:object)=>void)|undefined;
 const frames:TemporalPreviewData={revision:1,nodeId:'node',width:32,height:32,fps:8,frames:[{src:'data:image/png;base64,red',durationMs:125},{src:'data:image/png;base64,blue',durationMs:125}]};
 const video:TemporalPreviewData={revision:1,nodeId:'node',width:32,height:32,fps:8,video:{previewJobId:'job',previewRevision:1}};
 let draw:ReturnType<typeof vi.fn>, callbacks:FrameRequestCallback[];
@@ -52,6 +53,17 @@ describe('TemporalPreview',()=>{
   rerender(<TemporalPreview preview={{...frames,revision:2}} active label="preview"/>);
   await waitFor(()=>expect(callbacks).toHaveLength(1));act(()=>callbacks.shift()!(0));
   expect(container.querySelector('canvas')).not.toBeNull();expect(draw).toHaveBeenCalled();
+ });
+ it('resumes a growing video preview at the watched position instead of restarting from zero',()=>{
+  vi.mocked(nativeVideo).mockReturnValue(true);
+  const {rerender}=render(<TemporalPreview preview={video} active label="preview"/>);
+  act(()=>emitStatus!({position:12,duration:14,paused:false,muted:true,volume:0,width:32,height:32}));
+  rerender(<TemporalPreview preview={{...video,revision:2,video:{previewJobId:'job',previewRevision:2}}} active label="preview"/>);
+  expect(screen.getByLabelText('preview').getAttribute('data-resume')).toBe('12');
+  // The reopen dip to 0 must not erase the remembered position.
+  act(()=>emitStatus!({position:0,duration:16,paused:false,muted:true,volume:0,width:32,height:32}));
+  rerender(<TemporalPreview preview={{...video,revision:3,video:{previewJobId:'job',previewRevision:3}}} active label="preview"/>);
+  expect(screen.getByLabelText('preview').getAttribute('data-resume')).toBe('12');
  });
  it('ignores an obsolete open result after a revision change',async()=>{
   let settle!:(value:string)=>void;

@@ -81,6 +81,16 @@ test('control failures are reported through status without losing the visible er
  expect(await screen.findByRole('alert')).toHaveProperty('textContent','Video playback unavailable. crop failed');
  await waitFor(()=>expect(onStatus).toHaveBeenCalledWith({...state,error:'crop failed'}));
 });
+test('an optional resume seeks the reopened preview once at the remembered position',async()=>{
+ const ui=render(<I18nProvider><NativeVideo source={{previewJobId:'job',previewRevision:1}} label="Preview" autoPlay resume={12}/></I18nProvider>);
+ await waitFor(()=>expect(screen.getByRole('slider',{name:'Seek video'}).getAttribute('max')).toBe('5'));
+ const seeks=vi.mocked(invoke).mock.calls.filter(([c,a])=>c==='native_video_update'&&(a as {action:{kind:string}}).action.kind==='seek').map(([,a])=>(a as {action:{seconds:number}}).action.seconds);
+ expect(seeks).toEqual([12]);
+ ui.rerender(<I18nProvider><NativeVideo source={{previewJobId:'job',previewRevision:2}} label="Preview" autoPlay resume={12}/></I18nProvider>);
+ await waitFor(()=>expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_video_open')).toHaveLength(2));
+ const resumed=vi.mocked(invoke).mock.calls.filter(([c,a])=>c==='native_video_update'&&(a as {action:{kind:string}}).action.kind==='seek').map(([,a])=>(a as {action:{seconds:number}}).action.seconds);
+ expect(resumed).toEqual([12,12]);
+});
 test('forced mute cannot be overridden and audio-only keeps visible transport bounds',async()=>{
  const onStatus=vi.fn();
  vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({left:10,top:10,right:210,bottom:50,width:200,height:40,x:10,y:10,toJSON:()=>({})});

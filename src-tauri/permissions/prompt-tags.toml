@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-prompt-tags"
+description = "Local prompt dictionary discovery, explicit CSV import and cached tag completion."
+commands.allow = ["native_prompt_tag_sources", "native_prompt_tag_import", "native_prompt_tag_remove", "native_prompt_tag_search"]

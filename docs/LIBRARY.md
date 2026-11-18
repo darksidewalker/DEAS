@@ -8,9 +8,39 @@ Library is a main tab and Provider authorization is a pane in **Backend**'s left
 
 Provider tokens are optional and origin-bound. The UI defaults to the OS credential store with an explicit session-only opt-out; persistence/restoration never falls back to plaintext. Ticked files from any card collect in a **Selected for download** overview; **Download all** builds one immutable native plan per provider and folder and runs them in sequence. Files go to their managed ComfyUI folder, or to a chosen parent with an optional new subfolder. Staged files are inert data, not installed models or executed workflows. Linux scratch HTTP transfers and UI/IPC fixtures are tested; Windows write paths exist in code but are not runtime-verified. Live authenticated providers, real OS-store operation and large-download resume remain unverified/unsupported. See [catalog examples, contracts and limits](DOWNLOAD-PLUGINS.md).
 
-The Library sorts catalog cards and loaded file rows by version publication date (newest first), or by name (A–Z). Undated entries come last. Bundled dates are a catalog snapshot; live CivitAI user/search requests ask for newest results. Name sorting covers loaded results, not unseen pages. All entries are always listed, and a base-model filter narrows model lists. The 18+ badge reflects the provider's model classification, not the preview image rating. Opening a CivitAI model lists individual files across its versions (up to 50); quantizations are selected explicitly, never downloaded together automatically. Conflicting destination filenames block the plan instead of overwriting files.
+Catalog cards use the same category bar, provider/family tree, filters, sorting,
+60-card batches and grid/list views as Installed. Name, known publication date,
+known size, base model and shuffle sorting apply to the loaded catalog snapshot;
+usage and version-count sorts are not offered without that evidence. Undated or
+size-unknown cards stay last. File/version rows retain newest-first ordering.
+Bundled dates are a catalog snapshot; live CivitAI user/search requests ask for
+newest results. Sorting covers loaded results, not unseen provider pages. The
+18+ badge reflects the provider's model classification, not the preview image
+rating. Opening a CivitAI model lists individual files across its versions (up to
+50); quantizations are selected explicitly, never downloaded together automatically.
+Conflicting destination filenames block the plan instead of overwriting files.
 
 ## Catalog and Installed views
+
+Catalog parity is implemented in the 0.2.40 development source; published 0.2.39
+does not contain it. Browser-fixture evidence and outstanding native/live-provider
+acceptance are recorded in [verification](VERIFICATION.md) and [PLAN](PLAN.md).
+
+**Installed** is the left tab and **Catalog** the right tab. Catalog source,
+Search catalog & CivitAI and Download all share the top action line; the category
+bar sits beneath it, with folders/filters beside the gallery. Reordering the tabs
+does not itself start a local scan or provider request. Creator and CivitAI search
+results use the same gallery; opening one model's files retains its sibling cards.
+
+Catalog stars, tags and personal notes are saved separately from installed-file
+organization. Their identity uses the exact provider, browsing scope and locator,
+not the card label or a pretend filesystem path. Use a card's Details control to
+edit notes/tags without contacting its provider, or click the card to browse its
+files explicitly. Search includes saved notes/tags. Favorites include hidden
+provider/family groups; returning to a group restores normal visibility rules.
+The Catalog's Metadata filter describes supplied catalog fields, not a safetensors
+inspection or execution proof. No local Scan Files, family-sidecar editing or file
+move/delete action is offered for online entries.
 
 Catalog offers source selection, provider browsing/search, category/base-model filters, sorting, file/version/quantization selection and Selected for download. Installed scans the configured models folder; opening a file shows path/size/hash, a **File check** row when a safetensors header covers payload the file does not hold (**Incomplete safetensors: … Download it again**), and an explicit CivitAI metadata fetch/cache action. Listing a file is not compatibility proof; a truncated safetensors is excluded from the Studio's automatic component selection, so a broken encoder is never picked silently.
 

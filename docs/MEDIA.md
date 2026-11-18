@@ -88,5 +88,14 @@ are cleared for removed files; recent-job history retains the original executed
 intent and may report missing media when a deleted output is revisited. Deleting
 a file does not delete its job.
 
+On Windows, DEAS closes its admission/preflight and retained TVE inspection handles
+before verifying deletion. A selected video currently borrowed by an active native
+operation is blocked. If deletion fails, TVE inspection is restored only when the
+same file still passes its identity/content checks. An old inspection of a file
+whose contents changed is never attached to a replacement. A transient preview
+handle is given a bounded wait to close; a file still held open is reported as
+pending rather than successful. Success requires the name to be absent so a new
+output can reuse it immediately.
+
 Fixture tests use disposable files and mocked browser media. Linux/WebKitGTK and
 Windows/WebView2 interactive acceptance remain separate from Chromium evidence.

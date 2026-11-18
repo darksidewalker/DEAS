@@ -58,7 +58,7 @@ export interface RandomizerRolled { boxes: { id: string; label: string; picks: {
 export interface RandomizerRoll { categories: string[]; women: number; men: number; surprise: boolean; limits: Record<string, number> }
 export const randomizerList = (root: string) => invoke<RandomizerBox[]>('native_forge_randomizer_list', { root });
 export const randomizerRoll = (root: string, request: RandomizerRoll) => invoke<RandomizerRolled>('native_forge_randomizer_roll', { root, request });
-export interface TagSuggestion { tag: string; category: string; count: number }
+export interface TagSuggestion { tag: string; category: string; count: number; source?:string; description?:string|null; matchedAlias?:string|null }
 export const tagSearch = (root: string, target: string, query: string) => invoke<TagSuggestion[]>('native_forge_tag_search', { root, target, query });
 export const characterTraits = (root: string, target: string, character: string) => invoke<string[]>('native_forge_character_traits', { root, target, character });
 export const referenceReadback = (root: string, model: string, reference: NativeImageRef) => invoke<string>('native_forge_reference_readback', { root, model, reference });

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, cleanup, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { LanguageSetting } from './LanguageSetting';
+import { PromptTagOptions } from '../studio/PromptTagOptions';
 import { QuickSettings } from '../studio/QuickSettings';
 import { usePromptTools, reportPromptSpellcheckError } from '../../lib/promptTools';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -79,4 +80,26 @@ test('corrupt saved writing settings fall back without breaking the interface',(
  localStorage.setItem('deas.pref.prompt.tools',JSON.stringify({language:'../bad',spellcheck:true,autocomplete:true}));
  render(<I18nProvider><Probe/></I18nProvider>);
  expect(state().spellcheck).toBe(true);expect(state().autocomplete).toBe(false);
+});
+
+test.each([false,true])('tag options preserve the setup autocomplete choice %s through display changes and reopening',enabled=>{
+ HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ HTMLDialogElement.prototype.close=function(){this.open=false;};
+ const mount=()=>render(<I18nProvider><LanguageSetting/><PromptTagOptions/></I18nProvider>);
+ const view=mount();
+ const setup=document.querySelector<HTMLInputElement>('[data-prompt-tool="autocomplete"]')!;
+ if(setup.checked!==enabled)fireEvent.click(setup);
+ fireEvent.click(screen.getByRole('button',{name:'Tag autocomplete options'}));
+ let dialog=screen.getByRole('dialog');
+ expect((dialog.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(enabled);
+ fireEvent.click(screen.getByRole('radio',{name:'Larger floating panel'}));
+ fireEvent.change(screen.getByLabelText('Maximum suggestions'),{target:{value:'32'}});
+ expect(setup.checked).toBe(enabled);
+ expect((dialog.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(enabled);
+ fireEvent.click(screen.getByRole('button',{name:'Close'}));
+ view.unmount();mount();
+ expect(document.querySelector<HTMLInputElement>('[data-prompt-tool="autocomplete"]')!.checked).toBe(enabled);
+ fireEvent.click(screen.getByRole('button',{name:'Tag autocomplete options'}));
+ dialog=screen.getByRole('dialog');
+ expect((dialog.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(enabled);
 });

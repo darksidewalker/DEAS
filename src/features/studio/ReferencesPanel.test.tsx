@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
@@ -90,6 +90,41 @@ test('the panel reorders inside a lane, edits trims, inserts the label and remov
 const mount=(refs:VideoRef[])=>{const onChange=vi.fn(),onAdd=vi.fn();render(<I18nProvider><ReferencesPanel refs={refs} onChange={onChange} family="minimax-h3" seconds={5} label={()=>''} onAdd={onAdd} onInsert={vi.fn()} inputRoot="/env/in"/></I18nProvider>);return {onChange,onAdd};};
 const card=(name:string)=>document.querySelector(`[data-ref="${name}"]`)!;
 
+test('compact manager keeps media lanes separate, reorders within a lane and opens its editor from a thumbnail',()=>{
+ const refs=[ref('a.png','image'),ref('sound.mp4','video',{mediaMode:'audio',trimStart:2,trimEnd:7}),ref('b.png','image'),ref('clip.mp4','video')];
+ const change=vi.fn(),insert=vi.fn();
+ render(<I18nProvider><ReferencesPanel manager refs={refs} onChange={change} family="minimax-h3" seconds={5} label={(_,i)=>directorTags(refs)[i]} onAdd={vi.fn()} onInsert={insert}/></I18nProvider>);
+ expect(document.querySelectorAll('[data-reference-lane]')).toHaveLength(3);
+ expect(document.querySelector('[data-reference-lane="audio"] [data-ref]')?.getAttribute('data-ref')).toBe('sound.mp4');
+ expect(document.querySelector('[data-reference-lane="video"] [data-ref]')?.getAttribute('data-ref')).toBe('clip.mp4');
+ fireEvent.keyDown(card('a.png').querySelector('.reference-drag-grip')!,{key:'ArrowDown'});
+ expect(change.mock.lastCall![0].map((r:VideoRef)=>r.item.name)).toEqual(['b.png','sound.mp4','a.png','clip.mp4']);
+ fireEvent.click(within(card('b.png') as HTMLElement).getByRole('button',{name:'Insert <Picture 2> into the prompt'}));
+ expect(insert).toHaveBeenCalledWith('<Picture 2>');
+ fireEvent.click(card('sound.mp4').querySelector('[data-edit-reference]')!);
+ expect(screen.getByLabelText('Start of sound.mp4')).toHaveProperty('value','2');
+ fireEvent.change(screen.getByLabelText('End of sound.mp4'),{target:{value:'8'}});
+ expect(change.mock.lastCall![0][1]).toMatchObject({mediaMode:'audio',trimStart:2,trimEnd:8});
+ fireEvent(screen.getByRole('dialog'),new Event('cancel',{bubbles:false,cancelable:true}));
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(document.querySelectorAll('[data-reference-lane]')).toHaveLength(3);
+});
+
+test('empty manager retains all panes and an explicit divider; Clear does not remove RefMods',()=>{
+ const change=vi.fn(),mods=vi.fn();
+ const props={manager:true,refs:[ref('a.png','image')],onChange:change,family:'minimax-h3' as const,seconds:5,label:()=>'<Picture 1>',onAdd:vi.fn(),onInsert:vi.fn(),refmods:[{name:'Identity',strength:.8,description:'Keep identity'}],onRefmods:mods};
+ const view=render(<I18nProvider><ReferencesPanel {...props}/></I18nProvider>);
+ fireEvent.change(screen.getByLabelText('Strength of Identity'),{target:{value:'.5'}});
+ expect(mods).toHaveBeenCalledWith([{...props.refmods[0],strength:.5}]);
+ fireEvent.click(screen.getByRole('button',{name:'Clear'}));expect(change).toHaveBeenCalledWith([]);expect(mods).toHaveBeenCalledTimes(1);
+ view.rerender(<I18nProvider><ReferencesPanel {...props} refs={[]}/></I18nProvider>);
+ expect(document.querySelectorAll('[data-reference-lane]')).toHaveLength(3);
+ expect(document.querySelector('[data-refmod="Identity"]')).toBeTruthy();
+ const divider=screen.getByRole('separator');
+ const start=Number(divider.getAttribute('aria-valuenow'));fireEvent.keyDown(divider,{key:'ArrowLeft'});
+ expect(Number(divider.getAttribute('aria-valuenow'))).toBe(start-2);
+});
+
 test('dragging a card onto another of its lane moves it there; other lanes ignore it; a dock tile dropped on the tab is added',()=>{
  const {onChange,onAdd}=mount([ref('a.png','image'),ref('s.wav','audio'),ref('b.png','image')]);
  const none={types:[] as string[],getData:()=>''};
@@ -160,7 +195,27 @@ test('a picture pasted on a picture card replaces that file and keeps its settin
 });
 
 const at=(name:string,media:MediaItem['media'],dir='/env/in')=>({name,media,src:`asset://${dir}/${name}`,path:`${dir}/${name}`});
+
+test('pasting onto the second copy of an image replaces only that slot',async()=>{
+ vi.mocked(isTauri).mockReturnValue(true);
+ vi.mocked(invoke).mockImplementation(async(command,args)=>command==='native_media_paste'?'/env/in/pasted.png':command==='native_media_describe'?(args as {paths:string[]}).paths.map(path=>({name:'pasted.png',path,kind:'file',symlink:false,media:'image',size:1,modified:1})):null);
+ const original=ref('same.png','image',{uiKey:'one',instructions:'first'}),second=ref('same.png','image',{uiKey:'two',instructions:'second'});
+ const {onChange}=mount([original,second]);
+ const picture=Object.assign(new File(['x'],'shot.png',{type:'image/png'}),{arrayBuffer:async()=>new Uint8Array([1,2]).buffer});
+ const event=new Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(event,'clipboardData',{value:{files:[picture]}});
+ document.querySelectorAll('[data-ref="same.png"]')[1].querySelector('button')!.dispatchEvent(event);
+ await waitFor(()=>expect(onChange).toHaveBeenCalledTimes(1));
+ expect(onChange.mock.lastCall![0][0]).toEqual(original);
+ expect(onChange.mock.lastCall![0][1]).toMatchObject({uiKey:'two',item:{name:'pasted.png'},instructions:'second'});
+});
 const refAt=(name:string,media:MediaItem['media'],x:Partial<VideoRef>={},dir='/env/in'):VideoRef=>({item:at(name,media,dir),second:0,strength:1,mediaMode:'video',...x});
+
+test('duplicate image pack slots retain separate labels/instructions without UI identities',()=>{
+ const refs=[refAt('same.png','image',{uiKey:'one',label:'character-1',instructions:'face'}),refAt('same.png','image',{uiKey:'two',label:'style',instructions:'palette'})];
+ const {pack}=toPack(refs,'/env/in');
+ expect(pack.items.map(r=>r._rank)).toEqual([0,1]);expect(JSON.stringify(pack)).not.toContain('uiKey');
+ expect(fromPack(pack,'/env/in')?.adds).toEqual([{path:'/env/in/same.png',label:'character-1',instructions:'face'},{path:'/env/in/same.png',label:'style',instructions:'palette'}]);
+});
 
 test('Director reference packs: saved in the node\'s files format (type, then lane slot as _rank), input-relative, outside files skipped; read back safely',()=>{
  const refs=[refAt('voice.wav','audio',{trimStart:1,trimEnd:4}),refAt('deas-input-v.mp4','video',{mediaMode:'audio'}),refAt('sub/a.png','image'),refAt('out.png','image',{},'/env/out')];

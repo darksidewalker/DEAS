@@ -1,5 +1,40 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## 2026-11-17: dials in the running application, HyperFlow Flash, GGUF bases and the pinned pack (contributor host)
+
+One Linux host (WebKitGTK, two GPUs, umask 0002), a **debug** binary linked through a pkg-config shim because the
+host lacks GTK/WebKit development packages, driven through the web view's inspector with `tools/pilot_webview.py`
+([piloting](AGENT-PILOTING.md)). One seed per render; clips were judged from contact sheets, not playback (no
+`libmpv.so.2`); sound was not listened to. Not a release build, not Windows.
+
+- **Studio against a real backend** (ComfyUI 0.45.0 with ComfyUI-DaSiWa-Nodes and the Dial Rack nodes, reached
+  through the Engine address): connection inspection reported all Director nodes; the Dials tab showed its
+  notices (not an H3 video pipeline; nodes missing), rows with the dials' own side labels and strength marks, the
+  rack dialog with two curves and the per-latent-frame line, a preset saved through the pack's route and listed
+  back, a dial's info note; dial files were absent from the LoRAs tab. Three jobs from the Run button succeeded
+  with the real `DaSiWa_EnhancedVideoCombine` (832x480, 124 frames, 6 steps): the same seed without dials (no
+  `MAIDialRack` in the graph) and with an ink wash dial on a pulse curve at 2 gave a cel-shaded clip and an
+  ink-wash clip.
+- **HyperFlow Flash**: a dial job compiled by DEAS ran from Run on the int8 convrot safetensors checkpoint
+  (`HyperFlowLoader` -> LoRA -> `MAIDialRack` -> Director, `HyperFlowSigmas`); the clip followed the curve. Graphs
+  built by hand to the same wiring: ink wash constant 2, day/night +1.5 and -1.5, and an impact frame dial on a
+  0.5 s step pulse at 4.5 all acted; motion +1.5 replaced the scene.
+- **GGUF bases**, hand-built graphs: on a plain MiniMax H3 pruned Q4_K_M file (`UnetLoaderGGUF`, with a turbo LoRA)
+  and a HyperFlow Flash Q4_K_M file (`HyperFlowGGUFLoader`) a prompt-shift dial, a bias-patch dial and a timed
+  pulse each acted. No GGUF dial job was started from the application.
+- **Pinned pack**: Backend -> Upgrade -> "ComfyUI and node packs" on an owned CPU environment fetched ComfyUI-Dials
+  at `DIALS_REVISION` and wrote `dialsRevision` to the install manifest; after the restart the owned backend listed
+  `MAIDialRack` and served `/mainodes/dials/catalog`, and the Dials tab went from the missing-nodes notice to
+  ready. The ignored fixture test `dials_pack_is_optional_until_provisioned_and_then_held_to_its_pin` passed
+  against a real ComfyUI-GGUF checkout at its pin (`DEAS_GGUF_SOURCE`).
+- **Checks after merging `main` at 0.2.41**: see the pull request; `npm run test:ui` on this host shows single,
+  different failures in files this work does not touch on some full runs, and those files pass alone.
+- **Found in DEAS, not changed here**: the owned-environment and settings checks refuse group-writable folders,
+  which on a umask-0002 host refuses an ordinary models folder and the environment the installer has just created;
+  after a plain MiniMax H3 checkpoint, a HyperFlow Flash checkpoint keeps the stored sampler while the select
+  shows `euler`, and Run is refused ("runs euler only"); once an environment is open the Backend tab no longer
+  offers the existing-backend address.
+
 ## 2026-11-17: dials, continuation in segment mode and constant rows on a continued segment (parent session)
 
 Evidence from the session that directed this work, not from a DEAS run: graphs emitted by `dump_intent_dir_graphs` at
@@ -683,6 +718,458 @@ pinned or released dependency.
   rack's patches survive the Director, sigma shift, Options patches and the De-rope
   LoRA; the owned backend's local model check on a real dial file; Windows;
   performance. All remain open in [PLAN.md](PLAN.md).
+## 0.2.41 preview-button skin and Library search height — 2026-11-17
+
+Owner report: the paired **Original (before processing)** / **Processed** buttons
+above a finished result ignored the colour scheme, and the Library Catalog search
+field was much taller than the other search fields.
+
+- Cause (buttons): `.wb-output-choices button` was not in the shared text-button
+  skin (`src/styles.css`), so it rendered the browser's default grey button with
+  only a copper border override in `workbench.css`. It is now part of all four
+  shared rules (base, hover glow, pressed `--ok-soft` fill, disabled). `workbench.css`
+  keeps only padding/font size.
+- Cause (search): `.catalog-actions :is(select,input)` forced 2.6rem; the source
+  select was overridden back to 29 px but the search input stayed 42 px. Installed's
+  `.library-search` input padding made it 40 px. Both now use the standard 1.8rem
+  field height used by the Media/Logs searches and the filter selects.
+- Chromium measurements (synthetic IPC fixture, 1600×1000): Catalog search
+  42 → 29 px (source select 29 px), Installed search box 40 → 29 px (sort select
+  29 px), Media search 29 px, Logs search 26–28 px. Paired-output screenshots show
+  the themed raised/line skin with the pressed fill instead of grey browser buttons.
+- Gates: `tests/workspace-layout.test.ts` gained a static contract (fails on the
+  0.2.40 tree), `npm run test:core` green, Vitest `Workbench.part1/part2` +
+  `src/features/downloads` 7 files / 400 tests green, `npm run test:layout`,
+  `tools/verify_postprocessing.py` (16 checks, six locales at 1440/320 px),
+  `tools/verify_library_catalog.py` and `tools/verify_library_gallery.py` PASS.
+- Not checked: native WebKitGTK/WebView2 rendering of the new skin and heights;
+  light themes were not screenshotted (the skin uses only theme variables).
+- Observed, not fixed (outside this request): Catalog cards render the
+  **Model details** label over a second overlapping text in the card footer.
+
+## Release 0.2.40 (published) — 2026-11-17
+
+Published 2026-11-17 as `v0.2.40` (last published release was `v0.2.39`; only the 0.2.40 section was unreleased — no rollup). Source commit `d34645e2a1ed505c8ebae36698541f98df25f3d3` (tree `a5d4611fed2133e36bf3eace5302299e4af4cc45`), carrying the release-prep commit (CHANGELOG/NEWS unreleased labels dropped, inpaint fixture captures refreshed from `tools/verify_inpaint.py`) plus the owner-approved Dark Wizards/Movie Maker PLAN expansion landed as a separate docs commit. Local tag `v0.2.40` at the source commit, pushed to gitea; the GitHub tag was pre-created by `gh release create --target` pinned to the source commit and confirmed via `git ls-remote` on both remotes (`Release DEAS` and `Verify DEAS` remain `disabled_manually`, so the tag fires nothing).
+
+Fresh gates on the working tree immediately before the release commit: `tsc --noEmit` clean; core 166/166; UI 124 files / 2,179 tests; `cargo fmt --check` clean; strict `cargo clippy --locked --release --lib --bins -- -D warnings` clean; serial `cargo test --locked -- --test-threads=1`: 1,071 passed / 78 ignored with two pre-existing wall-clock backend-shutdown fixtures (`no_console_python_shutdown_pipe_wakes_asyncio_and_runs_finally`, `stop_allows_python_finally_and_drains_shutdown_output_before_restarting`) hitting their 3 s/5 s deadlines only inside the full-suite run; both pass standalone on this tree, and a full-suite run of the released `v0.2.39` tag on the same host and day reproduces the identical pair, so this is host memory-load flakiness (a 48 GiB local inference service was live throughout) rather than a 0.2.40 regression; the native suite additionally requires a private `TMPDIR` — the shared sticky `/tmp` is rejected by the scratch-directory safety gate by design. `cargo xwin check --locked --target x86_64-pc-windows-msvc --all-targets` and strict `cargo xwin clippy … --all-targets -- -D warnings` clean. Cargo.lock already carried 0.2.40; no lock refresh was needed. Rust gates and the release build ran in a bounded `systemd-run --user --scope` (MemoryMax 12G / MemorySwapMax 24G / CPUQuota 1000%) preserving the live inference service; timing-sensitive fixtures were re-adjudicated outside the scope where cgroup CPU throttling distorts wall-clock assertions.
+
+Built from the clean main checkout at the source commit (`CARGO_TARGET_DIR` shared with the gate run): `build-linux.sh --release` staged the four-asset set (deb/AppImage/NSIS skipped: no `patchelf`/`makensis`); benign `LNK4099` missing-debug-info linker warning on the MSVC build. Direct-run glibc floor derived from the binary: **2.39** (local CachyOS build, UNSIGNED — users on glibc < 2.39 need a future CI baseline build); `ldd deas-linux-amd64` reported zero not-found; embedded frontend bundle `index-Cxia_8ZI.js` present in both binaries; `deas.exe` is PE32+ GUI x86-64. The loose `artifacts/deas-linux-amd64` was rebuilt with a hash identical to the staged asset. Assets (server-side re-download verified with `sha256sum -c` and byte-compared with the staged set): `deas-linux-amd64` `5c2da56b0e7c9b0a493430fef745acf077e71dc69296517bb70abfa17cb7aa92`, `deas.exe` `6078a34d47439ea66f88c8d1abe643eb1acb34ed5878c91b043c2c3391675be2`, `BUILD-MANIFEST.json` `87a961fda59d1045b665cf601a0d4f41faa15401bd927b5a423a7fe84b333429`, plus `SHA256SUMS` `92e00fd4dd07d64dc6a2afbb26b25d5f459785da5f593d17075571afc8f0218c`. Staged for users at `artifacts/releases/v0.2.40/`. Provenance: the cross-compiled `deas.exe` is NOT Windows runtime-accepted (the first real Windows launch is the acceptance test); real-model/native acceptance items recorded open in PLAN stay open; no NSIS/deb/AppImage in this fallback set. No live backend or inference service was restarted. After publication the manifests were bumped to 0.2.41 development.
+
+## PR #38 integration and Catalog continuation — 2026-11-17
+
+Integrated contribution source `1402b48a5bd9c7ea47600871c10e275df78b5b29` onto
+`b23de71`, preserving the existing 0.2.40 Catalog working tree. This is local
+source integration, not a GitHub merge, commit, publication or release.
+
+Integration review additionally repairs global-search role selection in the compact
+H3 assignment bar (unsupported roles remain missing), repairs retained H3 image
+picker selections on relocation/deletion, and indexes the new prompt-tag controls
+in global search. Revealing options does not import a dictionary or change settings.
+
+- Final integrated native suite: **1,072 library tests passed / 78 ignored**,
+  **three binary tests passed**, no doc tests; serial execution in a bounded user
+  scope, re-run green after the Windows duplicate-identity deletion admission
+  patch. CSV regressions cover alias-heavy canonical deduplication and bounded
+  rejection of FIFOs, links and directories. Windows batch duplicate identity
+  coverage compiles in the cross-target gate; it is not a Linux runtime test.
+- Strict all-target Clippy passed on Linux and Windows MSVC through `cargo xwin`.
+  Cross-target compilation is not WebView2 or Windows filesystem runtime acceptance.
+- Chromium: **24 reference-manager geometry/interaction cases**, **24 tag-options
+  cases**, **24 H3 image-reference cases**, **467 shared viewport checks** and
+  Catalog checks across **six locales × five widths** passed. Gallery/LoRA,
+  metadata-editor and paired-output pointer regressions also passed. Captures under
+  `artifacts/verification/pr38-integrated/` were visually inspected. Fixtures use
+  synthetic media and simulated IPC; no provider lookup, model run or backend
+  restart was performed.
+- Focused integration search/assignment/tag-options tests: **22 passed in three
+  files**. Typecheck and **166 core tests** passed after the integration fixes.
+- Final source: **2,176 UI tests passed in 124 files**, **166 core tests passed**,
+  typecheck and production frontend build passed. All six version fields agree on
+  **0.2.40**; changed native files pass rustfmt, and `git diff --check` is clean.
+- Preserved failure evidence: early full runs caught new Catalog browse/provider
+  regressions and two stale gallery/role-search assertions. Independent review
+  additionally reproduced four failures for newer anonymous consent, companion
+  navigation and tag persistence on Escape/backdrop; all now pass. A CSV alias test
+  failed with one canonical hit instead of two before its SQL fix. The final Windows
+  gate caught a tuple-shape mismatch in duplicate-identity admission; using the
+  helper's actual return value fixed it and strict xwin Clippy passed on retry.
+- One isolated Gallery server hit `ENOSPC` (inotify watchers) and later refused
+  reloads; rerunning Gallery and metadata gates against the existing owned test
+  server passed, without changing kernel limits or stopping another service.
+- Native WebKitGTK acceptance on the live desktop: the debug binary (built with
+  `tauri/custom-protocol`) launched under an isolated HOME/XDG scratch profile in
+  a private D-Bus session. An injected probe drove the real Catalog through the
+  genuine boot path: bundled TOML catalog rendered with a bounded first batch,
+  category/base/media filters applied, a favorite click committed, the modal
+  `<dialog>` entered the native top layer, notes/tags committed, the app cancel
+  path closed the dialog, favorites/tags/notes survived a full app restart, and
+  Installed↔Catalog navigation retained browsing state. The X window was resized
+  to the 960×700 native minimum: no horizontal overflow, a reachable card
+  scroller (223px viewport, 1337px scroll extent, scrollable). Engine string:
+  `WebKitGTK Version/60.5`. Evidence: `artifacts/verification/pr38-integrated/native-webkit/`.
+  Boundaries: clicks were DOM-dispatched events inside the native page (OS-level
+  XTEST pointer/key injection does not route through this KWin/Xwayland session),
+  the `<dialog>` close exercised the app cancel handler rather than engine Escape
+  wiring, the Installed list showed its expected "models folder could not be
+  read" empty-environment alert, and OS credential storage was not isolated.
+- Browser and native evidence above cover the Linux WebView only. WebView2, live
+  provider transfers and real model/GPU execution remain open in PLAN. Only owned
+  test servers were stopped; no app release or replacement of the user's
+  executable was performed.
+
+
+## Reference/tag contribution branch validation — 2026-11-17
+
+Prepared a source-only contribution from upstream `b23de71` (0.2.39) containing
+reference workspaces, optional local tag completion, Windows media handle cleanup
+and empty-H3 mode recovery. The last CSV correction makes the indexed merged entry
+removable and leaves Built-in Danbooru checkbox-only. Removed CSV entries are not
+rediscovered; fresh installations list only built-in tags until explicit import.
+
+Validation on the isolated contribution checkout:
+
+- Production frontend and Windows release builds passed. Core: 165 passed, one
+  skipped. Complete UI rerun: **2,146 passed** across 122 files with two workers.
+  The initial unrestricted run had one preview assertion failure; its isolated
+  two-case retry and the entire rerun passed. No production change was made for
+  that transient fixture failure.
+- Native library: **959 passed, zero failed, 73 ignored**, both serially and with
+  normal parallel test execution. The three earlier deletion failures are resolved.
+  All-target Clippy passed with the existing Rust 1.100 `chunks_exact_to_as_chunks`
+  category allowed; the waiver is local to the command, not a source/CI change.
+- Chromium shared layout: **467 passed**. Paired-output pointer checks passed with
+  no product findings. Tag options: **24 locale/desktop cases passed**, including
+  fixed checkbox widths, source removal and no delete icon beside Built-in.
+- The reviewed 60-file snapshot contains code, translations, guides and synthetic
+  fixtures only. No user CSV, local database/cache, media, model weights, saved
+  notes/sets/favorites, settings, credentials or executable artifacts are published.
+
+Windows probes use disposable NTFS fixtures. Linux/WebKitGTK and actual WebView2
+interaction, GPU/model execution and optional tooling remain separate acceptance.
+No backend restart, real model scan, provider metadata fetch or generation was run.
+Ignored evidence is under `output/pr-final-*.log` and `output/csv-remove-all-*`.
+
+## Removing the merged CSV entry — 2026-11-17
+
+The red Remove icon now applies to all CSV entries, including the previously
+indexed merged source. Built-in Danbooru has only its on/off checkbox. Native
+removal accepts the validated merged/custom IDs, removes only the local index,
+and never reads/deletes the recorded original CSV path. Source inventory lists
+registered indexes rather than rediscovering external CSV files, so removed
+entries stay removed and fresh installations offer no machine-specific CSV.
+Users can re-add any CSV through the explicit Import CSV picker.
+
+Focused UI tests cover the merged button and the absence of any built-in removal
+button. Native regression verifies the merged index disappears from subsequent
+inventory while its original file remains. Prior format/alias and custom-source
+removal checks remain applicable. Final PR validation is recorded below.
+
+## Empty ordinary H3 drafts recover their text mode — 2026-11-17
+
+Reproduced a remembered REF2VA mode with zero references and disabled Run. The
+pipeline submode is persisted, while visual/reference drafts start as session
+state. Existing mode-selection tests started from T2VA and did not catch this
+restart state. Added regressions failed for all three remembered `i2v`, `ref2v`
+and `v2v` modes before the change.
+
+An ordinary H3 draft with no first/last frame, source video, references or RefMods
+now resets its remembered submode to `t2v` if its family supports text-to-video.
+Explicit restored history and pinned Continuity source/clip state retain their
+missing-input gates. LTX's existing missing-input semantics are unchanged. The
+fallback changes only the editable mode and never admits/uploads/runs a job.
+
+- Typecheck/production frontend build passed. Full UI: 2,144 passed. Core:
+  165 passed, one skipped.
+- Focused mode/history/Continuity checks passed (16 cases). An additional scope
+  return check passed alongside the empty/pinned cases (five cases): a saved H3
+  reference draft returns in REF2VA after another scope was cleared to T2VA.
+- Regression cases verify a zero-input H3 draft reaches T2VA, enables Run and sends
+  the T2VA intent only after explicit Run. All original five H3 role-selection
+  mappings remain covered. No native generation, user library scan, backend restart
+  or native app capture was performed.
+
+Evidence: ignored `output/h3-empty-mode-before.log`, `h3-empty-mode-focused.log`,
+`h3-empty-mode-return.log`, `h3-empty-mode-ui-full.log`, `h3-empty-mode-core.log`
+and `h3-empty-mode-build.log`.
+
+## Windows media deletion handle lifetime — 2026-11-17
+
+The three previously reported deletion failures were reproduced on Windows/NTFS
+using disposable files: the selected image, a valid remaining batch item and the
+retained TVE source all returned failure. Windows successfully accepted the delete
+disposition, but metadata verification returned access denied because DEAS still
+held its preflight/admission readers open. The retained TVE file could add another
+DEAS-owned holder. This was a production handle-lifetime bug, not merely a test
+fixture issue.
+
+Deletion now explicitly releases the current and admitted inspection handles after
+verifying the deletion handle's physical identity. TVE admission remains locked;
+its matching retained reader is temporarily released, active Arc borrowers block
+deletion, and failed removal restores inspection only if the original identity
+and recorded file metadata still match. A changed source is not correlated to an old source ID,
+but its stale reader also cannot keep an explicitly deleted filename pending.
+Permission-denied metadata queries on a disposed Windows name are retried within
+the existing bounded wait, never treated as proof of successful deletion.
+
+- All three original failures passed their focused rerun. Added native cases cover
+  bulk deletion/Unicode filenames, immediate filename reuse, a delayed preview
+  holder, a holder that stays open, active TVE borrowers, failure rollback and
+  replacement files never inheriting an old source ID. The former ignored Windows
+  handle probe is now a regular deterministic disposable-file regression.
+- The complete serial native suite passed: **959 passed, zero failed, 73 ignored**
+  (the ignored tests require optional runtimes, GPU/media tools or real libraries).
+- 79 frontend media-deletion, Media Library and TVE source-event cases passed.
+  Clippy passed with the previously documented baseline lint allowance.
+- No frontend layout or CSS changed. No user media was deleted, app captured,
+  backend restarted, model scan run or generation started. Native filesystem
+  probes use temporary workspace fixtures. Actual WebView2 playback interaction
+  and Linux/WebKitGTK acceptance remain separate; the Linux descriptor/capture
+  deletion logic is retained.
+
+Evidence: ignored `output/media-delete-before.log`, `media-delete-diagnose.log`,
+`media-delete-fixed.log`, `media-delete-video-source.log`, `media-delete-ui.log`,
+`media-delete-native-full.log` and `media-delete-clippy.log`.
+
+## Compact tag options and removing imported sources — 2026-11-17
+
+Corrected the global full-width text-input rule stretching checkbox/radio controls
+in the prompt options dialog. Controls now use fixed 14 px widths beside their
+labels, display modes and numeric choices share compact rows, and the merged
+source has a short translated label with its filename in a tooltip. Removed the
+classified, separate Danbooru and e621 automatic source entries. Their old saved
+enabled selections are filtered and migrated out; original CSVs and old cache
+files are left alone. Native source discovery now lists Built-in and merged plus
+explicit custom imports.
+
+Imported sources have a red trash icon. Native removal accepts only validated
+custom source IDs, removes only the DEAS index under the environment's tag cache,
+uses the shared index mutex, reports redacted success/failure to central Logs and
+never follows the recorded original-CSV path. Built-in and merged presets cannot
+be removed. UI selection is cleared only after successful native removal; errors
+retain the source. The command is explicitly allowed for the main window.
+
+- Typecheck/production frontend build and 165 core tests passed (one core skip).
+- 48 focused prompt/options/setup UI cases passed, including removal success/failure,
+  settings migration, global synchronization and preserved floating completion.
+  Setup-selected autocomplete on/off states survive popup display changes and
+  remounting; importing a source does not silently enable autocomplete.
+- Eight native tag cases passed, one optional real-dictionary benchmark skipped.
+  Removal verifies the original CSV contents remain byte-identical, the other
+  cached source remains, removed sources disappear, repeated removal is safe and
+  preset/traversal IDs are rejected. Command permission regression passed.
+  Clippy passed with the previously documented baseline lint allowance.
+- Chromium: all 24 locale/desktop cases passed with 14 px control-width and
+  adjacent-label checks, compact dialog bounds, import/remove interaction and
+  absence of removed preset selections. The English dialog is approximately
+  472 px tall. A synthetic fixture image was inspected; no native DEAS view was
+  captured. The shared workspace layout gate also passed all 467 checks.
+  Reports: ignored `output/tag-compact-*.log` and
+  `output/tag-compact-browser`.
+- No user CSV appears in tracked application files or frontend output. The Tauri
+  resource configuration includes only theme resources. No external CSV is copied
+  into the executable or repository, and no original CSV was deleted.
+
+## Local tag dictionaries and floating prompt completion — 2026-11-17
+
+The positive prompt's tag-plus button controls the shared writing-aid switch,
+inline/floating display, result limit, source selection, aliases, substring
+matching and minimum post count. Imports and searches run in native blocking
+workers. Only explicit source enabling/import builds an atomic SQLite index;
+typing never parses CSV files. Errors reach central Logs with operation identity,
+redacted queries/paths and per-operation rate limiting. Cancellation is quiet.
+The three native commands have a main-window-only capability.
+
+- Typecheck and production frontend build passed. Core: 165 passed, one skipped.
+  Full UI suite: 2,137 passed. Final prompt/options checks: 37 passed, including
+  shared settings, StrictMode source import, cancellation/errors, late-result
+  rejection, floating portal insertion and keyboard acceptance.
+- Eight native tag tests passed, including an explicit read-only benchmark against
+  all four user-supplied dictionaries with temporary output indexes. Danbooru:
+  183,174 tags; e621: 129,525 tags and one invalid row skipped; merged: 295,050 tags;
+  classified: 114,092 tags. The classified file's optional fifth description column
+  is supported. Descriptions are never aliases. Import took under 2.4 seconds per
+  source; sampled queries took under 40 ms on this machine. These are fixture
+  measurements, not native UI latency guarantees.
+- Native tests cover quoted/multiline/BOM CSV, alias and category handling,
+  duplicate counts, exact-name ranking, literal LIKE characters, model tag spelling,
+  missing original files, malformed/oversized imports retaining the previous index,
+  discovery from configured models and redacted/rate-limited central log delivery.
+  Command ACL regression passed after adding the explicit permission.
+- Chromium: 24 prompt-control cases across all six locales at 1920×1080, 1440×900,
+  1280×720 and 1024×600. Checked icon hit targets, no overlap, internal modal scroll,
+  one explicit import, shared positive/negative settings, 32 results outside the
+  textarea, viewport resizing, keyboard insertion, inline fallback and disabling.
+  Browser checking corrected modal focus restoration and an inline list covering
+  the action rail. Shared layout gate: 467 passed. Paired-output pointer checks:
+  passed with no product findings. All native IPC/media were synthetic.
+- Broader serial native run: 949 passed, 74 ignored, four failures. The command ACL
+  failure was fixed and its isolated rerun passed. Three failures concern unchanged
+  Windows `media_delete` fixtures (regular-file deletion, namespace replacement and
+  retained-video identity); they are outside this autocomplete change. Unmodified
+  Rust 1.100 Clippy findings in `audio_runtime`, `jobs_auto_refine` and `jobs_preview`
+  use the `chunks_exact_to_as_chunks` lint. Clippy passed with only that existing
+  lint allowed; no source changes were made to those modules.
+
+Evidence is in ignored `output/tag-completion-*.log`, the 24-case browser report
+under `output/tag-completion-browser` and isolated workspace/paired-output reports.
+No model scan, generation, backend restart, native app launch/capture, CSV rewrite,
+user-cache migration or network tag lookup was performed. Windows WebView2 and
+Linux/WebKitGTK interaction acceptance remains separate from Chromium fixtures.
+
+## Pointer reordering, audio cards and H3 image-edit References — 2026-11-17
+
+Reference grips now share pointer capture, grid/list snapping, edge scrolling and
+Escape cancellation with LoRA sets. Scroll anchoring is disabled only during a drag
+so it cannot fight edge scrolling. Audio cards lazily mount the existing crop player;
+changing the active card or opening an editor stops it. Linux retains the native
+audio transport with compact controls; Windows/browser uses browser audio. Trim
+warnings and media errors occupy a fixed notice area above the fields.
+
+H3 image edit now has a large pinned Picture 1 preview with its source controls
+underneath, a compact Add button and an eight-reference grid. Source swapping and
+promotion, history replacement and the native image-edit intent are preserved.
+No Video/Audio/RefMod panes or large assignment box are added to this image-only UI.
+
+- Typecheck/production frontend build passed. Core: 165 passed, one skipped.
+- Full UI run: 2,129 passed with one unrelated queue-preview timing failure; its
+  isolated retry passed. Final focused checks: 101 passed across reference media,
+  image-reference history/logging, reference panels, LoRA sets and native player UI.
+  The H3 Workbench integration file passed all 86 tests after the image-picker change.
+- Video References: 24 Chromium cases across six locales and four desktop sizes.
+  Real mouse capture snaps grid rows and rolls back on Escape; edge scrolling reaches
+  hidden audio rows. Real synthetic WAV playback starts/pauses/stops on opening Edit.
+  Invalid/valid trim transitions preserve dialog, field and action bounds exactly.
+- Image References: 24 Chromium cases with all eight references reachable without
+  scrolling, pinned source through reorder, source swapping/promotion, nested preview,
+  explicit Add and stable empty/full pane bounds. All visible actions are reachable.
+- Shared viewport gate: 467 checks passed. Paired-output pointer fixture: 16 checks
+  passed with no product findings. Browser evidence is synthetic Chromium, distinct
+  from native Windows/WebView2 and Linux GTK/WebKit runtime acceptance.
+
+No real model scan, generation, backend restart or native DEAS capture was performed.
+Generation intents, limits and worker execution were not changed.
+
+Windows x64 offline release build passed. The final JavaScript/CSS asset names
+were verified inside the executable before installation, and the installed SHA-256
+was checked after replacement:
+`e43735b2ba6ca1b7fdb540ace268c16d419fdc97ac8b268faafaac732fe93656`.
+The previous local executable is backed up; settings/cache were not modified.
+
+## H3 Video duplicate slots and visible reference actions — 2026-11-17
+
+H3 Video now permits repeated reference files in independent slots, while LTX
+keeps its existing admission behavior. UI slot identities distinguish editing,
+paste replacement, reordering and removal; they are omitted from packs and native
+intents. The captured Run keeps both same-file slots and performs one upload.
+The existing Character/Forge role behavior is unchanged. Edit, earlier/later,
+insert and red Remove icons replace the card menus; RefMods also have visible
+edit/insert/remove icons with translated tooltips and accessible names.
+
+- Core: 165 passed, one skipped. UI: 2,126 passed with one unrelated download-panel
+  cancellation timing failure; that file passed all 41 tests on isolated rerun.
+  Reference tests include independent duplicate editing/removal, ninth-image
+  admission limits, duplicate pack round trips and slot-specific paste replacement.
+- Chromium reference fixture: 24 cases across six locales and four desktop sizes.
+  Visible action centers are reachable and contained in their cards, Remove has
+  its danger color before hover, and repeated files retain separate editor values
+  through reorder/remove. The nine-image grid and fixed pane bounds remain intact.
+- Shared viewport gate: 467 checks passed. Paired-output pointer fixture: 16
+  functional checks passed, no product findings. Typecheck/production frontend
+  build passed. These fixtures use synthetic media and mocked IPC, with no real
+  model scans, uploads, inference or native DEAS capture.
+
+Windows/WebView2 and Linux GTK/WebKit interaction remain separate runtime
+acceptance; this entry does not claim real-model generation or native playback.
+
+Windows x64 offline release build passed. Final frontend asset names were verified
+in the executable and its installed checksum was checked after replacement. The
+previous local build is retained as a backup. Installed SHA-256:
+`128796aeecfab2f18b24ea645b1836ec9e13abaed935d382c94027479ae0e711`.
+No settings/cache changes, backend restart or native app launch were performed.
+
+## Local H3 Video References workspace — 2026-11-17
+
+Presentation-only changes against official 0.2.39/main `b23de718`: compact
+assignment and pack controls, a reserved nine-image grid, independent Video,
+Audio and RefMod lists, nested reference/RefMod editors and a remembered lower
+divider. H3 image-edit and non-H3 reference layouts are unchanged.
+
+Verification on Windows:
+
+- Typecheck and production frontend build passed. Core suite: 165 passed, one
+  skipped (166 total). Full UI suite: 2,122 passed; the final targeted suite
+  passed 161 tests, including the added H3 compact-role search regression.
+- `verify_reference_manager.py`: 24 Chromium cases across all six locales at
+  1920×1080, 1440×900, 1280×720 and 1024×768. Empty/full/empty reference lists
+  preserve identical pane bounds; all nine images fit without scrolling. Wheel
+  checks separate browser folders/files; reference lists scroll independently.
+  Nested editors, menu Escape/focus restoration and keyboard divider resizing pass.
+  The stress fixture deliberately includes retained over-limit rows; this does not
+  change normal admission limits or permit generation with those rows.
+- Shared viewport gate: 467 checks passed, including dynamic tabs/locales,
+  resize/return navigation and the deliberately broken negative control.
+- Paired-output pointer fixture: 16 functional checks, no product findings.
+- Role fixture: 18 locale/width cases passed with simulated IPC and no upload or
+  submission. Browser evidence is Chromium with synthetic media, not native
+  Windows/WebView2 or Linux GTK/WebKit acceptance.
+- Existing playback fixture: all 18 locale/width cases passed with generated
+  MP4/WAV crops, nested-modal focus and stream/lane changes. An initial audio
+  timing timeout did not recur on the complete rerun; playback implementation
+  was not changed for this layout.
+- Windows x64 offline release build passed. Both final frontend asset names
+  were verified in the executable before installation. Installed SHA-256:
+  `31a4cb35f1961b7674c73afb54227dfd633030b8afa44f8f9396f70e58989d1c`.
+  The previous official executable was retained as a local backup.
+
+No real model discovery, generation, backend restart or native DEAS capture was
+performed. Existing pack formats, role admission, crop data and native execution
+are retained. Build/install receipts and screenshots are ignored local artifacts
+under `output/`; no user cache, credentials or media are included in this change.
+
+## Library Catalog parity — stopped mid-change (0.2.40)
+
+**Historical stopped snapshot; superseded by the integrated verification above.**
+
+**Unfinished, uncommitted working tree.** The owner stopped implementation and
+requested a progress record. The published release/tag and launchable binary
+remain 0.2.39; no 0.2.40 binary build, commit, push or release was performed.
+The ordered continuation and source-review concerns are in PLAN.
+
+Evidence obtained before stopping:
+
+- The toolbar regression was observed failing on Catalog/Installed order, then
+  passed after reversing the tabs and putting source, search and Download all in
+  one action row. The native-search regression was observed failing when a
+  provider result's title omitted its query; it passed after keeping the native
+  search result set authoritative until the search field is edited again.
+- Focused component tests reached **77 passed across four files** (download panel,
+  CatalogGallery, InstalledGallery and organization), followed by **57 passed
+  across two files** (download panel and global search). These are intermediate
+  runs, not acceptance of the final source: explicit Catalog dropdown accessible
+  names and six-locale metadata/date label changes were added afterwards.
+- Typecheck passed before those final label/API edits. No final core/i18n,
+  full-UI, production build, native compilation or independent review was run.
+  Do not reuse 0.2.39's successful suites as proof of this 0.2.40 working tree.
+- A real Chromium stylesheet-order probe reproduced the misplaced placeholder
+  (`display:block`, center deltas -98/-138 px). The corrected specificity and
+  positioning produced `display:flex` and deltas **0/0 px**.
+- `tools/verify_library_catalog.py` finally passed **eight check groups** with
+  synthetic catalog/model data and simulated IPC: bounded cards, annotation
+  namespace isolation, five widths (1600/1280/960/640/320), and retained creator
+  cards while selecting a model's file into the unchanged download basket.
+  This exercised no real provider, download, model scan or native filesystem action.
+- Screenshots were inspected. The 320px view has very little visible vertical
+  room for filters/cards after the header and action line; usability needs review
+  despite passing control bounds. The Installed fixture screenshot displays a
+  metadata-lookup failure, whose fixture status response has not been investigated.
+  Neither observation is claimed as a diagnosed native-runtime defect.
+
+The final browser result and screenshots were copied to the local ignored folder
+`artifacts/verification/library-catalog-0.2.40-stopped/`: `result.json`,
+`catalog-1600.png`, `catalog-960.png`, `catalog-320.png` and
+`installed-placeholder.png`. They are synthetic evidence, not captures of the
+owner's library. No test/build process remains running for this slice. Existing
+working-tree changes and all four new source/test/verifier files are preserved.
 
 ## Release 0.2.39 (published) — 2026-11-16
 
@@ -1438,6 +1925,48 @@ Source: `src-tauri/src/jobs.rs::h3_edit` (still path when `nativeImageReference.
 ### References overlay, image mode (0.2.25)
 
 `ReferencesOverlay.tsx` is now a modal shell (`onClose`, `picker`, `children`): video passes `ReferencesPanel`, image pipelines pass the shared `imageRefBar()` from `Workbench.tsx` (chip + numbered cards; H3 cards with **Insert label**). Button `[data-open-references]` for `t2i`/`i2i` with `imagePrompting` (same anchor as the video button, so the existing global-search entry reaches both). Picker selection reuses `togglePromptRef` (same path as the right-click entry). Tests: `ReferencesOverlay.test.tsx` (3: video modal via button/cancel, nested H3 edit, image-mode shell); `Workbench.test.tsx` H3 Image → Image test extended (button count, overlay bar with source card, picker click adds `<Picture 3>`, Insert label appends the tag, Escape returns focus to the button). Not checked: native WebKitGTK/WebView2 click-through and narrow-layout visuals of the overlay in image mode.
+
+## Closed plan items moved from PLAN.md (2026-11-17)
+
+Plan reconciled against the repository after the 0.2.40 release line. These entries
+were delivered (0.2.20, 0.2.40) but still carried their original planning checklists;
+they are kept here verbatim. PLAN now lists only their remaining native/real-run gates.
+
+### 4.6 Studio UX
+
+- **Slider compare for videos. Status: quick fix landed in 0.2.22** (Slider disabled with a reason on video outputs; `CompareView.tsx` is image-only).
+  - [ ] Video compare: two synchronized players under the same divider/zoom contract (shared play/pause/seek/loop, frame-accurate start, audio from one side). On Linux this must reuse the existing libmpv `NativeVideo` path (WebKit `<video>` freezes on NVDEC caps) — native surfaces draw over WebKit, so the divider needs a native-side clip/two-surface layout or a still-frame compare (first frame / current frame via the FFmpeg extractor) as the first slice; Windows WebView2 separately. Mismatched geometry/fps/duration (TVE upscale, frame generation) must be handled explicitly, not stretched silently.
+  - [ ] Tests: no Slider (or disabled) for video until supported; CompareView video mode fixtures; native Linux/Windows playback acceptance on a real TVE pair.
+
+### 4.4 Image: masking, references, regional prompting
+
+  - [ ] Add `StudioImageEditor.test.tsx` coverage for success, cancellation, unsupported capability and errors; extend `tools/verify_inpaint.py` for control placement/accessibility without pretending a mocked pick proves OS support. Native Linux and Windows acceptance must pick a known colour outside the app. Update six locales, global search and `docs/STUDIO.md`; run the layout gate for toolbar changes.
+
+### 4.11 Known defects and audits
+
+- **Video metadata: unreadable presentation, invalid JSON and missing Civitai prompts. Status: DEAS side implemented in 0.2.20 (producer sanitization, legacy NaN parsing, readable rows, audio-stage tag mapping, verified against Civitai's published parser); Civitai recognizing H3 Director/Guide graphs remains an upstream parser gap outside DEAS.** Owner supplied the exact H3 REF2VA metadata graph and reports that the Metadata pane shows the entire API graph as one `Prompt` value and Civitai does not recognize the prompt. Read-only FFprobe of the matching original `20-38-22-4041897001-dasiwa-minimax-h3-ref2va-v5-pruned-graviton-bf16-00001-audio.mp4` confirms a `prompt` tag with runtime `is_changed` attributes and non-standard `NaN`; strict JSON parsing rejects it. `imageMetadata.ts::imageMetadataRows` falls back to the raw string on `JSON.parse` failure, explaining this sample's graph dump. Separate confirmed loss: `deas-audio-fde033c8-719e-448a-b189-c039ab6da8dc.mp4` has no prompt/workflow/generation tags at all after audio enhancement. Do not attribute every Civitai failure solely to UI formatting or JSON validity: support for H3 Director/Guide/BasicScheduler nodes and the exact upload surface still require parser acceptance.
+  - [ ] Fix metadata at its producing boundary, not by string-replacing `NaN` in arbitrary prompt text. Inspected owned node-pack `nodes_enhanced_video_combine.py::_metadata_file` stores the supplied runtime graph unchanged; `helper_pyav_video.py::_metadata` uses Python's default permissive `json.dumps`, while its MP4 writer already enables `use_metadata_tags`. Publish a stable execution graph without cache-only `is_changed`/NaN/Infinity values and enforce standards-compliant serialization, preserving the full authored prompt, Unicode/multiline text, actual model/LoRA identities and executed parameters. Do not alter real prompt strings or mutate ComfyUI's live graph. Any required producer change belongs in the node pack under separately authorized, versioned/reviewed cross-project work; DEAS must not silently patch installed dependencies.
+  - [ ] Preserve bounded supported generation metadata through automatic audio enhancement/remux and paired-output publication (Studio, TVE, supported containers), independently of the readable-filename fix in §4.12. Inspect `audio_enhance.rs::process_file` metadata mapping and MP4/MOV muxer options; the current source copies video streams but does not enable MP4 custom metadata tags in its remux. Verify original versus processed tags rather than assuming stream copy preserves them. Retain truthful provenance and original media on failures; never embed secrets or unnecessary absolute local paths, or describe processed media as an untouched baseline.
+  - [ ] Render a compact, human-readable video metadata view: actual positive/negative prompt, model, active LoRAs/strengths, seed, steps, CFG or actual guider semantics, sampler/scheduler, canvas, duration/fps, components and relevant post-processing. Prefer the exact correlated immutable job/history intent where available; an uncorrelated file gets only fields verifiably extracted from its tags/graph, with partial/unknown states. Keep raw graph/workflow available as optional diagnostics, not the whole main Prompt row; valid JSON alone does not make node-by-node fields an appropriate summary. Preserve the separate black-preview overlay defect below.
+  - [ ] Validate against Civitai's actual public parser/accepted container-tag contract and custom-node coverage before choosing an interoperability envelope; do not fabricate executable CLIP/KSampler nodes or invent resource hashes merely to satisfy an importer. Civitai PR [#5147](https://github.com/civitai/civitai/pull/5147), merged 2026-09-25, documents MP4 `mdta` and Matroska `prompt`/`workflow` tags routed through the existing generation-metadata parser; normal post uploads accept video metadata, while challenge/bounty-style single-upload paths do not. It does not establish H3 custom-node coverage or the current hosted deployment's behavior. Add only a verified supported metadata representation of the actual generation; distinguish prompt/settings extraction from model/LoRA linking, which requires real hashes or verified resource IDs.
+  - [ ] Regress the exact supplied H3 graph (full Director prompt, linked guide/scheduler, turbo LoRA and cache NaN), strict serialization, literal `NaN` inside a genuine prompt, Unicode/newlines, original/processed tag preservation, known missing metadata, multiple outputs and unsupported containers. Run the real CPU saver/remux path and upstream parser fixtures; verify the exact final Original and Processed files on Civitai only with explicit upload/publication consent. No upload, dependency change, implementation or original-file rewrite is authorized by this plan entry.
+- **Video Use these settings and More actions fail. Status: implemented in 0.2.20 — Use settings falls back to saved job History via exact output-path + native availability, More menus are per-toolbar owned with Escape/focus handling, proven in the native fixture.** Owner additionally reports that **Use these settings** does not work for videos and that **More** is not working. Preserve these as separate symptoms: whether More fails to open, is incorrectly disabled, loses pointer/focus, or opens but its actions fail has not yet been specified/reproduced. Source entry points: `Workbench.tsx::mediaActions`, video `tools`/`moreOpen`/`selectMoreAction`, `applyFileSettings`, `reuseJob`, `applySettings`, and `GenerationMetadata` restoration. `applyFileSettings` first matches a unique currently held job output path; otherwise it parses embedded file metadata and applies only recoverable settings. The confirmed invalid/lost metadata above is a plausible blocker for that fallback, not proof of every button's cause.
+  - [ ] Reproduce Metadata-panel apply, preview-toolbar More and media context actions separately on the exact H3 video; compare currently held jobs, reopened/recent-history entries and browsed files, both Original and Processed, raw/starred and captured roots. Record disabled reasons, native click/menu visibility and concrete parse/restore errors. Do not infer full restoration from a menu-open test or fix only one duplicated surface; reuse the shared action contract.
+  - [ ] Restore the exact immutable video intent when uniquely correlated through existing trustworthy job/history provenance, with the required editor-replacement consent and original pipeline/family/components/sampling/LoRA/conditioning/output fields. For uncorrelated files, show what can and cannot be recovered; never fabricate missing reference media or an executable full intent. Preserve intentional empty prompts, current unrelated drafts and genuine missing-model/backend-compatibility gates. Prompt-only reuse must not replace other settings or submit a job.
+  - [ ] Keep More reachable by pointer and keyboard over native video, visible/unoccluded, with accurate enabled/disabled reasons, Escape/close focus return and retained feedback. Audit shared menu state, stale async metadata reads and native-surface overlay ownership; do not assume a layering defect without native reproduction. Add UI/native regressions for exact clicked file ownership, delayed/stale reads, file-tag failure, valid versus partial restore, job/history versus file fallback and model/pipeline changes; verify Linux GTK/libmpv/WebKit and Windows WebView2. No automatic generation, upload, file rename or media mutation on opening/cancelling these actions.
+- **Metadata overlay blacks out the video preview — fixed in 0.2.20: reserved side-by-side layout keeps the native surface visible and the player mounted (fixture-verified).** Opening metadata hides the video picture/leaves a black preview region. `Workbench.tsx` owns the metadata overlay (`metaOpen`) and native playback surface; `GenerationMetadata.tsx` displays the fields. The cause (native-surface occlusion/visibility, layering, source remount or another lifecycle problem) is not established.
+  - [ ] Reproduce with an existing video and record play/pause, selected output and overlay open/close transitions. Inspect `NativeVideo` active/occlusion/surface bounds in the actual Linux GTK/libmpv renderer before changing layout or switching playback backends. Opening metadata must not replace/unload the selected file, reset the playhead, mutate generation settings or leave a stale black surface after close; preserve readable overlay content and the intended visible preview area. Verify paused/playing states, Original/Processed selection, resize, repeated open/close and restored metadata-open preference in Linux and Windows; retain keyboard/focus and add lifecycle regressions. Document the actual native evidence separately from browser fixtures.
+- **Prompt Forge reference editor cannot load a YuE2 FLAC — fixed in 0.2.20: local Linux audio references use NativeVideo audioOnly with real duration/crop (fixture-verified against the owner file).** Exact reported selection: `2026-10-30/13-45-58-658730495-yue2-3b-int8-convrot_00001.flac`; resolved existing file `/data/Bilder/DEAS/starred/audio/2026-10-30/13-45-58-658730495-yue2-3b-int8-convrot_00001.flac`. Edit → More for Prompt Forge shows `Source: unknown s`, `Selection: 0.00–unknown s · unknown s` and `Could not load this reference. Check the file and media format.` Record duration loss and load/playback failure as separate symptoms; no source corruption or codec cause is established. Read-only FFprobe identifies valid stereo FLAC, 48000 Hz, duration 27.000000 s; complete FFmpeg decode to null exits 0. These prove the original is readable by FFmpeg, not by the reference editor/webview.
+  - [ ] Trace the exact starred output's captured root/path/URL into `ReferenceMedia.tsx` and reference/Forge intake, including any native byte fetch, MIME/blob URL, Range support, duration event and cleanup. Source baseline: `ReferenceMedia` uses `NativeVideo` only for local video files; standalone audio uses HTML `<audio>`, unlike Workbench's Linux native audio-only output route. This is an investigation lead, not a confirmed cause or authorization to replace every player.
+  - [ ] Preserve the original FLAC and reference identity, user trims and draft on errors/navigation; no implicit transcoding/copy/upload or fallback to a different file. A valid file must expose finite source duration, usable trim bounds and crop playback with start/end/playhead/reset; failed loads need a concrete retained/logged cause, not invented zero/unknown numeric values as valid limits. Check starred/raw/input roots, spaces/Unicode, FLAC plus a working WAV/MP3 control, modal close/reopen and stale source events on Linux WebKitGTK and Windows WebView2. Add focused lifecycle and exact-file native acceptance evidence; a probe or fixture alone does not close playback/crop acceptance.
+
+### 4.12 Audio enhance across audio pipelines
+
+- **Automatic audio-enhanced output ignores the naming scheme. Status: implemented in 0.2.20 — final name derives from the resolved source stem with `-audio-enhanced` and readable collision counters; History carries the final name.** Owner reports final videos named `deas-audio-fde033c8-719e-448a-b189-c039ab6da8dc.mp4`, which cannot be sorted alongside normally named generations. The exact file exists under `starred/video/2026-11-07/`. Confirmed source cause: `jobs_audio_post.rs::process` unconditionally generates the final public name with `format!("deas-audio-{}.{}", uuid::Uuid::new_v4(), extension)` after the normal saver has already produced its schema-named baseline. This native audio stage bypasses `outputPrefix`/the saver naming adapter, then stores that UUID filename in processed outputs/history. Changing Options naming alone cannot fix this path; hidden `.deas-audio-stage-*` and `.deas-audio-*.partial` workspace names are separate and may retain UUIDs.
+  - [ ] Derive the automatic processed product's public name from the exact source output's already-resolved basename and captured subfolder, preserving the original naming template's date/time/seed/model/custom components and saver counter. Append one stable descriptive suffix before the extension, e.g. `<source-stem>-audio-enhanced.mp4`; preserve the existing container/codec contract. Do not re-evaluate date/time, reroll a seed, infer a model from the filename or introduce a second naming template/UUID-based final-product scheme. Baseline and enhanced products must sort together and remain distinguishable.
+  - [ ] Reuse existing bounded path validation, captured-root identity and atomic no-clobber publication. If that readable target is occupied, choose a deterministic readable collision counter without overwriting or restarting enhancement. Keep private staging/work files unique and remove owned temporaries on success/failure/cancellation; never expose them as final media. Preserve baseline files and processed/original roles, existing output ordering, metadata and stream integrity.
+  - [ ] Propagate the actually published name consistently to job snapshots, native/history records, preview/export and Star/raw relocation. Audit automatic Studio video/music and TVE audio-post callers for the same path; explicitly chosen manual export filenames remain the user's choice. Do not rename/delete existing UUID-named outputs automatically or fabricate their lost provenance; any later migration needs separate explicit consent and verified file/history mapping.
+  - [ ] Add native naming/publication tests for default and custom templates, nested folders, multiple outputs, dotted stems, long/Unicode/Windows-safe names, occupied targets, retries, cancellation and failure with retained baseline. Exercise the real FFmpeg post-stage and verify the final readable filename through history/preview/Star on Linux and Windows; UUIDs remain permitted only for internal staging. Update output-naming and audio-enhancement user documentation with the implemented rule. Plan-only: no source changes, version bump, build or publication authorized.
 
 ## Closed plan items moved from PLAN.md (2026-11-14)
 
@@ -3970,3 +4499,44 @@ Gates re-run at the 0.1.8 docs commit: typecheck, 14 Vitest files / 167 UI-IPC t
 Relocation (`settings_move.rs`) is covered by Rust fixtures: all-tree conflict/overlap rejection, exclusive streamed copy, byte verification, atomic settings save, unchanged-source removal, retained-original warnings, symlinked/overlapping tree rejection. Relocation is Linux-only; other platforms fail closed. Real large-tree relocation on live data and crash/power-loss recovery remain unverified. `native_pick_directory` canonicalizes symlink aliases at the chooser boundary; execution still refuses substitutions.
 
 Windows remains compiled and CI-built only; no Windows runtime acceptance. Artifact re-staging for 0.1.8 is pending the next `./build-linux.sh` release build.
+
+## 0.2.40 gate closes — Windows runtime, WebView2 smoke and live provider downloads (2026-11-17)
+
+Windows runtime (`SCARYMACHINE`, 192.168.0.102, user `hermes-test`, session 0 via SSH):
+- `cargo xwin test --no-run --lib` on the working tree (GitHub pagination/hidden-file fixes,
+  pipette, named request errors); the produced `deas-*.exe` was transferred and run natively.
+- `media_delete` module: 11/11 passed on real Windows, including the four previously blocked
+  runtime cases (`pending_deletion_is_reported_while_a_share_delete_holder_is_open`,
+  `delayed_preview_release_completes_deletion_and_allows_filename_reuse`,
+  `duplicate_case_and_hardlink_identities_reject_the_entire_batch`,
+  `deletion_correlates_only_the_unchanged_retained_video_identity`).
+- Full library run on Windows: 955 passed, 7 failed, 73 ignored. All 7 failures are
+  host-environment fixtures (repo-relative resources missing from the scratch run directory
+  or requiring python/node on PATH, which the test PC does not carry); the same tests are
+  green in the native Linux suite. Not product failures.
+
+WebView2 Catalog smoke (fresh `catalog-smoke` run directory, isolated WEBVIEW2 profile,
+loopback CDP 127.0.0.1:19223 through an SSH tunnel, Playwright connect_over_cdp, real input):
+- Page target `http://tauri.localhost/` live; `window.__TAURI_INTERNALS__` present;
+  `native_download_status` answered `idle` over real Tauri IPC.
+- Welcome/persona dialog handled; downloads workspace view opened; Catalog tab rendered
+  15 cards; favorite star toggled with real mouse input; Details native `<dialog>` opened,
+  note text saved, Escape closed it and the note was back on reopen.
+- Artifacts: `artifacts/verification/win-catalog-smoke/{cards,final}.png`.
+- Test app stopped by exact path (`catalog-smoke`), tunnel closed; nothing left listening on 19223.
+
+Live provider acceptance on native WebKitGTK (isolated profile, anonymous only):
+- GitHub: user search → discovery cards → repo file listing (after the pagination and
+  hidden-file fixes) → 2 files into the basket → Download all → engine status `succeeded`
+  2/2 → files plus `deas-download-manifest.json` on disk under the configured models folder;
+  a later session pulled two ~50 MB binaries the same way. App restart afterwards came up
+  clean; the completed files/manifest persist (the live status panel is in-memory engine
+  state and is not claimed as a persisted promise).
+- Root cause of the earlier silent failure was harness-side: the isolated profile pointed at
+  a ComfyUI environment directory that had been pruned, so `native_download_plan` rejected
+  the target. The UI showed only "Native request failed" — that is why the alerts now append
+  the concrete native/provider error.
+- CivitAI anonymous listing is not currently acceptable from either host:
+  `api.civitai.com` answers the Cloudflare HTML challenge to non-browser clients, so the
+  adapter sees zero entries; the UI renders the empty list without error and marks the
+  bundled creator resources login-gated. No CivitAI download was attempted (login-gated upstream).

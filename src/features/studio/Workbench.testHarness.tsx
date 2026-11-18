@@ -193,6 +193,7 @@ async function roleVideoFixture(family:'ltx-2'|'minimax-h3'='ltx-2',extraModels=
 export const roleFile=(name:string,media:'image'|'video'='image')=>({name,media,path:'/external/'+name,src:'asset:///'+name});
 export function assignRole(name:string,role:'first'|'last'|'both'|'reference'|'source',media:'image'|'video'='image'){
  fireEvent.drop(document.querySelector('[data-open-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(roleFile(name,media))}});
+ const choice=document.querySelector('.reference-assignment select');if(choice)fireEvent.change(choice,{target:{value:role}});
  fireEvent.click(document.querySelector(`[data-video-role="${role}"]`)!);
 }
 export function closeRoles(){fireEvent.click(within(screen.getByRole('dialog',{name:'References'})).getByRole('button',{name:'Close'}));}

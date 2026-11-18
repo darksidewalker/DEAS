@@ -28,7 +28,7 @@ fn spell(tag: &str, underscore: bool) -> String {
     }
 }
 
-fn underscore(dir: &Path, target: &str) -> bool {
+pub(crate) fn underscore(dir: &Path, target: &str) -> bool {
     super::data::read(&dir.join("forge-pack.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())

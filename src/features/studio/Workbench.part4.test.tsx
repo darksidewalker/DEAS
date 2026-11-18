@@ -154,10 +154,10 @@ test.each(['REF2VA','FL2VA'] as const)('HyperFlow %s follows the global pipeline
   fireEvent.click(document.querySelector('[data-open-references]')!);
   const dialog=screen.getByRole('dialog',{name:'References'});
   expect(within(dialog).getByRole('region',{name:'Images'})).toBeTruthy();
-  expect(within(dialog).getByText('Images 1/9')).toBeTruthy();
+  expect(dialog.querySelector('[data-reference-lane="image"] .reference-count')?.textContent).toBe('1 / 9');
   expect(within(dialog).queryByText(/Select images, videos or audio/)).toBeNull();
-  expect(within(dialog).queryByRole('region',{name:'Videos'})).toBeNull();
-  expect(within(dialog).queryByRole('region',{name:'Audio'})).toBeNull();
+  expect(dialog.querySelector('[data-reference-lane="video"] [data-ref]')).toBeNull();
+  expect(dialog.querySelector('[data-reference-lane="audio"] [data-ref]')).toBeNull();
   for(const [name,media] of [['clip.mp4','video'],['voice.wav','audio']]){
    const item={name,media,path:`/env/ComfyUI/input/${name}`,src:`asset://${name}`};
    fireEvent.drop(document.querySelector('[data-references]')!,{dataTransfer:{types:['application/x-deas-media'],getData:()=>JSON.stringify(item)}});
@@ -364,7 +364,7 @@ test('IPC fixture: MiniMax H3 runs Video → Video and Multi-reference → Video
  // References tab: a too-short trim blocks Run with the reason; a valid one reaches h3.media; labels go into the prompt.
  await waitFor(()=>expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false),{timeout:5000});
  dock('References');
- expect(screen.getByText('Images 1/9 · Videos 0/3 · Sound 2/3 · Files 3/12')).toBeTruthy();
+ expect(document.querySelector('.reference-assigned-heading .reference-count')?.getAttribute('title')).toBe('Images 1/9 · Videos 0/3 · Sound 2/3 · Files 3/12');
  fireEvent.click(screen.getByRole('button',{name:'Edit a2.wav'}));
  fireEvent.change(screen.getByLabelText('Start of a2.wav'),{target:{value:'1'}});
  fireEvent.change(screen.getByLabelText('End of a2.wav'),{target:{value:'2'}});
@@ -493,6 +493,8 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  expect(bar.querySelector<HTMLImageElement>('[data-reference-source] img')!.alt).toBe('face.png');
  fireEvent.click(within(within(dialog).getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
  fireEvent.click(await within(dialog).findByRole('button',{name:'ref.png'}));
+ expect(bar.querySelectorAll('[data-reference-controls]')).toHaveLength(1);
+ fireEvent.click(dialog.querySelector('[data-image-role="reference"]')!);
  expect(Array.from(bar.querySelectorAll('[data-reference-controls] .wb-reference-position')).map(e=>e.textContent)).toEqual(['2','3']);
  fireEvent.change(screen.getByLabelText('Prompt'),{target:{value:'Edit <Picture 1>:'}});
  fireEvent.click(within(dialog).getByRole('button',{name:'Insert <Picture 3> into the prompt'}));
@@ -507,6 +509,48 @@ test('IPC fixture: MiniMax H3 offers Image → Image as the Director-style edit:
  fireEvent(dialog,new Event('cancel',{cancelable:true}));
  expect(screen.queryByRole('dialog',{name:'References'})).toBeNull();expect(document.activeElement).toBe(button);
  expect(button.textContent).toContain('2');
+});
+
+test.each(['relocated','deleted'] as const)('H3 image reference picker cannot resurrect a %s selection with Add',async lifecycle=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'MiniMaxH3/h3.safetensors',path:'/m/h3',size:1,info:null,family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',path:'/m/t',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_video_vae_fp16.safetensors',path:'/m/v',size:1,info:null},
+  {category:'vae',name:'MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors',path:'/m/a',size:1,info:null}]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(videoEvidence);
+ vi.mocked(invoke).mockImplementation(async(_c,args)=>({path:(args as {path:string})?.path,parent:'/env',entries:mediaEntries,truncated:false}));
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/env/ComfyUI/input'}}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Image → Image').disabled).toBe(false));choosePipe('Image → Image');
+ promptDrop('image','/outside/source.png');
+ fireEvent.click(document.querySelector('[data-open-references]')!);
+ const dialog=screen.getByRole('dialog',{name:'References'});
+ fireEvent.click(within(within(dialog).getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ fireEvent.click(await within(dialog).findByRole('button',{name:'ref.png'}));
+ const add=within(dialog).getByRole('button',{name:'Add as reference'});
+ expect(add).toHaveProperty('disabled',false);
+ expect(add.title).toBe('ref.png');
+ expect(dialog.querySelectorAll('[data-reference-controls]')).toHaveLength(0);
+ const oldPath='/env/ComfyUI/input/ref.png',path='/env/ComfyUI/input/starred/renamed.png';
+ if(lifecycle==='relocated'){
+  fireEvent(window,new CustomEvent('deas-media-relocated',{detail:{oldPath,path}}));
+  expect(add).toHaveProperty('disabled',false);
+  expect(add.title).toBe('renamed.png');
+  fireEvent.click(add);
+  const card=dialog.querySelector('[data-reference-controls]')!;
+  expect(dialog.querySelectorAll('[data-reference-controls]')).toHaveLength(1);
+  expect(card.querySelector('strong')?.title).toBe(path);
+  expect(card.querySelector('img')).toMatchObject({alt:'renamed.png'});
+  expect(card.querySelector('img')?.getAttribute('src')).toBe(`asset://localhost/${path}`);
+  expect(card.innerHTML).not.toContain(oldPath);
+ }else{
+  fireEvent(window,new CustomEvent('deas-media-deleted',{detail:{deleted:[oldPath],failed:[]}}));
+  expect(add).toHaveProperty('disabled',true);
+  expect(add.title).toBe('');
+  fireEvent.click(add);
+  expect(dialog.querySelectorAll('[data-reference-controls]')).toHaveLength(0);
+ }
+ expect(dialog.querySelector<HTMLImageElement>('[data-reference-source] img')?.alt).toBe('source.png');
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
 });
 
 test.each(['image','ltx-2','wan','minimax-h3'] as const)('Run Plan uses the exact next Run intent without preparing, uploading or losing draft state (%s)',async family=>{

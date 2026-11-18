@@ -28,6 +28,32 @@ test('crop playback seeks to start and stops exactly at end without timeupdate',
  expect(screen.getByRole('button',{name:key('play')})).toBeTruthy();
 });
 
+test('compact audio is lazy, plays the crop, pauses, and releases its player on deactivation',async()=>{
+ const r=reference({item:{name:'voice.wav',src:'asset://voice.wav',media:'audio'}}),onActivate=vi.fn(),onDeactivate=vi.fn(),onChange=vi.fn();
+ const view=render(<ReferenceMedia compact reference={r} onChange={onChange} onActivate={onActivate} onDeactivate={onDeactivate}/>);
+ expect(view.container.querySelector('audio')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:key('playOf')}));expect(onActivate).toHaveBeenCalledOnce();
+ view.rerender(<ReferenceMedia compact active reference={r} onChange={onChange} onDeactivate={onDeactivate}/>);
+ const audio=view.container.querySelector('audio')!;Object.defineProperty(audio,'duration',{value:20,configurable:true});
+ await act(async()=>fireEvent.loadedMetadata(audio));
+ expect(play).toHaveBeenCalledOnce();expect(audio.currentTime).toBe(2);expect(audio.controls).toBe(false);
+ expect(view.container.querySelector('.reference-media-trims')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:key('pauseOf')}));expect(pause).toHaveBeenCalledOnce();
+ await act(async()=>fireEvent.click(screen.getByRole('button',{name:key('playOf')})));
+ act(()=>vi.advanceTimersByTime(3000));expect(audio.currentTime).toBe(5);expect(pause).toHaveBeenCalledTimes(2);
+ view.rerender(<ReferenceMedia compact reference={r} onChange={onChange}/>);
+ expect(view.container.querySelector('audio')).toBeNull();expect(vi.getTimerCount()).toBe(0);
+});
+
+test('trim warnings occupy a notice before the fields, including the empty valid state',()=>{
+ const {container,rerender,onChange}=mount(reference({trimEnd:3}));
+ const notice=container.querySelector('.reference-media-notice')!;
+ expect(notice).toBeTruthy();expect(notice.querySelector('[role="alert"]')).toBeTruthy();
+ expect(notice.nextElementSibling?.className).toBe('reference-media-trims');
+ rerender(<ReferenceMedia reference={reference({trimEnd:5})} onChange={onChange}/>);
+ expect(container.querySelector('.reference-media-notice')).toBe(notice);expect(notice.querySelector('[role="alert"]')).toBeNull();
+});
+
 test('crop clamps seeking, reschedules for playback rate and also stops on timeupdate',async()=>{
  const {media,metadata}=mount();metadata();
  await act(async()=>fireEvent.click(screen.getByRole('button',{name:key('play')})));
@@ -156,6 +182,18 @@ test('Linux FLAC uses unmuted native audio controls with duration and crop trans
  expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'pause',paused:true}}));
  await update({paused:true});fireEvent.click(screen.getByRole('button',{name:key('play')}));
  expect(vi.mocked(invoke).mock.calls.filter(([,a])=>(a as {action?:{kind:string}})?.action?.kind==='crop')).toHaveLength(2);
+});
+
+test('compact Linux audio uses the existing native crop player with only its play/pause button',async()=>{
+ const {update}=linuxAudio();
+ const view=render(<ReferenceMedia compact active reference={flac()} onChange={vi.fn()}/>);
+ await act(async()=>{});
+ expect(view.container.querySelector('audio,video,.native-video-seek')).toBeNull();
+ expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'crop',start:2,end:5}}));
+ await update({paused:false,position:3});
+ fireEvent.click(screen.getByRole('button',{name:key('pauseOf')}));
+ expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'pause',paused:true}}));
+ view.unmount();expect(invoke).toHaveBeenCalledWith('native_video_update',expect.objectContaining({action:{kind:'close'}}));
 });
 
 test('native FLAC blank bounds and invalid status never rewrite saved trims',async()=>{

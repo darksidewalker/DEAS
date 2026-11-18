@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type CSSProperties } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -10,11 +10,12 @@ export type NativeVideoStatus = {position:number;duration:number;width:number;he
 export type NativeVideoControl = {seek:(seconds:number)=>void;pause:()=>void;play:()=>void;playCrop:(start:number,end:number)=>void};
 const clock=(seconds:number)=>{const whole=Math.max(0,Math.floor(seconds));return `${Math.floor(whole/60)}:${String(whole%60).padStart(2,'0')}`;};
 const initial:NativeVideoStatus={position:0,duration:0,width:0,height:0,paused:true,muted:false,volume:100};
-export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,onSize,onStatus,controlRef,muted,audioOnly=false}:{source:VideoSource;label:string;active?:boolean;autoPlay?:boolean;loop?:boolean;onSize?:(w:number,h:number)=>void;onStatus?:(status:NativeVideoStatus)=>void;controlRef?:RefObject<NativeVideoControl|null>;muted?:boolean;audioOnly?:boolean}) {
+export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,onSize,onStatus,controlRef,muted,audioOnly=false,controls,resume}:{source:VideoSource;label:string;active?:boolean;autoPlay?:boolean;loop?:boolean;onSize?:(w:number,h:number)=>void;onStatus?:(status:NativeVideoStatus)=>void;controlRef?:RefObject<NativeVideoControl|null>;muted?:boolean;audioOnly?:boolean;controls?:ReactNode;resume?:number}) {
  const {t}=useI18n();
  const surface=useRef<HTMLDivElement>(null),size=useRef(onSize);size.current=onSize;
  const report=useRef(onStatus);report.current=onStatus;
  const modes=useRef({muted,audioOnly});modes.current={muted,audioOnly};
+ const resumeRef=useRef(resume);resumeRef.current=resume;
  const owner=useRef('');
  const [id,setId]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState<NativeVideoStatus>(initial),[maximized,setMaximized]=useState(false);
  const sourceKey=JSON.stringify(source);
@@ -50,7 +51,11 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
   };
   void invoke('native_video_open',{id:token,source:JSON.parse(sourceKey),autoPlay,repeat:loop,muted:modes.current.muted??false}).then(()=>{
    if(disposed){void close();return;}
-   ready=true;setId(token);void update();
+   ready=true;setId(token);
+   // Growing previews reopen per revision; resume keeps the watched position (one seek per open).
+   const from=resumeRef.current;
+   if(from&&Number.isFinite(from)&&from>0)void invoke('native_video_update',{id:token,action:{kind:'seek',seconds:from}}).catch(()=>{});
+   void update();
   }).catch(e=>{if(!disposed)setError(String(e));});
   const timer=window.setInterval(()=>void update(),150);
   const refresh=()=>void update();
@@ -72,7 +77,7 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
  const player=<div className="native-video" data-native-video data-audio-only={audioOnly||undefined} data-maximized={maximized||undefined} role="group" aria-label={label}>
   <div ref={surface} className="native-video-surface" style={{display:audioOnly?'none':undefined,aspectRatio:status.width&&status.height?`${status.width}/${status.height}`:'16/9'}} onClick={()=>{if(enabled)control({kind:'pause',paused:!status.paused});}}/>
   {error&&<p role="alert" className="error-message">{t('studio.video.error')} {error}</p>}
-  <div className="native-video-controls">
+  {controls??<div className="native-video-controls">
    <button type="button" disabled={!enabled} title={t(status.paused?'studio.video.play':'studio.video.pause')} aria-label={t(status.paused?'studio.video.play':'studio.video.pause')} onClick={()=>control({kind:'pause',paused:!status.paused})}><svg viewBox="0 0 24 24" aria-hidden="true">{status.paused?<path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/>:<path d="M8 5v14M16 5v14" strokeWidth="4"/>}</svg></button>
    <input className="native-video-seek" type="range" aria-label={t('studio.video.seek')} aria-valuetext={time} min={0} max={status.duration||0} step="any" value={position} style={fill(status.duration?position/status.duration*100:0)} disabled={!enabled||!status.duration} onChange={e=>control({kind:'seek',seconds:Number(e.target.value)})}/>
    <span className="native-video-time">{time}</span>
@@ -80,7 +85,7 @@ export function NativeVideo({source,label,active=true,autoPlay=false,loop=false,
    <input className="native-video-volume" type="range" aria-label={t('studio.video.volume')} aria-valuetext={`${Math.round(volume)}%`} min={0} max={100} value={volume} style={fill(volume)} disabled={!enabled} onChange={e=>control({kind:'volume',volume:Number(e.target.value)})}/>
    <span className="native-video-percent">{Math.round(volume)}%</span>
    {!audioOnly&&<button type="button" title={t(maximized?'studio.video.restore':'studio.video.maximize')} aria-label={t(maximized?'studio.video.restore':'studio.video.maximize')} aria-pressed={maximized} onClick={()=>setMaximized(m=>!m)}><svg viewBox="0 0 24 24" aria-hidden="true">{maximized?<path d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5"/>:<path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/>}</svg></button>}
-  </div>
+  </div>}
  </div>;
  return maximized?createPortal(player,document.body):player;
 }

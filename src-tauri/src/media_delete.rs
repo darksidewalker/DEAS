@@ -21,7 +21,7 @@ struct Candidate {
     root: PathBuf,
     root_anchor: Anchor,
     parent: Anchor,
-    file: File,
+    file: Option<File>,
     metadata: std::fs::Metadata,
 }
 
@@ -30,6 +30,8 @@ fn prepare(roots: &[PathBuf], paths: &[String]) -> Result<Vec<Candidate>, String
         return Err("Select between 1 and 500 media files".into());
     }
     let mut seen = std::collections::HashSet::new();
+    #[cfg(windows)]
+    let mut identities = std::collections::HashSet::new();
     paths
         .iter()
         .map(|path| {
@@ -44,25 +46,33 @@ fn prepare(roots: &[PathBuf], paths: &[String]) -> Result<Vec<Candidate>, String
             // Reuse the physical-media boundary: reject traversal, links/reparse parents,
             // directories, read-only files, project assets and ungrouped sidecars.
             let (_, file) = crate::media::star::preflight(root, source)?;
+            #[cfg(windows)]
+            {
+                let identity = crate::win::identity(&file)?;
+                // A second admitted reader of the same file would keep deletion pending.
+                if !identities.insert(identity) {
+                    return Err("Duplicate physical media selection".into());
+                }
+            }
             Ok(Candidate {
                 path: source.to_path_buf(),
                 root: root.clone(),
                 root_anchor: Anchor::open(root)?,
                 parent: Anchor::open(source.parent().ok_or("Missing media parent")?)?,
                 metadata: file.metadata().map_err(|_| "Cannot inspect media")?,
-                file,
+                file: Some(file),
             })
         })
         .collect()
 }
 
-fn remove(candidate: &Candidate) -> Result<(), String> {
+fn remove(candidate: &mut Candidate) -> Result<(), String> {
     remove_checked(candidate, |_| Ok(()))
 }
 
 // Checkpoints bracket capture so regressions can deterministically inject external edits.
 fn remove_checked(
-    candidate: &Candidate,
+    candidate: &mut Candidate,
     mut checkpoint: impl FnMut(bool) -> Result<(), String>,
 ) -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
@@ -76,6 +86,10 @@ fn remove_checked(
     {
         return Err("Media changed after selection; nothing was deleted".into());
     }
+    let admitted = candidate
+        .file
+        .as_ref()
+        .ok_or("Media inspection handle was already released")?;
     let name = candidate
         .path
         .file_name()
@@ -84,7 +98,7 @@ fn remove_checked(
     if Anchor::open(&candidate.root)?.identity()? != candidate.root_anchor.identity()?
         || Anchor::open(candidate.path.parent().ok_or("Missing media parent")?)?.identity()?
             != candidate.parent.identity()?
-        || !candidate.parent.owns_partial(name, &candidate.file)
+        || !candidate.parent.owns_partial(name, admitted)
     {
         return Err("Media identity changed; nothing was deleted".into());
     }
@@ -129,11 +143,10 @@ fn remove_checked(
         }
         let result = (|| {
             checkpoint(true)?;
-            let metadata = candidate
-                .file
+            let metadata = admitted
                 .metadata()
                 .map_err(|_| "Cannot inspect captured media")?;
-            if !quarantine.owns_partial("media", &candidate.file)
+            if !quarantine.owns_partial("media", admitted)
                 || metadata.len() != candidate.metadata.len()
                 || metadata.modified().ok().is_none()
                 || metadata.modified().ok() != candidate.metadata.modified().ok()
@@ -183,9 +196,13 @@ fn remove_checked(
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
             .open(&candidate.path)
             .map_err(|_| "Cannot open media for deletion; it may be in use")?;
-        if crate::win::identity(&file)? != crate::win::identity(&candidate.file)? {
+        if crate::win::identity(&file)? != crate::win::identity(admitted)? {
             return Err("Media identity changed; nothing was deleted".into());
         }
+        // Release our preflight/admission readers before marking deletion. Even
+        // share-delete readers keep a Windows filename pending until they close.
+        drop(current);
+        drop(candidate.file.take());
         let disposition = FILE_DISPOSITION_INFO { DeleteFile: 1 };
         if unsafe {
             SetFileInformationByHandle(
@@ -207,12 +224,13 @@ fn remove_checked(
             if attempt > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
-            if !candidate
-                .path
-                .try_exists()
-                .map_err(|_| "Cannot verify deletion")?
-            {
-                return Ok(());
+            match candidate.path.try_exists() {
+                Ok(false) => return Ok(()),
+                Ok(true) => {}
+                // Windows denies metadata queries while another handle keeps
+                // the disposed name pending. This is not proof of disappearance.
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {}
+                Err(_) => return Err("Cannot verify deletion".into()),
             }
         }
         Err("Media was marked for deletion but is still open in a preview or the backend; it clears once the player closes; do not reuse this filename".into())
@@ -231,10 +249,18 @@ fn delete(roots: &[PathBuf], paths: &[String]) -> Result<DeleteReport, String> {
         deleted_video_source_ids: vec![],
         errors: vec![],
     };
-    for candidate in candidates {
+    for mut candidate in candidates {
         let path = candidate.path.to_string_lossy().into_owned();
-        match crate::video_post_source::with_deleted_source(&candidate.file, || remove(&candidate))
-        {
+        let result = (|| {
+            let file = candidate
+                .file
+                .as_ref()
+                .ok_or("Missing media inspection handle")?
+                .try_clone()
+                .map_err(|_| "Cannot retain media identity for deletion")?;
+            crate::video_post_source::with_deleted_source(file, || remove(&mut candidate))
+        })();
+        match result {
             Ok(source_id) => {
                 report.deleted.push(path);
                 report.deleted_video_source_ids.extend(source_id);
@@ -348,7 +374,7 @@ mod tests {
         );
         assert!(crate::video_post_source::source(&id).is_ok());
         let report = delete(&roots, &[path.to_str().unwrap().into()]).unwrap();
-        assert_eq!(report.deleted, [path.to_str().unwrap()]);
+        assert_eq!(report.deleted, [path.to_str().unwrap()], "{report:?}");
         assert_eq!(
             report.deleted_video_source_ids.as_slice(),
             std::slice::from_ref(&id)
@@ -368,6 +394,7 @@ mod tests {
             report.deleted_video_source_ids.is_empty(),
             "changed retained identities stay guarded"
         );
+        assert_eq!(report.deleted, [path.to_str().unwrap()], "{report:?}");
     }
 
     #[test]
@@ -376,18 +403,33 @@ mod tests {
         let report = crate::jobs::Jobs::default()
             .with_idle_media_edit(|| delete(&roots, &paths[..1]))
             .unwrap();
-        assert_eq!(report.deleted, paths[..1]);
+        assert_eq!(report.deleted, paths[..1], "{report:?}");
         assert!(report.failed.is_empty());
         assert!(!Path::new(&paths[0]).exists());
         assert!(Path::new(&paths[1]).exists());
+    }
+    #[test]
+    fn bulk_deletion_releases_handles_and_allows_immediate_filename_reuse() {
+        let (_dir, roots, paths) = fixture();
+        let report = delete(&roots, &paths).unwrap();
+        assert_eq!(report.deleted, paths, "{report:?}");
+        assert!(report.failed.is_empty());
+        for path in &paths {
+            assert!(!Path::new(path).try_exists().unwrap());
+            std::fs::write(path, b"new output at the same filename").unwrap();
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                b"new output at the same filename"
+            );
+        }
     }
     #[cfg(target_os = "linux")]
     #[test]
     fn replacement_after_validation_is_captured_but_never_deleted() {
         let (_dir, roots, paths) = fixture();
-        let candidates = prepare(&roots, &paths[..1]).unwrap();
+        let mut candidates = prepare(&roots, &paths[..1]).unwrap();
         let held = roots[0].join("held.png");
-        let error = remove_checked(&candidates[0], |captured| {
+        let error = remove_checked(&mut candidates[0], |captured| {
             if !captured {
                 std::fs::rename(&paths[0], &held).unwrap();
                 std::fs::write(&paths[0], b"replacement").unwrap();
@@ -404,8 +446,8 @@ mod tests {
     #[test]
     fn source_recreated_after_capture_is_not_unlinked() {
         let (_dir, roots, paths) = fixture();
-        let candidates = prepare(&roots, &paths[..1]).unwrap();
-        remove_checked(&candidates[0], |captured| {
+        let mut candidates = prepare(&roots, &paths[..1]).unwrap();
+        remove_checked(&mut candidates[0], |captured| {
             if captured {
                 std::fs::write(&paths[0], b"replacement").unwrap();
             }
@@ -413,7 +455,16 @@ mod tests {
         })
         .unwrap();
         assert_eq!(std::fs::read(&paths[0]).unwrap(), b"replacement");
-        assert_eq!(candidates[0].file.metadata().unwrap().len(), 7);
+        assert_eq!(
+            candidates[0]
+                .file
+                .as_ref()
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .len(),
+            7
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -421,8 +472,8 @@ mod tests {
     fn failed_delete_restores_or_exposes_recovery_without_clobber() {
         for occupied in [false, true] {
             let (_dir, roots, paths) = fixture();
-            let candidates = prepare(&roots, &paths[..1]).unwrap();
-            let error = remove_checked(&candidates[0], |captured| {
+            let mut candidates = prepare(&roots, &paths[..1]).unwrap();
+            let error = remove_checked(&mut candidates[0], |captured| {
                 if captured {
                     if occupied {
                         std::fs::write(&paths[0], b"replacement").unwrap();
@@ -454,8 +505,8 @@ mod tests {
             .write(true)
             .open(&paths[0])
             .unwrap();
-        let candidates = prepare(&roots, &paths[..1]).unwrap();
-        assert!(remove_checked(&candidates[0], |captured| {
+        let mut candidates = prepare(&roots, &paths[..1]).unwrap();
+        assert!(remove_checked(&mut candidates[0], |captured| {
             if captured {
                 writer.write_all_at(b"unfinished writer", 0).unwrap();
             }
@@ -468,11 +519,10 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "live Windows handle probe"]
     fn pending_deletion_is_reported_while_a_share_delete_holder_is_open() {
         use std::os::windows::fs::OpenOptionsExt;
         let (_dir, roots, paths) = fixture();
-        let candidates = prepare(&roots, &paths[..1]).unwrap();
+        let mut candidates = prepare(&roots, &paths[..1]).unwrap();
         // A WebView2-style preview holder: share READ|WRITE|DELETE keeps the name
         // pending after disposition, which must surface as an actionable failure.
         let holder = std::fs::OpenOptions::new()
@@ -480,9 +530,54 @@ mod tests {
             .share_mode(0x1 | 0x2 | 0x4)
             .open(&paths[0])
             .unwrap();
-        let error = remove(&candidates[0]).unwrap_err();
+        let error = remove(&mut candidates[0]).unwrap_err();
         assert!(error.contains("still open in a preview"), "{error}");
         drop(holder);
+        assert!(!Path::new(&paths[0]).try_exists().unwrap());
+        std::fs::write(&paths[0], b"filename can be reused").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn delayed_preview_release_completes_deletion_and_allows_filename_reuse() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (_dir, roots, paths) = fixture();
+        let mut candidates = prepare(&roots, &paths[..1]).unwrap();
+        let holder = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2 | 0x4)
+            .open(&paths[0])
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            drop(holder);
+        });
+        let result = remove(&mut candidates[0]);
+        release.join().unwrap();
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!Path::new(&paths[0]).try_exists().unwrap());
+        std::fs::write(&paths[0], b"new output").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn duplicate_case_and_hardlink_identities_reject_the_entire_batch() {
+        for hardlink in [false, true] {
+            let (_dir, roots, paths) = fixture();
+            let alias = roots[0].join(if hardlink { "alias.png" } else { "ONE.PNG" });
+            if hardlink {
+                std::fs::hard_link(&paths[0], &alias).unwrap();
+            }
+            let error =
+                delete(&roots, &[paths[0].clone(), alias.to_str().unwrap().into()]).unwrap_err();
+            assert!(
+                error.contains("Duplicate physical media selection"),
+                "{error}"
+            );
+            assert_eq!(std::fs::read(&paths[0]).unwrap(), b"fixture");
+            assert_eq!(std::fs::read(alias).unwrap(), b"fixture");
+            assert!(Path::new(&paths[1]).exists());
+        }
     }
 
     #[test]
@@ -519,23 +614,24 @@ mod tests {
     #[test]
     fn rejects_namespace_replacement_and_reports_partial_failure() {
         let (_dir, roots, paths) = fixture();
-        let candidates = prepare(&roots, &paths).unwrap();
+        let mut candidates = prepare(&roots, &paths).unwrap();
         std::fs::rename(&paths[0], roots[0].join("held.png")).unwrap();
         std::fs::write(&paths[0], b"replacement").unwrap();
-        assert!(remove(&candidates[0]).is_err());
+        assert!(remove(&mut candidates[0]).is_err());
         assert_eq!(std::fs::read(&paths[0]).unwrap(), b"replacement");
-        assert!(remove(&candidates[1]).is_ok());
+        let result = remove(&mut candidates[1]);
+        assert!(result.is_ok(), "{result:?}");
         drop(candidates);
         assert!(!Path::new(&paths[1]).exists());
     }
     #[test]
     fn rechecks_content_and_sidecars_before_each_removal() {
         let (_dir, roots, paths) = fixture();
-        let candidates = prepare(&roots, &paths).unwrap();
+        let mut candidates = prepare(&roots, &paths).unwrap();
         std::fs::write(&paths[0], b"unfinished replacement content").unwrap();
         std::fs::write(Path::new(&paths[1]).with_extension("json"), b"{}").unwrap();
-        assert!(remove(&candidates[0]).is_err());
-        assert!(remove(&candidates[1]).is_err());
+        assert!(remove(&mut candidates[0]).is_err());
+        assert!(remove(&mut candidates[1]).is_err());
         assert_eq!(
             std::fs::read(&paths[0]).unwrap(),
             b"unfinished replacement content"

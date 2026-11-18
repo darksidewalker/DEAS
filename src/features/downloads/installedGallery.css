@@ -31,7 +31,7 @@
 .library-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; }
 .library-search { display:flex; flex:1 1 13rem; align-items:center; min-width:0; gap:.5rem; padding:0 .7rem; border:1px solid var(--library-border); border-radius:.5rem; background:var(--field); }
 .library-search>svg { flex:none; color:var(--muted); }
-.download-controls .library-search input { border:0; background:transparent; box-shadow:none; padding:.65rem 0; font-size:.8rem; outline-offset:1px; }
+.download-controls .library-search input { box-sizing:border-box; height:calc(1.8rem - 2px); min-height:0; border:0; background:transparent; box-shadow:none; padding:0; font-size:.8rem; outline-offset:1px; }
 .library-search button { background:none; border:0; padding:0; color:var(--muted); cursor:pointer; font-size:1rem; }
 .download-controls .library-sort { display:flex!important; align-items:center; gap:.4rem; color:var(--muted); font-size:.7rem; }
 .library-sort select { width:auto!important; max-width:10rem!important; padding:.5rem; font-size:.75rem; }
@@ -49,9 +49,9 @@
 .library-card-art { position:relative; width:100%; aspect-ratio:3/4; overflow:hidden; background:var(--field); }
 .library-card-art .download-preview { width:100%; height:100%; aspect-ratio:auto; border-radius:0; object-fit:cover; transition:transform .3s; }
 .library-card:hover .library-card-art img { transform:scale(1.035); }
-.library-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; color:var(--muted); background:radial-gradient(ellipse at 30% 20%,rgb(var(--ink-rgb) / .09),transparent 65%),linear-gradient(155deg,var(--raised),var(--field)); }
-.library-placeholder>svg { width:44px; height:44px; stroke-width:.7; opacity:.5; }
-.library-placeholder>span { letter-spacing:.14em; font-size:.65rem; opacity:.5; }
+.library-card-art .library-placeholder { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; color:var(--muted); background:radial-gradient(ellipse at 30% 20%,rgb(var(--ink-rgb) / .09),transparent 65%),linear-gradient(155deg,var(--raised),var(--field)); }
+.library-placeholder>svg { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:44px; height:44px; stroke-width:.7; opacity:.5; }
+.library-placeholder>span { position:absolute; left:0; top:calc(50% + 2rem); width:100%; text-align:center; letter-spacing:.14em; font-size:.65rem; opacity:.5; }
 .library-family-badge { position:absolute; left:.55rem; top:.55rem; max-width:calc(100% - 3.5rem); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid #ffffff20; border-radius:.3rem; background:#101319b8; backdrop-filter:blur(10px); color:#f1f3f5; padding:.2rem .4rem; font-size:.62rem; }
 .library-mature-badge { position:absolute; left:.55rem; bottom:.55rem; padding:.2rem .4rem; background:#101319d0; border-radius:.3rem; color:#f2b6b6; font-size:.6rem; }
 .library-star { display:grid; place-items:center; position:absolute; right:.5rem; top:.5rem; width:1.7rem; height:1.7rem; padding:0; border:1px solid #ffffff20; border-radius:.4rem; background:#101319b8; color:#d5d8dd; cursor:pointer; font-size:1.1rem; }
@@ -126,8 +126,8 @@
 .library-fetch-options .field-help { flex-basis:100%; margin:0; }
 
 /* In the Library workspace, inherit the shell's remaining height without viewport arithmetic. */
-.aio-setup[data-workspace-view="downloads"] .aio-left>.download-module.is-installed { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
-.aio-setup[data-workspace-view="downloads"] .aio-left>.download-module.is-installed>.download-controls { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; }
+.aio-setup[data-workspace-view="downloads"] .aio-left>.download-module:is(.is-installed,.is-catalog) { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+.aio-setup[data-workspace-view="downloads"] .aio-left>.download-module:is(.is-installed,.is-catalog)>.download-controls { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; }
 .aio-setup[data-workspace-view="downloads"] .installed-library { display:flex; flex-direction:column; flex:1; min-height:16rem; overflow:hidden; }
 .aio-setup[data-workspace-view="downloads"] .installed-library>.library-heading,
 .aio-setup[data-workspace-view="downloads"] .installed-library>.library-browse { flex:none; }
@@ -150,8 +150,8 @@
 .installed-library>.library-fetch-tools:empty { display:none; }
 .library-sidebar { scrollbar-gutter:stable; overflow-x:hidden; }
 
-.download-module.is-installed { padding:.35rem 0 .25rem; border-bottom:0; }
-.download-module.is-installed>.download-controls { gap:.4rem; }
+.download-module:is(.is-installed,.is-catalog) { padding:.35rem 0 .25rem; border-bottom:0; }
+.download-module:is(.is-installed,.is-catalog)>.download-controls { gap:.4rem; }
 
 .library-add-lora { position:absolute; top:.65rem; right:2.75rem; width:1.65rem; height:1.65rem; display:grid; place-items:center; border:1px solid var(--library-border); border-radius:.35rem; background:var(--field); color:var(--chalk); cursor:pointer; }
 .library-added-notice[popover] { position:fixed; inset:auto; margin:0; bottom:1.25rem; left:50%; box-sizing:border-box; width:max-content; overflow-wrap:anywhere; transform:translateX(-50%); z-index:1100; max-width:min(36rem,calc(100vw - 2rem)); background:var(--panel); border:1px solid var(--line); border-radius:.4rem; padding:.55rem .8rem; color:var(--ok); font-size:.78rem; box-shadow:0 3px 12px #0006; pointer-events:none; }

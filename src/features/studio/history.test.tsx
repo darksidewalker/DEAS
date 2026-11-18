@@ -77,7 +77,7 @@ test('history mapper preserves immutable exact seed, canvas, options, LoRAs and 
  const before=JSON.stringify(original),restore=historyRestore(original,context);
  expect(restore.unavailable).toEqual(['input: second.png','input: first.png']);expect(restore.unsupported).toEqual([]);
  expect(restore.intent).toEqual(original.intent);expect(restore.intent).not.toBe(original.intent);
- expect(restore.options).toMatchObject({attention:'a:sdpa',cache:'EasyCache',threshold:0.03,compile:'inductor',vae:'tiled',tile:1536,outputNaming:'image/exact',output:{imageFormat:'webp',imageCompression:83}});
+ expect(restore.options).toMatchObject({attention:'a:sdpa',cache:'EasyCache',threshold:0.03,compile:'inductor',vae:'tiled',tile:1536,outputNaming:'%type%/%date_yyyy-mm-dd%/%time%-%seed%-%model%',output:{imageFormat:'webp',imageCompression:83}});
  expect(restore.references).toEqual([{name:'second.png',strength:0.2},{name:'first.png',strength:0.9}]);
  restore.references.reverse();expect(JSON.stringify(original)).toBe(before);
 });

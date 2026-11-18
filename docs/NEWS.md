@@ -1,5 +1,60 @@
 # News
 
+## 0.2.41 BETA (unreleased)
+
+### tidier preview and Library controls
+
+The Original/Processed buttons above a post-processed result follow your colour
+scheme like every other button, and the Library search fields are now the same
+height as the other searches. See [Studio](STUDIO.md) and [Library](LIBRARY.md).
+
+## 0.2.40 BETA
+
+### empty H3 drafts start in T2VA
+
+An empty H3 Video draft now recovers from an old remembered reference/frame mode
+without demanding nonexistent references. History and pinned Continuity keep their
+intended mode. See [Studio](STUDIO.md).
+
+### Enhanced video preview keeps your position
+
+The animated denoising preview during a running Video generation no longer jumps
+back to the start on every update; it resumes at the position you were watching,
+so the growing clip plays through. See [Studio](STUDIO.md).
+
+### Windows deletion fixes
+
+Media deletion now releases DEAS's own inspection handles before confirming that
+files are gone. Bulk deletion and filename reuse work without false failure reports.
+TVE source cleanup preserves identity checks and protects active source operations.
+See [Media](MEDIA.md).
+
+### more local prompt tags
+
+The prompt's tag-plus button opens autocomplete options: turn suggestions on/off,
+choose a larger floating list outside the prompt, increase result count and enable
+the local merged Danbooru/e621 dictionary. The compact popup keeps controls and
+labels together. Separate CSV presets were removed; user CSV files are never bundled.
+Every CSV source, including the merged entry, can be removed with its trash icon;
+the original CSV stays intact. Built-in Danbooru keeps its checkbox without a trash icon.
+Sources are indexed once and queried locally while typing.
+See [Studio](STUDIO.md).
+
+### compact H3 Video References
+
+Video References has dedicated Images, Video, Audio and RefMod panes, a compact
+assignment bar and aligned pack controls. Pane positions stay stable as references
+change. Visible action icons include a red Remove button, and a picture can be
+assigned to multiple independent slots. Audio cards have crop play/pause, drag grips
+snap with pointer capture, and trim warnings no longer move the editor. H3 image edit
+now has a pinned main preview, controls below it and a compact reference grid.
+See [Studio](STUDIO.md).
+
+### Library Catalog
+
+Catalog and Installed now share a gallery-style browsing layout. Online cards
+have their own Favorites, tags and notes; source, search and Download all sit on
+one action line. Installed is the left tab, and missing-cover hexagons stay centered.
 
 ## 0.2.39 BETA
 

@@ -220,8 +220,9 @@ test('the rack dialog opens from the strip, edits the saved rows that Run sends,
  expect(JSON.stringify(sent.dials)).toBe('[{"dial":"dials/h3_motion.safetensors","strength":1.5,"time":{"type":"keys","points":[[0,0],[1.5,1]],"unit":"seconds","interp":"linear","steps":5}},{"dial":"dials/sub/h3_calm.safetensors","strength":-0.5,"time":{"type":"keys","points":[[0,0.5],[1.5,1],[4,-2]],"unit":"seconds"}}]');
 });
 
-test.each([['t2v','6.583'],['ref2v','5.875']])('the lanes of a Continuity piece end where the compiler ends it in %s: a 1 s step after a 5 s clip',async(pipeline,seconds)=>{
- // T2VA: the continued step gets its 39-frame clip (frames / 24) and adds 34 frames, 124 + 34 = 158. REF2VA carries durationSeconds 1 and adds 17, 141.
+test.each([['t2v','6.583']])('the lanes of a Continuity piece end where the compiler ends it in %s: a 1 s step after a 5 s clip',async(pipeline,seconds)=>{
+ // T2VA: the continued step gets its 39-frame clip (frames / 24) and adds 34 frames, 124 + 34 = 158. REF2VA carries durationSeconds 1 and adds 17, 141:
+ // since 0.2.40 an empty draft without references returns to t2v, so that length is covered in dialCurve.test.ts (`dialTimeline(124, ..., true)`).
  localStorage.setItem('deas.pref.studio.run.continuity',JSON.stringify({enabled:true,session:'deas-dials2',outputMode:'full',steps:[{id:'a',seconds:5,action:''},{id:'b',seconds:1,action:''}]}));
  const view=await mount([{dial:calm,strength:1,on:true,time:curve}],{pipeline});
  view.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
