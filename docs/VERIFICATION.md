@@ -38,6 +38,29 @@ acceptance, and the translations are machine-assisted: native-speaker review rem
 as `docs/LOCALIZATION.md` states. Russian has no pinned Hunspell dictionary; the Settings panel
 explains it like ja/zh.
 
+## Release 0.3.19 (published)
+
+Published 2026-11-21 as `v0.3.19` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.19.
+Rolls up the untagged development versions 0.3.14-0.3.18 (Dark Wizards quality path, Beginner Wizards page,
+Russian as the seventh language (PR #48), Studio notes both ways + Anima 2.9B LoRA compatibility (PR #49),
+Enhanced Preview playback fixes (PR #47), actionable Linux environment-trust rejections).
+
+Built locally from source commit `7826fc52` (tree `af5ff000`) with rustc 1.97.0 / node v22.23.5; unsigned;
+direct glibc floor 2.39 (`objdump -T`). Tag `v0.3.19` resolves to the source commit on GitHub and Gitea.
+
+Assets (SHA-256, re-downloaded from GitHub and `sha256sum -c`-verified):
+
+- `deas-linux-amd64` 9b7f2c182c24633f99711831a8448b3336f47a4744273a51591d990d9756d8c9
+- `deas.exe` 2d71a89005ceeee9949e77fbe0275abb4a20ccb66851971c68f9feb65fa7436a
+- `SHA256SUMS` / `BUILD-MANIFEST.json` 21374a3c2c6cac89d6da0cb3591b4fbbdbceddce7e0fe943050859c29531fae5
+
+Gates on the release commit: typecheck, `test:core`, tools tests, Chromium layout gate clean. Full parallel
+Vitest suite showed 12, then 28 failures spread over Workbench/Analysis/AiOSetup timing files; every file
+green in isolation (327 + 210 targeted tests) - machine-load flakes, matching the known pattern. Cargo:
+fmt clean, strict Clippy (Linux and `cargo xwin` `--all-targets -D`) clean, `cargo test --lib --test-threads=1`
+1143/1145 with the two known backend python-shutdown-pipe load flakes (green in isolation);
+`cargo xwin check --all-targets` clean. Local build (hosted Verify/Release workflows remain disabled).
+
 ## Release 0.3.13 (published)
 
 Published 2026-11-20 as `v0.3.13` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.13.
