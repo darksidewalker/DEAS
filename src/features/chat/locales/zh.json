@@ -59,5 +59,8 @@
   "chat.status.loading_model": "正在重新加载模型…",
   "chat.pin": "置顶",
   "chat.unpin": "取消置顶",
-  "chat.pinned": "已置顶"
+  "chat.pinned": "已置顶",
+  "chat.retry": "重试",
+  "chat.retryHelp": "让模型重新生成最后的回答：当前回答将被新回答替换。",
+  "chat.retryReason": "提问后且当前没有正在生成的回答时，显示在对话下方。"
 }

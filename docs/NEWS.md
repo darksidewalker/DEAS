@@ -1,5 +1,30 @@
 # News
 
+## 0.3.20
+
+### H3 upscaling at 4K: correct memory planning, your choice of VRAM use
+
+Latent upscale and Hi-Res Regenerate for MiniMax H3 no longer make ComfyUI plan memory for the whole 4K frame when it only refines one tile
+at a time. How much of the model stays on the GPU is now its own setting: by default the whole model stays loaded when it fits, and
+otherwise it streams from RAM, which uses the least VRAM at the same speed. Windows of a long clip also join exactly: the next window starts
+from the previous one's finished frames instead of a crossfade. New choices under **☰ More upscaler options**: **Temporal join**,
+**Tile references** (crop reference videos to each tile for video edits), **Weight residency** and **Max resident weights (GB)**. Needs DaSiWa node pack 0.5.62 (Backend → Upgrade → ComfyUI and
+node packs); with an older pack everything renders as before.
+
+### Chat: ask again
+
+A **Retry** button appears under the conversation: when the last answer went wrong, came back empty, broke off or
+failed, DEAS asks the model again and the new answer replaces the old one. The question is not saved twice, and
+pictures sent with it go along again as long as this session still holds them.
+
+### A fresh environment installs on Mint, Ubuntu and friends
+
+DEAS refuses an environment that another account could write into — but it used to create that environment with your
+account's default permissions, and on distributions whose default lets the group write, it then refused the folders it
+had just made. DEAS now sets its own permissions at startup and repairs an environment installed the old way when it
+opens it; the refusal that stays names the folder and the exact `chmod` command. Nothing to do unless you still see the
+message: then use the `chmod -R go-w …` from the Troubleshooting table.
+
 ## 0.3.19
 
 ### Cleaner replacements

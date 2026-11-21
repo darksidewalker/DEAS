@@ -110,6 +110,8 @@ export interface RecipeAllowlist {
   readonly faceRefineStill?: boolean;
   readonly deropeKeepBackground?: boolean;
   readonly h3LatentSharpness?: boolean;
+  /** Node pack >= 0.5.62: Enhanced Upscale `temporal_join` / `tile_references` / `tile_memory_estimate`. */
+  readonly h3LowVramTiling?: boolean;
   readonly h3RegenerateOriginal?: boolean;
   readonly h3RegenerateTuning?: boolean;
   readonly videoPreviews?: Record<string, import('./videoPreview').VideoPreviewConfig>;
@@ -344,7 +346,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
 export function compileRecipe(input: unknown, verified: unknown, models:readonly LocalModel[]=[]): CompiledRecipe {
   const intent = validateIntent(input);
   if(intent.componentOverrides!==undefined&&!isComponentOverrides(intent.componentOverrides))throw new RecipeCompileError('INVALID_INTENT','componentOverrides','Invalid component override flags.','Supply the four boolean slot flags.');
-  if (!isRecord(verified) || ['faceRefineStill','deropeKeepBackground','h3LatentSharpness','h3RegenerateOriginal','h3RegenerateTuning'].some(k=>verified[k]!==undefined&&typeof verified[k]!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
+  if (!isRecord(verified) || ['faceRefineStill','deropeKeepBackground','h3LatentSharpness','h3LowVramTiling','h3RegenerateOriginal','h3RegenerateTuning'].some(k=>verified[k]!==undefined&&typeof verified[k]!=='boolean') || !['nodes', 'checkpoints', 'samplers', 'schedulers'].every(key =>
     Object.hasOwn(verified, key) && Array.isArray(verified[key]) && Array.from(verified[key]).every((v: unknown) => typeof v === 'string' && v.length > 0))) {
     throw new RecipeCompileError('INVALID_ALLOWLIST', 'allowlist', 'Explicit capability/model lists are required.', 'Supply all four string arrays from a verified backend probe.');
   }

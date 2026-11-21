@@ -293,3 +293,62 @@ it('right-click opens Rename, Pin to top and Delete; pinned chats show a pin', a
   expect(screen.getByRole('button', { name: 'Delete?' })).toBeTruthy();
   expect(vi.mocked(invoke).mock.calls.some(([c]) => c === 'native_chat_delete')).toBe(false);
 });
+
+it('Retry asks the stored question again in place of the last answer, and answers a failed turn', async () => {
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let fail = true;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_chat_send' && !a.request.retry && fail) {
+      a.onEvent.onmessage({ event: 'chat', id: ID, title: 't' });
+      throw 'The model returned an empty answer.';
+    }
+    if (command === 'native_chat_get' && fail) return { ...old, messages: [...old.messages, { role: 'user', content: 'draw a fox', pictures: 1, prompts: [], citations: [], tools: [], at: 5 }] };
+    if (command === 'native_chat_send' && a.request.retry) {
+      a.onEvent.onmessage({ event: 'text', text: 'A fox.' });
+      return { role: 'assistant', content: 'A fox.', pictures: 0, prompts: [], citations: [], tools: [], at: 9 };
+    }
+    return base(command, args);
+  });
+  render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: old.title }));
+  await screen.findByText('flowing paragraph');
+  const picture = new File([new Uint8Array([137, 80, 78, 71])], 'fox.png', { type: 'image/png' });
+  fireEvent.change(document.querySelector('[data-chat-picture]')!, { target: { files: [picture] } });
+  await waitFor(() => expect(document.querySelectorAll('.chat-pic')).toHaveLength(1));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'draw a fox' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByRole('alert');
+  // The failed question stays; Retry re-asks it with the picture this session still holds.
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await screen.findByText('A fox.');
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(sends()[1]).toMatchObject({ id: ID, retry: true, message: 'draw a fox' });
+  expect(sends()[1].pictures).toEqual(sends()[0].pictures);
+  expect((sends()[1].pictures as string[])).toHaveLength(1);
+  // Retrying a finished answer replaces it rather than adding a second one.
+  fail = false;
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(sends()).toHaveLength(3));
+  await screen.findByRole('button', { name: 'Retry' });
+  expect(screen.getAllByText('A fox.')).toHaveLength(1);
+  expect(document.querySelectorAll('[data-chat-msg="user"]')).toHaveLength(2);
+  expect(sends()[2]).toMatchObject({ id: ID, retry: true });
+});
+
+it('Retry is hidden until a question exists and while an answer is written', async () => {
+  const reply = deferred<unknown>();
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => command === 'native_chat_send' ? reply.promise as any : base(command, args));
+  render(<I18nProvider><Chat endpoint="http://127.0.0.1:8188" root="/env" onSend={vi.fn()}/></I18nProvider>);
+  await screen.findByRole('button', { name: old.title });
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: old.title }));
+  await screen.findByRole('button', { name: 'Retry' });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'hi' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByRole('button', { name: 'Stop' });
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  await act(async () => { reply.resolve({ role: 'assistant', content: 'hello', pictures: 0, prompts: [], citations: [], tools: [], at: 4 }); });
+  await screen.findByRole('button', { name: 'Retry' });
+});

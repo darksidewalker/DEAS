@@ -2184,6 +2184,71 @@ async fn h3_stream_prepare_requires_its_actual_lazy_saver_not_the_rgb_gate() {
 }
 
 #[tokio::test]
+async fn h3_low_vram_tiling_overrides_need_the_0_5_62_pack_but_defaults_never_block() {
+    let mut intent = crate::jobs_video::tests::h3();
+    intent["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":1,"denoise":0.2});
+    let all = h3_regenerate_prepare_nodes(&intent);
+    // DaSiWa node pack 0.5.62: nodes_minimax_h3_tiled_upscale.py::LOW_VRAM_INPUTS.
+    let low_vram = json!({
+        "temporal_join":[["crossfade","prefix"],{"default":"crossfade"}],
+        "tile_references":[["full","crop_video","crop_all"],{"default":"full"}],
+        "tile_memory_estimate":["BOOLEAN",{"default":true}],
+        "weight_residency":[["auto","keep","stream"],{"default":"auto"}],
+        "max_resident_gb":["FLOAT",{"default":0.0}]
+    });
+    for case in ["older pack", "compatible"] {
+        let mut info = all.clone();
+        if case == "compatible" {
+            info["DaSiWaH3TiledUpscale"]["input"]["optional"] = low_vram.clone();
+        }
+        let (base, task) = server(move |path, _| {
+            assert_eq!(
+                path, "GET /comfy/object_info HTTP/1.1",
+                "prepare must not execute"
+            );
+            (200, info.to_string())
+        })
+        .await;
+        let jobs = Jobs::default();
+        // The default prefix join and one-tile estimate are emitted for every pack; older packs ignore them.
+        let plan = jobs.prepare(base.clone(), intent.clone()).await.unwrap();
+        assert_eq!(
+            plan["graph"]["U"]["inputs"]["temporal_join"],
+            json!("prefix")
+        );
+        assert_eq!(
+            plan["graph"]["U"]["inputs"]["tile_memory_estimate"],
+            json!(true)
+        );
+        for advanced in [
+            json!({"temporalJoin":"crossfade"}),
+            json!({"tileReferences":"crop_video"}),
+            json!({"weightResidency":"stream"}),
+            json!({"maxResidentGb":4.0}),
+        ] {
+            let mut request = intent.clone();
+            request["latentUpscale"]["advanced"] = advanced.clone();
+            let result = jobs.prepare(base.clone(), request.clone()).await;
+            if case == "compatible" {
+                assert_eq!(result.unwrap()["graph"], compile(&request).unwrap());
+            } else {
+                let err = result.unwrap_err();
+                assert!(
+                    err.contains("node pack 0.5.62")
+                        && err.contains("temporal_join")
+                        && err.contains("Backend → Upgrade"),
+                    "{advanced}: {err}"
+                );
+                let session = jobs.lock().unwrap();
+                assert!(session.plan.is_none() && session.preparing.is_none());
+            }
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn h3_regenerate_tuning_prepare_requires_compatible_optional_inputs() {
     for target in ["1080P", "2K", "4K", "Original"] {
         let mut intent = crate::jobs_video::tests::h3();
@@ -4352,9 +4417,19 @@ async fn concurrent_submit_reserves_job_before_any_network_await() {
     let id = plan["id"].as_str().unwrap().to_owned();
     let (first, duplicate) =
         tokio::join!(jobs.submit(id.clone(), true), jobs.submit(id.clone(), true));
-    assert!(first.is_ok());
-    assert!(duplicate.is_err());
-    assert_eq!(first.unwrap()["state"], "failed");
+    // Which future reaches the reservation first is the runtime's choice; asserting a specific
+    // winner made this a coin flip (roughly half of standalone runs). The contract is that exactly
+    // one submit is accepted and the other is refused, both before any network await.
+    let accepted: Vec<&Result<Value, String>> = [&first, &duplicate]
+        .into_iter()
+        .filter(|r| r.is_ok())
+        .collect();
+    assert_eq!(
+        accepted.len(),
+        1,
+        "exactly one concurrent submit may be accepted; first={first:?} duplicate={duplicate:?}"
+    );
+    assert_eq!(accepted[0].as_ref().unwrap()["state"], "failed");
     assert!(jobs.submit(id, true).await.is_err());
     let next = jobs.prepare(base, intent()).await.unwrap();
     assert_ne!(plan["id"], next["id"]);

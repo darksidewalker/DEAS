@@ -262,6 +262,10 @@ pub struct SendRequest {
     /// Studio's Generate settings; absent = chat cannot render.
     #[serde(default)]
     pub studio: Option<StudioState>,
+    /// Answer the conversation's last question again: its answer (if any) is dropped and
+    /// `message` is ignored. `pictures` are the ones the page still holds for that question.
+    #[serde(default)]
+    pub retry: bool,
 }
 
 fn now() -> u64 {
@@ -817,6 +821,14 @@ The question:
                     None if m.content.trim().is_empty() => "Here is a picture.".into(),
                     None => m.content.clone(),
                 };
+                // A retried question whose pictures the page no longer holds says so, as older turns do.
+                let text = if pictures.is_empty() && m.pictures > 0 {
+                    format!("{text}
+
+[{} picture(s) were attached here; they are no longer held.]", m.pictures).trim().to_string()
+                } else {
+                    text
+                };
                 return vec![chat::user_with_images(&text, pictures, ollama)];
             }
             // PromptForge (2 Oct 2026): a reply a tool wrote goes back as the tool call and
@@ -882,11 +894,26 @@ pub async fn send(
     root: &Path,
     data: &Data,
     config: &LlmConfig,
-    req: SendRequest,
+    mut req: SendRequest,
     emit: &mut (dyn FnMut(ChatEvent) + Send),
 ) -> Result<Message, String> {
+    // Retry: the stored question is asked again, never the page's copy of it.
+    let mut retried = None;
+    if req.retry {
+        let id = req.id.as_deref().ok_or("Nothing to retry.")?;
+        let mut chat = load(root, id)?;
+        while chat.messages.last().is_some_and(|m| m.role == "assistant") {
+            chat.messages.pop();
+        }
+        let question = chat.messages.last().ok_or("Nothing to retry.")?;
+        if req.pictures.len() > question.pictures {
+            return Err("Nothing to retry.".into());
+        }
+        req.message = question.content.clone();
+        retried = Some(chat);
+    }
     let text = req.message.trim().to_string();
-    if text.is_empty() && req.pictures.is_empty() {
+    if retried.is_none() && text.is_empty() && req.pictures.is_empty() {
         return Err("Say something first.".into());
     }
     if text.chars().count() > MAX_MESSAGE {
@@ -907,9 +934,10 @@ pub async fn send(
     }
     let ollama = config.provider == Provider::Ollama;
 
-    let mut chat = match req.id.as_deref() {
-        Some(id) => load(root, id)?,
-        None => {
+    let mut chat = match (retried, req.id.as_deref()) {
+        (Some(chat), _) => chat,
+        (None, Some(id)) => load(root, id)?,
+        (None, None) => {
             let t = now();
             Chat {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -922,15 +950,17 @@ pub async fn send(
             }
         }
     };
-    chat.messages.push(Message {
-        role: "user".into(),
-        content: text.clone(),
-        pictures: req.pictures.len(),
-        prompts: vec![],
-        citations: vec![],
-        tools: vec![],
-        at: now(),
-    });
+    if !req.retry {
+        chat.messages.push(Message {
+            role: "user".into(),
+            content: text.clone(),
+            pictures: req.pictures.len(),
+            prompts: vec![],
+            citations: vec![],
+            tools: vec![],
+            at: now(),
+        });
+    }
     chat.model = req.model.clone();
     chat.updated = now();
     // Saved before anything is generated: the question survives a failed answer.
@@ -1445,6 +1475,7 @@ mod tests {
             context: None,
             search: false,
             studio: None,
+            retry: false,
         }
     }
 
@@ -1638,6 +1669,7 @@ mod tests {
                 context: None,
                 search: false,
                 studio: None,
+                retry: false,
             },
             &mut |_| {},
         )
@@ -1710,6 +1742,7 @@ mod tests {
             context: None,
             search: false,
             studio: None,
+            retry: false,
         };
         let system = system_prompt(&data, &request, false, false);
         assert!(!system.contains("A prompt for anything else, write yourself."));
@@ -1793,6 +1826,7 @@ mod tests {
                         context: None,
                         search: false,
                         studio: None,
+                        retry: false,
                     },
                     &mut |e| events.push(e),
                 ),
@@ -1896,6 +1930,7 @@ mod tests {
                 context: None,
                 search: true,
                 studio: None,
+                retry: false,
             },
             &mut emit,
         );
@@ -1964,6 +1999,7 @@ mod tests {
                     context: None,
                     search: false,
                     studio: None,
+                    retry: false,
                 },
                 &mut emit,
             );
@@ -1990,6 +2026,155 @@ mod tests {
                 .unwrap();
             std::fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn retry_drops_the_last_answer_and_asks_the_stored_question_again() {
+        use chat::tests::{complete, fixture};
+        let msg = |role: &str, content: &str, pictures: usize| Message {
+            role: role.into(),
+            content: content.into(),
+            pictures,
+            prompts: vec![],
+            citations: vec![],
+            tools: vec![],
+            at: 7,
+        };
+        let data = routing_data();
+        let root = temp_root();
+        let retry = |id: Option<String>| SendRequest {
+            id,
+            message: "ignored by a retry".into(),
+            model: "fixture".into(),
+            pictures: vec![],
+            context: None,
+            search: false,
+            studio: None,
+            retry: true,
+        };
+        let config = |base_url: String| LlmConfig {
+            provider: Provider::Openai,
+            base_url,
+            api_key: String::new(),
+        };
+        // No conversation, or one with no question: nothing to retry, nothing written.
+        let none = config("http://127.0.0.1:9".into());
+        assert_eq!(
+            send(&root, &data, &none, retry(None), &mut |_| {})
+                .await
+                .unwrap_err(),
+            "Nothing to retry."
+        );
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut chat = Chat {
+            id: id.clone(),
+            title: "t".into(),
+            model: "m".into(),
+            created: 0,
+            updated: 0,
+            pinned: false,
+            messages: vec![msg("assistant", "orphan", 0)],
+        };
+        save(&root, &chat).unwrap();
+        assert_eq!(
+            send(&root, &data, &none, retry(Some(id.clone())), &mut |_| {})
+                .await
+                .unwrap_err(),
+            "Nothing to retry."
+        );
+        // A bad answer is replaced; a failed turn (question with no answer) is answered.
+        for tail in [vec![msg("assistant", "bad answer", 0)], vec![]] {
+            chat.messages = vec![
+                msg("user", "first", 0),
+                msg("assistant", "one", 0),
+                msg("user", "again", 1),
+            ];
+            chat.messages.extend(tail);
+            save(&root, &chat).unwrap();
+            let reply = complete(&format!(
+                "data: {}\n\n",
+                json!({"choices":[{"delta":{"content":"good answer"},"finish_reason":"stop"}]})
+            ));
+            let (url, _received, server) = fixture(vec![reply]).await;
+            let done = send(
+                &root,
+                &data,
+                &config(url),
+                retry(Some(id.clone())),
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+            assert_eq!(done.content, "good answer");
+            let saved = load(&root, &id).unwrap().messages;
+            assert_eq!(
+                saved
+                    .iter()
+                    .map(|m| (m.role.as_str(), m.content.as_str()))
+                    .collect::<Vec<_>>(),
+                [
+                    ("user", "first"),
+                    ("assistant", "one"),
+                    ("user", "again"),
+                    ("assistant", "good answer")
+                ]
+            );
+            assert_eq!(
+                (saved[2].pictures, saved[2].at),
+                (1, 7),
+                "the question is kept as stored"
+            );
+            server.await.unwrap();
+        }
+        // More pictures than the stored question had is not that question.
+        let mut extra = retry(Some(id.clone()));
+        extra.pictures = vec!["data:image/png;base64,AA==".into(); 2];
+        assert_eq!(
+            send(&root, &data, &none, extra, &mut |_| {})
+                .await
+                .unwrap_err(),
+            "Nothing to retry."
+        );
+        assert_eq!(load(&root, &id).unwrap().messages.len(), 4);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_retried_question_without_its_pictures_says_they_are_no_longer_held() {
+        let user = |pictures| Message {
+            role: "user".into(),
+            content: "what is this?".into(),
+            pictures,
+            prompts: vec![],
+            citations: vec![],
+            tools: vec![],
+            at: 0,
+        };
+        let chat = |pictures| Chat {
+            id: "x".into(),
+            title: "t".into(),
+            model: "m".into(),
+            created: 0,
+            updated: 0,
+            pinned: false,
+            messages: vec![user(pictures)],
+        };
+        let held = history(
+            &chat(1),
+            &["data:image/png;base64,AA==".into()],
+            None,
+            false,
+        );
+        assert!(!held[0].to_string().contains("no longer held"));
+        let lost = history(&chat(1), &[], None, false);
+        assert!(lost[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("[1 picture(s) were attached here; they are no longer held.]"));
+        assert_eq!(
+            history(&chat(0), &[], None, false)[0]["content"],
+            "what is this?"
+        );
     }
 
     fn studio(checkpoint: &str, dialect: &str, blocked: Option<&str>) -> Option<StudioState> {
@@ -2434,6 +2619,7 @@ mod tests {
             context: None,
             search: false,
             studio: None,
+            retry: false,
         };
         assert!(!system_prompt(&data, &req, false, false)
             .contains("A prompt for\nanything else, write yourself."));
@@ -2471,6 +2657,7 @@ mod tests {
                     context: None,
                     search: false,
                     studio: None,
+                    retry: false,
                 },
                 &mut emit,
             )

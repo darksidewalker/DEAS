@@ -59,5 +59,8 @@
   "chat.status.loading_model": "Rechargement du modèle…",
   "chat.pin": "Épingler en haut",
   "chat.unpin": "Désépingler",
-  "chat.pinned": "Épinglée"
+  "chat.pinned": "Épinglée",
+  "chat.retry": "Réessayer",
+  "chat.retryHelp": "Redemander la dernière réponse au modèle : la réponse actuelle est remplacée par une nouvelle.",
+  "chat.retryReason": "Apparaît sous la conversation dès qu'une question a été posée et qu'aucune réponse n'est en cours d'écriture."
 }

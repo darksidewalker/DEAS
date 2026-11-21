@@ -59,5 +59,8 @@
   "chat.status.loading_model": "Loading the model again…",
   "chat.pin": "Pin to top",
   "chat.unpin": "Unpin",
-  "chat.pinned": "Pinned"
+  "chat.pinned": "Pinned",
+  "chat.retry": "Retry",
+  "chat.retryHelp": "Ask the model again for the last answer: the current answer is replaced by a new one.",
+  "chat.retryReason": "Appears under the conversation once a question has been asked and no answer is being written."
 }

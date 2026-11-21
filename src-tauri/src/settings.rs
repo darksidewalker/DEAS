@@ -207,7 +207,9 @@ pub(crate) fn backend_configuration(root: &Path) -> Result<(Vec<String>, Vec<Pat
     }
     if !yaml.is_empty() {
         let file = root.join("deas-models.yaml");
-        std::fs::write(&file, yaml).map_err(|e| e.to_string())?;
+        // Explicit mode: this file sits inside the environment, whose checks refuse any
+        // group/world writable entry (settings_move::safe_dir / regular).
+        crate::install::write_owned_file(&file, yaml.as_bytes())?;
         args.extend([
             "--extra-model-paths-config".to_owned(),
             file.to_str().ok_or("Non-UTF-8 root")?.to_owned(),

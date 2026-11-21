@@ -12,6 +12,9 @@ import './chat.css';
 
 const MAX_PICTURES = 4;
 
+/** The thread without its trailing answer(s): what a retry asks again. */
+const withoutAnswer = (ms: ChatMessage[]) => { let end = ms.length; while (end && ms[end - 1].role === 'assistant') end--; return ms.slice(0, end); };
+
 /** Light markdown: headings, lists, code blocks, **bold**, `code` and [n] citations. Built as elements, never HTML. */
 function Rich({ text, citations }: { text: string; citations: ChatHit[] }) {
   const inline = (line: string, key: string): ReactNode[] => line.split(/(`[^`]+`|\*\*[^*]+\*\*|\[\d+\])/g).map((part, i) => {
@@ -138,6 +141,8 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
   /** The Generate job a chat render is waiting on, so Stop stops it. */
   const drawing = useRef<JobStatus | null>(null);
   const stopDrawing = useRef(false);
+  /** The last question's pictures, so Retry can send them again this session (the file keeps only their count). */
+  const lastPictures = useRef<{ chat?: string; pictures: string[] }>({ pictures: [] });
 
   /** Draws one render prompt with Generate, follows the job, and records the picture (or why not) on the message. */
   const draw = async (chatId: string, m: ChatMessage, i: number, valid: () => boolean) => {
@@ -192,7 +197,7 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
   const rootRevision = useRef(0);
   useEffect(() => {
     ++revision.current;
-    current.current = undefined; pending.current = false; sending.current = false;
+    current.current = undefined; pending.current = false; sending.current = false; lastPictures.current = { pictures: [] };
     setId(undefined); setMessages([]); setLive(null); setPictures([]); setError('');
     setBusy(false); setOpening(false); setChats([]); setSettings(null);
     setRenaming(null); setConfirmDelete(null); setShowSettings(false);
@@ -218,7 +223,7 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
     const request = ++revision.current;
     const valid = () => revision.current === request && latestRoot.current === root;
     setError(''); setLive(null); setPictures([]); setConfirmDelete(null); setMessages([]);
-    current.current = next; setId(next);
+    current.current = next; setId(next); lastPictures.current = { pictures: [] };
     pending.current = !!next && !!root; setOpening(pending.current);
     if (!next || !root) return;
     try { const chat = await getChat(root, next); if (valid()) setMessages(chat.messages); }
@@ -227,26 +232,42 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
   };
   const searchOn = !!settings && settings.search !== 'off';
 
-  const send = async () => {
+  const canAsk = () => !!root && !!forge.model && !sending.current && !pending.current;
+  const send = () => {
     const text = draft.trim();
-    if (!root || !forge.model || sending.current || pending.current || (!text && !pictures.length)) return;
+    if (!canAsk() || (!text && !pictures.length)) return;
+    setDraft(''); setPictures([]);
+    void ask(text, pictures, false);
+  };
+  /** Answers the last question again: its answer is dropped and the stored question re-asked, with its pictures while this session still holds them. */
+  const retry = () => {
+    const at = messages.map(m => m.role).lastIndexOf('user');
+    if (!canAsk() || at < 0) return;
+    const question = messages[at];
+    const held = lastPictures.current.chat === current.current && lastPictures.current.pictures.length === question.pictures ? lastPictures.current.pictures : [];
+    // Never saved (it failed before the conversation existed): sent again as a new question.
+    if (!current.current) { setMessages(m => m.slice(0, at)); void ask(question.content, held, false); }
+    else void ask(question.content, held, true);
+  };
+  const ask = async (text: string, sentPictures: string[], again: boolean) => {
+    if (!root || !forge.model || !canAsk()) return;
     const request = revision.current;
     const valid = () => revision.current === request && latestRoot.current === root;
     sending.current = true; stopDrawing.current = false;
-    const mine: ChatMessage = { role: 'user', content: text, pictures: pictures.length, prompts: [], citations: [], tools: [], at: Date.now() };
-    setMessages(m => [...m, mine]); setDraft(''); setError(''); setBusy(true);
-    const sentPictures = pictures; setPictures([]);
+    lastPictures.current = { chat: current.current, pictures: sentPictures };
+    const mine: ChatMessage = { role: 'user', content: text, pictures: sentPictures.length, prompts: [], citations: [], tools: [], at: Date.now() };
+    setMessages(m => again ? withoutAnswer(m) : [...m, mine]); setError(''); setBusy(true);
     setLive({ text: '', status: 'thinking', detail: null, prompts: [], searched: null, searchDetail: null });
     const onEvent = (e: ChatEvent) => {
       if (!valid()) return;
-      if (e.event === 'chat') { current.current = e.id; setId(e.id); }
+      if (e.event === 'chat') { current.current = e.id; setId(e.id); lastPictures.current.chat = e.id; }
       else if (e.event === 'text') setLive(l => l && { ...l, text: l.text + e.text });
       else if (e.event === 'status') setLive(l => l && { ...l, status: e.state, detail: e.detail });
       else if (e.event === 'prompt') setLive(l => l && { ...l, prompts: [...l.prompts, e.prompt] });
       else if (e.event === 'searched') setLive(l => l && { ...l, searched: e.results, searchDetail: e.detail });
     };
     try {
-      const done = await sendChat(root, { id: current.current, message: text, model: nativeWriteModel(forge.model), pictures: sentPictures, context: includeWork ? workingContext() || undefined : undefined, search: searchOn && search,
+      const done = await sendChat(root, { id: current.current, message: text, model: nativeWriteModel(forge.model), pictures: sentPictures, context: includeWork ? workingContext() || undefined : undefined, search: searchOn && search, ...(again ? { retry: true } : {}),
         ...(studio && onRender ? { studio: { ...studio, endpoint, writerModel: forge.model } } : {}) }, onEvent);
       if (valid()) setMessages(m => [...m, done]);
       // A render_picture answer is drawn now, by Generate; the turn stays busy (and Stop stops it) until it is done.
@@ -342,13 +363,16 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
           {live.prompts.map((p, i) => <PromptCard key={i} prompt={p} onSend={onSend}/>)}
           <p className="chat-status">{statusText(live.status, live.detail)}</p>
         </div>}
+        {!busy && !live && !opening && forge.model && messages.some(m => m.role === 'user') && <div className="chat-retry">
+          <button type="button" className="forge-ghost" data-chat-retry title={t('chat.retryHelp')} aria-label={t('chat.retry')} onClick={retry}>{t('chat.retry')}</button>
+        </div>}
       </div>
       {error && <p className="error-message" role="alert">{t(error)}</p>}
       {pictures.length > 0 && <div className="chat-pictures">{pictures.map((p, i) => <span key={i} className="chat-pic"><img src={p} alt=""/><button type="button" aria-label={t('chat.removePicture')} onClick={() => setPictures(pictures.filter((_, k) => k !== i))}>×</button></span>)}</div>}
       <div className="chat-compose">
         <PromptTextarea data-chat-input aria-label={t('chat.message')} value={draft} maxLength={32000} rows={Math.min(8, Math.max(2, draft.split('\n').length))} placeholder={t('chat.placeholder')}
           onChange={e => setDraft(e.target.value)} onPaste={paste}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}/>
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}/>
         <div className="chat-compose-bar">
           <label className="chat-attach forge-ghost">
             <input type="file" data-chat-picture accept="image/png,image/jpeg,image/webp" multiple onChange={e => { if (e.target.files) void addPictures([...e.target.files]); e.target.value = ''; }}/>
@@ -358,7 +382,7 @@ export function Chat({ endpoint, root, active = true, onSend, studio, onRender }
           <label className="forge-switch chat-include" title={t('chat.includeHelp')}><input type="checkbox" data-chat-include checked={includeWork} onChange={e => setIncludeWork(e.target.checked)}/><span>{t('chat.include')}</span></label>
           {busy
             ? <button type="button" className="action-button" data-chat-stop onClick={stop}>{t('chat.stop')}</button>
-            : <button type="button" className="action-button" data-chat-send disabled={opening || !forge.model || (!draft.trim() && !pictures.length)} onClick={() => void send()}>{t('chat.send')}</button>}
+            : <button type="button" className="action-button" data-chat-send disabled={opening || !forge.model || (!draft.trim() && !pictures.length)} onClick={send}>{t('chat.send')}</button>}
         </div>
       </div>
     </div>

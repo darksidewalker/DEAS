@@ -212,6 +212,16 @@ fn h3_latent_sharpness_ready(nodes: &Value) -> bool {
     spec[0] == "INT" && spec[1]["min"] == 1 && spec[1]["max"] == 6
 }
 
+/// Node pack >= 0.5.62: low-VRAM tiling inputs (temporal join, tile references, memory estimate, weight residency) on Enhanced Upscale.
+fn h3_low_vram_tiling_ready(nodes: &Value) -> bool {
+    let optional = &nodes["DaSiWaH3TiledUpscale"]["input"]["optional"];
+    optional["temporal_join"][0] == json!(["crossfade", "prefix"])
+        && optional["tile_references"][0] == json!(["full", "crop_video", "crop_all"])
+        && optional["tile_memory_estimate"][0] == "BOOLEAN"
+        && optional["weight_residency"][0] == json!(["auto", "keep", "stream"])
+        && optional["max_resident_gb"][0] == "FLOAT"
+}
+
 /// Node pack >= 0.5.55: independent Hi-Res refinement denoise and 2D upscaler sharpness.
 fn h3_regenerate_tuning_ready(nodes: &Value) -> bool {
     let optional = &nodes["DaSiWaH3HiResRegenerate"]["input"]["optional"];
@@ -526,6 +536,7 @@ fn parse(base: &reqwest::Url, nodes: &Value) -> Result<Value, String> {
             "deropeKeepBackground":derope_keep_background_ready(nodes),
             "faceRefineStill":face_refine_ready(nodes) && nodes["DEAS_H3FaceRefine"]["input"]["optional"]["still_image"][0] == "BOOLEAN",
             "h3LatentSharpness":h3_latent_sharpness_ready(nodes),
+            "h3LowVramTiling":h3_low_vram_tiling_ready(nodes),
             "h3RegenerateOriginal":!options(nodes, "DaSiWaH3HiResRegenerate", "target", |s| s == "Original").is_empty(),
             "h3RegenerateTuning":h3_regenerate_tuning_ready(nodes),
             "visionModels":combo(nodes, "CLIPVisionLoader", "clip_name")?,
@@ -997,6 +1008,41 @@ mod tests {
         info["DaSiWaH3TiledUpscale"] = json!({"input":{"optional":{"upscale_sharpness":["INT",{"default":1,"min":1,"max":6}]}}});
         assert!(ready(&info));
         info["DaSiWaH3TiledUpscale"]["input"]["optional"]["upscale_sharpness"][1]["max"] = json!(4);
+        assert!(!ready(&info));
+    }
+
+    #[test]
+    fn h3_low_vram_tiling_requires_the_0_5_62_inputs() {
+        let base = crate::validate_base_url("http://127.0.0.1:8188").unwrap();
+        let mut info = nodes();
+        let ready =
+            |info: &Value| parse(&base, info).unwrap()["allowlist"]["h3LowVramTiling"] == true;
+        assert!(!ready(&info));
+        // DaSiWa node pack 0.5.62: nodes_minimax_h3_tiled_upscale.py::LOW_VRAM_INPUTS.
+        info["DaSiWaH3TiledUpscale"] = json!({"input":{"optional":{
+            "temporal_join":[["crossfade","prefix"],{"default":"crossfade"}],
+            "tile_references":[["full","crop_video","crop_all"],{"default":"full"}],
+            "tile_memory_estimate":["BOOLEAN",{"default":true}],
+            "weight_residency":[["auto","keep","stream"],{"default":"auto"}],
+            "max_resident_gb":["FLOAT",{"default":0.0}]
+        }}});
+        assert!(ready(&info));
+        for field in [
+            "temporal_join",
+            "tile_references",
+            "tile_memory_estimate",
+            "weight_residency",
+            "max_resident_gb",
+        ] {
+            let mut bad = info.clone();
+            bad["DaSiWaH3TiledUpscale"]["input"]["optional"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert!(!ready(&bad), "{field}");
+        }
+        info["DaSiWaH3TiledUpscale"]["input"]["optional"]["temporal_join"][0] =
+            json!(["crossfade"]);
         assert!(!ready(&info));
     }
 
@@ -1673,7 +1719,7 @@ mod tests {
                 "allowlist":{
                     "nodes":["CheckpointLoaderSimple","CLIPTextEncode","EmptyLatentImage","KSampler","VAEDecode","SaveImage","LoraLoader","CLIPVisionLoader","CLIPVisionEncode","unCLIPConditioning"],
                     "checkpoints":["sd/model.safetensors"], "loras":["style/detail.safetensors"], "images":[], "videos":[], "samplers":["euler","dpmpp_2m"], "schedulers":["normal","karras"],
-                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "faceRefineStill":false, "deropeKeepBackground":false, "h3LatentSharpness":false, "h3RegenerateOriginal":false, "h3RegenerateTuning":false
+                    "diffusionModels":[], "ggufDiffusionModels":[], "ggufTextEncoders":[], "ggufClipTypes":[], "ggufDualTextEncoders":[], "ggufDualClipTypes":[], "textEncoders":[], "dualTextEncoders":[], "dualClipTypes":[], "clipTypes":[], "vaes":[], "visionModels":["clip-vit.safetensors"], "attention":[], "sage":[], "compile":[], "upscaleModels":[], "latentUpscaleModels":[], "h3LatentUpscaleModels":[], "frameInterpolationModels":[], "rtxUpscaleModes":[], "audioEncoders":[], "videoPreviews":{}, "faceRefineStill":false, "deropeKeepBackground":false, "h3LatentSharpness":false, "h3LowVramTiling":false, "h3RegenerateOriginal":false, "h3RegenerateTuning":false
                 }, "missingNodes":[], "generationReady":false
             })
         );

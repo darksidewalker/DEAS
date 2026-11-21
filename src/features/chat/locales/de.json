@@ -59,5 +59,8 @@
   "chat.status.loading_model": "Lade das Modell erneut…",
   "chat.pin": "Oben anheften",
   "chat.unpin": "Lösen",
-  "chat.pinned": "Angeheftet"
+  "chat.pinned": "Angeheftet",
+  "chat.retry": "Erneut versuchen",
+  "chat.retryHelp": "Das Modell die letzte Antwort neu schreiben lassen: Die aktuelle Antwort wird durch eine neue ersetzt.",
+  "chat.retryReason": "Erscheint unter der Unterhaltung, sobald eine Frage gestellt wurde und gerade keine Antwort geschrieben wird."
 }

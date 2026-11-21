@@ -59,5 +59,8 @@
   "chat.status.loading_model": "Model yeniden yükleniyor…",
   "chat.pin": "En üste sabitle",
   "chat.unpin": "Sabitlemeyi kaldır",
-  "chat.pinned": "Sabitlendi"
+  "chat.pinned": "Sabitlendi",
+  "chat.retry": "Yeniden dene",
+  "chat.retryHelp": "Son yanıtı modelden yeniden iste: mevcut yanıt yenisiyle değiştirilir.",
+  "chat.retryReason": "Bir soru sorulduktan sonra ve şu anda yanıt yazılmıyorken sohbetin altında görünür."
 }

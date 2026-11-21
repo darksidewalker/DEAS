@@ -349,6 +349,7 @@ fn h3_regenerate_node(g: &mut Value, i: &Value, conditioning: Value, latent: Val
     let mut node = json!({"class_type":"DaSiWaH3HiResRegenerate","inputs":{"model":model,"conditioning":conditioning,"latent":latent,
         "lora_name":r["lora"],"strength":r.get("strength").cloned().unwrap_or(json!(1.0)),"upscale_model":u["model"],"target":r["target"],"seed":i["seed"],
         "noise":["N",0],"spatial_tiling":r.get("spatialTiling").cloned().unwrap_or(json!(true))}});
+    with_low_vram_defaults(&mut node);
     // Shared authoring values only reach the node when explicitly set; older packs and legacy intents stay untouched.
     if let Some(d) = r.get("denoise") {
         node["inputs"]["denoise"] = d.clone();
@@ -383,7 +384,7 @@ fn ltx_latent_model(name: &str) -> bool {
 }
 
 /// Optional `DaSiWaH3TiledUpscale` inputs (intent key, node input); omitted keys keep the node defaults.
-const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 15] = [
+const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 19] = [
     ("cfg", "cfg"),
     ("scheduler", "scheduler"),
     ("precision", "upscale_precision"),
@@ -399,7 +400,24 @@ const H3_LATENT_ADVANCED_INPUTS: [(&str, &str); 15] = [
     ("continuitySoftRefine", "continuity_soft_refine"),
     ("continuityMaskStrength", "continuity_mask_strength"),
     ("sharpness", "upscale_sharpness"),
+    ("temporalJoin", "temporal_join"),
+    ("tileReferences", "tile_references"),
+    ("weightResidency", "weight_residency"),
+    ("maxResidentGb", "max_resident_gb"),
 ];
+
+/// Node pack >= 0.5.62 low-VRAM tiling inputs, emitted on every H3 upscale and regenerate node:
+/// ComfyUI's memory reservation sized for one tile and the exact prefix join between temporal
+/// windows. Older packs ignore unknown inputs (V1 nodes), so they keep rendering as before.
+fn with_low_vram_defaults(node: &mut Value) {
+    let inputs = node["inputs"].as_object_mut().unwrap();
+    inputs.insert("temporal_join".into(), json!("prefix"));
+    inputs.insert("tile_references".into(), json!("full"));
+    inputs.insert("tile_memory_estimate".into(), json!(true));
+    // Whole model loaded when it fits beside one tile, otherwise streamed (less VRAM, same speed when compute-bound).
+    inputs.insert("weight_residency".into(), json!("auto"));
+    inputs.insert("max_resident_gb".into(), json!(0.0));
+}
 
 /// `DaSiWaH3TiledUpscale` over the house sampling nodes (`SS` model, `Q` sampler, `N` noise) with the
 /// intent's `latentUpscale` settings; the video path adds its Continuity/Director/VAE links.
@@ -414,6 +432,7 @@ pub(crate) fn h3_upscale_node(i: &Value, conditioning: Value, latent: Value) -> 
         "guard_sensitivity":4.3,"guard_strength":1.0,"guard_mode":"burn_direction",
         "enforce_memory_budget":true,"memory_reserve_pct":5.0
     }});
+    with_low_vram_defaults(&mut node);
     if let Some(a) = u.get("advanced") {
         for (key, input) in H3_LATENT_ADVANCED_INPUTS {
             if let Some(v) = a.get(key) {
@@ -449,6 +468,10 @@ fn valid_h3_latent_advanced(a: &Value) -> bool {
         "guardMode" => matches!(v.as_str(), Some("burn_direction" | "both")),
         "memoryReservePct" => finite(v, 0.0, 100.0),
         "sharpness" => v.as_u64().is_some_and(|n| (1..=6).contains(&n)),
+        "temporalJoin" => matches!(v.as_str(), Some("prefix" | "crossfade")),
+        "tileReferences" => matches!(v.as_str(), Some("full" | "crop_video" | "crop_all")),
+        "weightResidency" => matches!(v.as_str(), Some("auto" | "keep" | "stream")),
+        "maxResidentGb" => finite(v, 0.0, 1024.0),
         _ => false,
     })
 }

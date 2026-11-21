@@ -1854,6 +1854,14 @@ impl Jobs {
             {
                 return Err("H3 latent upscale sharpness needs DaSiWa node pack 0.5.47 or newer (upscale_sharpness input). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
             }
+            let advanced = &intent["latentUpscale"]["advanced"];
+            if ["temporalJoin", "tileReferences", "weightResidency", "maxResidentGb"]
+                .iter()
+                .any(|k| advanced.get(*k).is_some())
+                && allow["h3LowVramTiling"] != true
+            {
+                return Err("H3 latent upscale Temporal join, Tile references and Weight residency need DaSiWa node pack 0.5.62 or newer (temporal_join, tile_references and weight_residency inputs). Use Backend → Upgrade → ComfyUI and node packs, then restart the backend".into());
+            }
             if intent["latentUpscale"].get("regenerate").is_some()
                 && !allow["nodes"].as_array().is_some_and(|n| n.contains(&json!("DaSiWaH3HiResRegenerate")))
             {

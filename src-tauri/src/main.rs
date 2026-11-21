@@ -6,6 +6,8 @@ mod linux_startup;
 #[cfg(not(test))]
 fn main() {
     #[cfg(target_os = "linux")]
+    linux_startup::normalize_umask();
+    #[cfg(target_os = "linux")]
     linux_startup::configure();
     #[cfg(target_os = "linux")]
     linux_startup::provide_gstreamer_plugins();

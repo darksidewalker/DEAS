@@ -11,6 +11,7 @@
 ## Using it
 
 - Type and press **Enter** to send (**Shift+Enter** for a new line). Answers appear as they are written; **Stop** ends one early and keeps what arrived.
+- **Retry:** below the conversation, once a question has been asked. It asks the model again for the last answer: the current answer is replaced by the new one (an answer that failed or was stopped gets one). Use it when an answer went wrong, came back empty or the model broke off. The question itself is not sent twice. Pictures sent with that question go again only while DEAS still holds them from this session; after reopening the conversation the model is told they were sent but are no longer held. A picture the old answer drew stays in the output folder and **Media**.
 - **Pictures:** **Picture** or paste an image (up to four per message, PNG/JPEG/WebP, large ones scaled down). They go to the model with that message only and are never saved; the history notes that pictures were sent. The model has to be able to see pictures.
 - **Include what I'm working on:** sends Studio's current prompt, negative prompt, model, size and sampler settings, and your Prompt Forge draft with each message, so you can ask about them directly ("why does this prompt keep giving two people?").
 - **New chat**, and the list of conversations on the left: open, rename (✎) or delete (×, then **Delete?** to confirm). Right-click a conversation for **Rename**, **Pin to top** / **Unpin** and **Delete**. Pinned conversations (📌) stay at the top. Conversations are kept until you delete them; nothing is removed on its own.
@@ -67,7 +68,7 @@ With a search mode chosen, the **Search** button appears beside the message box.
 ## Troubleshooting
 
 - *"Chat needs a model…"*: pick a local GGUF in the model menu, or set an Ollama or OpenAI-compatible server under **Backend → LLM backend**.
-- *"The LLM took too long to answer"*: the server may be loading the model or busy with another job; try again.
+- *"The LLM took too long to answer"*: the server may be loading the model or busy with another job; press **Retry**.
 - Search says *"refused the JSON request (403)"*: enable JSON in SearXNG's `settings.yml`.
 - *"Not drawn: The backend is not running…"* (or no checkpoint, or not text-to-image): fix what it names in Studio → Generate, then **Draw again** or ask again.
 - *"Generate could not start this picture"*: Generate’s own message says why (shown in Studio → Generate and in **Logs**).

@@ -1588,7 +1588,7 @@ async fn checkout(
         )
         .await?;
     } else {
-        std::fs::create_dir(target).map_err(|e| e.to_string())?;
+        create_owned_dir(target)?;
         run(git, &["init", "."], target, root, inner, cancel).await?;
         run(
             git,
@@ -2224,10 +2224,66 @@ fn vulkan_warning(probe: &str) -> Option<String> {
     }
 }
 
+/// Paths DEAS creates itself get an explicit mode. The owned-environment checks
+/// (`backend::identity`, `settings_move::safe_dir`) refuse anything group/world writable, while a
+/// bare `create_dir`/`fs::write` inherits the process umask - `0002` on distributions with user
+/// private groups, where the installer used to reject its own output (issue #50). `0o755` and
+/// `0o644` carry no group/other write bit, so any umask can only tighten them further.
+#[cfg(unix)]
+const OWNED_DIR_MODE: u32 = 0o755;
+#[cfg(unix)]
+const OWNED_FILE_MODE: u32 = 0o644;
+
+pub(crate) fn create_owned_dir(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    let created = {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(OWNED_DIR_MODE).create(path)
+    };
+    #[cfg(not(unix))]
+    let created = std::fs::create_dir(path);
+    created.map_err(|e| e.to_string())
+}
+
+pub(crate) fn create_owned_dirs(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    let created = {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(OWNED_DIR_MODE)
+            .create(path)
+    };
+    #[cfg(not(unix))]
+    let created = std::fs::create_dir_all(path);
+    created.map_err(|e| e.to_string())
+}
+
+/// A manifest or constraints file inside the environment. Not atomic, like the `std::fs::write`
+/// it replaces: these are written while no other DEAS instance may hold the environment.
+pub(crate) fn write_owned_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(OWNED_FILE_MODE)
+            .open(path)?;
+        file.write_all(bytes)?;
+        file.flush()
+    })();
+    #[cfg(not(unix))]
+    let written = std::fs::write(path, bytes);
+    written.map_err(|e| e.to_string())
+}
+
 fn prepare_dirs(root: &Path) -> Result<(), String> {
     for folder in ["runtime", "home", "cache", "config", "tmp"] {
-        // create_dir_all: takeover targets already carry some of these folders.
-        std::fs::create_dir_all(root.join(folder)).map_err(|e| e.to_string())?;
+        // create_owned_dirs: takeover targets already carry some of these folders.
+        create_owned_dirs(&root.join(folder))?;
     }
     Ok(())
 }
@@ -2263,17 +2319,16 @@ async fn provision(
     cancelled(cancel)?;
     if !takeover {
         // Exclusive claim; never accept a target introduced after planning.
-        std::fs::create_dir(&root).map_err(|e| format!("Cannot claim new target: {e}"))?;
+        create_owned_dir(&root).map_err(|e| format!("Cannot claim new target: {e}"))?;
     }
     prepare_dirs(&root)?;
     if let Some(folders) = &plan.request.folders {
         crate::settings::write(&root, folders.clone())?;
     }
-    std::fs::write(
-        root.join("deas-plan.json"),
-        serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    write_owned_file(
+        &root.join("deas-plan.json"),
+        &serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?,
+    )?;
     step(inner, "uv");
     let uv = bootstrap(&root, inner, cancel).await?;
     step(inner, "python");
@@ -2410,8 +2465,10 @@ async fn packages(
     let py = python.to_str().ok_or("Python path must be UTF-8")?;
     let constraint = root.join("constraints.txt");
     let selected = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
-    std::fs::write(&constraint, constraint_lines(selected).join("\n"))
-        .map_err(|e| e.to_string())?;
+    write_owned_file(
+        &constraint,
+        constraint_lines(selected).join("\n").as_bytes(),
+    )?;
     step(inner, "torch");
     if matches!(plan.request.backend, Backend::Amd) {
         // ROCm's meta-package is source-only (setuptools.build_meta): the build
@@ -2523,7 +2580,7 @@ async fn packages(
         if node.join(".git").exists() {
             crate::backend::read_owned(&node.join(".git/config"), 1024 * 1024)?;
         }
-        std::fs::create_dir_all(comfy.join("custom_nodes")).map_err(|e| e.to_string())?;
+        create_owned_dirs(&comfy.join("custom_nodes"))?;
         let fetched = if upgrade {
             checkout(git, GGUF, reference, &node, root, inner, cancel).await?
         } else {
@@ -2594,7 +2651,7 @@ async fn packages(
         }
         step(inner, "preview");
         let node = node_target(comfy, "ComfyUI-KJNodes")?;
-        std::fs::create_dir_all(comfy.join("custom_nodes")).map_err(|e| e.to_string())?;
+        create_owned_dirs(&comfy.join("custom_nodes"))?;
         let fetched = if upgrade {
             checkout(git, KJNODES, reference, &node, root, inner, cancel).await?
         } else {
@@ -2635,7 +2692,7 @@ async fn packages(
         step(inner, "nodes");
         let nodes = comfy.join("custom_nodes");
         if !nodes.exists() {
-            std::fs::create_dir(&nodes).map_err(|e| e.to_string())?;
+            create_owned_dir(&nodes)?;
         }
         let node = nodes.join("ComfyUI-DaSiWa-Nodes");
         node_revision = Some(if upgrade {
@@ -2783,11 +2840,10 @@ async fn packages(
     .await?;
     cancelled(cancel)?;
     let manifest = serde_json::json!({"planId":plan.id,"comfyRevision":revision,"nodepackRevision":node_revision,"ggufRevision":gguf_revision,"hyperflowRevision":hyperflow_revision,"dialsRevision":dials_revision,"previewRevision":preview_revision,"tritonVersion":triton_version,"backend":plan.request.backend,"hardware":plan.hardware,"torchProfile":selected,"python":py,"versions":versions.trim(),"generationReady":false});
-    std::fs::write(
-        root.join("deas-install.json"),
-        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    write_owned_file(
+        &root.join("deas-install.json"),
+        &serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )?;
     Ok(())
 }
 
@@ -2798,6 +2854,33 @@ mod tests {
     include!("install_gguf_tests.rs");
     include!("install_preview_tests.rs");
     include!("install_update_tests.rs");
+
+    // Issue #50: paths DEAS writes itself must carry an explicit mode, because the owned
+    // environment checks refuse anything group/world writable and a bare create inherits the
+    // process umask. The mask is derived here from a plain create (a test must never change the
+    // process umask: cargo test runs tests in threads of one process), which makes the expected
+    // bits exact on a 0002 host as well as on a 0022 one.
+    #[cfg(unix)]
+    #[test]
+    fn owned_creates_carry_an_explicit_mode_under_any_umask() {
+        use std::os::unix::fs::MetadataExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let probe = tmp.path().join("probe");
+        std::fs::create_dir(&probe).unwrap();
+        let mask = std::fs::metadata(&probe).unwrap().mode() & 0o777; // 0o777 & !umask
+        let dir = tmp.path().join("environment");
+        create_owned_dir(&dir).unwrap();
+        let nested = tmp.path().join("environment/ComfyUI/custom_nodes");
+        create_owned_dirs(&nested).unwrap();
+        let file = tmp.path().join("deas-plan.json");
+        write_owned_file(&file, b"{}").unwrap();
+        for (path, want) in [(&dir, 0o755), (&nested, 0o755), (&file, 0o644)] {
+            let mode = std::fs::metadata(path).unwrap().mode();
+            assert_eq!(mode & 0o777, want & mask, "{}", path.display());
+            assert_eq!(mode & 0o022, 0, "{}", path.display());
+        }
+        assert!(create_owned_dir(&dir).is_err(), "must stay exclusive");
+    }
 
     #[test]
     fn git_lookup_skips_unusable_candidates_and_preserves_native_paths() {

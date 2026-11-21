@@ -1040,6 +1040,41 @@ test.each([[true,true],[false,false]])('H3 2D upscaler is the default model and 
  await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d2,scale:2,steps:1,denoise:0.2,...(sent?{advanced:{sharpness:4}}:{})}));
 });
 
+test.each([true,false])('H3 temporal join and tile references default to the low-VRAM prefix join and send overrides only to a 0.5.62 pack (pack %s)',async ready=>{
+ vi.mocked(scanModels).mockResolvedValue([
+  {category:'diffusion_models',name:'h3.safetensors',family:'minimax-h3'},
+  {category:'text_encoders',name:'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'},
+  {category:'vae',name:'minimax_h3_video_vae_fp16.safetensors'},
+  {category:'vae',name:'minimax_h3_audio_vae_fp32.safetensors'}
+ ].map(m=>({...m,path:'/m/'+m.name,size:1,info:null})));
+ const d3='minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors';
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...videoEvidence,allowlist:{...videoEvidence.allowlist,nodes:[...videoEvidence.allowlist.nodes,'DEAS_VideoPostprocessGate','DaSiWaH3TiledUpscale'],h3LatentUpscaleModels:[d3],h3LowVramTiling:ready}});
+ const props={endpoint:evidence.baseUrl,roots:{models:'/m'}};
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.latent.h3',JSON.stringify({enabled:true,model:d3,scale:2,steps:1,denoise:0.2}));
+ const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ fireEvent.click(await screen.findByRole('tab',{name:'Post-Processing'}));
+ await waitFor(()=>expect(document.querySelector('[data-latent-advanced="temporalJoin"]')).not.toBeNull());
+ const join=document.querySelector('[data-latent-advanced="temporalJoin"]') as HTMLSelectElement;
+ const refs=document.querySelector('[data-latent-advanced="tileReferences"]') as HTMLSelectElement;
+ expect([join.value,refs.value]).toEqual(['prefix','full']);
+ expect([join.disabled,refs.disabled]).toEqual([!ready,!ready]);
+ expect(screen.getAllByText(ready?/hand-off is exact/:/node pack 0\.5\.62/).length).toBeGreaterThan(0);
+ // The defaults are DEAS's own: an untouched panel sends no advanced block (the compiler emits prefix + one-tile estimate).
+ view.rerender(<I18nProvider><Workbench {...props} planVisible/></I18nProvider>);
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d3,scale:2,steps:1,denoise:0.2}));
+ fireEvent.change(join,{target:{value:'crossfade'}});
+ fireEvent.change(refs,{target:{value:'crop_video'}});
+ const residency=document.querySelector('[data-latent-advanced="weightResidency"]') as HTMLSelectElement;
+ expect([residency.value,(document.querySelector('[data-latent-advanced="maxResidentGb"]') as HTMLInputElement).value,residency.disabled]).toEqual(['auto','0',!ready]);
+ fireEvent.change(document.querySelector('[data-latent-advanced="maxResidentGb"]')!,{target:{value:'6.5'}});
+ fireEvent.change(residency,{target:{value:'keep'}});
+ await waitFor(()=>expect(JSON.parse(document.querySelector('[data-plan-intent]')!.textContent!).latentUpscale).toEqual({model:d3,scale:2,steps:1,denoise:0.2,...(ready?{advanced:{temporalJoin:'crossfade',tileReferences:'crop_video',maxResidentGb:6.5,weightResidency:'keep'}}:{})}));
+ // Stream ignores the cap, so the cap field hides.
+ fireEvent.change(residency,{target:{value:'stream'}});
+ expect(document.querySelector('[data-latent-advanced="maxResidentGb"]')).toBeNull();
+});
+
 test('latent models added after the first capability read are found when Post-Processing opens',async()=>{
  vi.mocked(scanModels).mockResolvedValue([...ltxModels]);
  const ltx='ltx-2.3-spatial-upscaler-x2-1.1.safetensors';

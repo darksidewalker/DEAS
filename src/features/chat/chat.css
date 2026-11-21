@@ -69,3 +69,4 @@
 .chat-menu button.danger { color: var(--danger-hi); }
 .chat-menu button:disabled { opacity: 0.5; cursor: default; }
 .chat-row-pin { font-size: 0.85em; }
+.chat-retry { display: flex; justify-content: flex-start; }

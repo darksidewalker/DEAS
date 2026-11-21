@@ -27,7 +27,9 @@ fn install_adapter(root: &Path, name: &str, source: &[u8]) -> Result<(), String>
     use std::io::Write;
     let directory = root.join("ComfyUI/custom_nodes");
     if !directory.exists() {
-        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        // Explicit mode: the Anchor check below refuses a group-writable folder, and the default
+        // mode of a bare create_dir is whatever the process umask allows (issue #50).
+        crate::install::create_owned_dir(&directory).map_err(|e| e.to_string())?;
     }
     let anchor = Anchor::open(&directory)?;
     anchor.validate_directory(false)?;
@@ -117,13 +119,118 @@ fn identity(path: &Path) -> Result<(u64, u64, u32), String> {
     use std::os::unix::fs::MetadataExt;
     safe_path(path)?;
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
-    if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o022 != 0 {
-        return Err(
-            "Owned environment must be owned by this user and not group/world writable".into(),
-        );
+    let euid = unsafe { libc::geteuid() };
+    if meta.uid() != euid {
+        return Err(format!(
+            "Owned environment path {} is owned by uid {}, not by your uid {euid}",
+            path.display(),
+            meta.uid()
+        ));
+    }
+    if meta.mode() & 0o022 != 0 {
+        return Err(format!(
+            "Owned environment path {} is mode {:o}: group or world writable. Fix it with: chmod go-w \"{}\"",
+            path.display(),
+            meta.mode() & 0o7777,
+            path.display()
+        ));
     }
     Ok((meta.dev(), meta.ino(), meta.uid()))
 }
+
+/// Environments provisioned before DEAS normalised its umask (issue #50), and environments
+/// touched by an external `chmod`/remount, can carry group/world write bits on entries DEAS never
+/// wrote itself: uv's venv, the managed Python, the `git checkout` of ComfyUI and the node packs.
+/// That is not only a failed check - a member of the owning group could swap a Python file the
+/// backend then executes. Narrow those bits once per capture, before any identity is recorded.
+/// The walk never widens a mode, never follows a symlink, and leaves entries owned by another uid
+/// exactly as they are; the checks still refuse those.
+#[cfg(target_os = "linux")]
+fn clear_writable_bits(path: &Path, meta: &fs::Metadata, euid: u32) -> Result<bool, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    if meta.file_type().is_symlink() {
+        // chmod(2) follows the link: a symlink inside the environment would drag the repair to a
+        // target that is not ours to manage. Its own bits (always 0o777) are not used by anything.
+        return Ok(false);
+    }
+    if meta.uid() != euid || meta.mode() & 0o022 == 0 {
+        return Ok(false);
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(meta.mode() & !0o022))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
+#[cfg(target_os = "linux")]
+fn narrow_writable_bits(root: &Path) -> Result<usize, String> {
+    // A venv plus five node-pack checkouts is well under this; the cap only bounds a pathological
+    // or looped tree, and a partial repair still leaves the caller's checks in charge.
+    const MAX_ENTRIES: usize = 1_000_000;
+    const MAX_DEPTH: usize = 64;
+    let euid = unsafe { libc::geteuid() };
+    let root_meta = fs::symlink_metadata(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let mut changed = usize::from(clear_writable_bits(root, &root_meta, euid)?);
+    let mut visited = 0usize;
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    while let Some((directory, depth)) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue; // unreadable folder: untouched, and its own check will refuse it
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // symlink_metadata: a symlink's target is not ours to manage, and a symlink is never
+            // descended into.
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            visited += 1;
+            if visited > MAX_ENTRIES {
+                return Err(format!(
+                    "stopped after {visited} entries under {}",
+                    root.display()
+                ));
+            }
+            changed += usize::from(clear_writable_bits(&path, &meta, euid)?);
+            if meta.is_dir() && depth < MAX_DEPTH {
+                stack.push((path, depth + 1));
+            }
+        }
+    }
+    Ok(changed)
+}
+
+/// Best effort: a repair failure must not replace the precise identity error that follows.
+#[cfg(target_os = "linux")]
+fn repair_owned_environment(root: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(meta) = fs::symlink_metadata(root) else {
+        return;
+    };
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o022 == 0 {
+        return;
+    }
+    match narrow_writable_bits(root) {
+        Ok(0) => {}
+        Ok(changed) => crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!(
+                "WARN backend.owned-environment: cleared group/world write bits on {changed} entries under {}; the installer had created them with the process umask",
+                root.display()
+            ),
+        ),
+        Err(error) => crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!(
+                "WARN backend.owned-environment: permission repair failed ({error}); run: chmod -R go-w \"{}\"",
+                root.display()
+            ),
+        ),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn repair_owned_environment(_root: &Path) {}
+
 // Windows: handle identity only; ownership is ACL-based and the environment root was
 // created by this app, so the uid slot is always 0.
 #[cfg(windows)]
@@ -171,6 +278,7 @@ impl Approved {
     }
     pub(crate) fn capture(plan: &Plan) -> Result<Self, String> {
         let root = Path::new(&plan.request.storage_path);
+        repair_owned_environment(root);
         let expected = serde_json::to_value(plan).map_err(|e| e.to_string())?;
         let plan_bytes = read_owned(&root.join("deas-plan.json"), 1024 * 1024)?;
         if serde_json::from_slice::<serde_json::Value>(&plan_bytes).map_err(|e| e.to_string())?

@@ -4524,3 +4524,42 @@ fn dump_intent_dir_graphs() {
     }
     assert!(written > 0, "no intent_<name>.json in {}", dir.display());
 }
+
+#[test]
+fn h3_upscale_and_regenerate_emit_low_vram_tiling_by_default() {
+    // Node pack 0.5.62: one-tile memory estimate and the exact prefix join, on every H3 refine node.
+    let mut i = h3();
+    i["latentUpscale"] =
+        json!({"model":"minimax_h3_latent_upscaler.safetensors","scale":2,"steps":3,"denoise":0.3});
+    let regenerate = regenerate_intent();
+    for g in [compile(&i).unwrap(), compile(&regenerate).unwrap()] {
+        let u = &g["U"]["inputs"];
+        assert_eq!(u["temporal_join"], json!("prefix"));
+        assert_eq!(u["tile_references"], json!("full"));
+        assert_eq!(u["tile_memory_estimate"], json!(true));
+        assert_eq!(u["weight_residency"], json!("auto"));
+        assert_eq!(u["max_resident_gb"], json!(0.0));
+    }
+    // Advanced overrides reach the upscale node; untouched values stay the DEAS defaults.
+    i["latentUpscale"]["advanced"] = json!({"temporalJoin":"crossfade","tileReferences":"crop_video","weightResidency":"keep","maxResidentGb":6.5});
+    let g = compile(&i).unwrap();
+    assert_eq!(g["U"]["inputs"]["weight_residency"], json!("keep"));
+    assert_eq!(g["U"]["inputs"]["max_resident_gb"], json!(6.5));
+    assert_eq!(g["U"]["inputs"]["temporal_join"], json!("crossfade"));
+    assert_eq!(g["U"]["inputs"]["tile_references"], json!("crop_video"));
+    assert_eq!(g["U"]["inputs"]["tile_memory_estimate"], json!(true));
+    for (key, bad) in [
+        ("temporalJoin", json!("fade")),
+        ("temporalJoin", json!(true)),
+        ("tileReferences", json!("crop")),
+        ("tileReferences", json!(1)),
+        ("weightResidency", json!("half")),
+        ("maxResidentGb", json!(-1.0)),
+        ("maxResidentGb", json!(2000.0)),
+        ("maxResidentGb", json!("4")),
+    ] {
+        let mut b = i.clone();
+        b["latentUpscale"]["advanced"] = json!({ key: bad });
+        assert!(compile(&b).is_err(), "{key} {bad}");
+    }
+}

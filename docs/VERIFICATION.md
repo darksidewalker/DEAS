@@ -1,5 +1,54 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Owned environment refused its own permissions at umask 0002 (issue #50, DEAS 0.3.20) — 2026-11-21
+
+Report: Linux Mint 22.3 (umask `0002`, user private groups), release binary `deas-linux-amd64` 0.3.19, fresh install.
+Provisioning completed (`deas-install.json` written) and DEAS then refused the folder it had just built: "Owned
+environment must be owned by this user and not group/world writable" ([#50](https://github.com/darksidewalker/DEAS/issues/50)).
+
+Cause, verified in source rather than taken from the report: `install::provision`/`prepare_dirs` created the environment
+root, its subfolders and both manifests with `create_dir`/`create_dir_all`/`fs::write` (no mode, so the process umask
+decides), and the child processes DEAS spawns — uv, the managed Python, `git checkout` of ComfyUI and the five node
+packs, later the ComfyUI backend itself — inherited the same mask. `backend::identity` requires `mode & 0o022 == 0` for
+the root, `ComfyUI`, `ComfyUI/main.py`, `venv`, `venv/bin`, `venv/bin/python`, `venv/pyvenv.cfg`, `runtime`,
+`runtime/python`, `home`, `cache`, `config`, `tmp` and both manifests, and `Approved::validate` re-checks that set on
+every launch. On a umask-`022` host the two sides agreed by coincidence. The same class of guard exists in
+`settings_move::safe_dir`/`regular` (so a group-writable environment root also refused the models/input/output folders
+*inside* it), `downloads::fs::validate_directory`, `downloads_models::checked_cache_file` and the LLM settings — the
+installer was simply the only writer that never named a mode.
+
+Fix (one change, four layers): `linux_startup::normalize_umask()` as the first call of `main()` (Linux) tightens the
+process mask to `current | 0o022` — it only ever clears group/other write bits, so a stricter user umask such as `0077`
+survives — which is also the only thing that reaches uv, git and the backend child, whose files DEAS never writes
+itself; `install::create_owned_dir`/`create_owned_dirs`/`write_owned_file` (`0o755`/`0o644`, umask-can-only-tighten)
+for the root claim, `prepare_dirs`, both manifests, `constraints.txt`, the checkout target, `ComfyUI/custom_nodes`
+(including `backend::install_adapter`) and `deas-models.yaml`; `backend::repair_owned_environment` at the start of
+`Approved::capture` clears those bits in an environment installed the old way (bounded walk: 1 M entries, depth 64,
+entries owned by us only, symlinks skipped because `chmod(2)` follows them, never widens, one `backend.owned-environment`
+WARN line in Logs); and `identity()` now names the path, its mode and the `chmod go-w …` fix, the way
+`downloads::fs::validate_directory` already did. `Approved::validate()` deliberately does **not** repair: an environment
+that became writable after capture stays a refusal (that is what `writable_or_replaced_owned_environment_is_rejected`
+asserts).
+
+| Layer | Evidence |
+|---|---|
+| DEAS Rust (serial) | Full `cargo test --lib -- --test-threads=1` with a private `TMPDIR` (`mkdir -m 700 ~/deas-tmp`, as CI does): 1150 passed, 80 ignored, 2 failed — the two known backend shutdown-timing tests, both green in isolation and untouched here. `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean. Without the private TMPDIR, 16 `settings::`/`install::` tests fail identically **on the base tree** because `/tmp` is `1777` and the folder guards refuse it — the very guard this issue is about. |
+| New tests | `backend::tests::capture_narrows_a_group_writable_environment_it_owns`: the whole fixture environment (venv included) is made group-writable, one manifest deliberately starts at `0o600`, and a symlink inside the root points at a foreign `0o666` file — capture then succeeds, `validate()` passes, none of the pinned paths keeps a write bit, the `0o600` file is still `0o600` (repair only clears), the foreign target is still `0o666` (no chmod through a symlink), and exactly one Logs line records the repair. `install::tests::owned_creates_carry_an_explicit_mode_under_any_umask`: derives `0o777 & !umask` from a plain `create_dir` (a test must never change the process mask — `cargo test` runs threads in one process) and asserts the helpers produce `0o755 & mask` / `0o644 & mask` with no `0o022` bit, so the expectation is exact on a `0002` host as on a `0022` one. `linux_startup::umask_normalisation_only_clears_write_bits` (bin target): `0002/0022 → 0022`, `0007/0027 → 0027`, `0077` kept. |
+| Not established | Native acceptance: an install of a fresh environment through the UI of a `umask 0002` session (the reporter's exact path), and opening an existing pre-fix environment without the manual `chmod -R go-w`. The repair walk's cost on a real environment with Torch's `site-packages` (fixture venv has no pip). Environments on exFAT/NTFS, USB or network mounts, where `chmod` changes nothing — GETTING-STARTED now tells users to keep the environment on ext4. Windows is untouched: `identity()` there is ACL-based. |
+
+## H3 low-VRAM tiling (node pack 0.5.62, DEAS 0.3.20)
+
+Scope: tile-sized ComfyUI memory estimate, weight residency policy (auto/keep/stream, GB cap), prefix temporal join and per-tile reference cropping in `DaSiWaH3TiledUpscale`/`DaSiWaH3HiResRegenerate`; H3 routing in `DaSiWaTiledDiffusion`; DEAS compiler defaults, advanced overrides, capability gate and Workbench controls.
+
+| Layer | Evidence |
+|---|---|
+| Node pack, CPU | Per-file pack suite: pass/fail set identical to the base tree; the touched files gain 79 tests (native forward +6, native sampler +32, tiled sampling +21 incl. weight residency, upscale integration +11, upscale node +3, Tiled Diffusion +6), all green. Includes real Core `prepare_sampling` through the wrapper pair, a tiny random native H3 model forward with cropped (odd-sized source) references and the MiniMax-H3-Image stream, and the complete native CPU sampler + node with prefix/crossfade × Continuity × spatial/temporal (65 cases). The native forward caught that reference crops must stay on the 2×2 patch grid. |
+| DEAS Rust | Serial suite 1145 passed; 5 process/timing tests failed under parallel load and pass isolated (3), or belong to another session's in-progress `backend_tests.rs` edit (2; also its one clippy lint). Clippy reports nothing in the touched files. New: emission defaults/overrides/validation, `h3LowVramTiling` readiness, preparation gate (older pack: defaults pass, overrides refused). |
+| DEAS frontend | Typecheck, `test:core` green; `test:ui` 2442/2443 — the one failure is a 5 s timeout of an unrelated REF2VA IPC fixture under load, passing isolated. New Workbench case: defaults send no advanced block, overrides only to a 0.5.62 pack, controls greyed with the hint otherwise. |
+| Windows GPU | RTX 4070 Ti SUPER 16 GB, ComfyUI d5d59c4, DEAS env venv, dev pack copy, `minimax_h3_ref2va_pruned_int8_convrot` (SHA-256 verified), 2D upscaler, 1 step, denoise 0.2, 124-frame synthetic latent (37 tokens). 4× → 2176×3840 (832×1984 tiles, 6 per window, 2 windows): Core estimate 104.7/41.9 → 22.4/8.9 GB, resident weights 0/0 → 1.9/8.4 GB, peak allocated 9.0 → 11.4 GB, refine 387.4 → 384.1 s, finite output. 2× → 1088×1920 (one full-canvas tile): estimate unchanged as designed, prefix 109.9 s vs crossfade 113.5 s, peak 10.7 vs 10.9 GB. Join region in latent space: largest token change ≈1.3× median for both joins. Weight residency (the 1.9/8.4 GB row above is `keep`): `auto` → estimate 27.7/26.9 GB, 0/0 GB loaded, peak 9.0 GB, 381.0 s; `keep` + 4 GB cap → 1.9/3.3 GB loaded (window 1's tile estimate already left less than the cap), peak 9.0 GB, 383.3 s. |
+
+Not established: picture quality and seam visibility in decoded pixels (the H3 VAE encode ran out of memory on this Windows ComfyUI build even for 22 frames, reporting 29 GiB allocated; a source latent could not be made there, and a 124-frame CPU encode needs more than 24 GB RAM on the Linux host), cropped-reference quality on a real video edit, gains on cards that hold the whole model, a DEAS-driven installed run (the Windows DEAS env still has pack 0.5.58).
+
 ## Russian localization (PR #48 by Djeks, shipped in 0.3.19) — 2026-11-21
 
 Merged into `main` as `7f02c6e3` (head `44de96f1`). Adds `Русский (ru)` as the seventh bundled

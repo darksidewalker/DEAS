@@ -59,5 +59,8 @@
   "chat.status.loading_model": "モデルを再読み込みしています…",
   "chat.pin": "上部に固定",
   "chat.unpin": "固定を解除",
-  "chat.pinned": "固定済み"
+  "chat.pinned": "固定済み",
+  "chat.retry": "再試行",
+  "chat.retryHelp": "最後の回答をモデルにもう一度作らせます。現在の回答は新しい回答に置き換わります。",
+  "chat.retryReason": "質問を送信した後、回答の生成中でないときに会話の下に表示されます。"
 }

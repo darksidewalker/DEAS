@@ -55,7 +55,7 @@ export type ChatEvent =
   | { event: 'text'; text: string }
   | { event: 'prompt'; prompt: WrittenPrompt }
   | { event: 'done'; message: ChatMessage };
-export interface ChatSend { id?: string; message: string; model: string; pictures: string[]; context?: string; search: boolean; studio?: ChatStudio & { endpoint?: string; writerModel?: string } }
+export interface ChatSend { id?: string; message: string; model: string; pictures: string[]; context?: string; search: boolean; studio?: ChatStudio & { endpoint?: string; writerModel?: string }; /** Answer the last question again (its answer is dropped; `message` is ignored). */ retry?: boolean }
 
 /** One turn, streamed: `onEvent` sees the text as it is written. Resolves with the finished answer. */
 export function sendChat(root: string, request: ChatSend, onEvent: (e: ChatEvent) => void) {

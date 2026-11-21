@@ -780,6 +780,74 @@ fn writable_or_replaced_owned_environment_is_rejected() {
         .unwrap_err()
         .contains("identity"));
 }
+// Issue #50: an environment provisioned on a host whose umask is 0002 left every entry uv, git and
+// the managed Python created group-writable, so capture refused the folder the installer had just
+// built. capture narrows those bits before recording any identity; only a change made *after*
+// capture stays a refusal (writable_or_replaced_owned_environment_is_rejected above).
+#[test]
+fn capture_narrows_a_group_writable_environment_it_owns() {
+    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+    fn make_group_writable(dir: &std::path::Path) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let meta = fs::symlink_metadata(&path).unwrap();
+            if meta.is_dir() {
+                make_group_writable(&path);
+            }
+            // One entry starts private (0o600) so the repair must show it never widens anything.
+            let base = if path.file_name() == Some(std::ffi::OsStr::new("deas-plan.json")) {
+                0o600
+            } else {
+                meta.mode() & 0o777
+            };
+            fs::set_permissions(&path, fs::Permissions::from_mode(base | 0o022)).unwrap();
+        }
+        let base = fs::metadata(dir).unwrap().mode() & 0o777;
+        fs::set_permissions(dir, fs::Permissions::from_mode(base | 0o022)).unwrap();
+    }
+    let (tmp, approved) = fixture(SERVER);
+    let root = tmp.path().to_path_buf();
+    make_group_writable(&root);
+    assert_ne!(fs::metadata(root.join("venv")).unwrap().mode() & 0o022, 0);
+    // A symlink inside the environment must not drag the repair outside: its target is foreign.
+    let outside = tempfile::tempdir().unwrap();
+    let outside = outside.path().join("foreign-model");
+    fs::write(&outside, "foreign fixture").unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o666)).unwrap();
+    symlink(&outside, root.join("foreign-link")).unwrap();
+    let recaptured = Approved::capture(approved.plan()).unwrap();
+    recaptured.validate().unwrap();
+    for name in [
+        "",
+        "ComfyUI",
+        "ComfyUI/main.py",
+        "venv",
+        "venv/bin/python",
+        "runtime/python",
+        "deas-plan.json",
+        "deas-install.json",
+    ] {
+        let path = root.join(name);
+        assert_eq!(
+            fs::metadata(&path).unwrap().mode() & 0o022,
+            0,
+            "{name} keeps group/world write"
+        );
+    }
+    assert_eq!(
+        fs::metadata(root.join("deas-plan.json")).unwrap().mode() & 0o777,
+        0o600,
+        "the repair only ever clears bits"
+    );
+    assert_eq!(
+        fs::metadata(&outside).unwrap().mode() & 0o777,
+        0o666,
+        "a symlink target outside the environment stays untouched"
+    );
+    assert!(crate::logs::native_logs(0)
+        .iter()
+        .any(|entry| entry.text.contains("backend.owned-environment")));
+}
 #[test]
 fn foreign_listener_is_never_adopted_or_stopped() {
     let foreign = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

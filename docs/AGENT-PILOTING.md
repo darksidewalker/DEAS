@@ -36,12 +36,13 @@ rack's lane editing, splitters) need events dispatched from `eval`, or a human.
 2. Start it with the inspector server on loopback, detached, with a log:
 
    ```sh
-   (umask 022; WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9333 \
+   (WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9333 \
      setsid nohup ./src-tauri/target/debug/deas > /tmp/deas_app.log 2>&1 & disown)
    ```
 
-   `umask 022` matters on hosts whose default is `0002`: DEAS refuses an owned environment or a
-   settings folder that is group-writable, including one its own installer has just created.
+   No `umask 022` wrapper is needed from 0.3.20: DEAS normalises its own file-creation mask at
+   startup, so an installed environment passes DEAS's own "not group/world writable" checks on a
+   host whose default is `0002` ([issue #50](https://github.com/darksidewalker/DEAS/issues/50)).
 
 3. Wait until the page answers (about half a minute on first start), then drive it:
 

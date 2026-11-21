@@ -4,6 +4,32 @@
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::path::Path;
 
+/// Normalise the file-creation mask before any thread, worker process or child exists.
+/// DEAS's owned-environment checks (`backend::identity`, `downloads::fs::validate_directory`,
+/// `settings_move::safe_dir`) refuse anything group/world writable, but most paths inside an
+/// environment are created by child processes DEAS does not write itself - uv's managed Python
+/// and venv, `git checkout` of ComfyUI and the node packs, the ComfyUI backend itself. A mode
+/// argument in a `mkdir`/`open` call is itself masked by the umask, so a host whose default is
+/// `0002` (user private groups: most distributions) produced an environment that failed DEAS's
+/// own check right after installing it (issue #50).
+/// Only ever tightens: a stricter user umask such as `0077` is kept as it is.
+pub fn normalize_umask() {
+    // SAFETY: umask(2) is a process-wide syscall with no memory aliasing. main() calls this first,
+    // before GTK, WebKit or any DEAS worker thread. The test build's main() is empty, so no test
+    // ever changes the process mask: that would race with other tests' permission fixtures.
+    let current = unsafe { libc::umask(0o022) };
+    let wanted = tightened_umask(current);
+    if wanted != current {
+        unsafe { libc::umask(wanted) };
+    }
+}
+
+/// The mask to install for `current`: clears the group/other write bits and nothing else, so a
+/// stricter user umask (private files) survives.
+fn tightened_umask(current: u32) -> u32 {
+    current | 0o022
+}
+
 /// Apply process-local compatibility defaults before GTK/WebKit or worker threads start.
 /// Explicit user overrides (including empty values) remain authoritative.
 pub fn configure() {
@@ -176,8 +202,24 @@ fn host_gst_elements<const N: usize>(elements: &[&CStr; N]) -> Option<[bool; N]>
 
 #[cfg(test)]
 mod tests {
-    use super::{configure, host_gst_elements, sync_plugins};
+    use super::{configure, host_gst_elements, sync_plugins, tightened_umask};
     use std::path::Path;
+
+    // Issue #50: DEAS's child processes must never create group/world writable entries, while a
+    // deliberately strict umask keeps the user's private files private.
+    #[test]
+    fn umask_normalisation_only_clears_write_bits() {
+        for (current, wanted) in [
+            (0o000, 0o022),
+            (0o002, 0o022),
+            (0o022, 0o022),
+            (0o007, 0o027),
+            (0o027, 0o027),
+            (0o077, 0o077),
+        ] {
+            assert_eq!(tightened_umask(current), wanted);
+        }
+    }
 
     #[test]
     fn host_gstreamer_probe() {
