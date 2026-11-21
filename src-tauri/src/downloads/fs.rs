@@ -6,15 +6,16 @@
 //! following reparse points and requires the same handle identity, then creates with
 //! CREATE_NEW / must-create / MoveFileExW-without-replace. Ownership/ACL checks are
 //! relaxed to "exists, is a non-reparse directory" (see win.rs). Other platforms fail closed.
-#[cfg(windows)]
-use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 use std::{
     ffi::CString,
     os::fd::{AsRawFd, FromRawFd},
     os::unix::ffi::OsStrExt,
 };
-use std::{fs::File, path::Path};
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+};
 
 #[cfg(all(test, target_os = "linux"))]
 #[path = "fs_tests.rs"]
@@ -24,7 +25,7 @@ mod tests;
 mod tests;
 
 #[cfg(target_os = "linux")]
-pub struct Anchor(pub(crate) File);
+pub struct Anchor(pub(crate) File, pub(crate) PathBuf);
 #[cfg(windows)]
 pub struct Anchor(pub(crate) File, PathBuf);
 #[cfg(not(any(target_os = "linux", windows)))]
@@ -45,7 +46,7 @@ impl Anchor {
         if fd < 0 {
             return Err("Cannot open parent".into());
         }
-        let mut dir = Self(unsafe { File::from_raw_fd(fd) });
+        let mut dir = Self(unsafe { File::from_raw_fd(fd) }, PathBuf::from("/"));
         for part in path.components().skip(1) {
             let std::path::Component::Normal(name) = part else {
                 return Err("Unsafe parent path".into());
@@ -61,7 +62,8 @@ impl Anchor {
             if fd < 0 {
                 return Err("Parent components must be existing non-symlink directories".into());
             }
-            dir = Self(unsafe { File::from_raw_fd(fd) });
+            dir.1.push(part.as_os_str());
+            dir = Self(unsafe { File::from_raw_fd(fd) }, dir.1.clone());
         }
         Ok(dir)
     }
@@ -202,8 +204,44 @@ impl Anchor {
     #[cfg(target_os = "linux")]
     pub(crate) fn validate_directory(&self, private: bool) -> Result<(), String> {
         use std::os::unix::fs::MetadataExt;
-        let metadata = self.0.metadata().map_err(|_| "Cannot inspect directory")?;
-        Self::validate_directory_metadata(metadata.uid(), metadata.mode(), private)
+        let metadata = self
+            .0
+            .metadata()
+            .map_err(|_| "Cannot inspect directory".to_owned())?;
+        let (uid, mode) = (metadata.uid(), metadata.mode());
+        let euid = unsafe { libc::geteuid() };
+        let forbidden = if private { 0o077 } else { 0o022 };
+        if uid == euid && mode & libc::S_IFMT == libc::S_IFDIR && mode & forbidden == 0 {
+            return Ok(());
+        }
+        let path = self.1.display();
+        let mut reasons = Vec::new();
+        let mut fixes = Vec::new();
+        if mode & libc::S_IFMT != libc::S_IFDIR {
+            reasons.push("it is not a directory".to_owned());
+        }
+        if uid != euid {
+            reasons.push(format!(
+                "it is owned by uid {uid}, not by your own user (uid {euid})"
+            ));
+            fixes.push(format!("sudo chown -R \"$(id -un)\" \"{}\"", path));
+        }
+        if mode & forbidden != 0 {
+            reasons.push(format!(
+                "its permissions {:o} are writable by group or other",
+                mode & 0o7777
+            ));
+            fixes.push(if private {
+                format!("chmod go-rwx \"{path}\"")
+            } else {
+                format!("chmod go-w \"{path}\"")
+            });
+        }
+        Err(format!(
+            "DEAS cannot write into {path} because {}; fix it with: {}. If the folder sits on an exFAT/NTFS, USB or network share these bits return after every remount - keep the DEAS environment on a native Linux filesystem.",
+            reasons.join("; "),
+            fixes.join(" and ")
+        ))
     }
     #[cfg(windows)]
     pub(crate) fn validate_directory(&self, _private: bool) -> Result<(), String> {
@@ -214,6 +252,7 @@ impl Anchor {
     }
 
     #[cfg(target_os = "linux")]
+    #[cfg(test)]
     fn validate_directory_metadata(uid: u32, mode: u32, private: bool) -> Result<(), String> {
         let forbidden = if private { 0o077 } else { 0o022 };
         if uid != unsafe { libc::geteuid() }
@@ -233,6 +272,7 @@ impl Anchor {
         // Inspect the anchored descriptor immediately before any filesystem write.
         // O_NOFOLLOW alone cannot prevent mkdirat/openat substitution in shared parents.
         self.validate_directory(false)?;
+        let child_path = self.1.join(name);
         let name = CString::new(name).map_err(|_| "Unsafe filename")?;
         if unsafe { libc::mkdirat(self.0.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
             return Err("Cannot exclusively create new staging folder".into());
@@ -250,7 +290,7 @@ impl Anchor {
         if fd < 0 {
             return Err("Cannot anchor staging folder".into());
         }
-        let child = Self(unsafe { File::from_raw_fd(fd) });
+        let child = Self(unsafe { File::from_raw_fd(fd) }, child_path);
         child.validate_directory(true)?;
         Ok(child)
     }

@@ -6,6 +6,23 @@ fn scratch() -> tempfile::TempDir {
 }
 
 #[test]
+fn rejection_names_the_path_the_problem_and_the_fix() {
+    let d = scratch();
+    let shared = d.path().join("shared");
+    std::fs::create_dir(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let error = Anchor::open(&shared)
+        .unwrap()
+        .validate_directory(false)
+        .unwrap_err();
+    assert!(error.contains(&shared.display().to_string()), "{error}");
+    assert!(error.contains("775"), "{error}");
+    assert!(error.contains("writable by group or other"), "{error}");
+    assert!(error.contains("chmod go-w"), "{error}");
+    assert!(error.contains("native Linux filesystem"), "{error}");
+}
+
+#[test]
 fn directory_metadata_requires_effective_owner_and_directory_type() {
     let uid = unsafe { libc::geteuid() };
     for private in [false, true] {
@@ -68,7 +85,7 @@ fn opened_non_directory_cannot_validate_as_child_or_create_anything() {
     let d = scratch();
     let file = d.path().join("file");
     std::fs::write(&file, b"untouched").unwrap();
-    let anchor = Anchor(std::fs::File::open(&file).unwrap());
+    let anchor = Anchor(std::fs::File::open(&file).unwrap(), file.clone());
     assert!(anchor.validate_directory(true).is_err());
     assert!(anchor.create("stage").is_err());
     assert_eq!(std::fs::read(&file).unwrap(), b"untouched");
