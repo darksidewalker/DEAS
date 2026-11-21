@@ -1,5 +1,49 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.3.20 (published)
+
+Published 2026-11-21 as `v0.3.20` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.20.
+One unreleased development version since `v0.3.19`: H3 low-VRAM tiling (per-tile memory estimate, prefix temporal join,
+tile references, weight residency + GB cap, advanced overrides gated on node pack 0.5.62), Chat Retry, and the
+owned-environment umask fix for [issue #50](https://github.com/darksidewalker/DEAS/issues/50).
+
+Built locally from source commit `cd7cd24390dc612223ed4b55ca0f93b5bfb5bb0a` (tree `552daf0de5e6b846d5be8bc6c5e6b393876b0b07`)
+with rustc 1.97.0 / node v22.23.5; unsigned; direct glibc floor 2.39 (`objdump -T`); `ldd` reports no missing library;
+the current frontend bundle `index-CmsnB5Qk.js` is embedded in both binaries. Tag `v0.3.20` resolves to that source
+commit on GitHub and Gitea. The Windows cross-build emits the benign MSVC `LNK4099` missing-debug-info warning
+(`libcmt.amd64.pdb`). No deb/AppImage/NSIS/portable bundles this cycle (patchelf/makensis absent), so the four-asset
+executable/checksum/manifest set is published. Hosted `Verify DEAS` and `Release DEAS` workflows remain disabled manually.
+
+Assets (SHA-256, re-downloaded from GitHub and `sha256sum -c`-verified there, each byte-identical to the staged set in
+`artifacts/releases/v0.3.20/`, which `build-linux.sh --release` staged atomically):
+
+- `deas-linux-amd64` 2aa5cdf49c7e853104e94c4953a256486c3896206995e5f0a8f0bb59c8b86be7
+- `deas.exe` 8559474748414c7213bea441444a725ba0356c2bc27882c7b300b89115fdc2f2
+- `SHA256SUMS` 26cad5cf256d19ddf6cf2ba3121903628794e283d1d2a7598c02097f168511ab
+- `BUILD-MANIFEST.json` acc8635755bd35aeb0015cc44d5a9fb44300a1e79c94c8e458dc33e71cf1e8b3
+
+The loose launcher `artifacts/deas-linux-amd64` carries the identical hash `2aa5cdf4…`, swapped by rename; a running
+app keeps its old inode until it is restarted. H3 tiling needs DaSiWa node pack 0.5.62 (Backend → Upgrade).
+
+Gates on the release commit `cd7cd243` (bounded `systemd-run --user --scope` while a large local inference service
+stayed live; private `TMPDIR`, as CI sets): `npm run typecheck`; `test:core` 177/177; full Vitest 2443 tests over 138
+files; `tools/tests` 17/17; H3 streaming contracts 7 (3 skipped for absent media deps); `cargo fmt -- --check` clean;
+strict Clippy `--locked --all-targets -- -D warnings` clean on Linux and through `cargo xwin` for
+`x86_64-pc-windows-msvc`; `cargo xwin check --all-targets` clean; serial `cargo test --locked -- --test-threads=1`
+1150 passed / 80 ignored / 2 failed — the two known backend Python-shutdown-pipe load flakes, green in isolation.
+The suite needs a private `TMPDIR`: the folder guards refuse the shared `1777` `/tmp`, and without it 16
+`settings::`/`install::` tests fail identically on the base tree.
+
+Same commit — test-determinism fix, not a behaviour change: `concurrent_submit_reserves_job_before_any_network_await`
+asserted *which* of two concurrent submits wins the reservation, which is the runtime's choice; roughly half of
+standalone runs failed, including on the base tree with this cycle's production hunks stashed away. It now asserts the
+contract (exactly one submit accepted, the other refused, both before any network await, accepted job ends `failed`,
+third submit refused) and is 10/10 standalone.
+
+Not established by this release (stated in its body): H3 decoded-pixel quality and window seams, cropped-reference
+quality on a real video edit, a DEAS-driven installed H3 run on pack 0.5.62, Windows runtime acceptance of the
+cross-built `deas.exe`, and a real install plus automatic permission repair through the UI on a `umask 0002` host.
+
 ## Owned environment refused its own permissions at umask 0002 (issue #50, DEAS 0.3.20) — 2026-11-21
 
 Report: Linux Mint 22.3 (umask `0002`, user private groups), release binary `deas-linux-amd64` 0.3.19, fresh install.

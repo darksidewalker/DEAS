@@ -4,7 +4,7 @@
 
 The **single list of open work** for DEAS. Everything here is either not built yet or built but not yet accepted. Delivered work lives in the [changelog](CHANGELOG.md) and the user guides, evidence in the [verification journal](VERIFICATION.md), binding scope in [PRODUCT-DECISIONS.md](PRODUCT-DECISIONS.md), working rules in [PROJECT-RULES.md](PROJECT-RULES.md), [COMFYUI-RULES.md](COMFYUI-RULES.md) and [EXECUTION-CONTRACT.md](EXECUTION-CONTRACT.md). Earlier planning files (`IMPLEMENTATION-STATUS.md`, `VIDEO-PLAN.md`, `YUE2-MUSIC-PLAN.md`, `PLUGIN-ROADMAP.md`, `NEXT-SESSION.md`, …) remain in Git history only.
 
-Working tree **0.3.19** (latest tag `v0.3.19`); 0.3.x is the feature phase after the 0.2.40 beta. Restructured 2026-11-19: every open item now has an ID, a type and its blockers; delivered narratives moved to [VERIFICATION.md](VERIFICATION.md#closed-plan-items-moved-from-planmd-2026-11-19) and the H3 Director reference facts to [COMFYUI-RULES.md](COMFYUI-RULES.md#9-h3-director-and-video-reference-facts).
+Working tree **0.3.20** (latest tag `v0.3.20`); 0.3.x is the feature phase after the 0.2.40 beta. Restructured 2026-11-19: every open item now has an ID, a type and its blockers; delivered narratives moved to [VERIFICATION.md](VERIFICATION.md#closed-plan-items-moved-from-planmd-2026-11-19) and the H3 Director reference facts to [COMFYUI-RULES.md](COMFYUI-RULES.md#9-h3-director-and-video-reference-facts).
 
 ## 0. How to work on this plan (read first)
 
