@@ -15,6 +15,9 @@ test('bundled Replace wizard is valid data: Qwen reference edit first, masked ed
   assert.equal(replace.strategies[0].source, 'reference');
   assert.equal(replace.strategies[1].edit, 'inpaint');
   assert.equal(replace.strategies[1].needsMask, true);
+  // A replacement redraws the masked area completely; the reference edit has no source strength.
+  assert.equal(replace.strategies[1].denoise, 1);
+  assert.equal(replace.strategies[0].denoise, undefined);
 });
 
 test('descriptor validation refuses unknown families and mismatched pipeline/source/mask combinations', () => {
@@ -25,6 +28,9 @@ test('descriptor validation refuses unknown families and mismatched pipeline/sou
   assert.equal(broken(w => { w.strategies[0].pipeline = 'i2i'; }), false);
   assert.equal(broken(w => { w.strategies[1].pipeline = 't2i'; }), false);
   assert.equal(broken(w => { w.strategies[1].needsMask = false; }), false);
+  assert.equal(broken(w => { w.strategies[1].denoise = 0; }), false);
+  assert.equal(broken(w => { w.strategies[1].denoise = 1.5; }), false);
+  assert.equal(broken(w => { w.strategies[0].denoise = 1; }), false); // a reference edit has no picture to redraw
   assert.equal(broken(w => { w.strategies[1].id = 'reference'; }), false);
   assert.equal(broken(w => { w.library = ' '; }), false);
   assert.equal(broken(w => { delete w.strategies[1].objectFamilies; }), false); // an object template needs families that take references

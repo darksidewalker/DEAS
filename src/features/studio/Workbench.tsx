@@ -1873,7 +1873,7 @@ const promptTools=forgeContext&&<>
   const picture:MediaItem={name:wizard.picture.name,path:wizard.picture.path,src:wizard.picture.src,media:'image'};
   const references=(wizard.references??[]).map(r=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},strength:0.6}));
   if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
-  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);}
+  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   setPositive(wizard.positive);setError('');
   // A hand-over that asked to run starts one commit later, so Run builds its intent from the draft that was just applied.

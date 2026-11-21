@@ -145,7 +145,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       model: { name: model.name, path: model.path }, picture,
       // Reference edits make the picture reference 1 themselves; a masked edit lists it explicitly so the prompt's `image 1` exists there too.
       ...(withObject && object ? { references: s.source === 'reference' ? [object] : [picture, object] } : {}),
-      positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
+      positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(s.denoise !== undefined ? { denoise: s.denoise } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
   };
 
   if (!wizard) return null;
@@ -192,10 +192,14 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
               {t(`wizards.${wizard.id}.method.${c.strategy.id}`)}</button>)}
           </div>
           {chosen && model && <>
-            <label className="forge-field"><span>{t('wizards.model')}</span>
-              <select data-wizard-model value={model.path} onChange={e => setModelPath(e.target.value)}>
-                {chosen.models.map(m => <option key={m.path} value={m.path}>{m.name}</option>)}
-              </select></label>
+            <div className="wizards-row wizards-model-row">
+              <label className="forge-field"><span>{t('wizards.model')}</span>
+                <select data-wizard-model value={model.path} onChange={e => setModelPath(e.target.value)}>
+                  {chosen.models.map(m => <option key={m.path} value={m.path}>{m.name}</option>)}
+                </select></label>
+              {/* Models added after the first scan (another method's preferred family) appear only after an explicit look. */}
+              <button type="button" className="forge-ghost" data-wizard-rescan title={t('wizards.models.rescanHint')} onClick={() => void look(true)}>{t('wizards.models.rescan')}</button>
+            </div>
             <p className="forge-note" data-wizard-hint>{t(hint)}</p>
             {object && !withObject && <p className="forge-note" data-wizard-object-unused>{t('wizards.picture.objectUnused')}</p>}
             {offGrid && pictureSize && <p className="forge-note" data-wizard-off-grid>{t('wizards.picture.offGrid', { size: `${pictureSize.width}×${pictureSize.height}`, grid: String(grid) })}</p>}
@@ -204,7 +208,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
             <p className="forge-note">{t('wizards.models.missing', { name: wizard.library })}</p>
             <div className="wizards-row">
               <button type="button" className="forge-ghost" data-wizard-library onClick={() => findInLibrary(wizard.library)}>{t('wizards.models.library')}</button>
-              <button type="button" className="forge-ghost" data-wizard-rescan onClick={() => void look(true)}>{t('wizards.models.rescan')}</button>
+              <button type="button" className="forge-ghost" data-wizard-rescan title={t('wizards.models.rescanHint')} onClick={() => void look(true)}>{t('wizards.models.rescan')}</button>
             </div>
           </div>}
           {scanError && <p className="error-message" role="alert">{scanError}</p>}
@@ -217,7 +221,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         {!running && <span className="forge-note">{t('wizards.prepareNote')}</span>}
       </div>
       {run && <div className="wizards-run" data-wizard-run-state={run.state} role="status">
-        <p className="forge-note" data-wizard-run-status>{run.masking ? t('wizards.run.masking') : run.state === 'running' && run.max ? t('wizards.run.running', { value: String(run.value ?? 0), max: String(run.max) }) : t(`wizards.run.${run.state}`)}</p>
+        <p className="forge-note" data-wizard-run-status>{run.masking ? t('wizards.run.masking') : !run.job && run.error ? t('wizards.run.notRun') : run.state === 'running' ? (run.max ? t('wizards.run.running', { value: String(run.value ?? 0), max: String(run.max) }) : t('wizards.run.drawing')) : t(`wizards.run.${run.state}`)}</p>
         {run.preview && running && <img className="wizards-preview" src={run.preview} alt=""/>}
         {run.picture && <figure className="wizards-result">
           <img src={convertFileSrc(run.picture.path)} alt={chosen ? strategyPrompt(chosen.strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>

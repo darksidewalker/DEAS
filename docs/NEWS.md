@@ -1,5 +1,13 @@
 # News
 
+## 0.3.18
+
+### Replace with a mask now swaps the object
+
+The Replace wizard's **Paint a mask** method redraws the masked area completely, so the old object really goes away —
+tested with a red car on a street photo. **Look again** next to the model list finds models you add later, and the run
+status no longer shows raw placeholders.
+
 ## 0.3.17
 
 The Beginner **Wizards** page now uses the whole window; before, an empty area pushed the wizard down.

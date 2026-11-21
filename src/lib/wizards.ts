@@ -24,6 +24,11 @@ export interface WizardStrategy {
   objectPositive?: string;
   objectFamilies?: string[];
   needsMask: boolean;
+  /**
+   * Strength the picture to edit is redrawn with (Generate's denoise / Inpaint strength). A replacement must redraw the
+   * masked area completely: at Generate's default 0.8 Inpaint keeps the old object's shape and colour.
+   */
+  denoise?: number;
 }
 /** `object`: the wizard also takes an optional object picture whose content goes into the picture to change. */
 export interface WizardDescriptor { id: string; media: 'image'; fields: WizardField[]; strategies: WizardStrategy[]; library: string; object?: boolean }
@@ -37,7 +42,7 @@ export interface WizardPicture { name: string; path: string; src: string }
  */
 export interface WizardHandoff {
   n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i'; source: 'reference' | 'edit'; edit?: 'inpaint' | 'resample';
-  model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string;
+  model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number }
@@ -76,7 +81,8 @@ function validStrategy(s: unknown): s is WizardStrategy {
     && (v.objectPositive === undefined) === (v.objectFamilies === undefined)
     && (v.objectPositive === undefined || (typeof v.objectPositive === 'string' && v.objectPositive.length > 0 && v.objectPositive.length <= 2000
       && Array.isArray(v.objectFamilies) && v.objectFamilies.length > 0 && v.objectFamilies.every(f => typeof f === 'string' && referenceFamilies.has(f) && (v.families as string[]).includes(f))))
-    && typeof v.needsMask === 'boolean' && v.needsMask === (v.edit === 'inpaint');
+    && typeof v.needsMask === 'boolean' && v.needsMask === (v.edit === 'inpaint')
+    && (v.denoise === undefined || (v.source === 'edit' && typeof v.denoise === 'number' && v.denoise > 0 && v.denoise <= 1));
 }
 /** Rejects malformed descriptors instead of half-applying them (unknown families, mismatched pipeline/source). */
 export function validWizard(w: unknown): w is WizardDescriptor {

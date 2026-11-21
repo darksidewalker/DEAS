@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.18
+
+- **Dark Wizards: Paint a mask really replaces.** The masked method now hands Generate an Inpaint strength of 1, so the masked area is redrawn completely. At Generate's default 0.8 the old object stayed: on a real street photo the red car remained a red car. This changes the saved Inpaint strength, like the wizard's prompt and size do. Measured on the Windows test PC: the car was replaced and pixels outside the mask stayed unchanged.
+- **Dark Wizards: Look again is always there.** It sits next to the model list, so a model you copy or download later shows up without leaving the tab. Before, it appeared only when no model fitted at all.
+- **Dark Wizards: clearer run status.** While a run waits for its first step the wizard shows *Drawing…*; before, it showed the raw `{value}/{max}` placeholders. When nothing was submitted, for example because SAM found no match, it says *Nothing was drawn.* instead of pointing to an unknown queue outcome.
+
 ## 0.3.17
 
 - **Beginner Wizards page fills the window.** In 0.3.16 the hidden Generation page still took space on Beginner's Wizards page and pushed the wizard down by about a third of the window; it now takes none. Found in the Windows acceptance run of the wizards; Generation keeps its state while hidden.

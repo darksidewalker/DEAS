@@ -28,3 +28,5 @@
 .wizards-result img, .wizards-preview { max-width: 100%; max-height: 40vh; object-fit: contain; border-radius: 8px; }
 .wizards-preview { opacity: 0.85; }
 .wizards-result figcaption { font-size: 12px; opacity: 0.8; }
+.wizards-model-row { align-items: end; }
+.wizards-model-row > .forge-field { flex: 1 1 220px; min-width: 0; }

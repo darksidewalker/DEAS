@@ -88,6 +88,19 @@ it('falls back to inpaint with only the replacement text, and lets the user swit
   expect([...(screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).options].map(o => o.value)).toEqual([qwen.path, sdxl.path]);
 });
 
+it('Look again stays available beside the model, so a model copied in later becomes the preferred choice', async () => {
+  models = [sdxl];
+  ui();
+  await choosePicture(1024, 640);
+  expect((await screen.findByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(sdxl.path);
+  expect(screen.getByRole('button', { name: 'Paint a mask (inpaint)', pressed: true })).toBeTruthy();
+  models = [qwen, sdxl];
+  fireEvent.click(screen.getByRole('button', { name: 'Look again' }));
+  await waitFor(() => expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(qwen.path));
+  expect(screen.getByRole('button', { name: 'Reference edit (Qwen Image 2.1)', pressed: true })).toBeTruthy();
+  expect(calls('native_models_scan').at(-1)).toMatchObject({ refresh: true });
+});
+
 it('without a suitable model offers the Library search and a rescan instead of guessing', async () => {
   models = [{ ...sdxl, family: null }, lora];
   const asked = vi.fn(); window.addEventListener(librarySearchEvent, asked);
@@ -153,7 +166,7 @@ it('runs the mask method with SAM 3.1: Replace what becomes the mask target, and
   type('Replace what', '  the   red car ');
   expect(run().disabled).toBe(false); expect(run().getAttribute('title')).toBeNull();
   fireEvent.click(run());
-  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'inpaint', source: 'edit', edit: 'inpaint', run: true, mask: 'the red car', positive: 'a blue bicycle' });
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'inpaint', source: 'edit', edit: 'inpaint', run: true, mask: 'the red car', positive: 'a blue bicycle', denoise: 1 });
   // A plain prepare never carries a mask target.
   fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
   expect(onPrepare.mock.calls[1][0].mask).toBeUndefined();
@@ -165,6 +178,8 @@ it('runs the mask method with SAM 3.1: Replace what becomes the mask target, and
   const open = vi.fn();
   view.rerender(<I18nProvider><DarkWizards active roots={{ models: '/m', input: '/in' }} onPrepare={onPrepare} sam="" handoff={2} onOpenGenerate={open} outcome={{ n: 2, run: { state: 'unknown', error: 'SAM 3.1 found no “the red car” in the picture. Draw the mask in Generate and press Run there.' } }}/></I18nProvider>);
   expect(screen.getByText(/SAM 3.1 found no “the red car”/)).toBeTruthy();
+  // Nothing was submitted, so the status does not send the user to an unknown queue outcome.
+  expect(document.querySelector('[data-wizard-run-status]')?.textContent).toBe('Nothing was drawn.');
   // The prepared draft is in Generate, so the way there is offered with the message.
   fireEvent.click(screen.getByRole('button', { name: 'Show in Generate' }));
   expect(open).toHaveBeenCalledTimes(1);
@@ -175,6 +190,10 @@ it('follows the wizard run Generate reports: progress, Stop for that one job, th
   const open = vi.fn();
   const { view, onPrepare } = ui({ handoff: 3, outcome: { n: 3, run: { state: 'running', value: 4, max: 20, preview: 'data:image/png;base64,prev', job } } });
   expect(screen.getByText('Drawing… 4/20')).toBeTruthy();
+  // Before the first step report there is no count: a plain status, never the raw {value}/{max} template.
+  view.rerender(<I18nProvider><DarkWizards active roots={{ models: '/m', input: '/in' }} onPrepare={onPrepare} handoff={3} outcome={{ n: 3, run: { state: 'running', job } }}/></I18nProvider>);
+  expect(document.querySelector('[data-wizard-run-status]')?.textContent).toBe('Drawing…');
+  view.rerender(<I18nProvider><DarkWizards active roots={{ models: '/m', input: '/in' }} onPrepare={onPrepare} handoff={3} outcome={{ n: 3, run: { state: 'running', value: 4, max: 20, preview: 'data:image/png;base64,prev', job } }}/></I18nProvider>);
   expect(document.querySelector('[data-wizard-run-state="running"] img')?.getAttribute('src')).toBe('data:image/png;base64,prev');
   expect((screen.getByRole('button', { name: 'Prepare and run' }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole('button', { name: 'Prepare in Generate' }) as HTMLButtonElement).disabled).toBe(true);

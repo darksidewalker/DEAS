@@ -41,6 +41,7 @@
         "pipeline": "i2i",
         "source": "edit",
         "edit": "inpaint",
+        "denoise": 1,
         "positive": "{replacement}",
         "objectPositive": "Replace the masked area of image 1 ({target|the marked part}) with {replacement|the main object} from image 2. Keep everything outside the mask unchanged and match the lighting and perspective of image 1.",
         "needsMask": true
