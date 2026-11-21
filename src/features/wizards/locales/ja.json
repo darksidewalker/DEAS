@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "このモデルはテキストだけを使います。オブジェクト画像には Qwen Image 2.1 モデルが必要です（どちらの方法でも使えます）。",
   "wizards.replace.replacementObjectPlaceholder": "任意：オブジェクト画像の犬",
   "wizards.replace.hint.referenceObject": "変更する画像が Qwen Image 2.1 参照編集の image 1、オブジェクト画像が image 2 になります。結果は image 1 の縦横比を保ちます。出力サイズを確認して実行を押してください。",
-  "wizards.replace.hint.inpaintObject": "画像は生成のインペイントで image 1 として開き、オブジェクト画像は同じ Qwen Image 2.1 モデルの image 2 になります。置き換える部分を塗ってから実行を押してください。",
+  "wizards.replace.objectRouted": "オブジェクト画像がある場合、ウィザードは同じモデルでリファレンス編集を渡します。マスク編集では元のオブジェクトが残ってしまいます。",
   "wizards.picture.offGrid": "この画像は {size} です。このモデルでのインペイントには両辺が {grid} px の倍数である必要があるため、画像がそのグリッドにリサンプルされるまで生成の実行はブロックされます。"
 }

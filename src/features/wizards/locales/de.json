@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "Dieses Modell nutzt nur den Text. Das Objektbild braucht ein Qwen-Image-2.1-Modell (beide Methoden können eines nutzen).",
   "wizards.replace.replacementObjectPlaceholder": "optional: der Hund im Objektbild",
   "wizards.replace.hint.referenceObject": "Das zu ändernde Bild wird image 1 und das Objektbild image 2 einer Qwen-Image-2.1-Referenzbearbeitung; das Ergebnis behält das Seitenverhältnis von image 1. Prüfe die Ergebnisgröße und drücke Ausführen.",
-  "wizards.replace.hint.inpaintObject": "Das Bild öffnet sich in Generieren als image 1 im Inpaint, mit dem Objektbild als image 2 für dasselbe Qwen-Image-2.1-Modell. Übermale, was ersetzt werden soll, und drücke Ausführen.",
+  "wizards.replace.objectRouted": "Mit einem Objektbild übergibt der Assistent die Referenz-Bearbeitung auf demselben Modell: Eine maskierte Bearbeitung würde das alte Objekt behalten.",
   "wizards.picture.offGrid": "Dieses Bild ist {size}. Inpaint mit diesem Modell braucht Seiten als Vielfaches von {grid} px; Generieren sperrt Ausführen, bis das Bild auf dieses Raster umgerechnet ist."
 }

@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "Bu model yalnızca metni kullanır. Nesne resmi için bir Qwen Image 2.1 modeli gerekir (iki yöntem de birini kullanabilir).",
   "wizards.replace.replacementObjectPlaceholder": "isteğe bağlı: nesne resmindeki köpek",
   "wizards.replace.hint.referenceObject": "Değiştirilecek resim, Qwen Image 2.1 referans düzenlemesinin image 1'i, nesne resmi image 2'si olur; sonuç image 1'in en-boy oranını korur. Sonuç boyutunu kontrol edip Çalıştır'a basın.",
-  "wizards.replace.hint.inpaintObject": "Resim, Oluştur'un Inpaint'inde image 1 olarak açılır; nesne resmi aynı Qwen Image 2.1 modeli için image 2 olur. Değiştirilecek yeri boyayın, ardından Çalıştır'a basın.",
+  "wizards.replace.objectRouted": "Bir nesne resmiyle sihirbaz aynı modelde referans düzenlemesini iletir: maskeli düzenleme eski nesneyi korurdu.",
   "wizards.picture.offGrid": "Bu resim {size}. Bu modelle Inpaint için iki kenarın da {grid} px'in katı olması gerekir; resim bu ızgaraya yeniden örneklenene kadar Oluştur Çalıştır'ı engeller."
 }

@@ -29,6 +29,14 @@ export interface WizardStrategy {
    * masked area completely: at Generate's default 0.8 Inpaint keeps the old object's shape and colour.
    */
   denoise?: number;
+  /**
+   * SAM masks of a one-click masked run grow outward by `maskGrow` source pixels and get a `maskBlur` soft edge (Generate's
+   * Mask blur), so the replacement is not forced into the old object's exact silhouette.
+   */
+  maskGrow?: number;
+  maskBlur?: number;
+  /** With an object picture this strategy hands over the named strategy instead (when the chosen model fits it). */
+  objectVia?: string;
 }
 /** `object`: the wizard also takes an optional object picture whose content goes into the picture to change. */
 export interface WizardDescriptor { id: string; media: 'image'; fields: WizardField[]; strategies: WizardStrategy[]; library: string; object?: boolean }
@@ -43,6 +51,8 @@ export interface WizardPicture { name: string; path: string; src: string }
 export interface WizardHandoff {
   n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i'; source: 'reference' | 'edit'; edit?: 'inpaint' | 'resample';
   model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
+  /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
+  maskGrow?: number; maskBlur?: number;
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number }
@@ -82,7 +92,10 @@ function validStrategy(s: unknown): s is WizardStrategy {
     && (v.objectPositive === undefined || (typeof v.objectPositive === 'string' && v.objectPositive.length > 0 && v.objectPositive.length <= 2000
       && Array.isArray(v.objectFamilies) && v.objectFamilies.length > 0 && v.objectFamilies.every(f => typeof f === 'string' && referenceFamilies.has(f) && (v.families as string[]).includes(f))))
     && typeof v.needsMask === 'boolean' && v.needsMask === (v.edit === 'inpaint')
-    && (v.denoise === undefined || (v.source === 'edit' && typeof v.denoise === 'number' && v.denoise > 0 && v.denoise <= 1));
+    && (v.denoise === undefined || (v.source === 'edit' && typeof v.denoise === 'number' && v.denoise > 0 && v.denoise <= 1))
+    && (v.maskGrow === undefined || (v.needsMask === true && Number.isSafeInteger(v.maskGrow) && (v.maskGrow as number) >= 0 && (v.maskGrow as number) <= 512))
+    && (v.maskBlur === undefined || (v.needsMask === true && Number.isSafeInteger(v.maskBlur) && (v.maskBlur as number) >= 0 && (v.maskBlur as number) <= 31))
+    && (v.objectVia === undefined || (typeof v.objectVia === 'string' && v.objectVia !== v.id && v.objectPositive === undefined));
 }
 /** Rejects malformed descriptors instead of half-applying them (unknown families, mismatched pipeline/source). */
 export function validWizard(w: unknown): w is WizardDescriptor {
@@ -92,6 +105,7 @@ export function validWizard(w: unknown): w is WizardDescriptor {
     && Array.isArray(v.fields) && v.fields.length > 0 && v.fields.every(f => fieldNames.includes(f as WizardField))
     && Array.isArray(v.strategies) && v.strategies.length > 0 && v.strategies.every(validStrategy)
     && new Set((v.strategies as WizardStrategy[]).map(s => s.id)).size === v.strategies.length
+    && (v.strategies as WizardStrategy[]).every(s => s.objectVia === undefined || (v.strategies as WizardStrategy[]).some(o => o.id === s.objectVia && !!o.objectPositive))
     && typeof v.library === 'string' && v.library.trim().length > 0
     && (v.object === undefined || typeof v.object === 'boolean');
 }

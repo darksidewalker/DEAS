@@ -441,6 +441,19 @@ test('import maps black/gray/white RGB plus alpha to transparent white coverage'
   expect([...put.mock.calls[0][0].data.slice(0,16)]).toEqual([255,255,255,0,255,255,255,128,255,255,255,255,255,255,255,0]);
  }finally{vi.unstubAllGlobals();}
 });
+test('import with grow widens the mask coverage outward before it becomes a layer',async()=>{
+ const {ref}=mount(),bitmap=maskBitmap();vi.stubGlobal('createImageBitmap',async()=>bitmap);
+ const w=source.width,h=source.height,raw=new Uint8ClampedArray(w*h*4);
+ const cx=Math.floor(w/2),cy=Math.floor(h/2);raw.set([255,255,255,255],(cy*w+cx)*4);
+ const put=vi.fn();
+ vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(function(this:HTMLCanvasElement){return {...context(this),getImageData:()=>({data:raw}),putImageData:put} as unknown as CanvasRenderingContext2D;});
+ try{
+  await act(async()=>{expect(await ref.current!.addMask(pngSignature,'car',{grow:3})).toBe(true);});
+  const a=put.mock.calls[0][0].data as Uint8ClampedArray,alpha=(x:number,y:number)=>a[(y*w+x)*4+3];
+  expect(alpha(cx,cy)).toBe(255);expect(alpha(cx+3,cy)).toBe(255);expect(alpha(cx,cy-3)).toBe(255);
+  expect(alpha(cx+4,cy)).toBe(0);expect(alpha(cx,cy+4)).toBe(0);
+ }finally{vi.unstubAllGlobals();}
+});
 test('empty and invalid mask imports preserve the stack and close decoded images',async()=>{
  const {ref}=mount(),bitmap=maskBitmap();vi.stubGlobal('createImageBitmap',async()=>bitmap);
  try{

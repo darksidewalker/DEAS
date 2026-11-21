@@ -9,7 +9,13 @@ test('bundled Replace wizard is valid data: Qwen reference edit first, masked ed
   assert.ok(replace);
   assert.equal(replace.object, true);
   assert.deepEqual(replace.strategies[1].families.slice(0, 2), ['qwen-image-2.1', 'qwen-image-2.1-turbo']);
-  for (const s of replace.strategies) assert.deepEqual(s.objectFamilies, ['qwen-image-2.1', 'qwen-image-2.1-turbo']);
+  assert.deepEqual(replace.strategies[0].objectFamilies, ['qwen-image-2.1', 'qwen-image-2.1-turbo']);
+  // Owner decision: an object request on the masked method goes to the reference edit (a masked edit keeps the old object).
+  assert.equal(replace.strategies[1].objectVia, 'reference');
+  assert.equal(replace.strategies[1].objectPositive, undefined);
+  // SAM masks of a masked one-click run grow 32 px and get a 4 px soft edge.
+  assert.equal(replace.strategies[1].maskGrow, 32);
+  assert.equal(replace.strategies[1].maskBlur, 4);
   assert.deepEqual(replace.strategies.map(s => s.id), ['reference', 'inpaint']);
   assert.deepEqual(replace.strategies[0].families, ['qwen-image-2.1', 'qwen-image-2.1-turbo']);
   assert.equal(replace.strategies[0].source, 'reference');
@@ -33,8 +39,14 @@ test('descriptor validation refuses unknown families and mismatched pipeline/sou
   assert.equal(broken(w => { w.strategies[0].denoise = 1; }), false); // a reference edit has no picture to redraw
   assert.equal(broken(w => { w.strategies[1].id = 'reference'; }), false);
   assert.equal(broken(w => { w.library = ' '; }), false);
-  assert.equal(broken(w => { delete w.strategies[1].objectFamilies; }), false); // an object template needs families that take references
-  assert.equal(broken(w => { w.strategies[1].objectFamilies = ['sdxl']; }), false); // SDXL has no image 1/image 2 reference encoder
+  assert.equal(broken(w => { delete w.strategies[0].objectFamilies; }), false); // an object template needs families that take references
+  assert.equal(broken(w => { w.strategies[0].objectFamilies = ['sdxl']; }), false); // SDXL has no image 1/image 2 reference encoder
+  assert.equal(broken(w => { w.strategies[1].objectVia = 'nowhere'; }), false);
+  assert.equal(broken(w => { w.strategies[1].objectVia = 'inpaint'; }), false);
+  assert.equal(broken(w => { delete w.strategies[0].objectPositive; delete w.strategies[0].objectFamilies; }), false); // the target needs an object template
+  assert.equal(broken(w => { w.strategies[1].maskGrow = -1; }), false);
+  assert.equal(broken(w => { w.strategies[1].maskBlur = 32; }), false);
+  assert.equal(broken(w => { w.strategies[0].maskGrow = 8; }), false); // no mask on a reference edit
   assert.equal(broken(w => { w.strategies[0].objectFamilies = ['krea-2']; }), false); // not among the strategy's families
 });
 
@@ -73,15 +85,13 @@ test('the object picture is used only by models whose encoder takes references, 
   const [reference, inpaint] = replace.strategies;
   assert.equal(usesObject(reference, 'qwen-image-2.1-turbo', true), true);
   assert.equal(usesObject(reference, 'qwen-image-2.1-turbo', false), false);
-  assert.equal(usesObject(inpaint, 'qwen-image-2.1', true), true);
+  assert.equal(usesObject(inpaint, 'qwen-image-2.1', true), false); // the masked edit itself never reads the object picture: it routes to the reference edit
   assert.equal(usesObject(inpaint, 'sdxl', true), false);
   assert.equal(strategyPrompt(reference, { target: 'the red car' }, true),
     'Replace the red car in image 1 with the main object from image 2. Keep everything else in image 1 unchanged and match its lighting and perspective.');
   assert.equal(strategyPrompt(reference, { target: 'the red car', replacement: 'the dog' }, true).includes('with the dog from image 2'), true);
   assert.equal(wizardReady(reference, { target: 'the red car' }, true), true); // replacement has a fallback with an object picture
   assert.equal(wizardReady(reference, { target: 'the red car' }, false), false);
-  assert.equal(wizardReady(inpaint, {}, true), true); // a mask and the object picture are enough
-  assert.equal(strategyPrompt(inpaint, {}, true).startsWith('Replace the masked area of image 1 (the marked part) with the main object from image 2.'), true);
   assert.equal(strategyPrompt(inpaint, { replacement: 'a cat' }, false), 'a cat');
 });
 

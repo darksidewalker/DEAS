@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "此模型只使用文字。对象图片需要 Qwen Image 2.1 模型（两种方法都可以使用）。",
   "wizards.replace.replacementObjectPlaceholder": "可选：对象图片里的狗",
   "wizards.replace.hint.referenceObject": "要修改的图片成为 Qwen Image 2.1 参考编辑的 image 1，对象图片成为 image 2；结果保持 image 1 的宽高比。检查输出尺寸后点击运行。",
-  "wizards.replace.hint.inpaintObject": "图片会在生成的局部重绘中作为 image 1 打开，对象图片作为同一个 Qwen Image 2.1 模型的 image 2。涂抹需要替换的部分，然后点击运行。",
+  "wizards.replace.objectRouted": "有物体图片时，向导会在同一模型上改用参考编辑：遮罩编辑会保留原来的物体。",
   "wizards.picture.offGrid": "这张图片为 {size}。用此模型进行局部重绘需要两边都是 {grid} px 的倍数，因此在图片重新采样到该网格之前，生成会阻止运行。"
 }

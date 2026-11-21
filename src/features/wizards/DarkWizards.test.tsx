@@ -232,20 +232,24 @@ it('uses an object picture A inside picture B: reference edit and masked edit on
   expect(onPrepare.mock.calls[0][0].picture.path).toBe('/pics/street.png');
   fireEvent.click(screen.getByRole('button', { name: 'Paint a mask (inpaint)' }));
   expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(qwen.path);
-  expect(screen.getByText(/as image 1, with the object picture as image 2 for the same Qwen Image 2\.1 model/)).toBeTruthy();
-  expect(screen.getByText(/This picture is 1920×1080\. Inpaint with this model needs both sides on a multiple of 32 px/)).toBeTruthy();
+  // Owner decision: with an object picture the masked method hands over the reference edit on the same Qwen model, and says so.
+  expect(screen.getByText(/hands over the reference edit on the same model/)).toBeTruthy();
+  expect(screen.getByText(/becomes image 1 and the object picture image 2/)).toBeTruthy();
+  expect(screen.queryByText(/This picture is 1920×1080\. Inpaint/)).toBeNull(); // no Inpaint grid: nothing is inpainted
+  expect((screen.getByRole('button', { name: 'Prepare and run' }) as HTMLButtonElement).title).toBe(''); // no mask needed
   type('With what', 'the dog');
   fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
   const masked = onPrepare.mock.calls[1][0];
-  expect(masked).toMatchObject({ strategy: 'inpaint', source: 'edit', edit: 'inpaint', pipeline: 'i2i', model: { path: qwen.path } });
-  expect(masked.references.map((r: { path: string }) => r.path)).toEqual(['/pics/street.png', '/pics/dog.png']);
-  expect(masked.positive).toBe('Replace the masked area of image 1 (the red car) with the dog from image 2. Keep everything outside the mask unchanged and match the lighting and perspective of image 1.');
-  expect(masked.size).toBeUndefined();
+  expect(masked).toMatchObject({ strategy: 'reference', source: 'reference', pipeline: 't2i', model: { path: qwen.path }, references: [{ path: '/pics/dog.png' }] });
+  expect(masked.edit).toBeUndefined(); expect(masked.maskGrow).toBeUndefined();
+  expect(masked.positive).toBe('Replace the red car in image 1 with the dog from image 2. Keep everything else in image 1 unchanged and match its lighting and perspective.');
+  expect(masked.size.width % 32).toBe(0);
   // A model without a reference encoder uses only the text and says so.
   fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: sdxl.path } });
   expect(screen.getByText(/This model uses only the text/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
-  expect(onPrepare.mock.calls[2][0]).toMatchObject({ positive: 'the dog', model: { path: sdxl.path } });
+  expect(screen.queryByText(/hands over the reference edit/)).toBeNull(); // SDXL cannot do the reference edit: text-only masked edit
+  expect(onPrepare.mock.calls[2][0]).toMatchObject({ strategy: 'inpaint', positive: 'the dog', model: { path: sdxl.path }, maskGrow: 32, maskBlur: 4, denoise: 1 });
   expect(onPrepare.mock.calls[2][0].references).toBeUndefined();
   fireEvent.click(document.querySelector('[data-wizard-remove="object"]')!);
   expect(screen.queryByRole('img', { name: 'dog.png' })).toBeNull(); expect(screen.queryByText(/This model uses only the text/)).toBeNull();

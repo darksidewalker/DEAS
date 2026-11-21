@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.19
+
+- **Dark Wizards: object pictures always use the reference edit.** With an object picture, **Paint a mask** on a Qwen model now hands over the reference edit on the same model and says so. A masked edit with both pictures kept the old object; the reference edit put the dog in the car's place. Without a Qwen model it stays a text-only masked edit, as before.
+- **Dark Wizards: masked replacements leave the old outline behind.** In a one-click masked run the SAM 3.1 mask grows outward by 32 px and gets a 4 px soft edge, the wizard's Mask blur. Before, the new object had to fill the exact silhouette of the old one, which produced a car-shaped bundle of bicycles. Now the bicycles stand on the street, and nothing outside the grown mask changes. When you paint a mask by hand, it is used as painted.
+
 ## 0.3.18
 
 - **Dark Wizards: Paint a mask really replaces.** The masked method now hands Generate an Inpaint strength of 1, so the masked area is redrawn completely. At Generate's default 0.8 the old object stayed: on a real street photo the red car remained a red car. This changes the saved Inpaint strength, like the wizard's prompt and size do. Measured on the Windows test PC: the car was replaced and pixels outside the mask stayed unchanged.

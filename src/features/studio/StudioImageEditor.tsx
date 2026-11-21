@@ -1,3 +1,4 @@
+import { growAlpha } from '../../lib/maskMorph';
 import {useEffect,useLayoutEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {oneOf,usePref} from '../../lib/preferences';
@@ -6,7 +7,7 @@ import {MEDIA_DRAG,draggedItem,type MediaItem} from '../../lib/media';
 import './imageEditor.css';
 export interface EditorSnapshot{source:Props['source'];masks:Mask[];base:ImageLayer;baseIndex:number;nextMask:number;active:string}
 export type SamSelection={positivePoints?:Point[];negativePoints?:Point[];box?:{x:number;y:number;width:number;height:number}};
-export interface EditorHandle{contentRevision:()=>number;capture:()=>EditorSnapshot;imagePng:()=>Promise<Uint8Array|null>;sourcePng:()=>Promise<Uint8Array>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number};addMask:(png:Uint8Array,name?:string)=>Promise<boolean>;refineMasks:()=>Promise<{name:string;png:Uint8Array;bounds:{x:number;y:number;width:number;height:number}}[]>}
+export interface EditorHandle{contentRevision:()=>number;capture:()=>EditorSnapshot;imagePng:()=>Promise<Uint8Array|null>;sourcePng:()=>Promise<Uint8Array>;imageEdited:()=>boolean;maskPng:()=>Promise<Uint8Array>;maskBounds:(padding:number)=>{x:number;y:number;width:number;height:number};addMask:(png:Uint8Array,name?:string,options?:{grow?:number})=>Promise<boolean>;refineMasks:()=>Promise<{name:string;png:Uint8Array;bounds:{x:number;y:number;width:number;height:number}}[]>}
 type Mask={id:string;n:number;name?:string;visible:boolean;canvas:HTMLCanvasElement;content:boolean};
 export type Props={ref?:Ref<EditorHandle>;source:{src:string;name:string;width:number;height:number};layers:ImageLayer[];onLayers:(layers:ImageLayer[])=>void;maskMode:boolean;onMask:(present:boolean)=>void;/** A dock tile dropped onto the picture, with the drop point in source pixels. */onInsert:(item:MediaItem,at:Point)=>void;/** A change (e.g. entering side by side) refits the picture even after zooming. */layout?:string;/** In-memory authoring state, only accepted for this exact source. */snapshot?:EditorSnapshot;draftGeneration?:string|number;sam?:{busy:boolean;unavailable?:string;onPick:(selection:SamSelection)=>void}};
 const diameterOK=(v:unknown):v is number=>typeof v==='number'&&Number.isInteger(v)&&v>=1&&v<=1024;
@@ -213,7 +214,8 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
     if(!blob)throw new Error(label('canvasError'));
     return new Uint8Array(await blob.arrayBuffer());
   }
-  async function addMask(png:Uint8Array,name?:string){
+  /** `grow` widens the imported mask outward by that many source pixels (approximately round) before it becomes a layer. */
+  async function addMask(png:Uint8Array,name?:string,options?:{grow?:number}){
     const version=operation.current;
     let bitmap:ImageBitmap|undefined;
     try{
@@ -227,6 +229,10 @@ export function StudioImageEditor({ref,source,layers,onLayers,maskMode,onMask,on
       const image=ctx.getImageData(0,0,source.width,source.height),data=image.data;
       // Imported black is absent coverage, not an opaque eraser over earlier masks.
       for(let i=0;i<data.length;i+=4){const alpha=Math.round((data[i]+data[i+1]+data[i+2])/3*data[i+3]/255);data[i]=data[i+1]=data[i+2]=255;data[i+3]=alpha;if(alpha)mask.content=true;}
+      if(mask.content&&options?.grow){
+       const alpha=new Uint8ClampedArray(source.width*source.height);for(let p=0;p<alpha.length;p++)alpha[p]=data[p*4+3];
+       const grown=growAlpha(alpha,source.width,source.height,options.grow);for(let p=0;p<grown.length;p++)data[p*4+3]=grown[p];
+      }
       if(!mask.content)return false;
       ctx.putImageData(image,0,0);mask.name=name;nextMask.current++;
       masksRef.current=[...masksRef.current,mask];setMasks(masksRef.current);contentRevision.current++;

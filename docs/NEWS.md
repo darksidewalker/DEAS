@@ -1,5 +1,13 @@
 # News
 
+## 0.3.19
+
+### Cleaner replacements
+
+The Replace wizard now gives a replaced object room: SAM's mask grows a little and gets a soft edge, so a bicycle no
+longer has to take the exact shape of the car it replaces. With an object picture the wizard always uses the reference
+edit, which really puts your object in.
+
 ## 0.3.18
 
 ### Replace with a mask now swaps the object

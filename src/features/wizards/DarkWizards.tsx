@@ -60,19 +60,23 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   const choices = wizard && models ? wizardChoices(wizard, models) : [];
   const chosen = choices.find(c => c.strategy.id === strategyId && c.models.length) ?? preferredChoice(choices);
   const model = chosen?.models.find(m => m.path === modelPath) ?? chosen?.models[0];
-  const withObject = !!chosen && usesObject(chosen.strategy, model?.family, !!object);
+  // With an object picture a strategy may hand over another one (the masked edit keeps the old object, the reference edit replaces it), on the same model.
+  const via = chosen?.strategy.objectVia && object ? wizard?.strategies.find(s => s.id === chosen.strategy.objectVia) : undefined;
+  const routed = !!via && usesObject(via, model?.family, true) && via.families.includes(model?.family ?? '');
+  const strategy = routed ? via : chosen?.strategy;
+  const withObject = !!strategy && usesObject(strategy, model?.family, !!object);
   const pictureSize = picture ? sizes[picture.src] : undefined;
-  const ready = !!picture && !!chosen && !!model && wizardReady(chosen.strategy, fields, withObject) && (chosen.strategy.source !== 'reference' || !!pictureSize);
+  const ready = !!picture && !!chosen && !!model && wizardReady(strategy!, fields, withObject) && (strategy!.source !== 'reference' || !!pictureSize);
   const pending = !!handoff && outcome?.n !== handoff;
   // The wizard's own run: Generate submits and follows it; the wizard shows its progress and can stop only that job.
   const run = !!handoff && outcome?.n === handoff ? outcome.run : undefined;
   const running = run?.state === 'queued' || run?.state === 'running';
   // A masked method gets its mask from Generate's SAM 3.1 text path with *Replace what* as the target, so it needs both.
-  const maskTarget = chosen?.strategy.needsMask ? fields.target?.replace(/\s+/g, ' ').trim() ?? '' : '';
-  const runBlocked = !native ? t('wizards.run.native') : !chosen?.strategy.needsMask ? '' : !maskTarget ? t('wizards.run.maskTarget') : sam ?? t('studio.sam.checking');
+  const maskTarget = strategy?.needsMask ? fields.target?.replace(/\s+/g, ' ').trim() ?? '' : '';
+  const runBlocked = !native ? t('wizards.run.native') : !strategy?.needsMask ? '' : !maskTarget ? t('wizards.run.maskTarget') : sam ?? t('studio.sam.checking');
   const runnable = !runBlocked;
   // Inpaint keeps the source size, so a picture off the model's grid is first resampled in Generate; say so before the hand-over.
-  const grid = chosen?.strategy.source === 'edit' && model?.family ? editGrid(model.family, withObject) : 0;
+  const grid = strategy?.source === 'edit' && model?.family ? editGrid(model.family, withObject) : 0;
   const offGrid = !!grid && !!pictureSize && (pictureSize.width % grid !== 0 || pictureSize.height % grid !== 0);
 
   const place = (into: Slot, value: WizardPicture | null) => {
@@ -136,8 +140,8 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   }, [native, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prepare = (withRun = false) => {
-    if (!wizard || !chosen || !model || !picture || !ready || (withRun && !runnable)) return;
-    const s = chosen.strategy, family = model.family ?? '';
+    if (!wizard || !strategy || !model || !picture || !ready || (withRun && !runnable)) return;
+    const s = strategy, family = model.family ?? '';
     const canvas = s.source === 'reference' && pictureSize ? wizardCanvas(family, pictureSize) : undefined;
     if (s.source === 'reference' && !canvas) { setError(t('wizards.picture.size')); return; }
     setError('');
@@ -145,7 +149,8 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       model: { name: model.name, path: model.path }, picture,
       // Reference edits make the picture reference 1 themselves; a masked edit lists it explicitly so the prompt's `image 1` exists there too.
       ...(withObject && object ? { references: s.source === 'reference' ? [object] : [picture, object] } : {}),
-      positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(s.denoise !== undefined ? { denoise: s.denoise } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
+      positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(s.denoise !== undefined ? { denoise: s.denoise } : {}),
+      ...(s.maskGrow !== undefined ? { maskGrow: s.maskGrow } : {}), ...(s.maskBlur !== undefined ? { maskBlur: s.maskBlur } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
   };
 
   if (!wizard) return null;
@@ -170,7 +175,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       {shown && <p className="forge-note wizards-name" title={shown.path}>{shown.name}{size ? ` · ${size.width}×${size.height}` : ''}</p>}
     </div>;
   };
-  const hint = chosen ? `wizards.${wizard.id}.hint.${chosen.strategy.id}${withObject ? 'Object' : ''}` : '';
+  const hint = strategy ? `wizards.${wizard.id}.hint.${strategy.id}${withObject ? 'Object' : ''}` : '';
   return <section ref={tab} className="wizards-tab" aria-label={t('wizards.title')}>
     <nav className="forge-card wizards-list" aria-label={t('wizards.list')}>
       <h2 className="forge-card-title">{t('wizards.title')}</h2>
@@ -200,6 +205,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
               {/* Models added after the first scan (another method's preferred family) appear only after an explicit look. */}
               <button type="button" className="forge-ghost" data-wizard-rescan title={t('wizards.models.rescanHint')} onClick={() => void look(true)}>{t('wizards.models.rescan')}</button>
             </div>
+            {routed && <p className="forge-note" data-wizard-object-routed>{t(`wizards.${wizard.id}.objectRouted`)}</p>}
             <p className="forge-note" data-wizard-hint>{t(hint)}</p>
             {object && !withObject && <p className="forge-note" data-wizard-object-unused>{t('wizards.picture.objectUnused')}</p>}
             {offGrid && pictureSize && <p className="forge-note" data-wizard-off-grid>{t('wizards.picture.offGrid', { size: `${pictureSize.width}×${pictureSize.height}`, grid: String(grid) })}</p>}
@@ -224,7 +230,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         <p className="forge-note" data-wizard-run-status>{run.masking ? t('wizards.run.masking') : !run.job && run.error ? t('wizards.run.notRun') : run.state === 'running' ? (run.max ? t('wizards.run.running', { value: String(run.value ?? 0), max: String(run.max) }) : t('wizards.run.drawing')) : t(`wizards.run.${run.state}`)}</p>
         {run.preview && running && <img className="wizards-preview" src={run.preview} alt=""/>}
         {run.picture && <figure className="wizards-result">
-          <img src={convertFileSrc(run.picture.path)} alt={chosen ? strategyPrompt(chosen.strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>
+          <img src={convertFileSrc(run.picture.path)} alt={strategy ? strategyPrompt(strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>
           <figcaption>{[`${run.picture.width}×${run.picture.height}`, run.picture.checkpoint.replace(/\.(safetensors|gguf|ckpt)$/i, ''), t('wizards.run.seed', { seed: String(run.picture.seed) }), run.picture.ms ? `${(run.picture.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(' · ')}</figcaption>
         </figure>}
         {(run.picture || run.error) && onOpenGenerate && <button type="button" className="forge-ghost" data-wizard-open onClick={onOpenGenerate}>{t('wizards.run.open')}</button>}

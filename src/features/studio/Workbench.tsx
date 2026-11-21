@@ -1114,7 +1114,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   return started&&{job:started,intent};
  }
  /** Adds one SAM mask layer per target (or for the picked selection); `only` replaces the SAM targets field (Dark Wizards' *Replace what*). Resolves to the number of layers added, undefined when it did not complete. */
- async function maskWithSam(selection?:Pick<Sam3MaskIntentV1,'positivePoints'|'negativePoints'|'box'>,only?:string[]):Promise<number|undefined>{
+ async function maskWithSam(selection?:Pick<Sam3MaskIntentV1,'positivePoints'|'negativePoints'|'box'>,only?:string[],grow=0):Promise<number|undefined>{
   if(samUnavailable||serialBlocked||admissionBlocked||!inpaint||!editorRef.current||!editableSource)return;
   const editor=editorRef.current,sourceVersion=sourceEpoch.current,draftVersion=draftEpoch.current;
   const size={...editableSource},settings=structuredClone(samSettings());
@@ -1135,7 +1135,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    }
    if(!active()||editor.contentRevision()!==revision)return;
    let count=0;
-   for(const result of results){if(!active())return;const added=await editorRef.current!.addMask(result.png,result.name);if(added)count++;if(active())setSamStatus(t(added?'studio.sam.maskAdded':'studio.sam.noMatch'));}
+   for(const result of results){if(!active())return;const added=await editorRef.current!.addMask(result.png,result.name,grow?{grow}:undefined);if(added)count++;if(active())setSamStatus(t(added?'studio.sam.maskAdded':'studio.sam.noMatch'));}
    return count;
   }catch(e){if(activeRun(ticket))setError(e instanceof Error?e.message:String(e));}
   finally{if(activeRun(ticket))setSamBusy(false);finishRun(ticket,admitted);}
@@ -1853,7 +1853,7 @@ const promptTools=forgeContext&&<>
  const wizardBeginnerSize=useRef<{model:string;size?:Size}|null>(null);
  const [wizardStart,setWizardStart]=useState<number>();
  // A masked one-click run first waits for the editor to hold the picture, then masks it with SAM 3.1 from *Replace what*.
- const [wizardMask,setWizardMask]=useState<{n:number;targets:string[]}>();
+ const [wizardMask,setWizardMask]=useState<{n:number;targets:string[];grow:number}>();
  const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1}|undefined>(undefined);
  useEffect(()=>{
   if(!wizard||wizardApplied.current===wizard.n||models===null)return;
@@ -1873,7 +1873,7 @@ const promptTools=forgeContext&&<>
   const picture:MediaItem={name:wizard.picture.name,path:wizard.picture.path,src:wizard.picture.src,media:'image'};
   const references=(wizard.references??[]).map(r=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},strength:0.6}));
   if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
-  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);}
+  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   setPositive(wizard.positive);setError('');
   // A hand-over that asked to run starts one commit later, so Run builds its intent from the draft that was just applied.
@@ -1881,7 +1881,7 @@ const promptTools=forgeContext&&<>
   if(maskTargets.length){
    // The draft stays prepared in Generate either way; without SAM the user masks there by hand.
    if(samUnavailable)onWizardApplied?.(wizard.n,undefined,{state:'unknown',error:samUnavailable});
-   else {setWizardMask({n:wizard.n,targets:maskTargets});onWizardApplied?.(wizard.n,undefined,{state:'queued',masking:true});}
+   else {setWizardMask({n:wizard.n,targets:maskTargets,grow:wizard.maskGrow??0});onWizardApplied?.(wizard.n,undefined,{state:'queued',masking:true});}
   }
   else if(wizard.run)setWizardStart(wizard.n);else onWizardApplied?.(wizard.n);
  },[wizard?.n,models===null]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1909,7 +1909,7 @@ const promptTools=forgeContext&&<>
   if(sizeError){report(t(sizeError,{multiple:String(grid)}));return;}
   if(samUnavailable){report(samUnavailable);return;}
   lastError.current='';
-  void maskWithSam(undefined,pending.targets).then(added=>{
+  void maskWithSam(undefined,pending.targets,pending.grow).then(added=>{
    if(wizardApplied.current!==n)return;
    if(added===undefined){report(lastError.current||t('wizards.run.notStarted'));return;}
    if(!added){report(t('wizards.run.noMask',{target:pending.targets.join(', ')}));return;}

@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "Ce modèle n’utilise que le texte. L’image de l’objet nécessite un modèle Qwen Image 2.1 (les deux méthodes peuvent en utiliser un).",
   "wizards.replace.replacementObjectPlaceholder": "facultatif : le chien de l’image de l’objet",
   "wizards.replace.hint.referenceObject": "L’image à modifier devient image 1 et l’image de l’objet image 2 d’une édition par référence Qwen Image 2.1 ; le résultat garde le format de image 1. Vérifiez la taille du résultat et appuyez sur Lancer.",
-  "wizards.replace.hint.inpaintObject": "L’image s’ouvre dans l’Inpaint de Générer comme image 1, avec l’image de l’objet comme image 2 pour le même modèle Qwen Image 2.1. Peignez ce qui doit être remplacé, puis appuyez sur Lancer.",
+  "wizards.replace.objectRouted": "Avec une image d’objet, l’assistant transmet la retouche par référence sur le même modèle : une retouche masquée garderait l’ancien objet.",
   "wizards.picture.offGrid": "Cette image fait {size}. L’inpaint avec ce modèle demande des côtés multiples de {grid} px ; Générer bloque Lancer tant que l’image n’est pas rééchantillonnée sur cette grille."
 }

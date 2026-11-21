@@ -229,7 +229,7 @@ function maskCanvas(white: boolean) {
     ? { ...heldJob('sam', 'succeeded'), intent, outputs: [{ filename: 'mask.png', subfolder: '', type: 'output' as const }] }
     : { ...heldJob('wizard-run', 'running'), intent, progress: { value: 1, max: 20 } });
 }
-const masked: WizardHandoff = { ...inpaint, n: 7, run: true, mask: 'the red car', denoise: 1 };
+const masked: WizardHandoff = { ...inpaint, n: 7, run: true, mask: 'the red car', denoise: 1, maskGrow: 32, maskBlur: 4 };
 async function maskedRun(handoff: WizardHandoff) {
   vi.mocked(scanModels).mockResolvedValue([{ category: 'checkpoints', name: 'a.safetensors', family: 'sdxl', path: '/m/a', size: 1, info: null }]);
   const applied = vi.fn(), sam = vi.fn(), props = { endpoint: evidence.baseUrl, roots: { models: '/m', output: '/out' }, onWizardApplied: applied, onSamAvailability: sam };
@@ -253,7 +253,7 @@ test('a masked run hand-over masks the picture with SAM 3.1 from Replace what, t
   // The SAM pass uses the wizard's target, not Generate's own SAM targets field, and Generate's selected SAM checkpoint.
   expect(first).toMatchObject({ recipeId: 'sam3-mask', checkpoint: samCheckpoint, prompt: 'the red car', width: 1024, height: 640 });
   // The wizard picture lives outside the ComfyUI input/output folders, so Run uploads it like a project input.
-  expect(second).toMatchObject({ checkpoint: 'a.safetensors', positivePrompt: 'a blue bicycle', width: 1024, height: 640, inputMask: 'deas-inputs/upload.png', inputImage: 'deas-inputs/street.png', denoise: 1 });
+  expect(second).toMatchObject({ checkpoint: 'a.safetensors', positivePrompt: 'a blue bicycle', width: 1024, height: 640, inputMask: 'deas-inputs/upload.png', inputImage: 'deas-inputs/street.png', denoise: 1, maskBlur: 4 });
   expect(uploadInput).toHaveBeenCalledWith(evidence.baseUrl, '/pics/street.png');
   expect(vi.mocked(runWorkbenchJob)).toHaveBeenCalledTimes(2);
   expect(screen.getByText('A separate SAM mask layer was added.')).toBeTruthy();

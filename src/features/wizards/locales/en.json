@@ -63,6 +63,6 @@
   "wizards.picture.objectUnused": "This model uses only the text. The object picture needs a Qwen Image 2.1 model (both methods can use one).",
   "wizards.replace.replacementObjectPlaceholder": "optional: the dog in the object picture",
   "wizards.replace.hint.referenceObject": "The picture to change becomes image 1 and the object picture image 2 of a Qwen Image 2.1 reference edit; the result keeps image 1's aspect ratio. Check the result size and press Run.",
-  "wizards.replace.hint.inpaintObject": "The picture opens in Generate's Inpaint as image 1, with the object picture as image 2 for the same Qwen Image 2.1 model. Paint over what should be replaced, then press Run.",
+  "wizards.replace.objectRouted": "With an object picture the wizard hands over the reference edit on the same model: a masked edit would keep the old object.",
   "wizards.picture.offGrid": "This picture is {size}. Inpaint with this model needs both sides on a multiple of {grid} px, so Generate keeps Run blocked until the picture is resampled to that grid."
 }
