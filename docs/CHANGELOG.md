@@ -5,24 +5,24 @@
 - **Dark Wizards: object pictures always use the reference edit.** With an object picture, **Paint a mask** on a Qwen model now hands over the reference edit on the same model and says so. A masked edit with both pictures kept the old object; the reference edit put the dog in the car's place. Without a Qwen model it stays a text-only masked edit, as before.
 - **Dark Wizards: masked replacements leave the old outline behind.** In a one-click masked run the SAM 3.1 mask grows outward by 32 px and gets a 4 px soft edge, the wizard's Mask blur. Before, the new object had to fill the exact silhouette of the old one, which produced a car-shaped bundle of bicycles. Now the bicycles stand on the street, and nothing outside the grown mask changes. When you paint a mask by hand, it is used as painted.
 
-## 0.3.18
+## 0.3.18 (untagged; shipped in 0.3.19)
 
 - **Dark Wizards: Paint a mask really replaces.** The masked method now hands Generate an Inpaint strength of 1, so the masked area is redrawn completely. At Generate's default 0.8 the old object stayed: on a real street photo the red car remained a red car. This changes the saved Inpaint strength, like the wizard's prompt and size do. Measured on the Windows test PC: the car was replaced and pixels outside the mask stayed unchanged.
 - **Dark Wizards: Look again is always there.** It sits next to the model list, so a model you copy or download later shows up without leaving the tab. Before, it appeared only when no model fitted at all.
 - **Dark Wizards: clearer run status.** While a run waits for its first step the wizard shows *Drawing…*; before, it showed the raw `{value}/{max}` placeholders. When nothing was submitted, for example because SAM found no match, it says *Nothing was drawn.* instead of pointing to an unknown queue outcome.
 - **Refusals to write into the environment now explain themselves.** On Linux, DEAS requires that the environment folders it writes adapters and downloads into are owned by your user and not writable by group or other — on a shared folder another account could plant a Python adapter the backend would execute. A rejection used to say only "Download directory must be owned by the effective user with trusted permissions", without naming the folder or the way out. It now names the exact path, what is wrong with it (foreign owner, mode like 775) and the concrete fix (`chown`/`chmod`), and says when the folder sits on an exFAT/NTFS/USB or network share, where such bits return after every remount and the environment belongs on a native Linux filesystem instead. The Troubleshooting table gained the matching entry.
 
-## 0.3.17
+## 0.3.17 (untagged; shipped in 0.3.19)
 
 - **Beginner Wizards page fills the window.** In 0.3.16 the hidden Generation page still took space on Beginner's Wizards page and pushed the wizard down by about a third of the window; it now takes none. Found in the Windows acceptance run of the wizards; Generation keeps its state while hidden.
 - **Studio Notes can copy prompts both ways.** Use note prompts applies the selected saved note’s prompts. Copy main prompts fills the note draft and provides a default name for an unnamed draft.
 - **Anima 2.9B can load compatible 2B LoRAs.** Turn on Anima 2.9B LoRA compatibility in Selected LoRAs and sets to remap full 28-block LoRAs for the expanded 40-block model. The option defaults to off.
 
-## 0.3.16
+## 0.3.16 (untagged; shipped in 0.3.19)
 
 - **Dark Wizards in Beginner.** Beginner's band has a **Wizards** page with the same Replace wizard as Advanced. **Prepare in Generate** opens Beginner's Generation page with the draft, and **Prepare and run** starts it through the normal Run (including the SAM 3.1 mask). Before, Beginner refused every wizard hand-over. Only models Beginner can use itself are accepted. The composer shows what the wizard set: its prompt pictures, *Masked edit (inpaint)*, and *Wizard size …* as Quality. **Clear wizard draft** returns to a plain picture-to-picture draft. Beginner's own model reset no longer overwrites the wizard's size or brings back LoRAs, and the wizard size is not saved as Beginner's Quality.
 
-## 0.3.15
+## 0.3.15 (untagged; shipped in 0.3.19)
 
 - **Russian is the seventh interface language.** DEAS now speaks Русский: every panel, dialog, help text and error message carries a Russian translation, the language selector offers **Русский (ru)**, and the Beginner model guides show Russian copy for the featured bases. All parity, placeholder and language-switch gates now run over seven languages. Settings also accepts Russian as a prompt spellcheck target; like Japanese and Chinese it has no pinned Hunspell dictionary, which the panel explains instead of failing. (PR #48 by @Djeks, with this integration fix.)
 - **Dark Wizards: Paint a mask runs in one click.** In the Replace wizard, **Prepare and run** now also works with **Paint a mask (inpaint)**: Generate finds the mask with SAM 3.1 from *Replace what* (its own text-to-mask path and selected SAM checkpoint; one mask layer per comma-separated part, Generate's SAM targets field untouched), then starts the inpaint run through its own Run path. If SAM finds nothing, nothing is drawn and the draft stays prepared in Generate for a hand-painted mask. The button needs *Replace what* and is disabled with Generate's SAM reason when no SAM 3.1 checkpoint or `SAM3_Detect` node is available.
@@ -30,7 +30,7 @@
 - **Dark Wizards: masked edits of pictures outside Input/Output can run.** A picture to change chosen or dropped from any folder is uploaded to the backend when Run starts, like a reference, instead of Generate asking for a picture from the Input or Output folder.
 
 
-## 0.3.14
+## 0.3.14 (untagged; shipped in 0.3.19)
 
 - **Enhanced Preview corrects stretched playback.** The preview clock, playback speed, and scrub bar follow the submitted video duration when a preview is encoded longer than the job.
 - **Enhanced Preview has playback controls.** Play, pause, and seek from the preview. Scrubbing shows the chosen time in the latest available sampling clip.

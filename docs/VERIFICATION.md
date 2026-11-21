@@ -1,6 +1,6 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
-## Russian localization (PR #48 by Djeks, 0.3.15 unreleased) — 2026-11-21
+## Russian localization (PR #48 by Djeks, shipped in 0.3.19) — 2026-11-21
 
 Merged into `main` as `7f02c6e3` (head `44de96f1`). Adds `Русский (ru)` as the seventh bundled
 language per `docs/LOCALIZATION.md`: 20 module-owned `locales/ru.json` dictionaries plus
