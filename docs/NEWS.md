@@ -1,5 +1,29 @@
 # News
 
+## 0.3.22
+
+### The window opens maximized, and F11 toggles fullscreen
+
+A DEAS window that opens as a small floating pane on a second monitor hides more than it shows. **Backend → Start window** now offers
+**Windowed**, **Maximized** (the new default) and **Fullscreen** for the next start, and **F11** enters or leaves fullscreen at any time. The
+choice never rearranges the window you are working in, so a fullscreen start can always be corrected before it takes effect; DEAS stores no
+window size or position, so a windowed start keeps what your operating system gives it. [Details →](BACKEND.md#start-window)
+
+### Library: Civitai metadata for files that were edited, or that came from Forge
+
+A LoRA whose embedded metadata was rewritten after download, or a library that came from Forge or Forge Neo, often showed *Not found on
+Civitai* even though the model is indexed there. When the full file hash is unknown, DEAS now also tries a local `.civitai.info` /
+`.api_info.json` record, Civitai's own tensor hash (it ignores the metadata header) and the model ID in a Forge `<name>.json` — and every
+automatic match is checked against the file hashes Civitai lists for that version, so a record for another file is never adopted. A Forge
+activation text becomes your trigger words when DEAS has none, and the detail panel says how a record was matched. If a file is still not
+found, it shows the date it was last checked plus a **CivitAI link** field: paste the model or version page and choose **Link**. Files that
+were not found are looked up again on every later run, so a model indexed after your download is picked up. [Details →](LIBRARY.md#how-files-are-matched-on-civitai)
+
+### Multi-GPU hosts: choose the NVIDIA card (carried over from 0.3.21, which was never published)
+
+A host with two or more visible NVIDIA GPUs used to fail planning with "expected exactly one visible GPU". DEAS now lists the cards with
+their VRAM in **Backend** and runs the owned backend on the one you choose. [Details →](BACKEND.md#multi-gpu-hosts)
+
 ## 0.3.20
 
 ### H3 upscaling at 4K: correct memory planning, your choice of VRAM use
