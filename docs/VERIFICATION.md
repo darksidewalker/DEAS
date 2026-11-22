@@ -1,5 +1,65 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.3.22 (published)
+
+Published 2026-11-22 as `v0.3.22` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.22.
+Source `ea5da541fcba24babc09b961f41e6b5f76478288`, tree `fd2a1592ddc5cc38d4e533e6079cb5aeb1152492`, tag `v0.3.22` on both
+remotes. The last published release was `v0.3.20`, so the never-released 0.3.21 (multi-GPU card choice, Russian wizard
+texts) rolls up into this release together with the new work.
+
+Contents of this release: **start window** (`windowed` / `maximized` default / `fullscreen`) stored in DEAS's own
+preferences and applied before the window is built, plus the **F11** fullscreen toggle — new native commands
+`native_window_read`, `native_window_write`, `native_logs_window_error` behind the new `allow-native-window`
+permission and `core:window:allow-is-fullscreen` / `allow-set-fullscreen`; and the **Library CivitAI matching** work
+(local `.civitai.info`/`.api_info.json`, CivitAI AutoV3 tensor hash, Forge `<name>.json` model id, manual CivitAI link,
+repeated lookups of "not found" files).
+
+Gates on the shipped commit:
+
+- `npm run typecheck` clean. `npm run test:core` (node:test): 177/177. `npm run test:ui` (vitest): 2452 passed, 1 failed
+  — `src/features/studio/Workbench.part4.test.tsx` "IPC fixture: MiniMax H3 runs Video → Video …" hit its 5000 ms
+  default timeout in the loaded full run and passes alone (88/88), as does `Workbench.h3Continuity.ref2v.test.tsx`
+  (6/6); both files are untouched by this release and exercise a different mechanism.
+- `cargo fmt --check` clean; `cargo clippy --locked --release --lib --bins -- -D warnings` clean;
+  `cargo xwin check --locked --target x86_64-pc-windows-msvc --all-targets` clean; `cargo xwin clippy -p deas
+  --all-features --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings` clean; the
+  `every_registered_command_is_allowed_for_the_main_window` ACL test passes with the new commands and permission.
+- `cargo test --locked -- --test-threads=1`: 1167 passed, 81 ignored, with two failures
+  `backend::tests::no_console_python_shutdown_pipe_wakes_asyncio_and_runs_finally` (waits 3 s for the python fixture's
+  `ready` file) and `backend::tests::stop_allows_python_finally_and_drains_shutdown_output_before_restarting`
+  (asserts the graceful stop stays inside `STOP_GRACE` = 5 s). Both are wall-clock assertions on a spawned
+  `/usr/bin/python3` child. They reproduce in the full serial suite (four of five runs, scoped and unsoped alike) and
+  pass in isolation, with the whole `backend::tests` module (36 passed) and with `downloads` + `backend` (153 passed);
+  the ten tests added by this batch run in 0.29 s together and skipping them does not change the outcome. Python
+  startup on this host measures 8-10 ms, the NVIDIA driver answers (`RTX 5090`, `nvidia-smi` healthy) and these tests
+  touch no GPU code, so this is host memory pressure (the local inference service holds ~58 of 61 GB) against tight
+  fixtures, not a driver or lifecycle regression: `src-tauri/src/backend.rs` is unchanged by this release. Hardening
+  those two deadlines remains open.
+- Native tests need a private `TMPDIR`: the settings store refuses a `tempfile::TempDir` under a world-writable `/tmp`
+  ("requires a safe owned directory without group/world write"), which otherwise adds 17 unrelated failures.
+
+Assets (four-asset set; `patchelf` and `makensis` are absent on this host, so no deb/AppImage/NSIS bundles):
+
+```
+0254bb87d8fb43bd5978b1b9a803dc668e5cd0e183b60029fc9d3480713ff9a4  deas-linux-amd64
+8d91103f6557848b33471b56f554f47a22925d44a814bf83b982714c5d8085e1  deas.exe
+0f887c3c79d39abc4e99a7a319a6af19f733d033afb0667d865b2dbfbc563507  SHA256SUMS
+1b895f76577a05ce03ca53d50cf00dacf36ed259f5787fe6e9ef513e85e4d0e6  BUILD-MANIFEST.json
+```
+
+`sha256sum -c SHA256SUMS` passes in `artifacts/releases/v0.3.22/` and again after `gh release download` into a fresh
+directory, proving the served bytes. `deas-linux-amd64`: glibc floor 2.39 from `objdump -T`, `ldd` reports no missing
+library, and it embeds the current frontend bundle `dist/assets/index-BHtq_pKf.js`; the loose `artifacts/deas-linux-amd64`
+(the launcher path) has the identical hash. `deas.exe` was cross-built with `cargo xwin` for
+`x86_64-pc-windows-msvc` (MSVC `LNK4099` missing-debug-info is benign), embeds the same bundle and needs the WebView2
+runtime. It is cross-compiled, **not** runtime-accepted on Windows: the maximized/fullscreen start, the F11 key press and
+the native CivitAI link click-through stay Windows acceptance items.
+
+`Release DEAS` and `Verify DEAS` workflows remain disabled by hand, so the pushed tag fired nothing; publication used the
+locally built and hash-verified set. DaSiWa node pack 0.5.62/0.5.63 were pushed to both of its remotes in the same
+session; DEAS fetches that pack from its `main` branch, so environments pick it up at Backend → Upgrade → ComfyUI and
+node packs.
+
 ## Release 0.3.20 (published)
 
 Published 2026-11-21 as `v0.3.20` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.20.
