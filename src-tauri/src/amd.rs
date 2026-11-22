@@ -217,6 +217,8 @@ pub fn parse_amd_lspci(output: &str, driver_version: &str) -> Result<Hardware, S
         name: description,
         driver_version: driver_version.into(),
         compute_capability,
+        // lspci discovery does not report frame-buffer size; the GPU selector is NVIDIA-only.
+        memory_total_mib: 0,
     })
 }
 

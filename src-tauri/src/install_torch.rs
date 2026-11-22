@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hardware {
     pub vendor: String,
@@ -17,8 +17,12 @@ pub struct Hardware {
     /// NVIDIA: `major.minor` compute capability. AMD: the gfx target (gfx1030…
     /// gfx1201) resolved by `amd::amd_target`; reused so old plans keep serde shape.
     pub compute_capability: String,
+    /// Total frame buffer in MiB from `nvidia-smi memory_total`; 0 when unknown
+    /// (AMD probe, manifests written before this field existed). Display only.
+    #[serde(default)]
+    pub memory_total_mib: u64,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Torch {
     pub packages: [String; 3],
@@ -119,36 +123,90 @@ pub fn newer(current: &Torch, probed: Option<&Hardware>) -> Result<Option<Torch>
             .then_some(target),
     )
 }
-pub fn parse(output: &str) -> Result<Hardware, String> {
-    let lines: Vec<_> = output.lines().filter(|l| !l.trim().is_empty()).collect();
-    if lines.len() != 1 {
-        return Err("NVIDIA_GPU: expected exactly one visible GPU; multi-GPU selection is not ported. Select CPU explicitly or use a single-GPU host".into());
-    }
-    let fields: Vec<_> = lines[0].split(',').map(str::trim).collect();
-    if fields.len() != 4
+fn parse_line(line: &str) -> Result<Hardware, String> {
+    let fields: Vec<_> = line.split(',').map(str::trim).collect();
+    if fields.len() != 5
         || fields.iter().any(|s| s.is_empty() || *s == "N/A")
         || !fields[0].starts_with("GPU-")
     {
-        return Err("NVIDIA_GPU: nvidia-smi returned invalid UUID/name/driver/capability; repair driver and re-plan".into());
+        return Err("NVIDIA_GPU: nvidia-smi returned invalid UUID/name/driver/capability/memory; repair driver and re-plan".into());
     }
+    let memory_total_mib = fields[4]
+        .parse::<u64>()
+        .map_err(|_| "NVIDIA_GPU: nvidia-smi returned a non-numeric memory total; repair driver and re-plan")?;
     Ok(Hardware {
         vendor: "NVIDIA".into(),
         uuid: fields[0].into(),
         name: fields[1].into(),
         driver_version: fields[2].into(),
         compute_capability: fields[3].into(),
+        memory_total_mib,
     })
 }
+/// Every visible GPU, in nvidia-smi index order. A `CUDA_VISIBLE_DEVICES` pin still narrows the list.
+pub fn parse_all(output: &str) -> Result<Vec<Hardware>, String> {
+    let lines: Vec<_> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return Err("NVIDIA_GPU: nvidia-smi returned no visible GPU; install/repair the NVIDIA driver and re-plan".into());
+    }
+    lines.iter().map(|line| parse_line(line)).collect()
+}
+pub fn parse(output: &str) -> Result<Hardware, String> {
+    let gpus = parse_all(output)?;
+    if gpus.len() != 1 {
+        return Err("NVIDIA_GPU: expected exactly one visible GPU; set CUDA_VISIBLE_DEVICES to pin one GPU, select CPU explicitly, or use a single-GPU host".into());
+    }
+    Ok(gpus.into_iter().next().unwrap())
+}
+/// Multi-GPU default: the passing GPU with the highest compute capability (lowest index on ties).
+/// A card that fails the driver/capability gates never wins; if none passes, the first gate error is reported.
+pub fn pick(gpus: &[Hardware]) -> Result<Hardware, String> {
+    let mut best: Option<(f32, &Hardware)> = None;
+    let mut first_error: Option<String> = None;
+    for gpu in gpus {
+        match select(gpu) {
+            Ok(_) => match gpu.compute_capability.parse::<f32>() {
+                Ok(cc) if best.map_or(true, |(current, _)| cc > current) => {
+                    best = Some((cc, gpu));
+                }
+                _ => {
+                    first_error.get_or_insert_with(|| {
+                        "NVIDIA_GPU: invalid compute capability; update nvidia-smi and re-plan".into()
+                    });
+                }
+            },
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    best.map(|(_, gpu)| gpu.clone())
+        .ok_or_else(|| first_error.unwrap_or_else(|| "NVIDIA_GPU: no visible GPU".into()))
+}
 pub fn probe() -> Result<Hardware, String> {
-    probe_program("nvidia-smi", Duration::from_secs(5))
+    let bytes = run_probe("nvidia-smi", Duration::from_secs(5))?;
+    parse(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
+}
+pub fn probe_all() -> Result<Vec<Hardware>, String> {
+    let bytes = run_probe("nvidia-smi", Duration::from_secs(5))?;
+    parse_all(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
 }
 fn probe_command(program: &str) -> Command {
     let mut command = Command::new(program);
+    let mut args: Vec<String> = vec![
+        "--query-gpu=uuid,name,driver_version,compute_cap,memory_total".to_owned(),
+        "--format=csv,noheader,nounits".to_owned(),
+    ];
+    // nvidia-smi enumerates every GPU regardless of CUDA_VISIBLE_DEVICES; pass the variable through as -i so a multi-GPU host can pin one visible device. Unset keeps the full enumeration.
+    if let Ok(visible) = std::env::var("CUDA_VISIBLE_DEVICES") {
+        let visible = visible.trim().to_owned();
+        if !visible.is_empty() {
+            args.push("-i".to_owned());
+            args.push(visible);
+        }
+    }
     command
-        .args([
-            "--query-gpu=uuid,name,driver_version,compute_cap",
-            "--format=csv,noheader,nounits",
-        ])
+        .args(args)
         // NVML uses the host driver environment; this query performs no installation.
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -165,7 +223,8 @@ fn probe_command(program: &str) -> Command {
     }
     command
 }
-fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
+/// Runs the read-only probe and returns its bounded stdout; parsing stays in `parse_all`.
+fn run_probe(program: &str, timeout: Duration) -> Result<Vec<u8>, String> {
     let mut child = probe_command(program).spawn().map_err(|e| format!("NVIDIA_DRIVER: cannot run nvidia-smi ({e}); install/repair the NVIDIA driver and re-plan"))?;
     let stdout = child
         .stdout
@@ -225,14 +284,14 @@ fn probe_program(program: &str, timeout: Duration) -> Result<Hardware, String> {
             String::from_utf8_lossy(&errors).trim(),
         ));
     }
-    parse(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
+    Ok(bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     fn fixture(name: &str, driver: &str, cc: &str) -> Hardware {
-        parse(&format!("GPU-test, {name}, {driver}, {cc}")).unwrap()
+        parse(&format!("GPU-test, {name}, {driver}, {cc}, 8192")).unwrap()
     }
     #[test]
     fn newer_profile_only_upgrades_within_the_device_class() {
@@ -286,7 +345,50 @@ mod tests {
         }
         assert!(select(&fixture("GTX 1080", "520.1.0", "6.1")).is_err());
         assert!(parse("").is_err());
-        assert!(parse("GPU-a, A, 615.1, 12.0\nGPU-b, B, 615.1, 12.0").is_err());
+        assert!(parse("GPU-a, A, 615.1, 12.0, 8192\nGPU-b, B, 615.1, 12.0, 8192").is_err());
+        assert!(parse("GPU-a, A, 615.1, 12.0, not-a-number").is_err());
+    }
+    fn gpu(uuid: &str, name: &str, driver: &str, cc: &str) -> Hardware {
+        Hardware {
+            vendor: "NVIDIA".into(),
+            uuid: uuid.into(),
+            name: name.into(),
+            driver_version: driver.into(),
+            compute_capability: cc.into(),
+            memory_total_mib: 8192,
+        }
+    }
+    #[test]
+    fn parse_all_keeps_index_order_and_rejects_invalid_rows() {
+        let gpus = parse_all("GPU-a, Card A, 615.71.09, 8.9, 8192\nGPU-b, Card B, 615.71.09, 12.0, 16384\r\n").unwrap();
+        assert_eq!(gpus.len(), 2);
+        assert_eq!(gpus[0].uuid, "GPU-a");
+        assert_eq!(gpus[1].compute_capability, "12.0");
+        assert_eq!(gpus[1].memory_total_mib, 16384);
+        assert!(parse_all("").is_err());
+        assert!(parse_all("   \n").is_err());
+        assert!(parse_all("GPU-a, Card A, N/A, 8.9, 8192").is_err());
+    }
+    #[test]
+    fn pick_prefers_higher_compute_capability_then_lower_index() {
+        let older = gpu("GPU-a", "NVIDIA GeForce RTX 2080 SUPER", "615.71.09", "7.5");
+        let newer = gpu("GPU-b", "NVIDIA GeForce RTX 5060 Ti", "615.71.09", "12.0");
+        // List order never matters: the highest passing capability wins.
+        assert_eq!(pick(&[older.clone(), newer.clone()]).unwrap().uuid, "GPU-b");
+        assert_eq!(pick(&[newer.clone(), older.clone()]).unwrap().uuid, "GPU-b");
+        // Equal capability: the lowest nvidia-smi index wins.
+        let twin_a = gpu("GPU-a", "NVIDIA GeForce RTX 4090", "615.71.09", "8.9");
+        let twin_b = gpu("GPU-b", "NVIDIA GeForce RTX 4090", "615.71.09", "8.9");
+        assert_eq!(pick(&[twin_a.clone(), twin_b.clone()]).unwrap().uuid, "GPU-a");
+    }
+    #[test]
+    fn pick_never_returns_a_gpu_that_fails_the_gates() {
+        let old_driver = gpu("GPU-a", "NVIDIA GeForce RTX 4090", "570.1.0", "8.9");
+        let passing = gpu("GPU-b", "NVIDIA GeForce RTX 2080 SUPER", "615.71.09", "7.5");
+        assert_eq!(pick(&[old_driver.clone(), passing]).unwrap().uuid, "GPU-b");
+        // No passing GPU: report the first gate error, never a fallback card.
+        let modern = gpu("GPU-c", "NVIDIA GeForce RTX 3090", "615.71.09", "8.9");
+        assert!(pick(&[old_driver.clone(), modern]).unwrap_err().contains("NVIDIA_DRIVER"));
     }
     #[cfg(unix)]
     #[test]
@@ -296,14 +398,16 @@ mod tests {
         let program = root.path().join("nvidia-smi");
         std::fs::write(
             &program,
-            "#!/bin/sh\nprintf 'GPU-env, %s, 617.42, 8.9\\n' \"$HOME\"\n",
+            "#!/bin/sh\nprintf 'GPU-env, %s, 617.42, 8.9, 8192\\n' \"$HOME\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
         let expected = std::env::var("HOME").unwrap();
         assert!(!expected.is_empty());
-        let hardware = probe_program(program.to_str().unwrap(), Duration::from_secs(1)).unwrap();
-        assert_eq!(hardware.name, expected);
+        let bytes = run_probe(program.to_str().unwrap(), Duration::from_secs(1)).unwrap();
+        let gpus = parse_all(std::str::from_utf8(&bytes).unwrap()).unwrap();
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].name, expected);
     }
     #[test]
     #[ignore = "Read-only live NVIDIA preflight; no installation"]
@@ -316,7 +420,7 @@ mod tests {
     #[test]
     fn reported_windows_4080_query_passes_unchanged() {
         let hardware = parse(
-            "GPU-3a261b54-349e-40a0-c826-4f5cdd2cbdec, NVIDIA GeForce RTX 4080, 617.42, 8.9\r\n",
+            "GPU-3a261b54-349e-40a0-c826-4f5cdd2cbdec, NVIDIA GeForce RTX 4080, 617.42, 8.9, 16384\r\n",
         )
         .unwrap();
         assert_eq!(hardware.name, "NVIDIA GeForce RTX 4080");
@@ -330,7 +434,7 @@ mod tests {
         let program = root.path().join("nvidia-smi");
         std::fs::write(&program, "#!/bin/sh\nprintf 'driver diagnostic on stdout'\nprintf 'driver diagnostic on stderr' >&2\nexit 9\n").unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let error = probe_program(program.to_str().unwrap(), Duration::from_secs(1)).unwrap_err();
+        let error = run_probe(program.to_str().unwrap(), Duration::from_secs(1)).unwrap_err();
         assert!(error.contains("0x00000009"), "{error}");
         assert!(
             error.contains("stdout: driver diagnostic on stdout"),
@@ -342,8 +446,7 @@ mod tests {
         );
         std::fs::write(&program, "#!/bin/sh\nexec /usr/bin/yes diagnostic >&2\n").unwrap();
         let start = Instant::now();
-        let error =
-            probe_program(program.to_str().unwrap(), Duration::from_millis(100)).unwrap_err();
+        let error = run_probe(program.to_str().unwrap(), Duration::from_millis(100)).unwrap_err();
         assert!(error.contains("exceeds limit") || error.contains("timed out"));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
@@ -351,8 +454,8 @@ mod tests {
     #[test]
     fn timeout_is_bounded() {
         let start = Instant::now();
-        assert!(probe_program("/usr/bin/yes", Duration::from_millis(100)).is_err());
+        assert!(run_probe("/usr/bin/yes", Duration::from_millis(100)).is_err());
         assert!(start.elapsed() < Duration::from_secs(2));
-        assert!(probe_program("/nonexistent/nvidia-smi", Duration::from_millis(100)).is_err());
+        assert!(run_probe("/nonexistent/nvidia-smi", Duration::from_millis(100)).is_err());
     }
 }

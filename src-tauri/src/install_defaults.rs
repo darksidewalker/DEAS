@@ -15,7 +15,7 @@ pub struct InstallDefaults {
 
 fn recommend(
     executable: &Path,
-    probe: Result<Hardware, String>,
+    probe: Result<Vec<Hardware>, String>,
 ) -> Result<InstallDefaults, String> {
     let parent = executable
         .parent()
@@ -24,13 +24,31 @@ fn recommend(
     let target = parent.join("deas-environment");
     let mut warnings = Vec::new();
     let (backend, hardware) = match probe {
-        Ok(hardware) => match torch_profile::select(&hardware) {
-            Ok(_) => (Backend::Nvidia, Some(hardware)),
+        Ok(gpus) if gpus.len() == 1 => {
+            let hardware = gpus.into_iter().next().unwrap();
+            match torch_profile::select(&hardware) {
+                Ok(_) => (Backend::Nvidia, Some(hardware)),
+                Err(error) => {
+                    warnings.push(format!(
+                        "CPU recommended because NVIDIA compatibility checks failed: {error}"
+                    ));
+                    (Backend::Cpu, Some(hardware))
+                }
+            }
+        }
+        Ok(gpus) => match torch_profile::pick(&gpus) {
+            Ok(best) => {
+                warnings.push(format!(
+                    "Multiple NVIDIA GPUs detected; {} selected by default — choose another GPU in the Backend tab after installation",
+                    best.name
+                ));
+                (Backend::Nvidia, Some(best))
+            }
             Err(error) => {
                 warnings.push(format!(
                     "CPU recommended because NVIDIA compatibility checks failed: {error}"
                 ));
-                (Backend::Cpu, Some(hardware))
+                (Backend::Cpu, None)
             }
         },
         #[cfg(target_os = "linux")]
@@ -76,7 +94,7 @@ fn recommend(
 pub async fn native_install_defaults() -> Result<InstallDefaults, String> {
     let executable =
         std::env::current_exe().map_err(|e| format!("Cannot locate executable: {e}"))?;
-    tauri::async_runtime::spawn_blocking(move || recommend(&executable, torch_profile::probe()))
+    tauri::async_runtime::spawn_blocking(move || recommend(&executable, torch_profile::probe_all()))
         .await
         .map_err(|e| format!("Default recommendation worker failed: {e}"))?
 }
@@ -133,18 +151,40 @@ mod tests {
     fn defaults_recommend_only_a_compatible_nvidia_profile() {
         let root = tempfile::tempdir().unwrap();
         let executable = root.path().join("DEAS");
-        let valid = torch_profile::parse("GPU-fixture, 32 GB test GPU, 615.71.09, 12.0").unwrap();
-        let defaults = recommend(&executable, Ok(valid)).unwrap();
+        let valid = torch_profile::parse("GPU-fixture, 32 GB test GPU, 615.71.09, 12.0, 8192").unwrap();
+        let defaults = recommend(&executable, Ok(vec![valid])).unwrap();
         assert!(matches!(defaults.backend, Backend::Nvidia));
         assert_eq!(defaults.hardware.unwrap().uuid, "GPU-fixture");
-        let old_driver = torch_profile::parse("GPU-fixture, 32 GB test GPU, 550.1, 12.0").unwrap();
-        let fallback = recommend(&executable, Ok(old_driver)).unwrap();
+        let old_driver = torch_profile::parse("GPU-fixture, 32 GB test GPU, 550.1, 12.0, 8192").unwrap();
+        let fallback = recommend(&executable, Ok(vec![old_driver])).unwrap();
         assert!(matches!(fallback.backend, Backend::Cpu));
         assert!(fallback.hardware.is_some());
         assert!(fallback
             .warnings
             .iter()
             .any(|w| w.contains("NVIDIA_DRIVER")));
+    }
+
+    #[test]
+    fn defaults_pick_the_best_passing_gpu_on_multi_gpu_hosts() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("DEAS");
+        let older = torch_profile::parse("GPU-old, RTX 2080 SUPER, 615.71.09, 7.5, 8192").unwrap();
+        let newer = torch_profile::parse("GPU-new, RTX 5060 Ti, 615.71.09, 12.0, 16384").unwrap();
+        let defaults = recommend(&executable, Ok(vec![older.clone(), newer.clone()])).unwrap();
+        assert!(matches!(defaults.backend, Backend::Nvidia));
+        assert_eq!(defaults.hardware.unwrap().uuid, "GPU-new");
+        assert!(defaults
+            .warnings
+            .iter()
+            .any(|w| w.contains("Multiple NVIDIA GPUs")));
+        // No passing GPU: CPU recommendation with the first gate error, no silent fallback card.
+        let old_driver = torch_profile::parse("GPU-old, RTX 4090, 570.1.0, 8.9, 24576").unwrap();
+        let legacy = torch_profile::parse("GPU-legacy, GTX 980, 615.71.09, 5.2, 8192").unwrap();
+        let fallback = recommend(&executable, Ok(vec![old_driver, legacy])).unwrap();
+        assert!(matches!(fallback.backend, Backend::Cpu));
+        assert!(fallback.hardware.is_none());
+        assert!(fallback.warnings.iter().any(|w| w.contains("NVIDIA")));
     }
 
     #[test]

@@ -43,10 +43,12 @@ export function transitionSetup(state: SetupState,event: SetupEvent): SetupState
  if(event.type==='ref') return {...state,comfyRef:event.value};
  return state;
 }
-export interface NativeInstallDefaults {storagePath:string;backend:'cpu'|'nvidia'|'amd';hardware:Record<string,unknown>|null;warnings:string[]}
+export interface NativeInstallDefaults {storagePath:string;backend:'cpu'|'nvidia'|'amd';hardware:NativeHardware|null;warnings:string[]}
 export interface NativeHardwareDetection {backend: 'nvidia'|'amd'|null; hardware?:Record<string,unknown>|null; warnings?:string[]}
+export interface NativeHardware {vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string;memoryTotalMib?:number}
+export interface NativeBackendGpus {planned:NativeHardware|null;gpus:NativeHardware[]}
 export interface NativeInstallRequest {storagePath:string;backend:Backend;features:FeatureId[];options:InstallOptions;comfyRef:string;folders?:import('./settings').Folders;takeover?:boolean}
-export interface NativeInstallPlan {id:string;ggufRef?:string;reopenId?:string;repair?:{id:string;reason:string};request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:{vendor:string;name:string;uuid:string;driverVersion:string;computeCapability:string}|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
+export interface NativeInstallPlan {id:string;ggufRef?:string;reopenId?:string;repair?:{id:string;reason:string};request:NativeInstallRequest;steps:{id:string;labelKey:string;detail:string}[];warnings:string[];unsupportedOptions:string[];canExecute:boolean;hardware?:NativeHardware|null;torch?:{packages:string[];indexUrl:string;cuda:string|null}|null}
 export interface NativeInstallStatus {state:'idle'|'running'|'succeeded'|'failed'|'cancelled';stepId:string|null;logs:string[];error:string|null}
 export interface NativeBackendStatus {state:'starting'|'running'|'failed'|'stopped';endpoint:string|null;error:string|null;generationReady:false}
 export interface DependencyCheck {id:string;ok:boolean}

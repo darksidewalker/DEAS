@@ -57,6 +57,16 @@ const KJNODES: &str = "https://github.com/kijai/ComfyUI-KJNodes.git";
 const KJNODES_REVISION: &str = "d3cfe21625e5170126ce06fbfcfe1d88108688c3";
 #[path = "install_torch.rs"]
 pub(crate) mod torch_profile;
+/// Re-exported so backend commands can name the GPU type in their signatures.
+pub use torch_profile::Hardware;
+/// Read-only snapshot for the Backend tab's GPU selector: every visible NVIDIA GPU plus the card
+/// the installed environment is currently pointed at (the approved plan's recorded UUID).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendGpus {
+    pub planned: Option<torch_profile::Hardware>,
+    pub gpus: Vec<torch_profile::Hardware>,
+}
 /// Exact llama-cpp-python release per wheel-index family, chosen because its `ggml-cpu` library
 /// contains no AVX-512 code on any platform DEAS installs for (AVX2/FMA/F16C baseline). Upstream
 /// builds each release on whatever CI runner it gets with native CPU flags, so some releases need
@@ -476,6 +486,86 @@ impl Engine {
         }
         self.backend.start(approved)
     }
+    /// Read-only snapshot for the GPU selector: every visible NVIDIA GPU (nvidia-smi index order)
+    /// plus the card the installed environment is currently pointed at, if any.
+    pub fn backend_gpus(&self) -> Result<BackendGpus, String> {
+        let planned = self
+            .approved_plan()
+            .filter(|plan| matches!(plan.request.backend, Backend::Nvidia))
+            .and_then(|plan| plan.hardware);
+        Ok(BackendGpus {
+            planned,
+            gpus: torch_profile::probe_all()?,
+        })
+    }
+    /// Point an installed NVIDIA environment at another visible GPU. Guards: nothing is
+    /// installing, the backend is stopped, and the target passes the same Torch-profile gate as
+    /// the installed profile (a legacy/modern mix needs a new plan). Both manifests are rewritten
+    /// atomically with read-before-write checks and the approval is re-captured from disk.
+    pub fn backend_set_gpu(&self, uuid: &str) -> Result<torch_profile::Hardware, String> {
+        let mut g = lock(&self.inner);
+        if g.status.state == "running" {
+            return Err("A native installation is already running".into());
+        }
+        if self.backend.active() {
+            return Err("Stop the backend before changing its GPU".into());
+        }
+        let approved = g
+            .approved
+            .clone()
+            .ok_or("No installed DEAS environment is open")?;
+        approved.validate()?;
+        let mut plan = approved.plan().clone();
+        if !matches!(plan.request.backend, Backend::Nvidia) {
+            return Err("GPU selection applies to NVIDIA environments only".into());
+        }
+        let planned = plan
+            .hardware
+            .as_ref()
+            .ok_or("Planned GPU identity is missing from the installation plan")?;
+        if uuid == planned.uuid {
+            return Ok(planned.clone());
+        }
+        let selected = torch_profile::probe_all()?
+            .into_iter()
+            .find(|gpu| gpu.uuid == uuid)
+            .ok_or_else(|| format!("NVIDIA_GPU: {uuid} is not visible on this host"))?;
+        let profile = torch_profile::select(&selected)?;
+        if plan.torch.as_ref().is_some_and(|current| *current != profile) {
+            return Err(format!(
+                "NVIDIA_GPU: {} needs a different PyTorch profile ({index}); create a new installation plan for it",
+                selected.name,
+                index = profile.index_url
+            ));
+        }
+        let root = Path::new(&plan.request.storage_path);
+        let plan_path = root.join("deas-plan.json");
+        let install_path = root.join("deas-install.json");
+        let before_plan = crate::backend::read_owned(&plan_path, 1024 * 1024)?;
+        let before_install = crate::backend::read_owned(&install_path, 1024 * 1024)?;
+        plan.hardware = Some(selected.clone());
+        let new_plan = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
+        let mut manifest: serde_json::Value = serde_json::from_slice(&before_install)
+            .map_err(|_| "Owned install manifest is invalid".to_string())?;
+        manifest["hardware"] =
+            serde_json::to_value(&plan.hardware).map_err(|e| e.to_string())?;
+        let new_install = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
+        write_owned_atomic(&plan_path, &before_plan, &new_plan)?;
+        if let Err(error) = write_owned_atomic(&install_path, &before_install, &new_install) {
+            // Best-effort rollback so the two manifests never disagree.
+            let _ = std::fs::write(&plan_path, before_plan);
+            return Err(error);
+        }
+        g.approved = Some(crate::backend::Approved::capture(&plan)?);
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!(
+                "INFO backend.gpu selected: {} ({})",
+                selected.name, selected.uuid
+            ),
+        );
+        Ok(selected)
+    }
     /// For the running owned GPU backend at `base`: whether Torch Compile's inductor can use Triton
     /// there. `None` for CPU plans, other endpoints or a stopped backend (no claim either way).
     pub(crate) fn owned_triton(&self, base: &str) -> Option<bool> {
@@ -656,16 +746,33 @@ impl Engine {
         let mut unsupported = vec![];
         let mut hardware = None;
         let mut torch = None;
+        let mut warnings = vec!["New environment only. Downloads Python, selected pinned Torch and selected source dependencies; may require several GB. No models, launch, API readiness or generation verification. Failed/cancelled partial directories are retained, never wiped.".into(),"ComfyUI branches/tags and selected nodepack main are fetched at execution time; final Git revisions are recorded. Dependency installation executes upstream package build code inside the managed environment.".into()];
         match request.backend {
             Backend::Cpu => torch = Some(torch_profile::cpu()),
-            Backend::Nvidia => match torch_profile::probe() {
-                Ok(found) => {
+            Backend::Nvidia => match torch_profile::probe_all() {
+                Ok(gpus) if gpus.len() == 1 => {
+                    let found = gpus.into_iter().next().unwrap();
                     match torch_profile::select(&found) {
                         Ok(selected) => torch = Some(selected),
                         Err(error) => unsupported.push(error),
                     }
                     hardware = Some(found);
                 }
+                Ok(gpus) => match torch_profile::pick(&gpus) {
+                    Ok(found) => {
+                        warnings.push(format!(
+                            "Multiple NVIDIA GPUs detected; {} selected by default — change the selection in the Backend tab",
+                            found.name
+                        ));
+                        // pick() only returns a GPU that already passed select().
+                        match torch_profile::select(&found) {
+                            Ok(selected) => torch = Some(selected),
+                            Err(error) => unsupported.push(error),
+                        }
+                        hardware = Some(found);
+                    }
+                    Err(error) => unsupported.push(error),
+                },
                 Err(error) => unsupported.push(error),
             },
             Backend::Amd => {
@@ -706,7 +813,6 @@ impl Engine {
                 unsupported.push(format!("feature:{feature}"));
             }
         }
-        let mut warnings=vec!["New environment only. Downloads Python, selected pinned Torch and selected source dependencies; may require several GB. No models, launch, API readiness or generation verification. Failed/cancelled partial directories are retained, never wiped.".into(),"ComfyUI branches/tags and selected nodepack main are fetched at execution time; final Git revisions are recorded. Dependency installation executes upstream package build code inside the managed environment.".into()];
         if git_path().is_none() {
             unsupported
                 .push("git: install Git through your OS tools, then create a new plan".into());
@@ -802,7 +908,7 @@ impl Engine {
             }
         }
         if matches!(request.backend, Backend::Nvidia) {
-            warnings.push("NVIDIA preflight is read-only, bounded to 5 seconds, and supports one visible GPU only. CUDA 13 requires driver >=580; Pascal uses CUDA 12.1. No CUDA toolkit or attention extensions are installed.".into());
+            warnings.push("NVIDIA preflight is read-only and bounded to 5 seconds; on multi-GPU hosts the highest-capability card is selected by default (change it in the Backend tab). CUDA 13 requires driver >=580; Pascal uses CUDA 12.1. No CUDA toolkit or attention extensions are installed.".into());
             steps.last_mut().unwrap().detail = "Verify exact framework trio, CUDA metadata, planned GPU identity and synchronized CUDA matrix multiplication; initialize actual ComfyUI core/selected nodes without a listener (not generation readiness)".into();
         }
         let plan = Plan {
@@ -924,7 +1030,7 @@ impl Engine {
             if let Some(recorded) = &plan.hardware {
                 let probed = match plan.request.backend {
                     Backend::Amd => crate::amd::probe_amd()?,
-                    _ => torch_profile::probe()?,
+                    _ => probe_planned(&plan)?,
                 };
                 plan.hardware = Some(refreshed_hardware(recorded, probed, &plan.request.backend)?);
             }
@@ -1933,6 +2039,27 @@ fn current_plan(g: &Inner) -> Result<Plan, String> {
             .ok_or_else(|| "No installed DEAS environment is open".into()),
     }
 }
+/// The visible GPU matching the plan's recorded UUID. `probe_all()` keeps a
+/// `CUDA_VISIBLE_DEVICES` pin; a missing match means the planned card disappeared
+/// from the host (or was disabled), so no other card is ever substituted silently.
+fn probe_planned(plan: &Plan) -> Result<torch_profile::Hardware, String> {
+    if !matches!(plan.request.backend, Backend::Nvidia) {
+        return Err("No NVIDIA GPU was planned for this environment".into());
+    }
+    let recorded = plan
+        .hardware
+        .as_ref()
+        .ok_or("Planned GPU identity is missing from the installation plan")?;
+    torch_profile::probe_all()?
+        .into_iter()
+        .find(|gpu| gpu.uuid == recorded.uuid)
+        .ok_or_else(|| {
+            format!(
+                "NVIDIA_GPU: planned GPU {} ({}) is no longer visible; re-plan the backend",
+                recorded.name, recorded.uuid
+            )
+        })
+}
 /// Newer Torch for `plan` plus the hardware it was gated on (CUDA probes the GPU read-only).
 fn torch_target(
     plan: &Plan,
@@ -1944,7 +2071,7 @@ fn torch_target(
         return Ok(None);
     }
     let hardware = match current.cuda {
-        Some(_) => Some(torch_profile::probe()?),
+        Some(_) => Some(probe_planned(plan)?),
         None => None,
     };
     Ok(torch_profile::newer(current, hardware.as_ref())?.map(|torch| (torch, hardware)))
@@ -2001,6 +2128,21 @@ fn foreign_nodes(plan: &Plan) -> Option<String> {
         .collect();
     names.sort();
     (!names.is_empty()).then(|| format!("Node packs not installed by DEAS ({}) are not known to work with another PyTorch; remove them or keep the current profile", names.join(", ")))
+}
+/// Atomic replacement with a read-before-write check; refuses if the file changed meanwhile.
+fn write_owned_atomic(path: &Path, before: &[u8], bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut temp = tempfile::NamedTempFile::new_in(
+        path.parent().ok_or("Owned path has no parent")?,
+    )
+    .map_err(|e| e.to_string())?;
+    temp.write_all(bytes).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    if crate::backend::read_owned(path, 1024 * 1024)? != before {
+        return Err("Owned manifest changed during GPU selection; retry".into());
+    }
+    temp.persist(path).map_err(|e| e.to_string())?;
+    Ok(())
 }
 fn persist_updated_plan(plan: &Plan) -> Result<(), String> {
     use std::io::Write;
@@ -2298,7 +2440,16 @@ async fn provision(
         let actual = if amd {
             crate::amd::probe_amd()?
         } else {
-            torch_profile::probe()?
+            // Multi-GPU hosts: find the exact planned card by UUID, never guess.
+            torch_profile::probe_all()?
+                .into_iter()
+                .find(|gpu| gpu.uuid == expected.uuid)
+                .ok_or_else(|| {
+                    format!(
+                        "NVIDIA_GPU: planned GPU {} ({}) is no longer visible; create a new plan",
+                        expected.name, expected.uuid
+                    )
+                })?
         };
         if actual.uuid != expected.uuid
             || actual.compute_capability != expected.compute_capability
@@ -3193,6 +3344,7 @@ mod tests {
                 uuid: "GPU-fixture".into(),
                 driver_version: "621.24".into(),
                 compute_capability: "8.9".into(),
+                memory_total_mib: 16384,
             })
             .unwrap(),
         );
@@ -3208,6 +3360,7 @@ mod tests {
                 uuid: "GPU-fixture".into(),
                 driver_version: "560.0".into(),
                 compute_capability: "6.1".into(),
+                memory_total_mib: 8192,
             })
             .unwrap(),
         );
@@ -3970,6 +4123,7 @@ mod tests {
             uuid: "GPU-test".into(),
             driver_version: "581.57".into(),
             compute_capability: cc.into(),
+            memory_total_mib: 8192,
         };
         let pascal = torch_profile::select(&hardware("NVIDIA GeForce GTX 1080 Ti", "6.1")).unwrap();
         assert_eq!(llama_family(&pascal, true), "vulkan");
@@ -4057,6 +4211,7 @@ mod tests {
             uuid: "GPU-test".into(),
             driver_version: "590.10".into(),
             compute_capability: cc.into(),
+            memory_total_mib: 8192,
         };
         let profiles = [
             torch_profile::cpu(),

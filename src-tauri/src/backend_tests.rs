@@ -1049,6 +1049,19 @@ fn native_backend_test_command_is_registered_and_permitted() {
     assert!(include_str!("main.rs").contains("deas::native_backend_test"));
 }
 #[test]
+fn native_backend_gpu_commands_are_registered_and_permitted() {
+    for command in ["native_backend_gpus", "native_backend_set_gpu"] {
+        assert!(
+            include_str!("../permissions/backend.toml").contains(&format!("\"{command}\"")),
+            "{command} missing from backend permission"
+        );
+        assert!(
+            include_str!("main.rs").contains(&format!("deas::{command},")),
+            "{command} missing from the invoke handler"
+        );
+    }
+}
+#[test]
 fn native_backend_test_lists_dependencies_of_the_approved_environment() {
     let (_tmp, approved) = fixture(SERVER);
     let engine = crate::install::Engine::default();

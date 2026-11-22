@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { DependencyCheck, NativeBackendStatus } from '../../lib/setup';
+import type { DependencyCheck, NativeBackendGpus, NativeBackendStatus, NativeHardware } from '../../lib/setup';
 
+// The GPU selector only renders a response that has the exact native shape; anything else keeps the section hidden.
+function isNativeHardware(value:unknown): value is NativeHardware {
+ if(typeof value!=='object'||value===null)return false;
+ const v=value as Record<string,unknown>;
+ return ['vendor','name','uuid','driverVersion','computeCapability'].every(key=>typeof v[key]==='string')&&(v.memoryTotalMib===undefined||typeof v.memoryTotalMib==='number');
+}
+function isBackendGpus(value:unknown): value is NativeBackendGpus {
+ if(typeof value!=='object'||value===null)return false;
+ const next=value as {planned?:unknown;gpus?:unknown};
+ return (next.planned===null||isNativeHardware(next.planned))&&Array.isArray(next.gpus)&&next.gpus.every(isNativeHardware);
+}
+
+// Option label: card name plus frame-buffer size (MiB → GB, half-GB precision); old manifests may lack the value.
+function gpuLabel(g:NativeHardware){const gb=g.memoryTotalMib&&g.memoryTotalMib>0?Math.round((g.memoryTotalMib/1024)*2)/2:null;return gb===null?g.name:`${g.name} (${Number.isInteger(gb)?gb.toFixed(0):gb.toFixed(1)} GB)`;}
 /** `children` (e.g. the autostart switch) render above the action row; `actions` extend it; `locked` disables lifecycle buttons while the environment is being changed; each `restartSignal` change restarts a running backend (stopped stays stopped). */
 export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusChange,autoStart=false,children,actions,locked=false,restartSignal=0,refreshSignal=0}: {installSucceeded:boolean;onConnectExisting:(endpoint:string)=>void;onStatusChange?:(status:NativeBackendStatus|null)=>void;autoStart?:boolean;children?:ReactNode;actions?:ReactNode;locked?:boolean;restartSignal?:number;refreshSignal?:number}) {
  const {t}=useI18n();
@@ -11,6 +25,8 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
  const [checks,setChecks]=useState<DependencyCheck[]|null>(null);
  const [busy,setBusy]=useState(false);
  const [technicalError,setTechnicalError]=useState('');
+ const [gpus,setGpus]=useState<NativeBackendGpus|null>(null);
+ const [gpuChanged,setGpuChanged]=useState(false);
  const lock=useRef(false);
  const epoch=useRef(0);
  const live=useRef(false);
@@ -29,6 +45,18 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
   live.current=true;
   return ()=>{live.current=false;epoch.current++;};
  },[]);
+ // Read-only GPU enumeration for multi-GPU hosts; a failing or unknown command keeps the section hidden.
+ useEffect(()=>{
+  if(!native||!installSucceeded)return;
+  let alive=true;
+  void (async()=>{
+   try{
+    const next=await invoke<unknown>('native_backend_gpus');
+    if(alive)setGpus(isBackendGpus(next)?next:null);
+   }catch{if(alive)setGpus(null);}
+  })();
+  return()=>{alive=false;};
+ },[native,installSucceeded]);
  // `quiet` (background polls) skips the busy state: toggling disabled every second made the buttons flicker.
  const request=useCallback(async(command:'native_backend_start'|'native_backend_status'|'native_backend_stop',quiet=false)=>{
   if(!native||!live.current)return;
@@ -61,6 +89,20 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
   } catch(e) {if(live.current&&version===epoch.current)setTechnicalError(String(e));}
   finally {lock.current=false;if(live.current&&version===epoch.current)setBusy(false);}
  },[native]);
+ const selectGpu=useCallback(async(uuid:string)=>{
+  if(!native||!live.current)return;
+  if(lock.current){while(lock.current)await new Promise(r=>setTimeout(r,50));if(!live.current)return;}
+  lock.current=true;setBusy(true);const version=epoch.current;
+  try {
+   const next=await invoke<unknown>('native_backend_set_gpu',{uuid});
+   if(live.current&&version===epoch.current){
+    // The native side is the source of truth: only a well-formed card confirms the change.
+    if(isNativeHardware(next)){setGpus(current=>current?{...current,planned:next}:current);setGpuChanged(true);}
+    setTechnicalError('');
+   }
+  } catch(e) {if(live.current&&version===epoch.current)setTechnicalError(String(e));}
+  finally {lock.current=false;if(live.current&&version===epoch.current)setBusy(false);}
+ },[native]);
  const autoAttempted=useRef(false);
  useEffect(()=>{
   if(!native||!installSucceeded||!autoStart||autoAttempted.current)return;
@@ -90,12 +132,23 @@ export function OwnedBackendPanel({installSucceeded,onConnectExisting,onStatusCh
   timer=window.setTimeout(()=>void poll(),1000);
   return ()=>{alive=false;window.clearTimeout(timer);};
  },[native,active,request]);
+ // The selector only exists when the installed card is visible among at least two GPUs.
+ const plannedGpu=gpus?.planned??null;
+ const gpuChoice=plannedGpu&&gpus&&gpus.gpus.length>=2&&gpus.gpus.some(g=>g.uuid===plannedGpu.uuid)?{planned:plannedGpu,gpus:gpus.gpus}:null;
  return <section className="aio-detail" aria-label={t('setup.backendLifecycle.title')}>
   <h3>{t('setup.backendLifecycle.title')}</h3>
   <p className="aio-help">{t(native?'setup.backendLifecycle.help':'setup.backendLifecycle.browser')}</p>
   <p role={status?'status':undefined}>{t(status?`setup.backendLifecycle.${status.state}`:'setup.backendLifecycle.unknown')}</p>
   <p className="aio-help">{t('setup.backendLifecycle.notReady')}</p>
   {status?.endpoint&&<p>{t('setup.backendLifecycle.endpoint')}: <code>{status.endpoint}</code></p>}
+  {gpuChoice&&<div className="aio-gpu">
+   <h4>{t('setup.gpu.title')}</h4>
+   <p className="aio-help">{t(active?'setup.gpu.stopFirst':'setup.gpu.help')}</p>
+   <select id="backend-gpu-select" aria-label={t('setup.gpu.title')} value={gpuChoice.planned.uuid} disabled={busy||locked||active} onChange={e=>void selectGpu(e.target.value)}>
+    {gpuChoice.gpus.map(g=><option key={g.uuid} value={g.uuid}>{gpuLabel(g)}</option>)}
+   </select>
+   {gpuChanged&&<p role="status">{t('setup.gpu.changed')}</p>}
+  </div>}
   {checks&&<ul className="aio-checks">
    {checks.map(c=><li key={c.id} className={c.ok?'aio-check-pass':'aio-check-fail'}><span aria-hidden="true">{c.ok?'✓':'✗'}</span>{t(`setup.backendLifecycle.dep.${c.id}`)}<span className="neural-sr-only">{c.ok?t('setup.backendLifecycle.depPass'):t('setup.backendLifecycle.depFail')}</span></li>)}
   </ul>}

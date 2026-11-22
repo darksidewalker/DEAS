@@ -2,6 +2,7 @@
 //! Linux and Windows, matching native provisioning. No target/PID/URL IPC inputs.
 use crate::install::{Backend, Plan, VENV_BIN, VENV_PYTHON};
 use serde::Serialize;
+use tauri::Manager;
 fn install_output_naming(root: &Path) -> Result<(), String> {
     install_adapter(
         root,
@@ -807,9 +808,17 @@ impl Lifecycle {
     pub(crate) fn start(&self, approved: Approved) -> Result<Status, String> {
         approved.validate()?;
         if let Some(expected) = &approved.plan.hardware {
-            let actual = crate::install::torch_profile::probe()?;
-            if actual.uuid != expected.uuid
-                || actual.compute_capability != expected.compute_capability
+            // Multi-GPU hosts: find the planned card by UUID among all visible GPUs.
+            let actual = crate::install::torch_profile::probe_all()?
+                .into_iter()
+                .find(|gpu| gpu.uuid == expected.uuid)
+                .ok_or_else(|| {
+                    format!(
+                        "NVIDIA_GPU: planned GPU {} ({}) is no longer visible; re-plan the backend",
+                        expected.name, expected.uuid
+                    )
+                })?;
+            if actual.compute_capability != expected.compute_capability
                 || actual.driver_version != expected.driver_version
             {
                 return Err(
@@ -918,7 +927,11 @@ impl Lifecycle {
                 command.arg("--cpu");
             }
             Backend::Nvidia => {
-                command.args(["--cuda-device", "0"]);
+                // A numeric --cuda-device makes ComfyUI's main.py rewrite CUDA_VISIBLE_DEVICES
+                // to that index (CUDA enumeration order, not nvidia-smi order), which would
+                // break the UUID pin on multi-GPU hosts. "all" leaves our pin intact: only
+                // the planned card is visible, as device 0.
+                command.args(["--cuda-device", "all"]);
             }
             _ => return Err("Unsupported backend".into()),
         }
@@ -1485,4 +1498,32 @@ pub fn native_backend_test(
 #[tauri::command]
 pub fn native_backend_stop(engine: tauri::State<'_, crate::install::Engine>) -> Status {
     engine.backend.stop()
+}
+/// Read-only snapshot for the Backend tab selector: every visible NVIDIA GPU plus the card the
+/// installed environment is currently pointed at.
+#[tauri::command]
+pub async fn native_backend_gpus(
+    engine: tauri::State<'_, crate::install::Engine>,
+) -> Result<crate::install::BackendGpus, String> {
+    let engine = (*engine).clone();
+    tauri::async_runtime::spawn_blocking(move || engine.backend_gpus())
+        .await
+        .map_err(|error| format!("GPU enumeration worker failed: {error}"))?
+}
+/// Point the installed NVIDIA environment at another visible GPU (backend must be stopped).
+#[tauri::command]
+pub async fn native_backend_set_gpu(
+    uuid: String,
+    engine: tauri::State<'_, crate::install::Engine>,
+    app: tauri::AppHandle,
+) -> Result<crate::install::Hardware, String> {
+    let engine = (*engine).clone();
+    // The folder guard must not cross the await; take it inside the worker like native_settings_move does.
+    tauri::async_runtime::spawn_blocking(move || {
+        let operations = app.state::<crate::FolderOperations>();
+        let _guard = operations.enter()?;
+        engine.backend_set_gpu(&uuid)
+    })
+    .await
+    .map_err(|error| format!("GPU selection worker failed: {error}"))?
 }

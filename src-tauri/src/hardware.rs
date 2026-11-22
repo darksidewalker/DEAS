@@ -95,7 +95,7 @@ mod tests {
         let result = detect_with(
             || {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                torch_profile::parse("GPU-fixture, Fixture, 580.1, 12.0")
+                torch_profile::parse("GPU-fixture, Fixture, 580.1, 12.0, 8192")
             },
             std::time::Duration::from_millis(10),
             DetectedBackend::Nvidia,
@@ -111,8 +111,8 @@ mod tests {
     async fn failed_discovery_never_assumes_another_backend() {
         for output in [
             "",
-            "GPU-a, A, 580.1, 12.0\nGPU-b, B, 580.1, 12.0",
-            "GPU-a, A, N/A, 12.0",
+            "GPU-a, A, 580.1, 12.0, 8192\nGPU-b, B, 580.1, 12.0, 8192",
+            "GPU-a, A, N/A, 12.0, 8192",
             "not a hardware response",
         ] {
             let result = detect_with(
@@ -193,14 +193,14 @@ mod tests {
     #[test]
     fn detected_nvidia_preserves_exact_existing_metadata() {
         // Discovery must not apply install-time driver/Torch gates.
-        let hardware = torch_profile::parse("GPU-fixture, GTX 1080, 520.1.0, 6.1").unwrap();
+        let hardware = torch_profile::parse("GPU-fixture, GTX 1080, 520.1.0, 6.1, 8192").unwrap();
         let result = HardwareDetection::from_probe(Ok(hardware), DetectedBackend::Nvidia);
         assert_eq!(
             serde_json::to_value(result).unwrap(),
             serde_json::json!({
                 "backend": "nvidia", "hardware": {
                     "vendor": "NVIDIA", "name": "GTX 1080", "uuid": "GPU-fixture",
-                    "driverVersion": "520.1.0", "computeCapability": "6.1"
+                    "driverVersion": "520.1.0", "computeCapability": "6.1", "memoryTotalMib": 8192
                 }
             })
         );

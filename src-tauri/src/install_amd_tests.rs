@@ -2,7 +2,7 @@
 #[test]
 fn constraint_lines_keep_amd_pins_exact_and_append_pytorch_family() {
     let nvidia = torch_profile::select(
-        &torch_profile::parse("GPU-t, NVIDIA GeForce 32 GB test GPU, 615.1, 12.0").unwrap(),
+        &torch_profile::parse("GPU-t, NVIDIA GeForce 32 GB test GPU, 615.1, 12.0, 8192").unwrap(),
     )
     .unwrap();
     assert_eq!(

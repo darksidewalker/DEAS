@@ -262,6 +262,8 @@ fn main() {
             deas::native_backend_status,
             deas::native_backend_stop,
             deas::native_backend_test,
+            deas::native_backend_gpus,
+            deas::native_backend_set_gpu,
             deas::splash::native_startup_phase,
             deas::splash::native_startup_ready
         ])

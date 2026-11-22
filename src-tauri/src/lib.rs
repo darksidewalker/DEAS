@@ -76,7 +76,8 @@ pub use recipe_prerequisites::native_recipe_prerequisites;
 pub use wildcard::{native_wildcard_build, native_wildcard_library};
 pub mod backend;
 pub use backend::{
-    native_backend_start, native_backend_status, native_backend_stop, native_backend_test,
+    native_backend_gpus, native_backend_set_gpu, native_backend_start, native_backend_status,
+    native_backend_stop, native_backend_test,
 };
 pub mod hardware;
 pub use hardware::native_detect_hardware;
