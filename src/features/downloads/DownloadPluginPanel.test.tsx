@@ -512,6 +512,35 @@ it('lists installed models per folder and fetches CivitAI metadata by hash on re
  expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_info')).toHaveLength(1);
  expect((screen.getByRole('button',{name:'Scan Files'}) as HTMLButtonElement).disabled).toBe(true);
 });
+it('shows when a lookup missed and links the file to a pasted CivitAI page',async()=>{
+ const local={category:'loras',name:'MiniMaxH3/edited.safetensors',path:'/env/ComfyUI/models/loras/MiniMaxH3/edited.safetensors',size:5,info:{sha256:'ab12',size:5,fetchedAt:1767225600,civitai:null}};
+ const linked={...local,info:{...local.info,civitai:{modelId:5,versionId:49,name:'Linked LoRA',version:'v1',modelType:'LORA',category:'loras',base:'MiniMax H3',nsfw:false,trainedWords:[],matchedBy:'manual'}}};
+ vi.mocked(invoke).mockImplementation(async(c,a)=>{
+  if(c==='native_download_catalog')return catalog;
+  if(c==='native_models_scan')return [local];
+  if(c==='native_model_link'){expect(a).toEqual({path:local.path,link:'https://civitai.com/models/5/linked',authenticated:false,savePreview:false});return linked;}
+  if(c==='native_model_scan_status')return {id:'',root:'',state:'idle',file:null,completed:0,total:0,remaining:0,failed:0};
+  if(c==='native_auth_status')return [{providerId:'civitai',configured:false,persisted:false}];
+  throw new Error(`unexpected ${c}`);
+ });
+ render(<I18nProvider><DownloadPanel embedded installTarget="/env"/></I18nProvider>);
+ await screen.findByRole('tab',{name:'Models'});
+ tab('Installed');
+ fireEvent.click(await screen.findByRole('button',{name:'MiniMaxH3/edited.safetensors'}));
+ expect(screen.getByText(/^Not found on CivitAI · last checked /)).toBeTruthy();
+ const input=screen.getByLabelText('CivitAI link') as HTMLInputElement;
+ const action=()=>screen.getByRole('button',{name:'Link'}) as HTMLButtonElement;
+ await waitFor(()=>expect(input.disabled).toBe(false));
+ fireEvent.change(input,{target:{value:'https://example.com/models/5'}});
+ expect(action().disabled).toBe(true);
+ fireEvent.change(input,{target:{value:' https://civitai.com/models/5/linked '}});
+ expect(action().disabled).toBe(false);
+ fireEvent.click(action());
+ expect(await screen.findByText('Linked manually')).toBeTruthy();
+ expect(screen.getByText(/Linked LoRA · v1 · MiniMax H3/)).toBeTruthy();
+ expect(document.querySelector('[data-civitai-match]')?.getAttribute('data-civitai-match')).toBe('manual');
+ expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_model_link')).toHaveLength(1);
+});
 it('keeps the listing across navigation and refreshes only on explicit request',async()=>{
  const model={category:'loras',name:'cached.pt',path:'/models/loras/cached.pt',size:5,info:null};
  let response=[model];let fail=false;

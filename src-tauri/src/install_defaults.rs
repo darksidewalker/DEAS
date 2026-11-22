@@ -151,11 +151,13 @@ mod tests {
     fn defaults_recommend_only_a_compatible_nvidia_profile() {
         let root = tempfile::tempdir().unwrap();
         let executable = root.path().join("DEAS");
-        let valid = torch_profile::parse("GPU-fixture, 32 GB test GPU, 615.71.09, 12.0, 8192").unwrap();
+        let valid =
+            torch_profile::parse("GPU-fixture, 32 GB test GPU, 615.71.09, 12.0, 8192").unwrap();
         let defaults = recommend(&executable, Ok(vec![valid])).unwrap();
         assert!(matches!(defaults.backend, Backend::Nvidia));
         assert_eq!(defaults.hardware.unwrap().uuid, "GPU-fixture");
-        let old_driver = torch_profile::parse("GPU-fixture, 32 GB test GPU, 550.1, 12.0, 8192").unwrap();
+        let old_driver =
+            torch_profile::parse("GPU-fixture, 32 GB test GPU, 550.1, 12.0, 8192").unwrap();
         let fallback = recommend(&executable, Ok(vec![old_driver])).unwrap();
         assert!(matches!(fallback.backend, Backend::Cpu));
         assert!(fallback.hardware.is_some());

@@ -40,7 +40,7 @@ pub use downloads::models::background::{
 pub use downloads::models::files::native_model_files_change;
 pub use downloads::models::{
     native_model_edit_lora, native_model_family_write, native_model_family_write_many,
-    native_model_info, native_models_scan,
+    native_model_info, native_model_link, native_models_scan,
 };
 pub use downloads::{
     native_download_browse, native_download_cancel, native_download_catalog,

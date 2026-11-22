@@ -546,7 +546,11 @@ impl Engine {
             .find(|gpu| gpu.uuid == uuid)
             .ok_or_else(|| format!("NVIDIA_GPU: {uuid} is not visible on this host"))?;
         let profile = torch_profile::select(&selected.hardware())?;
-        if plan.torch.as_ref().is_some_and(|current| *current != profile) {
+        if plan
+            .torch
+            .as_ref()
+            .is_some_and(|current| *current != profile)
+        {
             return Err(format!(
                 "NVIDIA_GPU: {} needs a different PyTorch profile ({index}); create a new installation plan for it",
                 selected.name,
@@ -562,8 +566,7 @@ impl Engine {
         let new_plan = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
         let mut manifest: serde_json::Value = serde_json::from_slice(&before_install)
             .map_err(|_| "Owned install manifest is invalid".to_string())?;
-        manifest["hardware"] =
-            serde_json::to_value(&plan.hardware).map_err(|e| e.to_string())?;
+        manifest["hardware"] = serde_json::to_value(&plan.hardware).map_err(|e| e.to_string())?;
         let new_install = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
         write_owned_atomic(&plan_path, &before_plan, &new_plan)?;
         if let Err(error) = write_owned_atomic(&install_path, &before_install, &new_install) {
@@ -2147,10 +2150,9 @@ fn foreign_nodes(plan: &Plan) -> Option<String> {
 /// Atomic replacement with a read-before-write check; refuses if the file changed meanwhile.
 fn write_owned_atomic(path: &Path, before: &[u8], bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    let mut temp = tempfile::NamedTempFile::new_in(
-        path.parent().ok_or("Owned path has no parent")?,
-    )
-    .map_err(|e| e.to_string())?;
+    let mut temp =
+        tempfile::NamedTempFile::new_in(path.parent().ok_or("Owned path has no parent")?)
+            .map_err(|e| e.to_string())?;
     temp.write_all(bytes).map_err(|e| e.to_string())?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     if crate::backend::read_owned(path, 1024 * 1024)? != before {

@@ -8,7 +8,7 @@ import { filesPresent } from '../../lib/settings';
 import { verifyAuthToken, importDownloadCatalog, restoreAuthToken, browseDownloads, cancelDownloads, clearDownloadQueue, formatBytes, percentOf, pickDownloadParent, planDownloads, readAuthStatus, readDownloadCatalog, readDownloadStatus, removeAuthToken, resumeDownloads, setAuthToken, startDownloadsQueue, comfyFolder, openTokenPage } from '../../lib/downloads';
 import type { AuthVerification, AuthMetadata, CatalogEntry, DownloadCatalog, DownloadJob, DownloadListing, DownloadPlan, DownloadResource, DownloadScope, DownloadStatus, PlanRequest } from '../../lib/downloads';
 import { isString, oneOf, usePref } from '../../lib/preferences';
-import { changeModelFiles, editLibraryLora, fetchModelInfo, readModelScanStatus, startModelScan } from '../../lib/models';
+import { changeModelFiles, editLibraryLora, fetchModelInfo, linkModelInfo, readModelScanStatus, startModelScan } from '../../lib/models';
 import { claimDownloadRefresh, loadInstalledListing, refreshAfterDownloads, reloadAfterFetch, rememberInstalledListing } from './installedListing';
 import { InstalledGallery } from './InstalledGallery';
 import { CatalogGallery,type CatalogCard } from './CatalogGallery';
@@ -20,6 +20,16 @@ import {checkModel} from '../../lib/modelCheck';
 import {ModelCompanionAdvice} from './ModelCompanionAdvice';
 import type {ModelCompanionSuggestion} from '../../lib/modelCompanionAdvice';
 import { ModelDeclaredBadge, useModelMetadataUpdates } from '../../components/models/ModelMetadataEditor';
+/** Explicit CivitAI link for files whose hashes CivitAI does not know (edited, converted or re-uploaded). */
+function CivitaiLinkForm({disabled,onLink}:{disabled:boolean;onLink:(link:string)=>void}) {
+ const {t}=useI18n();const [link,setLink]=useState('');
+ const valid=/^https:\/\/(www\.)?civitai\.(com|red)\/\S+$/.test(link.trim());
+ return <form className="library-civitai-link" data-library-civitai-link onSubmit={e=>{e.preventDefault();if(valid&&!disabled)onLink(link.trim());}}>
+  <label>{t('downloads.installed.link')}<input type="url" value={link} maxLength={2048} placeholder={t('downloads.installed.linkPlaceholder')} disabled={disabled} onChange={e=>setLink(e.target.value)}/></label>
+  <button className="action-button" type="submit" disabled={disabled||!valid}>{t('downloads.installed.linkAction')}</button>
+  <p className="field-help">{t('downloads.installed.linkHelp')}</p>
+ </form>;
+}
 const validSort=(v:unknown):v is {by:'newest'|'name';dir:1|-1}=>typeof v==='object'&&v!==null&&['newest','name'].includes((v as {by:unknown}).by as string)&&[1,-1].includes((v as {dir:unknown}).dir as number);
 
 /** One operation at a time; generation changes and unmount discard late responses. */
@@ -96,7 +106,7 @@ const modelFolders=['checkpoints','diffusion_models'];
 const tabOf=(target:string)=>modelFolders.includes(target)?'models':target;
 /** Files already inside the ComfyUI models folder; CivitAI metadata is fetched per file on request and cached natively. */
 function InstalledModels({root,locked,category,setCategory,onCompanion}:{root:string;locked:boolean;category:string;setCategory:(c:string)=>void;onCompanion:(s:ModelCompanionSuggestion)=>void}) {
- const {t}=useI18n();const io=useNativeRequest();
+ const {t,locale}=useI18n();const io=useNativeRequest();
  const [models,setModelState]=useState<LocalModel[]|null>(null);
  const setModels=useCallback((change:SetStateAction<LocalModel[]|null>)=>setModelState(old=>{const next=typeof change==='function'?change(old):change;if(next)rememberInstalledListing(root,next);return next;}),[root]);
  useModelMetadataUpdates(setModels);const [scanError,setScanError]=useState(false);const [selected,setSelected]=useState('');
@@ -106,7 +116,10 @@ function InstalledModels({root,locked,category,setCategory,onCompanion}:{root:st
  const [listingBusy,setListingBusy]=useState(false);const listingEpoch=useRef(0);
  useEffect(()=>{if(!io.native)return;const epoch=++listingEpoch.current;setModels(null);setScanError(false);setSelected('');setListingBusy(true);loadInstalledListing(root).then(v=>{if(listingEpoch.current===epoch)setModels(v);},()=>{if(listingEpoch.current===epoch)setScanError(true);}).finally(()=>{if(listingEpoch.current===epoch)setListingBusy(false);});return()=>{listingEpoch.current++;};},[root,io.native,setModels]);
  const refreshListing=(scope?:ModelRefreshScope)=>{const epoch=++listingEpoch.current;setScanError(false);setListingBusy(true);loadInstalledListing(root,true,false,scope).then(v=>{if(listingEpoch.current===epoch){setModels(v);setSelected(old=>v.some(m=>m.path===old)?old:'');}},()=>{if(listingEpoch.current===epoch)setScanError(true);}).finally(()=>{if(listingEpoch.current===epoch)setListingBusy(false);});};
- const fetch=(m:LocalModel)=>void io.request(async()=>fetchModelInfo(m.path,(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured),savePreview),v=>{const updates=refreshModelPreviews([v]);setModels(old=>old?patchModels(old,updates):old);publishModelLibrary({root,updates});});
+ const [lastOp,setLastOp]=useState<'fetch'|'link'>('fetch');
+ const publishInfo=(v:LocalModel)=>{const updates=refreshModelPreviews([v]);setModels(old=>old?patchModels(old,updates):old);publishModelLibrary({root,updates});};
+ const fetch=(m:LocalModel)=>{setLastOp('fetch');void io.request(async()=>fetchModelInfo(m.path,(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured),savePreview),publishInfo);};
+ const link=(m:LocalModel,url:string)=>{setLastOp('link');void io.request(async()=>linkModelInfo(m.path,url,(await readAuthStatus()).some(p=>p.providerId==='civitai'&&p.configured),savePreview),publishInfo);};
  const [scanScope,setScanScope]=useState<ModelScanScope>('all');
  const [scanStatus,setScanStatus]=useState<ModelScanStatus|null>(null);const [statusError,setStatusError]=useState(false);const scanEpoch=useRef(0);
  const scanning=scanStatus?.state==='running';
@@ -161,11 +174,12 @@ function InstalledModels({root,locked,category,setCategory,onCompanion}:{root:st
  const detail=(m:LocalModel)=>{const c=m.info?.civitai;const s=c?.settings;const settings=s?[s.sampler,s.scheduler,s.steps!==undefined&&t('downloads.installed.steps',{n:s.steps}),s.cfgScale!==undefined&&t('downloads.installed.cfg',{n:s.cfgScale}),s.size,s.clipSkip!==undefined&&t('downloads.installed.clipSkip',{n:s.clipSkip})].filter(Boolean).join(' · '):'';
   return <div className="download-picker"><ModelDeclaredBadge model={m}/><ModelAdvice check={checkModel(m)}/><ModelCompanionAdvice model={m} models={models??[]} locked={locked} onOpen={onCompanion}/><dl className="download-identity">
    {m.integrity&&<><dt>{t('downloads.installed.integrity')}</dt><dd>{t('downloads.installed.truncated')}</dd></>}
-   {m.info&&<><dt>{t('downloads.installed.civitai')}</dt><dd>{c?[c.name,c.version,c.base].filter(Boolean).join(' · '):t('downloads.installed.none')}</dd></>}
+   {m.info&&<><dt>{t('downloads.installed.civitai')}</dt><dd data-civitai-match={c?c.matchedBy??'sha256':'none'}>{c?[c.name,c.version,c.base].filter(Boolean).join(' · '):t('downloads.installed.notFound',{date:new Date(m.info.fetchedAt*1000).toLocaleDateString(locale)})}{c?.matchedBy&&c.matchedBy!=='sha256'&&<small className="library-civitai-match">{t(`downloads.installed.matched.${c.matchedBy}`)}</small>}</dd></>}
    {settings&&<><dt>{t('downloads.installed.settings')}</dt><dd>{settings}</dd></>}
   </dl><p className="field-help">{t('downloads.installed.hashHelp')}</p>
   <button className="action-button" disabled={io.busy||locked||scanning||fileBusy||!scanStatus||statusError} onClick={()=>fetch(m)}>{t(m.info?'downloads.installed.refresh':'downloads.installed.fetch')}</button>
-  {io.busy&&<p role="status"><span className="aio-spinner" aria-hidden="true"/> {t('downloads.pending')}</p>}{io.error&&<p role="alert">{t('downloads.installed.fetchError')}</p>}</div>;};
+  {io.native&&<CivitaiLinkForm key={m.path} disabled={io.busy||locked||scanning||fileBusy||!scanStatus||statusError} onLink={url=>link(m,url)}/>}
+  {io.busy&&<p role="status"><span className="aio-spinner" aria-hidden="true"/> {t('downloads.pending')}</p>}{io.error&&<p role="alert">{t(lastOp==='link'?'downloads.installed.linkError':'downloads.installed.fetchError')}</p>}</div>;};
  return <InstalledGallery models={models??[]} loaded={models!==null} root={root} category={category} setCategory={setCategory} selected={selected} setSelected={setSelected} locked={locked} renderDetail={detail} onFetch={io.native?fetchBatch:undefined} fetchBusy={scanning||fileBusy||io.busy||listingBusy||!scanStatus||statusError} fileActions={io.native?{run:runFiles,disabled:locked||scanning||listingBusy||io.busy||fileBusy}:undefined} previewPreference={{save:savePreview,set:setSavePreview}} editLora={io.native?editLora:undefined} refresh={io.native?{run:refreshListing,disabled:locked||listingBusy||scanning||fileBusy||io.busy}:undefined}
   actions={<>
    {io.native&&!!models&&models.length>0&&<div className="library-scan-tools">

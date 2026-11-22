@@ -118,6 +118,7 @@ fn main() {
             deas::native_download_cancel,
             deas::native_models_scan,
             deas::native_model_info,
+            deas::native_model_link,
             deas::native_model_edit_lora,
             deas::native_model_files_change,
             deas::native_model_family_write,

@@ -15,6 +15,11 @@
 .download-identity { font-family: monospace; overflow-wrap: anywhere; }
 .download-identity dd { margin: 0 0 .45rem; }
 .download-identity dt { opacity: .7; font-family: inherit; }
+.library-civitai-match { display: block; opacity: .75; font-family: inherit; }
+.library-civitai-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: end; }
+.library-civitai-link label { display: grid; gap: .2rem; min-width: 0; }
+.library-civitai-link input { min-width: 0; }
+.library-civitai-link .field-help { grid-column: 1 / -1; margin: 0; }
 .download-controls :is(button, input, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 @media (max-width: 400px) { .download-controls .aio-actions { flex-direction: column; align-items: stretch; } }
 @media (prefers-reduced-motion: reduce) { .download-module *, .download-module *::before, .download-module *::after { animation: none !important; transition: none !important; } }

@@ -168,9 +168,9 @@ fn parse_line(line: &str) -> Result<Gpu, String> {
     {
         return Err("NVIDIA_GPU: nvidia-smi returned invalid UUID/name/driver/capability/memory; repair driver and re-plan".into());
     }
-    let memory_total_mib = fields[4]
-        .parse::<u64>()
-        .map_err(|_| "NVIDIA_GPU: nvidia-smi returned a non-numeric memory total; repair driver and re-plan")?;
+    let memory_total_mib = fields[4].parse::<u64>().map_err(|_| {
+        "NVIDIA_GPU: nvidia-smi returned a non-numeric memory total; repair driver and re-plan"
+    })?;
     Ok(Gpu {
         vendor: "NVIDIA".into(),
         uuid: fields[0].into(),
@@ -208,7 +208,8 @@ pub fn pick(gpus: &[Gpu]) -> Result<Gpu, String> {
                 }
                 _ => {
                     first_error.get_or_insert_with(|| {
-                        "NVIDIA_GPU: invalid compute capability; update nvidia-smi and re-plan".into()
+                        "NVIDIA_GPU: invalid compute capability; update nvidia-smi and re-plan"
+                            .into()
                     });
                 }
             },
@@ -339,7 +340,9 @@ mod tests {
             newer(&old, Some(&gpu)).unwrap().unwrap().packages[0],
             "torch==2.14.1"
         );
-        assert!(newer(&select(&gpu.hardware()).unwrap(), Some(&gpu)).unwrap().is_none());
+        assert!(newer(&select(&gpu.hardware()).unwrap(), Some(&gpu))
+            .unwrap()
+            .is_none());
         // Never a downgrade: a legacy GPU profile is older than an existing newer pin.
         let pascal = fixture("GTX 1080", "580.1.0", "6.1");
         assert!(newer(&old, Some(&pascal)).unwrap().is_none());
@@ -369,7 +372,9 @@ mod tests {
         }
         for name in ["GTX 1080", "Pascal", "Tesla P100"] {
             assert_eq!(
-                select(&fixture(name, "580.1.0", "6.1").hardware()).unwrap().packages[0],
+                select(&fixture(name, "580.1.0", "6.1").hardware())
+                    .unwrap()
+                    .packages[0],
                 "torch==2.4.1"
             );
         }
@@ -398,7 +403,10 @@ mod tests {
     }
     #[test]
     fn parse_all_keeps_index_order_and_rejects_invalid_rows() {
-        let gpus = parse_all("GPU-a, Card A, 615.71.09, 8.9, 8192\nGPU-b, Card B, 615.71.09, 12.0, 16384\r\n").unwrap();
+        let gpus = parse_all(
+            "GPU-a, Card A, 615.71.09, 8.9, 8192\nGPU-b, Card B, 615.71.09, 12.0, 16384\r\n",
+        )
+        .unwrap();
         assert_eq!(gpus.len(), 2);
         assert_eq!(gpus[0].uuid, "GPU-a");
         assert_eq!(gpus[1].compute_capability, "12.0");
@@ -417,7 +425,10 @@ mod tests {
         // Equal capability: the lowest nvidia-smi index wins.
         let twin_a = gpu("GPU-a", "NVIDIA GeForce RTX 4090", "615.71.09", "8.9");
         let twin_b = gpu("GPU-b", "NVIDIA GeForce RTX 4090", "615.71.09", "8.9");
-        assert_eq!(pick(&[twin_a.clone(), twin_b.clone()]).unwrap().uuid, "GPU-a");
+        assert_eq!(
+            pick(&[twin_a.clone(), twin_b.clone()]).unwrap().uuid,
+            "GPU-a"
+        );
     }
     #[test]
     fn pick_never_returns_a_gpu_that_fails_the_gates() {
@@ -467,7 +478,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(hardware.name, "NVIDIA GeForce RTX 4080");
-        assert_eq!(select(&hardware.hardware()).unwrap().cuda.as_deref(), Some("13.0"));
+        assert_eq!(
+            select(&hardware.hardware()).unwrap().cuda.as_deref(),
+            Some("13.0")
+        );
     }
     #[cfg(unix)]
     #[test]

@@ -66,29 +66,23 @@ fn selected_paths(
             continue;
         }
         if missing_only {
-            if let Some(info) = read_info_from_source(&source) {
+            // Only a found record counts as complete: a cached provider miss is always
+            // looked up again, since CivitAI indexes new uploads and fallbacks can now match.
+            if let Some(civitai) = read_info_from_source(&source).and_then(|info| info.civitai) {
                 if save_preview {
-                    if let Some(civitai) = info.civitai {
-                        let cached_url =
-                            civitai.preview.filter(|url| preview::cdn_url(url).is_ok());
-                        // A legacy response without a cover may have dropped video URLs.
-                        let check_legacy = cached_url.is_none() && civitai.preview_kind.is_none();
-                        if (cached_url.is_some() || check_legacy)
-                            && !index::has_indexed_local_preview(
-                                Path::new(&path),
-                                &mut preview_folders,
-                            )
-                        {
-                            let work = cached_url.map_or(Work::Metadata, |url| Work::Cover {
-                                url,
-                                source: source.stamp.clone(),
-                            });
-                            selected.push((path, work));
-                        }
+                    let cached_url = civitai.preview.filter(|url| preview::cdn_url(url).is_ok());
+                    // A legacy response without a cover may have dropped video URLs.
+                    let check_legacy = cached_url.is_none() && civitai.preview_kind.is_none();
+                    if (cached_url.is_some() || check_legacy)
+                        && !index::has_indexed_local_preview(Path::new(&path), &mut preview_folders)
+                    {
+                        let work = cached_url.map_or(Work::Metadata, |url| Work::Cover {
+                            url,
+                            source: source.stamp.clone(),
+                        });
+                        selected.push((path, work));
                     }
                 }
-                // A cached provider miss is a completed lookup for this model
-                // fingerprint. An explicit metadata refresh can retry it.
                 continue;
             }
         }
@@ -391,7 +385,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fetch_selection_is_bounded_deduplicated_root_bound_and_skips_complete_metadata() {
+    fn fetch_selection_is_bounded_deduplicated_root_bound_skips_found_and_retries_misses() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("models");
         let folder = root.join("loras");
@@ -450,9 +444,15 @@ mod tests {
             || {},
         )
         .unwrap();
-        assert!(selected_paths(&root, vec![file.clone()], true, true)
-            .unwrap()
-            .is_empty());
+        // A cached miss is never complete: "only missing" retries it.
+        assert_eq!(
+            selected_paths(&root, vec![file.clone()], true, true).unwrap(),
+            vec![(file.clone(), Work::Metadata)]
+        );
+        assert_eq!(
+            selected_paths(&root, vec![file.clone()], true, false).unwrap(),
+            vec![(file.clone(), Work::Metadata)]
+        );
         assert_eq!(
             selected_paths(&root, vec![file.clone()], false, true).unwrap(),
             vec![(file.clone(), Work::Metadata)]

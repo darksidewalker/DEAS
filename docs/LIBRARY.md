@@ -67,6 +67,45 @@ does not start a second folder walk for that update. Local cover URLs are refres
 so replaced previews can be retried. Simply returning to the app still uses the
 saved browsing snapshot; external file changes require an explicit refresh.
 
+### How files are matched on CivitAI
+
+Fetch and Scan Files first ask CivitAI for the file's full SHA-256. When CivitAI does
+not know that hash, DEAS tries these fallbacks in order and takes the first match:
+
+1. **Local CivitAI sidecars** next to the model — `<name>.civitai.info` (Civitai
+   Helper) and `<name>.api_info.json` (CivitAI Browser for Forge/Forge Neo). A record is
+   used only when one of its files lists this file's SHA-256 (or AutoV3, below). DEAS then
+   asks CivitAI for that version's current data and keeps the sidecar's data when
+   CivitAI no longer has it.
+2. **AutoV3 tensor hash** for `.safetensors`: the SHA-256 of the weights after the
+   safetensors header, as CivitAI computes it. It still matches when a tool rewrote the
+   file's embedded metadata (renamed it, added training notes), which changes the full
+   SHA-256. The answer is accepted only when the returned version lists that AutoV3. It
+   is computed once and cached in `.deas.json`.
+3. **Forge/A1111 `<name>.json`** with a `modelId` (or `modelVersionId`), as written by
+   CivitAI Browser: DEAS loads that model and picks the version whose files list this
+   file's hash. A `.json` that names a different `sha256` belongs to an older file and is
+   ignored.
+
+The detail panel shows how a record was matched: nothing extra for the full hash,
+*Matched by tensor hash*, *Matched through a local WebUI sidecar file* or *Linked
+manually*. Foreign sidecars are only read, never written, moved or deleted. When DEAS
+has no trigger words for a file yet, the `activation text` of a Forge `.json` becomes its
+trigger words (split at commas; edit them under **Trigger words**).
+
+A file CivitAI does not know shows **Not found on CivitAI · last checked** with the
+date. Such files are **always looked up again**: **Only missing metadata or previews**
+skips only files that already have a CivitAI record, because new uploads are indexed
+later and the fallbacks above can match now. Files whose bytes differ from every upload
+(merged, converted, quantized or re-saved weights, or a mirror's copy) cannot be matched
+by any hash. For those, paste the model or version page into **CivitAI link** and choose
+**Link**. Page links (`https://civitai.com/models/<id>`, with or without
+`?modelVersionId=`), download links and civitai.red links work. Only the IDs are taken
+from the link; the request goes to the configured CivitAI provider. A model link picks
+the version that lists this file's hash, otherwise the newest version. A link is saved
+as your choice: later lookups that find nothing keep it, and a real hash match replaces
+it.
+
 ### Scan Files (Installed)
 
 Choose **All**, **Models** (all non-LoRA folders, including VAEs/encoders) or **LoRAs**, then **Scan Files**. This explicitly starts one native background task for the configured models root. A full scan can take a long time: model files are hashed and CivitAI is queried sequentially using the existing per-file metadata path. Hashing reads each file in 8 MiB slices, which measured 2,253 MiB/s here (a 24.4 GB model hashed in 10.32 s, digest identical to the one already cached); the ignored `hash_throughput_reference` test re-measures that rate against the largest model under the fixed path `F:\models` and skips itself when that drive is not mounted. A configured CivitAI token is used; otherwise lookup is anonymous. Valid cached hashes are reused, and metadata is safely written beside each model as `<file>.deas.json`; model contents are never modified.

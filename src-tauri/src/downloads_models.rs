@@ -6,8 +6,11 @@ use super::*;
 pub mod background;
 #[path = "downloads_model_files.rs"]
 pub mod files;
+#[path = "downloads_models_identify.rs"]
+mod identify;
 #[path = "downloads_models_index.rs"]
 pub mod index;
+pub use identify::CivitaiMatch;
 #[path = "downloads_models_preview.rs"]
 mod preview;
 use serde_json::Value;
@@ -512,6 +515,9 @@ pub struct CivitaiInfo {
     pub settings: Option<Settings>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<ModelExample>,
+    /// How the file was tied to this version; absent = full-file SHA-256 (also legacy sidecars).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_by: Option<CivitaiMatch>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -553,6 +559,9 @@ struct CachedMetadata {
     family_override: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger_words: Option<Vec<String>>,
+    /// CivitAI AutoV3 tensor hash, kept so retried misses do not reread the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    autov3: Option<String>,
 }
 
 impl CachedMetadata {
@@ -565,6 +574,20 @@ impl CachedMetadata {
             source: info.source.clone(),
             family_override: None,
             trigger_words: None,
+            autov3: None,
+        }
+    }
+
+    fn declaration(stamp: &SourceFingerprint) -> Self {
+        Self {
+            sha256: None,
+            size: stamp.size,
+            fetched_at: None,
+            civitai: None,
+            source: Some(stamp.clone()),
+            family_override: None,
+            trigger_words: None,
+            autov3: None,
         }
     }
 
@@ -603,6 +626,13 @@ impl CachedMetadata {
         }
         if let Some(words) = &self.trigger_words {
             validate_trigger_words(words)?;
+        }
+        if self
+            .autov3
+            .as_deref()
+            .is_some_and(|hash| self.sha256.is_none() || !identify::valid_autov3(hash))
+        {
+            return Err("Invalid cached AutoV3 hash".into());
         }
         Ok(())
     }
@@ -1280,6 +1310,7 @@ pub(super) fn civitai_info(v: &Value) -> Result<CivitaiInfo, String> {
             .and_then(Value::as_array)
             .and_then(|images| images.iter().find_map(|i| settings(i.get("meta")?))),
         examples: model_examples(v),
+        matched_by: None,
     })
 }
 
@@ -1335,78 +1366,288 @@ fn publish_cache(
     source.verify()
 }
 
+/// Source-bound state taken on a blocking worker before any provider request.
+struct Prepared {
+    source: Source,
+    expected: Option<SourceFingerprint>,
+    sha256: String,
+    family_override: Option<String>,
+    /// The current cache for this exact source fingerprint, if any.
+    current: Option<CachedMetadata>,
+    foreign: identify::ForeignSidecars,
+}
+
+fn prepare(model_path: &Path) -> Result<Prepared, String> {
+    let mut source = Source::open(model_path)?;
+    let cache = source.dir.cache(&format!("{}{SIDECAR}", source.name))?;
+    let family_override = cache.as_ref().and_then(|(_, c)| c.family_override.clone());
+    if let Some(family) = &family_override {
+        crate::model_families::validate_override(model_category(model_path)?.0, family)?;
+        if cache.as_ref().and_then(|(_, c)| c.source.as_ref()) != Some(&source.stamp) {
+            return Err("Stale family declaration; sidecar repair required".into());
+        }
+    }
+    let expected = cache.as_ref().map(|(stamp, _)| stamp.clone());
+    let current = cache
+        .map(|(_, c)| c)
+        .filter(|c| c.source.as_ref() == Some(&source.stamp));
+    let sha256 = match current.as_ref().and_then(|c| c.sha256.clone()) {
+        Some(sha256) => sha256,
+        None => source.hash()?,
+    };
+    source.verify()?;
+    let foreign = identify::foreign_sidecars(&source, &sha256);
+    Ok(Prepared {
+        source,
+        expected,
+        sha256,
+        family_override,
+        current,
+        foreign,
+    })
+}
+
+async fn provider_json(
+    client: &reqwest::Client,
+    p: &Provider,
+    header: &Option<HeaderValue>,
+    parts: &[&str],
+) -> Result<Option<Value>, String> {
+    let u = providers::endpoint(p, parts)?;
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        providers::json_optional(client, p, u, header),
+    )
+    .await
+    .map_err(|_| "CivitAI lookup exceeded 30 seconds")?
+}
+
+async fn provider_version(
+    client: &reqwest::Client,
+    p: &Provider,
+    header: &Option<HeaderValue>,
+    version: u64,
+) -> Result<Option<Value>, String> {
+    let id = version.to_string();
+    Ok(
+        provider_json(client, p, header, &["api", "v1", "model-versions", &id])
+            .await?
+            .filter(|v| v.get("id").and_then(Value::as_u64) == Some(version))
+            .filter(|v| !identify::candidates(v).is_empty()),
+    )
+}
+
+async fn provider_model_versions(
+    client: &reqwest::Client,
+    p: &Provider,
+    header: &Option<HeaderValue>,
+    model: u64,
+) -> Result<Vec<Value>, String> {
+    let id = model.to_string();
+    Ok(
+        provider_json(client, p, header, &["api", "v1", "models", &id])
+            .await?
+            .map(|m| identify::candidates(&m))
+            .unwrap_or_default(),
+    )
+}
+
+/// Computes (once, then cached) the AutoV3 tensor hash on a blocking worker.
+async fn ensure_autov3(
+    prepared: Prepared,
+    autov3: Option<String>,
+) -> Result<(Prepared, Option<String>), String> {
+    if autov3.is_some() {
+        return Ok((prepared, autov3));
+    }
+    tokio::task::spawn_blocking(move || {
+        let mut prepared = prepared;
+        let hash = identify::autov3(&mut prepared.source)?;
+        Ok::<_, String>((prepared, hash))
+    })
+    .await
+    .map_err(|_| "Hashing task failed")?
+}
+
+/// Full-file SHA-256 first; on a miss the hash-bound fallbacks in order: local CivitAI
+/// sidecars, AutoV3, then a Forge `.json` model ID resolved against the file's hashes.
+async fn identify_version(
+    client: &reqwest::Client,
+    p: &Provider,
+    header: &Option<HeaderValue>,
+    prepared: Prepared,
+) -> Result<(Prepared, Option<String>, Option<(Value, CivitaiMatch)>), String> {
+    let sha256 = prepared.sha256.clone();
+    let autov3 = prepared.current.as_ref().and_then(|c| c.autov3.clone());
+    if let Some(found) = provider_json(
+        client,
+        p,
+        header,
+        &["api", "v1", "model-versions", "by-hash", &sha256],
+    )
+    .await?
+    {
+        return Ok((prepared, autov3, Some((found, CivitaiMatch::Sha256))));
+    }
+    // A local sidecar bound by the full hash; refresh its version when CivitAI still has it.
+    let local = |prepared: &Prepared, autov3: Option<&str>| {
+        identify::first_match(&prepared.foreign.versions, &sha256, autov3)
+    };
+    let refresh = |found: Value| async move {
+        let fresh = match found.get("id").and_then(Value::as_u64) {
+            Some(id) => provider_version(client, p, header, id).await.ok().flatten(),
+            None => None,
+        };
+        fresh.unwrap_or(found)
+    };
+    if let Some(found) = local(&prepared, None) {
+        let found = refresh(found).await;
+        return Ok((prepared, autov3, Some((found, CivitaiMatch::Sidecar))));
+    }
+    let (prepared, autov3) = ensure_autov3(prepared, autov3).await?;
+    if let Some(hash) = autov3.as_deref() {
+        if let Some(found) = provider_json(
+            client,
+            p,
+            header,
+            &["api", "v1", "model-versions", "by-hash", hash],
+        )
+        .await?
+        .filter(|v| identify::version_matches(v, &sha256, Some(hash)))
+        {
+            return Ok((prepared, autov3, Some((found, CivitaiMatch::Autov3))));
+        }
+        if let Some(found) = local(&prepared, Some(hash)) {
+            let found = refresh(found).await;
+            return Ok((prepared, autov3, Some((found, CivitaiMatch::Sidecar))));
+        }
+    }
+    let ids = prepared.foreign.forge.as_ref().map(identify::forge_ids);
+    let versions = match ids {
+        Some((Some(model), _)) => provider_model_versions(client, p, header, model).await?,
+        Some((None, Some(version))) => provider_version(client, p, header, version)
+            .await?
+            .into_iter()
+            .collect(),
+        _ => vec![],
+    };
+    let found = identify::first_match(&versions, &sha256, autov3.as_deref())
+        .map(|found| (found, CivitaiMatch::Sidecar));
+    Ok((prepared, autov3, found))
+}
+
 /// Hash an owned verified handle off the executor, look up CivitAI, then revalidate
-/// the source and optimistic cache snapshot before publication. 404 means unknown.
+/// the source and optimistic cache snapshot before publication. 404 means unknown; a
+/// miss keeps an explicit user link.
 pub async fn fetch(
     p: &Provider,
     path: PathBuf,
     header: Option<HeaderValue>,
     save_preview: bool,
 ) -> Result<LocalModel, String> {
+    let prepared = prepare_checked(p, &path).await?;
+    let client = client_for(false, None)?;
+    let (prepared, autov3, found) = identify_version(&client, p, &header, prepared).await?;
+    let civitai = match found {
+        Some((version, matched)) => {
+            let mut info = civitai_info(&version)?;
+            info.matched_by = (matched != CivitaiMatch::Sha256).then_some(matched);
+            Some(info)
+        }
+        None => prepared
+            .current
+            .as_ref()
+            .and_then(|c| c.civitai.clone())
+            .filter(|c| c.matched_by == Some(CivitaiMatch::Manual)),
+    };
+    complete(
+        &client,
+        p,
+        &header,
+        path,
+        prepared,
+        autov3,
+        civitai,
+        save_preview,
+    )
+    .await
+}
+
+/// Ties the file to a pasted CivitAI model/version link. Only IDs are taken from the link;
+/// a model link picks the version listing this file's hash, else the newest version.
+pub async fn link(
+    p: &Provider,
+    path: PathBuf,
+    header: Option<HeaderValue>,
+    link: &str,
+    save_preview: bool,
+) -> Result<LocalModel, String> {
+    let (model, version) = identify::parse_link(link)?;
+    let prepared = prepare_checked(p, &path).await?;
+    let client = client_for(false, None)?;
+    let autov3 = prepared.current.as_ref().and_then(|c| c.autov3.clone());
+    let found = match version {
+        Some(version) => provider_version(&client, p, &header, version)
+            .await?
+            .filter(|v| model.is_none() || v.get("modelId").and_then(Value::as_u64) == model)
+            .ok_or("CivitAI has no such version for this link")?,
+        None => {
+            let versions =
+                provider_model_versions(&client, p, &header, model.unwrap_or_default()).await?;
+            identify::first_match(&versions, &prepared.sha256, autov3.as_deref())
+                .or_else(|| versions.first().cloned())
+                .ok_or("CivitAI has no such model for this link")?
+        }
+    };
+    let mut info = civitai_info(&found)?;
+    info.matched_by = Some(CivitaiMatch::Manual);
+    complete(
+        &client,
+        p,
+        &header,
+        path,
+        prepared,
+        autov3,
+        Some(info),
+        save_preview,
+    )
+    .await
+}
+
+async fn prepare_checked(p: &Provider, path: &Path) -> Result<Prepared, String> {
     if p.kind != "civitai" {
         return Err("Metadata lookup needs the CivitAI provider".into());
     }
-    if !path.is_absolute() || !is_model(&path) {
+    if !path.is_absolute() || !is_model(path) {
         return Err("Not an absolute path to a model file".into());
     }
-    let model_path = path.clone();
-    let (source, expected, sha256, family_override, cached_creator, trigger_words) =
-        tokio::task::spawn_blocking(move || {
-            let mut source = Source::open(&model_path)?;
-            let cache = source.dir.cache(&format!("{}{SIDECAR}", source.name))?;
-            let family_override = cache.as_ref().and_then(|(_, c)| c.family_override.clone());
-            if let Some(family) = &family_override {
-                crate::model_families::validate_override(model_category(&model_path)?.0, family)?;
-                if cache.as_ref().and_then(|(_, c)| c.source.as_ref()) != Some(&source.stamp) {
-                    return Err("Stale family declaration; sidecar repair required".into());
-                }
-            }
-            let sha256 = match cache.as_ref() {
-                Some((_, info))
-                    if info.source.as_ref() == Some(&source.stamp) && info.sha256.is_some() =>
-                {
-                    info.sha256.clone().unwrap()
-                }
-                _ => source.hash()?,
-            };
-            source.verify()?;
-            let cached_creator = cache.as_ref().and_then(|(_, cache)| {
-                if cache.source.as_ref() != Some(&source.stamp) {
-                    return None;
-                }
-                let info = cache.civitai.as_ref()?;
-                Some((info.model_id, info.creator.clone()?))
-            });
-            let trigger_words = cache
-                .as_ref()
-                .filter(|(_, cache)| cache.source.as_ref() == Some(&source.stamp))
-                .and_then(|(_, cache)| cache.trigger_words.clone());
-            Ok::<_, String>((
-                source,
-                cache.map(|(stamp, _)| stamp),
-                sha256,
-                family_override,
-                cached_creator,
-                trigger_words,
-            ))
-        })
+    let model_path = path.to_owned();
+    tokio::task::spawn_blocking(move || prepare(&model_path))
         .await
-        .map_err(|_| "Hashing task failed")??;
-    let u = providers::endpoint(p, &["api", "v1", "model-versions", "by-hash", &sha256])?;
-    let client = client_for(false, None)?;
-    let found = tokio::time::timeout(
-        Duration::from_secs(30),
-        providers::json_optional(&client, p, u, &header),
-    )
-    .await
-    .map_err(|_| "CivitAI lookup exceeded 30 seconds")??;
-    let mut civitai = found.as_ref().map(civitai_info).transpose()?;
+        .map_err(|_| "Hashing task failed")?
+}
+
+#[allow(clippy::too_many_arguments)] // One publication path for lookups and links.
+async fn complete(
+    client: &reqwest::Client,
+    p: &Provider,
+    header: &Option<HeaderValue>,
+    path: PathBuf,
+    prepared: Prepared,
+    autov3: Option<String>,
+    mut civitai: Option<CivitaiInfo>,
+    save_preview: bool,
+) -> Result<LocalModel, String> {
+    let cached_creator = prepared.current.as_ref().and_then(|cache| {
+        let info = cache.civitai.as_ref()?;
+        Some((info.model_id, info.creator.clone()?))
+    });
     if let Some(info) = civitai.as_mut().filter(|info| info.creator.is_none()) {
         let id = info.model_id.to_string();
         let url = providers::endpoint(p, &["api", "v1", "models", &id])?;
         if let Ok(Ok(Some(model))) = tokio::time::timeout(
             Duration::from_secs(10),
-            providers::json_optional(&client, p, url, &header),
+            providers::json_optional(client, p, url, header),
         )
         .await
         {
@@ -1441,6 +1682,14 @@ pub async fn fetch(
     } else {
         None
     };
+    let Prepared {
+        source,
+        expected,
+        sha256,
+        family_override,
+        current,
+        foreign,
+    } = prepared;
     let info = ModelInfo {
         sha256,
         size: source.stamp.size,
@@ -1451,12 +1700,23 @@ pub async fn fetch(
         civitai,
         source: Some(source.stamp.clone()),
     };
+    // Forge activation text fills trigger words only when the user has none in DEAS yet.
+    let trigger_words = current
+        .as_ref()
+        .and_then(|c| c.trigger_words.clone())
+        .or_else(|| {
+            foreign
+                .forge
+                .as_ref()
+                .and_then(identify::forge_trigger_words)
+        });
     tokio::task::spawn_blocking(move || {
         // Includes the first check after the network await, before any cache write.
         source.verify()?;
         let mut cache = CachedMetadata::from_info(&info);
         cache.family_override = family_override;
         cache.trigger_words = trigger_words;
+        cache.autov3 = autov3;
         publish_cache(&source, &expected, &cache, || {})?;
         if let Some(cover) = cover {
             if !index::has_local_preview(&path) && preview::publish(&source, cover).is_err() {
@@ -1521,15 +1781,7 @@ fn write_family(path: &Path, family: Option<&str>) -> Result<LocalModel, String>
         .as_ref()
         .filter(|(_, c)| c.source.as_ref() == Some(&source.stamp))
         .map(|(_, c)| c.clone())
-        .unwrap_or(CachedMetadata {
-            sha256: None,
-            size: source.stamp.size,
-            fetched_at: None,
-            civitai: None,
-            source: Some(source.stamp.clone()),
-            family_override: None,
-            trigger_words: None,
-        });
+        .unwrap_or_else(|| CachedMetadata::declaration(&source.stamp));
     cache.family_override = family.map(str::to_owned);
     publish_cache(&source, &old.map(|(stamp, _)| stamp), &cache, || {})?;
     let model = describe(category, base, path)?;
@@ -1613,15 +1865,7 @@ fn edit_lora(
             let mut cache = match old {
                 Some((_, cache)) if cache.source.as_ref() == Some(&source.stamp) => cache,
                 Some(_) => return Err("Model metadata changed. Refresh it before editing".into()),
-                None => CachedMetadata {
-                    sha256: None,
-                    size: source.stamp.size,
-                    fetched_at: None,
-                    civitai: None,
-                    source: Some(source.stamp.clone()),
-                    family_override: None,
-                    trigger_words: None,
-                },
+                None => CachedMetadata::declaration(&source.stamp),
             };
             cache.trigger_words = Some(words);
             publish_cache(&source, &expected, &cache, || {})?;
@@ -1817,6 +2061,48 @@ pub async fn native_model_info(
         .ok_or("No CivitAI provider in catalog")?;
     let h = credential(&auth, p, authenticated)?;
     let model = fetch(p, PathBuf::from(path), h, save_preview.unwrap_or(false)).await?;
+    update_index(&app, &model).await;
+    Ok(model)
+}
+
+/// Explicit user link to a CivitAI model/version page; recorded as `matchedBy: manual`.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Flat IPC fields; AppHandle and states are injected by Tauri.
+pub async fn native_model_link(
+    app: tauri::AppHandle,
+    engine: tauri::State<'_, DownloadEngine>,
+    auth: tauri::State<'_, AuthState>,
+    path: String,
+    link: String,
+    authenticated: bool,
+    save_preview: Option<bool>,
+) -> Result<LocalModel, String> {
+    let c = engine.catalog()?;
+    let p = c
+        .providers
+        .iter()
+        .find(|p| p.kind == "civitai")
+        .ok_or("No CivitAI provider in catalog")?;
+    let h = credential(&auth, p, authenticated)?;
+    let result = self::link(
+        p,
+        PathBuf::from(path),
+        h,
+        &link,
+        save_preview.unwrap_or(false),
+    )
+    .await;
+    let model = match result {
+        Ok(model) => model,
+        Err(error) => {
+            crate::logs::native_logs_library_error("civitai-link".into());
+            return Err(error);
+        }
+    };
+    crate::logs::push(
+        crate::logs::Source::Deas,
+        "INFO: Library operation=civitai-link outcome=linked",
+    );
     update_index(&app, &model).await;
     Ok(model)
 }
@@ -3202,51 +3488,106 @@ mod tests {
         before_reply: impl FnOnce() + Send + 'static,
         reply: Option<&'static str>,
     ) -> Result<LocalModel, String> {
+        let (requests, result) = fetch_fixture_routes(path, before_reply, move |n, _| {
+            if n == 0 {
+                reply.map(str::to_owned)
+            } else {
+                None
+            }
+        })
+        .await;
+        if let Ok(model) = &result {
+            assert!(requests[0].contains(&model.info.as_ref().unwrap().sha256));
+        }
+        result
+    }
+
+    /// Serves every request of one fetch: `route(index, request line)` answers 200 + JSON or 404.
+    async fn fetch_fixture_routes(
+        path: &Path,
+        before_reply: impl FnOnce() + Send + 'static,
+        route: impl Fn(usize, &str) -> Option<String> + Send + 'static,
+    ) -> (Vec<String>, Result<LocalModel, String>) {
+        let p = fixture_server(before_reply, route);
+        let result = fetch(&p.0, path.to_owned(), None, false).await;
+        (p.1.finish().await, result)
+    }
+
+    struct FixtureServer {
+        done: Arc<std::sync::atomic::AtomicBool>,
+        thread: std::thread::JoinHandle<Vec<String>>,
+    }
+
+    impl FixtureServer {
+        async fn finish(self) -> Vec<String> {
+            self.done.store(true, std::sync::atomic::Ordering::SeqCst);
+            let thread = self.thread;
+            tokio::task::spawn_blocking(move || thread.join().unwrap())
+                .await
+                .unwrap()
+        }
+    }
+
+    fn fixture_server(
+        before_reply: impl FnOnce() + Send + 'static,
+        route: impl Fn(usize, &str) -> Option<String> + Send + 'static,
+    ) -> (Provider, FixtureServer) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let (mut stream, _) = loop {
-                match listener.accept() {
-                    Ok(connection) => break connection,
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = done.clone();
+        let thread = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut before_reply = Some(before_reply);
+            let mut requests = vec![];
+            loop {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(connection) => connection,
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(
-                            Instant::now() < deadline,
-                            "No fixture request within 5 seconds"
-                        );
+                        if stop.load(std::sync::atomic::Ordering::SeqCst) {
+                            break;
+                        }
+                        assert!(Instant::now() < deadline, "Fixture fetch did not finish");
                         std::thread::sleep(Duration::from_millis(5));
+                        continue;
                     }
                     Err(e) => panic!("Fixture accept: {e}"),
+                };
+                // Windows accepted sockets inherit the listener's non-blocking mode.
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = vec![];
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert!(request.len() < 8192, "Oversize fixture request");
+                    let mut b = [0];
+                    stream.read_exact(&mut b).unwrap();
+                    request.push(b[0]);
                 }
-            };
-            // Windows accepted sockets inherit the listener's non-blocking mode.
-            stream.set_nonblocking(false).unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
-            let mut request = vec![];
-            while !request.ends_with(b"\r\n\r\n") {
-                assert!(request.len() < 8192, "Oversize fixture request");
-                let mut b = [0];
-                stream.read_exact(&mut b).unwrap();
-                request.push(b[0]);
-            }
-            before_reply();
-            match reply {
-                Some(json) => write!(
-                    stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
-                    json.len()
-                )
-                .unwrap(),
-                None => stream
-                    .write_all(
-                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                if let Some(hook) = before_reply.take() {
+                    hook();
+                }
+                let request = String::from_utf8(request).unwrap();
+                let line = request.lines().next().unwrap_or("").to_owned();
+                match route(requests.len(), &line) {
+                    Some(json) => write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+                        json.len()
                     )
                     .unwrap(),
+                    None => stream
+                        .write_all(
+                            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap(),
+                }
+                requests.push(request);
             }
-            String::from_utf8(request).unwrap()
+            assert!(!requests.is_empty(), "No fixture request");
+            requests
         });
         let p = Provider {
             id: "fixture".into(),
@@ -3256,14 +3597,7 @@ mod tests {
             scopes: vec!["model".into()],
             anonymous_notice: "".into(),
         };
-        let result = fetch(&p, path.to_owned(), None, false).await;
-        let request = tokio::task::spawn_blocking(move || server.join().unwrap())
-            .await
-            .unwrap();
-        if let Ok(model) = &result {
-            assert!(request.contains(&model.info.as_ref().unwrap().sha256));
-        }
-        result
+        (p, FixtureServer { done, thread })
     }
 
     #[cfg(target_os = "linux")]
@@ -3838,6 +4172,210 @@ mod tests {
         assert_no_owned_temps(root.path());
     }
 
+    fn tensor_fixture(dir: &Path, name: &str) -> (PathBuf, String, String) {
+        let header = br#"{"w":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#;
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        bytes.extend([9u8, 8, 7, 6, 5, 4, 3, 2]);
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let autov3 = format!("{:X}", Sha256::digest([9u8, 8, 7, 6, 5, 4, 3, 2]))[..12].to_owned();
+        let sha256 = sha256_file(&path).unwrap();
+        (path, sha256, autov3)
+    }
+
+    fn version_json(id: u64, model: u64, sha256: &str, autov3: &str) -> String {
+        serde_json::json!({
+            "id": id, "modelId": model, "name": format!("v{id}"), "baseModel": "MiniMax H3",
+            "model": {"name": format!("Model {model}"), "type": "LORA"},
+            "creator": {"username": "maker"},
+            "files": [{"hashes": {"SHA256": sha256.to_uppercase(), "AutoV3": autov3}}]
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn sha256_miss_falls_back_to_bound_autov3_and_caches_the_tensor_hash() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, sha256, autov3) = tensor_fixture(root.path(), "lora.safetensors");
+        let body = version_json(11, 22, "0".repeat(64).as_str(), &autov3);
+        let wanted = autov3.clone();
+        let (requests, result) = fetch_fixture_routes(
+            &path,
+            || {},
+            move |_, line| {
+                line.contains(&format!("by-hash/{wanted} "))
+                    .then(|| body.clone())
+            },
+        )
+        .await;
+        let info = result.unwrap().info.unwrap();
+        assert!(requests[0].contains(&sha256));
+        let civitai = info.civitai.unwrap();
+        assert_eq!(civitai.version_id, 11);
+        assert_eq!(civitai.matched_by, Some(CivitaiMatch::Autov3));
+        let cached: Value =
+            serde_json::from_slice(&std::fs::read(sidecar(&path)).unwrap()).unwrap();
+        assert_eq!(cached["autov3"], autov3);
+        assert_eq!(cached["civitai"]["matchedBy"], "autov3");
+        // The cached tensor hash is reused: a retried lookup does not reread the file.
+        let hashes = HASH_READS.with(|n| n.get());
+        let (_, again) = fetch_fixture_routes(&path, || {}, |_, _| None).await;
+        assert!(again.unwrap().info.unwrap().civitai.is_none());
+        assert_eq!(HASH_READS.with(|n| n.get()), hashes);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(sidecar(&path)).unwrap()).unwrap()
+                ["autov3"],
+            autov3
+        );
+    }
+
+    #[tokio::test]
+    async fn autov3_reply_that_does_not_list_the_hash_is_not_a_match() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, _, autov3) = tensor_fixture(root.path(), "lora.safetensors");
+        let body = version_json(11, 22, &"0".repeat(64), "FFFFFFFFFFFF");
+        let wanted = autov3.clone();
+        let (_, result) = fetch_fixture_routes(
+            &path,
+            || {},
+            move |_, line| {
+                line.contains(&format!("by-hash/{wanted} "))
+                    .then(|| body.clone())
+            },
+        )
+        .await;
+        assert!(result.unwrap().info.unwrap().civitai.is_none());
+    }
+
+    #[tokio::test]
+    async fn forge_sidecars_bind_by_hash_and_import_activation_text() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, sha256, _) = tensor_fixture(root.path(), "lora.safetensors");
+        // Civitai Helper record bound by the full hash; CivitAI no longer serves it.
+        std::fs::write(
+            root.path().join("lora.civitai.info"),
+            version_json(31, 41, &sha256, "000000000000"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("lora.json"),
+            format!(
+                r#"{{"activation text":"h3style, anime","sha256":"{}"}}"#,
+                sha256.to_uppercase()
+            ),
+        )
+        .unwrap();
+        let (_, result) = fetch_fixture_routes(&path, || {}, |_, _| None).await;
+        let model = result.unwrap();
+        let civitai = model.info.as_ref().unwrap().civitai.clone().unwrap();
+        assert_eq!((civitai.model_id, civitai.version_id), (41, 31));
+        assert_eq!(civitai.matched_by, Some(CivitaiMatch::Sidecar));
+        assert_eq!(
+            model.trigger_words,
+            Some(vec!["h3style".to_owned(), "anime".to_owned()])
+        );
+        // A sidecar for another file's hash is never adopted.
+        let (other, _, _) = tensor_fixture(root.path(), "other.safetensors");
+        std::fs::write(
+            root.path().join("other.civitai.info"),
+            version_json(31, 41, &"1".repeat(64), "000000000000"),
+        )
+        .unwrap();
+        let (_, result) = fetch_fixture_routes(&other, || {}, |_, _| None).await;
+        assert!(result.unwrap().info.unwrap().civitai.is_none());
+    }
+
+    #[tokio::test]
+    async fn forge_model_id_resolves_the_version_listing_this_file() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, sha256, autov3) = tensor_fixture(root.path(), "lora.safetensors");
+        std::fs::write(root.path().join("lora.json"), r#"{"modelId":77}"#).unwrap();
+        let record = serde_json::json!({
+            "id": 77, "name": "Forge Model", "type": "LORA", "nsfw": true,
+            "modelVersions": [
+                {"id": 1, "name": "other", "files": [{"hashes": {"SHA256": "AB"}}]},
+                {"id": 2, "name": "this", "files": [{"hashes": {"SHA256": sha256, "AutoV3": autov3}}]}
+            ]
+        })
+        .to_string();
+        let (_, result) = fetch_fixture_routes(
+            &path,
+            || {},
+            move |_, line| line.contains("/api/v1/models/77 ").then(|| record.clone()),
+        )
+        .await;
+        let civitai = result.unwrap().info.unwrap().civitai.unwrap();
+        assert_eq!((civitai.model_id, civitai.version_id), (77, 2));
+        assert_eq!(civitai.name, "Forge Model");
+        assert!(civitai.nsfw);
+        assert_eq!(civitai.matched_by, Some(CivitaiMatch::Sidecar));
+    }
+
+    #[tokio::test]
+    async fn pasted_link_is_recorded_as_manual_and_survives_later_misses() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, sha256, autov3) = tensor_fixture(root.path(), "lora.safetensors");
+        let record = serde_json::json!({
+            "id": 5, "name": "Linked", "type": "LORA",
+            "modelVersions": [
+                {"id": 50, "name": "newest", "files": []},
+                {"id": 49, "name": "mine", "files": [{"hashes": {"SHA256": sha256, "AutoV3": autov3}}]}
+            ]
+        })
+        .to_string();
+        let (p, server) = fixture_server(
+            || {},
+            move |_, line| line.contains("/api/v1/models/5 ").then(|| record.clone()),
+        );
+        let linked = link(
+            &p,
+            path.clone(),
+            None,
+            "https://civitai.red/models/5/linked",
+            false,
+        )
+        .await
+        .unwrap();
+        server.finish().await;
+        let civitai = linked.info.unwrap().civitai.unwrap();
+        assert_eq!(civitai.version_id, 49, "the version listing this file wins");
+        assert_eq!(civitai.matched_by, Some(CivitaiMatch::Manual));
+        let (_, refreshed) = fetch_fixture_routes(&path, || {}, |_, _| None).await;
+        assert_eq!(
+            refreshed.unwrap().info.unwrap().civitai.unwrap().version_id,
+            49,
+            "a miss keeps the user's link"
+        );
+        let version = version_json(60, 6, &"0".repeat(64), "000000000000");
+        let (p, server) = fixture_server(
+            || {},
+            move |_, line| {
+                line.contains("/model-versions/60 ")
+                    .then(|| version.clone())
+            },
+        );
+        let mismatch = link(
+            &p,
+            path.clone(),
+            None,
+            "https://civitai.com/models/7?modelVersionId=60",
+            false,
+        )
+        .await;
+        server.finish().await;
+        assert!(mismatch.is_err(), "version of another model");
+        assert!(link(
+            &p,
+            path.clone(),
+            None,
+            "https://example.com/models/5",
+            false
+        )
+        .await
+        .is_err());
+    }
+
     /// Live CivitAI by-hash acceptance; run with `cargo test -- --ignored live_civitai_by_hash`.
     #[tokio::test]
     #[ignore]
@@ -3855,5 +4393,39 @@ mod tests {
         let civitai = model.info.unwrap().civitai.expect("hash known to CivitAI");
         assert!(civitai.model_id > 0 && !civitai.name.is_empty());
         assert!(read_info(&file).unwrap().civitai.is_some());
+    }
+
+    /// Live AutoV3 acceptance: `DEAS_LIVE_SAFETENSORS` names a published LoRA; a scratch copy
+    /// with a rewritten metadata header must still match. Run with `--ignored live_civitai_autov3`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_civitai_autov3_matches_a_header_rewritten_copy() {
+        let original =
+            PathBuf::from(std::env::var("DEAS_LIVE_SAFETENSORS").expect("DEAS_LIVE_SAFETENSORS"));
+        let bytes = std::fs::read(&original).unwrap();
+        let length = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+        let mut header: Value = serde_json::from_slice(&bytes[8..8 + length]).unwrap();
+        header["__metadata__"] = serde_json::json!({"deas_probe": "rewritten header"});
+        let header = serde_json::to_vec(&header).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("probe.safetensors");
+        let mut copy = (header.len() as u64).to_le_bytes().to_vec();
+        copy.extend(header);
+        copy.extend(&bytes[8 + length..]);
+        std::fs::write(&file, copy).unwrap();
+        assert_ne!(sha256_file(&file).unwrap(), sha256_file(&original).unwrap());
+        let c = Catalog::load().unwrap();
+        let p = c.providers.iter().find(|p| p.kind == "civitai").unwrap();
+        let model = fetch(p, file.clone(), None, false).await.unwrap();
+        let civitai = model
+            .info
+            .unwrap()
+            .civitai
+            .expect("AutoV3 known to CivitAI");
+        assert_eq!(civitai.matched_by, Some(CivitaiMatch::Autov3));
+        eprintln!(
+            "live AutoV3 match: {} · {} · {:?} (version {})",
+            civitai.name, civitai.version, civitai.base, civitai.version_id
+        );
     }
 }

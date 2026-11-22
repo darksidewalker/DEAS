@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 /** Installed models under the ComfyUI models folder; CivitAI metadata is cached natively beside each file. */
 export interface ModelSettings { sampler?:string; scheduler?:string; steps?:number; cfgScale?:number; size?:string; clipSkip?:number }
 export interface ModelExample { image:string; prompt:string; negativePrompt?:string }
-export interface CivitaiInfo { description?:string; modelId:number; versionId:number; name:string; creator?:string; version:string; modelType:string; category:string; base?:string; nsfw:boolean; trainedWords:string[]; preview?:string; previewKind?:'image'|'video'|'unavailable'; settings?:ModelSettings; examples?:ModelExample[] }
+export interface CivitaiInfo { description?:string; modelId:number; versionId:number; name:string; creator?:string; version:string; modelType:string; category:string; base?:string; nsfw:boolean; trainedWords:string[]; preview?:string; previewKind?:'image'|'video'|'unavailable'; settings?:ModelSettings; examples?:ModelExample[]; /** Absent = full-file SHA-256. `manual` is a user-pasted link, not detection. */ matchedBy?:'sha256'|'autov3'|'sidecar'|'manual' }
 export interface ModelInfo { sha256:string; size:number; fetchedAt:number; civitai:CivitaiInfo|null }
 /** `family` is effective (declaration or detection); metadataError blocks execution, even for unknown checkpoints. */
 export type FamilyEvidence = 'header' | 'filename' | 'unresolved' | 'conflict';
@@ -15,6 +15,8 @@ export type ModelRefreshScope={category:string;folder?:string};
 export const scanModels=(root:string,extraRoots:string[]=[],refresh=false,scope?:ModelRefreshScope)=>invoke<LocalModel[]>('native_models_scan',{root,...(extraRoots.length?{extraRoots}:{}),...(refresh?{refresh:true}:{}),...(scope?{scope}:{})});
 /** Hashes the file once (cached), asks CivitAI by hash and writes `<file>.deas.json`. */
 export const fetchModelInfo=(path:string,authenticated:boolean,savePreview:boolean)=>invoke<LocalModel>('native_model_info',{path,authenticated,savePreview});
+/** Ties the file to a pasted CivitAI model/version link (recorded as `matchedBy: manual`). */
+export const linkModelInfo=(path:string,link:string,authenticated:boolean,savePreview:boolean)=>invoke<LocalModel>('native_model_link',{path,link,authenticated,savePreview});
 /** Explicit source-bound declaration only; null restores automatic detection. Never hashes or fetches. */
 export const writeModelFamily=(path:string,family:string|null)=>invoke<LocalModel>('native_model_family_write',{path,family});
 export type ModelFileChange={old:string;path:string|null;name:string|null;localPreview:string|null};
