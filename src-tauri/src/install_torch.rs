@@ -6,6 +6,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Persisted GPU identity in plan/install manifests. The five-field shape is stable so
+/// environments created by newer builds stay openable by older ones and vice versa; the
+/// owned-manifest round-trip check compares this exact shape.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hardware {
@@ -17,10 +20,44 @@ pub struct Hardware {
     /// NVIDIA: `major.minor` compute capability. AMD: the gfx target (gfx1030…
     /// gfx1201) resolved by `amd::amd_target`; reused so old plans keep serde shape.
     pub compute_capability: String,
-    /// Total frame buffer in MiB from `nvidia-smi memory_total`; 0 when unknown
-    /// (AMD probe, manifests written before this field existed). Display only.
-    #[serde(default)]
+}
+/// A visible GPU plus its frame-buffer size in MiB from `nvidia-smi memory.total`.
+/// Live probe data for the Backend tab's selector and setup preselection; display only,
+/// never persisted into plan or install manifests (see `Hardware`).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gpu {
+    pub vendor: String,
+    pub name: String,
+    pub uuid: String,
+    pub driver_version: String,
+    pub compute_capability: String,
     pub memory_total_mib: u64,
+}
+impl From<Hardware> for Gpu {
+    /// A persisted identity without live frame-buffer data (unknown size stays 0).
+    fn from(hardware: Hardware) -> Self {
+        Gpu {
+            vendor: hardware.vendor,
+            name: hardware.name,
+            uuid: hardware.uuid,
+            driver_version: hardware.driver_version,
+            compute_capability: hardware.compute_capability,
+            memory_total_mib: 0,
+        }
+    }
+}
+impl Gpu {
+    /// The persisted identity without display-only frame-buffer data.
+    pub fn hardware(&self) -> Hardware {
+        Hardware {
+            vendor: self.vendor.clone(),
+            name: self.name.clone(),
+            uuid: self.uuid.clone(),
+            driver_version: self.driver_version.clone(),
+            compute_capability: self.compute_capability.clone(),
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,10 +148,10 @@ fn version(spec: &str) -> Vec<u32> {
 /// The profile this build would install instead of `current`, only when it is a newer Torch on
 /// the same device class (CPU stays CPU, CUDA stays CUDA). `probed` is required for CUDA and must
 /// pass the same hardware/driver gates as a fresh install.
-pub fn newer(current: &Torch, probed: Option<&Hardware>) -> Result<Option<Torch>, String> {
+pub fn newer(current: &Torch, probed: Option<&Gpu>) -> Result<Option<Torch>, String> {
     let target = match (&current.cuda, probed) {
         (None, _) => cpu(),
-        (Some(_), Some(hardware)) => select(hardware)?,
+        (Some(_), Some(hardware)) => select(&hardware.hardware())?,
         (Some(_), None) => return Err("NVIDIA_GPU: hardware probe required".into()),
     };
     let same_class = target.cuda.is_some() == current.cuda.is_some();
@@ -123,7 +160,7 @@ pub fn newer(current: &Torch, probed: Option<&Hardware>) -> Result<Option<Torch>
             .then_some(target),
     )
 }
-fn parse_line(line: &str) -> Result<Hardware, String> {
+fn parse_line(line: &str) -> Result<Gpu, String> {
     let fields: Vec<_> = line.split(',').map(str::trim).collect();
     if fields.len() != 5
         || fields.iter().any(|s| s.is_empty() || *s == "N/A")
@@ -134,7 +171,7 @@ fn parse_line(line: &str) -> Result<Hardware, String> {
     let memory_total_mib = fields[4]
         .parse::<u64>()
         .map_err(|_| "NVIDIA_GPU: nvidia-smi returned a non-numeric memory total; repair driver and re-plan")?;
-    Ok(Hardware {
+    Ok(Gpu {
         vendor: "NVIDIA".into(),
         uuid: fields[0].into(),
         name: fields[1].into(),
@@ -144,14 +181,14 @@ fn parse_line(line: &str) -> Result<Hardware, String> {
     })
 }
 /// Every visible GPU, in nvidia-smi index order. A `CUDA_VISIBLE_DEVICES` pin still narrows the list.
-pub fn parse_all(output: &str) -> Result<Vec<Hardware>, String> {
+pub fn parse_all(output: &str) -> Result<Vec<Gpu>, String> {
     let lines: Vec<_> = output.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
         return Err("NVIDIA_GPU: nvidia-smi returned no visible GPU; install/repair the NVIDIA driver and re-plan".into());
     }
     lines.iter().map(|line| parse_line(line)).collect()
 }
-pub fn parse(output: &str) -> Result<Hardware, String> {
+pub fn parse(output: &str) -> Result<Gpu, String> {
     let gpus = parse_all(output)?;
     if gpus.len() != 1 {
         return Err("NVIDIA_GPU: expected exactly one visible GPU; set CUDA_VISIBLE_DEVICES to pin one GPU, select CPU explicitly, or use a single-GPU host".into());
@@ -160,11 +197,11 @@ pub fn parse(output: &str) -> Result<Hardware, String> {
 }
 /// Multi-GPU default: the passing GPU with the highest compute capability (lowest index on ties).
 /// A card that fails the driver/capability gates never wins; if none passes, the first gate error is reported.
-pub fn pick(gpus: &[Hardware]) -> Result<Hardware, String> {
-    let mut best: Option<(f32, &Hardware)> = None;
+pub fn pick(gpus: &[Gpu]) -> Result<Gpu, String> {
+    let mut best: Option<(f32, &Gpu)> = None;
     let mut first_error: Option<String> = None;
     for gpu in gpus {
-        match select(gpu) {
+        match select(&gpu.hardware()) {
             Ok(_) => match gpu.compute_capability.parse::<f32>() {
                 Ok(cc) if best.map_or(true, |(current, _)| cc > current) => {
                     best = Some((cc, gpu));
@@ -183,18 +220,19 @@ pub fn pick(gpus: &[Hardware]) -> Result<Hardware, String> {
     best.map(|(_, gpu)| gpu.clone())
         .ok_or_else(|| first_error.unwrap_or_else(|| "NVIDIA_GPU: no visible GPU".into()))
 }
-pub fn probe() -> Result<Hardware, String> {
+pub fn probe() -> Result<Gpu, String> {
     let bytes = run_probe("nvidia-smi", Duration::from_secs(5))?;
     parse(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
 }
-pub fn probe_all() -> Result<Vec<Hardware>, String> {
+pub fn probe_all() -> Result<Vec<Gpu>, String> {
     let bytes = run_probe("nvidia-smi", Duration::from_secs(5))?;
     parse_all(std::str::from_utf8(&bytes).map_err(|_| "NVIDIA_GPU: invalid UTF-8")?)
 }
 fn probe_command(program: &str) -> Command {
     let mut command = Command::new(program);
     let mut args: Vec<String> = vec![
-        "--query-gpu=uuid,name,driver_version,compute_cap,memory_total".to_owned(),
+        // `memory.total` is the exact nvidia-smi CSV field (dot notation); an underscore variant makes the query fail with exit code 2.
+        "--query-gpu=uuid,name,driver_version,compute_cap,memory.total".to_owned(),
         "--format=csv,noheader,nounits".to_owned(),
     ];
     // nvidia-smi enumerates every GPU regardless of CUDA_VISIBLE_DEVICES; pass the variable through as -i so a multi-GPU host can pin one visible device. Unset keeps the full enumeration.
@@ -290,7 +328,7 @@ fn run_probe(program: &str, timeout: Duration) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn fixture(name: &str, driver: &str, cc: &str) -> Hardware {
+    fn fixture(name: &str, driver: &str, cc: &str) -> Gpu {
         parse(&format!("GPU-test, {name}, {driver}, {cc}, 8192")).unwrap()
     }
     #[test]
@@ -301,7 +339,7 @@ mod tests {
             newer(&old, Some(&gpu)).unwrap().unwrap().packages[0],
             "torch==2.14.1"
         );
-        assert!(newer(&select(&gpu).unwrap(), Some(&gpu)).unwrap().is_none());
+        assert!(newer(&select(&gpu.hardware()).unwrap(), Some(&gpu)).unwrap().is_none());
         // Never a downgrade: a legacy GPU profile is older than an existing newer pin.
         let pascal = fixture("GTX 1080", "580.1.0", "6.1");
         assert!(newer(&old, Some(&pascal)).unwrap().is_none());
@@ -322,7 +360,7 @@ mod tests {
             "RTX 4090",
             "RTX 2080",
         ] {
-            let p = select(&fixture(name, "615.71.09", "12.0")).unwrap();
+            let p = select(&fixture(name, "615.71.09", "12.0").hardware()).unwrap();
             assert_eq!(
                 p.packages,
                 ["torch==2.14.1", "torchvision==0.29.1", "torchaudio==2.11.0"]
@@ -331,7 +369,7 @@ mod tests {
         }
         for name in ["GTX 1080", "Pascal", "Tesla P100"] {
             assert_eq!(
-                select(&fixture(name, "580.1.0", "6.1")).unwrap().packages[0],
+                select(&fixture(name, "580.1.0", "6.1").hardware()).unwrap().packages[0],
                 "torch==2.4.1"
             );
         }
@@ -341,15 +379,15 @@ mod tests {
             ("615.1", "5.2"),
             ("bad", "12.0"),
         ] {
-            assert!(select(&fixture("GPU", driver, cc)).is_err());
+            assert!(select(&fixture("GPU", driver, cc).hardware()).is_err());
         }
-        assert!(select(&fixture("GTX 1080", "520.1.0", "6.1")).is_err());
+        assert!(select(&fixture("GTX 1080", "520.1.0", "6.1").hardware()).is_err());
         assert!(parse("").is_err());
         assert!(parse("GPU-a, A, 615.1, 12.0, 8192\nGPU-b, B, 615.1, 12.0, 8192").is_err());
         assert!(parse("GPU-a, A, 615.1, 12.0, not-a-number").is_err());
     }
-    fn gpu(uuid: &str, name: &str, driver: &str, cc: &str) -> Hardware {
-        Hardware {
+    fn gpu(uuid: &str, name: &str, driver: &str, cc: &str) -> Gpu {
+        Gpu {
             vendor: "NVIDIA".into(),
             uuid: uuid.into(),
             name: name.into(),
@@ -413,7 +451,7 @@ mod tests {
     #[ignore = "Read-only live NVIDIA preflight; no installation"]
     fn live_nvidia_preflight() {
         let hardware = probe().unwrap();
-        let torch = select(&hardware).unwrap();
+        let torch = select(&hardware.hardware()).unwrap();
         println!("{}", serde_json::to_string(&hardware).unwrap());
         println!("{}", serde_json::to_string(&torch).unwrap());
     }
@@ -424,7 +462,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(hardware.name, "NVIDIA GeForce RTX 4080");
-        assert_eq!(select(&hardware).unwrap().cuda.as_deref(), Some("13.0"));
+        assert_eq!(select(&hardware.hardware()).unwrap().cuda.as_deref(), Some("13.0"));
     }
     #[cfg(unix)]
     #[test]

@@ -1,5 +1,5 @@
 //! Read-only recommendations; never authorizes or writes an installation.
-use crate::install::torch_profile::{self, Hardware};
+use crate::install::torch_profile::{self, Gpu};
 use crate::install::Backend;
 use serde::Serialize;
 use std::path::Path;
@@ -9,13 +9,13 @@ use std::path::Path;
 pub struct InstallDefaults {
     pub storage_path: String,
     pub backend: Backend,
-    pub hardware: Option<Hardware>,
+    pub hardware: Option<Gpu>,
     pub warnings: Vec<String>,
 }
 
 fn recommend(
     executable: &Path,
-    probe: Result<Vec<Hardware>, String>,
+    probe: Result<Vec<Gpu>, String>,
 ) -> Result<InstallDefaults, String> {
     let parent = executable
         .parent()
@@ -26,7 +26,7 @@ fn recommend(
     let (backend, hardware) = match probe {
         Ok(gpus) if gpus.len() == 1 => {
             let hardware = gpus.into_iter().next().unwrap();
-            match torch_profile::select(&hardware) {
+            match torch_profile::select(&hardware.hardware()) {
                 Ok(_) => (Backend::Nvidia, Some(hardware)),
                 Err(error) => {
                     warnings.push(format!(

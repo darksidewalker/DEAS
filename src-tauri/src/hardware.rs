@@ -1,5 +1,5 @@
 //! Read-only discovery for UI preselection, not an installation readiness check.
-use crate::install::torch_profile::{self, Hardware};
+use crate::install::torch_profile::{self, Gpu};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -7,7 +7,7 @@ use serde::Serialize;
 pub struct HardwareDetection {
     pub backend: Option<DetectedBackend>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hardware: Option<Hardware>,
+    pub hardware: Option<Gpu>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -20,7 +20,7 @@ pub enum DetectedBackend {
 }
 
 impl HardwareDetection {
-    fn from_probe(result: Result<Hardware, String>, backend: DetectedBackend) -> Self {
+    fn from_probe(result: Result<Gpu, String>, backend: DetectedBackend) -> Self {
         match result {
             Ok(hardware) => Self {
                 backend: Some(backend),
@@ -42,7 +42,7 @@ async fn detect_with<F>(
     backend: DetectedBackend,
 ) -> HardwareDetection
 where
-    F: FnOnce() -> Result<Hardware, String> + Send + 'static,
+    F: FnOnce() -> Result<Gpu, String> + Send + 'static,
 {
     let task = tauri::async_runtime::spawn_blocking(probe);
     let result = match tokio::time::timeout(timeout, task).await {

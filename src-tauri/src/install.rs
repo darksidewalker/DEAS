@@ -57,15 +57,15 @@ const KJNODES: &str = "https://github.com/kijai/ComfyUI-KJNodes.git";
 const KJNODES_REVISION: &str = "d3cfe21625e5170126ce06fbfcfe1d88108688c3";
 #[path = "install_torch.rs"]
 pub(crate) mod torch_profile;
-/// Re-exported so backend commands can name the GPU type in their signatures.
-pub use torch_profile::Hardware;
+/// Re-exported so backend commands can name the GPU types in their signatures.
+pub use torch_profile::{Gpu, Hardware};
 /// Read-only snapshot for the Backend tab's GPU selector: every visible NVIDIA GPU plus the card
 /// the installed environment is currently pointed at (the approved plan's recorded UUID).
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackendGpus {
-    pub planned: Option<torch_profile::Hardware>,
-    pub gpus: Vec<torch_profile::Hardware>,
+    pub planned: Option<Gpu>,
+    pub gpus: Vec<Gpu>,
 }
 /// Exact llama-cpp-python release per wheel-index family, chosen because its `ggml-cpu` library
 /// contains no AVX-512 code on any platform DEAS installs for (AVX2/FMA/F16C baseline). Upstream
@@ -489,20 +489,27 @@ impl Engine {
     /// Read-only snapshot for the GPU selector: every visible NVIDIA GPU (nvidia-smi index order)
     /// plus the card the installed environment is currently pointed at, if any.
     pub fn backend_gpus(&self) -> Result<BackendGpus, String> {
+        let gpus = torch_profile::probe_all()?;
         let planned = self
             .approved_plan()
             .filter(|plan| matches!(plan.request.backend, Backend::Nvidia))
-            .and_then(|plan| plan.hardware);
-        Ok(BackendGpus {
-            planned,
-            gpus: torch_profile::probe_all()?,
-        })
+            .and_then(|plan| plan.hardware)
+            .map(|core| {
+                // Selector labels come from the live probe; a planned card that is no longer
+                // visible keeps its identity with an unknown (0) frame-buffer size.
+                let mut gpu = Gpu::from(core);
+                if let Some(visible) = gpus.iter().find(|g| g.uuid == gpu.uuid) {
+                    gpu.memory_total_mib = visible.memory_total_mib;
+                }
+                gpu
+            });
+        Ok(BackendGpus { planned, gpus })
     }
     /// Point an installed NVIDIA environment at another visible GPU. Guards: nothing is
     /// installing, the backend is stopped, and the target passes the same Torch-profile gate as
     /// the installed profile (a legacy/modern mix needs a new plan). Both manifests are rewritten
     /// atomically with read-before-write checks and the approval is re-captured from disk.
-    pub fn backend_set_gpu(&self, uuid: &str) -> Result<torch_profile::Hardware, String> {
+    pub fn backend_set_gpu(&self, uuid: &str) -> Result<torch_profile::Gpu, String> {
         let mut g = lock(&self.inner);
         if g.status.state == "running" {
             return Err("A native installation is already running".into());
@@ -519,18 +526,24 @@ impl Engine {
         if !matches!(plan.request.backend, Backend::Nvidia) {
             return Err("GPU selection applies to NVIDIA environments only".into());
         }
+        let gpus = torch_profile::probe_all()?;
         let planned = plan
             .hardware
             .as_ref()
             .ok_or("Planned GPU identity is missing from the installation plan")?;
         if uuid == planned.uuid {
-            return Ok(planned.clone());
+            // No-op selection: report the live card so the selector label keeps its frame-buffer size.
+            let mut gpu = Gpu::from(planned.clone());
+            if let Some(visible) = gpus.iter().find(|g| g.uuid == uuid) {
+                gpu.memory_total_mib = visible.memory_total_mib;
+            }
+            return Ok(gpu);
         }
-        let selected = torch_profile::probe_all()?
+        let selected = gpus
             .into_iter()
             .find(|gpu| gpu.uuid == uuid)
             .ok_or_else(|| format!("NVIDIA_GPU: {uuid} is not visible on this host"))?;
-        let profile = torch_profile::select(&selected)?;
+        let profile = torch_profile::select(&selected.hardware())?;
         if plan.torch.as_ref().is_some_and(|current| *current != profile) {
             return Err(format!(
                 "NVIDIA_GPU: {} needs a different PyTorch profile ({index}); create a new installation plan for it",
@@ -543,7 +556,7 @@ impl Engine {
         let install_path = root.join("deas-install.json");
         let before_plan = crate::backend::read_owned(&plan_path, 1024 * 1024)?;
         let before_install = crate::backend::read_owned(&install_path, 1024 * 1024)?;
-        plan.hardware = Some(selected.clone());
+        plan.hardware = Some(selected.hardware());
         let new_plan = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
         let mut manifest: serde_json::Value = serde_json::from_slice(&before_install)
             .map_err(|_| "Owned install manifest is invalid".to_string())?;
@@ -752,11 +765,11 @@ impl Engine {
             Backend::Nvidia => match torch_profile::probe_all() {
                 Ok(gpus) if gpus.len() == 1 => {
                     let found = gpus.into_iter().next().unwrap();
-                    match torch_profile::select(&found) {
+                    match torch_profile::select(&found.hardware()) {
                         Ok(selected) => torch = Some(selected),
                         Err(error) => unsupported.push(error),
                     }
-                    hardware = Some(found);
+                    hardware = Some(found.hardware());
                 }
                 Ok(gpus) => match torch_profile::pick(&gpus) {
                     Ok(found) => {
@@ -765,11 +778,11 @@ impl Engine {
                             found.name
                         ));
                         // pick() only returns a GPU that already passed select().
-                        match torch_profile::select(&found) {
+                        match torch_profile::select(&found.hardware()) {
                             Ok(selected) => torch = Some(selected),
                             Err(error) => unsupported.push(error),
                         }
-                        hardware = Some(found);
+                        hardware = Some(found.hardware());
                     }
                     Err(error) => unsupported.push(error),
                 },
@@ -781,7 +794,7 @@ impl Engine {
                 } else {
                     match crate::amd::probe_amd() {
                         Ok(found) => {
-                            hardware = Some(found.clone());
+                            hardware = Some(found.hardware());
                             torch = Some(torch_profile::amd(&found.compute_capability));
                         }
                         Err(error) => unsupported.push(error),
@@ -1021,8 +1034,8 @@ impl Engine {
                 return Err(reason);
             }
             plan.torch = Some(torch);
-            if hardware.is_some() {
-                plan.hardware = hardware;
+            if let Some(hardware) = hardware {
+                plan.hardware = Some(hardware.hardware());
             }
         } else {
             enable_gguf_upgrade(&mut plan);
@@ -2042,7 +2055,7 @@ fn current_plan(g: &Inner) -> Result<Plan, String> {
 /// The visible GPU matching the plan's recorded UUID. `probe_all()` keeps a
 /// `CUDA_VISIBLE_DEVICES` pin; a missing match means the planned card disappeared
 /// from the host (or was disabled), so no other card is ever substituted silently.
-fn probe_planned(plan: &Plan) -> Result<torch_profile::Hardware, String> {
+fn probe_planned(plan: &Plan) -> Result<torch_profile::Gpu, String> {
     if !matches!(plan.request.backend, Backend::Nvidia) {
         return Err("No NVIDIA GPU was planned for this environment".into());
     }
@@ -2063,7 +2076,7 @@ fn probe_planned(plan: &Plan) -> Result<torch_profile::Hardware, String> {
 /// Newer Torch for `plan` plus the hardware it was gated on (CUDA probes the GPU read-only).
 fn torch_target(
     plan: &Plan,
-) -> Result<Option<(torch_profile::Torch, Option<torch_profile::Hardware>)>, String> {
+) -> Result<Option<(torch_profile::Torch, Option<torch_profile::Gpu>)>, String> {
     let current = plan.torch.as_ref().ok_or("Missing planned Torch profile")?;
     if matches!(plan.request.backend, Backend::Amd) {
         // shortcut: no newer ROCm profile is defined yet; an AMD Torch update needs
@@ -2080,7 +2093,7 @@ fn torch_target(
 /// installed Torch valid; another compute capability needs a new plan and Torch profile.
 fn refreshed_hardware(
     recorded: &torch_profile::Hardware,
-    probed: torch_profile::Hardware,
+    probed: torch_profile::Gpu,
     backend: &Backend,
 ) -> Result<torch_profile::Hardware, String> {
     if probed.compute_capability != recorded.compute_capability {
@@ -2094,9 +2107,9 @@ fn refreshed_hardware(
     if matches!(backend, Backend::Amd) {
         crate::amd::amd_target(&probed.name)?;
     } else {
-        torch_profile::select(&probed)?;
+        torch_profile::select(&probed.hardware())?;
     }
-    Ok(probed)
+    Ok(probed.hardware())
 }
 /// Node packs DEAS does not install have unknown compatibility with another Torch.
 fn foreign_nodes(plan: &Plan) -> Option<String> {
@@ -3344,7 +3357,6 @@ mod tests {
                 uuid: "GPU-fixture".into(),
                 driver_version: "621.24".into(),
                 compute_capability: "8.9".into(),
-                memory_total_mib: 16384,
             })
             .unwrap(),
         );
@@ -3360,7 +3372,6 @@ mod tests {
                 uuid: "GPU-fixture".into(),
                 driver_version: "560.0".into(),
                 compute_capability: "6.1".into(),
-                memory_total_mib: 8192,
             })
             .unwrap(),
         );
@@ -4123,7 +4134,6 @@ mod tests {
             uuid: "GPU-test".into(),
             driver_version: "581.57".into(),
             compute_capability: cc.into(),
-            memory_total_mib: 8192,
         };
         let pascal = torch_profile::select(&hardware("NVIDIA GeForce GTX 1080 Ti", "6.1")).unwrap();
         assert_eq!(llama_family(&pascal, true), "vulkan");
@@ -4211,7 +4221,6 @@ mod tests {
             uuid: "GPU-test".into(),
             driver_version: "590.10".into(),
             compute_capability: cc.into(),
-            memory_total_mib: 8192,
         };
         let profiles = [
             torch_profile::cpu(),

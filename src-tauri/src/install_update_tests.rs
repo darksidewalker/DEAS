@@ -158,8 +158,13 @@ fn torch_update_is_gated_on_a_newer_profile_and_known_node_packs() {
 
 #[test]
 fn reinstall_records_driver_update_but_refuses_other_compute_capability() {
-    let gpu = |uuid: &str, driver: &str, cc: &str| -> torch_profile::Hardware {
-        serde_json::from_value(serde_json::json!({"vendor":"NVIDIA","name":"NVIDIA GeForce RTX 4090","uuid":uuid,"driverVersion":driver,"computeCapability":cc})).unwrap()
+    let gpu = |uuid: &str, driver: &str, cc: &str| torch_profile::Gpu {
+        vendor: "NVIDIA".into(),
+        name: "NVIDIA GeForce RTX 4090".into(),
+        uuid: uuid.into(),
+        driver_version: driver.into(),
+        compute_capability: cc.into(),
+        memory_total_mib: 0,
     };
     let recorded = gpu("GPU-a", "580.10", "8.9");
     let updated =

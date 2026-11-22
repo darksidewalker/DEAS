@@ -1516,7 +1516,7 @@ pub async fn native_backend_set_gpu(
     uuid: String,
     engine: tauri::State<'_, crate::install::Engine>,
     app: tauri::AppHandle,
-) -> Result<crate::install::Hardware, String> {
+) -> Result<crate::install::Gpu, String> {
     let engine = (*engine).clone();
     // The folder guard must not cross the await; take it inside the worker like native_settings_move does.
     tauri::async_runtime::spawn_blocking(move || {
