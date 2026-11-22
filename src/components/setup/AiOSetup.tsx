@@ -18,6 +18,7 @@ import { QuickSettings } from '../../features/studio/QuickSettings';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
 import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
 import { LanguageSetting } from '../../features/settings/LanguageSetting';
+import { WindowSetting } from '../../features/settings/WindowSetting';
 import { LogsPanel } from '../../features/logs/LogsPanel';
 import { filesPresent, readFolders, type Folders } from '../../lib/settings';
 import { authProviders } from '../../features/downloads/DownloadPluginPanel';
@@ -423,6 +424,7 @@ export function AiOSetup({ experience='advanced',onExperience,beginnerPage='gene
   {inBackend&&review&&defaults&&!status&&<div className="aio-help aio-detection" role="status"><p>{t(defaults.backend==='nvidia'?'setup.detectedNvidia':'setup.cpuRecommendation')}</p><p>{t('setup.autoFindings')}</p>{typeof defaults.hardware?.name==='string'&&<p>{String(defaults.hardware.name)}</p>}{defaults.warnings.length>0&&<ul>{defaults.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}</div>}
   {view==='logs'&&<LogsPanel/>}
   {inBackend&&<LanguageSetting/>}
+  {inBackend&&<WindowSetting/>}
   {inBackend&&!installed&&repairTarget?.repair&&<section className="aio-detail aio-repair" aria-labelledby="env-repair-title" data-env-repair><h3 id="env-repair-title">{t('setup.repair.title')}</h3><p>{t('setup.repair.help')}</p><p className="aio-help" style={{overflowWrap:'anywhere'}}><code>{repairTarget.request.storagePath}</code></p><details><summary>{t('setup.repair.details')}</summary><p className="aio-help">{repairTarget.repair.reason}</p></details><button type="button" className="aio-confirm-button" data-env-repair-start title={t('setup.repair.actionHint')} disabled={!native||running||busy} onClick={()=>setConfirmRepair(true)}>{t('setup.repair.action')}</button></section>}
   {inBackend&&!installed&&<button type="button" data-upgrade disabled={!native||running||busy} onClick={()=>setConfirmUpgrade(true)}>{t('setup.upgrade')}</button>}
   {appReplaced&&<p role="status">{t(restartPrompt&&restartChoice!=='now'?(restartChoice==='later'?'setup.updateInstalledLater':'setup.updateInstalledPending'):'setup.updateRestart')}</p>}

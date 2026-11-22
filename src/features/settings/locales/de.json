@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "Wörterbuch installiert. Prompt-Felder werden jetzt geprüft.",
   "settings.spellcheck.installHelp": "Lädt das Hunspell-Paar für {language} ({size} MB, {license}) in den DEAS-Datenordner — ohne Admin-Rechte, unter Linux und Windows.",
   "settings.spellcheck.unavailable": "Für diese Sprache ist kein Hunspell-Wörterbuch verfügbar.",
-  "settings.spellcheck.failed": "Wörterbuch-Download fehlgeschlagen. Details im Log."
+  "settings.spellcheck.failed": "Wörterbuch-Download fehlgeschlagen. Details im Log.",
+  "settings.window.title": "Startfenster",
+  "settings.window.reading": "Lese…",
+  "settings.window.windowed": "Fenster",
+  "settings.window.maximized": "Maximiert",
+  "settings.window.fullscreen": "Vollbild",
+  "settings.window.help": "So öffnet DEAS beim nächsten Start. Maximiert füllt den Bildschirm und behält den Fensterrahmen; Vollbild blendet ihn zusätzlich aus — mit F11 verlassen Sie es jederzeit. Das geöffnete Fenster ändert sich bei der Auswahl nicht, darum kann Vollbild die Oberfläche nicht verstecken.",
+  "settings.window.saved": "Gespeichert. Wirkt beim nächsten Start von DEAS.",
+  "settings.window.error": "DEAS konnte das Startfenster nicht speichern."
 }

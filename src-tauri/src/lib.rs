@@ -72,8 +72,10 @@ pub mod model_check;
 pub mod model_families;
 pub mod recipe_prerequisites;
 pub mod wildcard;
+pub mod window_mode;
 pub use recipe_prerequisites::native_recipe_prerequisites;
 pub use wildcard::{native_wildcard_build, native_wildcard_library};
+pub use window_mode::{native_logs_window_error, native_window_read, native_window_write};
 pub mod backend;
 pub use backend::{
     native_backend_gpus, native_backend_set_gpu, native_backend_start, native_backend_status,

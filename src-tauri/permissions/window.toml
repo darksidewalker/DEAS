@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-window"
+description = "Read and change how DEAS's own main window opens: windowed, maximized or fullscreen, applied on the next start."
+commands.allow = ["native_window_read", "native_window_write", "native_logs_window_error"]

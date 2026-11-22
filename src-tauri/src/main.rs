@@ -55,8 +55,14 @@ fn main() {
             }
             deas::splash::open(app);
             // Main stays hidden until the UI reports its state restored (or the splash deadline passes).
+            // How the window opens is the user's own choice, read from DEAS's preferences before the
+            // window exists; an unreadable preference leaves the default (maximized) untouched.
+            let start_window =
+                deas::window_mode::read_mode(&app.path().app_local_data_dir().unwrap_or_default());
             tauri::WebviewWindowBuilder::from_config(app, &config)?
                 .visible(false)
+                .maximized(start_window == "maximized")
+                .fullscreen(start_window == "fullscreen")
                 .on_page_load(|webview, payload| {
                     if payload.event() == tauri::webview::PageLoadEvent::Finished {
                         deas::splash::phase(webview.app_handle(), "interface");
@@ -202,6 +208,9 @@ fn main() {
             deas::native_presets_write,
             deas::native_presets_invalid,
             deas::native_settings_write,
+            deas::native_window_read,
+            deas::native_window_write,
+            deas::native_logs_window_error,
             deas::native_settings_move,
             deas::native_environment_move,
             deas::native_startup_read,

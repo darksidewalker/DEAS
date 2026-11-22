@@ -301,6 +301,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: 'downloads', libraryView: 'queue', tab: 'downloads.title', section: 'downloads.view.queue', label: 'downloads.queue.clear', target: '[data-download-clear]', aliases: ['remove', 'finished'], reason: 'search.reason.queue' },
   { view: 'downloads', libraryView: 'installed', tab: 'downloads.title', section: 'downloads.view.installed', label: 'downloads.view.installed', target: '[data-library-tab="installed"]', aliases: ['local'], reason: 'search.reason.installed' },
   { view: 'downloads', libraryView: 'installed', tab: 'downloads.title', section: 'downloads.view.installed', label: 'downloads.installed.scanAll', target: '[data-scan-files]', aliases: ['metadata', 'civitai'], reason: 'search.reason.installed' },
+  { view: 'downloads', libraryView: 'installed', tab: 'downloads.title', section: 'library.details', label: 'downloads.installed.link', target: '[data-library-civitai-link] input', aliases: ['civitai', 'link model', 'metadata not found', 'manual match'], reason: 'search.reason.installed' },
   { view: 'downloads', libraryView: 'installed', tab: 'downloads.title', section: 'downloads.view.installed', label: 'downloads.installed.scanScope', target: '[data-scan-scope]', aliases: ['scan', 'scope'], reason: 'search.reason.installed' },
   { view: 'downloads', libraryView: 'catalog', tab: 'downloads.title', section: 'downloads.view.catalog', label: 'downloads.folder.dials', target: '[data-catalog-category="dials"]', aliases: ['MatlowAI', 'MiniMax H3 Dials', 'download dials'] },
   { view: 'downloads', libraryView: 'catalog', tab: 'downloads.title', section: 'downloads.view.catalog', label: 'library.favorites', target: '[data-catalog-favorites]', aliases: ['catalog favorites'] },
@@ -363,6 +364,7 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.input', target: '[data-folder="input"]', aliases: ['folder', 'directory'], reason: 'search.reason.installed' },
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.output', target: '[data-folder="output"]', aliases: ['folder', 'directory'], reason: 'search.reason.installed' },
   { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'app.language', target: '#language-select', aliases: ['locale', 'translation'] },
+  { view: 'backend', tab: 'settings.button', section: 'settings.title', label: 'settings.window.title', target: '[data-window-start-mode]', aliases: ['windowed', 'maximized', 'fullscreen', 'maximize', 'F11', 'start window'] },
   { view: 'backend', tab: 'settings.button', section: 'settings.button', label: 'setup.upgrade', target: '[data-upgrade]', aliases: ['update', 'release', 'download'] },
   { view: 'backend', tab: 'settings.button', section: 'settings.button', label: 'setup.repair.action', target: '[data-env-repair-start]', aliases: ['repair', 're-provision', 'node pack'] },
   // Logs

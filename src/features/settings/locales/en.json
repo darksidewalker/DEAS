@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "Dictionary installed. Prompt fields are checked now.",
   "settings.spellcheck.installHelp": "Downloads the Hunspell pair for {language} ({size} MB, {license}) into the DEAS data folder — no admin rights, works on Linux and Windows.",
   "settings.spellcheck.unavailable": "No Hunspell dictionary is published for this language.",
-  "settings.spellcheck.failed": "Dictionary download failed. See Logs for details."
+  "settings.spellcheck.failed": "Dictionary download failed. See Logs for details.",
+  "settings.window.title": "Start window",
+  "settings.window.reading": "Reading…",
+  "settings.window.windowed": "Windowed",
+  "settings.window.maximized": "Maximized",
+  "settings.window.fullscreen": "Fullscreen",
+  "settings.window.help": "How DEAS opens on the next start. Maximized fills the screen and keeps the window frame; Fullscreen also hides the frame — press F11 to leave it at any time. The running window never changes while you choose, so a fullscreen start cannot hide the interface.",
+  "settings.window.saved": "Saved. It applies when DEAS starts again.",
+  "settings.window.error": "DEAS could not save the start window."
 }

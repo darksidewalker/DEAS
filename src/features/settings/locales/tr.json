@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "Sözlük kuruldu. Prompt alanları artık denetleniyor.",
   "settings.spellcheck.installHelp": "{language} için Hunspell çiftini ({size} MB, {license}) DEAS veri klasörüne indirir — yönetici hakları gerekmez, Linux ve Windows'ta çalışır.",
   "settings.spellcheck.unavailable": "Bu dil için Hunspell sözlüğü yayınlanmadı.",
-  "settings.spellcheck.failed": "Sözlük indirme başarısız. Logları kontrol edin."
+  "settings.spellcheck.failed": "Sözlük indirme başarısız. Logları kontrol edin.",
+  "settings.window.title": "Başlangıç penceresi",
+  "settings.window.reading": "Okunuyor…",
+  "settings.window.windowed": "Pencereli",
+  "settings.window.maximized": "Büyütülmüş",
+  "settings.window.fullscreen": "Tam ekran",
+  "settings.window.help": "DEAS’ın bir sonraki açılış biçimi. Büyütülmüş ekranı çerçeveyle doldurur; Tam ekran çerçeveyi de gizler — istediğiniz an F11 ile çıkabilirsiniz. Seçim sırasında açık pencere değişmez, bu yüzden tam ekran arayüzü gizleyemez.",
+  "settings.window.saved": "Kaydedildi. DEAS yeniden açıldığında geçerli olur.",
+  "settings.window.error": "DEAS başlangıç penceresini kaydedemedi."
 }

@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "Словарь установлен. Поля промптов теперь проверяются.",
   "settings.spellcheck.installHelp": "Загружает пару Hunspell для {language} ({size} МБ, {license}) в папку данных DEAS — без прав администратора, работает на Linux и Windows.",
   "settings.spellcheck.unavailable": "Для этого языка словарь Hunspell не опубликован.",
-  "settings.spellcheck.failed": "Не удалось загрузить словарь. Подробности — в Логах."
+  "settings.spellcheck.failed": "Не удалось загрузить словарь. Подробности — в Логах.",
+  "settings.window.title": "Окно при запуске",
+  "settings.window.reading": "Чтение…",
+  "settings.window.windowed": "В окне",
+  "settings.window.maximized": "Развёрнуто",
+  "settings.window.fullscreen": "Полноэкранный режим",
+  "settings.window.help": "Как DEAS откроется при следующем запуске. «Развёрнуто» заполняет экран с рамкой окна; «Полноэкранный режим» скрывает и рамку — в любой момент его можно снять клавишей F11. Открытое окно при выборе не меняется, поэтому полноэкранный режим не спрячет интерфейс.",
+  "settings.window.saved": "Сохранено. Применится при следующем запуске DEAS.",
+  "settings.window.error": "DEAS не удалось сохранить настройку окна запуска."
 }

@@ -21,6 +21,7 @@ import type { Folders } from './lib/settings';
 import type { ChatRenderOutcome, ChatRenderRequest, ChatStudio } from './lib/chat';
 import type { ForgeCanvasContext, ForgeSendCanvas } from './lib/forgeCanvas';
 import { oneOf, usePref } from './lib/preferences';
+import { toggleFullscreen } from './lib/window';
 import {type Experience,type BeginnerPage} from './features/beginner/Experience';
 const studioTabs=['generate','forge','chat','analysis','wizards','tve','monitor','map'] as const;
 const presentation: Record<string,{column:number;order:number}>={engine:{column:0,order:0},director:{column:1,order:0},plugins:{column:1,order:1},forge:{column:2,order:0},refmods:{column:2,order:1},continuity:{column:2,order:2},output:{column:2,order:3}};
@@ -123,6 +124,12 @@ export default function App(){
   const observer=new MutationObserver(decorate);observer.observe(root,{childList:true,subtree:true});
   return()=>observer.disconnect();
  },[t]);
+ // F11 enters or leaves fullscreen on the running window; the Backend choice decides the next start.
+ useEffect(() => {
+  const onKey = (event: KeyboardEvent) => { if (event.key === 'F11') { event.preventDefault(); void toggleFullscreen(); } };
+  window.addEventListener('keydown', onKey);
+  return () => window.removeEventListener('keydown', onKey);
+ }, []);
  // An explicit Inspect opens the Engine node; the owned backend's automatic handoff only binds the endpoint and leaves the user where they are.
  function connectExisting(baseUrl:string,inspect=false){inspectionVersion.current++;setInspecting(false);setEndpoint(baseUrl);if(!inspect)setOwnedEndpoint(baseUrl);setSnapshot(null);setInspectionError('');if(inspect){setTab('map');setActive('engine');setPendingConnectionFocus(true);}}
  const includedIds=new Set(builtinPlugins.flatMap(p=>p.includes??[]));

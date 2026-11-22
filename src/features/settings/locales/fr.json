@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "Dictionnaire installé. Les champs de prompt sont vérifiés maintenant.",
   "settings.spellcheck.installHelp": "Télécharge la paire Hunspell pour {language} ({size} MB, {license}) dans le dossier de données DEAS — sans droits admin, sous Linux et Windows.",
   "settings.spellcheck.unavailable": "Aucun dictionnaire Hunspell n'est publié pour cette langue.",
-  "settings.spellcheck.failed": "Le téléchargement du dictionnaire a échoué. Voir les logs."
+  "settings.spellcheck.failed": "Le téléchargement du dictionnaire a échoué. Voir les logs.",
+  "settings.window.title": "Fenêtre de démarrage",
+  "settings.window.reading": "Lecture…",
+  "settings.window.windowed": "Fenêtrée",
+  "settings.window.maximized": "Maximisée",
+  "settings.window.fullscreen": "Plein écran",
+  "settings.window.help": "Comment DEAS s’ouvrira au prochain démarrage. Maximisée remplit l’écran et garde le cadre de fenêtre ; Plein écran le masque aussi — appuyez sur F11 pour en sortir à tout moment. La fenêtre ouverte ne change pas pendant le choix ; un plein écran ne peut donc pas cacher l’interface.",
+  "settings.window.saved": "Enregistré. Appliqué au prochain démarrage de DEAS.",
+  "settings.window.error": "DEAS n’a pas pu enregistrer la fenêtre de démarrage."
 }

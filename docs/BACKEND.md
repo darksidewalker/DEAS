@@ -22,6 +22,10 @@ Relocation currently supports Linux; other platforms reject movement without cha
 
 German, English, Turkish, French, Simplified Chinese and Japanese menus/texts live in decentralized module-owned `locales/*.json` files. Data-only manifests under `src/languages/<id>/manifest.json` register bundled UX languages. Switching language preserves IDs and choices; key parity and source-reference checks run in tests. Raw technical logs/errors remain original. See [localization contract](LOCALIZATION.md).
 
+## Start window
+
+**Backend → Start window** decides how DEAS's own main window opens on the next start: **Windowed**, **Maximized** or **Fullscreen**; a fresh installation opens Maximized. The choice is stored natively in `deas-window.json` in DEAS's own preferences folder (the same place as the presets and API keys), because it must be known before the window exists. It belongs to the installation, not to the environment, and is not moved with it. Choosing never changes the window you are looking at, so a fullscreen start can always be corrected before it takes effect. **F11** enters or leaves fullscreen on the running window at any time; a window that refuses is reported in Logs. DEAS stores no window geometry — the size and position of a windowed start stay the operating system's. Verified: the stored mode, its validation and reload in Rust, and the select in the interface. The key press and the real window state on Windows are not verified yet.
+
 ## Native installer coverage
 
 Rust directly implements verified uv bootstrap, managed Python, isolated venv, ComfyUI reference checkout, pinned CPU/NVIDIA/AMD-Linux Torch selection and required runtime checks. Selected DaSiWa capabilities share one nodepack dependency, fetched only when needed; selecting a capability does not yet implement its studio UI or install model weights. Plans fix hardware and framework identities and require separate confirmation. Targets must be absent, with an existing nonsymlink parent. Fresh installs refuse existing targets. Explicit owned-environment Upgrade/Reinstall is separate: review its plan; reinstall can replace the owned venv and is not rollback.

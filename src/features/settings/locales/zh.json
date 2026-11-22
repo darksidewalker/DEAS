@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "词典已安装。提示词字段现在开始检查。",
   "settings.spellcheck.installHelp": "将 {language} 的 Hunspell 词典对（{size} MB，{license}）下载到 DEAS 数据目录 — 无需管理员权限，Linux 与 Windows 均可。",
   "settings.spellcheck.unavailable": "该语言没有可用的 Hunspell 词典。",
-  "settings.spellcheck.failed": "词典下载失败。请查看日志。"
+  "settings.spellcheck.failed": "词典下载失败。请查看日志。",
+  "settings.window.title": "启动窗口",
+  "settings.window.reading": "读取中…",
+  "settings.window.windowed": "窗口模式",
+  "settings.window.maximized": "最大化",
+  "settings.window.fullscreen": "全屏",
+  "settings.window.help": "DEAS 下次启动时的打开方式。“最大化”占满屏幕并保留窗口边框；“全屏”还会隐藏边框——随时按 F11 即可退出。选择时不会改变当前窗口，因此全屏不会让界面无法操作。",
+  "settings.window.saved": "已保存。下次启动 DEAS 时生效。",
+  "settings.window.error": "DEAS 无法保存启动窗口设置。"
 }

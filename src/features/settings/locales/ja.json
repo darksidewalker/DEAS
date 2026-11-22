@@ -11,5 +11,13 @@
   "settings.spellcheck.installed": "辞書をインストールしました。プロンプト欄はすぐにチェックされます。",
   "settings.spellcheck.installHelp": "{language}のHunspell辞書ペア（{size} MB、{license}）をDEASデータフォルダにダウンロードします。管理者権限不要、LinuxとWindowsで動作。",
   "settings.spellcheck.unavailable": "この言語用のHunspell辞書は公開されていません。",
-  "settings.spellcheck.failed": "辞書のダウンロードに失敗しました。ログを参照してください。"
+  "settings.spellcheck.failed": "辞書のダウンロードに失敗しました。ログを参照してください。",
+  "settings.window.title": "起動時のウィンドウ",
+  "settings.window.reading": "読み込み中…",
+  "settings.window.windowed": "ウィンドウ",
+  "settings.window.maximized": "最大化",
+  "settings.window.fullscreen": "全画面表示",
+  "settings.window.help": "次回起動時の DEAS の開き方です。最大化は画面全体を枠付きで使い、全画面表示は枠も隠します — いつでも F11 で解除できます。選択しても今開いているウィンドウは変わらないため、全画面表示で操作画面が隠れることはありません。",
+  "settings.window.saved": "保存しました。次回起動時に適用されます。",
+  "settings.window.error": "DEAS は起動時のウィンドウを保存できませんでした。"
 }
