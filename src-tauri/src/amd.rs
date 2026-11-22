@@ -2,7 +2,7 @@
 //! (internal/native/torch/amd.go, amd_runtime.go). The gfx target map and its
 //! failure semantics are copied deliberately: unknown families must never
 //! silently receive RDNA3 kernels.
-use crate::install::torch_profile::Hardware;
+use crate::install::torch_profile::Gpu;
 
 const AMD_ALLOWED_TARGETS: [&str; 7] = [
     "gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1151", "gfx1200", "gfx1201",
@@ -176,9 +176,9 @@ pub fn amd_target(name: &str) -> Result<String, String> {
 
 /// Pure parser for `lspci -nn` output; `driver_version` is injected so tests
 /// need no kernel state. shortcut: assumes one display device; multi-GPU
-/// selection is an open PLAN.md item and the NVIDIA probe refuses it too.
+/// selection is an open PLAN.md item (NVIDIA has it since 0.3.21).
 #[cfg(any(target_os = "linux", test))]
-pub fn parse_amd_lspci(output: &str, driver_version: &str) -> Result<Hardware, String> {
+pub fn parse_amd_lspci(output: &str, driver_version: &str) -> Result<Gpu, String> {
     let mut found: Option<(String, String)> = None;
     for line in output.lines() {
         let is_display = ["VGA compatible", "Display controller", "3D controller"]
@@ -211,12 +211,14 @@ pub fn parse_amd_lspci(output: &str, driver_version: &str) -> Result<Hardware, S
     let (description, uuid) = found
         .ok_or("AMD_GPU: no AMD display device found by lspci; select CPU or another backend")?;
     let compute_capability = amd_target(&description)?;
-    Ok(Hardware {
+    Ok(Gpu {
         vendor: "AMD".into(),
         uuid,
         name: description,
         driver_version: driver_version.into(),
         compute_capability,
+        // lspci discovery does not report frame-buffer size; the GPU selector is NVIDIA-only.
+        memory_total_mib: 0,
     })
 }
 
@@ -241,7 +243,7 @@ pub fn amdgpu_driver_version() -> Result<String, String> {
 /// `uv --dry-run` (2026-11-08) but there is no Windows AMD runtime acceptance
 /// yet; plan() keeps Backend::Amd Linux-gated until one exists.
 #[cfg(target_os = "linux")]
-pub fn probe_amd() -> Result<Hardware, String> {
+pub fn probe_amd() -> Result<Gpu, String> {
     let driver_version = amdgpu_driver_version()?;
     let output = std::process::Command::new("lspci")
         .arg("-nn")
@@ -259,7 +261,7 @@ pub fn probe_amd() -> Result<Hardware, String> {
 /// Cross-platform compile stub: plan() never requests an AMD backend off Linux,
 /// so this only answers honestly if a stale or hand-crafted request arrives.
 #[cfg(not(target_os = "linux"))]
-pub fn probe_amd() -> Result<Hardware, String> {
+pub fn probe_amd() -> Result<Gpu, String> {
     Err("AMD_BACKEND: AMD backends are only offered on Linux".into())
 }
 

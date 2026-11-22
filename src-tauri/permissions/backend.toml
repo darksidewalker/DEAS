@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-backend"
-description = "Explicitly start/status/stop only this session's successfully provisioned owned backend; no path, PID, URL or command inputs."
-commands.allow = ["native_backend_start", "native_backend_status", "native_backend_stop", "native_backend_test"]
+description = "Explicitly start/status/stop only this session's successfully provisioned owned backend; enumerate visible NVIDIA GPUs and point the installed environment at one of them by UUID. No path, PID, URL or command inputs."
+commands.allow = ["native_backend_start", "native_backend_status", "native_backend_stop", "native_backend_test", "native_backend_gpus", "native_backend_set_gpu"]

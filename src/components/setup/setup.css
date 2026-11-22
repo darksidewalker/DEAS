@@ -30,7 +30,7 @@
 .aio-actions, .aio-draft-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
 .aio-actions button, .aio-draft-actions button, .aio-input-row button { padding: .75rem 1rem; font-size: .85rem; }
 .aio-setup button:disabled { opacity: .65; cursor: not-allowed; }
-.aio-setup button:focus-visible, .aio-setup input:focus-visible { outline: 2px solid var(--blue-2); outline-offset: 4px; }
+.aio-setup button:focus-visible, .aio-setup input:focus-visible, .aio-setup select:focus-visible { outline: 2px solid var(--blue-2); outline-offset: 4px; }
 .aio-detail pre { overflow: auto; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--field); padding: 1rem; border-radius: .75rem; color: var(--blue-light); font-size: .8rem; line-height: 1.6; }
 .aio-plan-status { color: var(--copper-hi); font-size: .8rem; font-weight: 600; }
 .aio-error { color: var(--danger); }

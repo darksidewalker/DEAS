@@ -310,7 +310,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   expect(installed.mock.calls[0][0]).toEqual(['director','forge','refmods','continuity']);
   view.rerender(<I18nProvider><AiOSetup onConnectExisting={vi.fn()} onInstalled={features=>installed(features)}/></I18nProvider>);
   expect(installed).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_theme_packs'&&c!=='native_spellcheck_status'&&c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan','native_install_start']);
+  expect(vi.mocked(invoke).mock.calls.map(([command])=>command).filter(c=>c!=='native_theme_packs'&&c!=='native_spellcheck_status'&&c!=='native_auth_status'&&c!=='native_repo_stars'&&c!=='native_update_check')).toEqual(['native_install_defaults','native_install_plan','native_install_start','native_backend_gpus']);
  });
  it.each(['idle','failed','cancelled'] as const)('does not hand off a native %s install',async state=>{
   nativeFixture();const installed=vi.fn();

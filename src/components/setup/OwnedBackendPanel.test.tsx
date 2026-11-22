@@ -14,6 +14,9 @@ beforeEach(()=>{vi.mocked(readAuthStatus).mockResolvedValue([]);localStorage.cle
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.useRealTimers();});
 const fixture=(state:'starting'|'running'|'failed'|'stopped',endpoint:string|null=null)=>({state,endpoint,logs:['mock IPC fixture log'],error:null,generationReady:false});
 const DEPS=[{id:'environment',ok:true},{id:'python',ok:true},{id:'comfyui',ok:true},{id:'nodes',ok:true},{id:'api',ok:true}];
+const GPU_A={vendor:'NVIDIA',name:'test GPU A',uuid:'GPU-a',driverVersion:'615.71.09',computeCapability:'8.9',memoryTotalMib:8192};
+const GPU_B={vendor:'NVIDIA',name:'test GPU B',uuid:'GPU-b',driverVersion:'615.71.09',computeCapability:'12.0',memoryTotalMib:16384};
+const GPUS={planned:GPU_A,gpus:[GPU_A,GPU_B]};
 const mount=(succeeded=false,connect=vi.fn())=>render(<I18nProvider><OwnedBackendPanel installSucceeded={succeeded} onConnectExisting={connect}/></I18nProvider>);
 describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU verification',()=>{
  it.each(['failed','ipc-error'] as const)('revokes the embedded editor endpoint after %s and on unmount',async(state)=>{
@@ -29,11 +32,12 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   endpoint.mockClear();view.unmount();expect(endpoint).toHaveBeenCalledWith(null);
  });
  it('refreshes native maintenance status without starting or stopping the backend',async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_gpus'?GPUS:fixture('running','http://127.0.0.1:49312'));
   const view=render(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={vi.fn()} refreshSignal={0}/></I18nProvider>);
-  expect(invoke).not.toHaveBeenCalled();vi.mocked(invoke).mockResolvedValue(fixture('running','http://127.0.0.1:49312'));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledExactlyOnceWith('native_backend_gpus'));
   view.rerender(<I18nProvider><OwnedBackendPanel installSucceeded onConnectExisting={vi.fn()} refreshSignal={1} locked/></I18nProvider>);
   await screen.findByRole('button',{name:'Stop'});
-  expect(invoke).toHaveBeenCalledExactlyOnceWith('native_backend_status');
+  expect(invoke).toHaveBeenLastCalledWith('native_backend_status');
   expect(screen.getByRole('button',{name:'Stop'})).toHaveProperty('disabled',true);
   expect(screen.getByRole('button',{name:'Test'})).toHaveProperty('disabled',true);
  });
@@ -41,7 +45,8 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_test'?DEPS:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':'stopped'));
   const view=render(<StrictMode><I18nProvider><OwnedBackendPanel installSucceeded autoStart onConnectExisting={vi.fn()}/></I18nProvider></StrictMode>);
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_start'));
-  expect(vi.mocked(invoke).mock.calls.slice(0,2)).toEqual([['native_backend_status'],['native_backend_start']]);
+  // StrictMode double-mount fires the read-only GPU enumeration twice before the autostart status check.
+   expect(vi.mocked(invoke).mock.calls.slice(2,4)).toEqual([['native_backend_status'],['native_backend_start']]);
   fireEvent.click(screen.getByRole('button',{name:'Stop'}));await act(async()=>{});
   view.rerender(<StrictMode><I18nProvider><OwnedBackendPanel installSucceeded autoStart onConnectExisting={vi.fn()}/></I18nProvider></StrictMode>);
   await act(async()=>{});expect(vi.mocked(invoke).mock.calls.filter(([c])=>c==='native_backend_start')).toHaveLength(1);
@@ -65,7 +70,7 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
  it('requires successful installation and explicit start, polls readiness and explicitly stops',async()=>{
   vi.useFakeTimers();const connect=vi.fn();
   vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_test'?DEPS:command==='native_llm_read'?defaultLlmConfig:command==='native_llm_models'?{models:[],warnings:[]}:fixture(command==='native_backend_start'?'starting':command==='native_backend_stop'?'stopped':'running',command==='native_backend_status'?'http://127.0.0.1:49173':null));
-  mount(true,connect);expect(invoke).not.toHaveBeenCalled();
+  mount(true,connect);expect(invoke).toHaveBeenCalledExactlyOnceWith('native_backend_gpus');
   fireEvent.click(screen.getByRole('button',{name:'Start'}));
   await act(async()=>{});
   expect(screen.getByRole('status').textContent).toContain('Starting');
@@ -79,8 +84,8 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   fireEvent.click(screen.getByRole('button',{name:'Stop'}));await act(async()=>{});
   expect(screen.getByRole('status').textContent).toContain('Stopped');
   expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
-  expect(vi.mocked(invoke).mock.calls).toEqual([['native_backend_start'],['native_backend_status'],['native_backend_status'],['native_backend_stop']]);
-  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(invoke).toHaveBeenCalledTimes(4);
+  expect(vi.mocked(invoke).mock.calls).toEqual([['native_backend_gpus'],['native_backend_start'],['native_backend_status'],['native_backend_status'],['native_backend_stop']]);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(invoke).toHaveBeenCalledTimes(5);
   expect(screen.getByText(/Generation readiness is not verified/)).toBeTruthy();
  });
  it('rehydrates native session status without starting or adopting a draft environment',async()=>{
@@ -114,15 +119,16 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   const view=mount(true);const button=screen.getByRole('button',{name:'Start'});
   fireEvent.click(button);fireEvent.click(button);
   fireEvent.click(screen.getByRole('button',{name:'Test'}));
-  expect(invoke).toHaveBeenCalledTimes(1);
+  // +1: the mount fires the read-only GPU enumeration before the first Start click.
+   expect(invoke).toHaveBeenCalledTimes(2);
   await act(async()=>{resolve(fixture('starting'));});
   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
-  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(invoke).toHaveBeenCalledTimes(3);
   await act(async()=>{await vi.advanceTimersByTimeAsync(10000);});
-  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(invoke).toHaveBeenCalledTimes(3);
   view.unmount();await act(async()=>{resolve(fixture('running','http://127.0.0.1:49423'));});
   await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
-  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(invoke).toHaveBeenCalledTimes(3);
   mount(false);expect(screen.queryByRole('button',{name:'Connect'})).toBeNull();
  });
  it('does not expose endpoint inspection for running without an endpoint',async()=>{
@@ -173,10 +179,39 @@ describe('owned backend lifecycle — mock IPC fixtures, not real ComfyUI/GPU ve
   expect(screen.getByRole('button',{name:'Starten'})).toBeTruthy();
   expect(screen.getByRole('button',{name:'Test'})).toBeTruthy();
  });
+ it('switches the GPU of a stopped backend and keeps the new card as planned',async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_gpus'?GPUS:command==='native_backend_set_gpu'?GPU_B:fixture('stopped'));
+  mount(true);
+  const select=await screen.findByRole('combobox',{name:'GPU'});
+  expect((select as HTMLSelectElement).value).toBe('GPU-a');
+   // Options show the card name plus its frame-buffer size, not the compute capability.
+   expect(screen.getByRole('option',{name:'test GPU A (8 GB)'})).toBeTruthy();
+   expect(screen.getByRole('option',{name:'test GPU B (16 GB)'})).toBeTruthy();
+  fireEvent.change(select,{target:{value:'GPU-b'}});
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_backend_set_gpu',{uuid:'GPU-b'}));
+  await screen.findByText('GPU selection applied.');
+  expect((screen.getByRole('combobox',{name:'GPU'}) as HTMLSelectElement).value).toBe('GPU-b');
+ });
+ it('disables the GPU selector while the backend runs and asks to stop first',async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_gpus'?GPUS:command==='native_backend_test'?DEPS:fixture('running','http://127.0.0.1:49312'));
+  mount(true);
+  const select=await screen.findByRole('combobox',{name:'GPU'});
+  fireEvent.click(screen.getByRole('button',{name:'Test'}));
+  await screen.findByRole('button',{name:'Stop'});
+  expect((select as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.getByText('Stop the backend to change its GPU.')).toBeTruthy();
+ });
+ it('hides the GPU selector on a single-GPU host',async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==='native_backend_gpus'?{planned:GPU_A,gpus:[GPU_A]}:fixture('stopped'));
+  mount(true);
+  await waitFor(()=>expect(invoke).toHaveBeenCalledExactlyOnceWith('native_backend_gpus'));
+  await act(async()=>{});
+  expect(screen.queryByRole('combobox',{name:'GPU'})).toBeNull();
+ });
 });
 
 async function installFixture(result:'succeeded'|'failed',updateCheck?:()=>unknown) {
- vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_update_check'&&updateCheck)return updateCheck();if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
+ vi.mocked(invoke).mockImplementation(async command=>{if(command==='native_backend_gpus')return GPUS;if(command==='native_update_check'&&updateCheck)return updateCheck();if(command==='native_llm_read')return defaultLlmConfig;if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_install_defaults')return {storagePath:'/data/mock-DEAS',backend:'cpu',hardware:null,warnings:[]};
   if(command==='native_install_plan')return {id:'mock-plan',request:{storagePath:'/data/mock-DEAS',backend:'cpu',features:['director','forge','refmods','continuity'],options:{sage:false,radial:false,flash:false,ffmpeg:false},comfyRef:'master'},steps:[],warnings:[],unsupportedOptions:[],canExecute:true};
   if(command==='native_install_start')return {state:result,stepId:null,logs:['mock install fixture'],error:result==='failed'?'fixture install failed':null};
@@ -261,7 +296,8 @@ describe('AiO integration — mock installation/IPC fixtures only',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Stop'}));
   await waitFor(()=>expect(screen.queryByRole('button',{name:'Stop'})).toBeNull());
   const lifecycleCalls=vi.mocked(invoke).mock.calls.filter(([command])=>command.startsWith('native_backend_'));
-  expect(lifecycleCalls).toEqual([['native_backend_start'],['native_backend_status'],['native_backend_stop']]);
+  // The panel's read-only GPU enumeration fires when the Backend tab mounts, before any lifecycle action.
+   expect(lifecycleCalls).toEqual([['native_backend_gpus'],['native_backend_start'],['native_backend_status'],['native_backend_stop']]);
  });
  it('confirms upgrades and re-runs the installation only after the overwrite warning',async()=>{
   await installFixture('succeeded');
