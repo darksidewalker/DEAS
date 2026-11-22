@@ -841,6 +841,22 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
                 return Some("ltx-2.3-audio-vae");
             }
         }
+        // H3 video VAE: measured from the MiniMax H3 Comfy package 2026-11-22, file
+        // vae/Minimax/minimax_h3_video_vae_fp16.safetensors; id = builtin family vaes list, never invented.
+        if shape("encoder.conv_in.weight", &[128, 3, 3, 3, 3])
+            && shape("encoder.conv_out.weight", &[48, 1024, 3, 3, 3])
+            && shape("decoder.transformer_blocks.0.ff.w1.weight", &[16384, 2048])
+        {
+            return Some("h3_video_vae");
+        }
+        // H3 audio VAE: measured from the MiniMax H3 Comfy package 2026-11-22, file
+        // vae/Minimax/minimax_h3_audio_vae_fp32.safetensors; id = builtin family audioVaes list.
+        if shape("latents_mean", &[32])
+            && shape("latents_std", &[32])
+            && shape("dec_in_proj.weight", &[2048, 32, 1])
+        {
+            return Some("h3_audio_vae");
+        }
         return None;
     }
     // Qwen3.5-9B hybrid linear/full attention, as selected by MOSS_IMAGE in comfy/sd.py.
@@ -901,6 +917,17 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
             }
             return Some(id);
         }
+    }
+    // MiniMax H3 text encoder: measured from the MiniMax H3 Comfy package 2026-11-22, file
+    // clip/MiniMax/qwen3vl_32b_minimax_h3_bf16.safetensors; id = builtin family textEncoders list.
+    // The layers.50 guard pins the 50-layer depth; a deeper 5120-hidden derivative is not this model.
+    if shape("model.embed_tokens.weight", &[151936, 5120])
+        && shape("model.layers.0.self_attn.q_norm.weight", &[128])
+        && shape("model.layers.0.self_attn.q_proj.weight", &[8192, 5120])
+        && shape("model.layers.49.mlp.up_proj.weight", &[25600, 5120])
+        && !head.contains_key("model.layers.50.self_attn.q_proj.weight")
+    {
+        return Some("minimax_h3");
     }
     if shape("shared.weight", &[256384, 4096])
         && shape(
@@ -1928,6 +1955,108 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn h3_component_signatures_match_measured_package_files() {
+        // Tensors and shapes as measured from the MiniMax H3 Comfy package 2026-11-22;
+        // ids come from the builtin.json family model-level lists, never invented.
+        let dir = tempfile::tempdir().unwrap();
+        let video: Signature<'_> = &[
+            ("encoder.conv_in.weight", &[128, 3, 3, 3, 3]),
+            ("encoder.conv_out.weight", &[48, 1024, 3, 3, 3]),
+            ("decoder.transformer_blocks.0.ff.w1.weight", &[16384, 2048]),
+        ];
+        let audio: Signature<'_> = &[
+            ("latents_mean", &[32]),
+            ("latents_std", &[32]),
+            ("dec_in_proj.weight", &[2048, 32, 1]),
+        ];
+        for (id, tensors) in [("h3_video_vae", video), ("h3_audio_vae", audio)] {
+            let path = component_file(dir.path(), "unrelated-name.safetensors", tensors);
+            assert_eq!(detect_component("vae", &path), Some(id));
+            assert_eq!(detect_component("clip", &path), None);
+            for i in 0..tensors.len() {
+                let mut wrong = tensors.to_vec();
+                wrong[i].1 = &[1];
+                let path =
+                    component_file(dir.path(), "minimax_h3_video_vae_fp16.safetensors", &wrong);
+                assert_eq!(
+                    detect_component("vae", &path),
+                    None,
+                    "{id}: {}",
+                    tensors[i].0
+                );
+            }
+        }
+        // Near-miss: 16-channel latent statistics are not the H3 audio VAE.
+        let mut narrow = audio.to_vec();
+        narrow[0].1 = &[16];
+        let path = component_file(dir.path(), "minimax_h3_audio_vae_fp32.safetensors", &narrow);
+        assert_eq!(detect_component("vae", &path), None);
+    }
+
+    #[test]
+    fn h3_text_encoder_signature_requires_fifty_layers_and_qwen3_norms() {
+        // Tensors and shapes as measured from the MiniMax H3 Comfy package 2026-11-22
+        // (clip/MiniMax/qwen3vl_32b_minimax_h3_bf16.safetensors).
+        let dir = tempfile::tempdir().unwrap();
+        let encoder: Signature<'_> = &[
+            ("model.embed_tokens.weight", &[151936, 5120]),
+            ("model.layers.0.self_attn.q_norm.weight", &[128]),
+            ("model.layers.0.self_attn.q_proj.weight", &[8192, 5120]),
+            ("model.layers.49.mlp.up_proj.weight", &[25600, 5120]),
+        ];
+        let path = component_file(dir.path(), "unrelated-name.safetensors", encoder);
+        assert_eq!(detect_component("text_encoders", &path), Some("minimax_h3"));
+        assert_eq!(detect_component("vae", &path), None);
+        for i in 0..encoder.len() {
+            let mut wrong = encoder.to_vec();
+            wrong[i].1 = &[1];
+            let path = component_file(
+                dir.path(),
+                "qwen3vl_32b_minimax_h3_bf16.safetensors",
+                &wrong,
+            );
+            assert_eq!(
+                detect_component("text_encoders", &path),
+                None,
+                "{}",
+                encoder[i].0
+            );
+        }
+        // The layers.50 guard rejects deeper 5120-hidden Qwen3-VL derivatives.
+        let mut deeper = encoder.to_vec();
+        deeper.push(("model.layers.50.self_attn.q_proj.weight", &[8192, 5120]));
+        let path = component_file(
+            dir.path(),
+            "qwen3vl_32b_minimax_h3_bf16.safetensors",
+            &deeper,
+        );
+        assert_eq!(detect_component("text_encoders", &path), None);
+    }
+
+    #[test]
+    fn builtin_minimax_h3_families_declare_the_component_trio() {
+        for family in ["minimax-h3", "minimax-h3-hyperflow"] {
+            assert_eq!(
+                component_matches(family, "textEncoders", "minimax_h3"),
+                Some(true)
+            );
+            assert_eq!(
+                component_matches(family, "vaes", "h3_video_vae"),
+                Some(true)
+            );
+            assert_eq!(component_matches(family, "vaes", "h3_sol_vae"), Some(true));
+            assert_eq!(
+                component_matches(family, "audioVaes", "h3_audio_vae"),
+                Some(true)
+            );
+            assert_eq!(
+                component_matches(family, "textEncoders", "h3_audio_vae"),
+                Some(false)
+            );
         }
     }
 

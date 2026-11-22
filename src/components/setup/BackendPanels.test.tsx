@@ -12,6 +12,9 @@ beforeEach(()=>{
   if(command==='native_llm_read')return defaultLlmConfig;
   if(command==='native_llm_models')return {models:[],warnings:[]};
   if(command==='native_auth_status')return [];
+ if(command==='native_agent_settings_read')return {enabled:false,port:8790,originAllowlist:[],exists:false,sourcePath:'p'};
+ if(command==='native_agent_guard_read')return {unloadCommand:'',restoreCommand:'',readyUrl:'',autoCycleVram:true,freeOnQueueEnd:true,watchdog:null,configured:false,exists:false,sourcePath:'p'};
+ if(command==='native_agent_defaults_read')return {configured:false,sourcePath:'p',sheet:{version:1,global:{},families:{},combos:{}}};
   throw Error('Unexpected fixture IPC '+command);
  });
 });
@@ -36,9 +39,13 @@ test('one common pane at a time, lazy reads and retained drafts without executio
  for(const command of ['native_startup_read','native_llm_read','native_auth_status'])expect(vi.mocked(invoke).mock.calls.filter(([c])=>c===command)).toHaveLength(1);
  expect(vi.mocked(invoke).mock.calls.every(([c])=>['native_startup_read','native_llm_read','native_llm_models','native_auth_status'].includes(c))).toBe(true);
 });
+test('the agent API panel mounts from its own tab and reads the three operator files',async()=>{
+ mount();choose('Agent API');await screen.findByRole('checkbox',{name:'Enable the agent API'});
+ for(const command of ['native_agent_settings_read','native_agent_guard_read','native_agent_defaults_read'])expect(vi.mocked(invoke)).toHaveBeenCalledWith(command);
+});
 test('vertical keyboard navigation wraps and focuses the chosen panel',async()=>{
  mount();const menu=screen.getByRole('tablist',{name:'Backend panels'});
- for(const [key,label] of [['ArrowDown','LLM backend'],['End','Provider authorization'],['Home','Startup optimizations'],['ArrowUp','Provider authorization']]){
+ for(const [key,label] of [['ArrowDown','LLM backend'],['End','Agent API'],['Home','Startup optimizations'],['ArrowUp','Agent API']]){
   fireEvent.keyDown(menu,{key});expect(document.activeElement).toBe(screen.getByRole('tab',{name:label}));
   expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(document.activeElement?.id);
  }
@@ -47,9 +54,10 @@ test('vertical keyboard navigation wraps and focuses the chosen panel',async()=>
 test('authorization remains available without an installed root; runtime tabs are disabled',async()=>{
  mount('');expect(screen.getByRole('tab',{name:'Startup optimizations'}).hasAttribute('disabled')).toBe(true);
  expect(screen.getByRole('tab',{name:'LLM backend'}).hasAttribute('disabled')).toBe(false);
+ expect(screen.getByRole('tab',{name:'Agent API'}).hasAttribute('disabled')).toBe(false);
  const menu=screen.getByRole('tablist',{name:'Backend panels'});fireEvent.keyDown(menu,{key:'ArrowDown'});
- expect(document.activeElement).toBe(screen.getByRole('tab',{name:'LLM backend'}));
- await act(async()=>{});expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(['native_auth_status']);
+ expect(document.activeElement).toBe(screen.getByRole('tab',{name:'Agent API'}));
+ await act(async()=>{});expect(vi.mocked(invoke).mock.calls.map(([c])=>c)).toEqual(['native_auth_status']); // focus may move, the auth pane stays the only mounted one without a root
 });
 test('changing environment discards runtime drafts but retains the global authorization draft',async()=>{
  const view=mount('/one');fireEvent.click(await screen.findByRole('button',{name:'Compatibility'}));

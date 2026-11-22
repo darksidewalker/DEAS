@@ -274,6 +274,7 @@
   },
   {
     "id": "minimax-h3-hyperflow", "temporalLatent": true, "multiple": 32, "name": "MiniMax H3 HyperFlow Flash", "forge": "MiniMax H3", "loader": "diffusion", "pipelines": ["t2v", "i2v", "ref2v"],
+    "components": {"textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"]},
     "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"],
     "ggufLoader": "HyperFlowGGUFLoader", "safetensorsLoader": "HyperFlowLoader", "videoSigmaNode": "HyperFlowSigmas", "fixedSampler": "euler", "stepChoices": [4, 6, 8],
     "defaults": { "width": 1024, "height": 768, "steps": 6, "cfg": 1, "sampler": "euler", "scheduler": "simple" },
@@ -284,6 +285,7 @@
   },
   {
     "id": "minimax-h3", "temporalLatent": true, "multiple": 32, "name": "MiniMax H3", "forge": "MiniMax H3", "loader": "diffusion", "pipelines": ["i2i", "t2v", "i2v", "v2v", "ref2v"], "imagePrompting": "minimax-h3",
+    "components": {"textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"]},
     "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"],
     "defaults": { "width": 1024, "height": 768, "steps": 30, "cfg": 3, "sampler": "res_multistep", "scheduler": "simple" },
     "defaultsNote": "Base defaults follow the official Comfy-Org MiniMax H3 text-to-image template: 30 steps with res_multistep/simple (CFG via the guider path). 4 steps at CFG 1 is only correct with a 4-step turbo/lightning LoRA loaded; the official 8-step turbo LoRA runs 8 steps at CFG 1 (docs/MODEL_DEFAULTS.md).",

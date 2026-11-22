@@ -339,3 +339,105 @@ async fn cancellation_interrupts_waiting_io() {
     );
     assert!(result.0.unwrap_err().starts_with("RESOURCE_CANCELLED"));
 }
+
+/* ---- cycle fence: §14.6 hazard map, API-DESIGN §12 E14 (stock-facing half) ---- */
+
+#[test]
+fn cycle_fence_claim_is_single_owner_and_release_reopens_it() {
+    // LEG AF2-M18c (D-1): the fence is one process-wide static, so this test takes the
+    // test gate for its whole claim-test-release span; without it another fence test
+    // running in parallel produces a refusal this test never earned.
+    let _gate = fence_test_gate();
+    assert!(fence_claim(), "an open fence is claimable");
+    assert!(fence_held());
+    assert!(!fence_claim(), "a held fence is never claimable twice");
+    fence_release();
+    assert!(!fence_held());
+    assert!(fence_claim(), "the release reopens the fence");
+    fence_release();
+    assert!(!fence_held());
+}
+
+#[test]
+fn fence_gates_answer_stock_wording_for_every_e14_operation() {
+    let _gate = fence_test_gate();
+    let operations = [
+        "stock admission",
+        "native submission",
+        "application restart",
+        "environment update",
+        "environment move",
+    ];
+    for operation in operations {
+        assert!(
+            fence_wait(operation).is_none(),
+            "an open fence refuses nothing"
+        );
+    }
+    assert!(fence_claim());
+    for operation in operations {
+        let refusal = fence_wait(operation).expect("a held fence refuses");
+        // Stock wording: `CYCLE_FENCE: ...`, never the API's closed error taxonomy.
+        assert!(refusal.starts_with("CYCLE_FENCE:"), "{refusal}");
+        assert!(refusal.contains(operation), "{refusal}");
+    }
+    // Submission is the one gate the fence owner rides: the cycle's own drain reaches the
+    // card through submit_inner, so it gets a pass window that closes when it returns.
+    assert!(fence_wait_for_submit("native submission").is_some());
+    let pass = fence_owner_pass().expect("the fence owner gets a pass window");
+    assert!(
+        fence_wait_for_submit("native submission").is_none(),
+        "the owner's submit rides the fence"
+    );
+    assert!(
+        fence_wait("stock admission").is_some(),
+        "a submit pass never opens the admission gate"
+    );
+    drop(pass);
+    assert!(
+        fence_wait_for_submit("native submission").is_some(),
+        "the pass closed"
+    );
+    fence_release();
+    assert!(fence_owner_pass().is_none(), "no pass without a held fence");
+    assert!(fence_wait_for_submit("native submission").is_none());
+}
+
+#[test]
+fn admit_refuses_at_entry_while_a_cycle_holds_the_fence() {
+    let _gate = fence_test_gate();
+    // Entry refusal only, so nothing below runs: no telemetry, no endpoint, no `/free`
+    // request. This is the gate that covers forge gpu_swap and every audio_runtime admit.
+    let cancel = AtomicBool::new(false);
+    let zero = Need {
+        ram_bytes: 0,
+        vram_bytes: 0,
+        device_index: None,
+    };
+    assert!(fence_claim());
+    let result = admit(zero, &cancel);
+    fence_release();
+    let error = result.expect_err("stock admission waits behind the fence");
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+    assert!(error.contains("stock admission"), "{error}");
+}
+
+#[test]
+fn admit_proceeds_unchanged_when_the_fence_is_open() {
+    // This one READS the fence instead of claiming it, so the prescribed grep misses it:
+    // its assertion is that the fence is DOWN, which any parallel claimer breaks. Same
+    // gate, same reason (LEG AF2-M18c).
+    let _gate = fence_test_gate();
+    // Same zero-need admission, fence down: the shipped posture answers available-memory-
+    // satisfied (no owned backend bound), and no CYCLE_FENCE word can appear.
+    let cancel = AtomicBool::new(false);
+    let result = admit(
+        Need {
+            ram_bytes: 0,
+            vram_bytes: 0,
+            device_index: None,
+        },
+        &cancel,
+    );
+    assert!(result.is_ok(), "unchanged admission: {:?}", result);
+}

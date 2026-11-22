@@ -1,6 +1,53 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// A minimal root-session row: terminal, no media root, no outputs. Enough for the
+/// selected_job path to answer without touching the filesystem or a backend.
+fn root_row_no_media(id: &str, state: &'static str) -> Job {
+    Job {
+        id: id.into(),
+        plan: Plan {
+            id: "plan-1".into(),
+            base: reqwest::Url::parse("http://127.0.0.1:1").expect("loopback base"),
+            intent: json!({}),
+            graph: json!({}),
+            consumed: true,
+            media_root: None,
+            local_models: LocalModels::default(),
+        },
+        client_id: "agent-plane".into(),
+        prompt_id: None,
+        state,
+        outputs: Vec::new(),
+        history_outputs: Vec::new(),
+        error: None,
+        submitting: false,
+        polling: false,
+        metadata: None,
+        transition: None,
+        live: Arc::new(Mutex::new(Live::default())),
+    }
+}
+
+#[test]
+fn audio_source_on_a_root_row_falls_through_instead_of_recurring() {
+    // D3-W3 recursion fix (F1 alias guard in audio_source): a root current-job id makes
+    // workbench_job hand back a handle ALIASING this session (shared Arc<Mutex<Session>>);
+    // recursing `held.audio_source` would loop until the stack died. The guard sees the
+    // alias and falls through to selected_job. A terminal row with no outputs answers the
+    // stock 'Unknown output index' - reaching it proves the call RETURNED. Recursion aborts
+    // the whole process (stack overflow), which would fail the suite, not this one assert.
+    let jobs = Jobs::default();
+    jobs.lock().unwrap().job = Some(root_row_no_media("root-audio", "succeeded"));
+    let error = jobs
+        .audio_source("root-audio", 0)
+        .expect_err("a row with no outputs has no audio source; it must terminate, not loop");
+    assert_eq!(
+        error, "Unknown output index",
+        "the selected_job fall-through ran; the recursion is gone"
+    );
+}
+
 #[tokio::test]
 async fn sam3_output_decodes_rgb_at_exact_unaligned_source_size() {
     let i = json!({"recipeId":"sam3-mask","version":1,"checkpoint":"sam3.1.safetensors","inputImage":"source.png","width":641,"height":479,"outputPrefix":"DEAS/mask","prompt":"eyes","threshold":0.5});
@@ -1621,4 +1668,25 @@ fn export_file_accepts_a_folder_reached_through_a_symlink_bookmark() {
         super::export_file(&bookmark.join("clip.mp4"), b"new", "mp4").is_err(),
         "never overwritten"
     );
+}
+
+#[test]
+fn agent_parts_split_exposes_descriptors_and_payload_without_widening_fields() {
+    // F2 (E14/§14.6): the single narrow read seam behind /v1/outputs/{id}/{index}.
+    let preview = OutputPreview {
+        job_id: "job-1".into(),
+        index: 3,
+        mime_type: "image/png",
+        width: 8,
+        height: 6,
+        sha256: "beef".into(),
+        bytes: vec![1, 2, 3],
+    };
+    let (job_id, index, mime_type, width, height, sha256, bytes) = preview.parts();
+    assert_eq!(job_id, "job-1");
+    assert_eq!(index, 3);
+    assert_eq!(mime_type, "image/png");
+    assert_eq!((width, height), (8, 6));
+    assert_eq!(sha256, "beef");
+    assert_eq!(bytes, &[1, 2, 3]);
 }

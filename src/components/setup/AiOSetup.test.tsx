@@ -50,7 +50,7 @@ describe('automatic-first installation — read-only mock IPC fixtures',()=>{
   mount();
   const menu=screen.getByRole('tablist',{name:'Backend panels'});
   expect(menu.getAttribute('aria-orientation')).toBe('vertical');
-  expect(menu.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(menu.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(screen.getByRole('tab',{name:'Startup optimizations'}).hasAttribute('disabled')).toBe(true);
   expect(screen.getByRole('tab',{name:'LLM backend'}).hasAttribute('disabled')).toBe(false);
   expect(screen.getByRole('tab',{name:'Provider authorization'}).getAttribute('aria-selected')).toBe('true');

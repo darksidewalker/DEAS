@@ -1066,9 +1066,20 @@ pub async fn native_install_repair(
     app: tauri::AppHandle,
 ) -> Result<Status, String> {
     use tauri::Manager;
+    // D4 gate order (red-team): check the cycle fence BEFORE the pin is armed. A held
+    // fence refuses here and leaves the engine byte-unchanged; arming first consumed the
+    // one-time `pin_repair` token (and nulled `approved`) before the refusal could run.
+    update_fence_gate()?;
     app.state::<Engine>().arm_pin_repair(&plan_id, confirmed)?;
     native_install_update(false, confirmed, None, app).await
 }
+/// §14.6/E14: an agent-API cycle owns the card during a handoff; mutating the environment
+/// then takes the engine out from under it. Extracted so the refusal is testable without a
+/// live `AppHandle` (`native_install_repair` routes through `native_install_update` too).
+fn update_fence_gate() -> Result<(), String> {
+    crate::resources::fence_wait("environment update").map_or(Ok(()), Err)
+}
+
 #[tauri::command]
 pub async fn native_install_update(
     reinstall: bool,
@@ -1076,6 +1087,8 @@ pub async fn native_install_update(
     scope: Option<UpdateScope>,
     app: tauri::AppHandle,
 ) -> Result<Status, String> {
+    // §14.6/E14: entry refusal while the cycle fence holds; no worker is spawned.
+    update_fence_gate()?;
     use tauri::Manager;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     // The worker owns the folder gate until asynchronous mutation and resume have finished.

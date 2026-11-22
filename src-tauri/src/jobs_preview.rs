@@ -342,7 +342,7 @@ fn mp4(bytes: &[u8], w: u32, h: u32, budget: usize) -> Option<()> {
                         return None;
                     }
                     let mut frames = 0u64;
-                    for row in data[8..].chunks_exact(8) {
+                    for row in data[8..].as_chunks::<8>().0.iter() {
                         frames += u32::from_be_bytes(row[..4].try_into().ok()?) as u64;
                         if frames > 256 || row[4..] == [0, 0, 0, 0] {
                             return None;

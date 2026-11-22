@@ -52,6 +52,138 @@ impl Compute {
     }
 }
 
+/* ---------------- cycle fence (STOCK-REFERENCE §14.6, API-DESIGN §12 E14) --------------
+
+The agent-API drain cycle owns the card end to end (§7.1). Stock paths never saw that
+ownership: `forge/gpu_swap` and `audio_runtime` admitted through here (and posted `/free`)
+inside the cycle's queue-empty windows, and the restart/update/move commands could tear
+the environment down mid-handoff. The fence lives in this module — the stock compute
+authority's own home — so stock never depends on `agent_api`. The API's cycle driver is
+the single owner: it claims the mirror on its cell's CAS-success path and releases it at
+`finish`; the gates below answer stock callers while it holds.
+*/
+
+static CYCLE_FENCE: AtomicBool = AtomicBool::new(false);
+/// The fence owner's own submit rides the fence: the cycle's drain reaches the card
+/// through the same stock path (`agent_api::cycle::StockSubmitChain` -> `jobs::native_job_submit`
+/// -> `jobs::submit_inner`). Exactly one driver owns the fence, so at most one pass
+/// window can be open; stock submitters never get one.
+static CYCLE_FENCE_PASS: AtomicBool = AtomicBool::new(false);
+
+/// Claim the stock-facing fence. `false` means it is already held by a cycle.
+pub(crate) fn fence_claim() -> bool {
+    CYCLE_FENCE
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+/// Release the fence and any pass window with it; only the fence owner calls this.
+pub(crate) fn fence_release() {
+    CYCLE_FENCE_PASS.store(false, Ordering::Release);
+    CYCLE_FENCE.store(false, Ordering::Release);
+}
+
+/// `true` while an agent-API cycle owns the card.
+pub(crate) fn fence_held() -> bool {
+    CYCLE_FENCE.load(Ordering::Acquire)
+}
+
+/// E14 stock entry gate: `Some(refusal)` when `operation` must wait for the cycle. The
+/// wording is stock's own (`CYCLE_FENCE: ...`), never the API's error taxonomy.
+#[must_use = "a held fence is a refusal; return it to the caller"]
+pub(crate) fn fence_wait(operation: &str) -> Option<String> {
+    fence_held().then(|| fence_refusal(operation))
+}
+
+/// The same gate for submission, which the fence owner may ride (§14.6).
+#[must_use = "a held fence is a refusal; return it to the caller"]
+pub(crate) fn fence_wait_for_submit(operation: &str) -> Option<String> {
+    (fence_held() && !CYCLE_FENCE_PASS.load(Ordering::Acquire)).then(|| fence_refusal(operation))
+}
+
+fn fence_refusal(operation: &str) -> String {
+    format!("CYCLE_FENCE: An agent-API cycle owns the card; {operation} waits until it finishes")
+}
+
+/// RAII pass window for the fence owner's own stock submit (see `CYCLE_FENCE_PASS`).
+#[derive(Debug)]
+pub(crate) struct FencePass;
+
+impl Drop for FencePass {
+    fn drop(&mut self) {
+        CYCLE_FENCE_PASS.store(false, Ordering::Release);
+    }
+}
+
+/// Grants the fence owner a pass window; `None` for anyone else, so a stock caller can
+/// never open one by accident. The window closes when the returned guard drops.
+///
+/// CALLER DISCIPLINE (I-3 note, LEG AF2-M19b): any caller inside this crate passes
+/// while the fence is held — the door is authority-by-fence, not authority-by-module,
+/// so the plane keeping its SINGLE driver (cycle.rs owns the pass today) is a law of
+/// care, not of type. Before growing the caller set, re-check this note: a second
+/// concurrent pass-holder would let two drivers submit under one fence.
+pub(crate) fn fence_owner_pass() -> Option<FencePass> {
+    fence_held().then(|| {
+        CYCLE_FENCE_PASS.store(true, Ordering::Release);
+        FencePass
+    })
+}
+
+/* ---- TEST-ONLY serialization gate for the process-global fence (LEG AF2-M18c, D-1) ---- */
+
+/// `CYCLE_FENCE` is one static per test binary, so every test that claims the fence —
+/// directly, or through `CycleCell::claim`, which takes the stock mirror on its
+/// CAS-success path — races every other such test under cargo's default multi-threaded
+/// runner. Measured on the pre-fix tree: `cargo test --lib fence` on the DEFAULT runner
+/// failed 11 tests that pass one-by-one and pass under `--test-threads=1` — 4 in
+/// `agent_api::cycle`, 2 in `agent_api::watchdog`, 1 in `agent_api::transport`, 1 in the
+/// jobs stop surface, and victims in the very files that own the gates (`app_update`,
+/// `install`, `resources`). Wrapping only half the claimers is worse than wrapping none:
+/// the wrapped tests become victims of the unwrapped ones. So EVERY fence-reaching test
+/// now takes this gate across its whole claim-test-release span: `resources_tests` (4),
+/// `jobs_tests` (1), `jobs_stop_tests` (1), `app_update_tests` (1), `install_update_tests`
+/// (3), `environment_move` (1), every test in the `agent_api::cycle` and
+/// `agent_api::watchdog` test modules (there the fence is reached through the cell, never
+/// by name, so name-matching cannot find the claim sites), and the fence-touching tests in
+/// `agent_api::transport`. The `--test-threads=1` law in the build gates stays (belt and
+/// braces — it is also what makes a stranded-fence failure deterministic).
+///
+/// The lock payload is a unit and the fence is an atomic no test can leave corrupt, so a
+/// poisoned lock carries nothing worth halting a binary over: take the inner value and let
+/// the run continue. (A test that PANICS while holding the fence leaves it claimed for the
+/// rest of the binary — that is already a named failure on the report, and
+/// `--test-threads=1` keeps what follows deterministic.)
+#[cfg(test)]
+pub(crate) static FENCE_TEST_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The ticket [`fence_test_gate`] hands out: it holds the gate for the caller's whole span
+/// and returns it when it drops. A newtype rather than the raw `MutexGuard` on purpose:
+/// clippy's `await_holding_lock` is production law about real locks, while a fence test
+/// parking on this ticket across an await IS the point of the ticket — not a hazard to
+/// annotate away across thirty test bodies.
+#[cfg(test)]
+pub(crate) struct FenceTicket(Option<std::sync::MutexGuard<'static, ()>>);
+
+#[cfg(test)]
+impl Drop for FenceTicket {
+    fn drop(&mut self) {
+        let _ = self.0.take();
+    }
+}
+
+/// Takes [`FENCE_TEST_GATE`], poison-tolerant. Bind the returned ticket for the whole
+/// fence-touching span: `let _gate = fence_test_gate();` as the first statement.
+#[cfg(test)]
+#[must_use = "the gate only serializes the fence while the ticket is alive"]
+pub(crate) fn fence_test_gate() -> FenceTicket {
+    FenceTicket(Some(
+        FENCE_TEST_GATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    ))
+}
+
 /// Native authority for admissions: only the approved owned environment may release memory.
 pub(crate) fn owned_venv_python() -> Option<std::path::PathBuf> {
     let engine = CONTEXT.lock().ok()?.clone()?;
@@ -76,6 +208,11 @@ pub(crate) fn configure_context(engine: crate::install::Engine) {
 
 /// Blocking-worker entry point; never call from a Tokio runtime thread.
 pub(crate) fn admit(need: Need, cancel: &AtomicBool) -> Result<(), String> {
+    // §14.6/E14: the fence gate covers every stock admission caller (forge gpu_swap,
+    // audio smoke/check_memory/separate) at one entry point; nothing below runs.
+    if let Some(refusal) = fence_wait("stock admission") {
+        return Err(refusal);
+    }
     let result = (|| {
         cancelled(cancel)?;
         let engine = CONTEXT

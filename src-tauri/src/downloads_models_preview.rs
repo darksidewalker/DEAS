@@ -68,7 +68,13 @@ fn is_mp4(bytes: &[u8]) -> bool {
     // with a minor-version number between them.
     header[8..12] != *b"M4A "
         && std::iter::once(&header[8..12])
-            .chain(header[16..].chunks_exact(4))
+            .chain(
+                header[16..]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(<[u8; 4]>::as_slice),
+            )
             .any(|brand| {
                 matches!(
                     brand,

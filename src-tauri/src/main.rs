@@ -21,6 +21,7 @@ fn main() {
                 Ok(path) => {
                     app.state::<deas::jobs::Jobs>().initialize_history(&path);
                     app.state::<deas::downloads::DownloadEngine>().attach(&path);
+                    deas::agent_api::start_if_enabled(app.handle(), &path);
                 }
                 Err(_) => app
                     .state::<deas::jobs::Jobs>()
@@ -261,7 +262,13 @@ fn main() {
             deas::native_backend_stop,
             deas::native_backend_test,
             deas::splash::native_startup_phase,
-            deas::splash::native_startup_ready
+            deas::splash::native_startup_ready,
+            deas::agent_api::settings_bridge::native_agent_settings_read,
+            deas::agent_api::settings_bridge::native_agent_settings_write,
+            deas::agent_api::settings_bridge::native_agent_guard_read,
+            deas::agent_api::settings_bridge::native_agent_guard_write,
+            deas::agent_api::settings_bridge::native_agent_defaults_read,
+            deas::agent_api::settings_bridge::native_agent_defaults_write
         ])
         .build(tauri::generate_context!())
         .expect("failed to build DEAS")

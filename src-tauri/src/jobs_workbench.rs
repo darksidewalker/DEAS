@@ -92,6 +92,17 @@ impl Jobs {
                 return Ok(Some(held.clone()));
             }
         }
+        // F1 (manager-approved narrow stock fence, E14/§14.6): the agent drain's
+        // rows live in the ROOT session's current job (API-DESIGN 4.4 scoped
+        // cancel + the §10 unknown-row law), so a workbench-only scan can never
+        // reach them. After the workbench scan misses, resolve the id against the
+        // root session's current job — the SAME Session.job the UI's job_current
+        // reads. `Jobs` clones share the Arc'd session, so the returned handle
+        // mutates the root session in place; a non-matching id still answers the
+        // stock Unknown refusal unchanged.
+        if self.lock()?.job.as_ref().is_some_and(|job| job.id == id) {
+            return Ok(Some(Arc::new(self.clone())));
+        }
         Ok(None)
     }
 

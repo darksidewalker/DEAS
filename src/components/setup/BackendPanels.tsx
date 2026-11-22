@@ -1,10 +1,11 @@
 import {useEffect,useId,useRef,useState} from 'react';
 import {useI18n} from '../../i18n/I18nProvider';
 import {StartupPanel} from '../../features/settings/StartupPanel';
+import {AgentApiPanel} from '../../features/settings/AgentApiPanel';
 import {LlmPanel} from '../../features/llm/LlmPanel';
 import {AuthPanel} from '../../features/downloads/DownloadPluginPanel';
 
-const panels=['startup','llm','auth'] as const;
+const panels=['startup','llm','auth','agentApi'] as const;
 type Panel=typeof panels[number];
 /** Visit lazily, then retain drafts while choosing another panel or top-level tab. */
 export function BackendPanels({root,modelsDir,onRestart,onAuthChange,llmSetupRequest=0,panelRequest}:{llmSetupRequest?:number;panelRequest?:{panel:Panel;nonce:number}|null;root:string;modelsDir?:string;onRestart:()=>void;onAuthChange:()=>void}){
@@ -14,7 +15,8 @@ export function BackendPanels({root,modelsDir,onRestart,onAuthChange,llmSetupReq
  // Global search selects a pane without mounting any of its controls.
  useEffect(()=>{if(panelRequest)setActive(panelRequest.panel);},[panelRequest?.nonce]);
  const selected=root||active==='llm'?active:'auth',visited=useRef(new Set<Panel>());visited.current.add(selected);
- const labels={startup:t('startup.title'),llm:t('llm.title'),auth:t('downloads.auth')};
+ const labels={startup:t('startup.title'),llm:t('llm.title'),auth:t('downloads.auth'),agentApi:t('agentApi.title')};
+ // ACTUAL behavior (comment fix, LEG AF2-M18c D-3): only `startup` is disabled without an installed root, so the agentApi tab stays clickable — but `selected` coalesces every non-`llm` choice to `auth` while `root` is empty, so choosing agentApi shows the AUTH panel and `<AgentApiPanel/>` never mounts (no root ⇒ no visited entry for `agentApi`). The agent plane itself lives in app-data, not in a backend environment; giving it a root-independent entry is a follow-up UI ruling, not today's truth.
  return <div className="backend-panels">
   <div className="backend-panel-menu" role="tablist" aria-label={t('setup.backendPanels')} aria-orientation="vertical" onKeyDown={e=>{
    if(!['ArrowUp','ArrowDown','Home','End'].includes(e.key))return;e.preventDefault();
@@ -32,6 +34,7 @@ export function BackendPanels({root,modelsDir,onRestart,onAuthChange,llmSetupReq
      {panel==='startup'&&root&&<StartupPanel key={root} root={root} onRestart={onRestart}/>}
      {panel==='llm'&&root&&<LlmPanel key={modelsDir??''} root={root}/>}
      {panel==='auth'&&<div className="backend-auth"><h3>{labels.auth}</h3><AuthPanel embedded onChange={onAuthChange}/></div>}
+     {panel==='agentApi'&&<AgentApiPanel/>}
     </>}
    </div>)}
   </div>

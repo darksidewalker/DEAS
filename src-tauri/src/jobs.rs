@@ -6,7 +6,7 @@ use std::{
 };
 
 #[path = "jobs_audio_post.rs"]
-mod audio_post;
+pub(crate) mod audio_post; // `pub(crate)` since LEG M15 (visibility only): the agent door validates `audioEnhance` through `settings` at its own wall.
 #[path = "jobs_auto_refine.rs"]
 mod auto_refine;
 #[path = "jobs_lying_sigma.rs"]
@@ -31,7 +31,7 @@ mod observer;
 #[path = "jobs_preview.rs"]
 pub(crate) mod preview;
 #[path = "jobs_refmod.rs"]
-mod refmod;
+pub(crate) mod refmod;
 pub(crate) use refmod::with_idle_media_edit;
 #[path = "jobs_stages.rs"]
 mod stages;
@@ -2139,6 +2139,12 @@ impl Jobs {
     }
 
     async fn submit_inner(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
+        // §14.6/E14: a stock UI submit must not land on a cycle-owned card. The cycle's own
+        // drain rides the fence through `resources::fence_owner_pass` (agent_api/cycle.rs),
+        // so this entry gate refuses stock submitters and leaves the plan untouched.
+        if let Some(refusal) = crate::resources::fence_wait_for_submit("native submission") {
+            return Err(refusal);
+        }
         if !confirmed {
             return Err("Explicit diagnostic submission confirmation is required".into());
         }
@@ -3033,6 +3039,99 @@ async fn upload(
     })
 }
 
+/// LEG M17a fence (owner ruling E22, API-DESIGN.md): place an EXPLICIT name inside a
+/// subfolder of the input plane through the same multipart law as `upload`
+/// (`type=input`, `overwrite=false` kept). `subfolder` is backend-relative - the agent
+/// plane composes the `deas-inputs/...` prefix - and the backend creates missing
+/// folders on demand behind its normpath/commonpath containment (server.py
+/// `/upload/image`). Collision law (same server): an identical hash keeps the existing
+/// file, different bytes walk the ` (N)` rename loop, so the answer is the BACKEND's
+/// final `(name, subfolder)` pair, not necessarily the requested one. Root uploads keep
+/// `upload`'s uuid-mint law untouched; this sibling duplicates the machinery
+/// deliberately so the stock fn is never edited (LEG M17a ruling: sibling over refactor).
+pub(crate) async fn upload_scoped(
+    base_url: &str,
+    bytes: Vec<u8>,
+    ext: &str,
+    subfolder: &str,
+    name: &str,
+) -> Result<(String, String), String> {
+    let base = crate::validate_base_url(base_url)?;
+    if !model_name(&format!("{subfolder}/{name}")) {
+        return Err("Scoped upload placement is not a portable input identifier".into());
+    }
+    let boundary = format!("deas-{}", uuid::Uuid::new_v4().simple());
+    let mut body = Vec::with_capacity(bytes.len() + 512);
+    for (field, value) in [
+        ("subfolder", subfolder),
+        ("type", "input"),
+        ("overwrite", "false"),
+    ] {
+        body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n").as_bytes());
+    }
+    body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes());
+    body.extend(&bytes);
+    body.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let url = base
+        .join("upload/image")
+        .map_err(|_| "Invalid native job endpoint")?;
+    let mut response = client()?
+        .post(url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Upload failed")?;
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|n| n > RESPONSE_LIMIT as u64)
+    {
+        return Err("Upload response size limit exceeded".into());
+    }
+    let mut response_bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Upload response interrupted")?
+    {
+        if chunk.len() > RESPONSE_LIMIT - response_bytes.len() {
+            return Err("Upload response size limit exceeded".into());
+        }
+        response_bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&response_bytes).unwrap_or_default();
+    if !status.is_success() || value["subfolder"] != subfolder {
+        return Err(format!("Upload rejected (HTTP {status})"));
+    }
+    let final_name = value["name"].as_str().unwrap_or_default();
+    if final_name != name && !collision_variant(final_name, name, ext) {
+        return Err("Upload response placement is inconsistent".into());
+    }
+    Ok((final_name.to_owned(), subfolder.to_owned()))
+}
+
+/// True when `final_name` is exactly the backend's ` (N)` rename-loop variant of
+/// `name` (server.py collision loop mints `{stem} ({i}){extension}`): the only form
+/// a scoped upload answer may take when it is not the requested name verbatim.
+fn collision_variant(final_name: &str, name: &str, ext: &str) -> bool {
+    let suffix = format!(".{ext}");
+    let stem = name.strip_suffix(suffix.as_str()).unwrap_or(name);
+    let looped = final_name
+        .strip_prefix(stem)
+        .and_then(|rest| rest.strip_suffix(suffix.as_str()))
+        .unwrap_or_default();
+    let digits = looped
+        .strip_prefix(" (")
+        .and_then(|rest| rest.strip_suffix(')'));
+    digits.is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
 /// Probe/hash an existing input-relative video; backend owns source identity and later VAE import.
 #[tauri::command]
 pub async fn native_h3_video_prepare(base_url: String, filename: String) -> Result<Value, String> {
@@ -3242,4 +3341,8 @@ fn refmod_entries(v: &Value) -> Value {
 
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
-mod tests;
+// Visibility widening only (same one-home move as `mod refmod` in this file, LEG M11):
+// the agent plane's intent-truth harness reads the image arm's OWN fixtures
+// (`h3_still_intent`) instead of re-typing them, so the stock fixture stays the single
+// source of truth. No stock behaviour touched; the module is `cfg(test)`.
+pub(crate) mod tests;

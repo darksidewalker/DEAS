@@ -4341,6 +4341,50 @@ async fn concurrent_submit_reserves_job_before_any_network_await() {
 }
 
 #[tokio::test]
+async fn submit_refuses_at_entry_while_a_cycle_holds_the_fence() {
+    // LEG AF2-M18c (D-1): the gate ticket is held across the `submit` await below, for
+    // the whole claim-test-release span — that is its purpose (one process-wide fence
+    // static, serialized against every other fence-reaching test).
+    let _gate = crate::resources::fence_test_gate();
+    // §14.6/E14: a stock UI submit cannot land on a cycle-owned card. The gate is at
+    // submit_inner entry, so the plan survives untouched and the post-cycle retry behaves
+    // exactly like the first attempt. The cycle's own drain is exempt (resources pass window).
+    let (base, task) = server(|path, _| {
+        if path.starts_with("GET ") {
+            (200, nodes().to_string())
+        } else {
+            (
+                400,
+                json!({"error":{"message":"must not be reached"},"node_errors":{}}).to_string(),
+            )
+        }
+    })
+    .await;
+    let jobs = Jobs::default();
+    let plan = jobs.prepare(base, intent()).await.unwrap();
+    let id = plan["id"].as_str().unwrap().to_owned();
+    assert!(crate::resources::fence_claim(), "the cycle owns the fence");
+    let result = jobs.submit(id.clone(), true).await;
+    crate::resources::fence_release();
+    let error = result.expect_err("a stock submit waits behind the cycle fence");
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+    assert!(error.contains("native submission"), "{error}");
+    let session = jobs.lock().unwrap();
+    assert!(
+        session.job.is_none(),
+        "the refused submit created no job row"
+    );
+    let kept = session
+        .plan
+        .as_ref()
+        .expect("the plan is kept for the retry");
+    assert_eq!(kept.id, id);
+    assert!(!kept.consumed, "the refused submit never consumed the plan");
+    drop(session);
+    task.abort();
+}
+
+#[tokio::test]
 async fn prepare_latent_upscale_requires_exact_catalog_id_without_changing_legacy_admission() {
     for mut intent in [
         crate::jobs_video::tests::ltx(),

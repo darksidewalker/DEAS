@@ -90,11 +90,21 @@ impl Jobs {
             .workbench_job(&id)?
             .ok_or("Unknown native Workbench job")?;
         let mut job = {
-            let admission = self.lock()?;
+            let mut admission = self.lock()?;
             if admission.stop.is_some() && !stopping {
                 return Err("Workbench Stop is in progress; no separate cancellation sent".into());
             }
-            let mut session = held.lock()?;
+            // F1 stock fence (jobs_workbench::workbench_job): a root current-job match
+            // returns a handle that ALIASES this session. `held.lock()` would then try to
+            // re-lock the very `Arc<Mutex<Session>>` that `admission` already holds on
+            // this thread - a self-deadlock. For that alias, operate on `admission`.
+            let mut held_guard;
+            let session = if Arc::ptr_eq(&held.0, &self.0) {
+                &mut admission
+            } else {
+                held_guard = held.lock()?;
+                &mut held_guard
+            };
             let attempted = if cancellation.running() {
                 session.interrupt_attempted
             } else {

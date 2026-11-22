@@ -455,3 +455,20 @@ async fn live_latest_release_binary_verifies_without_installing() {
         asset.digest.as_deref().unwrap()
     );
 }
+
+#[test]
+fn a_cycle_fence_refuses_a_restart_at_entry() {
+    let _gate = crate::resources::fence_test_gate();
+    // §14.6/E14: restarting DEAS mid-cycle would kill the handoff in flight. The gate is the
+    // first statement of `native_app_restart`; it is extracted here because the command itself
+    // needs live Tauri states, and the gate answers without touching the ready flag.
+    assert!(
+        restart_fence_gate().is_ok(),
+        "an open fence leaves restart exactly as shipped"
+    );
+    assert!(crate::resources::fence_claim(), "the cycle owns the fence");
+    let error = restart_fence_gate().expect_err("restart waits behind the fence");
+    crate::resources::fence_release();
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+    assert!(error.contains("application restart"), "{error}");
+}

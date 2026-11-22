@@ -727,6 +727,12 @@ async fn execute(confirmed: bool, auth: &crate::auth::AuthState) -> Result<bool,
     result
 }
 
+/// §14.6/E14: an agent-API cycle owns the card during a handoff; restarting DEAS then
+/// kills the cycle mid-leg. Extracted so the refusal is testable without a live `AppHandle`.
+fn restart_fence_gate() -> Result<(), String> {
+    crate::resources::fence_wait("application restart").map_or(Ok(()), Err)
+}
+
 /// Only a successful, confirmed replacement authorizes restarting this process.
 #[tauri::command]
 pub fn native_app_restart(
@@ -737,6 +743,8 @@ pub fn native_app_restart(
     jobs: tauri::State<'_, crate::jobs::Jobs>,
     operations: tauri::State<'_, crate::FolderOperations>,
 ) -> Result<bool, String> {
+    // §14.6/E14: entry refusal while the cycle fence holds; the ready flag is left as it was.
+    restart_fence_gate()?;
     if !RESTART_READY.load(Ordering::Acquire) {
         return Err("No confirmed application update is awaiting restart".into());
     }
