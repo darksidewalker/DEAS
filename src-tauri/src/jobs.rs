@@ -986,14 +986,18 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
     // the model pads/rounds it internally — the failure class DEAS names instead of
     // shipping. Unnamed family, unknown family or a family declaring no grid: the generic
     // 8-cell law stays the whole law (no invented constraint).
-    let named_family = family
-        .and_then(Value::as_str)
-        .or_else(|| diffusion.and_then(|d| d.get("family")).and_then(Value::as_str));
+    let named_family = family.and_then(Value::as_str).or_else(|| {
+        diffusion
+            .and_then(|d| d.get("family"))
+            .and_then(Value::as_str)
+    });
     let grid = crate::model_families::canvas_grid(named_family);
     if grid > LATENT_GRID {
         let family_word = named_family.unwrap_or("this family");
         for (field, edge) in canvas_fields(i) {
-            if let Some(problem) = edge.and_then(|edge| family_grid_refusal(field, edge, grid, family_word)) {
+            if let Some(problem) =
+                edge.and_then(|edge| family_grid_refusal(field, edge, grid, family_word))
+            {
                 return Err(problem);
             }
         }
@@ -2960,7 +2964,12 @@ pub(crate) fn canvas_pixels_ok(width: u64, height: u64) -> bool {
 ///
 /// Answers the refusal word naming the field, the offending value and the family grid;
 /// `None` when the edge sits on the grid.
-pub(crate) fn family_grid_refusal(field: &str, edge: u64, grid: u64, family: &str) -> Option<String> {
+pub(crate) fn family_grid_refusal(
+    field: &str,
+    edge: u64,
+    grid: u64,
+    family: &str,
+) -> Option<String> {
     (grid > LATENT_GRID && !edge.is_multiple_of(grid)).then(|| {
         format!(
             "Invalid {field} {edge}: {family} pictures sit on a {grid}-pixel canvas grid, so {field} must be a multiple of {grid}"
@@ -2976,22 +2985,21 @@ pub(crate) fn canvas_fields(object: &Value) -> [(&'static str, Option<u64>); 8] 
     [
         ("width", edge("width")),
         ("height", edge("height")),
-        ("refine.width", object.get("refine").and_then(|r| r["width"].as_u64())),
+        (
+            "refine.width",
+            object.get("refine").and_then(|r| r["width"].as_u64()),
+        ),
         (
             "refine.height",
             object.get("refine").and_then(|r| r["height"].as_u64()),
         ),
         (
             "inputResize.width",
-            object
-                .get("inputResize")
-                .and_then(|r| r["width"].as_u64()),
+            object.get("inputResize").and_then(|r| r["width"].as_u64()),
         ),
         (
             "inputResize.height",
-            object
-                .get("inputResize")
-                .and_then(|r| r["height"].as_u64()),
+            object.get("inputResize").and_then(|r| r["height"].as_u64()),
         ),
         (
             "inpaintCrop.targetWidth",

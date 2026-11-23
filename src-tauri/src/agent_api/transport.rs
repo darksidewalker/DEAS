@@ -5774,10 +5774,7 @@ mod tests {
             .await
             .expect("request written");
         let mut raw = Vec::new();
-        stream
-            .read_to_end(&mut raw)
-            .await
-            .expect("answer readable");
+        stream.read_to_end(&mut raw).await.expect("answer readable");
         let raw = String::from_utf8_lossy(&raw).into_owned();
         assert!(raw.contains(" 400 "), "foreign Host is refused: {raw}");
         assert!(raw.contains("hostDenied"), "the named wall answers: {raw}");

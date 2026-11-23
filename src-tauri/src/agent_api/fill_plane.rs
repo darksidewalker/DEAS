@@ -3765,9 +3765,9 @@ fn check_image_canvas(plan: &IntentPlan) -> Result<(), ApiError> {
     let grid = crate::model_families::canvas_grid(Some(plan.family.as_str()));
     if grid > crate::jobs::LATENT_GRID {
         for (index, field) in ["width", "height"].into_iter().enumerate() {
-            if let Some(problem) = edges[index].and_then(|edge| {
-                crate::jobs::family_grid_refusal(field, edge, grid, &plan.family)
-            }) {
+            if let Some(problem) = edges[index]
+                .and_then(|edge| crate::jobs::family_grid_refusal(field, edge, grid, &plan.family))
+            {
                 return Err(invalid(format!(
                     "{problem}; the dials block or the defaults sheet must name a {grid}-multiple for this family"
                 )));

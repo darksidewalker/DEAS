@@ -6172,7 +6172,10 @@ fn the_family_grid_refuses_an_off_grid_canvas_and_names_the_family_grid() {
     });
     let problem = compile(&anima).unwrap_err();
     assert!(problem.contains("Invalid width 24"), "{problem}");
-    assert!(problem.contains("anima pictures sit on a 16-pixel canvas grid"), "{problem}");
+    assert!(
+        problem.contains("anima pictures sit on a 16-pixel canvas grid"),
+        "{problem}"
+    );
 
     // On the grid: the same shape compiles, so the law refuses the edge and not the run.
     anima["width"] = json!(512);
@@ -6190,10 +6193,7 @@ fn the_family_grid_refuses_an_off_grid_canvas_and_names_the_family_grid() {
     // resize + pad pair must match the output dims (the stock crop law), so the off-grid
     // edge rides a canvas that is itself on the grid — the resize arm has to be the one
     // that refuses.
-    anima
-        .as_object_mut()
-        .unwrap()
-        .remove("refine");
+    anima.as_object_mut().unwrap().remove("refine");
     anima["width"] = json!(1024);
     anima["height"] = json!(1536);
     anima["inputImage"] = json!("deas-inputs/pic.png");
@@ -6205,13 +6205,13 @@ fn the_family_grid_refuses_an_off_grid_canvas_and_names_the_family_grid() {
         "pad": {"left": 16, "right": 8, "top": 0, "bottom": 0}
     });
     let problem = compile(&anima).unwrap_err();
-    assert!(problem.contains("Invalid inputResize.width 1000"), "{problem}");
+    assert!(
+        problem.contains("Invalid inputResize.width 1000"),
+        "{problem}"
+    );
 
     // An inpaint crop target is a canvas too.
-    anima
-        .as_object_mut()
-        .unwrap()
-        .remove("inputResize");
+    anima.as_object_mut().unwrap().remove("inputResize");
     anima["inputMask"] = json!("deas-masks/2f1c6a1e-1a2b-3c4d-5e6f-778899aabbcc.png");
     anima["inpaintCrop"] = json!({
         "x": 0,

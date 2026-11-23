@@ -30,9 +30,8 @@ fn crate_version_matches_manifest() {
     // the version the app ships. Read from the manifest rather than a literal: every
     // release bumps four version files, and a pinned literal would fail the release it
     // documents (this assertion carried `"0.3.14"` from the branch it was written on).
-    let manifest =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
-            .expect("the Tauri manifest ships beside the crate");
+    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+        .expect("the Tauri manifest ships beside the crate");
     let version: serde_json::Value =
         serde_json::from_str(&manifest).expect("the Tauri manifest is valid JSON");
     assert_eq!(

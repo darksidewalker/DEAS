@@ -1,5 +1,37 @@
 # News
 
+## 0.3.23
+
+### An Agent API: queue generations from a script, share one card with the rest of DEAS
+
+**Backend → Agent API** can now expose a local HTTP plane (`http://127.0.0.1:<port>`, default 8790) so an agent or a script queues pictures,
+videos, reference bundles and one-cycle films the same way the Studio does, reads results back, and hands the card over cleanly. **It ships
+switched off**: without a `deas-agent-settings.json` nothing starts and no port is bound, so a fresh install behaves exactly as before. Every
+request passes three walls in a fixed order — an allowlisted browser Origin, a loopback Host, and your key if you set one — and the panel never
+writes a setting without showing its diff and getting a confirm. While a cycle owns the card, DEAS refuses environment updates, environment
+moves, restarts and stock submits with a readable `CYCLE_FENCE` message instead of letting two things fight over the GPU, and a watchdog ends a
+run whose card went silent. [Details →](AGENT-API.md)
+
+### LoRA families now believe the trainer, not the upload tool
+
+A LoRA's `modelspec.architecture` is stamped by whoever uploaded the file and is wrong often. Kohya's own `ss_base_model_version` /
+`ss_network_module` tokens, and a tensor signature that actually matches a family, now outrank that claim — on the reference library that
+corrected eight anima LoRAs that had been filed as SD 1.5. The model index re-describes every stamped file once after this update, so the
+first Library scan takes longer than usual.
+
+### Canvas sizes are now the model's own law, not a generic 64
+
+The old floor of 64 px was one family's number treated as universal. Every edge now has to sit on **the grid that model actually renders
+on** — 8 for SD 1.5, 16 for anima and MOSS, 32 for MiniMax H3 and LTX, 64 for SDXL — and that applies to a Hi-Res Regenerate target, a
+**Resize input** and an inpaint crop target too. A 24×24 anima canvas used to pass the wall and get padded inside the model; it is now refused
+with a message naming the grid, and SD 1.5 keeps its small canvases (56×56 renders). One visible consequence: a hand-typed or history-applied
+SDXL canvas that is not a 64-multiple (a 1000×1000 square) is refused instead of quietly padded — pick 960, 1024 or 1088.
+
+### Frozen Workbench windows from held rows are fixed
+
+Cancelling, reading an audio source, or starting Auto Refine from an id that resolved to the caller's own current row could lock the same
+session twice (a frozen DEAS) or recurse forever. Those ids are now handled on the session that already holds them, and Auto Refine still
+refuses a cross-scope source with the known message.
 ## 0.3.22
 
 ### The window opens maximized, and F11 toggles fullscreen
