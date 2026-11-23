@@ -181,3 +181,113 @@ fn reinstall_records_driver_update_but_refuses_other_compute_capability() {
     // The fresh-install driver gate still applies.
     assert!(refreshed_hardware(&recorded, gpu("GPU-a", "570.1", "8.9"), &Backend::Nvidia).is_err());
 }
+
+#[test]
+fn a_cycle_fence_refuses_an_environment_update_at_entry() {
+    let _gate = crate::resources::fence_test_gate();
+    // §14.6/E14: mutating the environment while a cycle owns the card takes the engine out
+    // from under the handoff. The gate is the first statement of `native_install_update`
+    // (and so of `native_install_repair`, which routes through it); it is extracted here
+    // because the command needs a live AppHandle, and it spawns no worker when it refuses.
+    assert!(
+        update_fence_gate().is_ok(),
+        "an open fence leaves the update exactly as shipped"
+    );
+    assert!(crate::resources::fence_claim(), "the cycle owns the fence");
+    let error = update_fence_gate().expect_err("the update waits behind the fence");
+    crate::resources::fence_release();
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+    assert!(error.contains("environment update"), "{error}");
+}
+
+/// A repair plan small enough to park in `pin_repair` by hand (the same shape the
+/// outdated-pin preview leaves behind), for the order law below.
+fn parked_plan(root: &Path) -> Plan {
+    Plan {
+        id: "pin-plan".into(),
+        gguf_ref: None,
+        preview_ref: None,
+        reopen_id: None,
+        repair: None,
+        request: request(root),
+        steps: vec![],
+        warnings: vec![],
+        unsupported_options: vec![],
+        can_execute: true,
+        hardware: None,
+        torch: None,
+    }
+}
+
+#[test]
+fn a_held_fence_refuses_a_repair_before_the_pin_is_consumed() {
+    let _gate = crate::resources::fence_test_gate();
+    // D4 gate-order fix: `native_install_repair` now checks the cycle fence BEFORE arming
+    // the pin. A held fence refuses at the gate; because the gate runs first, the one-time
+    // `pin_repair` token survives UNCONSUMED and no repair is adopted - the engine is
+    // byte-unchanged by the refusal. (Arming first, as shipped, took the token and nulled
+    // `approved` before the refusal could run.)
+    let engine = Engine::default();
+    let tmp = scratch();
+    let token = "repair-token".to_owned();
+    lock(&engine.inner).pin_repair = Some((token.clone(), parked_plan(tmp.path())));
+    let approved_before = lock(&engine.inner).approved.is_some();
+
+    // The gate is the FIRST statement of the fixed `native_install_repair`; a held fence
+    // refuses there, so `arm_pin_repair` is never reached.
+    assert!(crate::resources::fence_claim(), "a cycle owns the fence");
+    let error = update_fence_gate().expect_err("the held fence refuses the repair");
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+
+    {
+        let g = lock(&engine.inner);
+        assert!(
+            g.pin_repair.is_some(),
+            "the arm never ran: the one-time token survives the refusal"
+        );
+        assert!(g.repair.is_none(), "a refused repair adopts no plan");
+        assert_eq!(
+            g.approved.is_some(),
+            approved_before,
+            "the refusal changes no approval state (arm, not run, would have nulled it)"
+        );
+    }
+    crate::resources::fence_release();
+
+    // With the fence down the SAME token arms normally - proving the refusal was the fence,
+    // not staleness, and that the fix is the ORDER not a broken arm.
+    engine.arm_pin_repair(&token, true).unwrap();
+    assert!(
+        lock(&engine.inner).pin_repair.is_none(),
+        "the token is consumed once the gate clears"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_held_fence_leaves_an_approved_environment_approved_when_a_repair_is_refused() {
+    let _gate = crate::resources::fence_test_gate();
+    // Companion to the order test, in the install-fixture style: an APPROVED environment
+    // keeps its approval across a fence-held repair refusal, because the gate-before-arm
+    // fix means `arm_pin_repair` (the only path that nulls `approved`) never runs.
+    let (_tmp, approved) = crate::backend::tests::fixture(crate::backend::tests::SERVER);
+    let engine = Engine::default();
+    lock(&engine.inner).approved = Some(approved);
+    let scratch_dir = scratch();
+    let token = "repair-token".to_owned();
+    lock(&engine.inner).pin_repair = Some((token, parked_plan(scratch_dir.path())));
+
+    assert!(crate::resources::fence_claim(), "a cycle owns the fence");
+    assert!(
+        update_fence_gate().is_err(),
+        "the held fence refuses the repair"
+    );
+    {
+        let g = lock(&engine.inner);
+        assert!(g.approved.is_some(), "approval survives the refused repair");
+        assert!(g.pin_repair.is_some(), "the pin is never consumed by a refusal");
+        assert!(g.repair.is_none(), "no repair is adopted");
+    }
+    crate::resources::fence_release();
+}
+

@@ -1,6 +1,31 @@
 use super::*;
 use serde_json::json;
 
+// AF2-M30 single-home pin: `H3_KEYS` is the one home of the closed h3 top-level
+// key set (`validate_h3`'s `keys_in` arm, and the agent door's unknown-keys
+// wall in `fill_plane.rs::build_h3_block` calls this same const). A silent
+// edit here moves the stock law AND the door together; an edit anywhere else
+// is drift this test exists to catch.
+#[test]
+fn h3_keys_pins_the_closed_ten_words() {
+    const TEN: [&str; 10] = [
+        "mode",
+        "audioVae",
+        "shiftVideo",
+        "shiftAudio",
+        "references",
+        "continuity",
+        "media",
+        "inputScaling",
+        "refmods",
+        "transition",
+    ];
+    let closed: std::collections::BTreeSet<&str> = H3_KEYS.iter().copied().collect();
+    let expected: std::collections::BTreeSet<&str> = TEN.into_iter().collect();
+    assert_eq!(closed, expected, "the h3 closed key set drifted");
+    assert_eq!(H3_KEYS.len(), 10, "no duplicates: ten words, one set");
+}
+
 #[test]
 fn h3_stream_decode_replaces_both_whole_rgb_decoders() {
     let mut i = h3();
@@ -2880,6 +2905,92 @@ fn h3_join_audio_smoothing_is_strict_and_default_graph_is_unchanged() {
     assert_eq!(
         compile(&generation).unwrap_err(),
         "Missing or unknown video intent fields"
+    );
+}
+
+/// AF2-M31 single-home pin (the M25a `validate_continuity` / M30 `H3_KEYS`
+/// precedent): the join grammar has ONE home, `validate_join`, and `join()` calls
+/// it before emitting the graph. This test refuses behavior drift in BOTH
+/// directions: every refusal `validate_join` produces, `compile` (the stock
+/// entry, whose `is_join` branch is `join`) still produces BYTE-EQUAL, and every
+/// refusal `compile` produces is `validate_join`'s - so the door calling the
+/// single home can never answer a different word than the drain would, and a
+/// grammar pasted into `join()` beside the home is caught.
+#[test]
+fn validate_join_is_the_single_home_of_the_join_law() {
+    let cases: Vec<Value> = vec![
+        // version / h3-block walls
+        json!({"recipeId":"h3-join","version":2,"h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}]}}}),
+        json!({"recipeId":"h3-join","h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}]},"continuity":{}}}),
+        // kind / arms
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"other"}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"segments","session":"","chain":["clip_1"]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"segments","session":"_imports","chain":["clip_1"]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"segments","session":"s","chain":[]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"segments","session":"s","chain":["a b"]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[{"filename":"../a.mp4"}]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[{"filename":"a.mp4","trimStart":5,"trimEnd":5}]}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}],"copyVideo":"yes"}}}),
+        json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}],"smoothAudioSeams":1}}}),
+        // The 64 KiB budget law measures the BUILT rows - it is part of the home.
+        {
+            let wide = json!({"filename": "a".repeat(700)});
+            json!({"recipeId":"h3-join","version":1,"h3":{"join":{"kind":"files","files":vec![wide; 100]}}})
+        },
+    ];
+    for intent in cases {
+        let home = validate_join(&intent).unwrap_err();
+        let stock = compile(&intent).unwrap_err();
+        assert_eq!(
+            home, stock,
+            "the home and the shipped compile refusal drifted"
+        );
+    }
+    // The good path: the home BUILDS the rows `join()` emits (a `Ok` shape check,
+    // not a wording check), and the graph equality rides the compile-level pin.
+    let good = json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"segments","session":"deas-ab12cd34","chain":["clip_1","clip_2"]}}});
+    let rows = validate_join(&good).expect("the home accepts a legal chain");
+    assert_eq!(
+        rows,
+        vec![
+            json!({"kind":"checkpoint","session":"deas-ab12cd34","clip_id":"clip_1"}),
+            json!({"kind":"checkpoint","session":"deas-ab12cd34","clip_id":"clip_2"}),
+        ],
+        "the home builds the pack's snake-case rows in chain order"
+    );
+    let graph = compile(&good).expect("a legal join compiles");
+    assert_eq!(graph["7"]["class_type"], "DaSiWaH3ClipAssemble");
+    // `filename_prefix` stays `join()`'s emission (not part of the row build): the
+    // home refuses a bad one, and the graph carries the good one verbatim.
+    let prefixed = json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}],"filenamePrefix":"final_cut-1"}}});
+    assert!(
+        validate_join(&prefixed).is_ok(),
+        "a legal prefix passes the home"
+    );
+    assert_eq!(
+        compile(&prefixed).expect("compiles")["7"]["inputs"]["filename_prefix"],
+        "final_cut-1"
+    );
+    // The boundary of the extraction, stated honestly: the `filenamePrefix`
+    // charset wall is `join()`'s emission line (the shipped order kept), NOT part
+    // of the row build, so the home accepts a bad prefix while COMPILE still
+    // answers the shipped word - and the door calls the same stock helper
+    // (`filename_prefix`) beside its own walls (pinned door-side by
+    // `the_join_door_refuses_a_bad_prefix_naming_the_stock_law`).
+    let bad_prefix = json!({"recipeId":"h3-join","version":1,
+        "h3":{"join":{"kind":"files","files":[{"filename":"a.mp4"}],"filenamePrefix":"a.b"}}});
+    assert!(
+        validate_join(&bad_prefix).is_ok(),
+        "the home builds rows; the prefix wall is the emission line's"
+    );
+    assert_eq!(
+        compile(&bad_prefix).unwrap_err(),
+        "Invalid h3.join.filenamePrefix",
+        "the prefix refusal stayed byte-identical through the extraction"
     );
 }
 

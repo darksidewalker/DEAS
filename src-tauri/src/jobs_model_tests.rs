@@ -137,7 +137,7 @@ async fn h3_image_latent_upscale_preparation_records_local_selection() {
     model_file(root.path(), "latent_upscale_models", H3_IMAGE_UPSCALER);
     let jobs = Jobs::default();
     let prepared = jobs
-        .prepare_with_models(base, draft, vec![root.path().into()])
+        .prepare_with_models(base, draft, vec![root.path().into()], None)
         .await
         .unwrap();
     assert_eq!(
@@ -168,7 +168,12 @@ async fn h3_image_latent_upscale_broken_file_or_sidecar_rejects_before_prompt() 
             let jobs = Jobs::default();
             let error = if after_prepare {
                 let plan = jobs
-                    .prepare_with_models(base.clone(), draft.clone(), vec![root.path().into()])
+                    .prepare_with_models(
+                        base.clone(),
+                        draft.clone(),
+                        vec![root.path().into()],
+                        None,
+                    )
                     .await
                     .unwrap();
                 corrupt(&path, replacement);
@@ -177,9 +182,14 @@ async fn h3_image_latent_upscale_broken_file_or_sidecar_rejects_before_prompt() 
                     .unwrap_err()
             } else {
                 corrupt(&path, replacement);
-                jobs.prepare_with_models(base.clone(), draft.clone(), vec![root.path().into()])
-                    .await
-                    .unwrap_err()
+                jobs.prepare_with_models(
+                    base.clone(),
+                    draft.clone(),
+                    vec![root.path().into()],
+                    None,
+                )
+                .await
+                .unwrap_err()
             };
             let expected = if replacement {
                 "MODEL_INTEGRITY_INVALID"
@@ -207,7 +217,7 @@ async fn h3_image_latent_upscale_replaced_during_observer_connect_consumes_plan_
         let path = model_file(root.path(), "latent_upscale_models", H3_IMAGE_UPSCALER);
         let jobs = Jobs::default();
         let plan = jobs
-            .prepare_with_models(base, draft, vec![root.path().into()])
+            .prepare_with_models(base, draft, vec![root.path().into()], None)
             .await
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -367,7 +377,7 @@ async fn local_declaration_preparation_rechecks_scanned_model_and_lora_without_p
             draft["loras"] = json!([{"name":"style/a.safetensors","strength":0.5}]);
             let jobs = Jobs::default();
             let error = jobs
-                .prepare_with_models(base.clone(), draft, vec![root.path().into()])
+                .prepare_with_models(base.clone(), draft, vec![root.path().into()], None)
                 .await
                 .unwrap_err();
             assert!(
@@ -393,12 +403,12 @@ async fn explicitly_applied_lora_family_label_is_advisory_before_submission() {
     let mut draft = intent();
     draft["family"] = json!("sd15");
     Jobs::default()
-        .prepare_with_models(base.clone(), draft.clone(), vec![root.path().into()])
+        .prepare_with_models(base.clone(), draft.clone(), vec![root.path().into()], None)
         .await
         .unwrap();
     draft["loras"] = json!([{"name":"style/a.safetensors","strength":1}]);
     let plan = Jobs::default()
-        .prepare_with_models(base, draft, vec![root.path().into()])
+        .prepare_with_models(base, draft, vec![root.path().into()], None)
         .await
         .unwrap();
     assert_eq!(
@@ -421,7 +431,7 @@ async fn local_declaration_valid_and_undeclared_preparation_submit_normally() {
         }
         let jobs = Jobs::default();
         let plan = jobs
-            .prepare_with_models(base.clone(), intent(), vec![root.path().into()])
+            .prepare_with_models(base.clone(), intent(), vec![root.path().into()], None)
             .await
             .unwrap();
         let job = jobs
@@ -449,7 +459,7 @@ async fn host_memory_admission_refuses_before_the_backend_and_stays_retryable() 
     std::env::set_var("DEAS_HOST_MEMORY_ADMISSION", "block");
     let jobs = Jobs::default();
     let plan = jobs
-        .prepare_with_models(base.clone(), intent(), vec![root.path().into()])
+        .prepare_with_models(base.clone(), intent(), vec![root.path().into()], None)
         .await
         .unwrap();
     let error = jobs
@@ -494,7 +504,7 @@ async fn local_declaration_submit_rechecks_after_successful_native_preparation()
             draft["loras"] = json!([{"name":"style/a.safetensors","strength":0.5}]);
             let jobs = Jobs::default();
             let plan = jobs
-                .prepare_with_models(base.clone(), draft, vec![root.path().into()])
+                .prepare_with_models(base.clone(), draft, vec![root.path().into()], None)
                 .await
                 .unwrap();
             corrupt(
@@ -532,7 +542,7 @@ async fn local_declaration_changed_during_observer_connect_fails_before_prompt()
         }
         let jobs = Jobs::default();
         let plan = jobs
-            .prepare_with_models(base, intent(), vec![root.path().into()])
+            .prepare_with_models(base, intent(), vec![root.path().into()], None)
             .await
             .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -600,6 +610,7 @@ async fn local_declaration_external_backend_has_no_machine_path_authority() {
             base,
             intent(),
             LocalModels::owned(&engine, "http://127.0.0.1:9"),
+            None,
         )
         .await
         .unwrap();
@@ -650,7 +661,7 @@ async fn gguf_sidecar_split_preparation_checks_real_loader_catalog_fields() {
         draft["diffusion"] = json!({"textEncoder":"encoder.gguf","clipType":"stable_diffusion","vae":"vae.safetensors"});
         let jobs = Jobs::default();
         let prepared = jobs
-            .prepare_with_models(base, draft, vec![root.path().into()])
+            .prepare_with_models(base, draft, vec![root.path().into()], None)
             .await;
         if missing.is_empty() {
             let plan = prepared.unwrap();

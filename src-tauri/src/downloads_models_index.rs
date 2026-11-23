@@ -3,7 +3,21 @@ use super::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-const SCHEMA: u32 = 1;
+// AF2-M28 invalidation law: bump SCHEMA whenever detection logic changes.
+// Visibility: pub(crate) — agent_api fixture sites interpolate this constant so a
+// future bump cannot fork the value silently in hand-written snapshot JSON.
+// v2: the AF2-M26 component signatures (minimax_h3 / h3_video_vae / h3_audio_vae)
+// made the v1 detector vocabulary stale, but refresh reuses saved records while a
+// file's stamp (mtime+size) is unchanged and honors a saved snapshot while
+// schema==SCHEMA && detector==CARGO_PKG_VERSION. A schema bump is therefore the
+// ONLY lever that forces one full re-describe (stamp-reuse cache miss) on
+// already-stamped files. Live proof 2026-11-22: refreshed:144 yet the trio kept
+// component:null in unchanged-stamp records until this bump.
+// v3: LORA FAMILY ROUTING changed what detect() stamps for loras (kohya
+// ss_base_model_version/ss_network_module tokens and tensor signatures now
+// outrank an unverifiable modelspec.architecture claim; eight live anima LoRAs
+// were stamped sd15). Every already-stamped lora must re-describe once.
+pub(crate) const SCHEMA: u32 = 3;
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 static REFRESH: Mutex<()> = Mutex::new(());
 
@@ -931,5 +945,51 @@ mod tests {
         assert_eq!(load(&cache, vec![root.clone()], false).unwrap().len(), 2);
         assert_eq!(load(&cache, vec![root], true).unwrap().len(), 1);
         assert_eq!(std::fs::read(folder.join("b.pt")).unwrap(), b"new");
+    }
+
+    #[test]
+    fn schema_pin_guarding_the_detection_bump_law() {
+        // AF2-M28: bump this constant whenever detect_component / family detection
+        // logic changes, so stale already-stamped records are forced through one
+        // full re-describe. Raised 1 -> 2 for the AF2-M26 component signatures;
+        // live proof 2026-11-22 (refreshed:144 with component:null persisting).
+        // Raised 2 -> 3 for LORA FAMILY ROUTING: the lying-arch demotion and the
+        // kohya metadata arm change every lora stamp on the live library.
+        assert_eq!(SCHEMA, 3);
+    }
+
+    #[test]
+    fn obsolete_schema_snapshot_is_a_cache_miss_and_forces_redescribe() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("models");
+        std::fs::create_dir_all(root.join("loras")).unwrap();
+        std::fs::write(root.join("loras/a.pt"), b"fixture").unwrap();
+        let cache = dir.path().join("index");
+        load(&cache, vec![root.clone()], false).unwrap();
+        let file = std::fs::read_dir(&cache)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut stale = read(&file, std::slice::from_ref(&root)).unwrap();
+        assert_eq!(stale.schema, SCHEMA);
+        stale.schema = 1;
+        stale.records[0].model.details.family = Some("stale-v1-sentinel".into());
+        publish(&file, &stale).unwrap();
+        assert!(read_any(&file).is_none());
+        assert!(read(&file, std::slice::from_ref(&root)).is_none());
+        let warmed = load(&cache, vec![root.clone()], false).unwrap();
+        assert_eq!(warmed.len(), 1);
+        assert_ne!(
+            warmed[0].details.family.as_deref(),
+            Some("stale-v1-sentinel")
+        );
+        let republished = read(&file, std::slice::from_ref(&root)).unwrap();
+        assert_eq!(republished.schema, SCHEMA);
+        assert_ne!(
+            republished.records[0].model.details.family.as_deref(),
+            Some("stale-v1-sentinel")
+        );
     }
 }

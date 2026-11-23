@@ -1,7 +1,10 @@
 //! Model-family detection driven by the data-only family plugin `src/families/builtin.json`
 //! (shared with the frontend, which reads loaders, pipelines and defaults from it). Like SwarmUI's
 //! class sorter it reads only the safetensors header: `modelspec.architecture` first, then key
-//! signatures; the cached CivitAI base model is the fallback for other formats.
+//! signatures; the cached CivitAI base model is the fallback for other formats. For LoRAs the law
+//! is stricter (LORA FAMILY ROUTING): kohya's `ss_base_model_version`/`ss_network_module` tokens
+//! and positive tensor signatures outrank an architecture claim a family cannot confirm by
+//! signature — upload tooling stamps `modelspec.architecture` wrong constantly.
 use serde::{Deserialize, Serialize};
 
 mod ace_step;
@@ -295,14 +298,24 @@ pub(crate) fn ace_checkpoint_has_companions(path: &Path) -> bool {
 type TensorShapes = Vec<(String, Vec<u64>)>;
 
 /// Header keys joined with `_` folded to `.`, preserving the existing main-family policy; tensor shapes are folded the same way.
-fn header(path: &Path) -> Option<(String, String, TensorShapes)> {
+/// The fourth element carries kohya's training metadata (`ss_base_model_version`,
+/// `ss_network_module`, lowercased, empty values dropped): the trainer's own words about
+/// which base the network was built against.
+fn header(path: &Path) -> Option<(String, String, TensorShapes, Vec<String>)> {
     let (head, _) = read_header(path)?;
-    let arch = head
-        .get("__metadata__")
-        .and_then(|m| m.get("modelspec.architecture"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let meta = head.get("__metadata__").and_then(Value::as_object);
+    let meta_text = |key: &str| {
+        meta.and_then(|m| m.get(key))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
+    let arch = meta_text("modelspec.architecture");
+    let ss_values = ["ss_base_model_version", "ss_network_module"]
+        .into_iter()
+        .map(meta_text)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<String>>();
     let shapes = head
         .iter()
         .filter(|(k, _)| k.as_str() != "__metadata__")
@@ -324,7 +337,20 @@ fn header(path: &Path) -> Option<(String, String, TensorShapes)> {
             .join("\n"),
         arch,
         shapes,
+        ss_values,
     ))
+}
+
+/// Exact family-id tokens inside kohya's `ss_base_model_version` / `ss_network_module`
+/// values (`"anima"`, `"networks.lora_anima"`, `"sdxl_base_v1-0"`): the value splits on
+/// non-alphanumeric characters and whole tokens match builtin family ids. Token matching
+/// keeps `"flux2"` from claiming `flux` and `"networks.lora"` from claiming anything.
+fn family_named_by_metadata<'a>(values: &[String], all: &[&'a Family]) -> Option<&'a Family> {
+    values.iter().find_map(|value| {
+        value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .find_map(|token| all.iter().copied().find(|family| family.id == token))
+    })
 }
 
 /// `modelShapes` rules narrow a key-set match: every rule's tensor must exist with the declared shape prefix.
@@ -841,6 +867,22 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
                 return Some("ltx-2.3-audio-vae");
             }
         }
+        // H3 video VAE: measured from the MiniMax H3 Comfy package 2026-11-22, file
+        // vae/Minimax/minimax_h3_video_vae_fp16.safetensors; id = builtin family vaes list, never invented.
+        if shape("encoder.conv_in.weight", &[128, 3, 3, 3, 3])
+            && shape("encoder.conv_out.weight", &[48, 1024, 3, 3, 3])
+            && shape("decoder.transformer_blocks.0.ff.w1.weight", &[16384, 2048])
+        {
+            return Some("h3_video_vae");
+        }
+        // H3 audio VAE: measured from the MiniMax H3 Comfy package 2026-11-22, file
+        // vae/Minimax/minimax_h3_audio_vae_fp32.safetensors; id = builtin family audioVaes list.
+        if shape("latents_mean", &[32])
+            && shape("latents_std", &[32])
+            && shape("dec_in_proj.weight", &[2048, 32, 1])
+        {
+            return Some("h3_audio_vae");
+        }
         return None;
     }
     // Qwen3.5-9B hybrid linear/full attention, as selected by MOSS_IMAGE in comfy/sd.py.
@@ -901,6 +943,17 @@ pub fn detect_component(category: &str, path: &Path) -> Option<&'static str> {
             }
             return Some(id);
         }
+    }
+    // MiniMax H3 text encoder: measured from the MiniMax H3 Comfy package 2026-11-22, file
+    // clip/MiniMax/qwen3vl_32b_minimax_h3_bf16.safetensors; id = builtin family textEncoders list.
+    // The layers.50 guard pins the 50-layer depth; a deeper 5120-hidden derivative is not this model.
+    if shape("model.embed_tokens.weight", &[151936, 5120])
+        && shape("model.layers.0.self_attn.q_norm.weight", &[128])
+        && shape("model.layers.0.self_attn.q_proj.weight", &[8192, 5120])
+        && shape("model.layers.49.mlp.up_proj.weight", &[25600, 5120])
+        && !head.contains_key("model.layers.50.self_attn.q_proj.weight")
+    {
+        return Some("minimax_h3");
     }
     if shape("shared.weight", &[256384, 4096])
         && shape(
@@ -963,40 +1016,63 @@ pub fn detect_with_evidence(
     let parsed = if safetensors(path) {
         header(path)
     } else if gguf_file(path) {
-        gguf_metadata(path).map(|(keys, arch)| (keys, arch, Vec::new()))
+        gguf_metadata(path).map(|(keys, arch)| (keys, arch, Vec::new(), Vec::new()))
     } else {
         None
     };
     if !lora {
-        if let Some((keys, arch, shapes)) = &parsed {
+        if let Some((keys, arch, shapes, _)) = &parsed {
             if let Some((family, evidence)) = ace_step::classify(keys, arch, shapes, &file) {
                 return (Some(family), Some(evidence));
             }
         }
     }
-    let by_header = parsed.and_then(|(keys, arch, shapes)| {
-        let declared = !arch.is_empty();
-        all.iter()
-            .find(|f| declared && f.architectures.iter().any(|a| arch.starts_with(a.as_str())))
-            .or_else(|| {
-                all.iter().find(|f| {
-                    shapes_match(f, &shapes)
-                        && (if lora { &f.lora } else { &f.model })
-                            .iter()
-                            .any(|signature| {
-                                !signature.is_empty()
-                                    && signature
-                                        .iter()
-                                        .all(|s| keys.contains(&s.replace('_', ".")))
-                            })
-                })
+    let by_header = parsed.and_then(|(keys, arch, shapes, ss_values)| {
+        let by_arch = || {
+            let declared = !arch.is_empty();
+            all.iter()
+                .copied()
+                .find(|f| declared && f.architectures.iter().any(|a| arch.starts_with(a.as_str())))
+        };
+        let by_signature = || {
+            all.iter().copied().find(|f| {
+                shapes_match(f, &shapes)
+                    && (if lora { &f.lora } else { &f.model })
+                        .iter()
+                        .any(|signature| {
+                            !signature.is_empty()
+                                && signature
+                                    .iter()
+                                    .all(|s| keys.contains(&s.replace('_', ".")))
+                        })
             })
+        };
+        if lora {
+            // Two LoRA arms outrank a bare `modelspec.architecture` claim:
+            // (1) The trainer's own metadata: an exact family-id token in
+            //     `ss_base_model_version` / `ss_network_module` beats a
+            //     contradicting arch string (real corpus: anima LoRAs stamped
+            //     "stable-diffusion-v1/lora" by upload tooling).
+            // (2) An arch claim from a family whose builtin `lora` list is EMPTY
+            //     cannot be confirmed from tensors; a positive tensor-signature
+            //     match naming another family outranks that unverifiable claim.
+            if let Some(trainer_word) = family_named_by_metadata(&ss_values, &all) {
+                return Some(trainer_word);
+            }
+            if let Some(claim) = by_arch().filter(|f| f.lora.is_empty()) {
+                if let Some(matched) = by_signature().filter(|f| f.id != claim.id) {
+                    return Some(matched);
+                }
+            }
+        }
+        by_arch().or_else(by_signature)
     });
     (
         by_header
             .or_else(|| {
                 base.and_then(|b| {
                     all.iter()
+                        .copied()
                         .find(|f| f.bases.iter().any(|x| x.eq_ignore_ascii_case(b)))
                 })
             })
@@ -1445,6 +1521,109 @@ mod tests {
         let huge = dir.path().join("h.safetensors");
         std::fs::write(&huge, (MAX_HEADER + 1).to_le_bytes()).unwrap();
         assert_eq!(detect("checkpoints", &huge, None), None);
+    }
+
+    /// LORA FAMILY ROUTING (1): the live failure shape — a `stable-diffusion-v1/lora`
+    /// arch stamp over anima adaln tensors. sd15's builtin `lora` list is empty, so the
+    /// arch claim is structurally unverifiable; the positive tensor-signature match
+    /// (anima, any block number) outranks it. Real corpus: eight `loras/Anima/` files.
+    #[test]
+    fn a_lying_sd15_arch_claim_loses_to_anima_tensor_signatures() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = serde_json::json!({"dtype":"BF16","shape":[1],"data_offsets":[0,2]});
+        let path = write(
+            dir.path(),
+            "MeMaAni_clone.safetensors",
+            serde_json::json!({
+                "__metadata__": {"modelspec.architecture": "stable-diffusion-v1/lora"},
+                "lora_unet_blocks_0_adaln_modulation_cross_attn_1.lora_down.weight": t,
+                "lora_unet_blocks_0_adaln_modulation_cross_attn_2.lora_up.weight": t,
+                "lora_unet_blocks_27_adaln_modulation_mlp_1.lora_down.weight": t,
+            }),
+        );
+        assert_eq!(detect("loras", &path, None).as_deref(), Some("anima"));
+    }
+
+    /// LORA FAMILY ROUTING (2): the guard on the fix — an HONEST sd15-era LoRA (no
+    /// adaln tensors, no kohya base-model word) keeps its arch claim. The demotion arm
+    /// only fires when a tensor signature positively names ANOTHER family; sd15's own
+    /// topology has no competing signature here.
+    #[test]
+    fn an_honest_sd15_lora_keeps_its_arch_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = serde_json::json!({"dtype":"BF16","shape":[1],"data_offsets":[0,2]});
+        let mut head = serde_json::Map::new();
+        head.insert(
+            "__metadata__".to_owned(),
+            serde_json::json!({"modelspec.architecture": "stable-diffusion-v1/lora"}),
+        );
+        for key in [
+            "lora_unet_input_blocks_1_0",
+            "lora_unet_down_blocks_0_attentions_0_transformer_blocks_0_attn_to_q",
+            "lora_unet_down_blocks_2_attentions_1_transformer_blocks_0_attn_to_v",
+            "lora_unet_mid_block_attentions_0_transformer_blocks_0_attn_to_k",
+            "lora_unet_up_blocks_1_attentions_0_transformer_blocks_0_attn_to_k",
+            "lora_unet_output_blocks_2_0",
+            "lora_te_text_model_encoder_layers_0_mlp_fc1",
+        ] {
+            for tail in ["alpha", "lora_down.weight", "lora_up.weight"] {
+                head.insert(format!("{key}.{tail}"), t.clone());
+            }
+        }
+        let path = write(dir.path(), "detailfix_v3.safetensors", Value::Object(head));
+        assert_eq!(detect("loras", &path, None).as_deref(), Some("sd15"));
+    }
+
+    /// LORA FAMILY ROUTING (3): the trainer's own metadata beats a contradicting
+    /// arch claim even with no distinguishing tensors — `ss_base_model_version:
+    /// "anima"` / `ss_network_module: "networks.lora_anima"` carry the exact family id.
+    #[test]
+    fn kohya_base_model_metadata_beats_a_contradicting_arch_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = serde_json::json!({"dtype":"BF16","shape":[1],"data_offsets":[0,2]});
+        let path = write(
+            dir.path(),
+            "character_sheet.safetensors",
+            serde_json::json!({
+                "__metadata__": {
+                    "modelspec.architecture": "stable-diffusion-v1/lora",
+                    "ss_base_model_version": "anima",
+                    "ss_network_module": "networks.lora_anima",
+                },
+                "x": t,
+            }),
+        );
+        assert_eq!(detect("loras", &path, None).as_deref(), Some("anima"));
+    }
+
+    /// LORA FAMILY ROUTING (4): the widened signatures are BLOCK-AGNOSTIC. A
+    /// BallsDeep-style file trains only blocks 13..16 — the old `blocks.27.…` signature
+    /// could never see it; the `lora.unet.blocks` + adaln token-pair signatures can.
+    #[test]
+    fn ballsdeep_style_block_range_adaln_keys_classify_anima() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = serde_json::json!({"dtype":"BF16","shape":[1],"data_offsets":[0,2]});
+        let mut head = serde_json::Map::new();
+        head.insert(
+            "__metadata__".to_owned(),
+            serde_json::json!({"modelspec.architecture": "stable-diffusion-v1/lora"}),
+        );
+        for block in [13, 14, 15, 16] {
+            for key in [
+                format!("lora_unet_blocks_{block}_adaln_modulation_cross_attn_1"),
+                format!("lora_unet_blocks_{block}_adaln_modulation_mlp_2"),
+            ] {
+                for tail in ["alpha", "lora_down.weight", "lora_up.weight"] {
+                    head.insert(format!("{key}.{tail}"), t.clone());
+                }
+            }
+        }
+        let path = write(
+            dir.path(),
+            "BallsDeep_Anima_V1F_clone.safetensors",
+            Value::Object(head),
+        );
+        assert_eq!(detect("loras", &path, None).as_deref(), Some("anima"));
     }
 
     /// Minimal GGUF v3 writer: a few KV pairs then tensor names, so detection sees preserved keys.
@@ -1928,6 +2107,108 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn h3_component_signatures_match_measured_package_files() {
+        // Tensors and shapes as measured from the MiniMax H3 Comfy package 2026-11-22;
+        // ids come from the builtin.json family model-level lists, never invented.
+        let dir = tempfile::tempdir().unwrap();
+        let video: Signature<'_> = &[
+            ("encoder.conv_in.weight", &[128, 3, 3, 3, 3]),
+            ("encoder.conv_out.weight", &[48, 1024, 3, 3, 3]),
+            ("decoder.transformer_blocks.0.ff.w1.weight", &[16384, 2048]),
+        ];
+        let audio: Signature<'_> = &[
+            ("latents_mean", &[32]),
+            ("latents_std", &[32]),
+            ("dec_in_proj.weight", &[2048, 32, 1]),
+        ];
+        for (id, tensors) in [("h3_video_vae", video), ("h3_audio_vae", audio)] {
+            let path = component_file(dir.path(), "unrelated-name.safetensors", tensors);
+            assert_eq!(detect_component("vae", &path), Some(id));
+            assert_eq!(detect_component("clip", &path), None);
+            for i in 0..tensors.len() {
+                let mut wrong = tensors.to_vec();
+                wrong[i].1 = &[1];
+                let path =
+                    component_file(dir.path(), "minimax_h3_video_vae_fp16.safetensors", &wrong);
+                assert_eq!(
+                    detect_component("vae", &path),
+                    None,
+                    "{id}: {}",
+                    tensors[i].0
+                );
+            }
+        }
+        // Near-miss: 16-channel latent statistics are not the H3 audio VAE.
+        let mut narrow = audio.to_vec();
+        narrow[0].1 = &[16];
+        let path = component_file(dir.path(), "minimax_h3_audio_vae_fp32.safetensors", &narrow);
+        assert_eq!(detect_component("vae", &path), None);
+    }
+
+    #[test]
+    fn h3_text_encoder_signature_requires_fifty_layers_and_qwen3_norms() {
+        // Tensors and shapes as measured from the MiniMax H3 Comfy package 2026-11-22
+        // (clip/MiniMax/qwen3vl_32b_minimax_h3_bf16.safetensors).
+        let dir = tempfile::tempdir().unwrap();
+        let encoder: Signature<'_> = &[
+            ("model.embed_tokens.weight", &[151936, 5120]),
+            ("model.layers.0.self_attn.q_norm.weight", &[128]),
+            ("model.layers.0.self_attn.q_proj.weight", &[8192, 5120]),
+            ("model.layers.49.mlp.up_proj.weight", &[25600, 5120]),
+        ];
+        let path = component_file(dir.path(), "unrelated-name.safetensors", encoder);
+        assert_eq!(detect_component("text_encoders", &path), Some("minimax_h3"));
+        assert_eq!(detect_component("vae", &path), None);
+        for i in 0..encoder.len() {
+            let mut wrong = encoder.to_vec();
+            wrong[i].1 = &[1];
+            let path = component_file(
+                dir.path(),
+                "qwen3vl_32b_minimax_h3_bf16.safetensors",
+                &wrong,
+            );
+            assert_eq!(
+                detect_component("text_encoders", &path),
+                None,
+                "{}",
+                encoder[i].0
+            );
+        }
+        // The layers.50 guard rejects deeper 5120-hidden Qwen3-VL derivatives.
+        let mut deeper = encoder.to_vec();
+        deeper.push(("model.layers.50.self_attn.q_proj.weight", &[8192, 5120]));
+        let path = component_file(
+            dir.path(),
+            "qwen3vl_32b_minimax_h3_bf16.safetensors",
+            &deeper,
+        );
+        assert_eq!(detect_component("text_encoders", &path), None);
+    }
+
+    #[test]
+    fn builtin_minimax_h3_families_declare_the_component_trio() {
+        for family in ["minimax-h3", "minimax-h3-hyperflow"] {
+            assert_eq!(
+                component_matches(family, "textEncoders", "minimax_h3"),
+                Some(true)
+            );
+            assert_eq!(
+                component_matches(family, "vaes", "h3_video_vae"),
+                Some(true)
+            );
+            assert_eq!(component_matches(family, "vaes", "h3_sol_vae"), Some(true));
+            assert_eq!(
+                component_matches(family, "audioVaes", "h3_audio_vae"),
+                Some(true)
+            );
+            assert_eq!(
+                component_matches(family, "textEncoders", "h3_audio_vae"),
+                Some(false)
+            );
         }
     }
 

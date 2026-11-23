@@ -29,6 +29,10 @@ async fn whole_stop_admission_epoch_snapshot_contract() {
 
 #[tokio::test]
 async fn whole_stop_fences_run_first_polled_after_stop_completion_then_accepts_current_epoch() {
+    // LEG AF2-M18c (D-1): this test never touches the cycle fence itself, but its stock
+    // submit passes the `fence_wait_for_submit` gate — so it is a VICTIM of any fence
+    // test running in parallel. Same gate, so it can never overlap a gated claimer.
+    let _gate = crate::resources::fence_test_gate();
     let requests = Arc::new(AtomicUsize::new(0));
     let posts = Arc::new(AtomicUsize::new(0));
     let (reads, submissions) = (requests.clone(), posts.clone());

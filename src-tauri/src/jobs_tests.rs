@@ -2696,7 +2696,7 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("seed", json!(0.5)),
         ("width", json!(65)),
         ("width", json!(8200)),
-        ("height", json!(56)),
+        ("height", json!(4)),
         ("steps", json!(151)),
         ("steps", json!(0)),
         ("cfg", json!(30.1)),
@@ -4437,6 +4437,50 @@ async fn concurrent_submit_reserves_job_before_any_network_await() {
 }
 
 #[tokio::test]
+async fn submit_refuses_at_entry_while_a_cycle_holds_the_fence() {
+    // LEG AF2-M18c (D-1): the gate ticket is held across the `submit` await below, for
+    // the whole claim-test-release span — that is its purpose (one process-wide fence
+    // static, serialized against every other fence-reaching test).
+    let _gate = crate::resources::fence_test_gate();
+    // §14.6/E14: a stock UI submit cannot land on a cycle-owned card. The gate is at
+    // submit_inner entry, so the plan survives untouched and the post-cycle retry behaves
+    // exactly like the first attempt. The cycle's own drain is exempt (resources pass window).
+    let (base, task) = server(|path, _| {
+        if path.starts_with("GET ") {
+            (200, nodes().to_string())
+        } else {
+            (
+                400,
+                json!({"error":{"message":"must not be reached"},"node_errors":{}}).to_string(),
+            )
+        }
+    })
+    .await;
+    let jobs = Jobs::default();
+    let plan = jobs.prepare(base, intent()).await.unwrap();
+    let id = plan["id"].as_str().unwrap().to_owned();
+    assert!(crate::resources::fence_claim(), "the cycle owns the fence");
+    let result = jobs.submit(id.clone(), true).await;
+    crate::resources::fence_release();
+    let error = result.expect_err("a stock submit waits behind the cycle fence");
+    assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+    assert!(error.contains("native submission"), "{error}");
+    let session = jobs.lock().unwrap();
+    assert!(
+        session.job.is_none(),
+        "the refused submit created no job row"
+    );
+    let kept = session
+        .plan
+        .as_ref()
+        .expect("the plan is kept for the retry");
+    assert_eq!(kept.id, id);
+    assert!(!kept.consumed, "the refused submit never consumed the plan");
+    drop(session);
+    task.abort();
+}
+
+#[tokio::test]
 async fn prepare_latent_upscale_requires_exact_catalog_id_without_changing_legacy_admission() {
     for mut intent in [
         crate::jobs_video::tests::ltx(),
@@ -6039,4 +6083,75 @@ fn image_reference_compiles_core_revision_and_rejects_split_families() {
     bad["imageReference"]["images"][0]["image"] = json!("deas-inputs/ref.png");
     bad["imageReference"]["images"] = json!([]);
     assert!(compile(&bad).unwrap_err().contains("imageReference"));
+}
+
+#[test]
+fn the_canvas_floor_eight_and_the_header_dims_and_the_input_canvas_wall() {
+    // The compile numeric table admits the latent-grid floor and refuses below it.
+    let mut i = intent();
+    i["width"] = json!(8);
+    i["height"] = json!(8);
+    compile(&i).expect("8x8 compiles through the numeric table");
+    i["width"] = json!(57);
+    assert!(
+        compile(&i).unwrap_err().contains("width"),
+        "57 is off the 8-grid"
+    );
+
+    // The shared header parse: PNG IHDR, VP8X, VP8 (lossy) and no-ops.
+    let png = |w: u32, h: u32| {
+        let mut b = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        b.extend_from_slice(&13u32.to_be_bytes());
+        b.extend_from_slice(b"IHDR");
+        b.extend_from_slice(&w.to_be_bytes());
+        b.extend_from_slice(&h.to_be_bytes());
+        b
+    };
+    assert_eq!(
+        image_header_dims(&png(10_000, 10_000)),
+        Some((10_000, 10_000))
+    );
+    assert_eq!(image_header_dims(&png(8, 8)), Some((8, 8)));
+    // A header cut before the IHDR dims land carries no dims: the parse answers None,
+    // it never indexes past the bytes that are actually there.
+    for cut in [0usize, 8, 12, 16, 19, 20, 23] {
+        assert_eq!(
+            image_header_dims(&png(8, 8)[..cut]),
+            None,
+            "a {cut}-byte PNG head has no dims"
+        );
+    }
+    let mut vp8x = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+    vp8x.extend_from_slice(&10u32.to_le_bytes());
+    vp8x.push(0);
+    vp8x.extend_from_slice(&[0, 0, 0]);
+    vp8x.extend_from_slice(&[99, 0, 0]);
+    vp8x.extend_from_slice(&[7, 3, 0]);
+    assert_eq!(
+        image_header_dims(&vp8x),
+        Some((100, 776)),
+        "the 24-bit LE codes are minus-one"
+    );
+
+    // The i2i wall at the compile/prepare boundary: a placed oversized input is
+    // refused naming its dims; a legal one, an absent file and the bracketed
+    // `[output]` form all pass the wall (other laws own those).
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("deas-inputs")).unwrap();
+    std::fs::write(root.path().join("deas-inputs/big.png"), png(10_000, 10_000)).unwrap();
+    std::fs::write(root.path().join("deas-inputs/ok.png"), png(1024, 768)).unwrap();
+    let mut i2i = intent();
+    i2i["inputImage"] = json!("deas-inputs/big.png");
+    i2i["denoise"] = json!(0.6);
+    let problem = check_input_canvas(Some(root.path()), &i2i).expect_err("the input IS the canvas");
+    assert!(problem.contains("10000x10000"), "{problem}");
+    assert!(problem.contains("Invalid inputImage canvas"), "{problem}");
+    i2i["inputImage"] = json!("deas-inputs/ok.png");
+    check_input_canvas(Some(root.path()), &i2i).expect("a legal placed input passes");
+    i2i["inputImage"] = json!("deas-inputs/absent.png");
+    check_input_canvas(Some(root.path()), &i2i).expect("the existence law owns an absent file");
+    i2i["inputImage"] = json!("out.png [output]");
+    check_input_canvas(Some(root.path()), &i2i).expect("bracketed sources sit outside the root");
+    check_input_canvas(None, &json!({"inputImage": "deas-inputs/big.png"}))
+        .expect("no root: the wall is inert");
 }

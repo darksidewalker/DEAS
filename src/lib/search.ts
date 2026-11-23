@@ -6,7 +6,7 @@ import { flushSync } from 'react-dom';
  */
 export type SearchView = 'studio' | 'downloads' | 'comfy' | 'backend' | 'logs';
 export type SearchStudioTab = 'generate' | 'forge' | 'chat' | 'analysis' | 'wizards' | 'tve' | 'monitor' | 'map';
-export type SearchPanel = 'startup' | 'llm' | 'auth';
+export type SearchPanel = 'startup' | 'llm' | 'auth' | 'agentApi';
 
 export interface SearchEntry {
   view: SearchView;
@@ -349,6 +349,30 @@ export const searchIndex: readonly SearchEntry[] = [
   { view: 'backend', panel: 'llm', tab: 'settings.button', section: 'search.section.panes', label: 'llm.save', target: '[data-llm-action="save"]', aliases: ['save llm settings'], reason: 'search.reason.installed' },
   { view: 'backend', panel: 'llm', tab: 'settings.button', section: 'search.section.panes', label: 'llm.title', target: '.llm-panel', aliases: ['endpoint', 'server'], reason: 'search.reason.installed' },
   { view: 'backend', panel: 'auth', tab: 'settings.button', section: 'search.section.panes', label: 'downloads.auth', target: '.auth-providers button', aliases: ['token', 'civitai'] },
+  // Agent API (the /v1 plane): the panel mounts only once an environment root is known, so every hit carries the installed reason.
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.title', target: '.agent-api-panel', aliases: ['agent api', 'agent plane', 'v1', 'api', 'automation', 'http'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.enabled', target: '[data-agentapi-check="enabled"]', aliases: ['enable agent api', 'turn on api', 'agent plane on'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.port', target: '[data-agentapi-field="port"]', aliases: ['port', '8790', 'listen port'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.standingKey', target: '[data-agentapi-field="standingKey"]', aliases: ['api key', 'token', 'bearer', 'secret'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.origins', target: '[data-agentapi-field="origins"]', aliases: ['origin allowlist', 'cors', 'cross origin'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.apply', target: '[data-agentapi-apply="settings"]', aliases: ['apply agent settings', 'save api access'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.guard', target: '[data-agentapi-section="guard"]', aliases: ['vram guard', 'unload', 'restore', 'cycle', 'guard file'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.unloadCommand', target: '[data-agentapi-field="unloadCommand"]', aliases: ['unload command', 'free vram command', 'bat'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.restoreCommand', target: '[data-agentapi-field="restoreCommand"]', aliases: ['restore command', 'load model command', 'bat'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.readyUrl', target: '[data-agentapi-field="readyUrl"]', aliases: ['ready url', 'readiness', 'health url'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.autoCycle', target: '[data-agentapi-check="autoCycleVram"]', aliases: ['auto cycle vram', 'vram handoff'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.freeOnQueueEnd', target: '[data-agentapi-check="freeOnQueueEnd"]', aliases: ['free vram', 'queue end'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.windowSec', target: '[data-agentapi-field="windowSec"]', aliases: ['watchdog window', 'seconds'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.utilMedian', target: '[data-agentapi-field="utilMedianPct"]', aliases: ['watchdog utilization', 'gpu utilization median'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.vramStatic', target: '[data-agentapi-field="vramStaticMiB"]', aliases: ['watchdog static vram', 'mib'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.graceSec', target: '[data-agentapi-field="graceSec"]', aliases: ['watchdog grace', 'seconds'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.guardOwnRuns', target: '[data-agentapi-check="guardOwnRuns"]', aliases: ['guard own runs', 'api owned runs only'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.uploadSingleMiB', target: '[data-agentapi-cap="uploadSingleMiB"]', aliases: ['upload cap', 'upload limit', 'mib'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.jobUploadMiB', target: '[data-agentapi-cap="jobUploadMiB"]', aliases: ['batch upload budget', 'upload cap', 'mib'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.downloadSingleMiB', target: '[data-agentapi-cap="downloadSingleMiB"]', aliases: ['download cap', 'byte door', 'mib'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.apply', target: '[data-agentapi-apply="guard"]', aliases: ['apply guard', 'save vram guard'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.defaults', target: '[data-agentapi-section="defaults"]', aliases: ['defaults sheet', 'combo defaults', 'family defaults', 'agent defaults'], reason: 'search.reason.installed' },
+  { view: 'backend', panel: 'agentApi', tab: 'settings.button', section: 'search.section.panes', label: 'agentApi.comboAdd', target: '[data-agentapi-combo-add-go]', aliases: ['add combo', 'family mode', 'new defaults row'], reason: 'search.reason.installed' },
   { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendAutostart', target: '.backend-autostart', aliases: ['start', 'autostart'] },
   { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.start', target: '[data-backend-action="start"]', aliases: ['start', 'comfyui', 'run backend'], reason: 'search.reason.backendRunning' },
   { view: 'backend', tab: 'settings.button', section: 'setup.backendLifecycle.title', label: 'setup.backendLifecycle.stop', target: '[data-backend-action="stop"]', aliases: ['stop', 'kill', 'shutdown'], reason: 'search.reason.backend' },

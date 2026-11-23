@@ -124,7 +124,7 @@ fn encode_png(pixels: &Pixels) -> Result<Vec<u8>, String> {
 /// Red is the existing LoadImageMask channel; alpha is deliberately not mask authority.
 fn mask_bounds(pixels: &Pixels, margin: u32) -> Option<(u32, u32, u32, u32)> {
     let (mut left, mut top, mut right, mut bottom) = (pixels.width, pixels.height, 0, 0);
-    for (index, pixel) in pixels.rgb.chunks_exact(3).enumerate() {
+    for (index, pixel) in pixels.rgb.as_chunks::<3>().0.iter().enumerate() {
         if pixel[0] > 0 {
             let x = index as u32 % pixels.width;
             let y = index as u32 / pixels.width;
@@ -505,7 +505,7 @@ impl Jobs {
             if (mask.width, mask.height) != size {
                 return Err("Auto Refine mask dimensions do not match the verified source".into());
             }
-            for pixel in mask.rgb.chunks_exact_mut(3) {
+            for pixel in mask.rgb.as_chunks_mut::<3>().0.iter_mut() {
                 pixel[1] = pixel[0];
                 pixel[2] = pixel[0];
             }
@@ -631,10 +631,21 @@ pub async fn native_auto_refine(
     crate::validate_base_url(&base_url)?;
     let source = source_job_id
         .as_deref()
-        .map(|id| {
-            state
-                .workbench_job(id)
-                .and_then(|held| held.ok_or("Unknown held Auto Refine source job".into()))
+        .map(|id| -> Result<Arc<Jobs>, String> {
+            let held = state.workbench_job(id)?;
+            // F1 stock fence (jobs_workbench::workbench_job): a root current-job match
+            // returns a handle ALIASING the root session (same `Arc<Mutex<Session>>`).
+            // Auto Refine takes only a HELD Workbench source; a root current job is
+            // cross-scope, and stock answers a non-held id with the Unknown refusal. Keep
+            // that law: reject the alias rather than adopt the root session as a source
+            // (which would widen the run's scope onto the caller's own row).
+            if held
+                .as_ref()
+                .is_some_and(|h| Arc::ptr_eq(&h.0, &state.inner().0))
+            {
+                return Err("Unknown held Auto Refine source job".into());
+            }
+            held.ok_or("Unknown held Auto Refine source job".into())
         })
         .transpose()?;
     if let Some(held) = &source {
@@ -1508,5 +1519,67 @@ mod tests {
         let (_tx, rx) = tokio::sync::watch::channel(None);
         jobs.lock().unwrap().stop = Some(rx);
         assert!(jobs.refine_fence(1).is_err());
+    }
+
+    fn refine_plan() -> Plan {
+        Plan {
+            id: "plan-1".into(),
+            base: reqwest::Url::parse("http://127.0.0.1:1").expect("loopback base"),
+            intent: json!({}),
+            graph: json!({}),
+            consumed: true,
+            media_root: None,
+            local_models: LocalModels::default(),
+        }
+    }
+
+    fn refine_row(id: &str, state: &'static str) -> Job {
+        Job {
+            id: id.into(),
+            plan: refine_plan(),
+            client_id: "agent-plane".into(),
+            prompt_id: None,
+            state,
+            outputs: Vec::new(),
+            history_outputs: Vec::new(),
+            error: None,
+            submitting: false,
+            polling: false,
+            metadata: None,
+            transition: None,
+            live: Arc::new(Mutex::new(Live::default())),
+        }
+    }
+
+    #[test]
+    fn a_root_session_source_is_the_alias_the_guard_rejects_but_a_held_child_is_kept() {
+        // D3-W3 (F1 alias guard in native_auto_refine's source lookup): the guard runs
+        // exactly the predicate below. A root current-job id resolves to a handle that
+        // ALIASES the caller's own session -> it is cross-scope, so stock answers the
+        // "Unknown held Auto Refine source job" refusal and the guard rejects it. A real
+        // held Workbench child is a DISTINCT session, so the guard keeps it as the source.
+        // This pins that whole decision without a live tauri `State`.
+        let root = Jobs::default();
+        root.lock().unwrap().job = Some(refine_row("root-src", "succeeded"));
+        let held_root = root.workbench_job("root-src").unwrap();
+        assert!(
+            held_root
+                .as_ref()
+                .is_some_and(|h| Arc::ptr_eq(&h.0, &root.0)),
+            "the root id resolves to a handle aliasing the caller's own session"
+        );
+        let child = Arc::new(Jobs::default());
+        child.lock().unwrap().job = Some(refine_row("wb-src", "succeeded"));
+        root.lock().unwrap().workbench.push(child.clone());
+        let held_child = root.workbench_job("wb-src").unwrap();
+        assert!(
+            held_child
+                .as_ref()
+                .is_some_and(|h| Arc::ptr_eq(&h.0, &child.0))
+                && !held_child
+                    .as_ref()
+                    .is_some_and(|h| Arc::ptr_eq(&h.0, &root.0)),
+            "a held child is a distinct session, so the guard keeps it as a source"
+        );
     }
 }

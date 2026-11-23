@@ -107,6 +107,137 @@ async fn cancel_fixture(
     (jobs, job["id"].as_str().unwrap().into(), fixture, task)
 }
 
+/// F1 (E14/§14.6): an agent-drain row lives in the ROOT session's current job; a
+/// minimal installable row for the root-reach tests below.
+fn root_plan() -> Plan {
+    Plan {
+        id: "plan-1".into(),
+        base: reqwest::Url::parse("http://127.0.0.1:1").expect("loopback base"),
+        intent: json!({}),
+        graph: json!({}),
+        consumed: true,
+        media_root: None,
+        local_models: LocalModels::default(),
+    }
+}
+
+fn root_row(id: &str, state: &'static str) -> Job {
+    Job {
+        id: id.into(),
+        plan: root_plan(),
+        client_id: "agent-plane".into(),
+        prompt_id: None,
+        state,
+        outputs: Vec::new(),
+        history_outputs: Vec::new(),
+        error: None,
+        submitting: false,
+        polling: false,
+        metadata: None,
+        transition: None,
+        live: Arc::new(Mutex::new(Live::default())),
+    }
+}
+
+#[test]
+fn root_session_row_resolves_through_the_lookup_the_pending_cancel_uses() {
+    // F1 is a LOOKUP law (the pending driver's `workbench_job` resolution must land
+    // the root row). Driving a real cancel_pending needs the scripted backend of
+    // `cancel_fixture` - the stock pending tests all stand on it; the no-prompt
+    // shortcut does NOT hold without a fixture session (the driver waits on
+    // correlation that never arrives), so standing that machinery up here would
+    // test stock, not the fence.
+    let jobs = Arc::new(Jobs::default());
+    jobs.lock().unwrap().job = Some(root_row("root-row", "queued"));
+    let held = jobs
+        .workbench_job("root-row")
+        .unwrap()
+        .expect("the root row is reachable by the lookup cancel_pending resolves through");
+    let session = held.lock().unwrap();
+    let job = session
+        .job
+        .as_ref()
+        .expect("the row stands through the handle");
+    assert_eq!(job.id, "root-row");
+    assert_eq!(job.state, "queued");
+}
+
+#[test]
+fn root_session_row_resolves_through_the_lookup_the_interrupt_path_uses() {
+    // F1 is a LOOKUP law: the interrupt driver's own `workbench_job` resolution
+    // must land the root row. Driving a real interrupt needs the scripted backend
+    // of `cancel_fixture` (the stock running tests all stand on it); standing that
+    // machinery up here would test stock, not the fence.
+    let jobs = Arc::new(Jobs::default());
+    jobs.lock().unwrap().job = Some(root_row("root-run", "running"));
+    let held = jobs
+        .workbench_job("root-run")
+        .unwrap()
+        .expect("the root row is reachable by the lookup interrupt_running resolves through");
+    // The handle carries the root row (Jobs clones share the Arc'd session; the
+    // handle is not ptr-identical to the caller's Arc - that is stock shape).
+    assert_eq!(held.lock().unwrap().job.as_ref().unwrap().id, "root-run");
+}
+
+#[tokio::test]
+async fn a_non_matching_id_still_answers_the_stock_unknown_refusal_unchanged() {
+    let jobs = Jobs::default();
+    jobs.lock().unwrap().job = Some(root_row("root-row", "queued"));
+    let error = jobs
+        .cancel_pending("no-such-row".into(), true, owner())
+        .await
+        .expect_err("a foreign id keeps the stock refusal");
+    assert_eq!(error, "Unknown native Workbench job");
+}
+
+#[tokio::test]
+async fn workbench_ids_keep_their_child_reach_when_the_root_holds_another_row() {
+    let root = Jobs::default();
+    root.lock().unwrap().job = Some(root_row("root-row", "queued"));
+    let child = Arc::new(Jobs::default());
+    child.lock().unwrap().job = Some(root_row("wb-row", "queued"));
+    root.lock().unwrap().workbench.push(child.clone());
+    let held = root
+        .workbench_job("wb-row")
+        .unwrap()
+        .expect("the workbench scan still lands first");
+    assert_eq!(held.lock().unwrap().job.as_ref().unwrap().id, "wb-row");
+    assert!(
+        held.lock().unwrap().job.as_ref().unwrap().plan.id == "plan-1"
+            && Arc::ptr_eq(&held, &child),
+        "the child handle is returned, never the root"
+    );
+    // The root row resolves through the F1 reach to the root session itself.
+    let held = root
+        .workbench_job("root-row")
+        .unwrap()
+        .expect("the root reach landed");
+    assert_eq!(held.lock().unwrap().job.as_ref().unwrap().id, "root-row");
+}
+
+#[tokio::test]
+async fn a_root_session_row_cancels_through_admission_without_deadlocking() {
+    // D3 self-deadlock fix (F1 alias guard in cancel_scoped_inner): a root current-job id
+    // hands workbench_job back a handle ALIASING the root session. The stock code then
+    // re-locked that handle while it already held `admission` - the same Arc<Mutex<Session>>
+    // on one thread - and wedged the thread forever. It now recognizes the alias and works
+    // on `admission` directly. A no-prompt row takes the stock snapshot return; the whole
+    // point is that it RETURNS - a deadlock would hang the suite, which is the assertion.
+    let jobs = Arc::new(Jobs::default());
+    jobs.lock().unwrap().job = Some(root_row("root-row", "queued"));
+    let answer = jobs
+        .cancel_pending("root-row".into(), true, owner())
+        .await
+        .expect("the scoped cancel answers; it does not self-deadlock");
+    // The stock no-prompt law: cancel returns the root row's own snapshot, no backend call.
+    assert_eq!(answer["id"], "root-row");
+    assert_eq!(answer["state"], "queued");
+    assert!(
+        jobs.workbench_job("root-row").unwrap().is_some(),
+        "the root row is still reachable through the lookup"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn standalone_status_abort_releases_polling_for_retry_and_pending_cancel() {
     let (jobs, id, f, task) = cancel_fixture("slow", 200).await;

@@ -26,6 +26,7 @@ Top-level tabs: Studio · Library · Prompt Forge · Chat · TVE · Comfy on the
 | Music: Text to Music with YuE2 or ACE-Step; Cover Music with YuE2 | [Music](MUSIC.md) |
 | Experimental MiniMax H3 Dials (Studio settings, strength and time curves, shared rack presets, file metadata, and Library downloads) | [Dials](DIALS.md) |
 | Contributor tooling: driving the running Linux app from a script or an agent through the web view's inspector | [Piloting the running app](AGENT-PILOTING.md) |
+| Agent API: the opt-in loopback `/v1` plane that lets scripts and agents queue generations ([#53](https://github.com/darksidewalker/DEAS/pull/53)) | [Agent API](AGENT-API.md) |
 | TVE tab: video source inspection and backend video-enhance recipes with paired outputs | [TVE workspace](STUDIO.md#tve-workspace) |
 | Monitoring tab: last ten generations with timing, live host/GPU telemetry | [Monitoring tab](STUDIO.md#monitoring-tab) |
 | Native image-draft projects, autosave and managed PNG input (not job/result recovery) | [Projects](PROJECTS.md) |

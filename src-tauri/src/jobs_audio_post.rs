@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub(super) fn settings(
+pub(crate) fn settings(
     intent: &Value,
 ) -> Result<Option<crate::audio_enhance::AudioSettings>, String> {
     let Some(value) = intent.get("audioEnhance") else {

@@ -13,7 +13,7 @@ import { llmSetupEvent } from '../../lib/llm';
 import { librarySearchEvent } from '../../lib/wizards';
 import { RepoLinks } from './RepoLinks';
 import { GlobalSearch } from './GlobalSearch';
-import type { SearchEntry } from '../../lib/search';
+import type { SearchEntry, SearchPanel } from '../../lib/search';
 import { QuickSettings } from '../../features/studio/QuickSettings';
 import { DownloadWorkspace } from '../../features/downloads/DownloadWorkspace';
 import { FoldersPanel, FolderFields } from '../../features/settings/FoldersPanel';
@@ -83,7 +83,7 @@ export function AiOSetup({ experience='advanced',onExperience,beginnerPage='gene
  const planMatches=(['models','input','output'] as const).every(key=>nativePlan?.request.folders?.[key]===folderDraft[key])&&!!nativePlan&&plan?.route==='managed'&&nativePlan.request.storagePath===(takeoverOn&&takeoverPath?takeoverPath:plan.storagePath)&&(nativePlan.request.takeover??false)===takeoverOn&&nativePlan.request.backend===plan.backend&&nativePlan.request.comfyRef===plan.comfyRef&&JSON.stringify(nativePlan.request.features)===JSON.stringify(plan.features)&& (Object.keys(plan.options) as (keyof InstallOptions)[]).every(id=>nativePlan.request.options?.[id]===plan.options[id]);
  const [view,setView]=useState<'studio'|'downloads'|'comfy'|'backend'|'logs'>(beginner?'studio':'backend');
  // Global search only switches the view and the lazy panes; it never writes a setting or submits anything.
- const [searchPanel,setSearchPanel]=useState<{panel:'startup'|'llm'|'auth';nonce:number}|null>(null);
+ const [searchPanel,setSearchPanel]=useState<{panel:SearchPanel;nonce:number}|null>(null);
  const searchNavigate=(entry:SearchEntry)=>{if(entry.beginnerTab){onExperience?.('beginner');onStudioTab?.('generate');onBeginnerPage?.(entry.beginnerTab);setView('studio');}else setView(entry.view);if(entry.studioTab&&!entry.beginnerTab)onStudioTab?.(entry.studioTab);if(entry.panel)setSearchPanel(p=>({panel:entry.panel!,nonce:(p?.nonce??0)+1}));if(entry.libraryView){const libraryView=entry.libraryView;setTimeout(()=>window.dispatchEvent(new CustomEvent('deas:library-view',{detail:libraryView})),50);}};
  useEffect(()=>{if(beginner){onStudioTab?.('generate');setView(installed?'studio':'backend');}},[beginner]);
  // Invalidate retained Studio work in the visibility commit, before deferred reads can redirect.

@@ -1,3 +1,4 @@
+pub mod agent_api;
 pub(crate) mod amd;
 pub mod analysis;
 pub mod analysis_convert;

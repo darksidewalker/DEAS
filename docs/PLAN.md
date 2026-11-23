@@ -153,6 +153,7 @@ An item is only as accepted as its strongest evidence. Keep the levels separate.
 | [B-08](#b-08--issue-39--backend-not-ready-on-slow-object_info-windows) | Issue #39 — backend "not ready" on slow `object_info` (Windows) | ACCEPT + RESEARCH | WIN, OWNER | §4.8 |
 | [B-09](#b-09--issue-43--windows-self-update--native-acceptance) | Issue #43 — Windows self-update: native acceptance | ACCEPT | WIN | §4.8 |
 | [B-10](#b-10--amd-on-windows) | AMD on Windows | FEATURE + ACCEPT | AMD, WIN | §4.8 |
+| [B-11](#b-11--agent-api-v1-plane-verification-and-open-rulings) | Agent API (`/v1` plane): verification and open rulings | ACCEPT | GPU, WIN, NATIVE, OWNER | §4.8 |
 | [R-01](#r-01--video-comparison-port) | Video comparison port | FEATURE | PRIORITY | §4.9 |
 | [R-02](#r-02--video-assembly-port) | Video assembly port | FEATURE | PRIORITY | §4.9 |
 | [R-03](#r-03--lora-training-port) | LoRA training port | FEATURE | PRIORITY | §4.9 |
@@ -1187,6 +1188,20 @@ The owner expected Windows AMD to be supported; it is not. The plan step refuses
 - [ ] Node requirements: llama-cpp-python already resolves to the Vulkan family for every AMD plan (0.3.7). The Windows Vulkan wheel 0.3.36 is proven on a Radeon iGPU under the AMD driver: 25/25 layers offloaded, 34 tokens/s with Qwen2.5-0.5B Q4_K_M ([VERIFICATION](VERIFICATION.md#llama-cpp-python-avx-512-wheels--windows-error-0xc000001d-037)).
 - [ ] Feature gates that already fail closed on non-NVIDIA plans (RTX video refine/frame generation, TVE RTX toggles, Triton/torch.compile) must carry the same reasons on Windows AMD; attention extensions stay refused.
 - [ ] Acceptance on a real Windows machine with a discrete Radeon (RDNA2+): plan → install → verify → one image and one video generation → GGUF Prompt Forge → TVE model upscale. The Windows test host only has a Radeon iGPU next to the NVIDIA card, so it cannot stand in for a single-GPU Radeon install.
+
+#### B-11 · Agent API (/v1 plane): verification and open rulings
+
+**Type:** ACCEPT · **Needs:** GPU, WIN, NATIVE, OWNER
+
+Landed in 0.3.23 through [#53](https://github.com/darksidewalker/DEAS/pull/53): the opt-in loopback `/v1` plane (`src-tauri/src/agent_api/`), the **Backend → Agent API** panel, the operator files (`deas-agent-settings.json`, `deas-agent-guard.json`, `deas-agent-defaults.json`) and the guide [AGENT-API.md](AGENT-API.md). It ships OFF: no settings file means no bind, no cycle, no fence. Re-run here at the merge tree: Rust lib suite, Clippy `-D`, type check, core and interface suites, plane smoke test. What still has no evidence from this host:
+
+- [ ] GPU: repeat the guide's battery on an approved throwaway backend — the four image families, H3 `t2v`/`i2v`/`ref2va`, one RefMod export, one one-cycle continuity film, and the VRAM handoff (`GET /v1/cycle` free/restore legs, watchdog posture). The author reports ~90 live probes; none were reproduced here.
+- [ ] WIN: the operator unload/restore bats through `cmd /C` with `raw_arg` (quoted paths must survive), and the hung-leg tree kill `taskkill /T /F /PID` with its direct-`kill` fallback.
+- [ ] NATIVE: the panel in the shipped Linux app — search hits reveal each control, the diff-then-confirm wall, key reveal/mask, and the refusal shown while a cycle is live.
+- [ ] OWNER rulings, left open by the merge:
+  - [ ] Canvas floor 8 at the native walls (was 64; the PR records an owner ruling of 2026-11-22 and a live-proven 56×56 render). Studio's own controls still floor at 64, so only direct intents and the API see 8.
+  - [ ] The **Agent API** tab stays clickable without an installed environment but shows the authorization panel (`BackendPanels` coalesces every non-LLM choice to `auth` while `root` is empty), although the plane's files live in app-data. Root-independent entry, or keep as is.
+  - [ ] The `bench` doors sweep whole input/output roots into `.bench/<stamp>` (rename, never delete, un-benching is an owner action). Confirm they ship in the public plane as they are.
 
 ### 4.9 Reference-project ports
 

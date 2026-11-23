@@ -1256,8 +1256,10 @@ fn separate(
         }
         let bytes = fs::read(&pcm).map_err(|_| "AUDIO_RUNTIME: Cannot read window PCM")?;
         let mut current: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect();
         if current.iter().any(|n| !n.is_finite()) {
             return Err("AUDIO_VERIFY: Non-finite separated PCM".into());
@@ -1421,8 +1423,10 @@ mod tests {
                     .unwrap();
                 assert!(out.status.success());
                 out.stdout
-                    .chunks_exact(4)
-                    .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
                     .collect::<Vec<_>>()
             };
             let source = pcm(&input);
@@ -1488,8 +1492,10 @@ mod tests {
                 .unwrap();
             assert!(out.status.success());
             out.stdout
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
                 .collect::<Vec<_>>()
         };
         let source = pcm(&input);

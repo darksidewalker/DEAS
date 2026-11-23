@@ -164,6 +164,30 @@ struct Submitted {
 }
 static SUBMITTED: Mutex<Vec<Submitted>> = Mutex::new(Vec::new());
 
+/// The exports this process currently holds (LEG AF2-M24b, owner law E28 — a
+/// visibility-only read of the ledger for the drain's correlation law; nothing
+/// here mutates, reorders or releases an entry, and no stock path calls it).
+/// One name per ACTIVE entry: the minted backend prompt id once submit yielded
+/// one, else the reserved `deas-refmod-<uuid>` client id — a reserved-but-
+/// unanswered POST holds the backend queue exactly as `with_idle_media_edit`
+/// already assumes, and naming the client id still gives the operator
+/// something to find in the queue.
+pub(crate) fn active_exports() -> Vec<String> {
+    SUBMITTED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|entry| entry.active)
+        .map(|entry| {
+            if entry.prompt_id.is_empty() {
+                entry.client_id.clone()
+            } else {
+                entry.prompt_id.clone()
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn with_idle_media_edit<T>(
     edit: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {

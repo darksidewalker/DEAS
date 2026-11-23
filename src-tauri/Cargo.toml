@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.3.22"
+version = "0.3.23"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"
@@ -15,6 +15,8 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots", "json"] }
 
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "process", "sync"] }
+# Agent API (/v1 plane) transport: axum router + serve over tokio; hyper/tower stay transitive.
+axum = "0.8"
 sha2 = "0.10"
 png = "=0.17.16"
 image-webp = "=0.2.4"
@@ -37,6 +39,10 @@ ruzstd = "0.8"
 # Decodes retained YuE2 FLAC results before caching/exporting them (pure Rust, bounded).
 claxon = "0.4"
 spellbook = "0.4"
+
+[dev-dependencies]
+# Service::call on the axum Router in agent_api unit tests.
+tower-service = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

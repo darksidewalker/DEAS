@@ -6,7 +6,7 @@ use std::{
 };
 
 #[path = "jobs_audio_post.rs"]
-mod audio_post;
+pub(crate) mod audio_post; // `pub(crate)` since LEG M15 (visibility only): the agent door validates `audioEnhance` through `settings` at its own wall.
 #[path = "jobs_auto_refine.rs"]
 mod auto_refine;
 #[path = "jobs_lying_sigma.rs"]
@@ -31,7 +31,7 @@ mod observer;
 #[path = "jobs_preview.rs"]
 pub(crate) mod preview;
 #[path = "jobs_refmod.rs"]
-mod refmod;
+pub(crate) mod refmod;
 pub(crate) use refmod::with_idle_media_edit;
 #[path = "jobs_stages.rs"]
 mod stages;
@@ -531,7 +531,7 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
                 > i["height"].as_u64().unwrap_or(0)
             || ["targetWidth", "targetHeight"]
                 .iter()
-                .any(|k| c[*k].as_u64().is_none_or(|n| n < 64 || n % 8 != 0))
+                .any(|k| c[*k].as_u64().is_none_or(|n| n < CANVAS_MIN || n % 8 != 0))
             || c["targetWidth"].as_u64().unwrap_or(8193)
                 * c["targetHeight"].as_u64().unwrap_or(8193)
                 > 16_777_216
@@ -875,8 +875,8 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
     }
     for (field, min, max, integer, alignment) in [
         ("seed", 0.0, 9_007_199_254_740_991.0, true, 1.0),
-        ("width", 64.0, 8192.0, true, 8.0),
-        ("height", 64.0, 8192.0, true, 8.0),
+        ("width", 8.0, 8192.0, true, 8.0),
+        ("height", 8.0, 8192.0, true, 8.0),
         ("steps", 1.0, 150.0, true, 1.0),
         ("cfg", 0.0, 30.0, false, 1.0),
     ] {
@@ -1483,7 +1483,7 @@ fn h3_edit(graph: &mut Value, i: &Value, h: &Value) -> Result<(), String> {
 fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
     let edge = |k: &str| {
         r[k].as_u64()
-            .is_some_and(|n| (64..=8192).contains(&n) && n % 8 == 0)
+            .is_some_and(|n| (CANVAS_MIN..=MAX_CANVAS_EDGE).contains(&n) && n % 8 == 0)
     };
     r.as_object().is_some_and(|o| {
         o.keys().all(|k| {
@@ -1501,7 +1501,7 @@ fn valid_refine(r: &Value, first_sigmas: bool) -> bool {
         && r.get("tiled").is_none_or(|t| {
             let px = |k: &str| {
                 t[k].as_u64()
-                    .filter(|n| (64..=8192).contains(n) && n % 8 == 0)
+                    .filter(|n| (CANVAS_MIN..=MAX_CANVAS_EDGE).contains(n) && n % 8 == 0)
             };
             t.as_object().is_some_and(|o| o.len() == 3)
                 && px("tileWidth")
@@ -1796,7 +1796,8 @@ impl Jobs {
 
     #[cfg(test)]
     async fn prepare(&self, base_url: String, intent: Value) -> Result<Value, String> {
-        self.prepare_with_models(base_url, intent, vec![]).await
+        self.prepare_with_models(base_url, intent, vec![], None)
+            .await
     }
 
     async fn prepare_with_models(
@@ -1804,6 +1805,7 @@ impl Jobs {
         base_url: String,
         mut intent: Value,
         roots: Vec<std::path::PathBuf>,
+        input_root: Option<&std::path::Path>,
     ) -> Result<Value, String> {
         let base = crate::validate_base_url(&base_url)?;
         if let Some(settings) = audio_post::settings(&intent)? {
@@ -1824,6 +1826,10 @@ impl Jobs {
             }
             crate::jobs_video::confirm_source_frames(&mut intent, found)?;
         }
+        // The i2i canvas law at the prepare wall: an unresized inputImage renders at
+        // its own dims, so the dial canvas law alone cannot keep an oversized placed
+        // input off the card (the door mirrors this in `fill_plane::check_pairing_laws`).
+        crate::jobs::check_input_canvas(input_root, &intent)?;
         let mut graph = compile(&intent)?;
         let id = uuid::Uuid::new_v4().to_string();
         {
@@ -2173,6 +2179,12 @@ impl Jobs {
     }
 
     async fn submit_inner(&self, plan_id: String, confirmed: bool) -> Result<Value, String> {
+        // §14.6/E14: a stock UI submit must not land on a cycle-owned card. The cycle's own
+        // drain rides the fence through `resources::fence_owner_pass` (agent_api/cycle.rs),
+        // so this entry gate refuses stock submitters and leaves the plan untouched.
+        if let Some(refusal) = crate::resources::fence_wait_for_submit("native submission") {
+            return Err(refusal);
+        }
         if !confirmed {
             return Err("Explicit diagnostic submission confirmation is required".into());
         }
@@ -2844,7 +2856,10 @@ pub async fn native_job_prepare(
     intent: Value,
 ) -> Result<Value, String> {
     let roots = LocalModels::owned(&engine, &base_url);
-    state.prepare_with_models(base_url, intent, roots).await
+    let input_root = engine.backend.status().input_root;
+    state
+        .prepare_with_models(base_url, intent, roots, input_root.as_deref())
+        .await
 }
 #[tauri::command]
 pub async fn native_job_submit(
@@ -2889,6 +2904,145 @@ pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String
 }
 
 const INPUT_FOLDER: &str = "deas-inputs";
+
+/// The canvas floor both arms enforce: 8 is the true floor — one latent-grid cell
+/// (`VAEEncode`/`EmptyLatentImage` divide pixels by 8, so a 1x1 canvas cannot exist
+/// on the grid). Raised from the historical 64 by the resolution-sanity ruling: the
+/// 64 floor was habit, not a law, and every wall (door, compile, refine, crop target,
+/// upload) now carries 8 while the %8 alignment, the 8192 edge and the 16.7M product
+/// stay exactly where they were.
+pub(crate) const CANVAS_MIN: u64 = 8;
+/// The canvas edge ceiling (both arms, both walls): 8192 px.
+pub(crate) const MAX_CANVAS_EDGE: u64 = 8192;
+/// The canvas pixel-product ceiling (both arms, both walls): 16,777,216 px.
+pub(crate) const MAX_CANVAS_PIXELS: u64 = 16_777_216;
+
+/// The canvas edge law as one predicate: an integer edge in 8..=8192 aligned to 8.
+pub(crate) fn canvas_edge_ok(edge: u64) -> bool {
+    (CANVAS_MIN..=MAX_CANVAS_EDGE).contains(&edge) && edge.is_multiple_of(8)
+}
+
+/// The canvas product law as one predicate.
+pub(crate) fn canvas_pixels_ok(width: u64, height: u64) -> bool {
+    width.saturating_mul(height) <= MAX_CANVAS_PIXELS
+}
+
+/// The header dims of a PNG or WebP, read from a small head window (no decode):
+/// PNG from the IHDR length prefix + `IHDR` tag (4-byte BE width/height follow the
+/// tag); WebP per its variant — VP8 (lossy) past the 10-byte frame tag, VP8L
+/// (lossless) as the 14-bit minus-1 codes right after the `0x2f` signature, and
+/// VP8X (extended) as the documented 24-bit LE minus-1 canvas codes at the chunk-body
+/// offsets 4..7 and 7..10 (file offsets 24/27 with the standard 12-byte RIFF header
+/// and 16-byte VP8X chunk). JPEG/GIF carry no cheap shared parse and the sniffer
+/// never classes them, so they answer `None` (silently out of the pixel law).
+pub(crate) fn image_header_dims(head: &[u8]) -> Option<(u64, u64)> {
+    if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let ihdr = head.get(12..16)? == b"IHDR";
+        if !ihdr {
+            return None;
+        }
+        let width = u32::from_be_bytes(head.get(16..20)?.try_into().ok()?) as u64;
+        let height = u32::from_be_bytes(head.get(20..24)?.try_into().ok()?) as u64;
+        return Some((width, height));
+    }
+    if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WEBP") {
+        let fourcc = head.get(12..16)?;
+        if fourcc == b"VP8X" {
+            let code = |range: std::ops::Range<usize>| {
+                let b = head.get(range)?;
+                Some(u32::from_le_bytes([b[0], b[1], b[2], 0]) as u64 + 1)
+            };
+            return Some((code(24..27)?, code(27..30)?));
+        }
+        if fourcc == b"VP8 " {
+            // The 10-byte VP8 bitstream header sits at body offset 6 (4-byte fourcc
+            // + 4-byte chunk length) plus the variable frame tag; the sync triplet
+            // `9d 01 2a` anchors the 16-bit LE dims right after it.
+            let window = head.get(16..head.len().min(64))?;
+            let at = window.windows(3).position(|w| w == [0x9d, 0x01, 0x2a])?;
+            let dims = window.get(at + 3..at + 7)?;
+            let width = u16::from_le_bytes([dims[0], dims[1]]) as u64 & 0x3fff;
+            let height = u16::from_le_bytes([dims[2], dims[3]]) as u64 & 0x3fff;
+            return Some((width, height));
+        }
+        if fourcc == b"VP8L" && head.get(20) == Some(&0x2f) {
+            // Simple format: 14-bit (width-1) then 14-bit (height-1), little-endian
+            // bit-packed right after the 1-byte signature.
+            let b = head.get(21..26)?;
+            let bits = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], 0, 0, 0]);
+            let width = (bits & 0x3fff) + 1;
+            let height = ((bits >> 14) & 0x3fff) + 1;
+            return Some((width, height));
+        }
+        return None;
+    }
+    None
+}
+
+/// Read only the head window of a file (the header-dims law never decodes a body).
+fn read_head(path: &std::path::Path, limit: usize) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = vec![0u8; limit];
+    let read = file.read(&mut buffer).ok()?;
+    buffer.truncate(read);
+    Some(buffer)
+}
+
+/// The i2i canvas law at the compile wall (the door's mirror rides `fill_plane`):
+/// an image intent that encodes an `inputImage` WITHOUT `inputResize` or
+/// `inpaintCrop` renders at the INPUT's own dims, so legal dials are not enough —
+/// the placed file's header dims must obey the canvas law. The check is inert (Ok)
+/// when no input root is derivable, the name is a bracketed stock source
+/// (`[output]`/`[temp]`, whose files sit outside the input root), or the file or
+/// its header is unreadable — the stock existence laws refuse those paths, and a
+/// headerless format carries no cheap dims. `Err` shapes match the compile-side
+/// refusals ("Invalid ..." / "... pixel limit exceeded").
+pub(crate) fn check_input_canvas(
+    input_root: Option<&std::path::Path>,
+    intent: &Value,
+) -> Result<(), String> {
+    let Some(name) = intent["inputImage"].as_str() else {
+        return Ok(());
+    };
+    if name.contains('[')
+        || intent.get("inputResize").is_some()
+        || intent.get("inpaintCrop").is_some()
+    {
+        return Ok(());
+    }
+    if !model_name(name) {
+        return Ok(()); // the name grammar is compile's own law, refused there
+    }
+    let Some(root) = input_root else {
+        return Ok(());
+    };
+    let head = match read_head(&root.join(name), 64) {
+        Some(head) => head,
+        None => return Ok(()), // absent/unreadable: the stock existence law owns it
+    };
+    let Some((width, height)) = image_header_dims(&head) else {
+        return Ok(());
+    };
+    for (field, edge) in [("width", width), ("height", height)] {
+        if !canvas_edge_ok(edge) {
+            return Err(format!(
+                "Invalid inputImage canvas {field}: the placed input reads {width}x{height} and the canvas law is 8..=8192 aligned to 8 (i2i renders at the input's own dims)"
+            ));
+        }
+    }
+    if !canvas_pixels_ok(width, height) {
+        return Err(format!(
+            "Input pixel limit exceeded: the placed input reads {width}x{height} against the 16.7M canvas law (the stock pixel limit)"
+        ));
+    }
+    Ok(())
+}
+
+// NOTE: the compile-side input root is threaded into `prepare_with_models` from the
+// running owned backend's snapshotted `--input-directory` argv (exactly what
+// `LoadImage` resolves input names against); `None` (no owned backend, test seams)
+// leaves the i2i canvas wall inert.
 
 /// Kind and extension of a reference file by its magic bytes: images (PNG/JPEG/WebP), videos (MP4/MOV, WebM/MKV)
 /// and audio (WAV, MP3, FLAC, Ogg, M4A). Anything else is refused.
@@ -3064,6 +3218,99 @@ async fn upload(
         name
     } else {
         format!("{folder}/{name}")
+    })
+}
+
+/// LEG M17a fence (owner ruling E22, API-DESIGN.md): place an EXPLICIT name inside a
+/// subfolder of the input plane through the same multipart law as `upload`
+/// (`type=input`, `overwrite=false` kept). `subfolder` is backend-relative - the agent
+/// plane composes the `deas-inputs/...` prefix - and the backend creates missing
+/// folders on demand behind its normpath/commonpath containment (server.py
+/// `/upload/image`). Collision law (same server): an identical hash keeps the existing
+/// file, different bytes walk the ` (N)` rename loop, so the answer is the BACKEND's
+/// final `(name, subfolder)` pair, not necessarily the requested one. Root uploads keep
+/// `upload`'s uuid-mint law untouched; this sibling duplicates the machinery
+/// deliberately so the stock fn is never edited (LEG M17a ruling: sibling over refactor).
+pub(crate) async fn upload_scoped(
+    base_url: &str,
+    bytes: Vec<u8>,
+    ext: &str,
+    subfolder: &str,
+    name: &str,
+) -> Result<(String, String), String> {
+    let base = crate::validate_base_url(base_url)?;
+    if !model_name(&format!("{subfolder}/{name}")) {
+        return Err("Scoped upload placement is not a portable input identifier".into());
+    }
+    let boundary = format!("deas-{}", uuid::Uuid::new_v4().simple());
+    let mut body = Vec::with_capacity(bytes.len() + 512);
+    for (field, value) in [
+        ("subfolder", subfolder),
+        ("type", "input"),
+        ("overwrite", "false"),
+    ] {
+        body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n").as_bytes());
+    }
+    body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes());
+    body.extend(&bytes);
+    body.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let url = base
+        .join("upload/image")
+        .map_err(|_| "Invalid native job endpoint")?;
+    let mut response = client()?
+        .post(url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Upload failed")?;
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|n| n > RESPONSE_LIMIT as u64)
+    {
+        return Err("Upload response size limit exceeded".into());
+    }
+    let mut response_bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Upload response interrupted")?
+    {
+        if chunk.len() > RESPONSE_LIMIT - response_bytes.len() {
+            return Err("Upload response size limit exceeded".into());
+        }
+        response_bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&response_bytes).unwrap_or_default();
+    if !status.is_success() || value["subfolder"] != subfolder {
+        return Err(format!("Upload rejected (HTTP {status})"));
+    }
+    let final_name = value["name"].as_str().unwrap_or_default();
+    if final_name != name && !collision_variant(final_name, name, ext) {
+        return Err("Upload response placement is inconsistent".into());
+    }
+    Ok((final_name.to_owned(), subfolder.to_owned()))
+}
+
+/// True when `final_name` is exactly the backend's ` (N)` rename-loop variant of
+/// `name` (server.py collision loop mints `{stem} ({i}){extension}`): the only form
+/// a scoped upload answer may take when it is not the requested name verbatim.
+fn collision_variant(final_name: &str, name: &str, ext: &str) -> bool {
+    let suffix = format!(".{ext}");
+    let stem = name.strip_suffix(suffix.as_str()).unwrap_or(name);
+    let looped = final_name
+        .strip_prefix(stem)
+        .and_then(|rest| rest.strip_suffix(suffix.as_str()))
+        .unwrap_or_default();
+    let digits = looped
+        .strip_prefix(" (")
+        .and_then(|rest| rest.strip_suffix(')'));
+    digits.is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
     })
 }
 
@@ -3276,4 +3523,8 @@ fn refmod_entries(v: &Value) -> Value {
 
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
-mod tests;
+// Visibility widening only (same one-home move as `mod refmod` in this file, LEG M11):
+// the agent plane's intent-truth harness reads the image arm's OWN fixtures
+// (`h3_still_intent`) instead of re-typing them, so the stock fixture stays the single
+// source of truth. No stock behaviour touched; the module is `cfg(test)`.
+pub(crate) mod tests;

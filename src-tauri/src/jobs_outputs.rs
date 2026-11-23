@@ -92,6 +92,24 @@ pub struct OutputPreview {
     sha256: String,
     pub(super) bytes: Vec<u8>,
 }
+impl OutputPreview {
+    /// F2 (manager-approved narrow stock fence, E14/§14.6): the agent plane's
+    /// `/v1/outputs/{id}/{index}` door reads the fetched descriptors and payload
+    /// through this single borrowed split instead of growing field visibility
+    /// beyond `pub(super)`. One accessor, no sprawl; the stock wire shape of this
+    /// preview (its serde serialization) is untouched.
+    pub(crate) fn parts(&self) -> (&str, usize, &'static str, u32, u32, &str, &[u8]) {
+        (
+            self.job_id.as_str(),
+            self.index,
+            self.mime_type,
+            self.width,
+            self.height,
+            self.sha256.as_str(),
+            &self.bytes,
+        )
+    }
+}
 pub(super) struct CachedOutput {
     job_id: String,
     index: usize,
@@ -129,7 +147,14 @@ impl Jobs {
         index: usize,
     ) -> Result<std::path::PathBuf, String> {
         if let Some(held) = self.workbench_job(id)? {
-            return held.audio_source(id, index);
+            // F1 stock fence (jobs_workbench::workbench_job): a root current-job match
+            // returns a handle that ALIASES this session (the same `Arc<Mutex<Session>>`,
+            // since `Jobs` clones share it). Recursing into that handle re-enters the
+            // identical workbench_job lookup and loops forever. The id is this session's
+            // own current job, so fall through to the selected_job path below.
+            if !Arc::ptr_eq(&held.0, &self.0) {
+                return held.audio_source(id, index);
+            }
         }
         let job = self.selected_job(id, index)?;
         let root = job

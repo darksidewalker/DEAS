@@ -44,6 +44,12 @@ pub async fn native_environment_move(
 }
 
 pub(crate) fn move_environment(engine: &Engine, target: &str) -> Result<EnvironmentMove, String> {
+    // §14.6/E14: the only mutating entry (the command funnels here): renaming or copying the
+    // live environment while a cycle owns the card moves the engine mid-handoff. Entry gate:
+    // nothing is validated, scanned, stopped or touched. Read-only posture reads stay open.
+    if let Some(refusal) = crate::resources::fence_wait("environment move") {
+        return Err(refusal);
+    }
     if !engine.installation_idle() {
         return Err("Wait for the native installation before moving the environment".into());
     }
@@ -412,6 +418,21 @@ fn python_check(root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cycle_fence_refuses_a_move_before_anything_is_touched() {
+        let _gate = crate::resources::fence_test_gate();
+        // §14.6/E14: a mid-cycle move renames the environment out from under the handoff.
+        // The gate is the first statement in the only mutating entry point: no target
+        // validation, no backend stop, no scan, no rename. Read-only posture reads stay open.
+        let engine = Engine::default();
+        assert!(crate::resources::fence_claim(), "the cycle owns the fence");
+        let error = move_environment(&engine, "D:/deas-fence-refusal-target")
+            .expect_err("the move waits behind the fence");
+        crate::resources::fence_release();
+        assert!(error.starts_with("CYCLE_FENCE:"), "{error}");
+        assert!(error.contains("environment move"), "{error}");
+    }
 
     #[test]
     fn cross_drive_copy_preserves_a_colliding_destination() {

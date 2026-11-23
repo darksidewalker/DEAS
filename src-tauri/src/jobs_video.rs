@@ -58,6 +58,28 @@ pub(crate) const BIT_DEPTHS: [&str; 3] = ["Auto", "8-bit", "10-bit"];
 pub(crate) const AUDIO_CODECS: [&str; 4] = ["Auto", "AAC", "Opus", "MP3"];
 pub(crate) const AUDIO_BITRATES: [&str; 7] = ["64k", "96k", "128k", "160k", "192k", "256k", "320k"];
 const H3_MODES: [&str; 5] = ["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA"];
+/// The closed top-level key set of an `h3` row (AF2-M30): the same ten words
+/// `validate_h3`'s `keys_in` arm gates on, extracted to module level so the set
+/// has ONE home. Bump a word here and the agent door mirror
+/// (`fill_plane.rs::build_h3_block`, the unknown-keys wall) follows the same
+/// const — the door never restates this list. The live gap this pins: row
+/// `cb46b38f-cf7e-471d-ad05-2f90e3646706` carried `durationSeconds` at h3
+/// top level (it belongs inside `h3.continuity`, and only when continuity is
+/// present); the door let it ride, stock prepare refused it as prepareRefused
+/// and burned the poison-row guard. Same single-home doctrine as AF2-M25a
+/// (`validate_continuity`) and AF2-M15 (`validate_refmods`).
+pub(crate) const H3_KEYS: &[&str] = &[
+    "mode",
+    "audioVae",
+    "shiftVideo",
+    "shiftAudio",
+    "references",
+    "continuity",
+    "media",
+    "inputScaling",
+    "refmods",
+    "transition",
+];
 /// DaSiWa Director REF2VA lanes (slots per lane) and media modes of a video item.
 const H3_LANES: [(&str, u64); 3] = [("image", 9), ("video", 3), ("audio", 3)];
 const H3_MEDIA_MODES: [&str; 3] = ["video", "audio", "video_audio"];
@@ -973,66 +995,15 @@ fn validate_h3(h: &Value) -> Result<(), String> {
                     && slots.windows(2).all(|w| w[0] < w[1])
             }
         };
-    let cont_ok = h.get("continuity").is_none_or(|c| {
-        keys_in(
-            c,
-            &[
-                "session",
-                "sourceId",
-                "sourceKind",
-                "capture",
-                "action",
-                "outputMode",
-                "overlapFrames",
-                "useReferences",
-                "durationSeconds",
-                "sourceFrames",
-            ],
-        ) && c["session"]
-            .as_str()
-            .is_some_and(|s| continuity_id(s) && s != "_imports")
-            && c["sourceId"]
-                .as_str()
-                .is_some_and(|s| s.is_empty() || continuity_id(s))
-            && c.get("sourceKind").is_none_or(|kind| {
-                kind == "video"
-                    && c["sourceId"].as_str().is_some_and(|s| {
-                        s.len() == 64
-                            && s.bytes()
-                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                    })
-            })
-            && c["capture"].is_boolean()
-            && c.get("useReferences").is_none_or(Value::is_boolean)
-            && c.get("durationSeconds").is_none_or(|seconds| {
-                mode == "REF2VA"
-                    && c_source(h)
-                    && seconds
-                        .as_f64()
-                        .is_some_and(|s| s.is_finite() && s > 0.0 && s <= 15.0)
-            })
-            && c.get("sourceFrames")
-                .is_none_or(|n| n.as_u64().is_some_and(|n| n >= 5 && (n - 5) % 17 == 0))
-            && c["action"].as_str().is_some_and(|a| a.len() <= 50_000)
-            && pick(c, "outputMode", &["full", "segment"])
-            && c.get("overlapFrames")
-                .is_none_or(|v| v.as_u64().is_some_and(|n| [73, 56, 39, 22, 5].contains(&n)))
-    });
-    if keys_in(
-        h,
-        &[
-            "mode",
-            "audioVae",
-            "shiftVideo",
-            "shiftAudio",
-            "references",
-            "continuity",
-            "media",
-            "inputScaling",
-            "refmods",
-            "transition",
-        ],
-    ) && h["audioVae"].as_str().is_some_and(comfy_model_name)
+    // AF2-M25a: the `h3.continuity` row law has ONE home, `validate_continuity`
+    // below: extraction verbatim (the arm moved here, its grammar did not
+    // change), so this fn's answer words and truth table stay byte-identical.
+    // `pub(crate)` visibility-only for the agent door, the M15
+    // `validate_refmods` precedent.
+    let cont_ok = validate_continuity(h).is_ok();
+
+    if keys_in(h, H3_KEYS)
+        && h["audioVae"].as_str().is_some_and(comfy_model_name)
         && (h.get("inputScaling").is_none() || pick(h, "inputScaling", &H3_INPUT_SCALING))
         && finite(&h["shiftVideo"], 0.01, 100.0)
         && finite(&h["shiftAudio"], 0.01, 100.0)
@@ -1045,6 +1016,106 @@ fn validate_h3(h: &Value) -> Result<(), String> {
     }
 }
 
+/// The `h3.continuity` row law, one home: closed key set; `session` a continuity
+/// id and never `_imports`; `sourceId` `''` (a new take) or a continuity id;
+/// `sourceKind` only the word `video`, and then only with a 64-lowercase-hex
+/// `sourceId`; `capture`, `action` (<= 50_000 chars) and `outputMode`
+/// (full|segment) required; `overlapFrames` on the Director ladder (73, 56, 39,
+/// 22, 5); `sourceFrames` grid-shaped (>= 5, (n - 5) % 17 == 0); `useReferences`
+/// a boolean; `durationSeconds` finite, (0, 15], inside the stock REF2VA +
+/// continuity-source interlock.
+// AF2-M25a: extracted verbatim from `validate_h3`'s `cont_ok` arm - the arm moved
+// here, its grammar did not change, and `validate_h3` keeps its own generic
+// refusal words (byte-identical behavior: `cont_ok` is now
+// `validate_continuity(h).is_ok()`). `pub(crate)` is visibility-only, the M15
+// `validate_refmods` precedent: the agent door calls this law at its own wall so
+// a grammar-bad continuity row answers at the door instead of burning the
+// poison-row guard as prepareRefused. The field-naming strings below are the
+// door's hint vocabulary; the durationSeconds arm keeps the stock mode/c_source
+// interlock verbatim (mode re-derived from `h`, so one argument carries the
+// whole h3 block) - the door sees only the request block with `mode` already
+// resolved; the whole-intent authority stays stock-side.
+pub(crate) fn validate_continuity(h: &Value) -> Result<(), String> {
+    let Some(c) = h.get("continuity") else {
+        return Ok(());
+    };
+    if !keys_in(
+        c,
+        &[
+            "session",
+            "sourceId",
+            "sourceKind",
+            "capture",
+            "action",
+            "outputMode",
+            "overlapFrames",
+            "useReferences",
+            "durationSeconds",
+            "sourceFrames",
+        ],
+    ) {
+        return Err("Invalid h3.continuity: unknown key (closed set: session, sourceId, sourceKind, capture, action, outputMode, overlapFrames, useReferences, durationSeconds, sourceFrames)".into());
+    }
+    if !c["session"]
+        .as_str()
+        .is_some_and(|s| continuity_id(s) && s != "_imports")
+    {
+        return Err("Invalid h3.continuity.session: a continuity id (alphanumeric, '-', '_', <= 80, never '_imports')".into());
+    }
+    if !c["sourceId"]
+        .as_str()
+        .is_some_and(|s| s.is_empty() || continuity_id(s))
+    {
+        return Err("Invalid h3.continuity.sourceId: '' (a new take) or a continuity id".into());
+    }
+    if !c.get("sourceKind").is_none_or(|kind| {
+        kind == "video"
+            && c["sourceId"].as_str().is_some_and(|s| {
+                s.len() == 64
+                    && s.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+    }) {
+        return Err(
+            "Invalid h3.continuity.sourceKind: 'video' needs a 64-lowercase-hex sourceId".into(),
+        );
+    }
+    if !c["capture"].is_boolean() {
+        return Err("Invalid h3.continuity.capture: a boolean is required".into());
+    }
+    if !c.get("useReferences").is_none_or(Value::is_boolean) {
+        return Err("Invalid h3.continuity.useReferences: a boolean".into());
+    }
+    if !c.get("durationSeconds").is_none_or(|seconds| {
+        h["mode"].as_str() == Some("REF2VA")
+            && c_source(h)
+            && seconds
+                .as_f64()
+                .is_some_and(|s| s.is_finite() && s > 0.0 && s <= 15.0)
+    }) {
+        return Err("Invalid h3.continuity.durationSeconds: finite (0, 15], and only with REF2VA + a continuity sourceId".into());
+    }
+    if !c
+        .get("sourceFrames")
+        .is_none_or(|n| n.as_u64().is_some_and(|n| n >= 5 && (n - 5) % 17 == 0))
+    {
+        return Err("Invalid h3.continuity.sourceFrames: >= 5 and (n - 5) % 17 == 0".into());
+    }
+    if !c["action"].as_str().is_some_and(|a| a.len() <= 50_000) {
+        return Err("Invalid h3.continuity.action: a string <= 50000 chars is required".into());
+    }
+    if !pick(c, "outputMode", &["full", "segment"]) {
+        return Err("Invalid h3.continuity.outputMode: required, full|segment".into());
+    }
+    if !c
+        .get("overlapFrames")
+        .is_none_or(|v| v.as_u64().is_some_and(|n| [73, 56, 39, 22, 5].contains(&n)))
+    {
+        return Err("Invalid h3.continuity.overlapFrames: one of 73, 56, 39, 22, 5".into());
+    }
+    Ok(())
+}
+
 fn c_source(h: &Value) -> bool {
     h["continuity"]["sourceId"]
         .as_str()
@@ -1055,7 +1126,9 @@ fn c_source(h: &Value) -> bool {
 /// audio needs an image or video; unique slots per lane. Clip durations (2–15 s) are checked by the node.
 /// Director RefMod rows (`_load_refmod_rows`): 1–8 unique slots 1–8, a library name, strength in (0, 1]
 /// (the node skips 0), optional description. DEAS sends enabled rows only.
-fn validate_refmods(r: &Value) -> Result<(), String> {
+// `pub(crate)` since LEG M15 (visibility only, the M11 refmod-mod precedent): the
+// agent door calls the stock row law at its own wall instead of mirroring it.
+pub(crate) fn validate_refmods(r: &Value) -> Result<(), String> {
     let rows = r
         .as_array()
         .filter(|a| !a.is_empty() && a.len() <= 8)
@@ -1180,11 +1253,64 @@ pub(crate) fn block(family: &str) -> &'static str {
     }
 }
 
-/// Model-free Join clips prompt: validates the optional `h3.join` block against the
-/// DaSiWaH3ClipAssemble contract (pinned by h3_join_contract_pins_pack_nodes_and_json_schema,
-/// pack 0.5.42 assembly.py::_request; trims are seconds, effective cuts snap to 24-fps frames).
-/// Chain ordering and export coverage are pack-verified at run time; DEAS does not duplicate that.
+/// Model-free Join clips prompt: the assembly rows come from [`validate_join`] —
+/// AF2-M31 made that fn the ONE home of the join grammar (extraction verbatim,
+/// the arms moved, their wording and order did not) — and this fn keeps the
+/// DaSiWaH3ClipAssemble emission: the pinned `data` JSON (pack 0.5.42
+/// assembly.py::_request; trims are seconds, effective cuts snap to 24-fps
+/// frames) and the house saver node.
+///
+/// Byte-identical behavior: every refusal `join` ever produced is `validate_join`'s
+/// refusal, in the same order, because the whole validation half — row building
+/// included, since the pack's 64 KiB budget law measures the BUILT rows — now runs
+/// here before the graph is emitted. Chain ordering and export coverage stay
+/// pack-verified at run time; DEAS does not duplicate that.
 fn join(i: &Value) -> Result<Value, String> {
+    let rows = validate_join(i)?;
+    let j = &i["h3"]["join"];
+    let prefix = filename_prefix(j, "H3_Joined", "h3.join")?;
+    let data = json!({
+        "version": 1,
+        "rows": rows,
+        "repair_transitions": false,
+        "copy_video": j["copyVideo"].as_bool().unwrap_or(false),
+        "audio_policy": if j["smoothAudioSeams"] == true { "smooth-seams" } else { "preserve" },
+    });
+    // Node "7" is the house saver-node id: native history output extraction reads only that node.
+    Ok(
+        json!({"7": {"class_type": "DaSiWaH3ClipAssemble", "inputs": {
+            "assembly_data": data.to_string(),
+            "filename_prefix": prefix,
+        }}}),
+    )
+}
+
+/// The `h3.join` row law, one home (AF2-M31): the recipe version wall, the
+/// single-block `h3` shape, the two arms' grammar (segments: `session` a
+/// continuity id and never `_imports`, `chain` 1..=100 continuity ids; files:
+/// 1..=100 [`media_row`] entries — filename <= 1024, no `..`/NUL/`:`/leading
+/// `/`, trims 0..=3600 with `trimEnd` after `trimStart`), the two booleans and
+/// the pack's 64 KiB `assembly_data` budget measured over the BUILT rows — the
+/// whole DaSiWaH3ClipAssemble contract pinned by
+/// h3_join_contract_pins_pack_nodes_and_json_schema (pack 0.5.42
+/// assembly.py::_request).
+// AF2-M31: extracted verbatim from `join` — every arm moved here unchanged (word,
+// order, short-circuit), and `join` now starts by calling this fn, so compile's
+// answer words and truth table stay byte-identical (pinned by
+// validate_join_is_the_single_home_of_the_join_law). `pub(crate)` is
+// visibility-only, the M15 `validate_refmods` / M25a `validate_continuity`
+// precedent: the agent door (`agent_api/results.rs`, POST /v1/videos/join — the
+// AF2-M31 join door) calls this law at its own wall so a grammar-bad join body
+// answers `bodyInvalid` naming the stock words at the door instead of burning the
+// poison-row guard as prepareRefused at drain. The door's own closed-grammar wall runs FIRST
+// so an unknown key is refused BY NAME — `join` itself never refused unknown keys
+// inside the join block, and this extraction changed nothing on that posture.
+// The answer is the BUILT pack rows (`Vec<Value>`, snake-case per
+// assembly.py::_request), not `Ok(())`: the 64 KiB law is a law over the built
+// rows, so a validation half that did not build them would be a second grammar.
+// `join` consumes the rows verbatim; the door discards them (it queues the intent,
+// the drain compiles it through `jobs::compile` — the same entry the rows ride).
+pub(crate) fn validate_join(i: &Value) -> Result<Vec<Value>, String> {
     if i["version"].as_f64() != Some(1.0) {
         return Err("Unsupported join recipe version".into());
     }
@@ -1235,7 +1361,6 @@ fn join(i: &Value) -> Result<Value, String> {
     if j.get("smoothAudioSeams").is_some_and(|b| !b.is_boolean()) {
         return Err("h3.join.smoothAudioSeams must be boolean".into());
     }
-    let prefix = filename_prefix(j, "H3_Joined", "h3.join")?;
     let data = json!({
         "version": 1,
         "rows": rows,
@@ -1246,13 +1371,7 @@ fn join(i: &Value) -> Result<Value, String> {
     if data.to_string().len() > 65536 {
         return Err("h3.join request exceeds the pack's 64 KiB budget".into());
     }
-    // Node "7" is the house saver-node id: native history output extraction reads only that node.
-    Ok(
-        json!({"7": {"class_type": "DaSiWaH3ClipAssemble", "inputs": {
-            "assembly_data": data.to_string(),
-            "filename_prefix": prefix,
-        }}}),
-    )
+    Ok(rows)
 }
 
 /// One pack media row (assembly.py::_request): input-relative file, optional trims in seconds.
@@ -1286,8 +1405,11 @@ fn media_row(f: &Value, field: &str) -> Result<Value, String> {
     Ok(json!({"kind": "media", "filename": name, "trim_start": start, "trim_end": end}))
 }
 
-/// Pack filename prefix: 1-80 letters, digits, `_` or `-`.
-fn filename_prefix(block: &Value, default: &str, field: &str) -> Result<String, String> {
+/// Pack filename prefix: 1-80 letters, digits, `_` or `-`. AF2-M31: `pub(crate)`
+/// is visibility-only (the join door calls this same home beside its arm walls so
+/// a bad prefix answers at the door, stock word verbatim); the emission order
+/// inside `join` is untouched.
+pub(crate) fn filename_prefix(block: &Value, default: &str, field: &str) -> Result<String, String> {
     match block.get("filenamePrefix") {
         None | Some(Value::Null) => Ok(default.to_string()),
         Some(v) => v
