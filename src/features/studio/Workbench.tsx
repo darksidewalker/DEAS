@@ -81,7 +81,7 @@ import { generationSettings, readImageMetadata, type GenerationSettings } from '
 import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
-import { aspects, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
+import { aspects, aspectOf, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
 import { Sam3Controls, samTargets } from './Sam3Controls';
 import { FaceRefineControls, Sam3VideoControls, type FaceRefineSettings } from './Sam3VideoControls';
 import { isSam3VideoIntent, sam3VideoNodes, type Sam3VideoMaskIntentV1, isSam3Intent, type Sam3MaskIntentV1, faceRefineNodes, faceRefineStillNodes, isFaceRefineBlock, type H3FaceRefineBlock, type H3FaceRefineIntentV1 } from '../../lib/sam3';
@@ -2022,6 +2022,29 @@ const promptTools=forgeContext&&<>
   if(!j.intent||isVideoEnhanceIntent(j.intent)||isSam3Intent(j.intent)||isSam3VideoIntent(j.intent))return false;
   return restoreHistory(historyRestore({id:j.id,clientId:null,promptId:j.promptId,origin:'studio',appVersion:j.appVersion??'',admittedAt:0,observedAt:0,revision:0,state:j.state,intent:j.intent,outputs:[],outputRoot:j.outputRoot??null,backendOrigin:j.baseUrl,error:j.error},{endpoint,inputRoot:roots.input,allow:choices,models:models??[]}));
  };
+ // A fixed canvas keeps its own aspect visible: the matching preset, else custom with the reduced ratio.
+ const restoreAspect=(w:number,h:number)=>{const a=aspectOf(w,h);setAspect(a.aspect);if(a.custom){setAspectWidth(a.custom.width);setAspectHeight(a.custom.height);}};
+ // A DEAS post-process output (Upscale alone, or a model-upscale refine) records the post pass with the
+ // controls current at that time, not the generation. Its source upload under the input root carries the
+ // generation's own embedded settings, so restore those plus the post pass that produced this file.
+ type PostPass={inputImage?:string;denoise?:number;upscaleModel?:string;width?:number;height?:number};
+ const postSourcePath=(pass:PostPass)=>pass.inputImage&&(pass.denoise===0||!!pass.upscaleModel)&&roots.input&&/^deas-inputs\/[A-Za-z0-9_-]+\.(?:png|jpe?g|webp)$/i.test(pass.inputImage)?`${roots.input.replace(/[\\/]+$/,'')}/${pass.inputImage}`:undefined;
+ const readPostSource=async(pass:PostPass,depth=0):Promise<GenerationSettings|null>=>{
+  const path=postSourcePath(pass);if(!path||depth>3)return null;
+  const found=generationSettings(await readImageMetadata(path).catch(()=>[]));
+  if(!found)return null;
+  return postSourcePath(found)?readPostSource(found,depth+1):found;
+ };
+ const applyPostSource=(source:GenerationSettings,pass:PostPass):string[]=>{
+  const skipped=applySettings(source);
+  const factor=pass.width&&source.width?pass.width/source.width:NaN;
+  // The Upscale control is 1–4 in quarter steps; both edges must come from that one factor (grid rounding aside).
+  if(Number.isFinite(factor)&&factor>=1&&factor<=4&&Math.abs(factor*4-Math.round(factor*4))<1e-9&&pass.height&&source.height&&Math.abs(source.height*factor-pass.height)<64){
+   setUpscale(factor);setUpscaleModel(pass.upscaleModel??'');
+   if(pass.denoise===0)setPost(false);else if(pass.denoise!==undefined){setPost(true);setPostTiled(false);setRefineDenoise(pass.denoise);}
+  }else skipped.push(`${t('studio.run.upscale')}: ${pass.width}×${pass.height}`);
+  return skipped;
+ };
  const applySettings=(s:GenerationSettings):string[]=>{
   rememberDraft();
   setFaceRefine({...faceRefine,auto:false});setImageFaceRefine(false);
@@ -2046,6 +2069,8 @@ const promptTools=forgeContext&&<>
   setHistoryDraft(null);
   if(s.wildcard&&isWildcardRules(s.wildcard)){setWildcardEnabled(true);setWildcard(structuredClone(s.wildcard));}
   if(s.sigmas)setOptions(v=>({...v,sigmas:s.sigmas!.join(', ')}));else if(s.scheduler&&(!choices?.schedulers||choices.schedulers.includes(s.scheduler)))setOptions(v=>({...v,sigmas:''}));
+  // Rows the graph's MAIDialRack ran come back switched on; an H3 graph without a rack clears stale rows.
+  if(s.dials)setDialRows(fromDials(s.dials));
   if(s.media==='video'){
    if(!isVideo)setPipeline('t2v');
    if(s.frames!==undefined&&s.frameRate!==undefined&&s.frameRate>0)setVideo(v=>({...v,seconds:s.frames!/s.frameRate!,fps:s.frameRate!}));
@@ -2056,7 +2081,8 @@ const promptTools=forgeContext&&<>
   for(const [key,value,list,set] of [['sampler',s.sampler,choices?.samplers,setSampler],['scheduler',s.scheduler,choices?.schedulers,setScheduler]] as const){
    if(!value)continue;if(list&&!list.includes(value))skipped.push(`${t(key==='sampler'?'studio.recipe.sampler':'studio.recipe.scheduler')}: ${value}`);else set(value);
   }
-  if(s.width&&s.height){setWidth(s.width);setHeight(s.height);setResolution('fixed');}
+  if(s.width&&s.height){setWidth(s.width);setHeight(s.height);setResolution('fixed');restoreAspect(s.width,s.height);}
+  if(s.textEncoder!==undefined||s.vae!==undefined){setTextEncoder(s.textEncoder??'');setTextEncoder2(s.textEncoder2??'');if(s.vae!==undefined)setVae(s.vae);setComponentOverrides(v=>({...v,textEncoders:true,vaes:true}));}
   if(s.loras){const candidates=(models??[]).filter(m=>m.category==='loras');setLoras(s.loras.flatMap(l=>{const m=resolveMetadataModel(candidates,l.name);if(!m)skipped.push(`LoRA: ${l.name}`);return m?[{name:m.name,strength:l.strength,enabled:true}]:[];}));}
   return skipped;
  };
@@ -2071,10 +2097,26 @@ const promptTools=forgeContext&&<>
   const revision=++metadataRead.current;
   const matches=jobs.filter(j=>reusable(j)&&j.outputs.some(o=>{const path=outputItem(j,o).path;return path&&normalizedMediaPath(path)===normalizedMediaPath(item.path!);}));
   const job=matches.length===1?matches[0]:undefined;
-  if(job){if(mode==='prompt')reusePrompt(job);else if(!reuseJob(job))return;if(preview)setBrowsed(item);return;}
   const context=metadataContext.current();
   const current=()=>live.current&&revision===metadataRead.current&&context===metadataContext.current();
+  const postFromSource=async(pass:PostPass)=>{
+   if(mode!=='all'||!postSourcePath(pass))return false;
+   const source=await readPostSource(pass);
+   if(!current()||!source)return false;
+   const skipped=applyPostSource(source,pass);
+   if(preview)setBrowsed(item);
+   setMoreResult(<>{t('studio.run.metadata.postSource')}{skipped.length>0&&<> {t('studio.run.metadata.skipped',{items:skipped.join(' · ')})}</>}</>);
+   return true;
+  };
+  const intentPass=(intent:JobStatus['intent']):PostPass=>intent&&isImageIntent(intent)?{inputImage:intent.inputImage,denoise:intent.denoise,upscaleModel:intent.upscaleModel,width:intent.width,height:intent.height}:{};
+  if(job){
+   // Only a post-process output reads its source; every other queued job restores synchronously as before.
+   if(postSourcePath(intentPass(job.intent))){if(await postFromSource(intentPass(job.intent)))return;if(revision!==metadataRead.current||!live.current)return;}
+   if(mode==='prompt')reusePrompt(job);else if(!reuseJob(job))return;if(preview)setBrowsed(item);return;
+  }
   const saved=await readHistoryForMedia(item.path).catch(()=>null);
+  if(!current())return;
+  if(saved&&await postFromSource(intentPass(saved.intent)))return;
   if(!current())return;
   if(saved){
    if(mode==='prompt')reusePrompt(saved);
@@ -2091,6 +2133,8 @@ const promptTools=forgeContext&&<>
    if(settings.positive!==undefined)setPositive(settings.positive);if(settings.negative!==undefined)setNegative(settings.negative);
    setMoreResult(t('studio.run.metadata.applied'));return;
   }
+  if(await postFromSource(settings))return;
+  if(!current())return;
   const skipped=applySettings(settings);
   setMoreResult(<>{t('studio.run.metadata.partial')}{skipped.length>0&&<> {t('studio.run.metadata.skipped',{items:skipped.join(' · ')})}</>}</>);
  };
@@ -2127,7 +2171,8 @@ const promptTools=forgeContext&&<>
   setLyingSigma(isImageIntent(intent)&&intent.lyingSigma?{...intent.lyingSigma}:{...defaultLyingSigma});
  setAnimaLoraRemap(isImageIntent(intent)&&intent.animaLoraRemap===true);
   setMossSkip(isImageIntent(intent)?intent.skipLayers??'':'');
-  setWidth(intent.width);setHeight(intent.height);setResolution('fixed');setAspect('auto');
+  setWidth(intent.width);setHeight(intent.height);setResolution('fixed');
+  if(['i2i','i2v','v2v','ref2v'].includes(value.pipeline))setAspect('auto');else restoreAspect(intent.width,intent.height);
   setLoras((intent.loras??[]).map(l=>({...l,enabled:true})));setOptions({...value.options,outputNaming:outputNamingTemplate(optionsPref.outputNaming)});
   setDialRows(fromDials(isVideoIntent(intent)&&(intent.family==='minimax-h3'||intent.family==='minimax-h3-hyperflow')?intent.dials:undefined));
   setPipeline(value.pipeline);setComponentOverrides({textEncoders:true,vaes:true,audioVaes:true,textProjections:true});
@@ -2212,7 +2257,8 @@ const promptTools=forgeContext&&<>
   onProject(next);setPositive(d.positivePrompt);setNegative(d.negativePrompt);setCheckpoint(d.checkpoint);setWidth(d.width);setHeight(d.height);setSteps(d.steps);setCfg(d.cfg);setSampler(d.sampler);setScheduler(d.scheduler);setSeed(d.seed);setDenoise(d.denoise);setPipeline(d.pipeline);
   setSeedMode(next?'fixed':readPref('studio.run.seedMode','random',oneOf('random','fixed')));
   setResolution(next?'fixed':readPref('studio.run.resolution','fixed',oneOf('fixed','model','custom',...Object.keys(resolutions))));
-  setAspect(next?'auto':readPref('studio.run.aspect','auto',oneOf(...aspects)));
+  // A project's fixed canvas shows its own aspect; `auto` would read as 1:1 outside the media pipelines.
+  if(next&&!['i2i','i2v','v2v','ref2v'].includes(d.pipeline))restoreAspect(d.width,d.height);else setAspect(next?'auto':readPref('studio.run.aspect','auto',oneOf(...aspects)));
   // This first project schema stores baseline image controls, not optional processing/editor state.
   setLoras(next?[]:readPref('studio.run.loras',[],isLoras));setPost(next?false:readPref('studio.run.post',false,isBoolean));setOptions(next?defaultOptions:readPref('studio.run.options',defaultOptions,isOptionsPref));
   setTextEncoder(next?'':readPref('studio.run.textEncoder','',isString));setVae(next?'':readPref('studio.run.vae','',isString));

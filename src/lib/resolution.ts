@@ -11,6 +11,14 @@ const snap=(n:number,grid:number)=>Math.max(grid,Math.round(n/grid)*grid);
 /** SwarmUI reference sizes at a 512 side (params.js `aspectRatios`, mirrored by T2IParamInput.GetImageWidth): scaled by the model side they give the SDXL training buckets (3:2 → 1216×832, not the area-exact 1280×832). Other ratios use the exact area. */
 const swarmRefs:Record<string,Size>={'1:1':{width:512,height:512},'4:3':{width:576,height:448},'3:2':{width:608,height:416},'16:9':{width:672,height:384},'21:9':{width:768,height:320}};
 for(const [k,{width,height}] of Object.entries(swarmRefs))swarmRefs[k.split(':').reverse().join(':')]={width:height,height:width};
+/** The aspect choice naming this exact canvas: a preset when the reduced ratio is one, else custom (inputs cap at 100). */
+export function aspectOf(width:number,height:number):{aspect:(typeof aspects)[number];custom?:Size}{
+ const gcd=(a:number,b:number):number=>b?gcd(b,a%b):a;
+ const g=gcd(width,height),w=width/g,h=height/g,preset=aspects.find(a=>a===`${w}:${h}`);
+ if(preset)return {aspect:preset};
+ const k=Math.max(w,h)>100?100/Math.max(w,h):1,round=(n:number)=>Math.max(1,Math.round(n*k*10)/10);
+ return {aspect:'custom',custom:{width:round(w),height:round(h)}};
+}
 export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:number,fixed:Size,model:Size,source?:Size,grid=16):Size{
  if(resolution==='fixed')return fixed;
  const ratio=aspect==='auto'?(source??model):aspect==='custom'?customAspect:(()=>{const [width,height]=aspect.split(':').map(Number);return {width,height};})();

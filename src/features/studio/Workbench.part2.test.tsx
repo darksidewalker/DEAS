@@ -2038,3 +2038,29 @@ test('IPC fixture: Load models → pick LoRA → Run prepares and submits one in
  expect(screen.getByRole('button',{name:'Run'}).hasAttribute('disabled')).toBe(false);
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.loras')!)).toEqual([{name:'style.safetensors',strength:0.7}]);
 });
+
+test('an Upscale-alone output restores the generation from its source upload, its own aspect and components, and the Upscale pass',async()=>{
+ const krea=[{category:'diffusion_models',name:'Krea2/k.safetensors',family:'krea-2'},{category:'loras',name:'Krea2/style.safetensors',family:'krea-2'},{category:'text_encoders',name:'qwen3vl_4b_bf16.safetensors'},{category:'vae',name:'QwenImage/qwen_image_vae.safetensors'}].map(m=>({...m,path:'/m/'+m.name,size:1,info:null}));
+ vi.mocked(scanModels).mockResolvedValue(krea);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
+ const shared=(prompt:string,seed:number,latent:unknown)=>({'1':{class_type:'UNETLoader',inputs:{unet_name:'Krea2/k.safetensors',weight_dtype:'default'}},C:{class_type:'CLIPLoader',inputs:{clip_name:'qwen3vl_4b_bf16.safetensors',type:'krea2'}},
+  L1:{class_type:'LoraLoader',inputs:{model:['1',0],clip:['C',0],lora_name:'Krea2/style.safetensors',strength_model:0.25,strength_clip:0.25}},V:{class_type:'VAELoader',inputs:{vae_name:'QwenImage/qwen_image_vae.safetensors'}},
+  '2':{class_type:'CLIPTextEncode',inputs:{clip:['L1',1],text:prompt}},'3':{class_type:'CLIPTextEncode',inputs:{clip:['L1',1],text:''}},
+  '5':{class_type:'KSampler',inputs:{model:['L1',0],positive:['2',0],negative:['3',0],latent_image:['9',0],seed,steps:8,cfg:1,sampler_name:'euler',scheduler:'simple',denoise:latent?1:0}},
+  '6':{class_type:'VAEDecode',inputs:{samples:['5',0],vae:['V',0]}},...(latent?{'9':latent}:{})});
+ const generated=shared('the original prompt',122329910,{class_type:'EmptyLatentImage',inputs:{width:896,height:1152,batch_size:1}});
+ const upscaled={...shared('whatever the controls held',4155682127,null),'8':{class_type:'LoadImage',inputs:{image:'deas-inputs/cfb3ec09-e98e-49e1-8b5d-d2bdbfcd29d4.png'}},UL:{class_type:'UpscaleModelLoader',inputs:{model_name:'2x-up.safetensors'}},
+  UM:{class_type:'ImageUpscaleWithModel',inputs:{upscale_model:['UL',0],image:['8',0]}},S:{class_type:'ImageScale',inputs:{image:['UM',0],upscale_method:'lanczos',width:1792,height:2304,crop:'disabled'}},'9':{class_type:'VAEEncode',inputs:{pixels:['S',0],vae:['V',0]}}};
+ vi.mocked(readImageMetadata).mockImplementation(async path=>[['prompt',JSON.stringify(path==='/in/deas-inputs/cfb3ec09-e98e-49e1-8b5d-d2bdbfcd29d4.png'?generated:upscaled)]]);
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m',input:'/in'}}/></I18nProvider>);
+ await waitFor(()=>expect(document.querySelector('[data-model-picker]')).toHaveProperty('value','Krea2/k.safetensors'));
+ settingsDrop('/outside/12-08-10-upscaled.png');
+ expect(await screen.findByText(/post-process result/)).toBeTruthy();
+ expect(readImageMetadata).toHaveBeenCalledWith('/in/deas-inputs/cfb3ec09-e98e-49e1-8b5d-d2bdbfcd29d4.png');
+ const saved=captureStudioSettings();
+ expect(screen.getByLabelText('Prompt')).toHaveProperty('value','the original prompt');
+ expect(saved).toMatchObject({'studio.run.seed':122329910,'studio.run.width':896,'studio.run.height':1152,'studio.run.resolution':'fixed','studio.run.aspect':'7:9',
+  'studio.run.textEncoder':'qwen3vl_4b_bf16.safetensors','studio.run.vae':'QwenImage/qwen_image_vae.safetensors','studio.run.upscale':2,'studio.run.upscaleModel':'2x-up.safetensors','studio.run.post':false});
+ expect(saved['studio.run.loras']).toEqual([{name:'Krea2/style.safetensors',strength:0.25,enabled:true}]);
+ expect(screen.queryByText(/Not carried over:/)).toBeNull();expect(runWorkbenchJob).not.toHaveBeenCalled();
+});

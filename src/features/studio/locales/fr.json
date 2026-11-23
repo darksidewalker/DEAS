@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "Le dépôt de fichiers natifs est indisponible dans cette vue. Utilisez la bibliothèque de médias.",
   "studio.run.metadata.videoPartial": "Les métadonnées vidéo ne contiennent pas l’intention DEAS complète, les composants associés ni les réglages de post-traitement.",
   "studio.run.metadata.partial": "Seuls les réglages présents dans ce fichier ont été appliqués ; les réglages absents restent inchangés.",
+  "studio.run.metadata.postSource": "Ce fichier est un résultat de post-traitement : les réglages de la génération d'origine ont été restaurés depuis sa source, avec les réglages d'agrandissement qui l'ont produit.",
   "studio.run.metadata.replaceEditor": "Remplacer la source, le masque et les calques de l’éditeur par le brouillon de la tâche restaurée ?",
   "studio.run.gguf.checkpoint": "GGUF nécessite un modèle de diffusion avec encodeur de texte et VAE séparés, pas un checkpoint complet.",
   "studio.plan.latentUpscale": "Agrandissement latent après échantillonnage",

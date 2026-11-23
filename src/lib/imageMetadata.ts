@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isLyingSigma } from './lyingSigma.ts';
 import type { WildcardRules } from './wildcard';
+import { isDialRows, type DialRow } from './dials.ts';
 
 export type ImageMetadata = [string,string][];
 /** Both sides bound untrusted embedded text; only the selected image is read, never thumbnails. */
@@ -77,6 +78,12 @@ export interface GenerationSettings {
  media?:'video';frames?:number;frameRate?:number;sigmas?:number[];
  positive?:string;negative?:string;checkpoint?:string;seed?:number;steps?:number;cfg?:number;sampler?:string;scheduler?:string;width?:number;height?:number;
  loras?:{name:string;strength:number}[];
+ /** Split-loader components read from the literal CLIP/VAE loaders feeding the sampler. */
+ textEncoder?:string;textEncoder2?:string;vae?:string;
+ /** MiniMax H3 Dial Rack rows as the `MAIDialRack` node ran them; `[]` = an H3 graph that ran none. */
+ dials?:DialRow[];
+ /** Image-to-image source wiring: the uploaded input name, the sampler denoise and a model upscale before the exact resize. */
+ inputImage?:string;denoise?:number;upscaleModel?:string;
  /** Values found but not translatable to ComfyUI (`Sampler: PLMS`), shown to the user instead of applied. */
  skipped?:string[];
 }
@@ -123,7 +130,8 @@ function comfy(graph:Record<string,unknown>):GenerationSettings|null {
  const node=(v:unknown)=>Array.isArray(v)&&v.length===2&&typeof v[0]==='string'&&Number.isInteger(v[1])&&v[1]>=0&&Object.hasOwn(graph,v[0])?graph[v[0]]:undefined;
  const inputs=(n:unknown):Record<string,unknown>=>object(n)&&object(n.inputs)?n.inputs:{};
  const kind=(n:unknown)=>object(n)?n.class_type:undefined;
- const sampler=nodes.find(n=>['KSampler','KSamplerAdvanced','SamplerCustomAdvanced'].includes(String(n.class_type)));if(!sampler)return null;
+ const samplerEntry=Object.entries(graph).find(([,n])=>object(n)&&['KSampler','KSamplerAdvanced','SamplerCustomAdvanced'].includes(String(n.class_type)));if(!samplerEntry)return null;
+ const [samplerKey,sampler]=samplerEntry as [string,Record<string,unknown>];
  const i=inputs(sampler),custom=sampler.class_type==='SamplerCustomAdvanced';
  const guider=node(i.guider),g=inputs(guider),schedule=node(i.sigmas),z=inputs(schedule);
  let samplerNode=node(i.sampler),lyingSigma:import('./lyingSigma').LyingSigmaSettings|undefined;
@@ -149,7 +157,8 @@ function comfy(graph:Record<string,unknown>):GenerationSettings|null {
   // ZeroOut and wildcard outputs are computed, not the original/realized prompt strings.
   return undefined;
  };
- let checkpoint:string|undefined,skipLayers:string|undefined;
+ let checkpoint:string|undefined,skipLayers:string|undefined,dials:DialRow[]|undefined;
+ const dialSkipped:string[]=[];
  const slgSkipped:string[]=[];let slgSeen=false;
  const loras:NonNullable<GenerationSettings['loras']>=[];let completeLoras=true;
  let model=custom?g.model:i.model;
@@ -164,11 +173,40 @@ function comfy(graph:Record<string,unknown>):GenerationSettings|null {
    else {skipLayers=undefined;slgSkipped.push('skipLayers');}
    slgSeen=true;
   }
+  if(type==='MAIDialRack'&&!dials){
+   let rows:unknown;try{rows=typeof p.rack==='string'?JSON.parse(p.rack):undefined;}catch{rows=undefined;}
+   if(isDialRows(rows))dials=rows.map(r=>({...r}));else dialSkipped.push('dials');
+  }
   if(type==='LoraLoader'||type==='LoraLoaderModelOnly'){
    const name=str(p.lora_name),strength=num(p.strength_model);
    if(name&&strength!==undefined)loras.unshift({name,strength});else completeLoras=false;
   }
   model=type==='MiniMaxH3Director'?p.ref2va_model??p.fl2va_model:p.model;
+ }
+ // Components: the positive encoder's CLIP through LoRA clip outputs, and the VAE decoding this sampler's latent.
+ let textEncoder:string|undefined,textEncoder2:string|undefined,vae:string|undefined;
+ let clip=inputs(node(positive)).clip;
+ for(let depth=0;depth<64;depth++){
+  const n=node(clip),p=inputs(n),type=String(kind(n));if(!n)break;
+  if(type==='LoraLoader'&&Array.isArray(clip)&&clip[1]===1){clip=p.clip;continue;}
+  if(type==='CLIPLoader'||type==='CLIPLoaderGGUF')textEncoder=str(p.clip_name);
+  if(type==='DualCLIPLoader'||type==='DualCLIPLoaderGGUF'){textEncoder=str(p.clip_name1);textEncoder2=str(p.clip_name2);}
+  break;
+ }
+ const decode=nodes.find(n=>['VAEDecode','VAEDecodeTiled'].includes(String(n.class_type))&&Array.isArray(inputs(n).samples)&&(inputs(n).samples as unknown[])[0]===samplerKey);
+ const vaeNode=node(inputs(decode).vae);if(kind(vaeNode)==='VAELoader')vae=str(inputs(vaeNode).vae_name);
+ // DEAS image-to-image: LoadImage → [ImageUpscaleWithModel] → [ImageScale] → VAEEncode(Tiled) → sampler.
+ let inputImage:string|undefined,upscaleModel:string|undefined,resized:Record<string,unknown>|undefined;
+ if(!custom&&['VAEEncode','VAEEncodeTiled'].includes(String(kind(node(i.latent_image))))){
+  let pixels=inputs(node(i.latent_image)).pixels;
+  for(let depth=0;depth<8;depth++){
+   const n=node(pixels),p=inputs(n),type=kind(n);if(!n)break;
+   if(type==='ImageScale'&&!resized){resized=p;pixels=p.image;continue;}
+   if(type==='ImageUpscaleWithModel'&&!upscaleModel){const loader=node(p.upscale_model);upscaleModel=kind(loader)==='UpscaleModelLoader'?str(inputs(loader).model_name):undefined;if(!upscaleModel)break;pixels=p.image;continue;}
+   if(type==='LoadImage')inputImage=str(p.image);
+   break;
+  }
+  if(!inputImage){upscaleModel=undefined;resized=undefined;}
  }
  let latent=inputs(node(i.latent_image));
  let latentKind=kind(node(i.latent_image));
@@ -185,13 +223,18 @@ function comfy(graph:Record<string,unknown>):GenerationSettings|null {
   if(values.length>=2&&values.every((v):v is number=>v!==undefined&&v>=0)&&values.at(-1)===0&&values.every((v,n)=>n===0||values[n-1]!>v))sigmas=values;
  }
  if(slgSeen&&!checkpoint)slgSkipped.push('skipLayers');
- const skipped=[...lyingSigmaSkipped,...slgSkipped];
+ // A continued H3 segment's curves run in the clip's own seconds (shifted by its window start), not the piece's: not restorable as authored.
+ let continued=false;try{const c=JSON.parse(String(director.timeline_data??'{}'))?.continuity;continued=typeof c?.source_id==='string'&&c.source_id!=='';}catch{/* no timeline */}
+ if(dials&&continued&&dials.some(r=>r.time)){dials=undefined;dialSkipped.push('dials.time');}
+ if(!dials&&!dialSkipped.length&&kind(directorNode)==='MiniMaxH3Director')dials=[];
+ const skipped=[...lyingSigmaSkipped,...slgSkipped,...dialSkipped];
  return {positive:textOf(positive),negative:textOf(negative),checkpoint,skipLayers:checkpoint?skipLayers:undefined,
   seed:num(custom?inputs(node(i.noise)).noise_seed:i.seed??i.noise_seed),
   steps:custom?(sigmas?sigmas.length-1:['BasicScheduler','Flux2Scheduler'].includes(String(kind(schedule)))?num(z.steps):undefined):num(i.steps),
   cfg:custom?(kind(guider)==='CFGGuider'?num(g.cfg):undefined):num(i.cfg),
   sampler:str(custom?inputs(samplerNode).sampler_name:i.sampler_name),scheduler:str(custom?kind(schedule)==='BasicScheduler'?z.scheduler:undefined:i.scheduler),sigmas,lyingSigma,
-  width:num(latent.width??director.width),height:num(latent.height??director.height),loras:checkpoint&&completeLoras?loras:undefined,
+  width:num(resized?.width??latent.width??director.width),height:num(resized?.height??latent.height??director.height),loras:checkpoint&&completeLoras?loras:undefined,
+  textEncoder,textEncoder2,vae,dials,inputImage,denoise:inputImage?num(i.denoise):undefined,upscaleModel,
   ...(video?{media:'video' as const,frames:num(latent.length),frameRate,skipped:['video.intent',...skipped]}:skipped.length?{skipped}:{}),
  };
 }

@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "このビューではネイティブファイルのドロップを利用できません。メディアライブラリを使用してください。",
   "studio.run.metadata.videoPartial": "動画メタデータには完全なDEAS設定、関連コンポーネント、後処理設定が含まれていません。",
   "studio.run.metadata.partial": "ファイルに含まれる設定のみ適用しました。含まれていない設定は変更していません。",
+  "studio.run.metadata.postSource": "このファイルは後処理の結果です。元の生成設定をソースから復元し、このファイルを作成したアップスケール設定も適用しました。",
   "studio.run.metadata.replaceEditor": "現在の編集元、マスク、レイヤーを復元するジョブの下書きで置き換えますか？",
   "studio.run.gguf.checkpoint": "GGUFには個別のテキストエンコーダーとVAEを使う拡散モデルが必要です。完全なチェックポイントとしては読み込めません。",
   "studio.plan.latentUpscale": "サンプリング後に潜在アップスケール",

@@ -1300,6 +1300,8 @@ test.each((['1080P','Original'] as const).flatMap(target=>[false,true].map(tuned
  await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
  await openHistoryRecord();fireEvent.click(document.querySelector('[data-history-apply]')!);
  fireEvent.click(screen.getByRole('button',{name:'Close history'}));
+ // The restored fixed 1344×768 canvas names its own aspect; `auto` would read as 1:1 on a text pipeline.
+ expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.aspect')!)).toBe('7:4');expect(document.querySelector('[data-aspect]')).toHaveProperty('value','7:4');
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.regenerate.h3')!)).toEqual({enabled:true,lora:'regen.safetensors',target,model:'up.safetensors',spatialTiling:false,...(tuned?{strength:0}:{})});
  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.latent.h3')!)).toMatchObject({enabled:false,model:'h3-remembered.safetensors',denoise:tuned?0.45:1,advanced:{sharpness:tuned?4:1}});
  expect(runWorkbenchJob).not.toHaveBeenCalled();

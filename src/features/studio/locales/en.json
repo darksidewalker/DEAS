@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "Native file drops are unavailable in this view. Use the media library instead.",
   "studio.run.metadata.videoPartial": "Video metadata does not contain the complete DEAS intent, companion components or post-processing settings.",
   "studio.run.metadata.partial": "Only the settings found in this file were applied; missing settings were left unchanged.",
+  "studio.run.metadata.postSource": "This file is a post-process result: the original generation's settings were restored from its source, with the Upscale settings that produced it.",
   "studio.run.metadata.replaceEditor": "Replace the current editor source, mask and layers with the restored job draft?",
   "studio.run.gguf.checkpoint": "GGUF requires a diffusion model with separate text encoder and VAE, not a full checkpoint.",
   "studio.plan.latentUpscale": "Latent upscale after sampling",

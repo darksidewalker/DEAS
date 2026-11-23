@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "Bu görünümde yerel dosya bırakma kullanılamıyor. Bunun yerine medya kitaplığını kullanın.",
   "studio.run.metadata.videoPartial": "Video meta verileri tam DEAS isteğini, eşlik eden bileşenleri veya son işleme ayarlarını içermez.",
   "studio.run.metadata.partial": "Yalnızca bu dosyada bulunan ayarlar uygulandı; eksik ayarlar değiştirilmedi.",
+  "studio.run.metadata.postSource": "Bu dosya bir son işleme sonucudur: özgün üretimin ayarları kaynağından geri yüklendi; onu üreten büyütme ayarları da uygulandı.",
   "studio.run.metadata.replaceEditor": "Geçerli düzenleyici kaynağı, maskesi ve katmanları geri yüklenen iş taslağıyla değiştirilsin mi?",
   "studio.run.gguf.checkpoint": "GGUF, tam checkpoint yerine ayrı metin kodlayıcı ve VAE kullanan bir difüzyon modeli gerektirir.",
   "studio.plan.latentUpscale": "Örneklemeden sonra gizil büyütme",

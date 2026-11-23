@@ -1,4 +1,5 @@
-import { dock as selectDock, evidence, h3VideoFiles, heldJob, ltxModels, openHistoryRecord, pipe, recentHistoryRecord, videoEvidence } from './Workbench.testHarness';
+import { dock as selectDock, evidence, h3VideoFiles, heldJob, ltxModels, openHistoryRecord, pipe, recentHistoryRecord, settingsDrop, videoEvidence } from './Workbench.testHarness';
+import { readImageMetadata } from '../../lib/imageMetadata';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
@@ -595,4 +596,29 @@ test('the catalog is not asked for where dials cannot run: without the Dial Rack
  ltx.rerender(<I18nProvider><Workbench {...props}/></I18nProvider>);
  expect(document.querySelector('[data-open-dials]')).toBeNull();
  expect(catalogCalls()).toHaveLength(0);
+});
+
+test('a MiniMax H3 video file brings back the Dial Rack rows its graph ran; a rackless H3 file clears stale rows',async()=>{
+ const files=h3VideoFiles();
+ const graph=(rack?:string)=>({'1':{class_type:'UNETLoader',inputs:{unet_name:files[0].name,weight_dtype:'default'}},
+  '5':{class_type:'SamplerCustomAdvanced',inputs:{guider:['B',0],latent_image:['G',1],noise:['N',0],sampler:['Q',0],sigmas:['Z',0]}},
+  B:{class_type:'BasicGuider',inputs:{conditioning:['G',0],model:['SS',0]}},
+  D:{class_type:'MiniMaxH3Director',inputs:{duration:5,fl2va_model:[rack?'DR':'1',0],frame_rate:24,height:768,width:1344,mode:'T2VA',prompt:'file h3',timeline_data:'{"continuity":{"source_id":""}}'}},
+  ...(rack?{DR:{class_type:'MAIDialRack',inputs:{model:['1',0],rack}}}:{}),
+  G:{class_type:'MiniMaxH3DirectorGuide',inputs:{guide:['D',0]}},N:{class_type:'RandomNoise',inputs:{noise_seed:7}},Q:{class_type:'KSamplerSelect',inputs:{sampler_name:'euler'}},
+  SS:{class_type:'MiniMaxH3SigmaShift',inputs:{model:['D',5]}},Z:{class_type:'BasicScheduler',inputs:{model:['SS',0],scheduler:'simple',steps:8,denoise:1}}});
+ localStorage.setItem('deas.pref.studio.run.pipeline','"t2v"');
+ localStorage.setItem('deas.pref.studio.run.dials',JSON.stringify([{dial:'dials/remembered.safetensors',strength:2,on:true}]));
+ vi.mocked(scanModels).mockResolvedValue([...files,lora(motion),lora(calm)]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(allow());
+ render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+ await waitFor(()=>expect(pipe('Text → Video').disabled).toBe(false));
+ vi.mocked(readImageMetadata).mockResolvedValue([['prompt',JSON.stringify(graph(JSON.stringify([{dial:motion,strength:1.25},{dial:calm,strength:-0.5,time:{...curve,steps:6}}])))]]);
+ settingsDrop('/outside/h3.mp4');
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.dials')!)).toEqual([{dial:motion,strength:1.25,on:true},{dial:calm,strength:-0.5,time:{...curve,steps:6},on:true}]));
+ expect(isDialRows(captureStudioSettings()['studio.run.dials'])).toBe(true);
+ vi.mocked(readImageMetadata).mockResolvedValue([['prompt',JSON.stringify(graph())]]);
+ settingsDrop('/outside/h3-plain.mp4');
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.dials')!)).toEqual([]));
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
 });

@@ -99,7 +99,9 @@ to that catalog; reopen Dials after downloading files.
   **Plan** lists them under the model, and the intent JSON shows the exact rows.
 - Rows are remembered across restarts, are part of saved Studio presets and settings
   transfer, and come back with **Use settings** from a recent generation (the rows that
-  were sent, switched on). They are not read from media file metadata.
+  were sent, switched on). **Use these settings** on a MiniMax H3 video file brings back the
+  rows its embedded graph ran (the `MAIDialRack` rack), switched on; an H3 file whose graph ran
+  no rack clears the rows.
 - Global search finds the button under "dial".
 
 On supported pipelines with a missing dependency, the dialog says why and **Add**, the sliders and the number fields
@@ -740,9 +742,11 @@ DEAS refuses these with an `Invalid dials: …` error instead of sending them:
   to the piece. Rows without a time curve are allowed in all of them and patch the
   model like a LoRA.
 
-Dial rows are not read back from saved media metadata. Rows that are off or have
-strength 0 are not sent by Studio, so a restored recent generation brings back only the
-rows that ran.
+Dial rows come back from a recent generation and from a saved H3 video's embedded graph.
+Rows that are off or have strength 0 are not sent by Studio, so either restore brings back
+only the rows that ran. One exception: the time curves of a **continued segment** run in the
+clip's own seconds (shifted by its window start), so a file restore does not bring those rows
+back and says `dials.time` instead of shifting them by a guess.
 
 ## Troubleshooting
 

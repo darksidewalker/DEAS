@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "Native Dateidrops sind in dieser Ansicht nicht verfügbar. Nutze stattdessen die Medienbibliothek.",
   "studio.run.metadata.videoPartial": "Videometadaten enthalten nicht den vollständigen DEAS-Intent, die Begleitkomponenten oder Nachbearbeitungseinstellungen.",
   "studio.run.metadata.partial": "Nur in der Datei gefundene Einstellungen wurden übernommen; fehlende Einstellungen bleiben unverändert.",
+  "studio.run.metadata.postSource": "Diese Datei ist ein Nachbearbeitungsergebnis: Die Einstellungen der ursprünglichen Generierung wurden aus ihrer Quelle wiederhergestellt, samt den Upscale-Einstellungen, die sie erzeugt haben.",
   "studio.run.metadata.replaceEditor": "Aktuelle Editorquelle, Maske und Ebenen durch den wiederhergestellten Auftragsentwurf ersetzen?",
   "studio.run.gguf.checkpoint": "GGUF benötigt ein Diffusionsmodell mit separatem Textencoder und VAE, keinen vollständigen Checkpoint.",
   "studio.plan.latentUpscale": "Latentes Upscaling nach dem Sampling",

@@ -169,6 +169,7 @@
   "studio.run.metadata.dropFailed": "此视图不支持原生文件拖放。请改用媒体库。",
   "studio.run.metadata.videoPartial": "视频元数据不包含完整的 DEAS 意图、配套组件或后处理设置。",
   "studio.run.metadata.partial": "仅应用了文件中存在的设置；缺失的设置保持不变。",
+  "studio.run.metadata.postSource": "此文件是后期处理结果：已从其源图恢复原始生成设置，并应用了生成它的放大设置。",
   "studio.run.metadata.replaceEditor": "是否用恢复的任务草稿替换当前编辑器源文件、蒙版和图层？",
   "studio.run.gguf.checkpoint": "GGUF 需要使用独立文本编码器和 VAE 的扩散模型，不能作为完整检查点加载。",
   "studio.plan.latentUpscale": "采样后进行潜空间放大",
